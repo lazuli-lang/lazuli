@@ -41,13 +41,12 @@ feature customer
       status: CustomerStatus = lead
 
   policies
-    create role_admin
-    read same_org
+    create: role_admin
+    read: same_org
 
   command create
     creates Customer
     input name, email
-    policy create
     emits customer_created
 
   surface web admin

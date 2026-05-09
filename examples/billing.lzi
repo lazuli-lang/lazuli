@@ -6,10 +6,13 @@ feature billing
   purpose "Invoices, Stripe payment webhooks, retryable billing events, and invoice status."
 
   non_goals
-    "customer lifecycle ownership - see feature customer"
-    "tax calculation engine - external integration"
+    customer: "customer lifecycle ownership"
+    anti_pattern.tax_engine: "tax calculation engine - external integration"
 
   uses org, customer
+
+  defaults
+    policy system
 
   domain
     enum InvoiceStatus
@@ -79,10 +82,10 @@ feature billing
       provider_event_id: Text
 
   policies
-    create role_admin, billing_admin
-    update billing_admin
-    read same_org
-    delete billing_admin
+    create: role_admin, billing_admin
+    update: billing_admin
+    read: same_org
+    delete: billing_admin
 
   command create
     creates Invoice
@@ -103,16 +106,14 @@ feature billing
 
   webhook stripe_invoice_paid
     path "/webhooks/stripe/invoice-paid"
-    verify ext.verify_stripe_signature
+    verify WebhookAdapter[StripeInvoicePaid] at "./integrations/stripe.go"
     idempotency provider_event_id
-    policy system
-    runs ext.record_stripe_invoice_paid
+    handler Function[StripeInvoicePaid, BillingWebhook] at "./integrations/record_stripe_invoice_paid.go"
     emits invoice_paid
 
   job retry_failed_webhooks
-    schedule "*/5 * * * *"
-    policy system
-    runs ext.retry_failed_webhooks
+    trigger schedule "*/5 * * * *"
+    handler "./jobs/retry_failed_webhooks.go"
     emits billing_webhook_failed
 
   surface web admin
@@ -126,6 +127,3 @@ feature billing
 
   extensions
     server next_invoice_number: Function[Org, Text] at "./domain/next_invoice_number.go"
-    server verify_stripe_signature: WebhookAdapter[StripeInvoicePaid] at "./integrations/stripe.go"
-    server record_stripe_invoice_paid: Function[StripeInvoicePaid, BillingWebhook] at "./integrations/record_stripe_invoice_paid.go"
-    server retry_failed_webhooks: BackgroundJob[BillingWebhookRetry] at "./jobs/retry_failed_webhooks.go"

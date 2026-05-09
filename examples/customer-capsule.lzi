@@ -2,9 +2,9 @@ feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
   non_goals
-    "invoicing - see feature invoice"
-    "credit scoring engine - see feature scoring"
-    "user authentication - see feature user"
+    invoice: "invoicing"
+    scoring: "credit scoring engine"
+    user: "user authentication"
 
   uses org, user
 
@@ -61,10 +61,10 @@ feature customer
       by_id: ID
 
   policies
-    create role_admin, role_sales
-    update role_admin, role_sales
-    delete role_admin
-    read same_org
+    create: role_admin, role_sales
+    update: role_admin, role_sales
+    delete: role_admin
+    read: same_org
 
   command create
     creates Customer

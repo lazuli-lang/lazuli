@@ -9,15 +9,19 @@ feature customer
   purpose "CRM customer lifecycle, ownership, tiering, scoring, and customer-facing surfaces."
 
   non_goals
-    "staff authentication - see feature user"
-    "customer login and MFA - see feature customer_auth"
-    "tag management - see feature customer_tags"
-    "CSV import and external CRM ingestion - see feature customer_import"
-    "invoicing - see feature billing"
+    user: "staff authentication"
+    customer_auth: "customer login and MFA"
+    customer_tags: "tag management"
+    customer_import: "CSV import and external CRM ingestion"
+    billing: "invoicing"
 
   context "@docs/customer/customer.ctx.md"
 
   uses org, user, billing
+
+  defaults
+    tenancy org
+    timestamps
 
   domain
     enum CustomerStatus
@@ -38,7 +42,6 @@ feature customer
       webhook
 
     resource Customer previously Account
-      tenancy org
       owner: User required
       name: Text required
       email: Email required
@@ -49,9 +52,8 @@ feature customer
       external_id: Text optional
 
       soft_delete
-      timestamps
 
-      event_payload
+      event_payload customer
         customer_id = id
         org_id = org.id
 
@@ -161,55 +163,39 @@ feature customer
       reason: Text
 
   policies
-    create role_admin, role_sales
-    update role_admin, role_sales
-    delete role_admin
-    read same_org
-    global_read role_admin
-    system system
+    create: role_admin, role_sales
+    update: role_admin, role_sales
+    delete: role_admin
+    read: same_org
+    global_read: role_admin
 
   field_policies Customer
     email
-      read same_org
-      write role_admin, role_sales
+      read: same_org
+      write: role_admin, role_sales
 
     score
-      read role_admin, sales_manager
-      write system
+      read: role_admin, sales_manager
+      write: system
 
     external_id
-      read role_admin, integrations_admin
-      write system, integrations_admin
+      read: role_admin, integrations_admin
+      write: system, integrations_admin
 
   command create
     creates Customer
     input name, email, tier, source
     derive owner = ctx.user
-    policy create
     emits customer_created
 
-  command reassign previously assign_owner
+  command reassign previously assign_owner on Customer
     updates Customer
-
-    params
-      id: ID
-
-    target customer = query.by_id(id: params.id)
-
     input owner: User
-    policy update
     emits customer_reassigned
 
-  command update_tier
+  command update_tier on Customer
     updates Customer
-
-    params
-      id: ID
-
-    target customer = query.by_id(id: params.id)
-
     input tier: CustomerTier
-    policy update
 
   workflow lifecycle on Customer.lifecycle_stage
     policy update
@@ -228,7 +214,8 @@ feature customer
       emits customer_archived
 
   # Candidate Tier 2: consume another feature event.
-  on billing.invoice_paid
+  job recompute_score_after_invoice
+    trigger event billing.invoice_paid
     policy system
     target customer = query.by_id(id: event.customer_id)
     derive score = ext.risk_score(customer)
@@ -236,9 +223,9 @@ feature customer
 
   # Candidate Tier 2: scheduled/background work.
   job recompute_scores
-    schedule "0 2 * * *"
+    trigger schedule "0 2 * * *"
     policy system
-    runs ext.recompute_scores
+    handler "./jobs/recompute_scores.go"
 
   surface web admin
     view list Table
@@ -288,7 +275,6 @@ feature customer
     server risk_score: Function[Customer, RiskScore] at "./domain/risk_score.go"
     server validate_tier: Validator[Customer.tier] at "./hooks/validate_tier.go"
     server query_scope_modifier: QueryModifier[Customer] at "./queries/query_scope_modifier.go"
-    server recompute_scores: BackgroundJob[CustomerScoreRecompute] at "./jobs/recompute_scores.go"
 
   escape_route "/admin/customer-debug" at "./pages/customer_debug.tsx"
 
@@ -296,10 +282,14 @@ feature customer_auth
   purpose "Customer-facing login, sessions, OAuth, MFA, and account access."
 
   non_goals
-    "staff authentication - see feature user"
-    "customer lifecycle ownership - see feature customer"
+    user: "staff authentication"
+    customer: "customer lifecycle ownership"
 
   uses org, customer
+
+  defaults
+    tenancy org
+    timestamps
 
   domain
     enum AuthProvider
@@ -308,13 +298,10 @@ feature customer_auth
       magic_link
 
     resource CustomerSession
-      tenancy org
       customer: Customer required on_delete restrict
       refresh_token_hash: Secret required
       provider: AuthProvider required
       expires_at: DateTime required
-
-      timestamps
 
     query active_sessions
       params
@@ -356,10 +343,9 @@ feature customer_auth
       refresh false
 
   policies
-    login public
-    update same_org
-    read same_org
-    system system
+    login: public
+    update: same_org
+    read: same_org
 
   command login
     input email, password
@@ -400,21 +386,21 @@ feature customer_tags
   purpose "Customer tag taxonomy and tag assignments with assignment metadata."
 
   non_goals
-    "customer lifecycle ownership - see feature customer"
-    "generic taxonomy system"
+    customer: "customer lifecycle ownership"
+    anti_pattern.generic_taxonomy: "generic taxonomy system"
 
   uses org, user, customer
 
+  defaults
+    tenancy org
+    timestamps
+
   domain
     resource CustomerTag
-      tenancy org
       name: Text required
       color: Text optional
 
-      timestamps
-
     resource CustomerTagAssignment
-      tenancy org
       customer: Customer required on_delete cascade
       tag: CustomerTag required on_delete restrict
       added_by: User required
@@ -478,15 +464,14 @@ feature customer_tags
       by_id: ID
 
   policies
-    create role_admin, sales_ops
-    update role_admin, sales_ops
-    delete role_admin
-    read same_org
+    create: role_admin, sales_ops
+    update: role_admin, sales_ops
+    delete: role_admin
+    read: same_org
 
   command create_tag
     creates CustomerTag
     input name, color
-    policy create
     emits customer_tag_created
 
   command assign_tag
@@ -531,10 +516,15 @@ feature customer_import
   purpose "Customer CSV uploads, CRM webhook ingestion, row validation, and async processing."
 
   non_goals
-    "customer lifecycle ownership - see feature customer"
-    "generic ETL platform"
+    customer: "customer lifecycle ownership"
+    anti_pattern.generic_etl: "generic ETL platform"
 
   uses org, user, customer
+
+  defaults
+    tenancy org
+    timestamps
+    policy system
 
   domain
     enum ImportStatus
@@ -545,7 +535,6 @@ feature customer_import
       failed
 
     resource CustomerImportBatch
-      tenancy org
       uploaded_by: User required
       file: File required
       status: ImportStatus = uploaded
@@ -553,16 +542,12 @@ feature customer_import
       valid_rows: Integer = 0
       failed_rows: Integer = 0
 
-      timestamps
-
     resource CustomerImportRow
-      tenancy org
       batch: CustomerImportBatch required
       row_number: Integer required
       raw: JSON required
       error: Text optional
-
-      timestamps
+      validates "./domain/validate_row.go"
 
     query by_id
       params
@@ -591,14 +576,14 @@ feature customer_import
       failed_rows: Integer
 
     event customer_webhook_received
+      observability_only
       external_id: Text
       org_id: ID
 
   policies
-    import role_admin, sales_ops
-    read same_org
-    delete role_admin
-    system system
+    import: role_admin, sales_ops
+    read: same_org
+    delete: role_admin
 
   command upload
     creates CustomerImportBatch
@@ -610,17 +595,18 @@ feature customer_import
   # Candidate Tier 2: external inbound payload.
   webhook crm_customer_upsert
     path "/webhooks/crm/customer-upsert"
-    verify ext.verify_crm_signature
+    verify WebhookAdapter[CrmCustomerUpsert] at "./integrations/crm.go"
     idempotency external_id
-    policy system
-    runs ext.upsert_customer_from_crm
+    handler Function[CrmCustomerPayload, Customer] at "./integrations/upsert_customer_from_crm.go"
     emits customer_webhook_received
 
   # Candidate Tier 2: queued/background work.
   job process_import
+    trigger event customer_import_uploaded
     queue customer_imports
-    policy system
-    runs ext.process_import
+    idempotency event.batch_id
+    retry 3 backoff exponential
+    handler "./jobs/process_import.go"
     emits customer_import_completed
 
   surface web admin
@@ -630,18 +616,11 @@ feature customer_import
 
     view detail SidePanel
       source query.by_id(id: route.id)
-      block ext.import_progress
+      block import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
 
     view rows Table
       source query.rows(batch_id: route.id)
       columns row_number, error, created_at
-
-  extensions
-    client import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
-    server process_import: BackgroundJob[CustomerImportBatch] at "./jobs/process_import.go"
-    server validate_row: Validator[CustomerImportRow] at "./domain/validate_row.go"
-    server verify_crm_signature: WebhookAdapter[CrmCustomerUpsert] at "./integrations/crm.go"
-    server upsert_customer_from_crm: Function[CrmCustomerPayload, Customer] at "./integrations/upsert_customer_from_crm.go"
 
   escape_route "/admin/customer-imports" at "./pages/customer_imports.tsx"
 
@@ -649,20 +628,23 @@ feature customer_outreach
   purpose "Send customer lifecycle outreach from events without owning storage."
 
   non_goals
-    "notification persistence - see feature notification"
-    "customer lifecycle ownership - see feature customer"
+    notification: "notification persistence"
+    customer: "customer lifecycle ownership"
 
   uses customer
 
+  defaults
+    policy system
+
   # Candidate Tier 2: pure event-consumer feature with no resources.
-  on customer.customer_activated
-    policy system
-    runs ext.send_welcome_email
+  job send_welcome
+    trigger event customer.customer_activated
+    idempotency event.id
+    retry 3 backoff exponential
+    handler "./outreach/send_welcome_email.go"
 
-  on customer.customer_archived
-    policy system
-    runs ext.send_archive_survey
-
-  extensions
-    server send_welcome_email: Function[CustomerActivatedEvent, DeliveryResult] at "./outreach/send_welcome_email.go"
-    server send_archive_survey: Function[CustomerArchivedEvent, DeliveryResult] at "./outreach/send_archive_survey.go"
+  job send_archive_survey
+    trigger event customer.customer_archived
+    idempotency event.id
+    retry 3 backoff exponential
+    handler "./outreach/send_archive_survey.go"

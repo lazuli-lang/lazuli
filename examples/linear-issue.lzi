@@ -2,8 +2,8 @@ feature issue
   purpose "Linear-style issue tracking with workflow, assignee, labels, and sub-issues."
 
   non_goals
-    "comments as first-class resource for now"
-    "full recursive tree modeling in declarative query"
+    comment: "comments as first-class resource for now"
+    anti_pattern.recursive_tree: "full recursive tree modeling in declarative query"
 
   uses team, user, project, cycle, label
 
@@ -108,10 +108,10 @@ feature issue
       by_id: ID
 
   policies
-    create team_member
-    update team_member
-    delete team_admin
-    read same_team
+    create: team_member
+    update: team_member
+    delete: team_admin
+    read: same_team
 
   command create
     creates Issue

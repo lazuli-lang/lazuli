@@ -6,10 +6,13 @@ feature customer_import
   purpose "Upload CSV files, validate rows, and create customers in a background job."
 
   non_goals
-    "customer lifecycle rules - see feature customer"
-    "generic ETL platform"
+    customer: "customer lifecycle rules"
+    anti_pattern.generic_etl: "generic ETL platform"
 
   uses org, user, customer
+
+  defaults
+    policy system
 
   domain
     enum ImportStatus
@@ -37,6 +40,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
+      validates "./domain/validate_row.go"
 
       timestamps
 
@@ -67,10 +71,10 @@ feature customer_import
       failed_rows: Integer
 
   policies
-    create role_admin, sales_ops
-    read same_org
-    update system
-    delete role_admin
+    create: role_admin, sales_ops
+    read: same_org
+    update: system
+    delete: role_admin
 
   command upload
     creates ImportBatch
@@ -80,9 +84,11 @@ feature customer_import
     emits import_uploaded
 
   job process_batch
+    trigger event import_uploaded
     queue customer_imports
-    policy system
-    runs ext.process_batch
+    idempotency event.batch_id
+    retry 3 backoff exponential
+    handler "./jobs/process_batch.go"
     emits import_completed
 
   surface web admin
@@ -92,13 +98,8 @@ feature customer_import
 
     view detail SidePanel
       source query.by_id(id: route.id)
-      block ext.progress
+      block progress: ViewBlock[ImportBatch] at "./ui/progress.tsx"
 
     view rows Table
       source query.rows(batch_id: route.id)
       columns row_number, error, created_at
-
-  extensions
-    client progress: ViewBlock[ImportBatch] at "./ui/progress.tsx"
-    server process_batch: BackgroundJob[ImportBatch] at "./jobs/process_batch.go"
-    server validate_row: Validator[ImportRow] at "./domain/validate_row.go"

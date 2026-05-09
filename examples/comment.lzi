@@ -6,8 +6,8 @@ feature comment
   purpose "Threaded comments on issues and customers with explicit target resources."
 
   non_goals
-    "rich text editor implementation"
-    "cross-feature activity timeline ownership"
+    anti_pattern.rich_text_editor: "rich text editor implementation"
+    anti_pattern.activity_timeline: "cross-feature activity timeline ownership"
 
   uses org, user, issue, customer
 
@@ -62,10 +62,10 @@ feature comment
       target_id: ID
 
   policies
-    create same_org
-    update owner, role_admin
-    delete owner, role_admin
-    read same_org
+    create: same_org
+    update: owner, role_admin
+    delete: owner, role_admin
+    read: same_org
 
   command create_for_issue
     creates Comment

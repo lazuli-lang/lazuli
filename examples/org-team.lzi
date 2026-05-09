@@ -6,8 +6,8 @@ feature org
   purpose "Organizations, teams, memberships, and role inheritance for tenant-aware features."
 
   non_goals
-    "user identity - see feature user"
-    "billing subscription ownership - see feature billing"
+    user: "user identity"
+    billing: "billing subscription ownership"
 
   uses user
 
@@ -65,11 +65,11 @@ feature org
       role: MembershipRole
 
   policies
-    create authenticated
-    read org_member
-    update org_admin
-    delete org_owner
-    invite org_admin
+    create: authenticated
+    read: org_member
+    update: org_admin
+    delete: org_owner
+    invite: org_admin
 
   command create
     creates Org

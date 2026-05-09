@@ -1,15 +1,18 @@
 # Audit log pressure test.
 # Exercises cross-cutting event capture and query-heavy surfaces.
-# Design fixture only; candidate event subscription constructs are not compiler-executable yet.
+# Design fixture only; candidate event-triggered job constructs are not compiler-executable yet.
 
 feature audit_log
   purpose "Persist important domain events for compliance, support, and debugging."
 
   non_goals
-    "full event sourcing"
-    "analytics warehouse"
+    anti_pattern.event_sourcing: "full event sourcing"
+    anti_pattern.analytics_warehouse: "analytics warehouse"
 
   uses org, user, customer, issue, billing
+
+  defaults
+    policy system
 
   domain
     resource AuditEvent
@@ -40,13 +43,14 @@ feature audit_log
       paginate 100
 
   policies
-    create system
-    read role_admin, support_agent
-    update none
-    delete none
+    create: system
+    read: role_admin, support_agent
+    update: none
+    delete: none
 
-  on customer.customer_created
-    policy system
+  job record_customer_created
+    trigger event customer.customer_created
+    idempotency event.id
     creates AuditEvent
     derive source_feature = "customer"
     derive source_event = "customer_created"
@@ -54,8 +58,9 @@ feature audit_log
     derive subject_id = event.customer_id
     derive payload = event
 
-  on issue.issue_status_changed
-    policy system
+  job record_issue_status_changed
+    trigger event issue.issue_status_changed
+    idempotency event.id
     creates AuditEvent
     derive source_feature = "issue"
     derive source_event = "issue_status_changed"
@@ -63,8 +68,9 @@ feature audit_log
     derive subject_id = event.issue_id
     derive payload = event
 
-  on billing.invoice_paid
-    policy system
+  job record_invoice_paid
+    trigger event billing.invoice_paid
+    idempotency event.id
     creates AuditEvent
     derive source_feature = "billing"
     derive source_event = "invoice_paid"

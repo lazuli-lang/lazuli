@@ -11,13 +11,20 @@ This document tracks design pressure that is not yet part of the core canonical 
 - `params` and `input` stay separate in commands.
 - Commands are not route-owned; surfaces pass route data into command params.
 - Commands declare exactly one explicit effect: `creates`, `updates`, or `deletes`.
+- Command policy may be omitted when it derives cleanly from that effect.
 - Commands may `returns` typed data when the immediate caller needs response data, not as a substitute for events.
+- `policies` is a named dictionary; entries use `name: predicate, predicate`.
+- `field_policies` and `non_goals` use the same `name: value` punctuation.
+- The common `command <name> on <Resource>` target shorthand expands to `params id` plus `target <resource> = query.by_id(id: params.id)`.
+- Feature-level `defaults` can provide repeated `tenancy`, `timestamps`, and async/system `policy` defaults.
 - `scope` is reserved for safety boundaries; ordinary caller predicates belong in `filters`.
 - Read views use `source query.*`; write forms use `submit command.*`.
 - Cross-feature view composition uses `extends <feature>.surface.<target>.<area>.view.<name>`.
 - `tenancy` and `soft_delete` inject default declarative query scope.
 - Raw queries must declare their safety scope explicitly.
 - Webhooks run server extensions after verification; no magical declarative webhook upsert in v0.
+- Job/webhook handlers are declared inline with `handler`; event consumers are named `job`s with `trigger event`.
+- Single-use view blocks and resource validators may declare their implementation inline instead of creating an `extensions` index entry.
 - Workflow-level `policy` is a default; transition-level `policy` overrides it.
 - Workflow-level `emits` always fires; transition-level `emits` fires additionally.
 - Event payloads are explicit; shared repeated envelope fields use resource-level `event_payload`.
@@ -39,11 +46,12 @@ Candidate shape to test later:
 ```lazuli
 webhook stripe_payment
   path "/webhooks/stripe"
-  verify stripe_signature
+  verify WebhookAdapter[StripePayment] at "./integrations/stripe.go"
+  handler Function[StripePayment, Payment] at "./integrations/record_payment.go"
   emits payment_received
 ```
 
-### Scheduled Jobs
+### Async Jobs
 
 `examples/notification.lzi`, `examples/billing.lzi`, and `examples/import-csv.lzi` exercise cron/schedule/queue semantics and progress/error reporting.
 
@@ -51,19 +59,14 @@ Candidate shape to test later:
 
 ```lazuli
 job recompute_scores
-  schedule "0 2 * * *"
-  runs ext.recompute_scores
-```
+  trigger schedule "0 2 * * *"
+  handler "./jobs/recompute_scores.go"
 
-### Event Consumption
-
-`examples/notification.lzi` and `examples/audit-log.lzi` exercise declarative event consumption.
-
-Candidate shape to test later:
-
-```lazuli
-on customer.customer_archived
-  run ext.send_archive_email
+job send_archive_email
+  trigger event customer.customer_archived
+  idempotency event.id
+  retry 3 backoff exponential
+  handler "./outreach/send_archive_email.go"
 ```
 
 ### Rich Relations

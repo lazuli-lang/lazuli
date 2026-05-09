@@ -53,16 +53,20 @@ These are generated and should be treated as disposable:
 
 Generated files may be committed or ignored depending on target adapter, but they are not source of truth.
 
+`.lazuli/manifest.json` is derived from the capsule. It should include custom implementation files from both reusable `extensions` blocks and inline declarations such as job `handler`, webhook `verify`, resource `validates`, and inline view `block ... at`.
+
 ## Conventions
 
 Default extension paths:
 
 - client UI: `features/<feature>/ui/<name>.tsx`
 - server hook/validator: `features/<feature>/hooks/<name>.go`
+- resource-local validator: `features/<feature>/domain/validate_<resource>.go`
 - server domain function: `features/<feature>/domain/<name>.go`
 - raw SQL: `features/<feature>/queries/<name>.sql`
-- background job: `features/<feature>/jobs/<name>.go`
-- integration/webhook adapter: `features/<feature>/integrations/<name>.go`
+- background job handler: `features/<feature>/jobs/<name>.go`
+- integration/webhook verifier or handler: `features/<feature>/integrations/<name>.go`
+- inline view block: `features/<feature>/ui/<name>.tsx`
 - escape route/page: `features/<feature>/pages/<name>.tsx`
 
 Use `at` in `.lzi` only when a file intentionally lives outside convention.

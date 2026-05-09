@@ -192,6 +192,8 @@ Extension points implemented:
   risk_score    -> not implemented
 ```
 
+`lazuli inspect` should also expose a derived manifest of every custom file implied by inline declarations such as `handler`, `verify`, `validates`, and inline `block ... at`. The authoring syntax keeps implementations near their semantic use; the manifest preserves the old index-style view for generators and agents.
+
 The agent reads the capsule plus the small set of custom files, not the generated application.
 
 ## Context Files
@@ -213,8 +215,8 @@ feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
   non_goals
-    "invoicing - see feature invoice"
-    "credit scoring engine - see feature scoring"
+    invoice: "invoicing"
+    scoring: "credit scoring engine"
 
   context "@docs/shared/customer-context.md"
 ```

@@ -30,7 +30,7 @@ Tier 2 pressure fixtures now exist for:
 
 The full audit fixture also includes capability-split customer satellites (`customer_auth`, `customer_tags`, `customer_import`, `customer_outreach`) to pressure cross-feature references, view composition, explicit deletes, and pure event-consumer features.
 
-These pressure fixtures intentionally include candidate constructs that are not part of the parser MVP yet: `auth`, `webhook`, `job`, `on`, `field_policies`, and `extends`.
+These pressure fixtures intentionally include candidate constructs that are not part of the parser MVP yet: `auth`, `webhook`, `job trigger`, `field_policies`, and `extends`.
 
 ## Questions Per Feature
 
@@ -47,8 +47,8 @@ These pressure fixtures intentionally include candidate constructs that are not 
 
 - Auth/login flows are under pressure in `user-auth`, but the construct is not stable core yet.
 - Inbound webhooks are under pressure in `billing`, but the construct is not stable core yet.
-- Scheduled jobs are under pressure in `notification`, `billing`, and `import-csv`, but the construct is not stable core yet.
-- Event consumption is under pressure in `notification` and `audit-log`, but the construct is not stable core yet.
+- Scheduled and event-triggered jobs are under pressure in `notification`, `billing`, and `import-csv`, but the construct is not stable core yet.
+- Event consumption through `job trigger event` is under pressure in `notification` and `audit-log`, but the construct is not stable core yet.
 - Pure event-consumer features with no resources are under pressure in `examples/full-capsule.lzi`.
 - Cross-feature view composition is under pressure in `examples/full-capsule.lzi`.
 - Many-to-many with payload should use explicit join resources; this is under pressure in `comment` and `org-team`.

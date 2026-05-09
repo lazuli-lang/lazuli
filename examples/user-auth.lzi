@@ -6,8 +6,8 @@ feature user
   purpose "User identity, login sessions, MFA, and account recovery."
 
   non_goals
-    "organization membership - see feature org"
-    "billing identity - see feature billing"
+    org: "organization membership"
+    billing: "billing identity"
 
   domain
     enum UserStatus
@@ -95,11 +95,11 @@ feature user
       refresh true
 
   policies
-    register public
-    login public
-    read self, role_admin
-    update self, role_admin
-    delete role_admin
+    register: public
+    login: public
+    read: self, role_admin
+    update: self, role_admin
+    delete: role_admin
 
   command register
     creates User

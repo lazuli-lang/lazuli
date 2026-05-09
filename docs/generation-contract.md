@@ -44,9 +44,9 @@ These constructs generate typed contracts and require source implementation:
 - `extensions client`
 - `extensions server`
 - candidate `auth` adapters
-- candidate `job runs ext.*`
-- candidate `webhook verify ext.*`
-- candidate event consumers that call `ext.*`
+- candidate `job ... trigger ... handler`
+- candidate `webhook verify ... at` and `handler ... at`
+- inline view blocks and resource validators declared with `at`
 
 `lazuli generate --stubs` may create editable stubs in `features/<feature>/...`.
 

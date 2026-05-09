@@ -6,10 +6,13 @@ feature notification
   purpose "Deliver email and in-app notifications from domain events."
 
   non_goals
-    "event source of truth - producers own their events"
-    "user preferences UI beyond notification settings"
+    anti_pattern.event_source_of_truth: "producers own their events"
+    anti_pattern.preferences_ui: "user preferences UI beyond notification settings"
 
   uses org, user, customer, issue
+
+  defaults
+    policy system
 
   domain
     enum NotificationChannel
@@ -52,13 +55,15 @@ feature notification
       provider_message_id: Text
 
   policies
-    create system
-    read self, role_admin
-    update system
-    delete role_admin
+    create: system
+    read: self, role_admin
+    update: system
+    delete: role_admin
 
-  on customer.customer_archived
-    policy system
+  job queue_customer_archived
+    trigger event customer.customer_archived
+    idempotency event.id
+    retry 3 backoff exponential
     creates Notification
     derive recipient = event.by_id
     derive channel = NotificationChannel.email
@@ -66,8 +71,10 @@ feature notification
     derive body = ext.render_customer_archived(event)
     emits notification_queued
 
-  on issue.issue_assigned
-    policy system
+  job queue_issue_assigned
+    trigger event issue.issue_assigned
+    idempotency event.id
+    retry 3 backoff exponential
     creates Notification
     derive recipient = event.assignee_id
     derive channel = NotificationChannel.in_app
@@ -76,9 +83,8 @@ feature notification
     emits notification_queued
 
   job send_queued
-    schedule "*/2 * * * *"
-    policy system
-    runs ext.send_queued
+    trigger schedule "*/2 * * * *"
+    handler "./jobs/send_queued.go"
     emits notification_sent
 
   surface web admin
@@ -90,4 +96,3 @@ feature notification
   extensions
     server render_customer_archived: Function[CustomerArchivedEvent, Text] at "./templates/customer_archived.go"
     server render_issue_assigned: Function[IssueAssignedEvent, Text] at "./templates/issue_assigned.go"
-    server send_queued: BackgroundJob[NotificationSendBatch] at "./jobs/send_queued.go"
