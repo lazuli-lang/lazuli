@@ -129,6 +129,9 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   behavior beyond policy.
 - [x] Treat `query.list` newest-first ordering (`created_at desc`) as a
   language default instead of repeated source boilerplate.
+- [x] Derive tenant-aware indexes from simple `query.list` equality filters,
+  while requiring explicit index design for search, collection, inequality,
+  SQL, override, and modifier cases.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.

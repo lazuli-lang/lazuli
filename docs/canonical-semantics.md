@@ -447,6 +447,21 @@ declared. This is a language convention, not project sugar: authors write an
 resource listing. `lazuli inspect --expand=defaults` reports the generated
 query-order default with `origin: "language default"`.
 
+`query.list` also derives a narrow set of language-managed filter indexes from
+simple equality filters. The compiler may generate an index for:
+
+- `status when params.status` -> `status`
+- `status = params.status` -> `status`
+- `customer.id = params.customer_id` -> `customer`
+
+If the feature has a single tenant axis such as `tenancy org`, the generated
+index is tenant-aware (`org, status`, `org, customer`). The compiler does not
+derive indexes for `has`, `!=`, `nil`, text-search filters such as
+`name = params.search`, `scope override`, `query.sql`, or custom modifiers.
+Those cases require explicit index design. `lazuli inspect --expand=defaults`
+reports derived filter indexes; authored duplicate `index` lines should be
+omitted.
+
 Inherited scope is always applied unless a query explicitly uses `scope override`. Local `scope` extends inherited scope and should be reserved for safety boundaries. `filters` describe data predicates. A filter without `when` is always applied. A filter with `when` is conditional.
 
 ```lazuli

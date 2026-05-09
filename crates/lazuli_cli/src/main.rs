@@ -1189,7 +1189,140 @@ fn inspect_defaults(lines: &[String]) -> Vec<InspectDefault> {
         });
     }
 
+    for generated in collect_query_filter_indexes(lines) {
+        defaults.push(InspectDefault {
+            name: "query_filter_index".to_owned(),
+            value: generated.value,
+            origin: "language default",
+            applies_to: vec![
+                format!("query.{}", generated.query),
+                format!("filter.{}", generated.filter),
+            ],
+        });
+    }
+
     defaults
+}
+
+struct GeneratedFilterIndex {
+    query: String,
+    filter: String,
+    value: String,
+}
+
+fn collect_query_filter_indexes(lines: &[String]) -> Vec<GeneratedFilterIndex> {
+    let tenancy_axis = single_tenancy_axis(lines);
+    let mut seen = BTreeSet::new();
+    let mut indexes = Vec::new();
+
+    for query in query_blocks(lines) {
+        let header = query[0].trim_start();
+        if !header.starts_with("query.list ") || query_has_scope_override(query) {
+            continue;
+        }
+        let name = query_name(header).unwrap_or("unknown");
+
+        for field in query_filter_index_fields(query) {
+            let value = tenancy_axis
+                .as_ref()
+                .map(|tenant| format!("{tenant}, {field}"))
+                .unwrap_or_else(|| field.clone());
+
+            if seen.insert(value.clone()) {
+                indexes.push(GeneratedFilterIndex {
+                    query: name.to_owned(),
+                    filter: field,
+                    value,
+                });
+            }
+        }
+    }
+
+    indexes
+}
+
+fn single_tenancy_axis(lines: &[String]) -> Option<String> {
+    let axes: BTreeSet<String> = lines
+        .iter()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let axis = trimmed.strip_prefix("tenancy ")?.trim();
+            (!axis.is_empty() && axis != "none").then(|| axis.to_owned())
+        })
+        .collect();
+
+    (axes.len() == 1).then(|| axes.into_iter().next()).flatten()
+}
+
+fn query_has_scope_override(query: &[String]) -> bool {
+    query
+        .iter()
+        .any(|line| line.trim_start() == "scope override")
+}
+
+fn query_filter_index_fields(query: &[String]) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut in_filters = false;
+
+    for line in query.iter().skip(1) {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if leading == 6 {
+            in_filters = trimmed == "filters";
+            continue;
+        }
+
+        if in_filters
+            && leading == 8
+            && let Some(field) = filter_index_field(trimmed)
+        {
+            fields.push(field);
+        }
+    }
+
+    fields
+}
+
+fn filter_index_field(filter: &str) -> Option<String> {
+    if filter.contains(" has ")
+        || filter.contains(" != ")
+        || filter.contains(" = nil")
+        || filter.contains(" != nil")
+    {
+        return None;
+    }
+
+    if let Some((field, param)) = filter.split_once(" when ") {
+        let field = field.trim();
+        let param = param.trim().strip_prefix("params.")?;
+        if is_identifier(field) && field == param {
+            return Some(field.to_owned());
+        }
+        return None;
+    }
+
+    if let Some((left, right)) = filter.split_once(" = ") {
+        let left = left.trim();
+        let param = right.trim().strip_prefix("params.")?;
+
+        if is_identifier(left) && left == param {
+            return Some(left.to_owned());
+        }
+
+        if let Some(relation) = left.strip_suffix(".id")
+            && is_identifier(relation)
+            && param == format!("{relation}_id")
+        {
+            return Some(relation.to_owned());
+        }
+    }
+
+    None
 }
 
 fn collect_policy_for_applies_to(lines: &[String], scopes: &str) -> Vec<String> {
@@ -2769,6 +2902,12 @@ fn parse_ident_list(source: &str) -> Vec<String> {
         .collect()
 }
 
+fn is_identifier(source: &str) -> bool {
+    let mut chars = source.chars();
+    matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 fn namespace_references(line: &str) -> Vec<&str> {
     let mut namespaces = Vec::new();
     let mut rest = line;
@@ -2824,6 +2963,12 @@ feature customer
     query.lookup by_id by id: ID
 
     query.list list
+      params
+        name: Text optional
+
+      filters
+        name when params.name
+
       paginate 50
 
     event_group customer_* on Customer
@@ -2896,6 +3041,12 @@ feature customer
     query.lookup by_id by id: ID
 
     query.list list
+      params
+        name: Text optional
+
+      filters
+        name when params.name
+
       paginate 50
 
     event_group customer_* on Customer
@@ -2946,6 +3097,8 @@ feature customer
         assert!(json.contains("\"origin\":\"explicit\""));
         assert!(json.contains("\"origin\":\"defaults\""));
         assert!(json.contains("\"name\":\"query_order\""));
+        assert!(json.contains("\"name\":\"query_filter_index\""));
+        assert!(json.contains("\"value\":\"org, name\""));
         assert!(json.contains("\"origin\":\"language default\""));
         assert!(json.contains("\"locators\""));
         assert!(json.contains("\"name\":\"route.id\""));

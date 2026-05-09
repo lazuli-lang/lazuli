@@ -273,6 +273,7 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
         diagnostics.extend(policy_namespace_diagnostics(source));
         diagnostics.extend(scope_override_policy_diagnostics(source));
         diagnostics.extend(query_order_default_diagnostics(source));
+        diagnostics.extend(query_filter_index_diagnostics(source));
         diagnostics.extend(public_command_rate_limit_diagnostics(source));
         diagnostics.extend(event_job_tenant_from_diagnostics(source));
         diagnostics.extend(crypto_contract_diagnostics(source));
@@ -579,6 +580,181 @@ fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+fn query_filter_index_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let generated = generated_query_filter_indexes(source);
+    if generated.is_empty() {
+        return Vec::new();
+    }
+
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let Some(index) = trimmed.strip_prefix("index ") else {
+            continue;
+        };
+        let index = normalize_index_value(index);
+
+        if generated.contains(&index) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-filter-index-generated",
+                "`query.list` equality filters generate this tenant-aware index; omit the explicit `index` unless the query needs a non-default index shape.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn generated_query_filter_indexes(source: &str) -> HashSet<String> {
+    let lines: Vec<_> = source.lines().collect();
+    let tenancy_axis = single_tenancy_axis(&lines);
+    let mut indexes = HashSet::new();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 4
+            && trimmed.starts_with("query.list ")
+            && !query_block_has_scope_override(&lines, index)
+        {
+            for field in query_block_filter_index_fields(&lines, index) {
+                let value = tenancy_axis
+                    .as_ref()
+                    .map(|tenant| format!("{tenant}, {field}"))
+                    .unwrap_or(field);
+                indexes.insert(normalize_index_value(&value));
+            }
+        }
+
+        index += 1;
+    }
+
+    indexes
+}
+
+fn single_tenancy_axis(lines: &[&str]) -> Option<String> {
+    let axes: HashSet<String> = lines
+        .iter()
+        .filter_map(|line| {
+            let axis = line.trim_start().strip_prefix("tenancy ")?.trim();
+            (!axis.is_empty() && axis != "none").then(|| axis.to_owned())
+        })
+        .collect();
+
+    if axes.len() == 1 {
+        axes.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn query_block_has_scope_override(lines: &[&str], start: usize) -> bool {
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start();
+        if !trimmed.is_empty() && leading_spaces(line) <= 4 {
+            break;
+        }
+        if trimmed == "scope override" {
+            return true;
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn query_block_filter_index_fields(lines: &[&str], start: usize) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut in_filters = false;
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if !trimmed.is_empty() && leading <= 4 {
+            break;
+        }
+
+        if !trimmed.is_empty() {
+            if leading == 6 {
+                in_filters = trimmed == "filters";
+            } else if in_filters
+                && leading == 8
+                && let Some(field) = filter_index_field(trimmed)
+            {
+                fields.push(field);
+            }
+        }
+
+        index += 1;
+    }
+
+    fields
+}
+
+fn filter_index_field(filter: &str) -> Option<String> {
+    if filter.contains(" has ")
+        || filter.contains(" != ")
+        || filter.contains(" = nil")
+        || filter.contains(" != nil")
+    {
+        return None;
+    }
+
+    if let Some((field, param)) = filter.split_once(" when ") {
+        let field = field.trim();
+        let param = param.trim().strip_prefix("params.")?;
+        if is_identifier(field) && field == param {
+            return Some(field.to_owned());
+        }
+        return None;
+    }
+
+    if let Some((left, right)) = filter.split_once(" = ") {
+        let left = left.trim();
+        let param = right.trim().strip_prefix("params.")?;
+
+        if is_identifier(left) && left == param {
+            return Some(left.to_owned());
+        }
+
+        if let Some(relation) = left.strip_suffix(".id")
+            && is_identifier(relation)
+            && param == format!("{relation}_id")
+        {
+            return Some(relation.to_owned());
+        }
+    }
+
+    None
+}
+
+fn normalize_index_value(value: &str) -> String {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn is_identifier(source: &str) -> bool {
+    let mut chars = source.chars();
+    matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
 fn generated_summary_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -4989,6 +5165,41 @@ feature customer
             diagnostics[0]
                 .message
                 .contains("defaults to `order created_at desc`")
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_explicit_generated_filter_index() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  defaults
+    tenancy org
+
+  domain
+    resource Customer
+      status: CustomerStatus = lead
+
+    constraints
+      index org, status
+
+    query.list list
+      params
+        status: CustomerStatus optional
+
+      filters
+        status when params.status
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("filters generate this tenant-aware index")
         );
     }
 

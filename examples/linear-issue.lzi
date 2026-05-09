@@ -47,8 +47,6 @@ feature issue
 
     constraints
       unique title per team
-      index team, status
-      index team, assignee
 
     record IssueTreeNode
       issue_id: ID

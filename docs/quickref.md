@@ -218,6 +218,10 @@ it is a macro, not v0 sugar.
 `paginate <n>` is the generated default page size, not a hard maximum.
 `query.list` defaults to `order created_at desc`; declare `order` only when a
 query intentionally differs from newest-first listing.
+Simple equality filters derive language-managed indexes. With `tenancy org`,
+`status when params.status` derives `org, status`, and
+`customer.id = params.customer_id` derives `org, customer`. Search, `has`,
+`!=`, `nil`, `scope override`, and SQL queries do not derive indexes.
 
 `query.sql` return types such as `CustomerLtv[]` must resolve through local
 `record` declarations, resources, extension contracts, or adapter-provided

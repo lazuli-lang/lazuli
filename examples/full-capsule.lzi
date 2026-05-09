@@ -63,9 +63,6 @@ feature customer
     constraints
       unique email per org
       unique external_id per org
-      index org, lifecycle_stage
-      index org, owner
-      index org, tier
 
     record CustomerLtv
       customer_id: ID
@@ -487,8 +484,6 @@ feature customer_tags
     constraints
       unique name per org
       unique customer, tag per org
-      index org, tag
-      index org, customer
 
     query.list list_tags
       order name asc

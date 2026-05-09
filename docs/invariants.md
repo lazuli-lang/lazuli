@@ -105,6 +105,10 @@ source that only fails later.
   hard product maximum.
 - `query.list` defaults to `order created_at desc`; explicit `order` is used
   only when a query intentionally differs.
+- Simple `query.list` equality filters derive language-managed indexes,
+  tenant-prefixed when the feature has a single tenant axis.
+- Search filters, collection `has`, inequality, nil checks, `scope override`,
+  `query.sql`, and modifiers do not derive indexes.
 - `scope override` is an absolute replacement of inherited safety scope. Use it
   only for explicitly cross-tenant or admin queries.
 - Queries that use `scope override` must declare explicit `policy @policy.*`.
