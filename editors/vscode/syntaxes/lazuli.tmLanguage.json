@@ -111,6 +111,20 @@
           }
         },
         {
+          "match": "\\b(surface)\\s+([a-z_][a-z0-9_]*)(?:\\s+([a-z_][a-z0-9_]*))?",
+          "captures": {
+            "1": {
+              "name": "keyword.section.layer.lazuli"
+            },
+            "2": {
+              "name": "entity.name.label.surface-target.lazuli"
+            },
+            "3": {
+              "name": "entity.name.label.surface-area.lazuli"
+            }
+          }
+        },
+        {
           "match": "\\b(rule)\\s+(\"[^\"]+\")",
           "captures": {
             "1": {
@@ -225,6 +239,10 @@
           "match": "\\b(forbid|allow|message)\\b"
         },
         {
+          "name": "entity.name.function.statement.policy.lazuli",
+          "match": "\\b(read|create|update|delete)\\b"
+        },
+        {
           "name": "support.function.type-constructor.lazuli",
           "match": "\\b(many|list_of|ref)\\b"
         }
@@ -271,6 +289,10 @@
         {
           "name": "keyword.operator.logical.lazuli",
           "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.operator.predicate.lazuli",
+          "match": "\\b(has|in|exists)\\b"
         },
         {
           "name": "constant.other.direction.lazuli",
