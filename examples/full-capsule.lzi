@@ -1,0 +1,137 @@
+# Full Lazuli capsule sketch.
+# This is a design fixture for the Ruby-like syntax, not compiler-executable yet.
+
+feature :customer do
+  purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
+
+  non_goals "invoicing — see feature(:invoice)",
+            "credit scoring engine — see feature(:scoring)",
+            "user authentication — see feature(:user)"
+
+  domain do
+    enum :customer_status, values: [:lead, :active, :archived]
+    enum :customer_tier,   values: [:free, :pro, :enterprise]
+
+    resource do
+      field :org_id, ref(:org),             required: true
+      field :owner_id, ref(:user),          required: true
+      field :name, text,                    required: true
+      field :email, email,                  required: true
+      field :status, types.customer_status, default: :lead
+      field :tier, types.customer_tier,     default: :free
+      field :score, integer,                default: 0
+
+      soft_delete
+      timestamps
+    end
+
+    constraints do
+      unique :email, scope: :org_id
+    end
+
+    query :list do
+      where    org_id: ctx.user.org_id, deleted_at: nil
+      order_by created_at: :desc
+      paginate 50
+    end
+
+    query :by_id do
+      param :id, ID
+      where id: id, org_id: ctx.user.org_id
+    end
+
+    query :lifetime_value, raw: true do
+      returns list_of(:customer_ltv)
+      param :org_id, ID
+      sql at: "./queries/customer_lifetime_value.sql"
+    end
+
+    rule "archived customers cannot receive invoices" do
+      forbid Invoice.create, where: { customer.status: :archived }
+      message "Cannot invoice an archived customer"
+    end
+
+    rule "deleted customers cannot be invoiced" do
+      forbid Invoice.create, where: { customer.deleted_at: not_nil }
+      message "Cannot invoice a deleted customer"
+    end
+
+    event :customer_created do
+      field :id, ID
+      field :org_id, ID
+      field :email, Email
+    end
+
+    event :customer_archived do
+      field :id, ID
+      field :by, ref(:user)
+    end
+
+    event :customer_reassigned do
+      field :id, ID
+      field :owner_id, ref(:user)
+      field :by, ref(:user)
+    end
+  end
+
+  policies do
+    create :role_admin, :role_sales
+    update :role_admin, :role_sales
+    delete :role_admin
+    read   :same_org
+  end
+
+  action :create, Form do
+    fields :name, :email, :tier
+    emits  :customer_created
+  end
+
+  action :archive, Transition do
+    status   from: :active, to: :archived
+    requires policies.update
+    emits    :customer_archived
+  end
+
+  action :reassign, Mutation do
+    param    :owner_id, ID
+    requires policies.update
+    emits    :customer_reassigned
+  end
+
+  surface do
+    view :list, Table do
+      source  query.list
+      columns :name, :email, :status, :tier, :score, :created_at
+      search  :name, :email
+      filter  :status, :tier
+
+      cells do
+        status ext.status_cell
+        score  ext.score_cell
+      end
+    end
+
+    view :detail, SidePanel do
+      source query.by_id(id: route.id)
+      block  ext.activity_timeline
+    end
+
+    view :ltv_report, Table do
+      source query.lifetime_value(org_id: ctx.user.org_id)
+      columns :customer_id, :amount, :currency
+    end
+
+    client :status_cell,       CellRenderer[Customer]
+    client :score_cell,        CellRenderer[Customer]
+    client :activity_timeline, ViewBlock[Customer],    at: "./ui/activity_timeline.tsx"
+  end
+
+  hooks do
+    server :before_create, Hook[Customer.create]
+    server :after_archive, Hook[Customer.archive]
+    server :risk_score,    Function[Customer, RiskScore],     at: "./domain/risk_score.go"
+    server :validate_tier, Validator[Customer.tier],          at: "./domain/validate_tier.go"
+  end
+
+  escape_route "/admin/customer-imports", at: "./pages/customer_imports.tsx"
+end

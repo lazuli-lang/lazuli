@@ -1,0 +1,39 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* }
+
+program = { SOI ~ app_decl? ~ aggregate* ~ EOI }
+app_decl = { "app" ~ ident }
+
+aggregate = { ("aggregate" | "entity") ~ ident ~ "{" ~ aggregate_item* ~ "}" }
+aggregate_item = _{ field | command | query | surface }
+
+field = { ident ~ ":" ~ ident ~ field_modifier* }
+field_modifier = { required_modifier | unique_modifier | default_modifier }
+required_modifier = { "required" }
+unique_modifier = { "unique" }
+default_modifier = { "default" ~ literal }
+
+command = { "command" ~ ident ~ "{" ~ command_item* ~ "}" }
+command_item = _{ input_stmt | policy_stmt | emits_stmt }
+input_stmt = { "input" ~ ident_list }
+policy_stmt = { "policy" ~ dotted_ident }
+emits_stmt = { "emits" ~ ident }
+
+query = { "query" ~ ident ~ "{" ~ query_item* ~ "}" }
+query_item = _{ search_stmt | filter_stmt }
+search_stmt = { "search" ~ ident_list }
+filter_stmt = { "filter" ~ ident_list }
+
+surface = { "surface" ~ ident ~ "{" ~ surface_item* ~ "}" }
+surface_item = _{ list_stmt | form_stmt | detail_stmt }
+list_stmt = { "list" ~ "columns" ~ ident_list }
+form_stmt = { "form" ~ "fields" ~ ident_list }
+detail_stmt = { "detail" ~ "fields" ~ ident_list }
+
+ident_list = { ident ~ ("," ~ ident)* }
+dotted_ident = @{ ident ~ ("." ~ ident)* }
+literal = @{ quoted_string | ident | number }
+quoted_string = { "\"" ~ ( "\\\"" | (!"\"" ~ ANY))* ~ "\"" }
+number = { ASCII_DIGIT+ }
+ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+

@@ -1,0 +1,46 @@
+{
+  "name": "lazuli-vscode",
+  "displayName": "Lazuli",
+  "description": "Language support for Lazuli .lzi files.",
+  "version": "0.1.0",
+  "publisher": "lazuli",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:lazuli"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configurationDefaults": {
+      "files.associations": {
+        "*.lzi": "lazuli"
+      }
+    },
+    "languages": [
+      {
+        "id": "lazuli",
+        "aliases": [
+          "Lazuli",
+          "lazuli"
+        ],
+        "extensions": [
+          ".lzi"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lazuli",
+        "scopeName": "source.lazuli",
+        "path": "./syntaxes/lazuli.tmLanguage.json"
+      }
+    ]
+  }
+}

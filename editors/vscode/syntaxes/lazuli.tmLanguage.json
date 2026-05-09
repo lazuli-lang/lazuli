@@ -1,0 +1,326 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Lazuli",
+  "scopeName": "source.lazuli",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#symbols"
+    },
+    {
+      "include": "#labels"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#sections"
+    },
+    {
+      "include": "#statements"
+    },
+    {
+      "include": "#references"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.lazuli",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.lazuli",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.lazuli",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "symbols": {
+      "patterns": [
+        {
+          "name": "constant.other.symbol.lazuli",
+          "match": ":[A-Za-z_][A-Za-z0-9_]*[!?]?"
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "name": "variable.parameter.label.lazuli",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*[!?]?(?=\\s*:)"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(feature)\\s+(:[A-Za-z_][A-Za-z0-9_]*)\\s+(do)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "entity.name.type.feature.lazuli"
+            },
+            "3": {
+              "name": "keyword.control.block.do.lazuli"
+            }
+          }
+        },
+        {
+          "match": "\\b(enum|query|action|view|event)\\s+(:[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "entity.name.function.named-block.lazuli"
+            }
+          }
+        },
+        {
+          "match": "\\b(rule)\\s+(\"[^\"]+\")\\s+(do)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "string.quoted.double.rule-name.lazuli"
+            },
+            "3": {
+              "name": "keyword.control.block.do.lazuli"
+            }
+          }
+        },
+        {
+          "match": "\\b(resource)\\s+(do)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "keyword.control.block.do.lazuli"
+            }
+          }
+        },
+        {
+          "match": "\\b(escape_route)\\s+(\"[^\"]+\")",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "string.quoted.double.route.lazuli"
+            }
+          }
+        }
+      ]
+    },
+    "sections": {
+      "patterns": [
+        {
+          "match": "\\b(domain|surface|hooks)\\s+(do)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.section.layer.lazuli"
+            },
+            "2": {
+              "name": "keyword.control.block.do.lazuli"
+            }
+          }
+        },
+        {
+          "match": "\\b(constraints|policies|cells)\\s+(do)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.section.lazuli"
+            },
+            "2": {
+              "name": "keyword.control.block.do.lazuli"
+            }
+          }
+        }
+      ]
+    },
+    "statements": {
+      "patterns": [
+        {
+          "name": "entity.name.function.statement.resource.lazuli",
+          "match": "\\b(purpose|non_goals|context|field|soft_delete|timestamps|unique)\\b"
+        },
+        {
+          "name": "entity.name.function.statement.policy.lazuli",
+          "match": "\\b(create|update|delete|read)\\b"
+        },
+        {
+          "name": "entity.name.function.statement.query.lazuli",
+          "match": "\\b(param|returns|where|order_by|paginate|cache|sql)\\b"
+        },
+        {
+          "name": "entity.name.function.statement.action.lazuli",
+          "match": "\\b(fields|emits|requires|status)\\b"
+        },
+        {
+          "name": "entity.name.function.statement.view.lazuli",
+          "match": "\\b(source|columns|search|filter|cells|block)\\b"
+        },
+        {
+          "name": "entity.name.function.statement.extension.lazuli",
+          "match": "\\b(client|server)\\b"
+        },
+        {
+          "name": "entity.name.function.statement.rule.lazuli",
+          "match": "\\b(forbid|allow|message)\\b"
+        },
+        {
+          "name": "support.function.predicate.lazuli",
+          "match": "\\b(not_nil|is_nil|gt|gte|lt|lte|contains)\\b"
+        },
+        {
+          "name": "support.function.type-constructor.lazuli",
+          "match": "\\b(ref|list_of|text|email|string|integer|decimal|money|date|datetime|bool|json)\\b"
+        }
+      ]
+    },
+    "references": {
+      "patterns": [
+        {
+          "name": "entity.name.reference.semantic.lazuli",
+          "match": "\\b(?:ctx|route|query|policies|ext|types|customer|domain|surface|hooks)\\.[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\b"
+        },
+        {
+          "name": "entity.name.reference.model-path.lazuli",
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.lazuli",
+          "match": "\\b(ID|Text|String|Email|Url|Boolean|Bool|Int|Integer|Float|Decimal|Money|Date|DateTime|Json|JSON)\\b"
+        },
+        {
+          "name": "support.type.ui.lazuli",
+          "match": "\\b(Form|Mutation|Transition|Table|SidePanel)\\b"
+        },
+        {
+          "name": "support.type.extension.lazuli",
+          "match": "\\b(CellRenderer|Hook|Function|Validator|QueryModifier|WorkflowEffect|PageBlock|IntegrationAdapter)\\b"
+        },
+        {
+          "name": "support.type.domain.lazuli",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.block.lazuli",
+          "match": "\\b(do|end)\\b"
+        },
+        {
+          "name": "storage.modifier.lazuli",
+          "match": "\\b(required|optional|default|readonly|scope|values|from|to|returns|at)\\b"
+        },
+        {
+          "name": "keyword.operator.predicate.lazuli",
+          "match": "\\b(in|exists)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.lazuli",
+          "match": "\\b(true|false|nil|null)\\b"
+        },
+        {
+          "name": "constant.numeric.lazuli",
+          "match": "\\b[0-9]+(?:\\.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.lazuli",
+          "match": "==|!=|<=|>=|="
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.hash.begin.lazuli",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.hash.end.lazuli",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.definition.generic.begin.lazuli",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.definition.generic.end.lazuli",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.section.parens.begin.lazuli",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.section.parens.end.lazuli",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.separator.comma.lazuli",
+          "match": ","
+        },
+        {
+          "name": "punctuation.separator.key-value.lazuli",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.accessor.lazuli",
+          "match": "\\."
+        }
+      ]
+    }
+  }
+}

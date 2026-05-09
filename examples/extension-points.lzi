@@ -1,0 +1,22 @@
+# Sketch syntax for Lazuli extension contracts.
+# This file documents escape hatches, not the normal path.
+
+feature :customer_metrics do
+  domain do
+    query :customer_lifetime_value, raw: true do
+      returns list_of(:customer_ltv)
+      param :org_id, ID
+      sql at: "./queries/customer_ltv.sql"
+    end
+  end
+
+  surface do
+    client :ltv_cell, CellRenderer[CustomerLtv], at: "./ui/ltv_cell.tsx"
+  end
+
+  hooks do
+    server :refresh_ltv, Hook[CustomerLtv.refresh]
+  end
+
+  escape_route "/admin/raw-sql-console", at: "./pages/sql_console.tsx"
+end

@@ -1,0 +1,162 @@
+# Linear-style issue feature pressure test.
+# This intentionally uses only the current Lazuli sketch.
+
+feature :issue do
+  domain do
+    enum :issue_status, values: [:backlog, :todo, :in_progress, :in_review, :done, :canceled]
+    enum :issue_priority, values: [:none, :low, :medium, :high, :urgent]
+
+    resource do
+      field :team_id, ref(:team),             required: true
+      field :project_id, ref(:project),       optional: true
+      field :cycle_id, ref(:cycle),           optional: true
+      field :parent_id, ref(:issue),          optional: true
+      field :creator_id, ref(:user),          required: true
+      field :assignee_id, ref(:user),         optional: true
+      field :title, text,                     required: true
+      field :description, text,               optional: true
+      field :status, types.issue_status,      default: :backlog
+      field :priority, types.issue_priority,  default: :none
+      field :label_ids, list_of(ref(:label)), default: []
+
+      soft_delete
+      timestamps
+    end
+
+    constraints do
+      unique :title, scope: :team_id
+    end
+
+    query :list do
+      param :status, types.issue_status, optional: true
+      param :assignee_id, ID, optional: true
+      param :label_id, ID, optional: true
+      param :project_id, ID, optional: true
+      param :cycle_id, ID, optional: true
+
+      where    team_id: ctx.team.id, deleted_at: nil
+      order_by updated_at: :desc
+      paginate 100
+    end
+
+    query :by_id do
+      param :id, ID
+      where id: id, team_id: ctx.team.id
+    end
+
+    query :sub_issues do
+      param :parent_id, ID
+      where parent_id: parent_id, team_id: ctx.team.id, deleted_at: nil
+      order_by priority: :desc
+    end
+
+    # Pressure point: recursive sub-issue trees may need a richer query concept.
+    query :tree, raw: true do
+      returns list_of(:issue_tree_node)
+      param :root_id, ID
+      sql at: "./queries/issue_tree.sql"
+    end
+
+    rule "done issues can only reopen to in progress" do
+      forbid Issue.transition, where: { issue.status: :done, next_status: :todo }
+      message "Done issues reopen directly to in progress"
+    end
+
+    event :issue_created do
+      field :id, ID
+      field :team_id, ID
+      field :creator_id, ref(:user)
+    end
+
+    event :issue_status_changed do
+      field :id, ID
+      field :from, types.issue_status
+      field :to, types.issue_status
+      field :by, ref(:user)
+    end
+
+    event :issue_assigned do
+      field :id, ID
+      field :assignee_id, ref(:user)
+      field :by, ref(:user)
+    end
+  end
+
+  policies do
+    create :team_member
+    update :team_member
+    delete :team_admin
+    read   :same_team
+  end
+
+  action :create, Form do
+    fields :title, :description, :project_id, :cycle_id, :assignee_id, :priority, :label_ids
+    emits  :issue_created
+  end
+
+  action :start, Transition do
+    status   from: :todo, to: :in_progress
+    requires policies.update
+    emits    :issue_status_changed
+  end
+
+  action :submit_review, Transition do
+    status   from: :in_progress, to: :in_review
+    requires policies.update
+    emits    :issue_status_changed
+  end
+
+  action :complete, Transition do
+    status   from: :in_review, to: :done
+    requires policies.update
+    emits    :issue_status_changed
+  end
+
+  action :reopen, Transition do
+    status   from: :done, to: :in_progress
+    requires policies.update
+    emits    :issue_status_changed
+  end
+
+  action :assign, Mutation do
+    param    :assignee_id, ID
+    requires policies.update
+    emits    :issue_assigned
+  end
+
+  surface do
+    view :list, Table do
+      source  query.list
+      columns :title, :status, :priority, :assignee_id, :project_id, :cycle_id, :updated_at
+      search  :title
+      filter  :status, :priority, :assignee_id, :label_id, :project_id, :cycle_id
+
+      cells do
+        status   ext.status_cell
+        priority ext.priority_cell
+      end
+    end
+
+    view :detail, SidePanel do
+      source query.by_id(id: route.id)
+      block  ext.comment_thread
+      block  ext.sub_issue_list
+    end
+
+    view :tree, Table do
+      source query.tree(root_id: route.id)
+      columns :title, :status, :assignee_id
+    end
+
+    client :status_cell,    CellRenderer[Issue]
+    client :priority_cell,  CellRenderer[Issue]
+    client :comment_thread, ViewBlock[Issue], at: "./ui/comment_thread.tsx"
+    client :sub_issue_list, ViewBlock[Issue], at: "./ui/sub_issue_list.tsx"
+  end
+
+  hooks do
+    server :before_create, Hook[Issue.create]
+    server :after_assign,  Hook[Issue.assign]
+    server :rank_score,    Function[Issue, IssueRankScore], at: "./domain/rank_score.go"
+  end
+end

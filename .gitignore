@@ -1,0 +1,6 @@
+/target/
+/generated/
+/editors/vscode/dist/
+/editors/vscode/node_modules/
+*.vsix
+**/*.rs.bk
