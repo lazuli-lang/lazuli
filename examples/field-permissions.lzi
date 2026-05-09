@@ -59,6 +59,7 @@ feature customer_sensitive
       annual_revenue: @semantic.Money optional
     target query.by_customer(customer_id: route.customer_id)
     policy @policy.update
+    rate_limit "30 per minute per user"
     updates CustomerSensitiveProfile
       legal_name = input.legal_name
       tax_id = input.tax_id

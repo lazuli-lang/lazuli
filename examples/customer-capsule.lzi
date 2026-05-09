@@ -69,6 +69,7 @@ feature customer
   command create
     input name, email
     policy @policy.create
+    rate_limit "30 per hour per user"
     creates Customer
       name = input.name
       email = input.email

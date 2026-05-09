@@ -213,6 +213,7 @@ feature customer
     route id: ID
     input owner
     policy @policy.update
+    rate_limit "60 per minute per user"
     updates Customer
       owner = input.owner
     emits customer_reassigned
@@ -226,6 +227,7 @@ feature customer
     route id: ID
     input tier
     policy @policy.update
+    rate_limit "30 per minute per user"
     updates Customer
       tier = input.tier
 
@@ -350,6 +352,20 @@ feature customer_auth
     update: @scope.same_org
     read: @scope.same_org
 
+    fields CustomerSession
+      refresh_token_hash
+        read: @actor.system
+        write: @actor.system
+
+      provider_access_token
+        read: @actor.system
+        write: @actor.system
+
+    fields CustomerPasswordReset
+      token
+        read: @actor.system
+        write: @actor.system
+
   auth
     identity Customer.email
 
@@ -386,6 +402,7 @@ feature customer_auth
       totp_code: Text
     target customer.query.by_id(id: route.customer_id)
     policy @policy.update
+    rate_limit "10 per minute per user"
     creates CustomerMfaConfig
       customer = target
       verified_at = ctx.now
@@ -485,6 +502,7 @@ feature customer_tags
   command create_tag
     input name, color
     policy @policy.create
+    rate_limit "30 per minute per user"
     creates CustomerTag
       name = input.name
       color = input.color
@@ -495,6 +513,7 @@ feature customer_tags
       customer: Customer
       tag: CustomerTag
     policy @policy.update
+    rate_limit "60 per minute per user"
     creates CustomerTagAssignment
       customer = input.customer
       tag = input.tag
@@ -508,6 +527,7 @@ feature customer_tags
       tag_id: ID
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy @policy.update
+    rate_limit "60 per minute per user"
     deletes CustomerTagAssignment
     emits tag_assignment_removed
 

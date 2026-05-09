@@ -123,6 +123,7 @@ feature issue
   command create
     input title, description, project, cycle, assignee, priority, labels
     policy @policy.create
+    rate_limit "60 per minute per user"
     creates Issue
       title = input.title
       description = input.description
@@ -139,6 +140,7 @@ feature issue
     input
       assignee: User
     policy @policy.update
+    rate_limit "60 per minute per user"
     updates Issue
       assignee = input.assignee
     emits issue_assigned

@@ -142,7 +142,7 @@ extensions
 escape_routes
 ```
 
-Authors may draft in any order, but `lazuli fmt` should reorder blocks and `lazuli check --strict` should report non-canonical ordering. This is intentionally predictable for LLM context scans and semantic diffs.
+Authors may draft in any order, but `lazuli fmt` should reorder blocks and `lazuli check --security-profile strict` should report non-canonical ordering. This is intentionally predictable for LLM context scans and semantic diffs.
 
 Inline `surface` blocks remain accepted while older fixtures migrate, but new
 source should put experience/view-model declarations in `.lzx` files. A `.lzi`
@@ -891,6 +891,40 @@ Agents should prefer explicit source changes over new sugar. If a repeated patte
 
 Lazuli declares security properties; adapters implement them with audited runtime libraries. Do not implement cryptographic primitives in the DSL or in generated templates beyond wiring to standard libraries/KMS providers.
 
+Security is not authored as a feature-level `security` checklist. It is local
+to the operation, field, webhook, auth flow, or escape route where the decision
+is made. `lazuli inspect --expand=security` is the generated audit view.
+
+`lazuli check` supports security profiles:
+
+- `prototype` reports missing security contracts as warnings while drafting.
+- `strict` is the default; missing security contracts are errors.
+- `production` keeps strict errors and treats explicit opt-outs such as
+  `verify none` or `rate_limit none` as release blockers unless future deploy
+  configuration allowlists them.
+
+Every command must declare local `policy`. Commands do not inherit permissive
+effect-derived policy defaults, and `policy_for` is intentionally scoped to
+jobs/webhooks.
+
+Commands that mutate state or whose effective policy resolves to
+`@scope.public` must declare a command-level `rate_limit`:
+
+```lazuli
+command create
+  policy @policy.create
+  rate_limit "30 per hour per ip"
+```
+
+Intentional opt-out is explicit and local:
+
+```lazuli
+command internal_bulk_import
+  policy @policy.admin
+  rate_limit none
+    reason "Internal operator-only batch action behind controlled network."
+```
+
 Queries that use `scope override` must declare `policy @policy.*` on the query. The override replaces inherited tenant/soft-delete safety scope, so the authorization boundary must be visible at the same construct:
 
 ```lazuli
@@ -904,12 +938,16 @@ query.list global_search
 
 The `reason` is part of the authoring contract for dangerous scope replacement. It is not generated into business logic, but it appears in `lazuli inspect --expand=security` so reviewers and agents can distinguish intentional cross-tenant access from an accidental missing tenant predicate.
 
-Public commands should declare command-level rate limits. This applies when the command policy resolves to `@scope.public`, including via `@policy.login` or `@policy.register`:
+Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
+`@cap.E2ee`, or `@cap.Token` must declare field-level `read` and `write`
+policy:
 
 ```lazuli
-command login
-  policy @policy.login
-  rate_limit "5 per 10 minutes per ip"
+policies
+  fields CustomerSession
+    refresh_token_hash
+      read: @actor.system
+      write: @actor.system
 ```
 
 Data classification uses `@pii.*` markers on fields and event payloads. The initial catalog is open only by spec update, not by ad hoc invention:
@@ -956,9 +994,39 @@ webhook stripe_invoice_paid
   verify hmac sha256
     secret env.STRIPE_WEBHOOK_SECRET
     header "Stripe-Signature"
+  idempotency by payload.provider_event_id
 ```
 
-Use `verify "./path.go"` for provider-specific protocols that need custom code. Declarative verify blocks and custom verify handlers both run before idempotency and handler execution.
+Every webhook must declare verification and idempotency. Use
+`verify "./path.go"` for provider-specific protocols that need custom code.
+Use `verify none` only as an explicit security opt-out with a `reason` child;
+production checks treat such opt-outs as release blockers. Declarative verify
+blocks and custom verify handlers both run before idempotency and handler
+execution.
+
+`escape_route` is outside generated UI ownership, so it must keep its security
+envelope visible in source:
+
+```lazuli
+escape_route "/admin/customer-debug"
+  at "./pages/customer_debug.tsx"
+  policy @role.admin
+  tenant org
+```
+
+`auth password` must declare the password hash algorithm and credential-guessing
+rate limit. `auth sessions` must declare session TTL:
+
+```lazuli
+auth
+  password
+    algorithm argon2id
+    rate_limit "5 per 10 minutes"
+
+  sessions
+    resource CustomerSession
+    ttl "7 days"
+```
 
 ## Rules
 
@@ -1410,7 +1478,7 @@ view detail SidePanel id @anchor.customer_detail
 
 Use `extends @anchor.<view_id>` only when the target view declares that exact anchor and whitelists the extending feature with `extensible_by`. Views without `extensible_by` are not extensible, even though they still have implicit stable ids for inspection. The extending feature owns the inserted block and its extension implementation; the target feature still owns the base view.
 
-`lazuli check --strict` should warn when a feature listed in `extensible_by` does not declare a matching `extends @anchor.<view_id>` block. The whitelist exists to describe exercised composition, not speculative future permission.
+`lazuli check --security-profile strict` should warn when a feature listed in `extensible_by` does not declare a matching `extends @anchor.<view_id>` block. The whitelist exists to describe exercised composition, not speculative future permission.
 
 The target view type determines which slots are accepted. For example, `SidePanel` may accept `block`, while `Table` may accept `cells`. The analyzer should reject unsupported slots with a targeted diagnostic.
 
@@ -1638,7 +1706,7 @@ The full convention table:
 | `block <name>: ViewBlock[X]`       | `features/<feature>/ui/<name>.tsx`          |
 | `webhook <name> verify`           | `features/<feature>/integrations/<name>.go` |
 
-Use `at` only when the implementation lives outside the convention. Missing implementation status is not encoded by `at`: `lazuli inspect` and `lazuli check --strict` determine whether the conventional file exists and whether a stub should be generated.
+Use `at` only when the implementation lives outside the convention. Missing implementation status is not encoded by `at`: `lazuli inspect` and `lazuli check --security-profile strict` determine whether the conventional file exists and whether a stub should be generated.
 
 The convention is part of the IR ABI (see `ir-abi.md`): changing a default path is a major bump. Adding a contract type is a minor bump.
 

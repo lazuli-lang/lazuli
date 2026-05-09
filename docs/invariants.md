@@ -144,8 +144,26 @@ source that only fails later.
 
 ## Security And Crypto
 
-- Commands whose effective policy includes `@scope.public` should declare a
-  command-level `rate_limit`.
+- Lazuli grows security by local contracts, not a feature-level `security`
+  checklist. The source declares security at the operation/field boundary where
+  it matters; `lazuli inspect --expand=security` derives the audit view.
+- `lazuli check` defaults to `--security-profile strict`: omitted security
+  decisions are errors. `prototype` downgrades those errors to warnings for
+  drafting. `production` keeps strict errors and treats explicit opt-outs as
+  deployment blockers.
+- Every command declares local `policy`; commands do not inherit permissive
+  effect-derived defaults.
+- Commands that mutate state or whose effective policy includes `@scope.public`
+  declare a command-level `rate_limit` or explicit `rate_limit none` with a
+  `reason "..."` child.
+- Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
+  `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
+- Every webhook declares verification and idempotency. `verify none` is an
+  explicit opt-out and must carry a `reason "..."` child.
+- `escape_route` declares `policy` and `tenant` because it is outside generated
+  UI ownership.
+- `auth password` declares `algorithm` and `rate_limit`; `auth sessions`
+  declares `ttl`.
 - `@cap.Secret` is legacy; choose an explicit tier:
   `@cap.Hashed(algorithm:<name>)`, `@cap.Encrypted(key:@key.<scope>)`,
   `@cap.E2ee(key:@key.<scope>)`, or

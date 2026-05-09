@@ -299,16 +299,28 @@ given/when/then framing in v0 tests.
 
 ## Security Checklist
 
-Use these in source, not just Go/runtime:
+Use these in source, not just Go/runtime. `lazuli check` defaults to
+`--security-profile strict`, where missing security decisions are errors.
+`--security-profile prototype` downgrades them to warnings while drafting.
+`--security-profile production` additionally rejects explicit security
+opt-outs such as `verify none` without a deployment allowlist.
 
+- Every `command` requires explicit `policy`.
+- Commands that mutate state or whose effective policy includes `@scope.public`
+  require `rate_limit` or `rate_limit none` with a `reason "..."` child.
+- Sensitive fields with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
+  `@cap.E2ee`, or `@cap.Token` require field-level `read` and `write` policy.
 - `scope override` requires `policy @policy.*` and `reason "..."`.
-- Commands whose effective policy includes `@scope.public` should declare
-  `rate_limit`.
+- Every `webhook` requires `verify` and `idempotency by payload.*`.
 - Event-triggered jobs whose producer event declares `org_id` should declare
   `tenant_from payload.org_id`.
 - Event consumers may only read fields declared by the producer event contract,
   including inherited `event_group` payload fields.
-- Mark sensitive fields and event payloads with `@pii.*`, `@cap.*`, and `@key.*`.
+- `escape_route` requires `policy` and `tenant`.
+- `auth password` requires `algorithm` and `rate_limit`; `auth sessions`
+  requires `ttl`.
+- Mark sensitive fields and event payloads with `@pii.*`, `@cap.*`, and
+  `@key.*`.
 - Use canonical capability arguments: `@cap.Hashed(algorithm:argon2id)`,
   `@cap.Encrypted(key:@key.tenant)`, and
   `@cap.Token(ttl:1h,single_use:true,store:hashed)`.

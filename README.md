@@ -71,6 +71,7 @@ feature customer
 
 ```bash
 cargo run -p lazuli_cli -- parse examples/crm.lzi
+cargo run -p lazuli_cli -- check examples/full-capsule/full-capsule.lzi --security-profile strict
 cargo run -p lazuli_cli -- compile examples/crm.lzi --out generated/crm
 cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
 cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=all --format=lazuli

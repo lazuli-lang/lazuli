@@ -73,6 +73,7 @@ feature comment
       issue_id: ID
       body: Text
     policy @policy.create
+    rate_limit "60 per minute per user"
     creates Comment
       target = CommentTarget.issue
       target_id = input.issue_id
@@ -85,6 +86,7 @@ feature comment
       customer_id: ID
       body: Text
     policy @policy.create
+    rate_limit "60 per minute per user"
     creates Comment
       target = CommentTarget.customer
       target_id = input.customer_id

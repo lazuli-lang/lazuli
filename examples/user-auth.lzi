@@ -73,6 +73,24 @@ feature user
     update: @scope.self, @role.admin
     delete: @role.admin
 
+    fields User
+      email
+        read: @scope.self, @role.admin
+        write: @scope.self, @role.admin
+
+      password_hash
+        read: @actor.system
+        write: @actor.system
+
+    fields Session
+      refresh_token_hash
+        read: @actor.system
+        write: @actor.system
+
+      provider_access_token
+        read: @actor.system
+        write: @actor.system
+
   auth
     identity User.email
 
@@ -122,6 +140,7 @@ feature user
     input
       totp_code: Text
     policy @policy.update
+    rate_limit "10 per minute per user"
     updates User
       mfa_enabled = true
     emits user_mfa_enabled

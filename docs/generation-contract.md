@@ -52,7 +52,7 @@ These constructs generate typed contracts and require source implementation:
 
 `lazuli generate --stubs` may create editable stubs in `features/<feature>/...`.
 
-`lazuli check --strict` must fail if required custom implementations are missing.
+`lazuli check --security-profile strict` must fail if required custom implementations are missing.
 
 ## SQL
 
@@ -77,9 +77,9 @@ Recommended CLI behavior:
 ```bash
 lazuli generate
 lazuli generate --stubs
-lazuli check --strict
+lazuli check --security-profile strict
 ```
 
 - `generate`: emits generated code for declarative parts and reports missing custom implementations.
 - `generate --stubs`: also creates editable custom stubs.
-- `check --strict`: fails on missing custom code, missing SQL files, missing escape route files, unresolved policies, and adapter contract mismatches.
+- `check --security-profile strict`: fails on missing custom code, missing SQL files, missing escape route files, unresolved policies, security omissions, and adapter contract mismatches.

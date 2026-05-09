@@ -570,6 +570,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower-lsp",
 ]
 
 [[package]]

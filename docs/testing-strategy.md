@@ -43,7 +43,7 @@ Each fixture should answer:
 Recommended CI steps:
 
 ```bash
-lazuli check --strict
+lazuli check --security-profile strict
 lazuli plan --check
 lazuli generate
 go test ./...

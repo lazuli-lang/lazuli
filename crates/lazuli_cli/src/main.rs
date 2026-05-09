@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
+use lazuli_lsp::SecurityProfile;
 use serde::Serialize;
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 
@@ -20,6 +22,11 @@ struct Cli {
 enum Commands {
     Parse {
         input: PathBuf,
+    },
+    Check {
+        input: PathBuf,
+        #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
+        security_profile: CheckSecurityProfile,
     },
     Compile {
         input: PathBuf,
@@ -43,6 +50,23 @@ enum Commands {
 enum InspectFormat {
     Json,
     Lazuli,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CheckSecurityProfile {
+    Prototype,
+    Strict,
+    Production,
+}
+
+impl From<CheckSecurityProfile> for SecurityProfile {
+    fn from(profile: CheckSecurityProfile) -> Self {
+        match profile {
+            CheckSecurityProfile::Prototype => SecurityProfile::Prototype,
+            CheckSecurityProfile::Strict => SecurityProfile::Strict,
+            CheckSecurityProfile::Production => SecurityProfile::Production,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -129,6 +153,10 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Parse { input } => parse_command(&input),
+        Commands::Check {
+            input,
+            security_profile,
+        } => check_command(&input, security_profile),
         Commands::Compile { input, out } => compile_command(&input, &out),
         Commands::Inspect {
             input,
@@ -138,6 +166,56 @@ fn main() -> Result<()> {
         Commands::Init { path } => init_command(&path),
         Commands::Lsp => lsp_command(),
     }
+}
+
+fn check_command(input: &Path, security_profile: CheckSecurityProfile) -> Result<()> {
+    let source =
+        fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
+    let diagnostics =
+        lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile.into());
+    let has_error = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
+
+    for diagnostic in &diagnostics {
+        print_diagnostic(input, diagnostic);
+    }
+
+    if has_error {
+        bail!(
+            "{} failed Lazuli checks under {:?} security profile",
+            input.display(),
+            security_profile
+        );
+    }
+
+    println!("{} passed Lazuli checks", input.display());
+    Ok(())
+}
+
+fn print_diagnostic(input: &Path, diagnostic: &Diagnostic) {
+    let severity = match diagnostic.severity {
+        Some(DiagnosticSeverity::ERROR) => "error",
+        Some(DiagnosticSeverity::WARNING) => "warning",
+        Some(DiagnosticSeverity::INFORMATION) => "info",
+        Some(DiagnosticSeverity::HINT) => "hint",
+        _ => "diagnostic",
+    };
+    let code = diagnostic
+        .code
+        .as_ref()
+        .map(|code| match code {
+            tower_lsp::lsp_types::NumberOrString::String(value) => format!(" [{value}]"),
+            tower_lsp::lsp_types::NumberOrString::Number(value) => format!(" [{value}]"),
+        })
+        .unwrap_or_default();
+    println!(
+        "{}:{}:{}: {severity}{code}: {}",
+        input.display(),
+        diagnostic.range.start.line + 1,
+        diagnostic.range.start.character + 1,
+        diagnostic.message
+    );
 }
 
 fn parse_command(input: &Path) -> Result<()> {

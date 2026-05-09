@@ -75,6 +75,7 @@ feature org
   command create
     input name, slug
     policy @policy.create
+    rate_limit "30 per hour per user"
     creates Org
       name = input.name
       slug = input.slug
@@ -86,6 +87,7 @@ feature org
       role: MembershipRole
       team: Team optional
     policy @policy.invite
+    rate_limit "30 per hour per user"
     creates Membership
       user = @fn.resolve_or_invite_user(input.email)
       role = input.role

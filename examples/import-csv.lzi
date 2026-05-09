@@ -77,6 +77,7 @@ feature customer_import
   command upload
     input file
     policy @policy.create
+    rate_limit "20 per hour per user"
     creates ImportBatch
       file = input.file
       uploaded_by = ctx.user

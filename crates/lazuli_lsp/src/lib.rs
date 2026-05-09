@@ -19,6 +19,24 @@ pub fn server_name() -> &'static str {
     "lazuli-lsp"
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecurityProfile {
+    Prototype,
+    Strict,
+    Production,
+}
+
+pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
+    diagnostics_for_source_with_profile(source, SecurityProfile::Strict)
+}
+
+pub fn diagnostics_for_source_with_profile(
+    source: &str,
+    security_profile: SecurityProfile,
+) -> Vec<Diagnostic> {
+    diagnostics_for_with_profile(source, security_profile)
+}
+
 pub async fn serve_stdio() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
@@ -271,6 +289,13 @@ fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
 }
 
 fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
+    diagnostics_for_with_profile(source, SecurityProfile::Strict)
+}
+
+fn diagnostics_for_with_profile(
+    source: &str,
+    security_profile: SecurityProfile,
+) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
         diagnostics.extend(query_mode_diagnostics(source));
@@ -284,7 +309,7 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
         diagnostics.extend(scope_override_policy_diagnostics(source));
         diagnostics.extend(query_order_default_diagnostics(source));
         diagnostics.extend(query_filter_index_diagnostics(source));
-        diagnostics.extend(public_command_rate_limit_diagnostics(source));
+        diagnostics.extend(command_rate_limit_contract_diagnostics(source));
         diagnostics.extend(event_job_tenant_from_diagnostics(source));
         diagnostics.extend(crypto_contract_diagnostics(source));
         diagnostics.extend(sql_return_type_diagnostics(source));
@@ -301,9 +326,13 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
         diagnostics.extend(anchor_whitelist_diagnostics(source));
         diagnostics.extend(test_block_diagnostics(source));
         diagnostics.extend(command_contract_diagnostics(source));
+        diagnostics.extend(field_security_policy_diagnostics(source));
+        diagnostics.extend(webhook_security_diagnostics(source));
+        diagnostics.extend(escape_route_security_diagnostics(source));
+        diagnostics.extend(auth_security_diagnostics(source));
         diagnostics.extend(extension_reference_diagnostics(source));
         diagnostics.extend(idempotency_key_diagnostics(source));
-        return diagnostics;
+        return apply_security_profile(diagnostics, security_profile);
     }
 
     if is_lzx_source(source) {
@@ -1653,10 +1682,13 @@ struct CommandSecurityFacts {
     line_index: usize,
     line: String,
     policy: Option<String>,
+    has_write_effect: bool,
     has_rate_limit: bool,
+    rate_limit_none: Option<(usize, String)>,
+    rate_limit_none_has_reason: bool,
 }
 
-fn public_command_rate_limit_diagnostics(source: &str) -> Vec<Diagnostic> {
+fn command_rate_limit_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let policies = collect_policy_atom_map(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -1684,7 +1716,10 @@ fn public_command_rate_limit_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line_index,
                     line: line.to_owned(),
                     policy: None,
+                    has_write_effect: false,
                     has_rate_limit: false,
+                    rate_limit_none: None,
+                    rate_limit_none_has_reason: false,
                 });
             continue;
         }
@@ -1703,9 +1738,19 @@ fn public_command_rate_limit_diagnostics(source: &str) -> Vec<Diagnostic> {
         if leading_spaces(line) == 4 {
             if let Some(policy) = policy_statement_ref(trimmed) {
                 command.policy = Some(policy.to_owned());
+            } else if trimmed == "rate_limit none" {
+                command.has_rate_limit = true;
+                command.rate_limit_none = Some((line_index, line.to_owned()));
             } else if trimmed.starts_with("rate_limit ") {
                 command.has_rate_limit = true;
+            } else if command_write_effect(trimmed).is_some() {
+                command.has_write_effect = true;
             }
+        } else if leading_spaces(line) == 6
+            && command.rate_limit_none.is_some()
+            && trimmed.starts_with("reason ")
+        {
+            command.rate_limit_none_has_reason = true;
         }
     }
 
@@ -1720,22 +1765,35 @@ fn command_rate_limit_diagnostics(
     command: CommandSecurityFacts,
     policies: &HashMap<(String, String), Vec<String>>,
 ) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
     let is_public = command
         .policy
         .as_deref()
         .is_some_and(|policy| policy_ref_is_public(&command.feature, policy, policies));
 
-    if is_public && !command.has_rate_limit {
-        vec![simple_canonical_diagnostic(
+    if (is_public || command.has_write_effect) && !command.has_rate_limit {
+        diagnostics.push(simple_canonical_diagnostic(
             command.line_index,
             &command.line,
             DiagnosticSeverity::WARNING,
-            "public-command-rate-limit",
-            "commands authorized by `@scope.public` should declare a command-level `rate_limit`.",
-        )]
-    } else {
-        Vec::new()
+            "command-rate-limit",
+            "commands that are public or mutate state must declare a command-level `rate_limit` or `rate_limit none` with a `reason` child.",
+        ));
     }
+
+    if let Some((line_index, line)) = command.rate_limit_none
+        && !command.rate_limit_none_has_reason
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            &line,
+            DiagnosticSeverity::WARNING,
+            "security-opt-out",
+            "`rate_limit none` is an explicit security opt-out and must include a `reason \"...\"` child.",
+        ));
+    }
+
+    diagnostics
 }
 
 fn policy_ref_is_public(
@@ -2807,6 +2865,527 @@ fn idempotency_key_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+#[derive(Debug)]
+struct SensitiveFieldFacts {
+    feature: String,
+    resource: String,
+    field: String,
+    line_index: usize,
+    line: String,
+}
+
+#[derive(Debug, Default)]
+struct FieldPolicyFacts {
+    read: bool,
+    write: bool,
+}
+
+fn field_security_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let sensitive_fields = collect_sensitive_fields(source);
+    let field_policies = collect_field_policy_facts(source);
+    let mut diagnostics = Vec::new();
+
+    for field in sensitive_fields {
+        let has_policy = field_policies
+            .get(&(
+                field.feature.clone(),
+                field.resource.clone(),
+                field.field.clone(),
+            ))
+            .is_some_and(|policy| policy.read && policy.write);
+
+        if !has_policy {
+            diagnostics.push(simple_canonical_diagnostic(
+                field.line_index,
+                &field.line,
+                DiagnosticSeverity::WARNING,
+                "field-security-policy",
+                &format!(
+                    "sensitive field `{}.{}` uses `@pii.*` or `@cap.*` and must declare field-level `read` and `write` policies under `policies fields {}`.",
+                    field.resource, field.field, field.resource
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn collect_sensitive_fields(source: &str) -> Vec<SensitiveFieldFacts> {
+    let mut fields = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_resource: Option<String> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+                current_resource = None;
+            }
+            2 => {
+                current_top = trimmed.split_whitespace().next();
+                current_resource = None;
+            }
+            4 if current_top == Some("domain") => {
+                current_resource = trimmed
+                    .strip_prefix("resource ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+            }
+            6 if current_top == Some("domain") => {
+                let Some(feature) = current_feature.as_deref() else {
+                    continue;
+                };
+                let Some(resource) = current_resource.as_deref() else {
+                    continue;
+                };
+                let Some((field, _)) = typed_param(trimmed) else {
+                    continue;
+                };
+                if is_sensitive_field_line(line) {
+                    fields.push(SensitiveFieldFacts {
+                        feature: feature.to_owned(),
+                        resource: resource.to_owned(),
+                        field: field.to_owned(),
+                        line_index,
+                        line: line.to_owned(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fields
+}
+
+fn is_sensitive_field_line(line: &str) -> bool {
+    line.contains("@pii.")
+        || line.contains("@cap.Encrypted")
+        || line.contains("@cap.E2ee")
+        || line.contains("@cap.Hashed")
+        || line.contains("@cap.Token")
+}
+
+fn collect_field_policy_facts(source: &str) -> HashMap<(String, String, String), FieldPolicyFacts> {
+    let mut policies = HashMap::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_policy_resource: Option<String> = None;
+    let mut current_policy_field: Option<String> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+                current_policy_resource = None;
+                current_policy_field = None;
+            }
+            2 => {
+                current_top = trimmed.split_whitespace().next();
+                current_policy_resource = None;
+                current_policy_field = None;
+            }
+            4 if current_top == Some("policies") => {
+                current_policy_resource = trimmed
+                    .strip_prefix("fields ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+                current_policy_field = None;
+            }
+            6 if current_top == Some("policies") && current_policy_resource.is_some() => {
+                current_policy_field = Some(trimmed.to_owned());
+            }
+            8 if current_top == Some("policies") => {
+                let Some(feature) = current_feature.as_deref() else {
+                    continue;
+                };
+                let Some(resource) = current_policy_resource.as_deref() else {
+                    continue;
+                };
+                let Some(field) = current_policy_field.as_deref() else {
+                    continue;
+                };
+                let entry = policies
+                    .entry((feature.to_owned(), resource.to_owned(), field.to_owned()))
+                    .or_insert_with(FieldPolicyFacts::default);
+                if trimmed.starts_with("read:") {
+                    entry.read = true;
+                } else if trimmed.starts_with("write:") {
+                    entry.write = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    policies
+}
+
+#[derive(Debug)]
+struct WebhookSecurityFacts {
+    line_index: usize,
+    line: String,
+    has_verify: bool,
+    verify_none: Option<(usize, String)>,
+    verify_none_has_reason: bool,
+    has_idempotency: bool,
+}
+
+fn webhook_security_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_webhook: Option<WebhookSecurityFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("webhook ") {
+            if let Some(webhook) = current_webhook.take() {
+                diagnostics.extend(webhook_diagnostics(webhook));
+            }
+            current_webhook = Some(WebhookSecurityFacts {
+                line_index,
+                line: line.to_owned(),
+                has_verify: false,
+                verify_none: None,
+                verify_none_has_reason: false,
+                has_idempotency: false,
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 && !trimmed.is_empty() {
+            if let Some(webhook) = current_webhook.take() {
+                diagnostics.extend(webhook_diagnostics(webhook));
+            }
+            continue;
+        }
+
+        let Some(webhook) = current_webhook.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4 {
+            if trimmed == "verify none" {
+                webhook.has_verify = true;
+                webhook.verify_none = Some((line_index, line.to_owned()));
+            } else if trimmed.starts_with("verify ") {
+                webhook.has_verify = true;
+            } else if trimmed.starts_with("idempotency by ") {
+                webhook.has_idempotency = true;
+            }
+        } else if leading_spaces(line) == 6
+            && webhook.verify_none.is_some()
+            && trimmed.starts_with("reason ")
+        {
+            webhook.verify_none_has_reason = true;
+        }
+    }
+
+    if let Some(webhook) = current_webhook {
+        diagnostics.extend(webhook_diagnostics(webhook));
+    }
+
+    diagnostics
+}
+
+fn webhook_diagnostics(webhook: WebhookSecurityFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if !webhook.has_verify {
+        diagnostics.push(simple_canonical_diagnostic(
+            webhook.line_index,
+            &webhook.line,
+            DiagnosticSeverity::WARNING,
+            "webhook-verify",
+            "webhooks are inbound trust boundaries and must declare `verify ...` or explicit `verify none` with a `reason` child.",
+        ));
+    }
+
+    if !webhook.has_idempotency {
+        diagnostics.push(simple_canonical_diagnostic(
+            webhook.line_index,
+            &webhook.line,
+            DiagnosticSeverity::WARNING,
+            "webhook-idempotency",
+            "webhooks must declare `idempotency by payload.<business_key>` so verified inbound deliveries cannot be replayed silently.",
+        ));
+    }
+
+    if let Some((line_index, line)) = webhook.verify_none
+        && !webhook.verify_none_has_reason
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            &line,
+            DiagnosticSeverity::WARNING,
+            "security-opt-out",
+            "`verify none` is an explicit security opt-out and must include a `reason \"...\"` child.",
+        ));
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct EscapeRouteSecurityFacts {
+    line_index: usize,
+    line: String,
+    has_policy: bool,
+    has_tenant: bool,
+}
+
+fn escape_route_security_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_escape_route: Option<EscapeRouteSecurityFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("escape_route ") {
+            if let Some(route) = current_escape_route.take() {
+                diagnostics.extend(escape_route_diagnostics(route));
+            }
+            current_escape_route = Some(EscapeRouteSecurityFacts {
+                line_index,
+                line: line.to_owned(),
+                has_policy: false,
+                has_tenant: false,
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 && !trimmed.is_empty() {
+            if let Some(route) = current_escape_route.take() {
+                diagnostics.extend(escape_route_diagnostics(route));
+            }
+            continue;
+        }
+
+        let Some(route) = current_escape_route.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4 {
+            if trimmed.starts_with("policy ") {
+                route.has_policy = true;
+            } else if trimmed.starts_with("tenant ") {
+                route.has_tenant = true;
+            }
+        }
+    }
+
+    if let Some(route) = current_escape_route {
+        diagnostics.extend(escape_route_diagnostics(route));
+    }
+
+    diagnostics
+}
+
+fn escape_route_diagnostics(route: EscapeRouteSecurityFacts) -> Vec<Diagnostic> {
+    let mut missing = Vec::new();
+    if !route.has_policy {
+        missing.push("policy");
+    }
+    if !route.has_tenant {
+        missing.push("tenant");
+    }
+
+    if missing.is_empty() {
+        Vec::new()
+    } else {
+        vec![simple_canonical_diagnostic(
+            route.line_index,
+            &route.line,
+            DiagnosticSeverity::WARNING,
+            "escape-route-security",
+            &format!(
+                "`escape_route` is outside generated UI ownership and must declare {}.",
+                missing.join(" and ")
+            ),
+        )]
+    }
+}
+
+#[derive(Debug, Default)]
+struct AuthSecurityFacts {
+    password_line: Option<(usize, String)>,
+    password_algorithm: bool,
+    password_rate_limit: bool,
+    sessions_line: Option<(usize, String)>,
+    sessions_ttl: bool,
+}
+
+fn auth_security_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_top: Option<&str> = None;
+    let mut auth = AuthSecurityFacts::default();
+    let mut auth_child: Option<&str> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 2 {
+            if current_top == Some("auth") {
+                diagnostics.extend(auth_diagnostics(std::mem::take(&mut auth)));
+            }
+            current_top = trimmed.split_whitespace().next();
+            auth_child = None;
+            continue;
+        }
+
+        if current_top != Some("auth") {
+            continue;
+        }
+
+        if leading_spaces(line) == 4 {
+            if trimmed == "password" {
+                auth.password_line = Some((line_index, line.to_owned()));
+                auth_child = Some("password");
+            } else if trimmed == "sessions" {
+                auth.sessions_line = Some((line_index, line.to_owned()));
+                auth_child = Some("sessions");
+            } else {
+                auth_child = None;
+            }
+        } else if leading_spaces(line) == 6 {
+            match auth_child {
+                Some("password") => {
+                    if trimmed.starts_with("algorithm ") {
+                        auth.password_algorithm = true;
+                    } else if trimmed.starts_with("rate_limit ") {
+                        auth.password_rate_limit = true;
+                    }
+                }
+                Some("sessions") => {
+                    if trimmed.starts_with("ttl ") {
+                        auth.sessions_ttl = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if current_top == Some("auth") {
+        diagnostics.extend(auth_diagnostics(auth));
+    }
+
+    diagnostics
+}
+
+fn auth_diagnostics(auth: AuthSecurityFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if let Some((line_index, line)) = auth.password_line {
+        if !auth.password_algorithm {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "auth-password-algorithm",
+                "`auth password` must declare `algorithm <name>` so the password hash contract is audit-visible.",
+            ));
+        }
+        if !auth.password_rate_limit {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "auth-password-rate-limit",
+                "`auth password` must declare a `rate_limit` for credential guessing protection.",
+            ));
+        }
+    }
+
+    if let Some((line_index, line)) = auth.sessions_line
+        && !auth.sessions_ttl
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            &line,
+            DiagnosticSeverity::WARNING,
+            "auth-session-ttl",
+            "`auth sessions` must declare `ttl` so generated session lifetime is explicit.",
+        ));
+    }
+
+    diagnostics
+}
+
+fn apply_security_profile(
+    mut diagnostics: Vec<Diagnostic>,
+    security_profile: SecurityProfile,
+) -> Vec<Diagnostic> {
+    for diagnostic in &mut diagnostics {
+        let Some(code) = diagnostic_code(diagnostic) else {
+            continue;
+        };
+
+        if is_security_enforcement_code(code) {
+            diagnostic.severity = Some(match security_profile {
+                SecurityProfile::Prototype => DiagnosticSeverity::WARNING,
+                SecurityProfile::Strict | SecurityProfile::Production => DiagnosticSeverity::ERROR,
+            });
+        } else if security_profile == SecurityProfile::Production && is_security_opt_out_code(code)
+        {
+            diagnostic.severity = Some(DiagnosticSeverity::ERROR);
+        }
+    }
+
+    diagnostics
+}
+
+fn diagnostic_code(diagnostic: &Diagnostic) -> Option<&str> {
+    match diagnostic.code.as_ref()? {
+        tower_lsp::lsp_types::NumberOrString::String(code) => Some(code.as_str()),
+        tower_lsp::lsp_types::NumberOrString::Number(_) => None,
+    }
+}
+
+fn is_security_enforcement_code(code: &str) -> bool {
+    matches!(
+        code,
+        "command-policy"
+            | "command-rate-limit"
+            | "scope-override-policy"
+            | "scope-override-reason"
+            | "field-security-policy"
+            | "webhook-verify"
+            | "webhook-idempotency"
+            | "event-job-tenant-from"
+            | "event-consumer-payload"
+            | "crypto-tier"
+            | "crypto-hash-algorithm"
+            | "crypto-key-scope"
+            | "crypto-token-contract"
+            | "crypto-capability-arguments"
+            | "escape-route-security"
+            | "auth-password-algorithm"
+            | "auth-password-rate-limit"
+            | "auth-session-ttl"
+    )
+}
+
+fn is_security_opt_out_code(code: &str) -> bool {
+    matches!(code, "security-opt-out")
 }
 
 fn simple_canonical_diagnostic(
@@ -4607,7 +5186,10 @@ const KEYWORDS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{diagnostics_for, diagnostics_for_uri, format_canonical_source};
+    use super::{
+        SecurityProfile, diagnostics_for, diagnostics_for_uri, diagnostics_for_with_profile,
+        format_canonical_source,
+    };
     use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
     #[test]
@@ -4631,6 +5213,7 @@ feature customer
 
   command create
     policy @policy.create
+    rate_limit "30 per hour per user"
     creates Customer
 
   workflow lifecycle on Customer.status
@@ -4641,6 +5224,10 @@ feature customer
 
   webhook inbound
     path "/webhooks/inbound"
+    verify hmac sha256
+      secret env.INBOUND_WEBHOOK_SECRET
+      header "X-Signature"
+    idempotency by payload.id
 
   surface web admin
     view list Table
@@ -4810,6 +5397,7 @@ feature customer
     resource Customer
 
   command create
+    rate_limit "30 per hour per user"
     creates Customer
 "#;
 
@@ -4973,8 +5561,170 @@ feature user
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .message
-                .contains("commands authorized by `@scope.public` should declare")
+                .contains("commands that are public or mutate state must declare")
         }));
+    }
+
+    #[test]
+    fn strict_profile_promotes_security_omissions_to_errors() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  command create
+    creates Customer
+"#;
+
+        let prototype = diagnostics_for_with_profile(source, SecurityProfile::Prototype);
+        let strict = diagnostics_for_with_profile(source, SecurityProfile::Strict);
+
+        assert!(prototype.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::WARNING)
+                && diagnostic
+                    .message
+                    .contains("should declare `policy` explicitly")
+        }));
+        assert!(strict.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+                && diagnostic
+                    .message
+                    .contains("should declare `policy` explicitly")
+        }));
+    }
+
+    #[test]
+    fn canonical_requires_field_policies_for_sensitive_fields() {
+        let source = r#"
+feature auth
+  purpose "Auth"
+
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+                && diagnostic
+                    .message
+                    .contains("must declare field-level `read` and `write` policies")
+        }));
+    }
+
+    #[test]
+    fn canonical_requires_webhook_verify_and_idempotency() {
+        let source = r#"
+feature billing
+  purpose "Billing"
+
+  webhook stripe_invoice_paid
+    path "/webhooks/stripe/invoice-paid"
+    handler "./integrations/stripe.go"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.iter().any(|message| {
+            message.contains("webhooks are inbound trust boundaries and must declare `verify")
+        }));
+        assert!(
+            messages.iter().any(|message| {
+                message.contains("webhooks must declare `idempotency by payload.")
+            })
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR))
+        );
+    }
+
+    #[test]
+    fn production_profile_rejects_security_opt_out_without_reason() {
+        let source = r#"
+feature billing
+  purpose "Billing"
+
+  webhook inbound
+    path "/webhooks/inbound"
+    verify none
+    idempotency by payload.id
+"#;
+
+        let strict = diagnostics_for_with_profile(source, SecurityProfile::Strict);
+        let production = diagnostics_for_with_profile(source, SecurityProfile::Production);
+
+        assert!(strict.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::WARNING)
+                && diagnostic.message.contains("`verify none`")
+        }));
+        assert!(production.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+                && diagnostic.message.contains("`verify none`")
+        }));
+    }
+
+    #[test]
+    fn canonical_requires_escape_route_security_envelope() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  escape_route "/admin/raw"
+    at "./pages/raw.tsx"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+                && diagnostic
+                    .message
+                    .contains("`escape_route` is outside generated UI ownership")
+        }));
+    }
+
+    #[test]
+    fn canonical_requires_auth_password_and_session_contracts() {
+        let source = r#"
+feature auth
+  purpose "Auth"
+
+  auth
+    password
+      hash @fn.hash_password
+
+    sessions
+      resource Session
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("`auth password` must declare `algorithm"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("credential guessing protection"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("`auth sessions` must declare `ttl`"))
+        );
     }
 
     #[test]
@@ -5452,6 +6202,7 @@ feature customer
     input name
     target query.by_id(id: route.id)
     policy @policy.update
+    rate_limit "30 per minute per user"
     updates Customer
       name = input.name
 "#;
@@ -5483,6 +6234,7 @@ feature customer
   command create
     input name, email
     policy @policy.create
+    rate_limit "30 per hour per user"
     creates Customer
       name = input.name
       email = input.email
@@ -5507,6 +6259,7 @@ feature customer
   command create
     input display_name
     policy @policy.create
+    rate_limit "30 per hour per user"
     creates Customer
       name = input.display_name
 "#;
@@ -5568,6 +6321,7 @@ feature customer_tags
     input customer_id, tag_id
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy @policy.update
+    rate_limit "60 per minute per user"
     deletes CustomerTagAssignment
 "#;
 
@@ -5601,6 +6355,7 @@ feature inventory
     route id: ID
     input amount
     policy @policy.update
+    rate_limit "60 per minute per user"
     updates SourceStock
       amount = input.amount
     updates TargetStock
@@ -5639,6 +6394,7 @@ feature customer_tags
       tag_id: ID
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy @policy.update
+    rate_limit "60 per minute per user"
     deletes CustomerTagAssignment
 "#;
 
@@ -5664,6 +6420,7 @@ feature customer
   command create
     input name, email
     policy @policy.create
+    rate_limit "30 per hour per user"
     creates Customer
       name = input.name
       email = input.email
@@ -5734,6 +6491,7 @@ feature customer
     input
       name: Text
     policy @policy.update
+    rate_limit "30 per hour per user"
     creates Customer
       name = input.name
 
@@ -5872,6 +6630,10 @@ feature billing
 
   webhook stripe_invoice_paid
     path "/webhooks/stripe/invoice-paid"
+    verify hmac sha256
+      secret env.STRIPE_WEBHOOK_SECRET
+      header "Stripe-Signature"
+    idempotency by payload.provider_event_id
 "#;
 
         let diagnostics = diagnostics_for(source);
@@ -5900,6 +6662,10 @@ feature customer
 
   webhook inbound
     path "/webhooks/inbound"
+    verify hmac sha256
+      secret env.INBOUND_WEBHOOK_SECRET
+      header "X-Signature"
+    idempotency by payload.id
 "#;
 
         let formatted = format_canonical_source(source).expect("canonical source");

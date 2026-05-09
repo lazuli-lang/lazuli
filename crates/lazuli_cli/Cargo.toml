@@ -22,3 +22,4 @@ lazuli_syntax = { path = "../lazuli_syntax" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tower-lsp.workspace = true
