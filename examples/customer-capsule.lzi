@@ -1,97 +1,91 @@
 # Sketch syntax for Lazuli feature capsules.
-# Ruby-like, restricted, and not compiler-executable yet.
+# Indentation-based design fixture, not compiler-executable yet.
 
-feature :customer do
+feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
-  non_goals "invoicing — see feature(:invoice)",
-            "credit scoring engine — see feature(:scoring)",
-            "user authentication — see feature(:user)"
+  non_goals
+    "invoicing - see feature invoice"
+    "credit scoring engine - see feature scoring"
+    "user authentication - see feature user"
 
-  domain do
-    enum :customer_status, values: [:lead, :active, :archived]
+  domain
+    enum CustomerStatus
+      lead
+      active
+      archived
 
-    resource do
-      field :org_id, ref(:org),             required: true
-      field :name,   text,                  required: true
-      field :email,  email,                 required: true
-      field :status, types.customer_status, default: :lead
+    resource Customer
+      org_id: Org required
+      name: Text required
+      email: Email required
+      status: CustomerStatus = lead
 
       soft_delete
       timestamps
-    end
 
-    constraints do
-      unique :email, scope: :org_id
-    end
+    constraints
+      unique email per org_id
 
-    query :list do
-      where    org_id: ctx.user.org_id, deleted_at: nil
-      order_by created_at: :desc
+    query list
+      where
+        org_id = ctx.user.org_id
+        deleted_at = nil
+
+      order created_at desc
       paginate 50
-    end
 
-    query :by_id do
-      param :id, ID
+    query by_id
+      params
+        id: ID
 
-      where id: id, org_id: ctx.user.org_id
-    end
+      where
+        id = id
+        org_id = ctx.user.org_id
 
-    rule "deleted customers cannot be invoiced" do
-      forbid Invoice.create, where: { customer.deleted_at: not_nil }
+    rule "deleted customers cannot be invoiced"
+      forbid Invoice.create where customer.deleted_at != nil
       message "Cannot invoice an archived customer"
-    end
 
-    event :customer_created do
-      field :id,     ID
-      field :org_id, ID
-      field :email,  Email
-    end
+    event customer_created
+      id: ID
+      org_id: ID
+      email: Email
 
-    event :customer_archived do
-      field :id, ID
-      field :by, ref(:user)
-    end
-  end
+    event customer_archived
+      id: ID
+      by: User
 
-  policies do
-    create :role_admin, :role_sales
-    update :role_admin, :role_sales
-    delete :role_admin
-    read   :same_org
-  end
+  policies
+    create role_admin, role_sales
+    update role_admin, role_sales
+    delete role_admin
+    read same_org
 
-  action :create, Form do
-    fields :name, :email
-    emits  :customer_created
-  end
+  command create
+    input name, email
+    policy create
+    emits customer_created
 
-  action :archive, Transition do
-    status   from: :active, to: :archived
-    requires policies.update
-  end
+  workflow status
+    archive: active -> archived
+      policy update
+      emits customer_archived
 
-  surface do
-    view :list, Table do
-      source  query.list
-      columns :name, :email, :status, :created_at
-      search  :name, :email
-      filter  :status
+  surface web admin
+    view list Table
+      source query.list
+      columns name, email, status, created_at
+      search name, email
+      filter status
 
-      cells do
+      cells
         status ext.status_cell
-      end
-    end
 
-    view :detail, SidePanel do
+    view detail SidePanel
       source query.by_id(id: route.id)
-    end
 
-    client :status_cell, CellRenderer[Customer]
-  end
-
-  hooks do
-    server :before_create, Hook[Customer.create]
-    server :risk_score,    Function[Customer, RiskScore]
-  end
-end
+  extensions
+    client status_cell: CellRenderer[Customer]
+    server before_create: Hook[CreateCustomer]
+    server risk_score: Function[Customer, RiskScore]

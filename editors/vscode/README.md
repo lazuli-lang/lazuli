@@ -1,8 +1,8 @@
 # Lazuli VS Code Extension
 
-Adds Lazuli language support:
+Adds Lazuli `.lzi` language support:
 
-- Syntax highlighting for `.lzi` capsules
+- Syntax highlighting for feature capsules
 - Bracket and comment configuration
 
 ## Development
@@ -11,64 +11,69 @@ This is intentionally syntax-only for now. Open this folder in VS Code and press
 
 No Lazuli language server is started by this extension yet.
 
-The sample syntax follows the current capsule sketch:
+The sample syntax follows the indentation-based capsule sketch:
 
 ```txt
-feature :name do
+feature name
   purpose "short product reason"
-  non_goals "thing this feature does not own"
 
-  domain do
-    enum :kind, values: [:one]
+  non_goals
+    "thing this feature does not own"
 
-    resource do
-      field :name, text
-    end
+  domain
+    enum Kind
+      one
 
-    constraints do
-    end
+    resource Thing
+      name: Text required
 
-    query :name do
-    end
+    constraints
+      unique name per org_id
 
-    rule "human text" do
-    end
+    query list
+      where
+        org_id = ctx.user.org_id
 
-    event :name do
-      field :id, ID
-    end
-  end
+    rule "human text"
+      forbid Invoice.create where thing.deleted_at != nil
 
-  policies do
-  end
+    event created
+      id: ID
 
-  action :name, Type do
-  end
+  policies
+    read same_org
 
-  surface do
-    view :name, Type do
-    end
+  command create
+    input name
+    policy read
+    emits created
 
-    client :name, Type
-  end
+  workflow status
+    archive: active -> archived
+      policy read
 
-  hooks do
-    server :name, Type
-  end
-end
+  surface web admin
+    view list Table
+      source query.list
+      columns name
+
+  extensions
+    client status_cell: CellRenderer[Thing]
+    server before_create: Hook[CreateThing]
 ```
 
 Current consistency rules:
 
-- Named semantic references use namespaces such as `types.customer_status`, `query.list`, `policies.update`, and `ext.status_cell`.
-- Query calls use named arguments, e.g. `query.by_id(id: route.id)`.
-- Predicates are represented as map values, e.g. `where: { customer.deleted_at: not_nil }`, not free-form boolean expressions.
+- Blocks are opened by indentation, not `do`/`end` or braces.
+- Fields and typed extension contracts use `name: Type`.
+- Defaults use `=`, e.g. `status: Status = active`.
+- Transitions use `->`, e.g. `archive: active -> archived`.
 - `<feature>.ctx.md` sits next to the capsule by convention. `context` is only an override for non-standard locations.
 - Context files are source, not generated frontend/backend output.
 
 Highlighting groups:
 
-- Layer sections: `domain`, `surface`, `hooks`.
-- Structural constructors: `feature`, `resource`, `enum`, `query`, `action`, `view`, `rule`, `event`, `escape_route`.
-- Section containers: `constraints`, `policies`, `cells`.
-- Internal statements: `field`, `where`, `paginate`, `requires`, `emits`, `forbid`, `source`, `columns`, and similar verbs.
+- Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `escape_route`.
+- Layer sections: `domain`, `surface`, `extensions`.
+- Section containers: `constraints`, `policies`, `params`, `where`, `cells`, `non_goals`.
+- Internal statements: `input`, `policy`, `emits`, `forbid`, `message`, `source`, `columns`, and similar verbs.

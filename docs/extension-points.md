@@ -28,24 +28,19 @@ features/customer/
 The capsule declares contracts:
 
 ```lazuli
-surface do
-  client :status_cell, CellRenderer[Customer]
-end
-
-hooks do
-  server :before_create, Hook[Customer.create]
-  server :risk_score,    Function[Customer, RiskScore]
-end
+extensions
+  client status_cell: CellRenderer[Customer]
+  server before_create: Hook[CreateCustomer]
+  server risk_score: Function[Customer, RiskScore]
 ```
 
-By default, Lazuli resolves `:status_cell` to `features/customer/status_cell.*`.
+By default, Lazuli resolves `status_cell` to `features/customer/ui/status_cell.*`.
 
 Use `at:` only when the convention is not enough:
 
 ```lazuli
-surface do
-  client :status_cell, CellRenderer[Customer], at: "./ui/status_cell.tsx"
-end
+extensions
+  client status_cell: CellRenderer[Customer] at "./ui/status_cell.tsx"
 ```
 
 ## TypeScript Contract
@@ -137,23 +132,26 @@ If a feature needs to replace a whole generated structure, it should use an expl
 Normal queries stay declarative:
 
 ```lazuli
-query :list do
-  where org_id: ctx.user.org_id
+query list
+  where
+    org_id = ctx.user.org_id
+
   paginate 50
-end
 ```
 
 Raw SQL stays in the `query.*` namespace, but it must be marked explicitly:
 
 ```lazuli
-query :customer_lifetime_value, raw: true do
-  returns list_of(:customer_ltv)
-  param :org_id, ID
-  sql at: "./queries/customer_ltv.sql"
-end
+query customer_lifetime_value raw
+  returns CustomerLtv[]
+
+  params
+    org_id: ID
+
+  sql "./queries/customer_ltv.sql"
 ```
 
-`raw: true` means:
+`raw` means:
 
 - Lazuli cannot fully derive policy safety.
 - Schema renames are not automatically safe.
@@ -166,10 +164,10 @@ end
 Some routes do not belong inside Lazuli. Mark them explicitly:
 
 ```lazuli
-escape_route "/admin/raw-sql-console", at: "./pages/sql_console.tsx"
+escape_route "/admin/raw-sql-console" at "./pages/sql_console.tsx"
 ```
 
-Lazuli should know that the route exists, but it should not try to generate its policies, queries, views, or actions.
+Lazuli should know that the route exists, but it should not try to generate its policies, queries, views, or commands.
 
 ## Inspect Output
 
@@ -178,11 +176,11 @@ This design preserves compact agent context:
 ```txt
 Resource: Customer
 Queries: 2
-Actions: 2
+Commands: 2
 Views: 2
 Extension points implemented:
-  status_cell   -> features/customer/status_cell.tsx
-  before_create -> features/customer/before_create.go
+  status_cell   -> features/customer/ui/status_cell.tsx
+  before_create -> features/customer/hooks/before_create.go
   risk_score    -> not implemented
 ```
 
@@ -203,14 +201,14 @@ Lazuli resolves `<feature>.ctx.md` by convention. It is source, versioned with t
 Use `context` only as an override when the convention is not enough:
 
 ```lazuli
-feature :customer do
+feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
-  non_goals "invoicing — see feature(:invoice)",
-            "credit scoring engine — see feature(:scoring)"
+  non_goals
+    "invoicing - see feature invoice"
+    "credit scoring engine - see feature scoring"
 
   context "@docs/shared/customer-context.md"
-end
 ```
 
 The context file is complementary prose only: history, AI guidance, performance notes, narrative examples, and decision logs. It should not duplicate schema, operations, policies, rules, events, or extension contracts from the `.lzi` file.

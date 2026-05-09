@@ -1,5 +1,9 @@
 const vscode = require('vscode');
 
+const LANGUAGE_BY_EXTENSION = {
+  '.lzi': 'lazuli'
+};
+
 function activate(context) {
   for (const document of vscode.workspace.textDocuments) {
     ensureLazuliLanguage(document);
@@ -19,15 +23,18 @@ function ensureLazuliLanguage(document) {
     return;
   }
 
-  if (!document.uri.fsPath.toLowerCase().endsWith('.lzi')) {
+  const path = document.uri.fsPath.toLowerCase();
+  const match = Object.keys(LANGUAGE_BY_EXTENSION).find((ext) => path.endsWith(ext));
+  if (!match) {
     return;
   }
 
-  if (document.languageId === 'lazuli') {
+  const targetLanguage = LANGUAGE_BY_EXTENSION[match];
+  if (document.languageId === targetLanguage) {
     return;
   }
 
-  void vscode.languages.setTextDocumentLanguage(document, 'lazuli');
+  void vscode.languages.setTextDocumentLanguage(document, targetLanguage);
 }
 
 module.exports = {

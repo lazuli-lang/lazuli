@@ -26,7 +26,7 @@ Goal: find whether Lazuli covers the repetitive 70% while leaving rich domain be
 ## Questions Per Feature
 
 - Which parts fit declaratively?
-- Which semantic group changes: `domain`, `policies`, `action`, `surface`, or `hooks`?
+- Which semantic group changes: `domain`, `policies`, `command`, `workflow`, `surface`, or `extensions`?
 - Which parts need extension points?
 - Are extension points small and typed, or are they replacing generated structure?
 - Which custom files would an agent need to read for this feature?

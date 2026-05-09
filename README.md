@@ -23,30 +23,32 @@ This repository currently contains a small MVP:
 ## Example
 
 ```lzi
-app CRM
+feature customer
+  purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
-aggregate Customer {
-  name: Text required
-  email: Email required unique
-  status: CustomerStatus default Lead
+  domain
+    resource Customer
+      name: Text required
+      email: Email required
+      status: CustomerStatus = lead
 
-  command Create {
+    query list
+      where
+        org_id = ctx.user.org_id
+
+  policies
+    create role_admin
+    read same_org
+
+  command create
     input name, email
-    policy customer.create
-    emits CustomerCreated
-  }
+    policy create
+    emits customer_created
 
-  query List {
-    search name, email
-    filter status
-  }
-
-  surface App {
-    list columns name, email, status
-    form fields name, email
-    detail fields name, email, status
-  }
-}
+  surface web admin
+    view list Table
+      source query.list
+      columns name, email, status
 ```
 
 ## Commands
@@ -78,7 +80,7 @@ Press `F5` to run it as an Extension Development Host. It opens `examples/custom
 
 If you have the repository root open instead, `F5` also works; the root launch config points at `editors/vscode`.
 
-The highlighter currently follows the Ruby-like Lazuli sketch: symbols for semantic identifiers, `do`/`end` blocks, named labels, short feature context (`purpose`, `non_goals`, and optional `context` override), semantic groups (`domain`, `policies`, `surface`, `hooks`), namespaced refs, query/action/view declarations, typed extensions, rules, and events. The semantic graph is intentionally not authored in `.lzi`; it should be derived later by the compiler. This extension does not start the Lazuli LSP yet.
+The highlighter currently follows the indentation-based Lazuli sketch: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, short feature context (`purpose`, `non_goals`, and optional `context` override), semantic groups (`domain`, `policies`, `surface`, `extensions`), query/command/workflow/view declarations, typed extensions, rules, and events. The semantic graph is intentionally not authored in `.lzi`; it should be derived later by the compiler. This extension does not start the Lazuli LSP yet.
 
 The fuller syntax fixtures are:
 
@@ -90,4 +92,3 @@ The fuller syntax fixtures are:
 
 - [Extension points](docs/extension-points.md)
 - [Validation plan](docs/validation-plan.md)
-# lazuli

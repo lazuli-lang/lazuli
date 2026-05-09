@@ -1,22 +1,23 @@
 # Sketch syntax for Lazuli extension contracts.
 # This file documents escape hatches, not the normal path.
 
-feature :customer_metrics do
-  domain do
-    query :customer_lifetime_value, raw: true do
-      returns list_of(:customer_ltv)
-      param :org_id, ID
-      sql at: "./queries/customer_ltv.sql"
-    end
-  end
+feature customer_metrics
+  domain
+    query customer_lifetime_value raw
+      returns CustomerLtv[]
 
-  surface do
-    client :ltv_cell, CellRenderer[CustomerLtv], at: "./ui/ltv_cell.tsx"
-  end
+      params
+        org_id: ID
 
-  hooks do
-    server :refresh_ltv, Hook[CustomerLtv.refresh]
-  end
+      sql "./queries/customer_ltv.sql"
 
-  escape_route "/admin/raw-sql-console", at: "./pages/sql_console.tsx"
-end
+  surface web admin
+    view ltv_report Table
+      source query.customer_lifetime_value(org_id: ctx.user.org_id)
+      columns customer_id, amount, currency
+
+  extensions
+    client ltv_cell: CellRenderer[CustomerLtv] at "./ui/ltv_cell.tsx"
+    server refresh_ltv: Hook[RefreshCustomerLtv]
+
+  escape_route "/admin/raw-sql-console" at "./pages/sql_console.tsx"
