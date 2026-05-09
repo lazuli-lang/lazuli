@@ -6,6 +6,9 @@ Feature folders are the source of truth. Generated output is disposable.
 features/
   customer/
     customer.lzi
+    customer.lzx
+    customer.web.lzx
+    customer.mobile.lzx
     customer.ctx.md
     ui/
       status_cell.tsx
@@ -64,6 +67,9 @@ features/
 These are authored and committed:
 
 - `features/**/<feature>.lzi`
+- `features/**/<feature>.lzx`
+- `features/**/<feature>.web.lzx`
+- `features/**/<feature>.mobile.lzx`
 - `features/**/<feature>.ctx.md`
 - extension code under `ui/`, `hooks/`, `domain/`, `queries/`, `jobs/`, `integrations/`, `pages/`
 - adapter configuration
@@ -111,3 +117,32 @@ Default extension paths:
 Use `at` in `.lzi` only when a file intentionally lives outside convention.
 
 Feature-local files still belong to the feature that owns the capability, even when they extend another feature's UI. For example, `customer_tags` can extend `@anchor.customer_detail`, but its `tag_editor` implementation remains under `features/customer_tags/ui/tag_editor.tsx`.
+
+## Experience Sources
+
+`.lzi` is the domain/capability contract. It owns resources, policies,
+commands, workflows, jobs, webhooks, events, security contracts, and extension
+contracts. It does not need a surface file to compile.
+
+`.lzx` is the abstract experience/view model. It imports one or more `.lzi`
+features and declares product-level views, actions, anchors, and exposure
+intent without choosing a concrete platform widget.
+
+`.web.lzx` and `.mobile.lzx` are protected platform projections. They use an
+abstract experience and declare how each audience is rendered on that platform.
+Product axes such as `audience admin` or `tenant acme` live in the file body.
+Additional physical splits such as `customer.web.public.lzx` are organization
+only; the header remains the semantic truth.
+
+Dependency direction is fixed:
+
+```txt
+customer.lzi        # no UI dependency
+customer.lzx        # imports customer
+customer.web.lzx    # uses experience customer
+customer.mobile.lzx # uses experience customer
+```
+
+Concrete surface variants use whole-view redeclarations. Do not use cascade
+operators such as `columns += score`; redeclare the complete view for the
+audience/tenant combination.

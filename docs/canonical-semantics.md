@@ -117,12 +117,11 @@ feature customer
   workflow lifecycle on Customer.status
   job recompute_scores
   webhook crm_customer_upsert
-  surface web admin
   extensions
   escape_route "/admin/customer-debug"
 ```
 
-The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `query.<mode>`, `policies`, `command`, `workflow`, `surface`, and `extensions` explicitly. `domain` may contain any subset of enums, resources, records, constraints, queries, rules, and events. Resource-less features commonly declare only events under `domain`.
+The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `query.<mode>`, `policies`, `command`, `workflow`, and `extensions` explicitly. `domain` may contain any subset of enums, resources, records, constraints, queries, rules, and events. Resource-less features commonly declare only events under `domain`.
 
 Feature blocks have a canonical lint/format order:
 
@@ -144,6 +143,10 @@ escape_routes
 ```
 
 Authors may draft in any order, but `lazuli fmt` should reorder blocks and `lazuli check --strict` should report non-canonical ordering. This is intentionally predictable for LLM context scans and semantic diffs.
+
+Inline `surface` blocks remain accepted while older fixtures migrate, but new
+source should put experience/view-model declarations in `.lzx` files. A `.lzi`
+feature is a domain/capability contract and should compile without UI source.
 
 ## Feature Granularity
 
@@ -1317,6 +1320,35 @@ policies
 ```
 
 ## Surfaces
+
+Canonical experience source is split across `.lzx` layers:
+
+```lazuli
+experience customer
+  imports customer
+
+  view list
+    source customer.query.list
+    action create -> customer.command.create
+
+surface customer web
+  uses experience customer
+
+  audience admin
+    view list Table
+      columns name, email, tier
+```
+
+`.lzi` does not declare or depend on UI. Abstract `.lzx` declares the product
+experience and imports `.lzi` capabilities. Concrete `.web.lzx` and
+`.mobile.lzx` files declare protected platform projections and group product
+variants under `audience`/`tenant` blocks. File names organize source; the
+header decides semantics.
+
+Product variants use total override, not cascade. If `audience admin tenant
+acme` changes the list view, it redeclares the whole view. Partial operations
+such as `columns += account_manager` are invalid because they make the final UI
+exist only after merge resolution.
 
 Read views consume query sources. A view does not need to restate `policy @policy.read` if the source query is scoped and the feature has a `read` policy.
 

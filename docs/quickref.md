@@ -1,7 +1,7 @@
 # Lazuli Quick Reference
 
 This is the context pack to load first when an agent or a human needs to
-author, review, or patch canonical `.lzi` files. It is intentionally short.
+author, review, or patch canonical `.lzi`/`.lzx` files. It is intentionally short.
 Use `docs/canonical-semantics.md` for the full normative reference and
 `docs/invariants.md` for the checker/codegen contract.
 
@@ -46,14 +46,29 @@ feature ping
     policy @policy.create
     creates Ping from input
     emits ping_created
+```
 
-  surface web admin
+```lazuli
+experience ping
+  imports ping
+
+  view list
+    source ping.query.list
+    action create -> ping.command.create
+```
+
+```lazuli
+surface ping web
+  uses experience ping
+
+  audience admin
     view list Table
-      source query.list
       columns message, created_at
 ```
 
 ## Canonical Order
+
+`.lzi` feature block order:
 
 ```txt
 meta -> defaults -> uses -> refs? -> domain -> policies -> auth -> command
@@ -64,6 +79,22 @@ meta -> defaults -> uses -> refs? -> domain -> policies -> auth -> command
 `refs` is optional and documentary. Do not author it just to list core
 `@role.*`/`@scope.*`/`@policy.*` namespaces; use
 `lazuli inspect --expand=refs` for that generated manifest.
+
+Experience source family:
+
+```txt
+<feature>.lzi          # domain/capability contract
+<feature>.lzx          # abstract experience/view model
+<feature>.web.lzx      # protected web projection
+<feature>.mobile.lzx   # protected mobile projection
+```
+
+`.lzi` does not know `.lzx` exists. Abstract `.lzx` imports `.lzi`
+capabilities. Platform `.lzx` files use an abstract experience and group
+product variants under `audience`/`tenant` blocks.
+
+[v0] `.lzx` has no cascade or partial override. Do not write
+`columns += score`; redeclare the whole view for that audience/tenant.
 
 ## Policy Vocabulary
 

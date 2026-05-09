@@ -78,11 +78,18 @@ Expo / React Native is the default mobile target.
 - The ecosystem and iteration speed are stronger for Lazuli than Flutter's
   Dart-based stack.
 
-Mobile and web surfaces must stay separate in the DSL. A `surface web admin`
-and a `surface mobile sales` can share product intent, but they must not be
-forced into identical UI abstractions. A web `Table` may become a mobile
-`FlatList`; a web `SidePanel` may become a navigation stack. The DSL declares
-intent, and each surface adapter decides the native interaction shape.
+Mobile and web surfaces must stay separate in the DSL. Canonical experience
+source uses three layers:
+
+- `.lzi` declares the domain/capability contract and does not depend on UI.
+- `.lzx` declares the abstract experience/view model.
+- `.web.lzx` and `.mobile.lzx` declare protected platform projections.
+
+A web `Table` may become a mobile `FlatList`; a web `SidePanel` may become a
+navigation stack. Product axes such as `audience admin` and `tenant acme` live
+in the `.lzx` body, not in invented platform suffixes. Platform projections use
+whole-view redeclarations for variants; they do not use cascade-style partial
+overrides.
 
 Flutter is the second choice because it has consistent cross-platform UI and a
 codegen-friendly language, but it loses the shared React model, the React web

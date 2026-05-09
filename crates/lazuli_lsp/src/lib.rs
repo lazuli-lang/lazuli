@@ -253,11 +253,21 @@ fn make_symbol(
 
 impl Backend {
     async fn publish_diagnostics(&self, uri: Url, source: String) {
-        let diagnostics = diagnostics_for(&source);
+        let diagnostics = diagnostics_for_uri(&uri, &source);
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
     }
+}
+
+fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = diagnostics_for(source);
+
+    if is_lzx_source(source) {
+        diagnostics.extend(lzx_filename_diagnostics(uri, source));
+    }
+
+    diagnostics
 }
 
 fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
@@ -293,6 +303,13 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
         diagnostics.extend(command_contract_diagnostics(source));
         diagnostics.extend(extension_reference_diagnostics(source));
         diagnostics.extend(idempotency_key_diagnostics(source));
+        return diagnostics;
+    }
+
+    if is_lzx_source(source) {
+        let mut diagnostics = lzx_contract_diagnostics(source);
+        diagnostics.extend(namespace_reference_diagnostics(source));
+        diagnostics.extend(extension_reference_diagnostics(source));
         return diagnostics;
     }
 
@@ -333,6 +350,225 @@ fn is_canonical_source(source: &str) -> bool {
     source
         .lines()
         .any(|line| line.trim_start().starts_with("feature "))
+}
+
+fn is_lzx_source(source: &str) -> bool {
+    source.lines().any(|line| {
+        leading_spaces(line) == 0
+            && matches!(
+                line.trim_start().split_whitespace().next(),
+                Some("experience" | "surface")
+            )
+    })
+}
+
+fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_surface: Option<(usize, String, bool)> = None;
+    let mut in_audience = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if trimmed.contains("+=") || trimmed.contains("-=") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "lzx-no-partial-override",
+                "`.lzx` forbids partial overrides such as `+=`/`-=`. Redeclare the whole view for this audience/tenant so the block remains a local truth.",
+            ));
+        }
+
+        if leading_spaces(line) == 0 {
+            if let Some((surface_line, surface_header, has_uses_experience)) =
+                current_surface.take()
+                && !has_uses_experience
+            {
+                diagnostics.push(simple_canonical_diagnostic(
+                    surface_line,
+                    &surface_header,
+                    DiagnosticSeverity::ERROR,
+                    "lzx-surface-dependency",
+                    "concrete `.lzx` surfaces must declare `uses experience <name>`; platform views project the abstract experience instead of calling `.lzi` directly.",
+                ));
+            }
+
+            in_audience = false;
+
+            if trimmed.starts_with("surface ") {
+                let parts: Vec<_> = trimmed.split_whitespace().collect();
+                if parts.len() == 2 && matches!(parts.get(1), Some(&"web" | &"mobile")) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "lzx-surface-header",
+                        "put the experience name before the platform: `surface <experience> web` or `surface <experience> mobile`.",
+                    ));
+                } else if parts.len() < 3 {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "lzx-surface-header",
+                        "concrete `.lzx` surfaces use `surface <experience> <platform>`, with protected platforms `web` or `mobile`.",
+                    ));
+                } else {
+                    if matches!(parts.get(1), Some(&"web" | &"mobile")) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::ERROR,
+                            "lzx-surface-header",
+                            "put the experience name before the platform: `surface <experience> web` or `surface <experience> mobile`.",
+                        ));
+                    }
+                    if !matches!(parts.get(2), Some(&"web" | &"mobile")) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::ERROR,
+                            "lzx-platform",
+                            "canonical `.lzx` platform suffixes are protected: use `web` or `mobile` in the surface header; product axes belong in `audience`/`tenant` blocks.",
+                        ));
+                    }
+                }
+                current_surface = Some((line_index, line.to_owned(), false));
+            }
+
+            continue;
+        }
+
+        if let Some((_, _, has_uses_experience)) = current_surface.as_mut() {
+            if leading_spaces(line) == 2 {
+                if trimmed.starts_with("uses experience ") {
+                    *has_uses_experience = true;
+                    in_audience = false;
+                    continue;
+                }
+
+                if trimmed.starts_with("audience ") {
+                    in_audience = true;
+                    continue;
+                }
+
+                if trimmed.starts_with("view ") {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "lzx-audience-required",
+                        "concrete platform views live under `audience ...` blocks. Product axes are source syntax, not filename-only convention.",
+                    ));
+                }
+            } else if leading_spaces(line) <= 2 {
+                in_audience = false;
+            } else if trimmed.starts_with("view ") && !in_audience {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "lzx-audience-required",
+                    "concrete platform views live under `audience ...` blocks.",
+                ));
+            }
+        }
+    }
+
+    if let Some((surface_line, surface_header, has_uses_experience)) = current_surface
+        && !has_uses_experience
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            surface_line,
+            &surface_header,
+            DiagnosticSeverity::ERROR,
+            "lzx-surface-dependency",
+            "concrete `.lzx` surfaces must declare `uses experience <name>`; platform views project the abstract experience instead of calling `.lzi` directly.",
+        ));
+    }
+
+    diagnostics
+}
+
+fn lzx_filename_diagnostics(uri: &Url, source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(file_name) = uri
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .map(str::to_owned)
+    else {
+        return diagnostics;
+    };
+
+    let expected_platform = lzx_platform_from_file_name(&file_name);
+    let surface_header = first_lzx_surface_header(source);
+
+    match (expected_platform, surface_header) {
+        (Some(platform), Some((line_index, line, header_platform))) => {
+            if header_platform != platform {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "lzx-file-header-mismatch",
+                    &format!(
+                        "`{file_name}` is a `{platform}` projection, so its header should use `surface <experience> {platform}`."
+                    ),
+                ));
+            }
+        }
+        (Some(platform), None) => {
+            diagnostics.push(simple_canonical_diagnostic(
+                0,
+                source.lines().next().unwrap_or(""),
+                DiagnosticSeverity::ERROR,
+                "lzx-file-header-mismatch",
+                &format!(
+                    "`{file_name}` is a `{platform}` projection, so it should declare `surface <experience> {platform}`."
+                ),
+            ));
+        }
+        (None, Some((line_index, line, _))) if file_name.ends_with(".lzx") => {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "lzx-file-header-mismatch",
+                "abstract `.lzx` files declare `experience <name>`; concrete surfaces belong in `.web.lzx` or `.mobile.lzx` files.",
+            ));
+        }
+        _ => {}
+    }
+
+    diagnostics
+}
+
+fn lzx_platform_from_file_name(file_name: &str) -> Option<&'static str> {
+    if file_name.ends_with(".web.lzx") || file_name.contains(".web.") {
+        Some("web")
+    } else if file_name.ends_with(".mobile.lzx") || file_name.contains(".mobile.") {
+        Some("mobile")
+    } else {
+        None
+    }
+}
+
+fn first_lzx_surface_header(source: &str) -> Option<(usize, &str, &str)> {
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if leading_spaces(line) != 0 || !trimmed.starts_with("surface ") {
+            continue;
+        }
+        let platform = trimmed.split_whitespace().nth(2)?;
+        return Some((line_index, line, platform));
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4371,8 +4607,8 @@ const KEYWORDS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{diagnostics_for, format_canonical_source};
-    use tower_lsp::lsp_types::DiagnosticSeverity;
+    use super::{diagnostics_for, diagnostics_for_uri, format_canonical_source};
+    use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
@@ -4483,6 +4719,28 @@ feature customer
             assert!(
                 diagnostics.is_empty(),
                 "expected {name} to satisfy canonical LSP diagnostics, got: {diagnostics:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn lzx_examples_satisfy_lsp_contracts() {
+        let examples = [
+            (
+                "customer.lzx",
+                include_str!("../../../examples/customer.lzx"),
+            ),
+            (
+                "customer.web.lzx",
+                include_str!("../../../examples/customer.web.lzx"),
+            ),
+        ];
+
+        for (name, source) in examples {
+            let diagnostics = diagnostics_for(source);
+            assert!(
+                diagnostics.is_empty(),
+                "expected {name} to satisfy LZX diagnostics, got: {diagnostics:#?}"
             );
         }
     }
@@ -4793,6 +5051,102 @@ feature customer
             diagnostic
                 .message
                 .contains("`summary` is generated by `lazuli inspect --expand=summary`")
+        }));
+    }
+
+    #[test]
+    fn lzx_accepts_experience_and_platform_surface_layers() {
+        let experience = r#"
+experience customer
+  imports customer
+
+  view list
+    source customer.query.list
+    action create -> customer.command.create
+"#;
+
+        let surface = r#"
+surface customer web
+  uses experience customer
+
+  audience admin
+    view list Table
+      columns name, email, tier
+"#;
+
+        assert!(diagnostics_for(experience).is_empty());
+        assert!(diagnostics_for(surface).is_empty());
+    }
+
+    #[test]
+    fn lzx_rejects_cascade_and_unscoped_platform_views() {
+        let source = r#"
+surface web
+  view list Table
+    columns += score
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("put the experience name before the platform") })
+        );
+        assert!(messages.iter().any(|message| {
+            message.contains("concrete `.lzx` surfaces must declare `uses experience <name>`")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("concrete platform views live under `audience ...` blocks")
+        }));
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("`.lzx` forbids partial overrides") })
+        );
+    }
+
+    #[test]
+    fn lzx_filename_suffix_must_match_surface_header() {
+        let source = r#"
+surface customer mobile
+  uses experience customer
+
+  audience sales
+    view list CardList
+"#;
+        let uri = Url::parse("file:///workspace/features/customer/customer.web.lzx").unwrap();
+
+        let diagnostics = diagnostics_for_uri(&uri, source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("`customer.web.lzx` is a `web` projection")
+        }));
+    }
+
+    #[test]
+    fn lzx_abstract_file_cannot_declare_concrete_surface() {
+        let source = r#"
+surface customer web
+  uses experience customer
+
+  audience admin
+    view list Table
+"#;
+        let uri = Url::parse("file:///workspace/features/customer/customer.lzx").unwrap();
+
+        let diagnostics = diagnostics_for_uri(&uri, source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("abstract `.lzx` files declare `experience <name>`")
         }));
     }
 

@@ -1,0 +1,18 @@
+# Abstract customer experience/view model.
+# Platform projections live in customer.web.lzx and customer.mobile.lzx.
+
+experience customer
+  imports customer
+
+  view list
+    source customer.query.list
+    action create -> customer.command.create
+    opens detail
+
+  view detail id @anchor.customer_detail
+    source customer.query.by_id(id: route.id)
+    action reassign -> customer.command.reassign
+    action archive -> customer.workflow.lifecycle.archive
+
+  view lead_capture
+    submit customer.command.create

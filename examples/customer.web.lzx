@@ -1,0 +1,19 @@
+# Concrete web projection for the customer experience.
+# Product variants are declared as audience blocks; no cascade or partial diffs.
+
+surface customer web
+  uses experience customer
+
+  audience admin
+    view list Table
+      columns name, email, tier, score, lifecycle_stage
+      actions create
+
+    view detail SidePanel
+      sections header, timeline, tags
+      actions reassign, archive
+
+  audience public
+    view lead_capture Form
+      fields name, email, tier, source
+      submit create

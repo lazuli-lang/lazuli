@@ -9,6 +9,15 @@ source that only fails later.
 
 - Canonical `.lzi` source is authored. IR, inspect JSON, generated summaries,
   manifests, and generated code are derived.
+- `.lzi` owns the domain/capability contract. It must compile without any UI
+  source present.
+- Abstract `.lzx` owns the experience/view model and imports `.lzi`
+  capabilities.
+- Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
+  abstract experience. Platform suffixes are protected; product axes such as
+  `audience` and `tenant` are source syntax, not magic filename suffixes.
+- `.lzx` forbids cascade and partial override operators such as `+=` and `-=`.
+  Product variants redeclare the whole view they change.
 - `summary` is never authored in `.lzi`; use
   `lazuli inspect --expand=summary`.
 - `refs` is optional and documentary. When present, it must match namespaces
