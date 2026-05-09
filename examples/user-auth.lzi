@@ -1,0 +1,147 @@
+# User/auth pressure test.
+# Exercises auth, sessions, MFA, OAuth, rate limiting, and public commands.
+# Design fixture only; candidate constructs are not compiler-executable yet.
+
+feature user
+  purpose "User identity, login sessions, MFA, and account recovery."
+
+  non_goals
+    "organization membership - see feature org"
+    "billing identity - see feature billing"
+
+  domain
+    enum UserStatus
+      invited
+      active
+      locked
+      disabled
+
+    enum AuthProvider
+      password
+      google
+      github
+
+    resource User
+      email: Email required
+      display_name: Text optional
+      status: UserStatus = invited
+      password_hash: Secret optional
+      mfa_enabled: Boolean = false
+
+      soft_delete
+      timestamps
+
+    resource Session
+      user: User required
+      refresh_token_hash: Secret required
+      provider: AuthProvider required
+      expires_at: DateTime required
+
+      timestamps
+
+    query by_id
+      params
+        id: ID
+
+      key id = params.id
+
+    query by_email
+      params
+        email: Email
+
+      key email = params.email
+
+    query active_sessions
+      params
+        user_id: ID
+
+      filters
+        user.id = params.user_id
+        expires_at != nil
+
+      order created_at desc
+
+    event user_registered
+      user_id: ID
+      email: Email
+
+    event user_logged_in
+      user_id: ID
+      session_id: ID
+      provider: AuthProvider
+
+    event user_mfa_enabled
+      user_id: ID
+      by_id: ID
+
+  auth
+    identity User.email
+
+    password
+      hash ext.hash_password
+      verify ext.verify_password
+      rate_limit "5 per 10 minutes"
+
+    oauth google
+      adapter ext.google_oauth
+
+    mfa totp
+      enroll ext.enroll_totp
+      verify ext.verify_totp
+
+    sessions
+      resource Session
+      ttl "30 days"
+      refresh true
+
+  policies
+    register public
+    login public
+    read self, role_admin
+    update self, role_admin
+    delete role_admin
+
+  command register
+    creates User
+    input email, password, display_name
+    derive password_hash = ext.hash_password(input.password)
+    policy register
+    emits user_registered
+
+  command login
+    input email, password
+    policy login
+    returns AuthSession
+    emits user_logged_in
+
+  command enable_mfa
+    updates User
+
+    params
+      id: ID
+
+    target user = query.by_id(id: params.id)
+
+    input totp_code: Text
+    policy update
+    emits user_mfa_enabled
+
+  surface web public
+    view login Form
+      submit command.login
+      fields email, password
+
+    view register Form
+      submit command.register
+      fields email, password, display_name
+
+  surface web admin
+    view detail SidePanel
+      source query.by_id(id: route.id)
+
+  extensions
+    server hash_password: Function[Text, Secret] at "./auth/hash_password.go"
+    server verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_password.go"
+    server google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
+    server enroll_totp: Function[User, TotpEnrollment] at "./auth/enroll_totp.go"
+    server verify_totp: Validator[TotpVerifyInput] at "./auth/verify_totp.go"

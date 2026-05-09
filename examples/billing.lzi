@@ -1,0 +1,131 @@
+# Billing pressure test.
+# Exercises inbound webhooks, invoices, retries, and scheduled jobs.
+# Design fixture only; candidate constructs are not compiler-executable yet.
+
+feature billing
+  purpose "Invoices, Stripe payment webhooks, retryable billing events, and invoice status."
+
+  non_goals
+    "customer lifecycle ownership - see feature customer"
+    "tax calculation engine - external integration"
+
+  uses org, customer
+
+  domain
+    enum InvoiceStatus
+      draft
+      open
+      paid
+      void
+      failed
+
+    resource Invoice
+      tenancy org
+      customer: Customer required
+      number: Text required
+      amount_cents: Integer required
+      currency: Text required
+      status: InvoiceStatus = draft
+      stripe_invoice_id: Text optional
+
+      soft_delete
+      timestamps
+
+    resource BillingWebhook
+      tenancy org
+      provider: Text required
+      provider_event_id: Text required
+      received_at: DateTime required
+      processed_at: DateTime optional
+      failed_at: DateTime optional
+
+      timestamps
+
+    constraints
+      unique number per org
+      unique provider_event_id per provider
+
+    query list
+      params
+        status: InvoiceStatus optional
+        customer: Customer optional
+
+      filters
+        status when params.status
+        customer when params.customer
+
+      order created_at desc
+      paginate 50
+
+    query by_id
+      params
+        id: ID
+
+      key id = params.id
+
+    event invoice_created
+      invoice_id: ID
+      customer_id: ID
+      org_id: ID
+
+    event invoice_paid
+      invoice_id: ID
+      customer_id: ID
+      org_id: ID
+      stripe_invoice_id: Text
+
+    event billing_webhook_failed
+      webhook_id: ID
+      provider_event_id: Text
+
+  policies
+    create role_admin, billing_admin
+    update billing_admin
+    read same_org
+    delete billing_admin
+
+  command create
+    creates Invoice
+    input customer, amount_cents, currency
+    derive number = ext.next_invoice_number(ctx.user.org)
+    policy create
+    emits invoice_created
+
+  workflow status on Invoice.status
+    policy update
+    emits invoice_status_changed
+
+    open: draft -> open
+    mark_paid: open -> paid
+      emits invoice_paid
+    fail: open -> failed
+    void: open -> void
+
+  webhook stripe_invoice_paid
+    path "/webhooks/stripe/invoice-paid"
+    verify ext.verify_stripe_signature
+    idempotency provider_event_id
+    policy system
+    runs ext.record_stripe_invoice_paid
+    emits invoice_paid
+
+  job retry_failed_webhooks
+    schedule "*/5 * * * *"
+    policy system
+    runs ext.retry_failed_webhooks
+    emits billing_webhook_failed
+
+  surface web admin
+    view list Table
+      source query.list
+      columns number, customer, amount_cents, currency, status, created_at
+      filter status, customer
+
+    view detail SidePanel
+      source query.by_id(id: route.id)
+
+  extensions
+    server next_invoice_number: Function[Org, Text] at "./domain/next_invoice_number.go"
+    server verify_stripe_signature: WebhookAdapter[StripeInvoicePaid] at "./integrations/stripe.go"
+    server record_stripe_invoice_paid: Function[StripeInvoicePaid, BillingWebhook] at "./integrations/record_stripe_invoice_paid.go"
+    server retry_failed_webhooks: BackgroundJob[BillingWebhookRetry] at "./jobs/retry_failed_webhooks.go"

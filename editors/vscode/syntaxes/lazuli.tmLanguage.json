@@ -100,7 +100,7 @@
           }
         },
         {
-          "match": "\\b(query|command|workflow|view|event)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "match": "\\b(query|command|workflow|view|event|webhook|job|on|auth|field_policies|extends)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.declaration.structural.lazuli"
@@ -123,6 +123,10 @@
               "name": "entity.name.label.surface-area.lazuli"
             }
           }
+        },
+        {
+          "name": "keyword.control.declaration.structural.lazuli",
+          "match": "\\b(auth)\\b"
         },
         {
           "match": "\\b(rule)\\s+(\"[^\"]+\")",
@@ -156,7 +160,7 @@
         },
         {
           "name": "keyword.section.lazuli",
-          "match": "\\b(non_goals|constraints|policies|params|where|cells)\\b"
+          "match": "\\b(non_goals|constraints|policies|params|key|scope|filters|cells)\\b"
         }
       ]
     },
@@ -191,6 +195,32 @@
           }
         },
         {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s+(previously)\\s+([A-Za-z_][A-Za-z0-9_]*)(:)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(->)\\s*([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.transition.lazuli"
+            },
+            "2": {
+              "name": "storage.modifier.lazuli"
+            },
+            "3": {
+              "name": "entity.name.function.transition.previous.lazuli"
+            },
+            "4": {
+              "name": "punctuation.separator.key-value.lazuli"
+            },
+            "5": {
+              "name": "constant.other.symbolic.lazuli"
+            },
+            "6": {
+              "name": "keyword.operator.transition.lazuli"
+            },
+            "7": {
+              "name": "constant.other.symbolic.lazuli"
+            }
+          }
+        },
+        {
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(:)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(->)\\s*([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
@@ -216,11 +246,11 @@
       "patterns": [
         {
           "name": "entity.name.function.statement.metadata.lazuli",
-          "match": "\\b(purpose|context)\\b"
+          "match": "\\b(purpose|context|uses|path|verify|idempotency|schedule|queue|runs|returns|identity|password|oauth|mfa|sessions|ttl|refresh|hash|adapter|enroll|rate_limit)\\b"
         },
         {
           "name": "entity.name.function.statement.resource.lazuli",
-          "match": "\\b(soft_delete|timestamps|unique|index)\\b"
+          "match": "\\b(tenancy|soft_delete|timestamps|event_payload|unique|index|on_delete)\\b"
         },
         {
           "name": "entity.name.function.statement.query.lazuli",
@@ -228,19 +258,19 @@
         },
         {
           "name": "entity.name.function.statement.command.lazuli",
-          "match": "\\b(input|policy|emits)\\b"
+          "match": "\\b(creates|updates|deletes|input|derive|target|policy|emits|returns|on)\\b"
         },
         {
           "name": "entity.name.function.statement.view.lazuli",
-          "match": "\\b(source|columns|search|filter|block)\\b"
+          "match": "\\b(source|submit|columns|fields|search|filter|block|by|panel)\\b"
         },
         {
           "name": "entity.name.function.statement.rule.lazuli",
-          "match": "\\b(forbid|allow|message)\\b"
+          "match": "\\b(forbid|allow|deny|where|message)\\b"
         },
         {
           "name": "entity.name.function.statement.policy.lazuli",
-          "match": "\\b(read|create|update|delete)\\b"
+          "match": "\\b(read|write|create|update|delete|import|global_read|login|system)\\b"
         },
         {
           "name": "support.function.type-constructor.lazuli",
@@ -252,7 +282,7 @@
       "patterns": [
         {
           "name": "entity.name.reference.semantic.lazuli",
-          "match": "\\b(?:ctx|route|query|policy|policies|ext|types|customer|issue|domain|surface|extensions)\\.[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\b"
+          "match": "\\b[a-z_][a-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b"
         },
         {
           "name": "entity.name.reference.model-path.lazuli",
@@ -264,7 +294,7 @@
       "patterns": [
         {
           "name": "support.type.primitive.lazuli",
-          "match": "\\b(ID|Text|String|Email|Url|Boolean|Bool|Int|Integer|Float|Decimal|Numeric|Money|Date|DateTime|Json|JSON)\\b"
+          "match": "\\b(ID|Text|String|Email|Url|Boolean|Bool|Int|Integer|Float|Decimal|Numeric|Money|Date|DateTime|Json|JSON|File|Secret)\\b"
         },
         {
           "name": "support.type.ui.lazuli",
@@ -272,7 +302,7 @@
         },
         {
           "name": "support.type.extension.lazuli",
-          "match": "\\b(CellRenderer|Hook|Function|Validator|QueryModifier|WorkflowEffect|PageBlock|ViewBlock|IntegrationAdapter)\\b"
+          "match": "\\b(Cell|Block|CellRenderer|Hook|Function|Validator|QueryModifier|WorkflowEffect|PageBlock|ViewBlock|FormField|BackgroundJob|WebhookAdapter|IntegrationAdapter)\\b"
         },
         {
           "name": "support.type.domain.lazuli",
@@ -284,11 +314,11 @@
       "patterns": [
         {
           "name": "storage.modifier.lazuli",
-          "match": "\\b(required|optional|default|readonly|raw|per|at)\\b"
+          "match": "\\b(required|optional|default|readonly|raw|override|previously|per|at|cascade|restrict|nullify)\\b"
         },
         {
           "name": "keyword.operator.logical.lazuli",
-          "match": "\\b(and|or|not)\\b"
+          "match": "\\b(and|or|not|AND|OR|has|when)\\b"
         },
         {
           "name": "keyword.operator.predicate.lazuli",
@@ -317,6 +347,10 @@
         {
           "name": "keyword.operator.transition.lazuli",
           "match": "->"
+        },
+        {
+          "name": "keyword.operator.union.lazuli",
+          "match": "\\|"
         },
         {
           "name": "keyword.operator.comparison.lazuli",

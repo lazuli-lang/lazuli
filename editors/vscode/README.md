@@ -2,8 +2,8 @@
 
 Adds Lazuli `.lzi` language support:
 
-- Syntax highlighting for feature capsules
-- Bracket and comment configuration
+- Syntax highlighting for canonical feature capsules
+- Bracket configuration
 
 ## Development
 
@@ -11,7 +11,7 @@ This is intentionally syntax-only for now. Open this folder in VS Code and press
 
 No Lazuli language server is started by this extension yet.
 
-The sample syntax follows the indentation-based capsule sketch:
+The sample syntax follows the canonical indentation-based capsule sketch:
 
 ```txt
 feature name
@@ -20,42 +20,54 @@ feature name
   non_goals
     "thing this feature does not own"
 
+  uses org
+
   domain
-    enum Kind
-      one
+    enum ThingStatus
+      active
+      archived
 
     resource Thing
+      tenancy org
       name: Text required
+      status: ThingStatus = active
 
     constraints
-      unique name per org_id
+      unique name per org
 
     query list
-      where
-        org_id = ctx.user.org_id
+      order created_at desc
 
-    rule "human text"
-      forbid Invoice.create where thing.deleted_at != nil
-
-    event created
-      id: ID
+    event thing_created
+      thing_id: ID
 
   policies
+    create role_admin
+    update role_admin
     read same_org
 
   command create
+    creates Thing
     input name
-    policy read
-    emits created
+    policy create
+    emits thing_created
 
-  workflow status
+  command rename
+    params
+      id: ID
+    target thing = query.by_id(id: params.id)
+    input name
+    policy update
+
+  workflow status on Thing.status
+    policy update
+
     archive: active -> archived
-      policy read
 
   surface web admin
     view list Table
       source query.list
-      columns name
+      columns name, status
 
   extensions
     client status_cell: CellRenderer[Thing]
@@ -65,15 +77,18 @@ feature name
 Current consistency rules:
 
 - Blocks are opened by indentation, not `do`/`end` or braces.
-- Fields and typed extension contracts use `name: Type`.
+- Fields, typed extension contracts, and command derivations use `name: Type` or `name = expression`.
+- Required/optional is explicit in canonical resource fields.
 - Defaults use `=`, e.g. `status: Status = active`.
 - Transitions use `->`, e.g. `archive: active -> archived`.
+- Required command fields that are not caller input should be explicit with `derive`.
+- Commands that mutate an existing record should bind it with `target`.
 - `<feature>.ctx.md` sits next to the capsule by convention. `context` is only an override for non-standard locations.
 - Context files are source, not generated frontend/backend output.
 
 Highlighting groups:
 
-- Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `escape_route`.
+- Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `webhook`, `job`, `on`, `auth`, `field_policies`, `extends`, `escape_route`.
 - Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `constraints`, `policies`, `params`, `where`, `cells`, `non_goals`.
-- Internal statements: `input`, `policy`, `emits`, `forbid`, `message`, `source`, `columns`, and similar verbs.
+- Section containers: `constraints`, `policies`, `params`, `key`, `scope`, `filters`, `cells`, `non_goals`.
+- Internal statements: `event_payload`, `creates`, `updates`, `deletes`, `input`, `derive`, `target`, `policy`, `emits`, `deny`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.

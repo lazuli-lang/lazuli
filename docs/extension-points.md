@@ -36,7 +36,7 @@ extensions
 
 By default, Lazuli resolves `status_cell` to `features/customer/ui/status_cell.*`.
 
-Use `at:` only when the convention is not enough:
+Use `at` only when the convention is not enough:
 
 ```lazuli
 extensions
@@ -64,7 +64,7 @@ export type StatusCellRenderer = (props: StatusCellProps) => ReactNode;
 The user implements a named export:
 
 ```tsx
-// features/customer/status_cell.tsx
+// features/customer/ui/status_cell.tsx
 import type { StatusCellRenderer } from "@/.lazuli/generated/types/customer";
 
 export const statusCell: StatusCellRenderer = ({ value }) => {
@@ -94,7 +94,7 @@ type RiskScoreFn func(ctx Context, customer Customer) (RiskScore, error)
 The user implements matching named functions:
 
 ```go
-// features/customer/before_create.go
+// features/customer/hooks/before_create.go
 package customer
 
 func BeforeCreate(ctx Context, input CustomerCreateInput) (CustomerCreateInput, error) {
@@ -133,9 +133,6 @@ Normal queries stay declarative:
 
 ```lazuli
 query list
-  where
-    org_id = ctx.user.org_id
-
   paginate 50
 ```
 
@@ -145,8 +142,8 @@ Raw SQL stays in the `query.*` namespace, but it must be marked explicitly:
 query customer_lifetime_value raw
   returns CustomerLtv[]
 
-  params
-    org_id: ID
+  scope
+    org = ctx.user.org
 
   sql "./queries/customer_ltv.sql"
 ```
@@ -154,10 +151,21 @@ query customer_lifetime_value raw
 `raw` means:
 
 - Lazuli cannot fully derive policy safety.
+- The query must still declare `scope`; raw SQL is not allowed to silently bypass tenant or soft-delete boundaries.
 - Schema renames are not automatically safe.
 - Manual tests are expected.
 - The semantic graph still records the dependency.
 - Consumers still reference it through the normal `query.*` namespace.
+
+## Canonical Semantics
+
+These conventions keep the explicit syntax predictable. See also [Canonical semantics](canonical-semantics.md).
+
+- Query params exposed to routes and APIs should prefer scalar IDs, e.g. `parent_id: ID`, over passing hydrated entities.
+- Many-to-many filters should name both sides and their guard, e.g. `labels has params.label when params.label`.
+- Events use serializable IDs by default, e.g. `customer_id: ID` and `by_id: ID`.
+- `workflow` may declare shared defaults such as `policy update` and `emits status_changed`; transitions inherit them unless they override locally.
+- Views inherit read safety from their `source query.*`; inherited tenancy/soft-delete scope plus local query `scope` remain the source of tenant and soft-delete boundaries.
 
 ## Escape Routes
 
@@ -171,7 +179,7 @@ Lazuli should know that the route exists, but it should not try to generate its 
 
 ## Inspect Output
 
-This design preserves compact agent context:
+This design preserves small agent context:
 
 ```txt
 Resource: Customer

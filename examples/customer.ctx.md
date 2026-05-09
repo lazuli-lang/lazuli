@@ -6,7 +6,7 @@ Customer is the CRM-facing identity for an organization account. It tracks lifec
 
 ## Guidance
 
-- Keep lifecycle changes inside the existing `Transition` actions unless a new product state is being introduced.
+- Keep lifecycle changes inside the existing `workflow lifecycle` block unless a new product state is being introduced.
 - `risk_score` is a domain extension, not a stored field. Avoid persisting it unless a product invariant requires history.
 - Do not fold invoice behavior into this feature. Customer can emit events that invoice features consume.
 - Prefer adding a typed extension over widening the DSL when behavior is specific to one customer workflow.

@@ -1,19 +1,18 @@
-# Sketch syntax for Lazuli extension contracts.
-# This file documents escape hatches, not the normal path.
-
 feature customer_metrics
+  uses org, customer
+
   domain
     query customer_lifetime_value raw
       returns CustomerLtv[]
 
-      params
-        org_id: ID
+      scope
+        org = ctx.user.org
 
       sql "./queries/customer_ltv.sql"
 
   surface web admin
     view ltv_report Table
-      source query.customer_lifetime_value(org_id: ctx.user.org_id)
+      source query.customer_lifetime_value
       columns customer_id, amount, currency
 
   extensions

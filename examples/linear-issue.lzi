@@ -1,12 +1,11 @@
-# Linear-style issue feature pressure test.
-# Indentation-based design fixture, not compiler-executable yet.
-
 feature issue
   purpose "Linear-style issue tracking with workflow, assignee, labels, and sub-issues."
 
   non_goals
     "comments as first-class resource for now"
     "full recursive tree modeling in declarative query"
+
+  uses team, user, project, cycle, label
 
   domain
     enum IssueStatus
@@ -25,12 +24,12 @@ feature issue
       urgent
 
     resource Issue
-      team_id: Team required
-      project_id: Project optional
-      cycle_id: Cycle optional
-      parent_id: Issue optional
-      creator_id: User required
-      assignee_id: User optional
+      tenancy team
+      project: Project optional
+      cycle: Cycle optional
+      parent: Issue optional
+      creator: User required
+      assignee: User optional
       title: Text required
       description: Text optional
       status: IssueStatus = backlog
@@ -41,21 +40,26 @@ feature issue
       timestamps
 
     constraints
-      unique title per team_id
-      index team_id, status
-      index team_id, assignee_id
+      unique title per team
+      index team, status
+      index team, assignee
 
     query list
       params
         status: IssueStatus optional
-        assignee_id: ID optional
-        label_id: ID optional
-        project_id: ID optional
-        cycle_id: ID optional
+        priority: IssuePriority optional
+        assignee: User optional
+        label: Label optional
+        project: Project optional
+        cycle: Cycle optional
 
-      where
-        team_id = ctx.team.id
-        deleted_at = nil
+      filters
+        status when params.status
+        priority when params.priority
+        assignee when params.assignee
+        project when params.project
+        cycle when params.cycle
+        labels has params.label when params.label
 
       order updated_at desc
       paginate 100
@@ -64,49 +68,44 @@ feature issue
       params
         id: ID
 
-      where
-        id = id
-        team_id = ctx.team.id
+      key id = params.id
 
     query sub_issues
       params
         parent_id: ID
 
-      where
-        parent_id = parent_id
-        team_id = ctx.team.id
-        deleted_at = nil
+      filters
+        parent.id = params.parent_id
 
       order priority desc
 
-    # Pressure point: recursive sub-issue trees may need a richer query concept.
     query tree raw
       returns IssueTreeNode[]
 
       params
         root_id: ID
 
+      scope
+        team = ctx.team
+        deleted_at = nil
+
       sql "./queries/issue_tree.sql"
 
-    rule "done issues can only reopen to in progress"
-      forbid Issue.transition where issue.status = done and next_status = todo
-      message "Done issues reopen directly to in progress"
-
     event issue_created
-      id: ID
+      issue_id: ID
       team_id: ID
-      creator_id: User
+      creator_id: ID
 
     event issue_status_changed
-      id: ID
+      issue_id: ID
       from: IssueStatus
       to: IssueStatus
-      by: User
+      by_id: ID
 
     event issue_assigned
-      id: ID
-      assignee_id: User
-      by: User
+      issue_id: ID
+      assignee_id: ID
+      by_id: ID
 
   policies
     create team_member
@@ -115,38 +114,52 @@ feature issue
     read same_team
 
   command create
-    input title, description, project_id, cycle_id, assignee_id, priority, labels
+    creates Issue
+    input title, description, project, cycle, assignee, priority, labels
+    derive creator = ctx.user
     policy create
     emits issue_created
 
   command assign
-    input assignee_id: ID
+    updates Issue
+
+    params
+      id: ID
+
+    target issue = query.by_id(id: params.id)
+
+    input assignee: User
     policy update
     emits issue_assigned
 
-  workflow status
+  workflow status on Issue.status
+    policy update
+    emits issue_status_changed
+
+    triage: backlog -> todo
+
     start: todo -> in_progress
-      policy update
-      emits issue_status_changed
 
     submit_review: in_progress -> in_review
-      policy update
-      emits issue_status_changed
 
     complete: in_review -> done
-      policy update
-      emits issue_status_changed
 
     reopen: done -> in_progress
-      policy update
-      emits issue_status_changed
+
+    cancel_backlog: backlog -> canceled
+
+    cancel_todo: todo -> canceled
+
+    cancel_in_progress: in_progress -> canceled
+
+    cancel_in_review: in_review -> canceled
 
   surface web admin
     view list Table
       source query.list
-      columns title, status, priority, assignee_id, project_id, cycle_id, updated_at
+      columns title, status, priority, assignee, project, cycle, updated_at
       search title
-      filter status, priority, assignee_id, label_id, project_id, cycle_id
+      filter status, priority, assignee, label, project, cycle
 
       cells
         status ext.status_cell
@@ -159,7 +172,7 @@ feature issue
 
     view tree Table
       source query.tree(root_id: route.id)
-      columns title, status, assignee_id
+      columns title, status, assignee
 
   extensions
     client status_cell: CellRenderer[Issue]

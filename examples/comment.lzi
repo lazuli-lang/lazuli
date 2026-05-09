@@ -1,0 +1,99 @@
+# Comment pressure test.
+# Exercises rich relations and target-specific comment lists.
+# Design fixture only; canonical constructs, no new runtime primitive required.
+
+feature comment
+  purpose "Threaded comments on issues and customers with explicit target resources."
+
+  non_goals
+    "rich text editor implementation"
+    "cross-feature activity timeline ownership"
+
+  uses org, user, issue, customer
+
+  domain
+    enum CommentTarget
+      issue
+      customer
+
+    resource Comment
+      tenancy org
+      author: User required
+      target: CommentTarget required
+      target_id: ID required
+      parent: Comment optional
+      body: Text required
+
+      soft_delete
+      timestamps
+
+    resource CommentMention
+      tenancy org
+      comment: Comment required
+      mentioned_user: User required
+      added_by: User required
+      added_at: DateTime required
+
+    query for_issue
+      params
+        issue_id: ID
+
+      filters
+        target = CommentTarget.issue
+        target_id = params.issue_id
+
+      order created_at asc
+
+    query for_customer
+      params
+        customer_id: ID
+
+      filters
+        target = CommentTarget.customer
+        target_id = params.customer_id
+
+      order created_at asc
+
+    event comment_created
+      comment_id: ID
+      org_id: ID
+      author_id: ID
+      target: CommentTarget
+      target_id: ID
+
+  policies
+    create same_org
+    update owner, role_admin
+    delete owner, role_admin
+    read same_org
+
+  command create_for_issue
+    creates Comment
+    input issue_id, body
+    derive target = CommentTarget.issue
+    derive target_id = input.issue_id
+    derive author = ctx.user
+    policy create
+    emits comment_created
+
+  command create_for_customer
+    creates Comment
+    input customer_id, body
+    derive target = CommentTarget.customer
+    derive target_id = input.customer_id
+    derive author = ctx.user
+    policy create
+    emits comment_created
+
+  surface web admin
+    view issue_thread SidePanel
+      source query.for_issue(issue_id: route.issue_id)
+      block ext.thread_view
+
+    view customer_thread SidePanel
+      source query.for_customer(customer_id: route.customer_id)
+      block ext.thread_view
+
+  extensions
+    client thread_view: ViewBlock[Comment] at "./ui/thread_view.tsx"
+    server extract_mentions: Function[Text, User[]] at "./domain/extract_mentions.go"

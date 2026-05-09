@@ -1,0 +1,98 @@
+# Org/team pressure test.
+# Exercises tenancy host resources, membership, role inheritance, and multi-surface.
+# Design fixture only; canonical constructs plus multi-surface usage.
+
+feature org
+  purpose "Organizations, teams, memberships, and role inheritance for tenant-aware features."
+
+  non_goals
+    "user identity - see feature user"
+    "billing subscription ownership - see feature billing"
+
+  uses user
+
+  domain
+    enum MembershipRole
+      owner
+      admin
+      member
+      guest
+
+    resource Org
+      name: Text required
+      slug: Text required
+
+      soft_delete
+      timestamps
+
+    resource Team
+      tenancy org
+      name: Text required
+      slug: Text required
+
+      soft_delete
+      timestamps
+
+    resource Membership
+      tenancy org
+      user: User required
+      role: MembershipRole = member
+      team: Team optional
+
+      timestamps
+
+    constraints
+      unique slug per Org
+      unique user, team per org
+
+    query my_orgs
+      params
+        user: User
+
+      filters
+        user = params.user
+
+    query teams
+      order name asc
+
+    event org_created
+      org_id: ID
+      owner_id: ID
+
+    event member_invited
+      org_id: ID
+      user_id: ID
+      role: MembershipRole
+
+  policies
+    create authenticated
+    read org_member
+    update org_admin
+    delete org_owner
+    invite org_admin
+
+  command create
+    creates Org
+    input name, slug
+    policy create
+    emits org_created
+
+  command invite_member
+    creates Membership
+    input email, role, team
+    derive user = ext.resolve_or_invite_user(input.email)
+    policy invite
+    emits member_invited
+
+  surface web admin
+    view teams Table
+      source query.teams
+      columns name, slug, created_at
+
+  surface mobile member
+    view my_orgs Table
+      source query.my_orgs(user: ctx.user)
+      columns org, role
+
+  extensions
+    server resolve_or_invite_user: Function[Email, User] at "./domain/resolve_or_invite_user.go"

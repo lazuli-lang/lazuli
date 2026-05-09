@@ -1,0 +1,67 @@
+# Field permissions pressure test.
+# Exercises field-level read/write restrictions.
+# Design fixture only; candidate field_policy construct is not compiler-executable yet.
+
+feature customer_sensitive
+  purpose "Customer fields with role-specific visibility and write access."
+
+  non_goals
+    "customer lifecycle ownership - see feature customer"
+
+  uses org, user, customer
+
+  domain
+    resource CustomerSensitiveProfile
+      tenancy org
+      customer: Customer required
+      legal_name: Text required
+      tax_id: Text required
+      annual_revenue: Money optional
+      internal_notes: Text optional
+
+      soft_delete
+      timestamps
+
+    query by_customer
+      params
+        customer_id: ID
+
+      key customer.id = params.customer_id
+
+  policies
+    read same_org
+    update role_admin, finance_admin
+    delete role_admin
+
+  field_policies CustomerSensitiveProfile
+    legal_name
+      read same_org
+      write role_admin, finance_admin
+
+    tax_id
+      read finance_admin
+      write finance_admin
+
+    annual_revenue
+      read finance_admin, sales_manager
+      write finance_admin
+
+    internal_notes
+      read role_admin, account_owner
+      write role_admin, account_owner
+
+  command update_financials
+    updates CustomerSensitiveProfile
+
+    params
+      customer_id: ID
+
+    target profile = query.by_customer(customer_id: params.customer_id)
+
+    input legal_name, tax_id, annual_revenue
+    policy update
+
+  surface web admin
+    view detail SidePanel
+      source query.by_customer(customer_id: route.customer_id)
+      columns legal_name, tax_id, annual_revenue, internal_notes

@@ -1,0 +1,104 @@
+# CSV import pressure test.
+# Exercises file upload, batch processing, row validation, and progress UI.
+# Design fixture only; candidate job/file constructs are not compiler-executable yet.
+
+feature customer_import
+  purpose "Upload CSV files, validate rows, and create customers in a background job."
+
+  non_goals
+    "customer lifecycle rules - see feature customer"
+    "generic ETL platform"
+
+  uses org, user, customer
+
+  domain
+    enum ImportStatus
+      uploaded
+      validating
+      processing
+      completed
+      failed
+
+    resource ImportBatch
+      tenancy org
+      uploaded_by: User required
+      file: File required
+      status: ImportStatus = uploaded
+      total_rows: Integer = 0
+      valid_rows: Integer = 0
+      failed_rows: Integer = 0
+
+      timestamps
+
+    resource ImportRow
+      tenancy org
+      batch: ImportBatch required
+      customer: Customer optional
+      row_number: Integer required
+      raw: JSON required
+      error: Text optional
+
+      timestamps
+
+    query by_id
+      params
+        id: ID
+
+      key id = params.id
+
+    query rows
+      params
+        batch_id: ID
+
+      filters
+        batch.id = params.batch_id
+
+      order row_number asc
+      paginate 100
+
+    event import_uploaded
+      batch_id: ID
+      org_id: ID
+      uploaded_by_id: ID
+
+    event import_completed
+      batch_id: ID
+      valid_rows: Integer
+      failed_rows: Integer
+
+  policies
+    create role_admin, sales_ops
+    read same_org
+    update system
+    delete role_admin
+
+  command upload
+    creates ImportBatch
+    input file
+    derive uploaded_by = ctx.user
+    policy create
+    emits import_uploaded
+
+  job process_batch
+    queue customer_imports
+    policy system
+    runs ext.process_batch
+    emits import_completed
+
+  surface web admin
+    view upload Form
+      submit command.upload
+      fields file
+
+    view detail SidePanel
+      source query.by_id(id: route.id)
+      block ext.progress
+
+    view rows Table
+      source query.rows(batch_id: route.id)
+      columns row_number, error, created_at
+
+  extensions
+    client progress: ViewBlock[ImportBatch] at "./ui/progress.tsx"
+    server process_batch: BackgroundJob[ImportBatch] at "./jobs/process_batch.go"
+    server validate_row: Validator[ImportRow] at "./domain/validate_row.go"

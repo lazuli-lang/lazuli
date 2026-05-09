@@ -1,6 +1,3 @@
-# Sketch syntax for Lazuli feature capsules.
-# Indentation-based design fixture, not compiler-executable yet.
-
 feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
@@ -9,6 +6,8 @@ feature customer
     "credit scoring engine - see feature scoring"
     "user authentication - see feature user"
 
+  uses org, user
+
   domain
     enum CustomerStatus
       lead
@@ -16,7 +15,8 @@ feature customer
       archived
 
     resource Customer
-      org_id: Org required
+      tenancy org
+      owner: User required
       name: Text required
       email: Email required
       status: CustomerStatus = lead
@@ -25,12 +25,14 @@ feature customer
       timestamps
 
     constraints
-      unique email per org_id
+      unique email per org
 
     query list
-      where
-        org_id = ctx.user.org_id
-        deleted_at = nil
+      params
+        status: CustomerStatus optional
+
+      filters
+        status when params.status
 
       order created_at desc
       paginate 50
@@ -39,22 +41,24 @@ feature customer
       params
         id: ID
 
-      where
-        id = id
-        org_id = ctx.user.org_id
+      key id = params.id
 
-    rule "deleted customers cannot be invoiced"
-      forbid Invoice.create where customer.deleted_at != nil
-      message "Cannot invoice an archived customer"
+    rule "deleted customers cannot be archived"
+      deny Customer.archive when customer.deleted_at != nil
+      message "Cannot archive a deleted customer"
 
     event customer_created
-      id: ID
+      customer_id: ID
       org_id: ID
       email: Email
 
+    event customer_activated
+      customer_id: ID
+      by_id: ID
+
     event customer_archived
-      id: ID
-      by: User
+      customer_id: ID
+      by_id: ID
 
   policies
     create role_admin, role_sales
@@ -63,13 +67,19 @@ feature customer
     read same_org
 
   command create
+    creates Customer
     input name, email
+    derive owner = ctx.user
     policy create
     emits customer_created
 
-  workflow status
+  workflow lifecycle on Customer.status
+    policy update
+
+    activate: lead -> active
+      emits customer_activated
+
     archive: active -> archived
-      policy update
       emits customer_archived
 
   surface web admin

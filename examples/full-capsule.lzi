@@ -1,46 +1,79 @@
-# Full Lazuli capsule sketch.
-# Indentation-based design fixture, not compiler-executable yet.
+# Full Lazuli audit fixture.
+# This is a kitchen-sink suite for LLM review.
+# It demonstrates the intended granularity rule:
+# a feature is a product capability, not "everything that touches one entity".
+# It mixes stable canonical constructs with candidate Tier 2 constructs.
+# Design fixture only; not compiler-executable yet.
 
 feature customer
-  purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
+  purpose "CRM customer lifecycle, ownership, tiering, scoring, and customer-facing surfaces."
 
   non_goals
-    "invoicing - see feature invoice"
-    "credit scoring engine - see feature scoring"
-    "user authentication - see feature user"
+    "staff authentication - see feature user"
+    "customer login and MFA - see feature customer_auth"
+    "tag management - see feature customer_tags"
+    "CSV import and external CRM ingestion - see feature customer_import"
+    "invoicing - see feature billing"
+
+  context "@docs/customer/customer.ctx.md"
+
+  uses org, user, billing
 
   domain
     enum CustomerStatus
-      lead
-      active
-      archived
+      lead = 10
+      active = 20
+      paused = 30
+      archived = 90
 
     enum CustomerTier
       free
       pro
       enterprise
 
-    resource Customer
-      org_id: Org required
-      owner_id: User required
+    enum CustomerSource
+      manual
+      import
+      api
+      webhook
+
+    resource Customer previously Account
+      tenancy org
+      owner: User required
       name: Text required
       email: Email required
-      status: CustomerStatus = lead
+      lifecycle_stage: CustomerStatus previously status = lead
       tier: CustomerTier = free
+      source: CustomerSource = manual
       score: Integer = 0
+      external_id: Text optional
 
       soft_delete
       timestamps
 
+      event_payload
+        customer_id = id
+        org_id = org.id
+
     constraints
-      unique email per org_id
-      index org_id, status
-      index org_id, owner_id
+      unique email per org
+      unique external_id per org
+      index org, lifecycle_stage
+      index org, owner
+      index org, tier
 
     query list
-      where
-        org_id = ctx.user.org_id
-        deleted_at = nil
+      params
+        lifecycle_stage: CustomerStatus optional
+        tier: CustomerTier optional
+        owner: User optional
+        search: Text optional
+
+      filters
+        lifecycle_stage when params.lifecycle_stage
+        tier when params.tier
+        owner when params.owner
+        name = params.search when params.search
 
       order created_at desc
       paginate 50
@@ -49,88 +82,587 @@ feature customer
       params
         id: ID
 
-      where
-        id = id
-        org_id = ctx.user.org_id
+      key id = params.id
+
+    query by_email
+      params
+        email: Email
+
+      key email = params.email
+
+    query global_search
+      params
+        search: Text
+
+      scope override
+        deleted_at = nil
+
+      filters
+        name = params.search
+
+      order updated_at desc
+      paginate 100
 
     query lifetime_value raw
       returns CustomerLtv[]
 
-      params
-        org_id: ID
+      scope
+        org = ctx.user.org
 
       sql "./queries/customer_lifetime_value.sql"
 
-    rule "archived customers cannot receive invoices"
-      forbid Invoice.create where customer.status = archived
-      message "Cannot invoice an archived customer"
+    query churn_risk raw
+      returns CustomerRiskRow[]
 
-    rule "deleted customers cannot be invoiced"
-      forbid Invoice.create where customer.deleted_at != nil
-      message "Cannot invoice a deleted customer"
+      params
+        min_score: Integer optional
+
+      scope
+        org = ctx.user.org
+
+      sql "./queries/customer_churn_risk.sql"
+
+    rule "archived customers cannot be reassigned"
+      deny Customer.reassign when customer.lifecycle_stage = CustomerStatus.archived
+      message "Cannot reassign an archived customer"
+
+    rule "deleted customers cannot be archived"
+      deny Customer.archive when customer.deleted_at != nil
+      message "Cannot archive a deleted customer"
+
+    rule "enterprise customers require owner before activation"
+      deny Customer.activate when customer.tier = CustomerTier.enterprise AND customer.owner = nil
+      message "Enterprise customers require an owner before activation"
 
     event customer_created
-      id: ID
-      org_id: ID
       email: Email
+      source: CustomerSource
+
+    event customer_status_changed
+      from: CustomerStatus
+      to: CustomerStatus
+      by_id: ID
+
+    event customer_activated
+      by_id: ID
+
+    event customer_paused
+      by_id: ID
 
     event customer_archived
-      id: ID
-      by: User
+      by_id: ID
 
     event customer_reassigned
-      id: ID
-      owner_id: User
-      by: User
+      owner_id: ID
+      by_id: ID
+
+    event customer_score_recomputed
+      score: Integer
+      reason: Text
 
   policies
     create role_admin, role_sales
     update role_admin, role_sales
     delete role_admin
     read same_org
+    global_read role_admin
+    system system
+
+  field_policies Customer
+    email
+      read same_org
+      write role_admin, role_sales
+
+    score
+      read role_admin, sales_manager
+      write system
+
+    external_id
+      read role_admin, integrations_admin
+      write system, integrations_admin
 
   command create
-    input name, email, tier
+    creates Customer
+    input name, email, tier, source
+    derive owner = ctx.user
     policy create
     emits customer_created
 
-  command reassign
-    input owner_id: ID
+  command reassign previously assign_owner
+    updates Customer
+
+    params
+      id: ID
+
+    target customer = query.by_id(id: params.id)
+
+    input owner: User
     policy update
     emits customer_reassigned
 
-  workflow status
-    archive: active -> archived
-      policy update
+  command update_tier
+    updates Customer
+
+    params
+      id: ID
+
+    target customer = query.by_id(id: params.id)
+
+    input tier: CustomerTier
+    policy update
+
+  workflow lifecycle on Customer.lifecycle_stage
+    policy update
+    emits customer_status_changed
+
+    activate: lead -> active
+      emits customer_activated
+
+    pause: active -> paused
+      emits customer_paused
+
+    resume: paused -> active
+
+    archive previously deactivate: active -> archived
+      policy delete
       emits customer_archived
+
+  # Candidate Tier 2: consume another feature event.
+  on billing.invoice_paid
+    policy system
+    target customer = query.by_id(id: event.customer_id)
+    derive score = ext.risk_score(customer)
+    emits customer_score_recomputed
+
+  # Candidate Tier 2: scheduled/background work.
+  job recompute_scores
+    schedule "0 2 * * *"
+    policy system
+    runs ext.recompute_scores
 
   surface web admin
     view list Table
       source query.list
-      columns name, email, status, tier, score, created_at
+      columns name, email, lifecycle_stage, tier, score, owner, created_at
       search name, email
-      filter status, tier
+      filter lifecycle_stage, tier, owner
 
       cells
-        status ext.status_cell
+        lifecycle_stage ext.status_cell
         score ext.score_cell
+        owner ext.owner_cell
 
     view detail SidePanel
       source query.by_id(id: route.id)
       block ext.activity_timeline
 
     view ltv_report Table
-      source query.lifetime_value(org_id: ctx.user.org_id)
+      source query.lifetime_value
       columns customer_id, amount, currency
+
+    view churn_risk Table
+      source query.churn_risk(min_score: route.min_score)
+      columns customer_id, risk_score, reason
+
+  surface web public
+    view lead_capture Form
+      submit command.create
+      fields name, email
+
+  surface mobile sales
+    view list Table
+      source query.list(owner: ctx.user)
+      columns name, lifecycle_stage, tier
+
+    view detail SidePanel
+      source query.by_id(id: route.id)
 
   extensions
     client status_cell: CellRenderer[Customer]
     client score_cell: CellRenderer[Customer]
+    client owner_cell: CellRenderer[Customer]
     client activity_timeline: ViewBlock[Customer] at "./ui/activity_timeline.tsx"
 
     server before_create: Hook[CreateCustomer]
     server after_archive: Hook[ArchiveCustomer]
     server risk_score: Function[Customer, RiskScore] at "./domain/risk_score.go"
-    server validate_tier: Validator[Customer.tier] at "./domain/validate_tier.go"
+    server validate_tier: Validator[Customer.tier] at "./hooks/validate_tier.go"
+    server query_scope_modifier: QueryModifier[Customer] at "./queries/query_scope_modifier.go"
+    server recompute_scores: BackgroundJob[CustomerScoreRecompute] at "./jobs/recompute_scores.go"
+
+  escape_route "/admin/customer-debug" at "./pages/customer_debug.tsx"
+
+feature customer_auth
+  purpose "Customer-facing login, sessions, OAuth, MFA, and account access."
+
+  non_goals
+    "staff authentication - see feature user"
+    "customer lifecycle ownership - see feature customer"
+
+  uses org, customer
+
+  domain
+    enum AuthProvider
+      password
+      google
+      magic_link
+
+    resource CustomerSession
+      tenancy org
+      customer: Customer required on_delete restrict
+      refresh_token_hash: Secret required
+      provider: AuthProvider required
+      expires_at: DateTime required
+
+      timestamps
+
+    query active_sessions
+      params
+        customer_id: ID
+
+      filters
+        customer.id = params.customer_id
+        expires_at != nil
+
+      order created_at desc
+
+    event customer_logged_in
+      customer_id: ID
+      session_id: ID
+      provider: AuthProvider
+
+    event customer_mfa_enabled
+      customer_id: ID
+      by_id: ID
+
+  auth
+    identity Customer.email
+
+    password
+      hash ext.hash_customer_password
+      verify ext.verify_customer_password
+      rate_limit "5 per 10 minutes"
+
+    oauth google
+      adapter ext.google_oauth
+
+    mfa totp
+      enroll ext.enroll_customer_totp
+      verify ext.verify_customer_totp
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      refresh false
+
+  policies
+    login public
+    update same_org
+    read same_org
+    system system
+
+  command login
+    input email, password
+    policy login
+    returns AuthSession
+    emits customer_logged_in
+
+  command enable_mfa
+    updates Customer
+
+    params
+      customer_id: ID
+
+    target customer = customer.query.by_id(id: params.customer_id)
+
+    input totp_code: Text
+    policy update
+    emits customer_mfa_enabled
+
+  surface web public
+    view login Form
+      submit command.login
+      fields email, password
+
+  surface web account
+    view enable_mfa Form
+      submit command.enable_mfa(customer_id: route.customer_id)
+      fields totp_code
+
+  extensions
+    server hash_customer_password: Function[Text, Secret] at "./auth/hash_customer_password.go"
+    server verify_customer_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_customer_password.go"
+    server google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
+    server enroll_customer_totp: Function[Customer, TotpEnrollment] at "./auth/enroll_customer_totp.go"
+    server verify_customer_totp: Validator[TotpVerifyInput] at "./auth/verify_customer_totp.go"
+
+feature customer_tags
+  purpose "Customer tag taxonomy and tag assignments with assignment metadata."
+
+  non_goals
+    "customer lifecycle ownership - see feature customer"
+    "generic taxonomy system"
+
+  uses org, user, customer
+
+  domain
+    resource CustomerTag
+      tenancy org
+      name: Text required
+      color: Text optional
+
+      timestamps
+
+    resource CustomerTagAssignment
+      tenancy org
+      customer: Customer required on_delete cascade
+      tag: CustomerTag required on_delete restrict
+      added_by: User required
+      added_at: DateTime required
+
+    constraints
+      unique name per org
+      unique customer, tag per org
+      index org, tag
+      index org, customer
+
+    query list_tags
+      order name asc
+
+    query tag_by_id
+      params
+        id: ID
+
+      key id = params.id
+
+    query assignments_for_customer
+      params
+        customer_id: ID
+
+      filters
+        customer.id = params.customer_id
+
+      order added_at desc
+
+    query assignment_by_customer_tag
+      params
+        customer_id: ID
+        tag_id: ID
+
+      filters
+        customer.id = params.customer_id
+        tag.id = params.tag_id
+
+    query customers_by_tag
+      params
+        tag_id: ID
+
+      filters
+        tag.id = params.tag_id
+
+      order added_at desc
+      paginate 100
+
+    event customer_tag_created
+      tag_id: ID
+      org_id: ID
+
+    event customer_tag_assigned
+      customer_id: ID
+      tag_id: ID
+      by_id: ID
+
+    event customer_tag_removed
+      customer_id: ID
+      tag_id: ID
+      by_id: ID
+
+  policies
+    create role_admin, sales_ops
+    update role_admin, sales_ops
+    delete role_admin
+    read same_org
+
+  command create_tag
+    creates CustomerTag
+    input name, color
+    policy create
+    emits customer_tag_created
+
+  command assign_tag
+    creates CustomerTagAssignment
+    input
+      customer: Customer
+      tag: CustomerTag
+    derive added_by = ctx.user
+    derive added_at = ctx.now
+    policy update
+    emits customer_tag_assigned
+
+  command remove_tag
+    deletes CustomerTagAssignment
+
+    params
+      customer_id: ID
+      tag_id: ID
+
+    target assignment = query.assignment_by_customer_tag(customer_id: params.customer_id, tag_id: params.tag_id)
+
+    policy update
+    emits customer_tag_removed
+
+  surface web admin
+    view tags Table
+      source query.list_tags
+      columns name, color, created_at
+
+    view assignments Table
+      source query.assignments_for_customer(customer_id: route.customer_id)
+      columns tag, added_by, added_at
+
+  extends customer.surface.web.admin.view.detail
+    block ext.tag_editor
+
+  extensions
+    client tag_editor: ViewBlock[Customer] at "./ui/tag_editor.tsx"
+    server before_assign_tag: Hook[AssignCustomerTag] at "./hooks/before_assign_tag.go"
+
+feature customer_import
+  purpose "Customer CSV uploads, CRM webhook ingestion, row validation, and async processing."
+
+  non_goals
+    "customer lifecycle ownership - see feature customer"
+    "generic ETL platform"
+
+  uses org, user, customer
+
+  domain
+    enum ImportStatus
+      uploaded
+      validating
+      processing
+      completed
+      failed
+
+    resource CustomerImportBatch
+      tenancy org
+      uploaded_by: User required
+      file: File required
+      status: ImportStatus = uploaded
+      total_rows: Integer = 0
+      valid_rows: Integer = 0
+      failed_rows: Integer = 0
+
+      timestamps
+
+    resource CustomerImportRow
+      tenancy org
+      batch: CustomerImportBatch required
+      row_number: Integer required
+      raw: JSON required
+      error: Text optional
+
+      timestamps
+
+    query by_id
+      params
+        id: ID
+
+      key id = params.id
+
+    query rows
+      params
+        batch_id: ID
+
+      filters
+        batch.id = params.batch_id
+
+      order row_number asc
+      paginate 100
+
+    event customer_import_uploaded
+      batch_id: ID
+      org_id: ID
+      uploaded_by_id: ID
+
+    event customer_import_completed
+      batch_id: ID
+      valid_rows: Integer
+      failed_rows: Integer
+
+    event customer_webhook_received
+      external_id: Text
+      org_id: ID
+
+  policies
+    import role_admin, sales_ops
+    read same_org
+    delete role_admin
+    system system
+
+  command upload
+    creates CustomerImportBatch
+    input file
+    derive uploaded_by = ctx.user
+    policy import
+    emits customer_import_uploaded
+
+  # Candidate Tier 2: external inbound payload.
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    verify ext.verify_crm_signature
+    idempotency external_id
+    policy system
+    runs ext.upsert_customer_from_crm
+    emits customer_webhook_received
+
+  # Candidate Tier 2: queued/background work.
+  job process_import
+    queue customer_imports
+    policy system
+    runs ext.process_import
+    emits customer_import_completed
+
+  surface web admin
+    view upload Form
+      submit command.upload
+      fields file
+
+    view detail SidePanel
+      source query.by_id(id: route.id)
+      block ext.import_progress
+
+    view rows Table
+      source query.rows(batch_id: route.id)
+      columns row_number, error, created_at
+
+  extensions
+    client import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
+    server process_import: BackgroundJob[CustomerImportBatch] at "./jobs/process_import.go"
+    server validate_row: Validator[CustomerImportRow] at "./domain/validate_row.go"
+    server verify_crm_signature: WebhookAdapter[CrmCustomerUpsert] at "./integrations/crm.go"
+    server upsert_customer_from_crm: Function[CrmCustomerPayload, Customer] at "./integrations/upsert_customer_from_crm.go"
 
   escape_route "/admin/customer-imports" at "./pages/customer_imports.tsx"
+
+feature customer_outreach
+  purpose "Send customer lifecycle outreach from events without owning storage."
+
+  non_goals
+    "notification persistence - see feature notification"
+    "customer lifecycle ownership - see feature customer"
+
+  uses customer
+
+  # Candidate Tier 2: pure event-consumer feature with no resources.
+  on customer.customer_activated
+    policy system
+    runs ext.send_welcome_email
+
+  on customer.customer_archived
+    policy system
+    runs ext.send_archive_survey
+
+  extensions
+    server send_welcome_email: Function[CustomerActivatedEvent, DeliveryResult] at "./outreach/send_welcome_email.go"
+    server send_archive_survey: Function[CustomerArchivedEvent, DeliveryResult] at "./outreach/send_archive_survey.go"

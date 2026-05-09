@@ -1,0 +1,93 @@
+# Notification pressure test.
+# Exercises event consumption and external effects.
+# Design fixture only; candidate constructs are not compiler-executable yet.
+
+feature notification
+  purpose "Deliver email and in-app notifications from domain events."
+
+  non_goals
+    "event source of truth - producers own their events"
+    "user preferences UI beyond notification settings"
+
+  uses org, user, customer, issue
+
+  domain
+    enum NotificationChannel
+      email
+      in_app
+
+    enum NotificationStatus
+      queued
+      sent
+      failed
+
+    resource Notification
+      tenancy org
+      recipient: User required
+      channel: NotificationChannel required
+      status: NotificationStatus = queued
+      subject: Text required
+      body: Text required
+      source_event: Text required
+
+      timestamps
+
+    query inbox
+      params
+        recipient: User
+
+      filters
+        recipient = params.recipient
+
+      order created_at desc
+      paginate 50
+
+    event notification_queued
+      notification_id: ID
+      org_id: ID
+      recipient_id: ID
+
+    event notification_sent
+      notification_id: ID
+      provider_message_id: Text
+
+  policies
+    create system
+    read self, role_admin
+    update system
+    delete role_admin
+
+  on customer.customer_archived
+    policy system
+    creates Notification
+    derive recipient = event.by_id
+    derive channel = NotificationChannel.email
+    derive subject = "Customer archived"
+    derive body = ext.render_customer_archived(event)
+    emits notification_queued
+
+  on issue.issue_assigned
+    policy system
+    creates Notification
+    derive recipient = event.assignee_id
+    derive channel = NotificationChannel.in_app
+    derive subject = "Issue assigned"
+    derive body = ext.render_issue_assigned(event)
+    emits notification_queued
+
+  job send_queued
+    schedule "*/2 * * * *"
+    policy system
+    runs ext.send_queued
+    emits notification_sent
+
+  surface web admin
+    view inbox Table
+      source query.inbox(recipient: ctx.user)
+      columns subject, channel, status, created_at
+      filter channel, status
+
+  extensions
+    server render_customer_archived: Function[CustomerArchivedEvent, Text] at "./templates/customer_archived.go"
+    server render_issue_assigned: Function[IssueAssignedEvent, Text] at "./templates/issue_assigned.go"
+    server send_queued: BackgroundJob[NotificationSendBatch] at "./jobs/send_queued.go"

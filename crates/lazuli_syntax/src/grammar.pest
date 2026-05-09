@@ -1,5 +1,4 @@
 WHITESPACE = _{ " " | "\t" | NEWLINE }
-COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* }
 
 program = { SOI ~ app_decl? ~ aggregate* ~ EOI }
 app_decl = { "app" ~ ident }
@@ -36,4 +35,3 @@ literal = @{ quoted_string | ident | number }
 quoted_string = { "\"" ~ ( "\\\"" | (!"\"" ~ ANY))* ~ "\"" }
 number = { ASCII_DIGIT+ }
 ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
-

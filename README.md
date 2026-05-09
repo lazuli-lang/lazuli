@@ -26,21 +26,26 @@ This repository currently contains a small MVP:
 feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
+  uses org, user
+
   domain
+    enum CustomerStatus
+      lead
+      active
+      archived
+
     resource Customer
+      tenancy org
       name: Text required
       email: Email required
       status: CustomerStatus = lead
-
-    query list
-      where
-        org_id = ctx.user.org_id
 
   policies
     create role_admin
     read same_org
 
   command create
+    creates Customer
     input name, email
     policy create
     emits customer_created
@@ -80,15 +85,31 @@ Press `F5` to run it as an Extension Development Host. It opens `examples/custom
 
 If you have the repository root open instead, `F5` also works; the root launch config points at `editors/vscode`.
 
-The highlighter currently follows the indentation-based Lazuli sketch: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, short feature context (`purpose`, `non_goals`, and optional `context` override), semantic groups (`domain`, `policies`, `surface`, `extensions`), query/command/workflow/view declarations, typed extensions, rules, and events. The semantic graph is intentionally not authored in `.lzi`; it should be derived later by the compiler. This extension does not start the Lazuli LSP yet.
+The highlighter currently follows the canonical indentation-based Lazuli sketch: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, and explicit semantic groups (`domain`, `policies`, `command`, `workflow`, `surface`, `extensions`). The semantic graph is intentionally not authored in `.lzi`; it should be derived later by the compiler. This extension does not start the Lazuli LSP yet.
 
 The fuller syntax fixtures are:
 
-- `examples/full-capsule.lzi` for the full Customer capsule.
+- `examples/full-capsule.lzi` as the kitchen-sink audit fixture suite for LLM review.
 - `examples/customer.ctx.md` for the co-located prose context convention.
 - `examples/linear-issue.lzi` as a pressure test for state transitions, self references, labels, filters, and custom UI blocks.
+- Tier 2 pressure fixtures:
+  - `examples/user-auth.lzi`
+  - `examples/notification.lzi`
+  - `examples/billing.lzi`
+  - `examples/comment.lzi`
+  - `examples/org-team.lzi`
+  - `examples/import-csv.lzi`
+  - `examples/audit-log.lzi`
+  - `examples/field-permissions.lzi`
 
 ## Design Notes
 
+- [Canonical semantics](docs/canonical-semantics.md)
 - [Extension points](docs/extension-points.md)
+- [Generation contract](docs/generation-contract.md)
+- [Error contract](docs/error-contract.md)
+- [Project structure](docs/project-structure.md)
+- [Migrations](docs/migrations.md)
+- [Testing strategy](docs/testing-strategy.md)
+- [Language backlog](docs/language-backlog.md)
 - [Validation plan](docs/validation-plan.md)
