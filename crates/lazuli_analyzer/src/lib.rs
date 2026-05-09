@@ -74,6 +74,8 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         commands,
         queries,
         workflows: Vec::new(),
+        jobs: Vec::new(),
+        webhooks: Vec::new(),
         surfaces: Vec::new(),
         extensions: Vec::new(),
         escape_routes: Vec::new(),

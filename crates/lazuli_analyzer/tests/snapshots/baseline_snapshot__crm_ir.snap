@@ -262,6 +262,8 @@ expression: app
         }
       ],
       "workflows": [],
+      "jobs": [],
+      "webhooks": [],
       "surfaces": [],
       "extensions": [],
       "escape_routes": [],

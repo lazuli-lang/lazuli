@@ -50,6 +50,8 @@ pub struct Feature {
     pub commands: Vec<Command>,
     pub queries: Vec<Query>,
     pub workflows: Vec<Workflow>,
+    pub jobs: Vec<Job>,
+    pub webhooks: Vec<Webhook>,
     pub surfaces: Vec<Surface>,
     pub extensions: Vec<Extension>,
     pub escape_routes: Vec<EscapeRoute>,
@@ -826,6 +828,116 @@ pub struct EscapeRoute {
     /// Coarse tenant axis for the escape page. `None` = no tenant scope claimed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant: Option<Tenancy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+// =============================================================================
+// Phase 1d — async work: jobs and webhooks
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Job {
+    pub name: String,
+    pub trigger: JobTrigger,
+    /// Execution lane for queued workers. `None` runs the reactor inline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency: Option<IdempotencyKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyRef>,
+    pub body: JobBody,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum JobTrigger {
+    /// `trigger event customer.customer_archived` — feature-qualified or local.
+    Event { event: QualifiedName },
+    /// `trigger schedule "0 2 * * *"` — cron expression.
+    Schedule { cron: String },
+}
+
+/// Derived operational kind for inspect output. Authoring never sets this;
+/// the analyzer resolves `Schedule` -> Scheduled, event without queue ->
+/// Reactor, event with queue -> QueuedWorker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JobOperationalKind {
+    Scheduled,
+    Reactor,
+    QueuedWorker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdempotencyKey {
+    /// Path expression: `envelope.id`, `payload.batch_id`, `payload.external_id`.
+    pub by: Path,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetryPolicy {
+    pub count: u32,
+    pub backoff: BackoffStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BackoffStrategy {
+    Fixed,
+    Exponential,
+}
+
+/// A job has exactly one body style. Handler-backed jobs may still declare
+/// `emits`; declarative bodies bind a target and apply one write effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum JobBody {
+    Handler(JobHandler),
+    Declarative(JobDeclarative),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobHandler {
+    pub path: PathRef,
+    /// `handler "./..." returns Customer`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns: Option<TypeRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobDeclarative {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetExpr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lets: Vec<LetBinding>,
+    pub effect: CommandEffect,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Webhook {
+    pub name: String,
+    /// Inbound HTTP path: `"/webhooks/stripe/invoice-paid"`.
+    pub route: String,
+    pub verify: PathRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency: Option<IdempotencyKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyRef>,
+    pub handler: PathRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns: Option<TypeRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
