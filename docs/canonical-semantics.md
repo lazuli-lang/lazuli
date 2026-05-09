@@ -1035,6 +1035,13 @@ tests
 
 `from <state>` tests state-machine edges, assuming an authorized actor. `as <actor>` tests policy, assuming the transition's valid source state. The combined form tests both dimensions at the intersection. Use the right form for the property being checked; the test runner uses the workflow's policy default when only `from` is present, and the transition's source state default when only `as` is present.
 
+Do not flatten every test form into a single generic `allow`/`deny` dialect in
+canonical v0. The scoped vocabulary is deliberate. `when` means predicate
+evaluation, `from` means state-machine edge, `as` means actor authorization,
+and `accepted/rejected by` means anchor allowlist membership. Keeping those
+shapes distinct gives the parser and LSP useful rejection power and gives
+humans/agents a local clue about which semantic dimension is being tested.
+
 Rule tests accept:
 
 ```lazuli
@@ -1249,6 +1256,16 @@ Policy names have two layers:
 - Feature-local policy categories referenced as `@policy.create`, `@policy.update`, `@policy.import`, `@policy.login`, and `@policy.global_read`.
 
 Commands and workflows should always reference feature-local categories with `@policy.*`. Put `@role.*`, `@scope.*`, and `@actor.*` atoms in the `policies` dictionary, then point commands/workflows at that category. Jobs, webhooks, escape routes, and `policy_for` defaults may still use direct atoms such as `@actor.system` or `@role.admin` when no reusable category is needed.
+
+Do not simplify command/workflow authoring to bare `policy create` or
+`policy update` in canonical v0. The `@policy.*` namespace is intentionally
+visible even though it costs tokens. It tells humans, agents, and tooling that
+the value is a feature-local authorization category, not a write effect, a
+command verb, or a terminal actor/role/scope atom. This explicit boundary is
+part of Lazuli's safety model: the LSP can reject direct atoms in user-facing
+commands, inspect can resolve category-to-atom provenance consistently, and a
+reader never has to infer whether `create` means "the create operation" or
+"the create authorization category."
 
 `policy @policy.update` inside `feature customer_tags` always refers to that feature's local `update` policy category, even if the command references `Customer` from the `customer` feature. Cross-feature policy references must be feature-qualified:
 

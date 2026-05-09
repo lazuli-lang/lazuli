@@ -51,6 +51,10 @@ source that only fails later.
 - Commands and workflows use `policy @policy.*`; put direct `@role.*`,
   `@scope.*`, and `@actor.*` atoms in the `policies` dictionary. Jobs,
   webhooks, escape routes, and defaults may use direct atoms where appropriate.
+- Do not replace canonical command/workflow policy references with bare
+  `policy create`/`policy update`. The `@policy.*` prefix is deliberate: it
+  distinguishes feature-local authorization categories from write effects,
+  verbs, actors, roles, and scopes, and gives tools a clear syntactic boundary.
 - Commands declare `policy` explicitly. There is no implicit
   `creates -> @policy.create` or `updates -> @policy.update` rule.
 - Workflow `policy` is a transition default. A transition uses
@@ -163,6 +167,10 @@ source that only fails later.
   behavior beyond policy.
 - Generated command actor-matrix tests use `permits` and `forbids`; authored
   predicate and transition tests use `allows` and `denies`.
+- Keep tests vocabulary scoped by construct. Rule predicates, workflow edges,
+  workflow actor checks, and anchor allowlists are different semantic decisions;
+  do not flatten them into one generic `allow/deny` dialect unless it preserves
+  the same static rejection power and readability.
 - Command tests use `target` when a loaded target exists. Rule and workflow
   tests use `self`.
 - Tests use the same closed predicate language as rules and filters; no

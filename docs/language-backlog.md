@@ -146,7 +146,10 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [ ] Consider a stricter spelling for dangerous scope replacement, such as `scope override(org)`, if real queries need more readable override intent.
 - [ ] Consider `page_size default: 50, max: 200` only when adapters need per-query hard maximums.
 - [ ] Consider compact workflow transition test tables only if repeated `allows from`/`denies from` blocks become noisy in real features.
-- [ ] Consider renaming or documenting generated views as `policy_categories` if the `policies`/`policy`/`@policy.*` vocabulary keeps causing first-read confusion.
+- [ ] Consider renaming generated documentation views as `policy_categories`
+  only if `policies`/`policy`/`@policy.*` keeps causing first-read confusion;
+  do not remove `@policy.*` from command/workflow source unless another syntax
+  preserves the same actor/category/effect separation.
 - [x] Replace direct-key/`anti_pattern.*` non-goals with structured `delegated_to` / `out_of_scope`.
 - [ ] Split `canonical-semantics.md` into a stricter normative reference plus rationale/design notes if the file keeps being too expensive for agent context.
 - [x] Add a generated `provides` object to `inspect --expand=summary` for exported anchors, events, queries, and types.
@@ -158,6 +161,10 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [ ] Consider structured `rate_limit 30/hour per ip` only if string contracts become hard for adapters to validate consistently.
 - [ ] Consider a project-level terms/glossary registry for `@semantic.*`, `@pii.*`, `@cap.*`, `@scope.*`, and `@actor.*` once multiple adapters need shared descriptions.
 - [ ] Revisit the `@cap.*` namespace name only before public v1 if enough first-time readers confuse it with "capsule" rather than "capability"; avoid churn after adapters depend on it.
+- [ ] Revisit test vocabulary only with real usage evidence. A flatter
+  `allow/deny` syntax must preserve static rejection of wrong assertions by
+  construct and keep predicate, transition, actor, and anchor dimensions
+  visually distinct.
 
 ### Broader Validation
 
