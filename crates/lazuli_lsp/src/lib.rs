@@ -1781,16 +1781,24 @@ fn command_rate_limit_diagnostics(
         ));
     }
 
-    if let Some((line_index, line)) = command.rate_limit_none
-        && !command.rate_limit_none_has_reason
-    {
+    if let Some((line_index, line)) = command.rate_limit_none {
         diagnostics.push(simple_canonical_diagnostic(
             line_index,
             &line,
             DiagnosticSeverity::WARNING,
             "security-opt-out",
-            "`rate_limit none` is an explicit security opt-out and must include a `reason \"...\"` child.",
+            "`rate_limit none` is an explicit security opt-out. Strict profile allows it for reviewed drafts; production profile treats it as a release blocker.",
         ));
+
+        if !command.rate_limit_none_has_reason {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "security-opt-out-reason",
+                "`rate_limit none` must include a `reason \"...\"` child.",
+            ));
+        }
     }
 
     diagnostics
@@ -3129,16 +3137,24 @@ fn webhook_diagnostics(webhook: WebhookSecurityFacts) -> Vec<Diagnostic> {
         ));
     }
 
-    if let Some((line_index, line)) = webhook.verify_none
-        && !webhook.verify_none_has_reason
-    {
+    if let Some((line_index, line)) = webhook.verify_none {
         diagnostics.push(simple_canonical_diagnostic(
             line_index,
             &line,
             DiagnosticSeverity::WARNING,
             "security-opt-out",
-            "`verify none` is an explicit security opt-out and must include a `reason \"...\"` child.",
+            "`verify none` is an explicit security opt-out. Strict profile allows it for reviewed drafts; production profile treats it as a release blocker.",
         ));
+
+        if !webhook.verify_none_has_reason {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "security-opt-out-reason",
+                "`verify none` must include a `reason \"...\"` child.",
+            ));
+        }
     }
 
     diagnostics
@@ -3381,6 +3397,7 @@ fn is_security_enforcement_code(code: &str) -> bool {
             | "auth-password-algorithm"
             | "auth-password-rate-limit"
             | "auth-session-ttl"
+            | "security-opt-out-reason"
     )
 }
 
@@ -5646,7 +5663,7 @@ feature billing
     }
 
     #[test]
-    fn production_profile_rejects_security_opt_out_without_reason() {
+    fn strict_profile_rejects_security_opt_out_without_reason() {
         let source = r#"
 feature billing
   purpose "Billing"
@@ -5658,15 +5675,42 @@ feature billing
 "#;
 
         let strict = diagnostics_for_with_profile(source, SecurityProfile::Strict);
+
+        assert!(strict.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+                && diagnostic
+                    .message
+                    .contains("`verify none` must include a `reason")
+        }));
+    }
+
+    #[test]
+    fn production_profile_rejects_reasoned_security_opt_out() {
+        let source = r#"
+feature billing
+  purpose "Billing"
+
+  webhook inbound
+    path "/webhooks/inbound"
+    verify none
+      reason "Internal tunnel in development only."
+    idempotency by payload.id
+"#;
+
+        let strict = diagnostics_for_with_profile(source, SecurityProfile::Strict);
         let production = diagnostics_for_with_profile(source, SecurityProfile::Production);
 
         assert!(strict.iter().any(|diagnostic| {
             diagnostic.severity == Some(DiagnosticSeverity::WARNING)
-                && diagnostic.message.contains("`verify none`")
+                && diagnostic
+                    .message
+                    .contains("`verify none` is an explicit security opt-out")
         }));
         assert!(production.iter().any(|diagnostic| {
             diagnostic.severity == Some(DiagnosticSeverity::ERROR)
-                && diagnostic.message.contains("`verify none`")
+                && diagnostic
+                    .message
+                    .contains("`verify none` is an explicit security opt-out")
         }));
     }
 
