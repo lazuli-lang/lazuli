@@ -549,9 +549,9 @@ fn lzx_filename_diagnostics(uri: &Url, source: &str) -> Vec<Diagnostic> {
 }
 
 fn lzx_platform_from_file_name(file_name: &str) -> Option<&'static str> {
-    if file_name.ends_with(".web.lzx") || file_name.contains(".web.") {
+    if file_name.ends_with(".web.lzx") {
         Some("web")
-    } else if file_name.ends_with(".mobile.lzx") || file_name.contains(".mobile.") {
+    } else if file_name.ends_with(".mobile.lzx") {
         Some("mobile")
     } else {
         None
@@ -4659,7 +4659,9 @@ feature customer
 
     #[test]
     fn canonical_order_accepts_full_capsule_fixture() {
-        let diagnostics = diagnostics_for(include_str!("../../../examples/full-capsule.lzi"));
+        let diagnostics = diagnostics_for(include_str!(
+            "../../../examples/full-capsule/full-capsule.lzi"
+        ));
 
         assert!(
             diagnostics.is_empty(),
@@ -4690,7 +4692,7 @@ feature customer
             ),
             (
                 "full-capsule.lzi",
-                include_str!("../../../examples/full-capsule.lzi"),
+                include_str!("../../../examples/full-capsule/full-capsule.lzi"),
             ),
             (
                 "import-csv.lzi",
@@ -4733,6 +4735,26 @@ feature customer
             (
                 "customer-capsule.web.lzx",
                 include_str!("../../../examples/customer-capsule.web.lzx"),
+            ),
+            (
+                "full-capsule.lzx",
+                include_str!("../../../examples/full-capsule/full-capsule.lzx"),
+            ),
+            (
+                "full-capsule.admin.web.lzx",
+                include_str!("../../../examples/full-capsule/full-capsule.admin.web.lzx"),
+            ),
+            (
+                "full-capsule.public.web.lzx",
+                include_str!("../../../examples/full-capsule/full-capsule.public.web.lzx"),
+            ),
+            (
+                "full-capsule.account.web.lzx",
+                include_str!("../../../examples/full-capsule/full-capsule.account.web.lzx"),
+            ),
+            (
+                "full-capsule.sales.mobile.lzx",
+                include_str!("../../../examples/full-capsule/full-capsule.sales.mobile.lzx"),
             ),
         ];
 
@@ -5127,6 +5149,26 @@ surface customer mobile
             diagnostic
                 .message
                 .contains("`customer.web.lzx` is a `web` projection")
+        }));
+    }
+
+    #[test]
+    fn lzx_platform_suffix_must_be_terminal() {
+        let source = r#"
+surface customer web
+  uses experience customer
+
+  audience admin
+    view list Table
+"#;
+        let uri = Url::parse("file:///workspace/features/customer/customer.web.admin.lzx").unwrap();
+
+        let diagnostics = diagnostics_for_uri(&uri, source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("abstract `.lzx` files declare `experience <name>`")
         }));
     }
 
@@ -5669,7 +5711,7 @@ feature customer
 
     #[test]
     fn canonical_formatter_preserves_full_capsule_fixture() {
-        let source = include_str!("../../../examples/full-capsule.lzi");
+        let source = include_str!("../../../examples/full-capsule/full-capsule.lzi");
         let formatted = format_canonical_source(source).expect("canonical source");
 
         assert_eq!(formatted, source);

@@ -722,6 +722,8 @@ pub struct Experience {
     pub imports: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<ExperienceView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<ViewExtension>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -731,14 +733,20 @@ pub struct ExperienceView {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensible_by: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submit: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<ExperienceAction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub opens: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tests: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -747,6 +755,15 @@ pub struct ExperienceView {
 pub struct ExperienceAction {
     pub name: String,
     pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewExtension {
+    pub anchor: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -801,6 +818,8 @@ pub struct PlatformView {
     pub actions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submit: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

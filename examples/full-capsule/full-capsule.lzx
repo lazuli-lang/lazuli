@@ -1,0 +1,71 @@
+# Full capsule abstract experience/view model.
+# Platform projections live in sibling .web.lzx and .mobile.lzx files.
+
+experience customer
+  imports customer
+
+  view list
+    source customer.query.list
+    action create -> customer.command.create
+    opens detail
+
+  view detail id @anchor.customer_detail
+    source customer.query.by_id(id: route.id)
+    block @client.activity_timeline
+    extensible_by customer_tags, customer_import
+    action reassign -> customer.command.reassign
+    action archive -> customer.workflow.lifecycle.archive
+
+    tests
+      accepted by customer_tags
+      accepted by customer_import
+      rejected by billing
+
+  view ltv_report
+    source customer.query.lifetime_value
+
+  view churn_risk
+    source customer.query.churn_risk(min_score: route.min_score)
+
+  view lead_capture
+    submit customer.command.create
+
+experience customer_auth
+  imports customer_auth, customer
+
+  view login
+    submit customer_auth.command.login
+
+  view enable_mfa
+    submit customer_auth.command.enable_mfa
+
+experience customer_tags
+  imports customer_tags, customer
+
+  view tags
+    source customer_tags.query.list_tags
+
+  view tag_detail
+    source customer_tags.query.tag_by_id(id: route.tag_id)
+
+  view assignments
+    source customer_tags.query.assignments_for_customer(customer_id: route.customer_id)
+
+  extends @anchor.customer_detail
+    block @client.tag_editor
+
+experience customer_import
+  imports customer_import, customer
+
+  view upload
+    submit customer_import.command.upload
+
+  view detail
+    source customer_import.query.by_id(id: route.id)
+    block import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
+
+  view rows
+    source customer_import.query.rows(batch_id: route.id)
+
+  extends @anchor.customer_detail
+    block @client.import_history

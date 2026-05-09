@@ -1,0 +1,17 @@
+# Full capsule web public projection.
+
+surface customer web
+  uses experience customer
+
+  audience public
+    view lead_capture Form
+      fields name, email
+      submit create
+
+surface customer_auth web
+  uses experience customer_auth
+
+  audience public
+    view login Form
+      fields email, password
+      submit login

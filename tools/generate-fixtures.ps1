@@ -164,7 +164,7 @@ function Convert-FixtureText {
 }
 
 $Changed = @()
-$Files = Get-ChildItem $ExamplesDir -Filter "*.lzi" | Where-Object { $_.Name -ne "crm.lzi" }
+$Files = Get-ChildItem $ExamplesDir -Recurse -Filter "*.lzi" | Where-Object { $_.Name -ne "crm.lzi" }
 
 foreach ($File in $Files) {
     $Original = Get-Content -Raw $File.FullName

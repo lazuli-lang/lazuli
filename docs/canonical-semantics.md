@@ -163,7 +163,7 @@ feature customer_import # uploads, row validation, background import
 
 Avoid a single `feature customer` that owns every concern touching `Customer`. Oversized capsules hide policy boundaries, blur ownership, and degrade agent edits. A healthy feature should usually fit in a few focused screens of text. When a capsule starts accumulating unrelated policies, jobs, webhooks, auth, and surfaces, split by capability and connect features through `uses`, queries, commands, events, and extensions.
 
-The kitchen-sink fixture in `examples/full-capsule.lzi` intentionally contains several feature blocks to show these boundaries under pressure.
+The kitchen-sink fixture in `examples/full-capsule/full-capsule.lzi` intentionally contains several feature blocks to show these boundaries under pressure.
 
 ## Dependencies
 
@@ -843,7 +843,7 @@ Unlisted transitions are invalid; if an enum value is reachable, model the trans
 JSON is the canonical inspect output:
 
 ```bash
-lazuli inspect examples/full-capsule.lzi --expand=events,targets,policies,locators,dependencies,security --format=json
+lazuli inspect examples/full-capsule/full-capsule.lzi --expand=events,targets,policies,locators,dependencies,security --format=json
 ```
 
 The JSON root includes `schema`, `source`, `expand`, and `features`. The current schema id is `lazuli.inspect.v0`. Expansion classes are explicit and stable so agents can request only the context they need:
@@ -868,7 +868,7 @@ Each expansion should answer one bounded question. If a proposed derived fact do
 `--format=lazuli` is useful for debugging syntax sugar:
 
 ```bash
-lazuli inspect examples/full-capsule.lzi --expand=all --format=lazuli
+lazuli inspect examples/full-capsule/full-capsule.lzi --expand=all --format=lazuli
 ```
 
 It may expand local sugar such as inline transition clauses, single-key lookup shorthand, `creates X from input`, inferred local targets, and inherited event payload fields. The JSON output remains the stable contract for tooling and golden tests.
@@ -880,7 +880,7 @@ Agents should treat authored `.lzi` files as the only editable source. Generated
 For feature edits, load the smallest stable context pack that answers the task:
 
 ```bash
-lazuli inspect examples/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
+lazuli inspect examples/full-capsule/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
 ```
 
 Pair that inspect payload with this spec section and `docs/invariants.md` when the agent is generating or reviewing Lazuli source. `summary` answers "what exists", `refs` answers namespace use, `events` answers payload contracts, `policies` answers effective authorization, `locators` answers which bindings are in scope, `dependencies` answers cross-feature impact, and `security` answers which fields/operations/webhooks carry security obligations.
@@ -1342,8 +1342,9 @@ surface customer web
 `.lzi` does not declare or depend on UI. Abstract `.lzx` declares the product
 experience and imports `.lzi` capabilities. Concrete `.web.lzx` and
 `.mobile.lzx` files declare protected platform projections and group product
-variants under `audience`/`tenant` blocks. File names organize source; the
-header decides semantics.
+variants under `audience`/`tenant` blocks. The platform segment stays
+immediately before `.lzx`; file names organize source, and the header decides
+semantics.
 
 Product variants use total override, not cascade. If `audience admin tenant
 acme` changes the list view, it redeclares the whole view. Partial operations

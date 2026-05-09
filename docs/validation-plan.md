@@ -51,12 +51,12 @@ Run `tools/generate-fixtures.ps1 -Check` in CI or before review to catch fixture
 - Inbound webhooks are under pressure in `billing`, but the construct is not stable core yet.
 - Scheduled and event-triggered jobs are under pressure in `notification`, `billing`, and `import-csv`, but the construct is not stable core yet.
 - Event consumption through `job trigger event` is under pressure in `notification` and `audit-log`, but the construct is not stable core yet.
-- Pure event-consumer features with no resources are under pressure in `examples/full-capsule.lzi`.
-- Cross-feature view composition is under pressure in `examples/full-capsule.lzi`.
+- Pure event-consumer features with no resources are under pressure in `examples/full-capsule/full-capsule.lzi`.
+- Cross-feature view composition is under pressure in the sibling `.lzx` files under `examples/full-capsule/`.
 - Many-to-many with payload should use explicit join resources; this is under pressure in `comment` and `org-team`.
 - Recursive hierarchies currently lean on `query.sql`.
 - Cascaded soft delete across relations is not modeled.
-- Multi-surface differences (`web admin`, `mobile`, `public`) need examples.
+- Multi-surface differences (`web`, `mobile`, `admin`, `public`, `sales`) are under pressure in the sibling `.lzx` files under `examples/full-capsule/`.
 - Error semantics have a draft in `error-contract.md`, but need target adapter validation.
 - Schema migration planning has a draft in `migrations.md`, but needs implementation pressure.
 

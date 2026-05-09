@@ -1,5 +1,6 @@
 # Full Lazuli canonical fixture.
-# Exercises domain, policies, auth, commands, workflows, jobs, webhooks, surfaces, extensions, and escape routes.
+# Exercises domain, policies, auth, commands, workflows, jobs, webhooks, extensions, and escape routes.
+# Experience and surface projections live in sibling .lzx files.
 # Granularity: a feature is a product capability, not an entity wrapper.
 # Design fixture only; parser and codegen coverage may lag this surface.
 
@@ -275,49 +276,6 @@ feature customer
     trigger schedule "0 2 * * *"
     handler "./jobs/recompute_scores.go"
 
-  surface web admin
-    view list Table
-      source query.list
-      columns name, email, lifecycle_stage, tier, score, owner, created_at
-      search name, email
-      filter lifecycle_stage, tier, owner
-
-      cells
-        lifecycle_stage @client.status_cell
-        score @client.score_cell
-        owner @client.owner_cell
-
-    view detail SidePanel id @anchor.customer_detail
-      extensible_by customer_tags, customer_import
-      source query.by_id(id: route.id)
-      block @client.activity_timeline
-
-      tests
-        accepted by customer_tags
-        accepted by customer_import
-        rejected by billing
-
-    view ltv_report Table
-      source query.lifetime_value
-      columns customer_id, amount, currency
-
-    view churn_risk Table
-      source query.churn_risk(min_score: route.min_score)
-      columns customer_id, risk_score, reason
-
-  surface web public
-    view lead_capture Form
-      submit command.create
-      fields name, email
-
-  surface mobile sales
-    view list Table
-      source query.list(owner: ctx.user)
-      columns name, lifecycle_stage, tier
-
-    view detail SidePanel
-      source query.by_id(id: route.id)
-
   extensions
     client status_cell: CellRenderer[Customer]
     client score_cell: CellRenderer[Customer]
@@ -432,16 +390,6 @@ feature customer_auth
       customer = target
       verified_at = ctx.now
     emits customer_mfa_enabled
-
-  surface web public
-    view login Form
-      submit command.login
-      fields email, password
-
-  surface web account
-    view enable_mfa Form
-      submit command.enable_mfa
-      fields totp_code
 
   extensions
     fn hash_customer_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./auth/hash_customer_password.go"
@@ -563,22 +511,6 @@ feature customer_tags
     deletes CustomerTagAssignment
     emits tag_assignment_removed
 
-  surface web admin
-    view tags Table
-      source query.list_tags
-      columns name, color, created_at
-
-    view tag_detail SidePanel
-      source query.tag_by_id(id: route.tag_id)
-      fields name, color, created_at
-
-    view assignments Table
-      source query.assignments_for_customer(customer_id: route.customer_id)
-      columns tag, added_by, added_at
-
-  extends @anchor.customer_detail
-    block @client.tag_editor
-
   extensions
     client tag_editor: ViewBlock[Customer]
     hook before_assign_tag: Hook[AssignCustomerTag]
@@ -679,22 +611,6 @@ feature customer_import
     idempotency by payload.external_id
     handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
-
-  surface web admin
-    view upload Form
-      submit command.upload
-      fields file
-
-    view detail SidePanel
-      source query.by_id(id: route.id)
-      block import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
-
-    view rows Table
-      source query.rows(batch_id: route.id)
-      columns row_number, error, created_at
-
-  extends @anchor.customer_detail
-    block @client.import_history
 
   extensions
     client import_history: ViewBlock[Customer]

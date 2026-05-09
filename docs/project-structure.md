@@ -128,11 +128,13 @@ contracts. It does not need a surface file to compile.
 features and declares product-level views, actions, anchors, and exposure
 intent without choosing a concrete platform widget.
 
-`.web.lzx` and `.mobile.lzx` are protected platform projections. They use an
+`.web.lzx` and `.mobile.lzx` are protected compound suffixes for platform
+projections. They use an
 abstract experience and declare how each audience is rendered on that platform.
 Product axes such as `audience admin` or `tenant acme` live in the file body.
-Additional physical splits such as `customer.web.public.lzx` are organization
-only; the header remains the semantic truth.
+Additional physical splits such as `customer.public.web.lzx` are organization
+only; the protected platform segment remains immediately before `.lzx`, and the
+header remains the semantic truth.
 
 Dependency direction is fixed:
 

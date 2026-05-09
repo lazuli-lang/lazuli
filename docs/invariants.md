@@ -14,7 +14,8 @@ source that only fails later.
 - Abstract `.lzx` owns the experience/view model and imports `.lzi`
   capabilities.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
-  abstract experience. Platform suffixes are protected; product axes such as
+  abstract experience. Platform suffixes are protected compound suffixes: the
+  platform segment stays immediately before `.lzx`. Product axes such as
   `audience` and `tenant` are source syntax, not magic filename suffixes.
 - `.lzx` forbids cascade and partial override operators such as `+=` and `-=`.
   Product variants redeclare the whole view they change.

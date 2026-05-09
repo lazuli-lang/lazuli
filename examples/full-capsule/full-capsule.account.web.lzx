@@ -1,0 +1,9 @@
+# Full capsule web account projection.
+
+surface customer_auth web
+  uses experience customer_auth
+
+  audience account
+    view enable_mfa Form
+      fields totp_code
+      submit enable_mfa

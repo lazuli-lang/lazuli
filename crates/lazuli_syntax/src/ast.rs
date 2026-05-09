@@ -83,6 +83,7 @@ pub struct LzxExperience {
     pub name: String,
     pub imports: Vec<String>,
     pub views: Vec<LzxExperienceView>,
+    pub extensions: Vec<LzxViewExtension>,
     pub span: Span,
 }
 
@@ -90,10 +91,13 @@ pub struct LzxExperience {
 pub struct LzxExperienceView {
     pub name: String,
     pub anchor: Option<String>,
+    pub extensible_by: Vec<String>,
     pub source: Option<String>,
     pub submit: Option<String>,
+    pub blocks: Vec<String>,
     pub actions: Vec<LzxAction>,
     pub opens: Vec<String>,
+    pub tests: Vec<String>,
     pub span: Span,
 }
 
@@ -101,6 +105,13 @@ pub struct LzxExperienceView {
 pub struct LzxAction {
     pub name: String,
     pub target: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxViewExtension {
+    pub anchor: String,
+    pub blocks: Vec<String>,
     pub span: Span,
 }
 
@@ -140,5 +151,6 @@ pub struct LzxPlatformView {
     pub cells: Vec<String>,
     pub actions: Vec<String>,
     pub submit: Option<String>,
+    pub blocks: Vec<String>,
     pub span: Span,
 }

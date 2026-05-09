@@ -112,6 +112,11 @@ fn lower_experience(experience: &syntax::LzxExperience) -> ir::Experience {
         name: experience.name.clone(),
         imports: experience.imports.clone(),
         views: experience.views.iter().map(lower_experience_view).collect(),
+        extensions: experience
+            .extensions
+            .iter()
+            .map(lower_view_extension)
+            .collect(),
         span_ref: Some(span_of(experience.span)),
     }
 }
@@ -120,10 +125,13 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
     ir::ExperienceView {
         name: view.name.clone(),
         anchor: view.anchor.clone(),
+        extensible_by: view.extensible_by.clone(),
         source: view.source.clone(),
         submit: view.submit.clone(),
+        blocks: view.blocks.clone(),
         actions: view.actions.iter().map(lower_experience_action).collect(),
         opens: view.opens.clone(),
+        tests: view.tests.clone(),
         span_ref: Some(span_of(view.span)),
     }
 }
@@ -133,6 +141,14 @@ fn lower_experience_action(action: &syntax::LzxAction) -> ir::ExperienceAction {
         name: action.name.clone(),
         target: action.target.clone(),
         span_ref: Some(span_of(action.span)),
+    }
+}
+
+fn lower_view_extension(extension: &syntax::LzxViewExtension) -> ir::ViewExtension {
+    ir::ViewExtension {
+        anchor: extension.anchor.clone(),
+        blocks: extension.blocks.clone(),
+        span_ref: Some(span_of(extension.span)),
     }
 }
 
@@ -174,6 +190,7 @@ fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
         cells: view.cells.clone(),
         actions: view.actions.clone(),
         submit: view.submit.clone(),
+        blocks: view.blocks.clone(),
         span_ref: Some(span_of(view.span)),
     }
 }

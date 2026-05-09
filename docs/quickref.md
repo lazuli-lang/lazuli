@@ -89,6 +89,9 @@ Experience source family:
 <feature>.mobile.lzx   # protected mobile projection
 ```
 
+Extra physical split segments go before the protected platform suffix:
+`<feature>.<audience>.web.lzx`, not `<feature>.web.<audience>.lzx`.
+
 `.lzi` does not know `.lzx` exists. Abstract `.lzx` imports `.lzi`
 capabilities. Platform `.lzx` files use an abstract experience and group
 product variants under `audience`/`tenant` blocks.
@@ -369,7 +372,7 @@ that are not semantic dependencies. Direct keys and `anti_pattern.*` are legacy.
 Default agent context for editing a feature:
 
 ```bash
-lazuli inspect examples/full-capsule.lzi --expand=summary,refs,locators,dependencies,security --format=json
+lazuli inspect examples/full-capsule/full-capsule.lzi --expand=summary,refs,locators,dependencies,security --format=json
 ```
 
 Use `--expand=events,policies,targets,tests` only when the task touches those

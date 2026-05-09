@@ -6,8 +6,8 @@ use thiserror::Error;
 
 use crate::ast::{
     Aggregate, Command, Document, Field, FieldModifier, LzxAction, LzxAudience, LzxDocument,
-    LzxExperience, LzxExperienceView, LzxPlatform, LzxPlatformView, LzxSurface, Query, Span,
-    Surface,
+    LzxExperience, LzxExperienceView, LzxPlatform, LzxPlatformView, LzxSurface, LzxViewExtension,
+    Query, Span, Surface,
 };
 
 #[derive(Parser)]
@@ -119,6 +119,7 @@ fn parse_lzx_experience(
 
     let mut imports = Vec::new();
     let mut views = Vec::new();
+    let mut extensions = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -148,10 +149,14 @@ fn parse_lzx_experience(
             let (view, next) = parse_lzx_experience_view(lines, index)?;
             views.push(view);
             index = next;
+        } else if trimmed.starts_with("extends @anchor.") {
+            let (extension, next) = parse_lzx_view_extension(lines, index)?;
+            extensions.push(extension);
+            index = next;
         } else {
             return Err(line_error(
                 line,
-                "experience children are `imports` or `view` declarations",
+                "experience children are `imports`, `view`, or `extends @anchor.*` declarations",
             ));
         }
     }
@@ -161,6 +166,7 @@ fn parse_lzx_experience(
             name: parts[1].to_owned(),
             imports,
             views,
+            extensions,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
@@ -182,8 +188,11 @@ fn parse_lzx_experience_view(
 
     let mut source = None;
     let mut submit = None;
+    let mut extensible_by = Vec::new();
+    let mut blocks = Vec::new();
     let mut actions = Vec::new();
     let mut opens = Vec::new();
+    let mut tests = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -207,6 +216,10 @@ fn parse_lzx_experience_view(
             source = Some(rest.trim().to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("submit ") {
             submit = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("extensible_by ") {
+            extensible_by = split_lzx_list(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("block ") {
+            blocks.push(rest.trim().to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("action ") {
             let Some((name, target)) = rest.split_once(" -> ") else {
                 return Err(line_error(line, "actions use `action <name> -> <target>`"));
@@ -218,10 +231,32 @@ fn parse_lzx_experience_view(
             });
         } else if let Some(rest) = trimmed.strip_prefix("opens ") {
             opens.push(rest.trim().to_owned());
+        } else if trimmed == "tests" {
+            index += 1;
+            while index < lines.len() {
+                let test_line = &lines[index];
+                let test_trimmed = test_line.text.trim_start();
+                if is_trivia(test_trimmed) {
+                    index += 1;
+                    continue;
+                }
+                if test_line.indent <= 4 {
+                    break;
+                }
+                if test_line.indent != 6 {
+                    return Err(line_error(
+                        test_line,
+                        "test assertions inside experience views use six-space indentation",
+                    ));
+                }
+                tests.push(test_trimmed.to_owned());
+                index += 1;
+            }
+            continue;
         } else {
             return Err(line_error(
                 line,
-                "view children are `source`, `submit`, `action`, or `opens`",
+                "view children are `source`, `submit`, `extensible_by`, `block`, `action`, `opens`, or `tests`",
             ));
         }
 
@@ -232,10 +267,70 @@ fn parse_lzx_experience_view(
         LzxExperienceView {
             name: parts[1].to_owned(),
             anchor: (parts.len() == 4).then(|| parts[3].to_owned()),
+            extensible_by,
             source,
             submit,
+            blocks,
             actions,
             opens,
+            tests,
+            span: Span::new(header.start, lines[index.saturating_sub(1)].end),
+        },
+        index,
+    ))
+}
+
+fn parse_lzx_view_extension(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LzxViewExtension, usize), ParseError> {
+    let header = &lines[start];
+    let anchor = header
+        .text
+        .trim_start()
+        .strip_prefix("extends ")
+        .ok_or_else(|| line_error(header, "view extensions use `extends @anchor.<name>`"))?
+        .trim()
+        .to_owned();
+    let mut blocks = Vec::new();
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            index += 1;
+            continue;
+        }
+
+        if line.indent <= 2 {
+            break;
+        }
+
+        if line.indent != 4 {
+            return Err(line_error(
+                line,
+                "view extension children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("block ") {
+            blocks.push(rest.trim().to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "view extension children are `block` declarations",
+            ));
+        }
+
+        index += 1;
+    }
+
+    Ok((
+        LzxViewExtension {
+            anchor,
+            blocks,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
@@ -392,6 +487,7 @@ fn parse_lzx_platform_view(
     let mut cells = Vec::new();
     let mut actions = Vec::new();
     let mut submit = None;
+    let mut blocks = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -437,10 +533,12 @@ fn parse_lzx_platform_view(
             actions = split_lzx_list(rest);
         } else if let Some(rest) = trimmed.strip_prefix("submit ") {
             submit = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("block ") {
+            blocks.push(rest.trim().to_owned());
         } else {
             return Err(line_error(
                 line,
-                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `cells`, `actions`, or `submit`",
+                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `cells`, `actions`, `submit`, or `block`",
             ));
         }
 
@@ -459,6 +557,7 @@ fn parse_lzx_platform_view(
             cells,
             actions,
             submit,
+            blocks,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,

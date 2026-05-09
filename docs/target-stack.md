@@ -83,7 +83,9 @@ source uses three layers:
 
 - `.lzi` declares the domain/capability contract and does not depend on UI.
 - `.lzx` declares the abstract experience/view model.
-- `.web.lzx` and `.mobile.lzx` declare protected platform projections.
+- `.web.lzx` and `.mobile.lzx` declare protected platform projections. The
+  platform segment stays immediately before `.lzx`, even when a file adds
+  organizational segments such as `customer.public.web.lzx`.
 
 A web `Table` may become a mobile `FlatList`; a web `SidePanel` may become a
 navigation stack. Product axes such as `audience admin` and `tenant acme` live

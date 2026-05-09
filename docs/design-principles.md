@@ -88,13 +88,14 @@ hatch explicitly says so.
 
 ## Technical Axis In Filename, Product Axis In Syntax
 
-Protected platform suffixes are technical: `.web.lzx` and `.mobile.lzx`.
+Protected platform suffixes are technical compound suffixes: `.web.lzx` and
+`.mobile.lzx`. The protected platform segment stays immediately before `.lzx`.
 
 Product axes live in source syntax: `audience admin`, `tenant acme`, and future
 first-class product axes if they earn their place. Do not create semantic file
 suffixes such as `.admin.lzx` as language features. A physical split such as
-`customer.web.public.lzx` may help organization, but the header remains the
-truth the compiler validates.
+`customer.public.web.lzx` may help organization, but the header remains the
+truth the compiler validates and the file still ends in `.web.lzx`.
 
 ## File Name Organizes, Header Decides
 

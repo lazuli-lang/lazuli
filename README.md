@@ -72,8 +72,8 @@ feature customer
 ```bash
 cargo run -p lazuli_cli -- parse examples/crm.lzi
 cargo run -p lazuli_cli -- compile examples/crm.lzi --out generated/crm
-cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
-cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=all --format=lazuli
+cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
+cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=all --format=lazuli
 cargo run -p lazuli_cli -- init examples/new-app.lzi
 cargo run -p lazuli_cli -- lsp
 ```
@@ -109,7 +109,7 @@ The highlighter currently follows the canonical indentation-based Lazuli sketch:
 
 The fuller syntax fixtures are:
 
-- `examples/full-capsule.lzi` as the kitchen-sink audit fixture suite for LLM review.
+- `examples/full-capsule/` as the kitchen-sink audit fixture suite for LLM review, split into the `.lzi` contract plus sibling `.lzx` experience/projection files.
 - `docs/quickref.md` is the small context pack to load before asking an agent to edit `.lzi`.
 - `examples/customer.ctx.md` for the co-located prose context convention.
 - `examples/linear-issue.lzi` as a pressure test for state transitions, self references, labels, filters, and custom UI blocks.

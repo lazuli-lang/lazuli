@@ -1,0 +1,11 @@
+# Full capsule mobile sales projection.
+
+surface customer mobile
+  uses experience customer
+
+  audience sales
+    view list Table
+      columns name, lifecycle_stage, tier
+
+    view detail SidePanel
+      sections header, timeline

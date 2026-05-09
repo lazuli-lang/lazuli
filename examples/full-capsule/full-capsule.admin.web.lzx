@@ -1,0 +1,47 @@
+# Full capsule web admin projection.
+
+surface customer web
+  uses experience customer
+
+  audience admin
+    view list Table
+      columns name, email, lifecycle_stage, tier, score, owner, created_at
+      search name, email
+      filter lifecycle_stage, tier, owner
+      cells lifecycle_stage @client.status_cell, score @client.score_cell, owner @client.owner_cell
+
+    view detail SidePanel
+      sections header, activity_timeline
+
+    view ltv_report Table
+      columns customer_id, amount, currency
+
+    view churn_risk Table
+      columns customer_id, risk_score, reason
+
+surface customer_tags web
+  uses experience customer_tags
+
+  audience admin
+    view tags Table
+      columns name, color, created_at
+
+    view tag_detail SidePanel
+      fields name, color, created_at
+
+    view assignments Table
+      columns tag, added_by, added_at
+
+surface customer_import web
+  uses experience customer_import
+
+  audience admin
+    view upload Form
+      fields file
+      submit upload
+
+    view detail SidePanel
+      sections header, import_progress
+
+    view rows Table
+      columns row_number, error, created_at
