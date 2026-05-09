@@ -52,6 +52,8 @@ pub struct Feature {
     pub workflows: Vec<Workflow>,
     pub jobs: Vec<Job>,
     pub webhooks: Vec<Webhook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<Auth>,
     pub surfaces: Vec<Surface>,
     pub extensions: Vec<Extension>,
     pub escape_routes: Vec<EscapeRoute>,
@@ -940,4 +942,70 @@ pub struct Webhook {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+// =============================================================================
+// Phase 1e — auth block
+// =============================================================================
+
+/// Authentication is a family of related subcontracts. Modeling them in one
+/// optional block keeps identity, password, sessions, MFA, and OAuth visible
+/// together. A feature should not declare more than one identity domain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Auth {
+    pub identity: AuthIdentity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<AuthPassword>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<AuthSessions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa: Option<AuthMfa>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub oauth: Vec<AuthOAuthProvider>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// `auth identity Customer.email` — one identity field on one resource.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthIdentity {
+    pub field: FieldRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthPassword {
+    /// `hash @fn.hash_customer_password` — extension fn reference.
+    pub hash: String,
+    pub verify: String,
+    /// `rate_limit "5 per 10 minutes"` — declarative throttle string parsed by
+    /// the auth adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthSessions {
+    /// `resource CustomerSession`
+    pub resource: QualifiedName,
+    /// `ttl "7 days"` — duration string parsed by the adapter.
+    pub ttl: String,
+    /// `refresh false` — whether refresh tokens are issued.
+    pub refresh: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthMfa {
+    /// MFA method id: `totp`, `sms`, `webauthn`. Adapter-specific beyond this.
+    pub method: String,
+    /// Optional adapter reference, e.g. `@adapter.totp_provider`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthOAuthProvider {
+    /// Provider id: `google`, `github`, `microsoft`, etc.
+    pub provider: String,
+    /// `@adapter.<provider>_oauth` reference.
+    pub adapter: String,
 }

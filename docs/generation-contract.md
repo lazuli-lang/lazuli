@@ -37,6 +37,8 @@ typed TS client
 React tables/forms/panels
 ```
 
+Generated source should be structured for debugging, not bundled for distribution. The Go target emits many feature/category files and lets `go build` produce the final binary. The React target emits many feature modules and lets Vite/esbuild produce the browser bundle. Single-file generated Go or React output is not canonical because it destroys useful stack traces, incremental rebuild locality, and source-to-feature correspondence.
+
 ## Custom
 
 These constructs generate typed contracts and require source implementation:
