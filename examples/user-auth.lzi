@@ -115,6 +115,7 @@ feature user
     emits user_logged_in
 
   command enable_mfa
+    route id: ID
     updates User
     input
       totp_code: Text

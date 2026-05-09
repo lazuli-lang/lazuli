@@ -51,6 +51,7 @@ feature customer_sensitive
         write: role_admin, account_owner
 
   command update_financials
+    route customer_id: ID
     updates CustomerSensitiveProfile
     input
       legal_name: Text

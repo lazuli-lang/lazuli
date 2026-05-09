@@ -121,6 +121,7 @@ feature issue
     emits issue_created
 
   command assign
+    route id: ID
     updates Issue
     input
       assignee: User

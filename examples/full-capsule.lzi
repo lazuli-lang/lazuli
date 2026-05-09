@@ -222,10 +222,11 @@ feature customer
     idempotency event.id
     policy system
     target query.by_id(id: event.customer_id)
+    let new_score = ext.risk_score(self)
     updates Customer
-      score = ext.risk_score(self)
+      score = new_score
     emits customer_score_recomputed
-      score = self.score
+      score = new_score
       reason = "invoice_paid"
 
   # Candidate Tier 2: scheduled/background work.
@@ -363,6 +364,7 @@ feature customer_auth
     emits customer_logged_in
 
   command enable_mfa
+    route customer_id: ID
     updates Customer
     input
       totp_code: Text
@@ -607,7 +609,7 @@ feature customer_import
   webhook crm_customer_upsert
     path "/webhooks/crm/customer-upsert"
     verify "./integrations/crm.go"
-    idempotency external_id
+    idempotency payload.external_id
     handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
 

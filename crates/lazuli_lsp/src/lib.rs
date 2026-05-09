@@ -7,10 +7,11 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, Hover,
-    HoverContents, HoverParams, InitializeParams, InitializeResult, InitializedParams,
-    MarkupContent, MarkupKind, MessageType, OneOf, Position, Range, ServerCapabilities, SymbolKind,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult,
+    InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, Position, Range,
+    ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+    Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
@@ -44,6 +45,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(tower_lsp::lsp_types::HoverProviderCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
@@ -208,6 +210,25 @@ impl LanguageServer for Backend {
 
         Ok(Some(DocumentSymbolResponse::Nested(symbols)))
     }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let documents = self.documents.read().await;
+        let Some(source) = documents.get(&params.text_document.uri) else {
+            return Ok(None);
+        };
+        let Some(formatted) = format_canonical_source(source) else {
+            return Ok(None);
+        };
+
+        if formatted == *source {
+            return Ok(Some(Vec::new()));
+        }
+
+        Ok(Some(vec![TextEdit::new(
+            full_document_range(source),
+            formatted,
+        )]))
+    }
 }
 
 #[allow(deprecated)]
@@ -289,6 +310,7 @@ enum CanonicalBlockKind {
     Defaults,
     Uses,
     Domain,
+    Events,
     Policies,
     Auth,
     Command,
@@ -307,15 +329,16 @@ impl CanonicalBlockKind {
             Self::Defaults => 1,
             Self::Uses => 2,
             Self::Domain => 3,
-            Self::Policies => 4,
-            Self::Auth => 5,
-            Self::Command => 6,
-            Self::Workflow => 7,
-            Self::Job => 8,
-            Self::Webhook => 9,
-            Self::Surface => 10,
-            Self::Extensions => 11,
-            Self::EscapeRoute => 12,
+            Self::Events => 4,
+            Self::Policies => 5,
+            Self::Auth => 6,
+            Self::Command => 7,
+            Self::Workflow => 8,
+            Self::Job => 9,
+            Self::Webhook => 10,
+            Self::Surface => 11,
+            Self::Extensions => 12,
+            Self::EscapeRoute => 13,
         }
     }
 
@@ -325,6 +348,7 @@ impl CanonicalBlockKind {
             Self::Defaults => "defaults",
             Self::Uses => "uses",
             Self::Domain => "domain",
+            Self::Events => "events",
             Self::Policies => "policies",
             Self::Auth => "auth",
             Self::Command => "command",
@@ -338,8 +362,7 @@ impl CanonicalBlockKind {
     }
 }
 
-const CANONICAL_FEATURE_ORDER: &str =
-    "meta -> defaults -> uses -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
+const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> domain -> events -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
 
 fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -446,6 +469,7 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "defaults" => Some(CanonicalBlockKind::Defaults),
         "uses" => Some(CanonicalBlockKind::Uses),
         "domain" => Some(CanonicalBlockKind::Domain),
+        "events" => Some(CanonicalBlockKind::Events),
         "policies" => Some(CanonicalBlockKind::Policies),
         "auth" => Some(CanonicalBlockKind::Auth),
         "command" => Some(CanonicalBlockKind::Command),
@@ -457,6 +481,132 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "escape_route" => Some(CanonicalBlockKind::EscapeRoute),
         _ => None,
     }
+}
+
+fn format_canonical_source(source: &str) -> Option<String> {
+    if !is_canonical_source(source) {
+        return None;
+    }
+
+    let newline = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut formatted_lines = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = lines[index];
+
+        if leading_spaces(line) == 0 && line.trim_start().starts_with("feature ") {
+            let start = index;
+            index += 1;
+
+            while index < lines.len() {
+                let next = lines[index];
+                if leading_spaces(next) == 0 && next.trim_start().starts_with("feature ") {
+                    break;
+                }
+                index += 1;
+            }
+
+            formatted_lines.extend(format_feature_lines(&lines[start..index]));
+        } else {
+            formatted_lines.push(line.to_owned());
+            index += 1;
+        }
+    }
+
+    let mut formatted = formatted_lines.join(newline);
+    if source.ends_with('\n') {
+        formatted.push_str(newline);
+    }
+
+    Some(formatted)
+}
+
+#[derive(Debug)]
+struct FeatureBlockSegment {
+    kind: Option<CanonicalBlockKind>,
+    ordinal: usize,
+    lines: Vec<String>,
+}
+
+fn format_feature_lines(lines: &[&str]) -> Vec<String> {
+    let Some((first, rest)) = lines.split_first() else {
+        return Vec::new();
+    };
+
+    let mut formatted = vec![(*first).to_owned()];
+    let mut segments = Vec::new();
+    let mut index = 0;
+
+    while index < rest.len() && is_trivia_line(rest[index]) {
+        formatted.push(rest[index].to_owned());
+        index += 1;
+    }
+
+    while index < rest.len() {
+        let line = rest[index];
+        let kind = if leading_spaces(line) == 2 {
+            canonical_block_kind(line.trim_start())
+        } else {
+            None
+        };
+
+        let start = index;
+        index += 1;
+
+        if kind.is_some() {
+            while index < rest.len() {
+                let next = rest[index];
+                if leading_spaces(next) == 2 && canonical_block_kind(next.trim_start()).is_some() {
+                    break;
+                }
+                index += 1;
+            }
+        } else {
+            while index < rest.len() {
+                let next = rest[index];
+                if leading_spaces(next) == 2 && canonical_block_kind(next.trim_start()).is_some() {
+                    break;
+                }
+                index += 1;
+            }
+        }
+
+        segments.push(FeatureBlockSegment {
+            kind,
+            ordinal: segments.len(),
+            lines: rest[start..index]
+                .iter()
+                .map(|line| (*line).to_owned())
+                .collect(),
+        });
+    }
+
+    segments.sort_by_key(|segment| {
+        (
+            segment
+                .kind
+                .map(CanonicalBlockKind::rank)
+                .unwrap_or(u8::MAX),
+            segment.ordinal,
+        )
+    });
+
+    for segment in segments {
+        formatted.extend(segment.lines);
+    }
+
+    formatted
+}
+
+fn is_trivia_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.is_empty() || trimmed.starts_with('#')
 }
 
 fn leading_spaces(line: &str) -> usize {
@@ -493,6 +643,16 @@ fn first_line_range(source: &str) -> Range {
             line: 0,
             character: end as u32,
         },
+    }
+}
+
+fn full_document_range(source: &str) -> Range {
+    Range {
+        start: Position {
+            line: 0,
+            character: 0,
+        },
+        end: position_for_offset(source, source.len()),
     }
 }
 
@@ -590,7 +750,7 @@ const KEYWORDS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::diagnostics_for;
+    use super::{diagnostics_for, format_canonical_source};
 
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
@@ -647,6 +807,14 @@ feature customer
     }
 
     #[test]
+    fn canonical_formatter_preserves_full_capsule_fixture() {
+        let source = include_str!("../../../examples/full-capsule.lzi");
+        let formatted = format_canonical_source(source).expect("canonical source");
+
+        assert_eq!(formatted, source);
+    }
+
+    #[test]
     fn canonical_order_reports_late_uses() {
         let source = r#"
 feature customer
@@ -661,7 +829,11 @@ feature customer
         let diagnostics = diagnostics_for(source);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("`uses` appears after `domain`"));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("`uses` appears after `domain`")
+        );
     }
 
     #[test]
@@ -687,6 +859,41 @@ feature billing
             diagnostics[0]
                 .message
                 .contains("`webhook` appears after `surface`")
+        );
+    }
+
+    #[test]
+    fn canonical_formatter_reorders_feature_blocks() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  surface web admin
+    view list Table
+
+  uses org
+
+  domain
+    resource Customer
+
+  webhook inbound
+    path "/webhooks/inbound"
+"#;
+
+        let formatted = format_canonical_source(source).expect("canonical source");
+
+        assert!(
+            formatted.find("  uses org").unwrap() < formatted.find("  domain").unwrap(),
+            "uses should move before domain:\n{formatted}"
+        );
+        assert!(
+            formatted.find("  webhook inbound").unwrap()
+                < formatted.find("  surface web admin").unwrap(),
+            "webhook should move before surface:\n{formatted}"
+        );
+        assert!(
+            diagnostics_for(&formatted).is_empty(),
+            "formatter should produce canonical order"
         );
     }
 

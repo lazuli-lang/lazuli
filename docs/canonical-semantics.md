@@ -24,6 +24,10 @@ feature customer
     query list
     event customer_created
 
+  events customer_* on Customer
+    payload
+      customer_id = id
+
   policies
   auth
   command create
@@ -44,6 +48,7 @@ meta: purpose, non_goals, context
 defaults
 uses
 domain
+events
 policies
 auth
 commands
