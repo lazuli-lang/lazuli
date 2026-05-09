@@ -47,6 +47,7 @@ pub struct Feature {
     pub resources: Vec<Resource>,
     pub events: Vec<Event>,
     pub rules: Vec<Rule>,
+    pub policies: Policies,
     pub commands: Vec<Command>,
     pub queries: Vec<Query>,
     pub workflows: Vec<Workflow>,
@@ -206,6 +207,8 @@ pub struct Command {
     pub policy: PolicyRef,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -515,6 +518,8 @@ pub struct Rule {
     pub denies: OperationRef,
     pub when: Predicate,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -568,6 +573,8 @@ pub struct Transition {
     pub requires: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -621,6 +628,8 @@ pub struct TableView {
     pub anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensible_by: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -637,6 +646,8 @@ pub struct SidePanelView {
     pub anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensible_by: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -648,6 +659,8 @@ pub struct FormView {
     pub name: String,
     pub submit: QualifiedName,
     pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -662,6 +675,8 @@ pub struct CustomView {
     pub view_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1008,4 +1023,90 @@ pub struct AuthOAuthProvider {
     pub provider: String,
     /// `@adapter.<provider>_oauth` reference.
     pub adapter: String,
+}
+
+// =============================================================================
+// Phase 1f — inline tests + policy registry with field-level policies
+// =============================================================================
+
+/// Inline declarative assertions about IR shape. A `TestBlock` is the last
+/// child of a command, workflow transition, rule, or extensible view. See
+/// `docs/canonical-semantics.md` "Tests" for the verb catalogue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TestBlock {
+    pub assertions: Vec<TestAssertion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of test verbs. The analyzer rejects assertions that do not
+/// belong to the parent construct (e.g. `accepted by` on a command).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "verb", content = "value")]
+pub enum TestAssertion {
+    /// Command policy: `allow @role.admin, @role.sales`.
+    PolicyAllow { actors: Vec<String> },
+    /// Command policy: `deny @role.viewer`.
+    PolicyDeny { actors: Vec<String> },
+    /// Command/rule predicate: `allows when self.status = active`.
+    AllowsWhen { predicate: Predicate },
+    /// Command/rule predicate: `denies when self.deleted_at != nil`.
+    DeniesWhen { predicate: Predicate },
+    /// Workflow transition state edge: `allows from active`.
+    AllowsFrom { state: String },
+    /// Workflow transition state edge: `denies from paused`.
+    DeniesFrom { state: String },
+    /// Workflow transition policy: `allows as @role.admin`.
+    AllowsAs { actor: String },
+    /// Workflow transition policy: `denies as @role.viewer`.
+    DeniesAs { actor: String },
+    /// Combined transition: `allows from active as @role.admin`.
+    AllowsFromAs { state: String, actor: String },
+    /// Combined transition: `denies from active as @role.sales`.
+    DeniesFromAs { state: String, actor: String },
+    /// Extensible view whitelist: `accepted by customer_tags`.
+    AcceptedBy { feature: String },
+    /// Extensible view whitelist: `rejected by billing`.
+    RejectedBy { feature: String },
+}
+
+/// Feature-level `policies` block. Categories are named atom lists; field
+/// policies are per-resource read/write rules.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Policies {
+    pub categories: Vec<PolicyCategory>,
+    pub fields: Vec<FieldPolicies>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Named feature-local policy: `create: @role.admin, @role.sales`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyCategory {
+    pub name: String,
+    /// Atom names like `@role.admin`, `@scope.same_org`, `@actor.system`. The
+    /// analyzer validates that each atom resolves through the registry.
+    pub atoms: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+}
+
+/// Per-resource field policies: `fields Customer\n  email\n    read: ...`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldPolicies {
+    pub resource: QualifiedName,
+    pub fields: Vec<FieldPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldPolicy {
+    pub field: String,
+    /// Atom list governing reads. `None` = inherit feature-level read policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<Vec<String>>,
+    /// Atom list governing writes. `None` = inherit feature-level write policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
 }

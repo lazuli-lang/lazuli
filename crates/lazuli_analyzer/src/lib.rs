@@ -71,6 +71,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         resources,
         events: Vec::new(),
         rules: Vec::new(),
+        policies: ir::Policies::default(),
         commands,
         queries,
         workflows: Vec::new(),
@@ -243,6 +244,7 @@ fn lower_command(command: &syntax::Command, resource_name: &str) -> ir::Command 
         effect,
         policy,
         emits: command.emits.clone(),
+        tests: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(command.span)),
     }
