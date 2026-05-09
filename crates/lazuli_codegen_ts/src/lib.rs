@@ -1,4 +1,4 @@
-use lazuli_ir::Application;
+use lazuli_ir::Module;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFile {
@@ -6,15 +6,17 @@ pub struct GeneratedFile {
     pub contents: String,
 }
 
-pub fn generate(app: &Application) -> Vec<GeneratedFile> {
+pub fn generate(module: &Module) -> Vec<GeneratedFile> {
+    let display_name = display_name(module);
+
     vec![
         GeneratedFile {
             path: "frontend/package.json".to_owned(),
-            contents: generate_package_json(app),
+            contents: generate_package_json(&display_name),
         },
         GeneratedFile {
             path: "frontend/index.html".to_owned(),
-            contents: generate_index_html(app),
+            contents: generate_index_html(&display_name),
         },
         GeneratedFile {
             path: "frontend/tsconfig.json".to_owned(),
@@ -30,11 +32,11 @@ pub fn generate(app: &Application) -> Vec<GeneratedFile> {
         },
         GeneratedFile {
             path: "frontend/src/App.tsx".to_owned(),
-            contents: generate_app_tsx(app),
+            contents: generate_app_tsx(),
         },
         GeneratedFile {
             path: "frontend/src/lazuli.generated.ts".to_owned(),
-            contents: generate_schema_ts(app),
+            contents: generate_schema_ts(module, &display_name),
         },
         GeneratedFile {
             path: "frontend/src/styles.css".to_owned(),
@@ -43,7 +45,15 @@ pub fn generate(app: &Application) -> Vec<GeneratedFile> {
     ]
 }
 
-fn generate_package_json(app: &Application) -> String {
+fn display_name(module: &Module) -> String {
+    module
+        .features
+        .first()
+        .map(|feature| feature.name.clone())
+        .unwrap_or_else(|| "lazuli_app".to_owned())
+}
+
+fn generate_package_json(display_name: &str) -> String {
     format!(
         r#"{{
   "name": "{}",
@@ -68,26 +78,25 @@ fn generate_package_json(app: &Application) -> String {
   }}
 }}
 "#,
-        to_kebab_case(&app.name)
+        to_kebab_case(display_name)
     )
 }
 
-fn generate_index_html(app: &Application) -> String {
+fn generate_index_html(display_name: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{}</title>
+    <title>{display_name}</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-"#,
-        app.name
+"#
     )
 }
 
@@ -148,62 +157,68 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     .to_owned()
 }
 
-fn generate_schema_ts(app: &Application) -> String {
-    let json = serde_json::to_string_pretty(app).expect("IR must serialize");
+fn generate_schema_ts(module: &Module, display_name: &str) -> String {
+    let json = serde_json::to_string_pretty(module).expect("IR must serialize");
 
     format!(
-        r#"export type LazuliField = {{
+        r#"// Generated from the Lazuli IR. Read-only — regenerate via `lazuli compile`.
+// The IR shape is the public contract; see docs/ir-abi.md.
+
+export type LazuliModule = {{
+  features: LazuliFeature[];
+}};
+
+export type LazuliFeature = {{
   name: string;
-  kind: string;
-  required: boolean;
-  unique: boolean;
-  default: string | null;
+  purpose: string | null;
+  uses: string[];
+  enums: unknown[];
+  resources: LazuliResource[];
+  commands: LazuliCommand[];
+  queries: unknown[];
 }};
 
 export type LazuliResource = {{
   name: string;
   fields: LazuliField[];
-  commands: Array<{{
-    name: string;
-    input: string[];
-    policy: string | null;
-    emits: string[];
-  }}>;
-  queries: Array<{{
-    name: string;
-    search: string[];
-    filters: string[];
-  }}>;
-  surfaces: Array<{{
-    name: string;
-    list_columns: string[];
-    form_fields: string[];
-    detail_fields: string[];
-  }}>;
 }};
 
-export type LazuliApplication = {{
+export type LazuliField = {{
   name: string;
-  resources: LazuliResource[];
+  type_ref: unknown;
+  required: boolean;
+  unique: boolean;
+  default?: unknown;
 }};
 
-export const lazuliApp = {json} satisfies LazuliApplication;
+export type LazuliCommand = {{
+  name: string;
+  kind: 'Create' | 'Update' | 'Delete' | 'Returns';
+  input: unknown;
+  effect: unknown;
+  policy: unknown;
+  emits: string[];
+}};
+
+export const lazuliDisplayName = '{display_name}' as const;
+export const lazuliModule = {json} as const;
 "#
     )
 }
 
-fn generate_app_tsx(_app: &Application) -> String {
+fn generate_app_tsx() -> String {
     r#"import { useMemo, useState } from 'react';
-import { LazuliResource, lazuliApp } from './lazuli.generated';
+import { lazuliDisplayName, lazuliModule, type LazuliResource } from './lazuli.generated';
+
+const resources: LazuliResource[] = lazuliModule.features.flatMap((feature) => feature.resources);
 
 function routeFor(resource: LazuliResource) {
   return `/api/${resource.name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}s`;
 }
 
 function ResourcePanel({ resource }: { resource: LazuliResource }) {
-  const surface = resource.surfaces[0];
-  const columns = surface?.list_columns.length ? surface.list_columns : resource.fields.map((field) => field.name);
-  const formFields = surface?.form_fields.length ? surface.form_fields : resource.fields.map((field) => field.name);
+  const columns = resource.fields.map((field) => field.name);
+  const formFields = resource.fields.map((field) => field.name);
   const requiredFields = useMemo(
     () => new Set(resource.fields.filter((field) => field.required).map((field) => field.name)),
     [resource]
@@ -246,7 +261,7 @@ function ResourcePanel({ resource }: { resource: LazuliResource }) {
         <form className="panel formPanel">
           <div className="panelHeader">
             <h2>Create</h2>
-            <span>{resource.commands[0]?.name ?? 'Draft'}</span>
+            <span>Draft</span>
           </div>
           {formFields.map((fieldName) => (
             <label key={fieldName}>
@@ -266,17 +281,17 @@ function ResourcePanel({ resource }: { resource: LazuliResource }) {
 
 export default function App() {
   const [selected, setSelected] = useState(0);
-  const resource = lazuliApp.resources[selected] ?? lazuliApp.resources[0];
+  const resource = resources[selected] ?? resources[0];
 
   return (
     <div className="appShell">
       <aside>
         <div className="brand">
           <span>LZ</span>
-          <strong>{lazuliApp.name}</strong>
+          <strong>{lazuliDisplayName}</strong>
         </div>
         <nav>
-          {lazuliApp.resources.map((item, index) => (
+          {resources.map((item, index) => (
             <button
               className={index === selected ? 'active' : ''}
               key={item.name}
@@ -549,10 +564,10 @@ mod tests {
     #[test]
     fn generates_react_frontend_files() {
         let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
-        let app = lower_document(&document).unwrap();
-        let files = generate(&app);
+        let module = lower_document(&document).unwrap();
+        let files = generate(&module);
 
         assert!(files.iter().any(|file| file.path == "frontend/src/App.tsx"));
-        assert!(files.iter().any(|file| file.contents.contains("lazuliApp")));
+        assert!(files.iter().any(|file| file.contents.contains("lazuliModule")));
     }
 }

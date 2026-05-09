@@ -10,3 +10,6 @@ lazuli_ir = { path = "../lazuli_ir" }
 lazuli_syntax = { path = "../lazuli_syntax" }
 thiserror.workspace = true
 
+[dev-dependencies]
+insta.workspace = true
+

@@ -1,0 +1,267 @@
+---
+source: crates/lazuli_analyzer/tests/baseline_snapshot.rs
+expression: app
+---
+{
+  "features": [
+    {
+      "name": "crm",
+      "purpose": null,
+      "uses": [],
+      "enums": [],
+      "resources": [
+        {
+          "name": "Customer",
+          "fields": [
+            {
+              "name": "name",
+              "type_ref": {
+                "kind": "Builtin",
+                "value": "Text"
+              },
+              "required": true,
+              "unique": false,
+              "span_ref": {
+                "start": 32,
+                "end": 51
+              }
+            },
+            {
+              "name": "email",
+              "type_ref": {
+                "kind": "Builtin",
+                "value": "SemanticEmail"
+              },
+              "required": true,
+              "unique": true,
+              "span_ref": {
+                "start": 54,
+                "end": 82
+              }
+            },
+            {
+              "name": "status",
+              "type_ref": {
+                "kind": "UserDefined",
+                "value": {
+                  "name": "CustomerStatus"
+                }
+              },
+              "required": false,
+              "unique": false,
+              "default": {
+                "kind": "EnumLiteral",
+                "value": {
+                  "variant": "Lead"
+                }
+              },
+              "span_ref": {
+                "start": 85,
+                "end": 120
+              }
+            }
+          ],
+          "span_ref": {
+            "start": 9,
+            "end": 406
+          }
+        },
+        {
+          "name": "Project",
+          "fields": [
+            {
+              "name": "title",
+              "type_ref": {
+                "kind": "Builtin",
+                "value": "Text"
+              },
+              "required": true,
+              "unique": false,
+              "span_ref": {
+                "start": 430,
+                "end": 450
+              }
+            },
+            {
+              "name": "ownerEmail",
+              "type_ref": {
+                "kind": "Builtin",
+                "value": "SemanticEmail"
+              },
+              "required": true,
+              "unique": false,
+              "span_ref": {
+                "start": 453,
+                "end": 479
+              }
+            },
+            {
+              "name": "active",
+              "type_ref": {
+                "kind": "Builtin",
+                "value": "Boolean"
+              },
+              "required": false,
+              "unique": false,
+              "default": {
+                "kind": "Boolean",
+                "value": true
+              },
+              "span_ref": {
+                "start": 482,
+                "end": 510
+              }
+            }
+          ],
+          "span_ref": {
+            "start": 408,
+            "end": 762
+          }
+        }
+      ],
+      "commands": [
+        {
+          "name": "Create",
+          "kind": "Create",
+          "input": {
+            "kind": "Short",
+            "value": [
+              "name",
+              "email"
+            ]
+          },
+          "effect": {
+            "kind": "Creates",
+            "value": {
+              "resource": {
+                "name": "Customer"
+              },
+              "from_input": true,
+              "assignments": []
+            }
+          },
+          "policy": {
+            "kind": "Unresolved",
+            "value": "customer.create"
+          },
+          "emits": [
+            "CustomerCreated"
+          ],
+          "span_ref": {
+            "start": 124,
+            "end": 219
+          }
+        },
+        {
+          "name": "Create",
+          "kind": "Create",
+          "input": {
+            "kind": "Short",
+            "value": [
+              "title",
+              "ownerEmail"
+            ]
+          },
+          "effect": {
+            "kind": "Creates",
+            "value": {
+              "resource": {
+                "name": "Project"
+              },
+              "from_input": true,
+              "assignments": []
+            }
+          },
+          "policy": {
+            "kind": "None"
+          },
+          "emits": [
+            "ProjectCreated"
+          ],
+          "span_ref": {
+            "start": 514,
+            "end": 587
+          }
+        }
+      ],
+      "queries": [
+        {
+          "kind": "List",
+          "name": "List",
+          "filters": [
+            {
+              "predicate": {
+                "kind": "Comparison",
+                "value": {
+                  "left": {
+                    "kind": "Path",
+                    "value": {
+                      "segments": [
+                        "status"
+                      ]
+                    }
+                  },
+                  "op": "Eq",
+                  "right": {
+                    "kind": "Path",
+                    "value": {
+                      "segments": [
+                        "params",
+                        "status"
+                      ]
+                    }
+                  }
+                }
+              },
+              "when": "status"
+            }
+          ],
+          "span_ref": {
+            "start": 223,
+            "end": 280
+          }
+        },
+        {
+          "kind": "List",
+          "name": "List",
+          "filters": [
+            {
+              "predicate": {
+                "kind": "Comparison",
+                "value": {
+                  "left": {
+                    "kind": "Path",
+                    "value": {
+                      "segments": [
+                        "active"
+                      ]
+                    }
+                  },
+                  "op": "Eq",
+                  "right": {
+                    "kind": "Path",
+                    "value": {
+                      "segments": [
+                        "params",
+                        "active"
+                      ]
+                    }
+                  }
+                }
+              },
+              "when": "active"
+            }
+          ],
+          "span_ref": {
+            "start": 591,
+            "end": 654
+          }
+        }
+      ],
+      "span_ref": {
+        "start": 0,
+        "end": 764
+      }
+    }
+  ]
+}

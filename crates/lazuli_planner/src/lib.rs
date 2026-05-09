@@ -1,9 +1,9 @@
-use lazuli_ir::Application;
+use lazuli_ir::Module;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
-    pub app_name: String,
+    pub feature_names: Vec<String>,
     pub steps: Vec<PlanStep>,
 }
 
@@ -20,9 +20,13 @@ pub enum Risk {
     High,
 }
 
-pub fn plan_initial_generation(app: &Application) -> Plan {
+pub fn plan_initial_generation(module: &Module) -> Plan {
     Plan {
-        app_name: app.name.clone(),
+        feature_names: module
+            .features
+            .iter()
+            .map(|feature| feature.name.clone())
+            .collect(),
         steps: vec![
             PlanStep {
                 label: "Generate Go backend target".to_owned(),

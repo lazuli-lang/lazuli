@@ -1,48 +1,443 @@
+//! Lazuli intermediate representation.
+//!
+//! Shape governance lives in `docs/ir-abi.md`. This crate exposes types only;
+//! it has no public mutator. The single producer is `lazuli_analyzer::lower_document`.
+//! All consumers (codegens, planner, LSP, MCP, CLI) read this data and never
+//! write back. Re-authoring means rewriting `.lzi`.
+//!
+//! Phase 1a foundation: `Module` / `Feature` / `Resource` / `Field` (with
+//! `TypeRef` enum), `EnumDecl`, `Command` (with `Effect`), `Query` (List /
+//! Lookup / Sql), and a minimal `Predicate` AST. Workflows, rules, events,
+//! surfaces, jobs, webhooks, auth, escape routes, and extension contracts are
+//! reserved for later phases.
+
 use serde::{Deserialize, Serialize};
 
+/// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
+pub const LZIR_SCHEMA: &str = "0.1.0";
+
+/// Span back-reference into the source AST. Debug-only; not part of the
+/// published JSON ABI. Consumers must opt in via `--with-spans`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpanRef {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A module is the IR root. It groups one or more features that flowed
+/// through the same compilation. There is no `app` concept in canonical
+/// Lazuli; the legacy `app NAME` header is lowered into a synthetic feature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Application {
+pub struct Module {
+    pub features: Vec<Feature>,
+}
+
+/// A feature is the unit of product capability authored in one `.lzi` file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Feature {
     pub name: String,
+    pub purpose: Option<String>,
+    pub uses: Vec<String>,
+    pub enums: Vec<EnumDecl>,
     pub resources: Vec<Resource>,
+    pub commands: Vec<Command>,
+    pub queries: Vec<Query>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnumDecl {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnumVariant {
+    pub name: String,
+    /// Authored storage value. `None` means the codegen picks per target;
+    /// derived storage values do not enter the IR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_value: Option<StorageValue>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum StorageValue {
+    Integer(i64),
+    String(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resource {
     pub name: String,
     pub fields: Vec<Field>,
-    pub commands: Vec<Command>,
-    pub queries: Vec<Query>,
-    pub surfaces: Vec<Surface>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Field {
     pub name: String,
-    pub kind: String,
+    pub type_ref: TypeRef,
     pub required: bool,
     pub unique: bool,
-    pub default: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<DefaultValue>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of type references. Strings are forbidden; the analyzer
+/// decides which variant a syntactic type name resolves to. Unrecognised
+/// names become `TypeRef::Unresolved` so downstream consumers can surface a
+/// targeted diagnostic without crashing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum TypeRef {
+    Builtin(BuiltinType),
+    UserDefined(QualifiedName),
+    EnumRef(QualifiedName),
+    Many(Box<TypeRef>),
+    Unresolved(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BuiltinType {
+    Id,
+    Text,
+    Boolean,
+    Integer,
+    Decimal,
+    Date,
+    DateTime,
+    Json,
+    SemanticEmail,
+    SemanticMoney,
+    CapSecret,
+    CapFile,
+}
+
+/// Qualified name for a feature-scoped or local symbol. `feature` is `None`
+/// for local references; cross-feature references carry the feature id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualifiedName {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feature: Option<String>,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DefaultValue {
+    String(String),
+    Integer(i64),
+    Boolean(bool),
+    EnumLiteral(EnumLiteral),
+    Nil,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnumLiteral {
+    /// `None` when the literal is unqualified and the type comes from context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<QualifiedName>,
+    pub variant: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub name: String,
-    pub input: Vec<String>,
-    pub policy: Option<String>,
+    pub kind: CommandKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route: Vec<RouteSlot>,
+    pub input: CommandInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetExpr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lets: Vec<LetBinding>,
+    pub effect: CommandEffect,
+    pub policy: PolicyRef,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CommandKind {
+    Create,
+    Update,
+    Delete,
+    Returns,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Query {
+pub struct RouteSlot {
     pub name: String,
-    pub search: Vec<String>,
-    pub filters: Vec<String>,
+    pub type_ref: TypeRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Surface {
+#[serde(tag = "kind", content = "value")]
+pub enum CommandInput {
+    /// Short list — every entry maps 1:1 to a field on the command's local
+    /// `creates`/`updates` resource.
+    Short(Vec<String>),
+    /// Typed block — explicit name/type pairs.
+    Typed(Vec<TypedSlot>),
+    /// Empty inputs (`delete` commands often have none).
+    Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypedSlot {
     pub name: String,
-    pub list_columns: Vec<String>,
-    pub form_fields: Vec<String>,
-    pub detail_fields: Vec<String>,
+    pub type_ref: TypeRef,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetExpr {
+    pub query: QualifiedName,
+    pub args: Vec<NamedArg>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedArg {
+    pub name: String,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LetBinding {
+    pub name: String,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum CommandEffect {
+    Creates(CreateEffect),
+    Updates(UpdateEffect),
+    Deletes(DeleteEffect),
+    /// Pure request/response command — declares `returns` instead of an effect.
+    Returns(ReturnsEffect),
+    /// No effect declared yet (legacy lowering path).
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateEffect {
+    pub resource: QualifiedName,
+    /// True when the command body uses `creates X from input`.
+    pub from_input: bool,
+    pub assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateEffect {
+    pub resource: QualifiedName,
+    pub assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteEffect {
+    pub resource: QualifiedName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReturnsEffect {
+    pub return_type: TypeRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Assignment {
+    pub field: String,
+    pub value: Expr,
+}
+
+/// Policy reference. `Local` = feature-local policy category. `Atom` = closed
+/// `@role.*`/`@scope.*`/`@actor.*` namespace. `External` = `<feature>.<name>`.
+/// `Unresolved` covers legacy strings until full lowering lands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum PolicyRef {
+    Local(String),
+    Atom(String),
+    External { feature: String, name: String },
+    Unresolved(String),
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum Query {
+    List(ListQuery),
+    Lookup(LookupQuery),
+    Sql(SqlQuery),
+}
+
+impl Query {
+    pub fn name(&self) -> &str {
+        match self {
+            Query::List(q) => &q.name,
+            Query::Lookup(q) => &q.name,
+            Query::Sql(q) => &q.name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListQuery {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<TypedSlot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<Predicate>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub scope_override: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<Filter>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub order: Vec<OrderBy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paginate: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LookupQuery {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<TypedSlot>,
+    pub keys: Vec<KeyClause>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<Predicate>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub scope_override: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<Filter>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqlQuery {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<TypedSlot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<Predicate>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub scope_override: bool,
+    pub returns: TypeRef,
+    pub sql_path: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Filter {
+    pub predicate: Predicate,
+    /// `Some(param_name)` for guarded `when params.X` filters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyClause {
+    pub path: Path,
+    pub equals: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderBy {
+    pub field: String,
+    pub direction: OrderDir,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OrderDir {
+    Asc,
+    Desc,
+}
+
+/// Closed predicate sublanguage. See `docs/canonical-semantics.md` "Predicate
+/// Expressions" for the ceiling.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum Predicate {
+    Comparison {
+        left: Expr,
+        op: CompareOp,
+        right: Expr,
+    },
+    Has {
+        collection: Expr,
+        element: Expr,
+    },
+    And(Vec<Predicate>),
+    Or(Vec<Predicate>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompareOp {
+    Eq,
+    Ne,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum Expr {
+    Path(Path),
+    String(String),
+    Integer(i64),
+    Boolean(bool),
+    Enum(EnumLiteral),
+    Nil,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Path {
+    pub segments: Vec<String>,
+}
+
+impl Path {
+    pub fn from_segments<I, S>(segments: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            segments: segments.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }

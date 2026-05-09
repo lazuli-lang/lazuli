@@ -176,7 +176,7 @@ fn lsp_command() -> Result<()> {
     Ok(())
 }
 
-fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Application> {
+fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Module> {
     let source =
         fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
     let document = lazuli_syntax::parse_document(&source).context("failed to parse .lzi file")?;

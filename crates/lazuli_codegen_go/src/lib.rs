@@ -1,4 +1,4 @@
-use lazuli_ir::{Application, Field, Resource};
+use lazuli_ir::{BuiltinType, CommandInput, Field, Module, Resource, TypeRef};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFile {
@@ -6,35 +6,41 @@ pub struct GeneratedFile {
     pub contents: String,
 }
 
-pub fn generate(app: &Application) -> Vec<GeneratedFile> {
+pub fn generate(module: &Module) -> Vec<GeneratedFile> {
+    let module_name = module
+        .features
+        .first()
+        .map(|feature| feature.name.clone())
+        .unwrap_or_else(|| "lazuli_app".to_owned());
+
     vec![
         GeneratedFile {
             path: "backend/go.mod".to_owned(),
-            contents: generate_go_mod(app),
+            contents: generate_go_mod(&module_name),
         },
         GeneratedFile {
             path: "backend/main.go".to_owned(),
-            contents: generate_main_go(app),
+            contents: generate_main_go(module),
         },
         GeneratedFile {
             path: "backend/internal/lazuli/models.go".to_owned(),
-            contents: generate_models_go(app),
+            contents: generate_models_go(module),
         },
     ]
 }
 
-fn generate_go_mod(app: &Application) -> String {
+fn generate_go_mod(module_name: &str) -> String {
     format!(
-        "module {}\n\ngo 1.24\n",
-        format!("lazuli/{}", to_kebab_case(&app.name))
+        "module lazuli/{module}\n\ngo 1.24\n",
+        module = to_kebab_case(module_name)
     )
 }
 
-fn generate_main_go(app: &Application) -> String {
+fn generate_main_go(module: &Module) -> String {
     let mut routes = String::new();
     let mut handlers = String::new();
 
-    for resource in &app.resources {
+    for resource in iter_resources(module) {
         let route = format!("/api/{}", plural_route(&resource.name));
         let handler = format!("handle{}List", to_pascal_case(&resource.name));
 
@@ -95,66 +101,93 @@ fn generate_list_handler(resource: &Resource, handler: &str) -> String {
     )
 }
 
-fn generate_models_go(app: &Application) -> String {
+fn generate_models_go(module: &Module) -> String {
     let mut output = "package lazuli\n\n".to_owned();
 
-    for resource in &app.resources {
-        output.push_str(&format!(
-            "type {} struct {{\n",
-            to_pascal_case(&resource.name)
-        ));
-        output.push_str("\tID string `json:\"id\"`\n");
-
-        for field in &resource.fields {
+    for feature in &module.features {
+        for resource in &feature.resources {
             output.push_str(&format!(
-                "\t{} {} `json:\"{}\"`\n",
-                to_pascal_case(&field.name),
-                go_type(&field.kind),
-                field.name
-            ));
-        }
-
-        output.push_str("}\n\n");
-
-        for command in &resource.commands {
-            output.push_str(&format!(
-                "type {}{}Input struct {{\n",
-                to_pascal_case(&command.name),
+                "type {} struct {{\n",
                 to_pascal_case(&resource.name)
             ));
+            output.push_str("\tID string `json:\"id\"`\n");
 
-            for input in &command.input {
-                if let Some(field) = resource.fields.iter().find(|field| &field.name == input) {
-                    output.push_str(&format!(
-                        "\t{} {} `json:\"{}\"`\n",
-                        to_pascal_case(&field.name),
-                        go_type(&field.kind),
-                        field.name
-                    ));
-                }
+            for field in &resource.fields {
+                output.push_str(&format!(
+                    "\t{} {} `json:\"{}\"`\n",
+                    to_pascal_case(&field.name),
+                    go_type(&field.type_ref),
+                    field.name
+                ));
             }
 
             output.push_str("}\n\n");
+
+            for command in &feature.commands {
+                if !command_targets_resource(command, &resource.name) {
+                    continue;
+                }
+
+                output.push_str(&format!(
+                    "type {}{}Input struct {{\n",
+                    to_pascal_case(&command.name),
+                    to_pascal_case(&resource.name)
+                ));
+
+                if let CommandInput::Short(inputs) = &command.input {
+                    for input in inputs {
+                        if let Some(field) =
+                            resource.fields.iter().find(|field| &field.name == input)
+                        {
+                            output.push_str(&format!(
+                                "\t{} {} `json:\"{}\"`\n",
+                                to_pascal_case(&field.name),
+                                go_type(&field.type_ref),
+                                field.name
+                            ));
+                        }
+                    }
+                }
+
+                output.push_str("}\n\n");
+            }
         }
     }
 
     output
 }
 
+fn command_targets_resource(command: &lazuli_ir::Command, resource_name: &str) -> bool {
+    use lazuli_ir::CommandEffect::*;
+    match &command.effect {
+        Creates(effect) => effect.resource.name == resource_name,
+        Updates(effect) => effect.resource.name == resource_name,
+        Deletes(effect) => effect.resource.name == resource_name,
+        Returns(_) | None => false,
+    }
+}
+
+fn iter_resources(module: &Module) -> impl Iterator<Item = &Resource> {
+    module
+        .features
+        .iter()
+        .flat_map(|feature| feature.resources.iter())
+}
+
 fn sample_go_value(field: &Field) -> &'static str {
-    match field.kind.as_str() {
-        "Boolean" | "Bool" => "true",
-        "Int" | "Integer" => "1",
-        "Float" | "Decimal" | "Money" => "1.0",
+    match &field.type_ref {
+        TypeRef::Builtin(BuiltinType::Boolean) => "true",
+        TypeRef::Builtin(BuiltinType::Integer) => "1",
+        TypeRef::Builtin(BuiltinType::Decimal) => "1.0",
         _ => "\"sample\"",
     }
 }
 
-fn go_type(kind: &str) -> &'static str {
-    match kind {
-        "Boolean" | "Bool" => "bool",
-        "Int" | "Integer" => "int",
-        "Float" | "Decimal" | "Money" => "float64",
+fn go_type(type_ref: &TypeRef) -> &'static str {
+    match type_ref {
+        TypeRef::Builtin(BuiltinType::Boolean) => "bool",
+        TypeRef::Builtin(BuiltinType::Integer) => "int",
+        TypeRef::Builtin(BuiltinType::Decimal) => "float64",
         _ => "string",
     }
 }
@@ -231,8 +264,8 @@ mod tests {
     #[test]
     fn generates_go_backend_files() {
         let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
-        let app = lower_document(&document).unwrap();
-        let files = generate(&app);
+        let module = lower_document(&document).unwrap();
+        let files = generate(&module);
 
         assert!(files.iter().any(|file| file.path == "backend/main.go"));
         assert!(
