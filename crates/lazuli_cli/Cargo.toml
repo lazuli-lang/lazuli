@@ -19,5 +19,6 @@ lazuli_ir = { path = "../lazuli_ir" }
 lazuli_lsp = { path = "../lazuli_lsp" }
 lazuli_planner = { path = "../lazuli_planner" }
 lazuli_syntax = { path = "../lazuli_syntax" }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

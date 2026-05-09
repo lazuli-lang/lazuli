@@ -1,6 +1,6 @@
 # Audit log pressure test.
 # Exercises cross-cutting event capture and query-heavy surfaces.
-# Design fixture only; candidate event-triggered job constructs are not compiler-executable yet.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature audit_log
   purpose "Persist important domain events for compliance, support, and debugging."
@@ -10,7 +10,7 @@ feature audit_log
     anti_pattern.analytics_warehouse: "analytics warehouse"
 
   defaults
-    policy system
+    policy @actor.system
 
   uses org, user, customer, issue, billing
 
@@ -22,11 +22,10 @@ feature audit_log
       source_event: Text required
       subject_type: Text required
       subject_id: ID required
-      payload: JSON required
 
       timestamps
 
-    query by_subject
+    query.list by_subject
       params
         subject_type: Text
         subject_id: ID
@@ -38,45 +37,42 @@ feature audit_log
       order created_at desc
       paginate 100
 
-    query recent
+    query.list recent
       order created_at desc
       paginate 100
 
   policies
-    create: system
-    read: role_admin, support_agent
-    update: none
-    delete: none
+    create: @actor.system
+    read: @role.admin, @role.support_agent
+    update: @scope.none
+    delete: @scope.none
 
   job record_customer_created
     trigger event customer.customer_created
-    idempotency event.id
+    idempotency by envelope.id
     creates AuditEvent
       source_feature = "customer"
       source_event = "customer_created"
       subject_type = "customer"
-      subject_id = event.customer_id
-      payload = event
+      subject_id = payload.customer_id
 
   job record_issue_status_changed
     trigger event issue.issue_status_changed
-    idempotency event.id
+    idempotency by envelope.id
     creates AuditEvent
       source_feature = "issue"
       source_event = "issue_status_changed"
       subject_type = "issue"
-      subject_id = event.issue_id
-      payload = event
+      subject_id = payload.issue_id
 
   job record_invoice_paid
     trigger event billing.invoice_paid
-    idempotency event.id
+    idempotency by envelope.id
     creates AuditEvent
       source_feature = "billing"
       source_event = "invoice_paid"
       subject_type = "invoice"
-      subject_id = event.invoice_id
-      payload = event
+      subject_id = payload.invoice_id
 
   surface web admin
     view recent Table

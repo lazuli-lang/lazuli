@@ -1,6 +1,6 @@
 # Org/team pressure test.
 # Exercises tenancy host resources, membership, role inheritance, and multi-surface.
-# Design fixture only; canonical constructs plus multi-surface usage.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature org
   purpose "Organizations, teams, memberships, and role inheritance for tenant-aware features."
@@ -45,14 +45,14 @@ feature org
       unique slug per Org
       unique user, team per org
 
-    query my_orgs
+    query.list my_orgs
       params
         user: User
 
       filters
         user = params.user
 
-    query teams
+    query.list teams
       order name asc
 
     event org_created
@@ -65,11 +65,11 @@ feature org
       role: MembershipRole
 
   policies
-    create: authenticated
-    read: org_member
-    update: org_admin
-    delete: org_owner
-    invite: org_admin
+    create: @scope.authenticated
+    read: @scope.org_member
+    update: @role.org_admin
+    delete: @role.org_owner
+    invite: @role.org_admin
 
   command create
     input name, slug
@@ -80,10 +80,13 @@ feature org
     emits org_created
 
   command invite_member
-    input email, role, team
+    input
+      email: @semantic.Email
+      role: MembershipRole
+      team: Team optional
     policy invite
     creates Membership
-      user = ext.resolve_or_invite_user(input.email)
+      user = @fn.resolve_or_invite_user(input.email)
       role = input.role
       team = input.team
     emits member_invited
@@ -99,4 +102,4 @@ feature org
       columns org, role
 
   extensions
-    server resolve_or_invite_user: Function[Email, User]
+    fn resolve_or_invite_user: Function[@semantic.Email, User]

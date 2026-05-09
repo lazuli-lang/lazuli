@@ -1,3 +1,7 @@
+# Customer capsule canonical fixture.
+# Exercises CRM customer lifecycle, ownership, tiering, scoring, and admin surfaces.
+# Design fixture only; parser and codegen coverage may lag this surface.
+
 feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
@@ -18,7 +22,7 @@ feature customer
       tenancy org
       owner: User required
       name: Text required
-      email: Email required
+      email: @semantic.Email required
       status: CustomerStatus = lead
 
       soft_delete
@@ -27,7 +31,7 @@ feature customer
     constraints
       unique email per org
 
-    query list
+    query.list list
       params
         status: CustomerStatus optional
 
@@ -37,34 +41,30 @@ feature customer
       order created_at desc
       paginate 50
 
-    query by_id
-      params
-        id: ID
-
-      key id = params.id
+    query.lookup by_id by id: ID
 
     rule "deleted customers cannot be archived"
-      deny Customer.archive when customer.deleted_at != nil
+      deny Customer.archive when self.deleted_at != nil
       message "Cannot archive a deleted customer"
 
+    events customer_* on Customer
+      payload
+        customer_id = id
+        org_id = org.id
+        by_id = ctx.user.id when @actor.user
+
     event customer_created
-      customer_id: ID
-      org_id: ID
-      email: Email
+      email: @semantic.Email
 
     event customer_activated
-      customer_id: ID
-      by_id: ID
 
     event customer_archived
-      customer_id: ID
-      by_id: ID
 
   policies
-    create: role_admin, role_sales
-    update: role_admin, role_sales
-    delete: role_admin
-    read: same_org
+    create: @role.admin, @role.sales
+    update: @role.admin, @role.sales
+    delete: @role.admin
+    read: @scope.same_org
 
   command create
     input name, email
@@ -92,12 +92,12 @@ feature customer
       filter status
 
       cells
-        status ext.status_cell
+        status @client.status_cell
 
     view detail SidePanel
       source query.by_id(id: route.id)
 
   extensions
     client status_cell: CellRenderer[Customer]
-    server before_create: Hook[CreateCustomer]
-    server risk_score: Function[Customer, RiskScore]
+    hook before_create: Hook[CreateCustomer]
+    fn risk_score: Function[Customer, RiskScore]

@@ -30,11 +30,25 @@ The capsule declares contracts:
 ```lazuli
 extensions
   client status_cell: CellRenderer[Customer]
-  server before_create: Hook[CreateCustomer]
-  server risk_score: Function[Customer, RiskScore]
+  hook before_create: Hook[CreateCustomer]
+  fn risk_score: Function[Customer, RiskScore]
 ```
 
 By default, Lazuli resolves `status_cell` to `features/customer/ui/status_cell.*`.
+
+The declaration keyword is the call-site namespace. `fn risk_score` resolves as `@fn.risk_score`, `hook before_create` resolves as `@hook.before_create`, and `client status_cell` resolves as `@client.status_cell`.
+
+Call sites reference extension contracts through capability namespaces instead of a single `ext.*` namespace:
+
+```lazuli
+cells
+  status @client.status_cell
+
+let score = @fn.risk_score(self)
+validates tier @validator.validate_tier
+```
+
+The closed extension namespace set is `@client.*`, `@fn.*`, `@hook.*`, `@validator.*`, `@adapter.*`, and `@query_modifier.*`.
 
 Use `at` only when the convention is not enough:
 
@@ -128,19 +142,19 @@ Background job handlers, webhook verifiers, and webhook handlers are custom sour
 
 If a feature needs to replace a whole generated structure, it should use an explicit escape hatch.
 
-## Raw Queries
+## SQL Queries
 
 Normal queries stay declarative:
 
 ```lazuli
-query list
+query.list list
   paginate 50
 ```
 
-Raw SQL stays in the `query.*` namespace, but it must be marked explicitly:
+SQL-backed queries stay in the `query.*` reference namespace, but the declaration mode must be explicit:
 
 ```lazuli
-query customer_lifetime_value raw
+query.sql customer_lifetime_value
   returns CustomerLtv[]
 
   scope
@@ -149,7 +163,7 @@ query customer_lifetime_value raw
   sql "./queries/customer_ltv.sql"
 ```
 
-`raw` means:
+`query.sql` means:
 
 - Lazuli cannot fully derive policy safety.
 - The query must still declare `scope`; raw SQL is not allowed to silently bypass tenant or soft-delete boundaries.
@@ -165,8 +179,19 @@ These conventions keep the explicit syntax predictable. See also [Canonical sema
 - Query params exposed to routes and APIs should prefer scalar IDs, e.g. `parent_id: ID`, over passing hydrated entities.
 - Many-to-many filters should name both sides and their guard, e.g. `labels has params.label when params.label`.
 - Events use serializable IDs by default, e.g. `customer_id: ID` and `by_id: ID`.
-- `workflow` may declare shared defaults such as `policy update` and `emits status_changed`; transitions inherit them unless they override locally.
+- `workflow` may declare shared defaults such as `policy update` and `emits status_changed`; transitions inherit them, and a transition uses `requires <policy>` only when it needs stronger authority.
 - Views inherit read safety from their `source query.*`; inherited tenancy/soft-delete scope plus local query `scope` remain the source of tenant and soft-delete boundaries.
+
+Query modifiers are explicit query attachments:
+
+```lazuli
+query.list list
+  modifier @query_modifier.query_scope_modifier
+```
+
+Use them when a generated query still needs adapter-specific scoping or ranking logic that cannot fit the fixed predicate language. Do not declare a `query_modifier` extension without attaching it to a query.
+
+Query modifiers run after inherited scope, local scope, and filters. They cannot remove tenant or soft-delete predicates; use `scope override` for explicitly cross-tenant/admin queries.
 
 ## Escape Routes
 
@@ -175,7 +200,7 @@ Some routes do not belong inside Lazuli. Mark them explicitly:
 ```lazuli
 escape_route "/admin/raw-sql-console"
   at "./pages/sql_console.tsx"
-  policy role_admin
+  policy @role.admin
   tenant org
 ```
 

@@ -37,19 +37,21 @@ feature customer
     resource Customer
       tenancy org
       name: Text required
-      email: Email required
+      email: @semantic.Email required
       status: CustomerStatus = lead
 
+    query.list list
+      order created_at desc
+      paginate 50
+
   policies
-    create: role_admin
-    read: same_org
+    create: @role.admin
+    read: @scope.same_org
 
   command create
     input name, email
     policy create
-    creates Customer
-      name = input.name
-      email = input.email
+    creates Customer from input
     emits customer_created
 
   surface web admin
@@ -63,8 +65,17 @@ feature customer
 ```bash
 cargo run -p lazuli_cli -- parse examples/crm.lzi
 cargo run -p lazuli_cli -- compile examples/crm.lzi --out generated/crm
+cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=events,targets --format=json
+cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=all --format=lazuli
 cargo run -p lazuli_cli -- init examples/new-app.lzi
 cargo run -p lazuli_cli -- lsp
+```
+
+Canonical fixture helpers:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/generate-fixtures.ps1
+powershell -ExecutionPolicy Bypass -File tools/generate-fixtures.ps1 -Check
 ```
 
 Generated output is written under:
@@ -94,7 +105,7 @@ The fuller syntax fixtures are:
 - `examples/full-capsule.lzi` as the kitchen-sink audit fixture suite for LLM review.
 - `examples/customer.ctx.md` for the co-located prose context convention.
 - `examples/linear-issue.lzi` as a pressure test for state transitions, self references, labels, filters, and custom UI blocks.
-- Tier 2 pressure fixtures:
+- Additional pressure fixtures:
   - `examples/user-auth.lzi`
   - `examples/notification.lzi`
   - `examples/billing.lzi`

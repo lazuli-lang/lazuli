@@ -11,7 +11,7 @@ Generated targets should expose consistent errors across Go, React, CLI, LSP, MC
 | `rule_denied` | 409 | `rule deny ... when ...` |
 | `not_found` | 404 | `key` lookup inside effective scope |
 | `conflict` | 409 | unique constraint, workflow invalid transition |
-| `raw_query_failed` | 500 | raw SQL execution |
+| `sql_query_failed` | 500 | `query.sql` execution |
 | `extension_failed` | 500 | custom extension error |
 | `webhook_rejected` | 401/400 | signature/idempotency failure |
 | `job_failed` | 500 | background job failure |

@@ -27,7 +27,7 @@ The planner compares:
 | Change tenancy | critical |
 | Change soft delete | high |
 | Change unique constraint | medium/high |
-| Change raw query return type | medium/high |
+| Change SQL query return type | medium/high |
 
 ## Planner Output
 

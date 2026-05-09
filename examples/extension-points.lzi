@@ -1,8 +1,12 @@
+# Extension points canonical fixture.
+# Exercises raw queries, SQL files, and typed extension boundaries.
+# Design fixture only; parser and codegen coverage may lag this surface.
+
 feature customer_metrics
   uses org, customer
 
   domain
-    query customer_lifetime_value raw
+    query.sql customer_lifetime_value
       returns CustomerLtv[]
 
       scope
@@ -17,9 +21,9 @@ feature customer_metrics
 
   extensions
     client ltv_cell: CellRenderer[CustomerLtv]
-    server refresh_ltv: Hook[RefreshCustomerLtv]
+    hook refresh_ltv: Hook[RefreshCustomerLtv]
 
   escape_route "/admin/raw-sql-console"
     at "./pages/sql_console.tsx"
-    policy role_admin
+    policy @role.admin
     tenant org

@@ -60,10 +60,12 @@ Generated files may be committed or ignored depending on target adapter, but the
 Default extension paths:
 
 - client UI: `features/<feature>/ui/<name>.tsx`
-- server hook/validator: `features/<feature>/hooks/<name>.go`
+- hook/validator extensions: `features/<feature>/hooks/<name>.go`
 - resource-local validator: `features/<feature>/domain/validate_<resource>.go`
-- server domain function: `features/<feature>/domain/<name>.go`
-- raw SQL: `features/<feature>/queries/<name>.sql`
+- domain function extensions: `features/<feature>/domain/<name>.go`
+- integration adapter extensions: `features/<feature>/integrations/<name>.go`
+- query modifier extensions: `features/<feature>/queries/<name>.go`
+- SQL query files: `features/<feature>/queries/<name>.sql`
 - background job handler: `features/<feature>/jobs/<name>.go`
 - integration/webhook verifier or handler: `features/<feature>/integrations/<name>.go`
 - inline view block: `features/<feature>/ui/<name>.tsx`
@@ -71,4 +73,4 @@ Default extension paths:
 
 Use `at` in `.lzi` only when a file intentionally lives outside convention.
 
-Feature-local files still belong to the feature that owns the capability, even when they extend another feature's UI. For example, `customer_tags` can extend `@customer_detail`, but its `tag_editor` implementation remains under `features/customer_tags/ui/tag_editor.tsx`.
+Feature-local files still belong to the feature that owns the capability, even when they extend another feature's UI. For example, `customer_tags` can extend `@anchor.customer_detail`, but its `tag_editor` implementation remains under `features/customer_tags/ui/tag_editor.tsx`.

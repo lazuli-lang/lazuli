@@ -1,6 +1,6 @@
 # User/auth pressure test.
 # Exercises auth, sessions, MFA, OAuth, rate limiting, and public commands.
-# Design fixture only; candidate constructs are not compiler-executable yet.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature user
   purpose "User identity, login sessions, MFA, and account recovery."
@@ -22,10 +22,10 @@ feature user
       github
 
     resource User
-      email: Email required
+      email: @semantic.Email required
       display_name: Text optional
       status: UserStatus = invited
-      password_hash: Secret optional
+      password_hash: @cap.Secret optional
       mfa_enabled: Boolean = false
 
       soft_delete
@@ -33,25 +33,17 @@ feature user
 
     resource Session
       user: User required
-      refresh_token_hash: Secret required
+      refresh_token_hash: @cap.Secret required
       provider: AuthProvider required
       expires_at: DateTime required
 
       timestamps
 
-    query by_id
-      params
-        id: ID
+    query.lookup by_id by id: ID
 
-      key id = params.id
+    query.lookup by_email by email: @semantic.Email
 
-    query by_email
-      params
-        email: Email
-
-      key email = params.email
-
-    query active_sessions
+    query.list active_sessions
       params
         user_id: ID
 
@@ -63,7 +55,7 @@ feature user
 
     event user_registered
       user_id: ID
-      email: Email
+      email: @semantic.Email
 
     event user_logged_in
       user_id: ID
@@ -75,26 +67,26 @@ feature user
       by_id: ID
 
   policies
-    register: public
-    login: public
-    read: self, role_admin
-    update: self, role_admin
-    delete: role_admin
+    register: @scope.public
+    login: @scope.public
+    read: @scope.self, @role.admin
+    update: @scope.self, @role.admin
+    delete: @role.admin
 
   auth
     identity User.email
 
     password
-      hash ext.hash_password
-      verify ext.verify_password
+      hash @fn.hash_password
+      verify @fn.verify_password
       rate_limit "5 per 10 minutes"
 
     oauth google
-      adapter ext.google_oauth
+      adapter @adapter.google_oauth
 
     mfa totp
-      enroll ext.enroll_totp
-      verify ext.verify_totp
+      enroll @fn.enroll_totp
+      verify @validator.verify_totp
 
     sessions
       resource Session
@@ -102,17 +94,22 @@ feature user
       refresh true
 
   command register
-    input email, password, display_name
+    input
+      email: @semantic.Email
+      password: Text
+      display_name: Text optional
     policy register
     creates User
       email = input.email
-      password_hash = ext.hash_password(input.password)
+      password_hash = @fn.hash_password(input.password)
       display_name = input.display_name
       status = UserStatus.active
     emits user_registered
 
   command login
-    input email, password
+    input
+      email: @semantic.Email
+      password: Text
     policy login
     returns AuthSession
     emits user_logged_in
@@ -121,7 +118,6 @@ feature user
     route id: ID
     input
       totp_code: Text
-    target query.by_id(id: route.id)
     policy update
     updates User
       mfa_enabled = true
@@ -141,8 +137,8 @@ feature user
       source query.by_id(id: route.id)
 
   extensions
-    server hash_password: Function[Text, Secret] at "./auth/hash_password.go"
-    server verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_password.go"
-    server google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
-    server enroll_totp: Function[User, TotpEnrollment] at "./auth/enroll_totp.go"
-    server verify_totp: Validator[TotpVerifyInput] at "./auth/verify_totp.go"
+    fn hash_password: Function[Text, @cap.Secret] at "./auth/hash_password.go"
+    fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_password.go"
+    adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
+    fn enroll_totp: Function[User, TotpEnrollment] at "./auth/enroll_totp.go"
+    validator verify_totp: Validator[TotpVerifyInput] at "./auth/verify_totp.go"

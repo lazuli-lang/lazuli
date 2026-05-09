@@ -14,10 +14,10 @@ Goal: find whether Lazuli covers the repetitive 70% while leaving rich domain be
 
 The current stable-ish fixtures cover:
 
-1. `customer` — tenancy, soft delete, lifecycle workflow, raw report query, extension points
-2. `issue` — team tenancy, self-reference, labels, workflow macro event, raw tree query
+1. `customer` — tenancy, soft delete, lifecycle workflow, SQL report query, extension points
+2. `issue` — team tenancy, self-reference, labels, workflow macro event, SQL tree query
 
-Tier 2 pressure fixtures now exist for:
+Additional pressure fixtures now exist for:
 
 3. `user-auth` — auth, password login, OAuth, MFA, sessions, rate limiting
 4. `notification` — consumes events from other features and sends email
@@ -30,7 +30,9 @@ Tier 2 pressure fixtures now exist for:
 
 The full audit fixture also includes capability-split customer satellites (`customer_auth`, `customer_tags`, `customer_import`, `customer_outreach`) to pressure cross-feature references, view composition, explicit deletes, and pure event-consumer features.
 
-These pressure fixtures intentionally include candidate constructs that are not part of the parser MVP yet: `auth`, `webhook`, `job trigger`, policy `fields`, and `extends`.
+These pressure fixtures intentionally exercise canonical constructs whose parser and codegen coverage may lag the design surface: `auth`, `webhook`, `job trigger`, `envelope.*`/`payload.*` event-job locators, policy `fields`, `extends`, namespaced policy/extension/type references, explicit extension declaration namespaces, query modifiers, explicit query modes and lookup shorthand, `event.trace`, `@anchor.*` view anchors, transition `requires`, `creates ... from input`, and inferred local route targets.
+
+Run `tools/generate-fixtures.ps1 -Check` in CI or before review to catch fixture drift after a language convention changes.
 
 ## Questions Per Feature
 
@@ -52,7 +54,7 @@ These pressure fixtures intentionally include candidate constructs that are not 
 - Pure event-consumer features with no resources are under pressure in `examples/full-capsule.lzi`.
 - Cross-feature view composition is under pressure in `examples/full-capsule.lzi`.
 - Many-to-many with payload should use explicit join resources; this is under pressure in `comment` and `org-team`.
-- Recursive hierarchies currently lean on raw queries.
+- Recursive hierarchies currently lean on `query.sql`.
 - Cascaded soft delete across relations is not modeled.
 - Multi-surface differences (`web admin`, `mobile`, `public`) need examples.
 - Error semantics have a draft in `error-contract.md`, but need target adapter validation.

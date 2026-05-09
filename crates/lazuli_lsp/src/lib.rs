@@ -263,8 +263,21 @@ impl Backend {
 fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
+        diagnostics.extend(query_mode_diagnostics(source));
+        diagnostics.extend(lookup_shorthand_diagnostics(source));
+        diagnostics.extend(namespace_reference_diagnostics(source));
+        diagnostics.extend(policy_namespace_diagnostics(source));
+        diagnostics.extend(type_namespace_diagnostics(source));
+        diagnostics.extend(extension_declaration_diagnostics(source));
         diagnostics.extend(event_payload_reference_diagnostics(source));
+        diagnostics.extend(event_kind_diagnostics(source));
+        diagnostics.extend(event_locator_diagnostics(source));
+        diagnostics.extend(rule_self_diagnostics(source));
+        diagnostics.extend(anchor_whitelist_diagnostics(source));
+        diagnostics.extend(test_block_diagnostics(source));
         diagnostics.extend(command_contract_diagnostics(source));
+        diagnostics.extend(extension_reference_diagnostics(source));
+        diagnostics.extend(idempotency_key_diagnostics(source));
         return diagnostics;
     }
 
@@ -479,6 +492,872 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "extensions" => Some(CanonicalBlockKind::Extensions),
         "escape_route" => Some(CanonicalBlockKind::EscapeRoute),
         _ => None,
+    }
+}
+
+fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+
+        if first == "query" {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-mode",
+                "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, or `query.sql <name>`.",
+            ));
+        } else if let Some(mode) = first.strip_prefix("query.") {
+            if !matches!(mode, "list" | "lookup" | "sql") {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "query-mode",
+                    "unknown query mode. Use `query.list`, `query.lookup`, or `query.sql`.",
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct LookupQueryFacts {
+    line_index: usize,
+    line: String,
+    params: Vec<(String, String)>,
+    key: Option<(String, String)>,
+}
+
+fn lookup_shorthand_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_query: Option<LookupQueryFacts> = None;
+    let mut current_child: Option<&str> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 4 && trimmed.starts_with("query.lookup ") {
+            if let Some(query) = current_query.take() {
+                diagnostics.extend(lookup_query_diagnostics(query));
+            }
+
+            current_query = if trimmed.contains(" by ") {
+                None
+            } else {
+                Some(LookupQueryFacts {
+                    line_index,
+                    line: line.to_owned(),
+                    params: Vec::new(),
+                    key: None,
+                })
+            };
+            current_child = None;
+            continue;
+        }
+
+        if leading_spaces(line) <= 4 {
+            if let Some(query) = current_query.take() {
+                diagnostics.extend(lookup_query_diagnostics(query));
+            }
+            current_child = None;
+            continue;
+        }
+
+        let Some(query) = current_query.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 6 {
+            if trimmed == "params" {
+                current_child = Some("params");
+            } else if let Some((lhs, rhs)) = lookup_key_assignment(trimmed) {
+                query.key = Some((lhs.to_owned(), rhs.to_owned()));
+                current_child = None;
+            } else {
+                current_child = None;
+            }
+        } else if leading_spaces(line) == 8 && current_child == Some("params") {
+            if let Some((name, ty)) = typed_param(trimmed) {
+                query.params.push((name.to_owned(), ty.to_owned()));
+            }
+        }
+    }
+
+    if let Some(query) = current_query {
+        diagnostics.extend(lookup_query_diagnostics(query));
+    }
+
+    diagnostics
+}
+
+fn lookup_query_diagnostics(query: LookupQueryFacts) -> Vec<Diagnostic> {
+    let Some((key_field, key_param)) = query.key.as_ref() else {
+        return Vec::new();
+    };
+
+    if query.params.len() == 1 && query.params[0].0 == *key_field && query.params[0].0 == *key_param
+    {
+        vec![simple_canonical_diagnostic(
+            query.line_index,
+            &query.line,
+            DiagnosticSeverity::WARNING,
+            "query-lookup-shorthand",
+            "single-key lookup queries should use shorthand, e.g. `query.lookup by_id by id: ID`.",
+        )]
+    } else {
+        Vec::new()
+    }
+}
+
+fn typed_param(trimmed_line: &str) -> Option<(&str, &str)> {
+    let (name, rest) = trimmed_line.split_once(':')?;
+    let name = name.trim();
+    let ty = rest.trim().split_whitespace().next()?;
+
+    if name.is_empty() || ty.is_empty() {
+        None
+    } else {
+        Some((name, ty))
+    }
+}
+
+fn lookup_key_assignment(trimmed_line: &str) -> Option<(&str, &str)> {
+    let rest = trimmed_line.strip_prefix("key ")?;
+    let (lhs, rhs) = rest.split_once('=')?;
+    let lhs = lhs.trim();
+    let rhs = rhs.trim().strip_prefix("params.")?.trim();
+
+    if lhs.is_empty() || rhs.is_empty() {
+        None
+    } else {
+        Some((lhs, rhs))
+    }
+}
+
+fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        for namespace in namespace_references(line) {
+            if !is_allowed_reference_namespace(namespace) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "namespace-catalog",
+                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@semantic`, `@cap`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, and `@anchor`.",
+                ));
+                break;
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn namespace_references(line: &str) -> Vec<&str> {
+    let mut namespaces = Vec::new();
+    let mut rest = line;
+
+    while let Some(start) = rest.find('@') {
+        let after_at = &rest[start + 1..];
+        let Some(dot) = after_at.find('.') else {
+            rest = after_at;
+            continue;
+        };
+
+        let namespace = &after_at[..dot];
+        if !namespace.is_empty()
+            && namespace
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            namespaces.push(namespace);
+        }
+
+        rest = &after_at[dot + 1..];
+    }
+
+    namespaces
+}
+
+fn is_allowed_reference_namespace(namespace: &str) -> bool {
+    matches!(
+        namespace,
+        "role"
+            | "scope"
+            | "actor"
+            | "semantic"
+            | "cap"
+            | "fn"
+            | "hook"
+            | "validator"
+            | "adapter"
+            | "client"
+            | "query_modifier"
+            | "anchor"
+    )
+}
+
+fn policy_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let policy_categories = collect_policy_categories(source);
+    let mut diagnostics = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+            }
+            2 => current_top = trimmed.split_whitespace().next(),
+            _ => {}
+        }
+
+        if current_top == Some("policies") {
+            for atom in policy_atoms_from_dictionary_line(trimmed) {
+                if !is_namespaced_atom(atom) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "policy-atom-namespace",
+                        "policy atoms should be namespaced by category, e.g. `@role.admin`, `@scope.same_org`, `@actor.system`, or `@scope.public`.",
+                    ));
+                    break;
+                }
+            }
+        }
+
+        let Some(policy_ref) = policy_statement_ref(trimmed) else {
+            continue;
+        };
+
+        if is_namespaced_atom(policy_ref) || policy_ref.contains('.') {
+            continue;
+        }
+
+        let is_local_category = current_feature
+            .as_ref()
+            .and_then(|feature| policy_categories.get(feature))
+            .is_some_and(|categories| categories.contains(policy_ref));
+
+        if !is_local_category {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "policy-ref-namespace",
+                "direct policy atoms should be namespaced, e.g. `policy @actor.system` or `policy @role.admin`. Keep bare names for feature-local policy categories such as `policy create`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn collect_policy_categories(source: &str) -> HashMap<String, HashSet<String>> {
+    let mut categories: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+            }
+            2 => current_top = trimmed.split_whitespace().next(),
+            4 if current_top == Some("policies") => {
+                let Some(feature_name) = current_feature.as_deref() else {
+                    continue;
+                };
+                let Some((name, _)) = trimmed.split_once(':') else {
+                    continue;
+                };
+                let name = name.trim();
+                if name.is_empty() || name == "fields" || name.contains(' ') {
+                    continue;
+                }
+                categories
+                    .entry(feature_name.to_owned())
+                    .or_default()
+                    .insert(name.to_owned());
+            }
+            _ => {}
+        }
+    }
+
+    categories
+}
+
+fn policy_atoms_from_dictionary_line(trimmed_line: &str) -> Vec<&str> {
+    let Some((_, rhs)) = trimmed_line.split_once(':') else {
+        return Vec::new();
+    };
+
+    if rhs.trim_start().starts_with('"') {
+        return Vec::new();
+    }
+
+    rhs.split(',')
+        .map(str::trim)
+        .filter(|atom| !atom.is_empty())
+        .collect()
+}
+
+fn policy_statement_ref(trimmed_line: &str) -> Option<&str> {
+    let mut parts = trimmed_line.split_whitespace();
+    if parts.next()? == "policy" {
+        parts.next()
+    } else {
+        None
+    }
+}
+
+fn is_namespaced_atom(atom: &str) -> bool {
+    matches!(
+        atom.strip_prefix('@').and_then(|rest| rest.split_once('.')),
+        Some(("role" | "scope" | "actor", name)) if !name.is_empty()
+    )
+}
+
+fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some(ty) = typed_line_type(trimmed) else {
+            continue;
+        };
+
+        if matches!(ty, "Email" | "Money") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "type-namespace",
+                "semantic types should use the `@semantic.*` namespace, e.g. `@semantic.Email` or `@semantic.Money`.",
+            ));
+        } else if matches!(ty, "File" | "Secret") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "type-namespace",
+                "capability types should use the `@cap.*` namespace, e.g. `@cap.File` or `@cap.Secret`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn typed_line_type(trimmed_line: &str) -> Option<&str> {
+    let (_, rhs) = trimmed_line.split_once(':')?;
+    let ty = rhs.trim().split_whitespace().next()?;
+
+    if ty.starts_with('"') || ty.is_empty() {
+        None
+    } else {
+        Some(ty)
+    }
+}
+
+fn extension_declaration_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_top: Option<&str> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 2 {
+            current_top = trimmed.split_whitespace().next();
+            continue;
+        }
+
+        if current_top != Some("extensions") || leading_spaces(line) != 4 {
+            continue;
+        }
+
+        let Some((keyword, contract)) = extension_declaration(trimmed) else {
+            continue;
+        };
+        let expected = expected_extension_keyword(contract);
+
+        if keyword == "server" {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "extension-declaration-namespace",
+                "extension declarations should use the same namespace keyword as their call site, e.g. `fn`, `hook`, `validator`, `adapter`, `query_modifier`, or `client`, not `server`.",
+            ));
+        } else if let Some(expected) = expected {
+            if keyword != expected {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "extension-declaration-namespace",
+                    "extension declaration keyword should match the contract namespace used at call sites.",
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn extension_declaration(trimmed_line: &str) -> Option<(&str, &str)> {
+    let mut parts = trimmed_line.split_whitespace();
+    let keyword = parts.next()?;
+    if !matches!(
+        keyword,
+        "client" | "server" | "fn" | "hook" | "validator" | "adapter" | "query_modifier"
+    ) {
+        return None;
+    }
+
+    let after_colon = trimmed_line.split_once(':')?.1.trim();
+    let contract = after_colon.split(['[', ' ']).next()?;
+    Some((keyword, contract))
+}
+
+fn expected_extension_keyword(contract: &str) -> Option<&'static str> {
+    match contract {
+        "CellRenderer" | "ViewBlock" | "FormField" => Some("client"),
+        "Function" => Some("fn"),
+        "Hook" => Some("hook"),
+        "Validator" => Some("validator"),
+        "IntegrationAdapter" => Some("adapter"),
+        "QueryModifier" => Some("query_modifier"),
+        _ => None,
+    }
+}
+
+fn event_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed == "observability_only" {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "event-kind",
+                "observability-only events should use `event.trace <name>` instead of the `observability_only` modifier.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn event_locator_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with('#') || trimmed.starts_with("event.trace ") {
+            continue;
+        }
+
+        if line.contains("payload = event") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "event-locator-namespace",
+                "do not assign the implicit event object wholesale. Use explicit `payload.<field>` or `envelope.<field>` values.",
+            ));
+            continue;
+        }
+
+        if line.contains("event.") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "event-locator-namespace",
+                "event-triggered jobs should use `envelope.*` for bus metadata and `payload.*` for authored event fields, e.g. `envelope.id` or `payload.customer_id`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn rule_self_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if !trimmed.starts_with("deny ") {
+            continue;
+        }
+
+        let Some((_, predicate)) = trimmed.split_once(" when ") else {
+            continue;
+        };
+
+        if let Some(alias) = legacy_rule_subject_alias(predicate) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "rule-self",
+                &format!(
+                    "rules should use `self` for the target snapshot, not `{alias}`. Use `self.<field>` in rule predicates."
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn legacy_rule_subject_alias(predicate: &str) -> Option<&str> {
+    let first = predicate.split_whitespace().next()?;
+    let (head, _) = first.split_once('.')?;
+
+    if matches!(
+        head,
+        "self" | "ctx" | "params" | "payload" | "envelope" | "route" | "input"
+    ) {
+        None
+    } else if head
+        .bytes()
+        .next()
+        .is_some_and(|byte| byte.is_ascii_lowercase())
+    {
+        Some(head)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug)]
+struct AnchorWhitelistEntry {
+    anchor: String,
+    feature: String,
+    line_index: usize,
+    line: String,
+}
+
+fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut whitelisted = Vec::new();
+    let mut extensions = HashSet::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_view_anchor: Option<String> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_view_anchor = None;
+            }
+            2 => {
+                current_view_anchor = None;
+                if let Some(anchor) = extends_anchor(trimmed) {
+                    if let Some(feature) = current_feature.as_deref() {
+                        extensions.insert((anchor.to_owned(), feature.to_owned()));
+                    }
+                }
+            }
+            4 => {
+                current_view_anchor = view_anchor(trimmed).map(str::to_owned);
+            }
+            6 => {
+                let Some(anchor) = current_view_anchor.as_deref() else {
+                    continue;
+                };
+
+                for feature in extensible_by_features(trimmed) {
+                    whitelisted.push(AnchorWhitelistEntry {
+                        anchor: anchor.to_owned(),
+                        feature,
+                        line_index,
+                        line: line.to_owned(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for entry in whitelisted {
+        if !extensions.contains(&(entry.anchor.clone(), entry.feature.clone())) {
+            diagnostics.push(simple_canonical_diagnostic(
+                entry.line_index,
+                &entry.line,
+                DiagnosticSeverity::WARNING,
+                "anchor-whitelist-unused",
+                &format!(
+                    "`extensible_by` lists feature `{}`, but that feature does not extend `@anchor.{}`.",
+                    entry.feature, entry.anchor
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut stack: Vec<(usize, String)> = Vec::new();
+    let mut current_test_context: Option<String> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let indent = leading_spaces(line);
+
+        while stack.last().is_some_and(|(level, _)| *level >= indent) {
+            stack.pop();
+        }
+
+        if current_test_context.is_some() && indent <= 4 {
+            current_test_context = None;
+        }
+
+        if trimmed == "tests" {
+            let context = test_context(&stack);
+            if let Some(context) = context {
+                current_test_context = Some(context);
+            } else {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "tests-placement",
+                    "`tests` blocks are allowed only as the last child of a command, workflow transition, rule, or view anchor block.",
+                ));
+                current_test_context = None;
+            }
+        } else if let Some(context) = current_test_context.as_deref() {
+            if indent >= 6 && !is_valid_test_assertion(context, trimmed) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "tests-vocabulary",
+                    "unknown test assertion for this construct. Use the closed tests vocabulary for command, workflow transition, rule, or view anchor blocks.",
+                ));
+            }
+        }
+
+        if let Some(kind) = stack_kind(trimmed) {
+            stack.push((indent, kind.to_owned()));
+        }
+    }
+
+    diagnostics
+}
+
+fn stack_kind(trimmed_line: &str) -> Option<&'static str> {
+    let first = trimmed_line.split_whitespace().next()?;
+
+    if first == "command" {
+        Some("command")
+    } else if first == "rule" {
+        Some("rule")
+    } else if view_anchor(trimmed_line).is_some() {
+        Some("anchor")
+    } else if is_transition_line(trimmed_line) {
+        Some("transition")
+    } else {
+        None
+    }
+}
+
+fn test_context(stack: &[(usize, String)]) -> Option<String> {
+    stack
+        .last()
+        .filter(|(_, kind)| matches!(kind.as_str(), "command" | "transition" | "rule" | "anchor"))
+        .map(|(_, kind)| kind.clone())
+}
+
+fn is_transition_line(trimmed_line: &str) -> bool {
+    let Some((lhs, rhs)) = trimmed_line.split_once(':') else {
+        return false;
+    };
+
+    !lhs.trim().is_empty() && rhs.contains("->")
+}
+
+fn is_valid_test_assertion(context: &str, trimmed_line: &str) -> bool {
+    match context {
+        "command" => {
+            trimmed_line.starts_with("allow @")
+                || trimmed_line.starts_with("deny @")
+                || trimmed_line.starts_with("allows when ")
+                || trimmed_line.starts_with("denies when ")
+        }
+        "transition" => {
+            trimmed_line.starts_with("allows from ")
+                || trimmed_line.starts_with("denies from ")
+                || trimmed_line.starts_with("allows as @")
+                || trimmed_line.starts_with("denies as @")
+        }
+        "rule" => {
+            trimmed_line.starts_with("allows when ") || trimmed_line.starts_with("denies when ")
+        }
+        "anchor" => {
+            trimmed_line.starts_with("accepted by ") || trimmed_line.starts_with("rejected by ")
+        }
+        _ => false,
+    }
+}
+
+fn view_anchor(trimmed_line: &str) -> Option<&str> {
+    let marker = " id @anchor.";
+    let (_, rest) = trimmed_line.split_once(marker)?;
+    rest.split_whitespace().next()
+}
+
+fn extends_anchor(trimmed_line: &str) -> Option<&str> {
+    let rest = trimmed_line.strip_prefix("extends @anchor.")?;
+    rest.split_whitespace().next()
+}
+
+fn extensible_by_features(trimmed_line: &str) -> Vec<String> {
+    let Some(rest) = trimmed_line.strip_prefix("extensible_by ") else {
+        return Vec::new();
+    };
+
+    rest.split(',')
+        .map(str::trim)
+        .filter(|feature| !feature.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+
+        if line.contains("ext.") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "extension-namespace",
+                "extension references should use capability namespaces such as `@client.name`, `@fn.name`, `@hook.name`, `@validator.name`, or `@adapter.name` instead of `ext.*`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn idempotency_key_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with("idempotency ") && !trimmed.starts_with("idempotency by ") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "idempotency-by",
+                "`idempotency` should declare its source with `by`, e.g. `idempotency by envelope.id` for event jobs or `idempotency by payload.external_id` for webhooks.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn simple_canonical_diagnostic(
+    line_index: usize,
+    line: &str,
+    severity: DiagnosticSeverity,
+    code: &str,
+    message: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            code.to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: message.to_owned(),
+        related_information: None,
+        tags: None,
+        data: None,
     }
 }
 
@@ -819,11 +1698,17 @@ fn event_payload_reference_diagnostic(
 
 #[derive(Debug)]
 struct CanonicalCommandFacts {
+    feature_name: Option<String>,
     name: String,
     line_index: usize,
     line: String,
     route_slots: HashSet<String>,
     route_references: Vec<CommandRouteReference>,
+    short_inputs: Vec<CommandShortInput>,
+    typed_inputs: Vec<CommandShortInput>,
+    input_inference_resources: Vec<String>,
+    from_input_creates: Option<(String, usize, String)>,
+    create_assignment_references: HashSet<String>,
     has_policy: bool,
     has_target: bool,
     has_write_effect: bool,
@@ -831,13 +1716,19 @@ struct CanonicalCommandFacts {
 }
 
 impl CanonicalCommandFacts {
-    fn new(name: String, line_index: usize, line: &str) -> Self {
+    fn new(feature_name: Option<String>, name: String, line_index: usize, line: &str) -> Self {
         Self {
+            feature_name,
             name,
             line_index,
             line: line.to_owned(),
             route_slots: HashSet::new(),
             route_references: Vec::new(),
+            short_inputs: Vec::new(),
+            typed_inputs: Vec::new(),
+            input_inference_resources: Vec::new(),
+            from_input_creates: None,
+            create_assignment_references: HashSet::new(),
             has_policy: false,
             has_target: false,
             has_write_effect: false,
@@ -853,9 +1744,20 @@ struct CommandRouteReference {
     line: String,
 }
 
+#[derive(Debug)]
+struct CommandShortInput {
+    name: String,
+    line_index: usize,
+    line: String,
+}
+
 fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let features = collect_canonical_feature_facts(source);
     let mut diagnostics = Vec::new();
+    let mut current_feature: Option<String> = None;
     let mut current_command: Option<CanonicalCommandFacts> = None;
+    let mut current_command_child: Option<&str> = None;
+    let mut current_create_from_input = false;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -864,23 +1766,39 @@ fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            if let Some(command) = current_command.take() {
+                diagnostics.extend(command_diagnostics(command, &features));
+            }
+
+            current_feature = Some(feature_name(trimmed));
+            current_command_child = None;
+            current_create_from_input = false;
+            continue;
+        }
+
         if leading_spaces(line) == 2 && trimmed.starts_with("command ") {
             if let Some(command) = current_command.take() {
-                diagnostics.extend(command_diagnostics(command));
+                diagnostics.extend(command_diagnostics(command, &features));
             }
 
             current_command = Some(CanonicalCommandFacts::new(
+                current_feature.clone(),
                 command_name(trimmed),
                 line_index,
                 line,
             ));
+            current_command_child = None;
+            current_create_from_input = false;
             continue;
         }
 
         if leading_spaces(line) <= 2 {
             if let Some(command) = current_command.take() {
-                diagnostics.extend(command_diagnostics(command));
+                diagnostics.extend(command_diagnostics(command, &features));
             }
+            current_command_child = None;
+            current_create_from_input = false;
             continue;
         }
 
@@ -895,11 +1813,62 @@ fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 
             if trimmed.starts_with("policy ") {
                 command.has_policy = true;
+                current_command_child = None;
+                current_create_from_input = false;
             } else if trimmed.starts_with("target ") {
                 command.has_target = true;
-            } else if let Some(effect) = command_write_effect(trimmed) {
+                current_command_child = None;
+                current_create_from_input = false;
+            } else if let Some(input_fields) = command_short_input_fields(trimmed) {
+                command
+                    .short_inputs
+                    .extend(
+                        input_fields
+                            .into_iter()
+                            .map(|field_name| CommandShortInput {
+                                name: field_name,
+                                line_index,
+                                line: line.to_owned(),
+                            }),
+                    );
+                current_command_child = None;
+                current_create_from_input = false;
+            } else if trimmed == "input" {
+                current_command_child = Some("input");
+                current_create_from_input = false;
+            } else if let Some((effect, resource_name)) = command_write_effect(trimmed) {
                 command.has_write_effect = true;
                 command.needs_default_route_target = matches!(effect, "updates" | "deletes");
+                if matches!(effect, "creates" | "updates") {
+                    command
+                        .input_inference_resources
+                        .push(resource_name.to_owned());
+                }
+                current_create_from_input = false;
+                current_command_child = None;
+                if effect == "creates" && trimmed.contains(" from input") {
+                    command.from_input_creates =
+                        Some((resource_name.to_owned(), line_index, line.to_owned()));
+                    current_command_child = Some("creates");
+                    current_create_from_input = true;
+                }
+            } else {
+                current_command_child = None;
+                current_create_from_input = false;
+            }
+        } else if leading_spaces(line) == 6 {
+            if current_command_child == Some("input") {
+                if let Some((name, _)) = typed_param(trimmed) {
+                    command.typed_inputs.push(CommandShortInput {
+                        name: name.to_owned(),
+                        line_index,
+                        line: line.to_owned(),
+                    });
+                }
+            } else if current_command_child == Some("creates") && current_create_from_input {
+                for input_name in input_references(line) {
+                    command.create_assignment_references.insert(input_name);
+                }
             }
         }
 
@@ -913,13 +1882,16 @@ fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     if let Some(command) = current_command {
-        diagnostics.extend(command_diagnostics(command));
+        diagnostics.extend(command_diagnostics(command, &features));
     }
 
     diagnostics
 }
 
-fn command_diagnostics(command: CanonicalCommandFacts) -> Vec<Diagnostic> {
+fn command_diagnostics(
+    command: CanonicalCommandFacts,
+    features: &HashMap<String, CanonicalFeatureFacts>,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if !command.has_policy {
@@ -953,6 +1925,90 @@ fn command_diagnostics(command: CanonicalCommandFacts) -> Vec<Diagnostic> {
         ));
     }
 
+    if !command.short_inputs.is_empty() {
+        let local_feature = command
+            .feature_name
+            .as_deref()
+            .and_then(|feature_name| features.get(feature_name));
+        let inference_resources: Vec<_> = command
+            .input_inference_resources
+            .iter()
+            .filter_map(|resource_name| {
+                local_feature
+                    .and_then(|feature| feature.resources.get(resource_name))
+                    .map(|resource| (resource_name.as_str(), resource))
+            })
+            .collect();
+
+        if command.input_inference_resources.len() > 1 || inference_resources.len() > 1 {
+            for input in &command.short_inputs {
+                diagnostics.push(command_short_input_ambiguous_resource_diagnostic(
+                    input.line_index,
+                    &input.line,
+                    &command.name,
+                    &input.name,
+                ));
+            }
+
+            return diagnostics;
+        }
+
+        if inference_resources.is_empty() {
+            for input in &command.short_inputs {
+                diagnostics.push(command_short_input_without_resource_diagnostic(
+                    input.line_index,
+                    &input.line,
+                    &command.name,
+                    &input.name,
+                ));
+            }
+
+            return diagnostics;
+        }
+
+        let (resource_name, resource) = inference_resources[0];
+
+        for input in &command.short_inputs {
+            if !resource.fields.contains(&input.name) {
+                diagnostics.push(command_short_input_diagnostic(
+                    input.line_index,
+                    &input.line,
+                    &command.name,
+                    &input.name,
+                    resource_name,
+                ));
+            }
+        }
+    }
+
+    if let Some((resource_name, _, _)) = command.from_input_creates.as_ref() {
+        let local_feature = command
+            .feature_name
+            .as_deref()
+            .and_then(|feature_name| features.get(feature_name));
+        let resource = local_feature.and_then(|feature| feature.resources.get(resource_name));
+        let all_inputs = command
+            .short_inputs
+            .iter()
+            .chain(command.typed_inputs.iter());
+
+        if let Some(resource) = resource {
+            for input in all_inputs {
+                if !resource.fields.contains(&input.name)
+                    && !command.create_assignment_references.contains(&input.name)
+                {
+                    diagnostics.push(command_from_input_unconsumed_diagnostic(
+                        input.line_index,
+                        &input.line,
+                        &command.name,
+                        &input.name,
+                        resource_name,
+                    ));
+                }
+            }
+        }
+    }
+
     diagnostics
 }
 
@@ -973,12 +2029,35 @@ fn command_route_slot(trimmed_line: &str) -> Option<&str> {
     Some(parts.next()?.trim_end_matches(':'))
 }
 
-fn command_write_effect(trimmed_line: &str) -> Option<&str> {
-    let effect = trimmed_line.split_whitespace().next()?;
+fn command_write_effect(trimmed_line: &str) -> Option<(&str, &str)> {
+    let mut parts = trimmed_line.split_whitespace();
+    let effect = parts.next()?;
     if matches!(effect, "creates" | "updates" | "deletes") {
-        Some(effect)
+        Some((effect, parts.next()?))
     } else {
         None
+    }
+}
+
+fn command_short_input_fields(trimmed_line: &str) -> Option<Vec<String>> {
+    let rest = trimmed_line.strip_prefix("input ")?;
+    let fields: Vec<String> = rest
+        .split(',')
+        .map(str::trim)
+        .filter(|field| {
+            !field.is_empty()
+                && !field.contains(':')
+                && field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        })
+        .map(str::to_owned)
+        .collect();
+
+    if fields.is_empty() {
+        None
+    } else {
+        Some(fields)
     }
 }
 
@@ -988,6 +2067,28 @@ fn route_references(line: &str) -> Vec<String> {
 
     while let Some(start) = rest.find("route.") {
         let after_prefix = &rest[start + "route.".len()..];
+        let end = after_prefix
+            .bytes()
+            .position(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_'))
+            .unwrap_or(after_prefix.len());
+        let name = &after_prefix[..end];
+
+        if !name.is_empty() {
+            references.push(name.to_owned());
+        }
+
+        rest = &after_prefix[end..];
+    }
+
+    references
+}
+
+fn input_references(line: &str) -> Vec<String> {
+    let mut references = Vec::new();
+    let mut rest = line;
+
+    while let Some(start) = rest.find("input.") {
+        let after_prefix = &rest[start + "input.".len()..];
         let end = after_prefix
             .bytes()
             .position(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_'))
@@ -1087,6 +2188,136 @@ fn command_default_route_diagnostic(
         source: Some("lazuli-canonical".to_owned()),
         message: format!(
             "command `{command_name}` omits `target`; declare `route id: ID` when relying on the default `query.by_id(id: route.id)` target."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn command_short_input_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+    input_name: &str,
+    resource_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-input-inference".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` uses short input `{input_name}`, but `{resource_name}` has no field named `{input_name}`. Use short `input a, b` only for fields inferred from a local `creates` or `updates` resource; use a typed input block for locator, adapter, optional, or reshaped data."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn command_short_input_without_resource_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+    input_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-input-inference".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` uses short input `{input_name}`, but short inputs require a local `creates` or `updates` resource for type inference. Use a typed input block for returns-only commands, locator values, adapter data, or fields whose shape differs from a resource field."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn command_short_input_ambiguous_resource_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+    input_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-input-inference".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` uses short input `{input_name}`, but short inputs require exactly one local `creates` or `updates` resource for type inference. Use a typed input block when multiple resources are involved."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn command_from_input_unconsumed_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+    input_name: &str,
+    resource_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-from-input".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` uses `creates {resource_name} from input`, but input `{input_name}` is neither a `{resource_name}` field nor referenced explicitly in that creates block."
         ),
         related_information: None,
         tags: None,
@@ -1209,7 +2440,42 @@ fn format_feature_lines(lines: &[&str]) -> Vec<String> {
     });
 
     for segment in segments {
-        formatted.extend(segment.lines);
+        if segment.kind == Some(CanonicalBlockKind::Workflow) {
+            formatted.extend(format_workflow_lines(segment.lines));
+        } else {
+            formatted.extend(segment.lines);
+        }
+    }
+
+    formatted
+}
+
+fn format_workflow_lines(lines: Vec<String>) -> Vec<String> {
+    let mut formatted = Vec::new();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        formatted.push(line.to_owned());
+
+        if is_transition_line(line.trim_start()) {
+            let transition_indent = leading_spaces(line);
+            let mut next_non_blank = index + 1;
+
+            while next_non_blank < lines.len() && lines[next_non_blank].trim().is_empty() {
+                next_non_blank += 1;
+            }
+
+            if next_non_blank > index + 1
+                && next_non_blank < lines.len()
+                && leading_spaces(&lines[next_non_blank]) > transition_indent
+            {
+                index = next_non_blank;
+                continue;
+            }
+        }
+
+        index += 1;
     }
 
     formatted
@@ -1319,12 +2585,35 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
         "command" => Some("Declares a write operation for an aggregate."),
         "query" => Some("Declares a read operation for an aggregate."),
+        "query.list" => Some("Declares a generated collection query."),
+        "query.lookup" => Some("Declares a generated single-record lookup query."),
+        "query.sql" => Some("Declares a query backed by an external SQL file."),
+        "event.trace" => {
+            Some("Declares an observability-only event that is outside the feature reaction graph.")
+        }
         "surface" => Some("Declares UI projections for list, form, and detail views."),
         "input" => Some("Lists fields accepted by a command."),
         "route" => Some("Declares route or context values accepted by a command."),
         "let" => Some("Binds a derived value for later command, job, or event expressions."),
         "policy" => Some("Associates a command with an authorization policy capability."),
+        "requires" => {
+            Some("Declares an additional authority requirement for a workflow transition.")
+        }
+        "modifier" => Some("Attaches a query modifier extension to a generated query."),
+        "from" => Some("Copies matching input fields into a create assignment."),
         "emits" => Some("Declares a domain event emitted by a command."),
+        "extensible_by" => Some("Whitelists features allowed to extend a view anchor."),
+        "tests" => Some(
+            "Declares inline IR assertions for a command, transition, rule, or view extension.",
+        ),
+        "allow" | "allows" => Some("Declares a positive inline test assertion."),
+        "deny" | "denies" => Some("Declares a negative inline test assertion."),
+        "accepted" => {
+            Some("Declares that a view extension should be accepted by an anchor whitelist.")
+        }
+        "rejected" => {
+            Some("Declares that a view extension should be rejected by an anchor whitelist.")
+        }
         "search" => Some("Lists fields used by a query search index."),
         "filter" => Some("Lists fields available as query filters."),
         "list" => Some("Declares table/list fields for a surface."),
@@ -1334,6 +2623,12 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "fields" => Some("Introduces form or detail fields."),
         "validate" => Some("Attaches a whole-resource validator implementation."),
         "validates" => Some("Attaches a field-scoped validator implementation."),
+        "client" => Some("Declares a reusable client-side extension contract."),
+        "fn" => Some("Declares a reusable server-side pure function extension contract."),
+        "hook" => Some("Declares a reusable lifecycle hook extension contract."),
+        "validator" => Some("Declares a reusable validator extension contract."),
+        "adapter" => Some("Declares a reusable integration adapter extension contract."),
+        "query_modifier" => Some("Declares a reusable query modifier extension contract."),
         "required" => Some("Marks a field as required."),
         "unique" => Some("Marks a field as unique."),
         "default" => Some("Declares a default field value."),
@@ -1347,12 +2642,27 @@ const KEYWORDS: &[&str] = &[
     "entity",
     "command",
     "query",
+    "query.list",
+    "query.lookup",
+    "query.sql",
+    "event.trace",
     "surface",
     "input",
     "route",
     "let",
     "policy",
+    "requires",
+    "modifier",
+    "from",
     "emits",
+    "extensible_by",
+    "tests",
+    "allow",
+    "allows",
+    "deny",
+    "denies",
+    "accepted",
+    "rejected",
     "search",
     "filter",
     "list",
@@ -1362,6 +2672,12 @@ const KEYWORDS: &[&str] = &[
     "fields",
     "validate",
     "validates",
+    "client",
+    "fn",
+    "hook",
+    "validator",
+    "adapter",
+    "query_modifier",
     "required",
     "unique",
     "default",
@@ -1387,7 +2703,9 @@ feature customer
     resource Customer
 
   policies
-    read: same_org
+    create: @role.admin
+    update: @role.admin
+    read: @scope.same_org
 
   command create
     policy create
@@ -1406,11 +2724,11 @@ feature customer
     view list Table
 
   extensions
-    server before_create: Hook[CreateCustomer]
+    hook before_create: Hook[CreateCustomer]
 
   escape_route "/admin/customer-debug"
     at "./pages/customer_debug.tsx"
-    policy role_admin
+    policy @role.admin
     tenant org
 "#;
 
@@ -1425,6 +2743,62 @@ feature customer
             diagnostics.is_empty(),
             "expected no canonical ordering diagnostics, got: {diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn canonical_examples_satisfy_lsp_contracts() {
+        let examples = [
+            (
+                "audit-log.lzi",
+                include_str!("../../../examples/audit-log.lzi"),
+            ),
+            ("billing.lzi", include_str!("../../../examples/billing.lzi")),
+            ("comment.lzi", include_str!("../../../examples/comment.lzi")),
+            (
+                "customer-capsule.lzi",
+                include_str!("../../../examples/customer-capsule.lzi"),
+            ),
+            (
+                "extension-points.lzi",
+                include_str!("../../../examples/extension-points.lzi"),
+            ),
+            (
+                "field-permissions.lzi",
+                include_str!("../../../examples/field-permissions.lzi"),
+            ),
+            (
+                "full-capsule.lzi",
+                include_str!("../../../examples/full-capsule.lzi"),
+            ),
+            (
+                "import-csv.lzi",
+                include_str!("../../../examples/import-csv.lzi"),
+            ),
+            (
+                "linear-issue.lzi",
+                include_str!("../../../examples/linear-issue.lzi"),
+            ),
+            (
+                "notification.lzi",
+                include_str!("../../../examples/notification.lzi"),
+            ),
+            (
+                "org-team.lzi",
+                include_str!("../../../examples/org-team.lzi"),
+            ),
+            (
+                "user-auth.lzi",
+                include_str!("../../../examples/user-auth.lzi"),
+            ),
+        ];
+
+        for (name, source) in examples {
+            let diagnostics = diagnostics_for(source);
+            assert!(
+                diagnostics.is_empty(),
+                "expected {name} to satisfy canonical LSP diagnostics, got: {diagnostics:#?}"
+            );
+        }
     }
 
     #[test]
@@ -1491,6 +2865,10 @@ feature customer
 
   domain
     resource Customer
+      name: Text required
+
+  policies
+    update: @role.admin
 
   command rename
     input name
@@ -1511,11 +2889,276 @@ feature customer
     }
 
     #[test]
+    fn canonical_command_accepts_short_input_when_fields_exist() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      name: Text required
+      email: @semantic.Email required
+
+  policies
+    create: @role.admin
+
+  command create
+    input name, email
+    policy create
+    creates Customer
+      name = input.name
+      email = input.email
+"#;
+
+        assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn canonical_command_warns_for_short_input_not_on_resource() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      name: Text required
+
+  policies
+    create: @role.admin
+
+  command create
+    input display_name
+    policy create
+    creates Customer
+      name = input.display_name
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("uses short input `display_name`")
+        );
+    }
+
+    #[test]
+    fn canonical_command_warns_for_short_input_without_inference_resource() {
+        let source = r#"
+feature user
+  purpose "User auth"
+
+  policies
+    login: @scope.public
+
+  command login
+    input email, password
+    policy login
+    returns AuthSession
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics.iter().all(|diagnostic| {
+            diagnostic
+                .message
+                .contains("short inputs require a local `creates` or `updates` resource")
+        }));
+    }
+
+    #[test]
+    fn canonical_command_warns_for_short_input_on_delete_only_command() {
+        let source = r#"
+feature customer_tags
+  purpose "Customer tags"
+
+  domain
+    resource CustomerTagAssignment
+      customer: Customer required
+      tag: CustomerTag required
+
+    query.lookup assignment_by_customer_tag
+
+  policies
+    update: @role.admin
+
+  command remove_tag
+    input customer_id, tag_id
+    target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
+    policy update
+    deletes CustomerTagAssignment
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics.iter().all(|diagnostic| {
+            diagnostic
+                .message
+                .contains("short inputs require a local `creates` or `updates` resource")
+        }));
+    }
+
+    #[test]
+    fn canonical_command_warns_for_short_input_with_multiple_inference_resources() {
+        let source = r#"
+feature inventory
+  purpose "Inventory transfers"
+
+  domain
+    resource SourceStock
+      amount: Integer required
+
+    resource TargetStock
+      amount: Integer required
+
+  policies
+    update: @role.admin
+
+  command transfer
+    route id: ID
+    input amount
+    policy update
+    updates SourceStock
+      amount = input.amount
+    updates TargetStock
+      amount = input.amount
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("short inputs require exactly one local `creates` or `updates` resource")
+        );
+    }
+
+    #[test]
+    fn canonical_command_accepts_typed_input_not_on_resource() {
+        let source = r#"
+feature customer_tags
+  purpose "Customer tags"
+
+  domain
+    resource CustomerTagAssignment
+      customer: Customer required
+      tag: CustomerTag required
+
+    query.lookup assignment_by_customer_tag
+
+  policies
+    update: @role.admin
+
+  command remove_tag
+    input
+      customer_id: ID
+      tag_id: ID
+    target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
+    policy update
+    deletes CustomerTagAssignment
+"#;
+
+        assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn canonical_warns_for_legacy_ergonomic_syntax() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      name: Text required
+      email: Email required
+
+    query list
+
+  policies
+    create: role_admin
+
+  command create
+    input name, email
+    policy create
+    creates Customer
+      name = input.name
+      email = input.email
+
+  job sync
+    trigger event customer.customer_created
+    idempotency event.id
+    policy @actor.system
+    handler "./jobs/sync.go"
+
+  surface web admin
+    view list Table
+      source query.list
+
+      cells
+        email ext.email_cell
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages.iter().any(|message| {
+                message.contains("query declarations should use an explicit mode")
+            })
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("policy atoms should be namespaced") })
+        );
+        assert!(messages.iter().any(|message| {
+            message.contains("semantic types should use the `@semantic.*` namespace")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("extension references should use capability namespaces")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("`idempotency` should declare its source with `by`")
+        }));
+    }
+
+    #[test]
     fn canonical_formatter_preserves_full_capsule_fixture() {
         let source = include_str!("../../../examples/full-capsule.lzi");
         let formatted = format_canonical_source(source).expect("canonical source");
 
         assert_eq!(formatted, source);
+    }
+
+    #[test]
+    fn canonical_formatter_removes_blank_before_transition_children() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  workflow lifecycle on Customer.status
+    policy update
+
+    resume: paused -> active
+
+      tests
+        allows from paused
+"#;
+
+        let formatted = format_canonical_source(source).expect("canonical source");
+
+        assert!(
+            formatted.contains("    resume: paused -> active\n      tests"),
+            "transition children should stay contiguous with the header:\n{formatted}"
+        );
     }
 
     #[test]

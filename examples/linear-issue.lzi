@@ -1,3 +1,7 @@
+# Linear issue canonical fixture.
+# Exercises workflow, assignment, labels, filters, tree queries, and custom UI blocks.
+# Design fixture only; parser and codegen coverage may lag this surface.
+
 feature issue
   purpose "Linear-style issue tracking with workflow, assignee, labels, and sub-issues."
 
@@ -44,7 +48,7 @@ feature issue
       index team, status
       index team, assignee
 
-    query list
+    query.list list
       params
         status: IssueStatus optional
         priority: IssuePriority optional
@@ -64,13 +68,9 @@ feature issue
       order updated_at desc
       paginate 100
 
-    query by_id
-      params
-        id: ID
+    query.lookup by_id by id: ID
 
-      key id = params.id
-
-    query sub_issues
+    query.list sub_issues
       params
         parent_id: ID
 
@@ -79,7 +79,7 @@ feature issue
 
       order priority desc
 
-    query tree raw
+    query.sql tree
       returns IssueTreeNode[]
 
       params
@@ -108,10 +108,10 @@ feature issue
       by_id: ID
 
   policies
-    create: team_member
-    update: team_member
-    delete: team_admin
-    read: same_team
+    create: @scope.team_member
+    update: @scope.team_member
+    delete: @role.team_admin
+    read: @scope.same_team
 
   command create
     input title, description, project, cycle, assignee, priority, labels
@@ -131,7 +131,6 @@ feature issue
     route id: ID
     input
       assignee: User
-    target query.by_id(id: route.id)
     policy update
     updates Issue
       assignee = input.assignee
@@ -167,13 +166,13 @@ feature issue
       filter status, priority, assignee, label, project, cycle
 
       cells
-        status ext.status_cell
-        priority ext.priority_cell
+        status @client.status_cell
+        priority @client.priority_cell
 
     view detail SidePanel
       source query.by_id(id: route.id)
-      block ext.comment_thread
-      block ext.sub_issue_list
+      block @client.comment_thread
+      block @client.sub_issue_list
 
     view tree Table
       source query.tree(root_id: route.id)
@@ -185,6 +184,6 @@ feature issue
     client comment_thread: ViewBlock[Issue]
     client sub_issue_list: ViewBlock[Issue]
 
-    server before_create: Hook[CreateIssue]
-    server after_assign: Hook[AssignIssue]
-    server rank_score: Function[Issue, IssueRankScore]
+    hook before_create: Hook[CreateIssue]
+    hook after_assign: Hook[AssignIssue]
+    fn rank_score: Function[Issue, IssueRankScore]

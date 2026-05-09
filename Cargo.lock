@@ -462,6 +462,7 @@ dependencies = [
  "lazuli_lsp",
  "lazuli_planner",
  "lazuli_syntax",
+ "serde",
  "serde_json",
  "tokio",
 ]

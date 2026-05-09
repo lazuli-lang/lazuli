@@ -1,6 +1,6 @@
 # Notification pressure test.
 # Exercises event consumption and external effects.
-# Design fixture only; candidate constructs are not compiler-executable yet.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature notification
   purpose "Deliver email and in-app notifications from domain events."
@@ -10,7 +10,7 @@ feature notification
     anti_pattern.preferences_ui: "user preferences UI beyond notification settings"
 
   defaults
-    policy system
+    policy @actor.system
 
   uses org, user, customer, issue
 
@@ -35,7 +35,7 @@ feature notification
 
       timestamps
 
-    query inbox
+    query.list inbox
       params
         recipient: User
 
@@ -55,31 +55,31 @@ feature notification
       provider_message_id: Text
 
   policies
-    create: system
-    read: self, role_admin
-    update: system
-    delete: role_admin
+    create: @actor.system
+    read: @scope.self, @role.admin
+    update: @actor.system
+    delete: @role.admin
 
   job queue_customer_archived
     trigger event customer.customer_archived
-    idempotency event.id
+    idempotency by envelope.id
     retry 3 backoff exponential
     creates Notification
-      recipient = event.by_id
+      recipient = payload.by_id
       channel = NotificationChannel.email
       subject = "Customer archived"
-      body = ext.render_customer_archived(event)
+      body = @fn.render_customer_archived(payload)
     emits notification_queued
 
   job queue_issue_assigned
     trigger event issue.issue_assigned
-    idempotency event.id
+    idempotency by envelope.id
     retry 3 backoff exponential
     creates Notification
-      recipient = event.assignee_id
+      recipient = payload.assignee_id
       channel = NotificationChannel.in_app
       subject = "Issue assigned"
-      body = ext.render_issue_assigned(event)
+      body = @fn.render_issue_assigned(payload)
     emits notification_queued
 
   job send_queued
@@ -94,5 +94,5 @@ feature notification
       filter channel, status
 
   extensions
-    server render_customer_archived: Function[CustomerArchivedEvent, Text] at "./templates/customer_archived.go"
-    server render_issue_assigned: Function[IssueAssignedEvent, Text] at "./templates/issue_assigned.go"
+    fn render_customer_archived: Function[CustomerArchivedPayload, Text] at "./templates/customer_archived.go"
+    fn render_issue_assigned: Function[IssueAssignedPayload, Text] at "./templates/issue_assigned.go"

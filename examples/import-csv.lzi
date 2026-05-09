@@ -1,6 +1,6 @@
 # CSV import pressure test.
 # Exercises file upload, batch processing, row validation, and progress UI.
-# Design fixture only; candidate job/file constructs are not compiler-executable yet.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature customer_import
   purpose "Upload CSV files, validate rows, and create customers in a background job."
@@ -10,7 +10,7 @@ feature customer_import
     anti_pattern.generic_etl: "generic ETL platform"
 
   defaults
-    policy system
+    policy @actor.system
 
   uses org, user, customer
 
@@ -25,7 +25,7 @@ feature customer_import
     resource ImportBatch
       tenancy org
       uploaded_by: User required
-      file: File required
+      file: @cap.File required
       status: ImportStatus = uploaded
       total_rows: Integer = 0
       valid_rows: Integer = 0
@@ -44,13 +44,9 @@ feature customer_import
 
       timestamps
 
-    query by_id
-      params
-        id: ID
+    query.lookup by_id by id: ID
 
-      key id = params.id
-
-    query rows
+    query.list rows
       params
         batch_id: ID
 
@@ -71,10 +67,10 @@ feature customer_import
       failed_rows: Integer
 
   policies
-    create: role_admin, sales_ops
-    read: same_org
-    update: system
-    delete: role_admin
+    create: @role.admin, @role.sales_ops
+    read: @scope.same_org
+    update: @actor.system
+    delete: @role.admin
 
   command upload
     input file
@@ -87,7 +83,7 @@ feature customer_import
   job process_batch
     trigger event import_uploaded
     queue customer_imports
-    idempotency event.batch_id
+    idempotency by payload.batch_id
     retry 3 backoff exponential
     handler "./jobs/process_batch.go"
     emits import_completed

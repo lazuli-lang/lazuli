@@ -1,6 +1,6 @@
 # Comment pressure test.
 # Exercises rich relations and target-specific comment lists.
-# Design fixture only; canonical constructs, no new runtime primitive required.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature comment
   purpose "Threaded comments on issues and customers with explicit target resources."
@@ -34,7 +34,7 @@ feature comment
       added_by: User required
       added_at: DateTime required
 
-    query for_issue
+    query.list for_issue
       params
         issue_id: ID
 
@@ -44,7 +44,7 @@ feature comment
 
       order created_at asc
 
-    query for_customer
+    query.list for_customer
       params
         customer_id: ID
 
@@ -62,13 +62,15 @@ feature comment
       target_id: ID
 
   policies
-    create: same_org
-    update: owner, role_admin
-    delete: owner, role_admin
-    read: same_org
+    create: @scope.same_org
+    update: @scope.owner, @role.admin
+    delete: @scope.owner, @role.admin
+    read: @scope.same_org
 
   command create_for_issue
-    input issue_id, body
+    input
+      issue_id: ID
+      body: Text
     policy create
     creates Comment
       target = CommentTarget.issue
@@ -78,7 +80,9 @@ feature comment
     emits comment_created
 
   command create_for_customer
-    input customer_id, body
+    input
+      customer_id: ID
+      body: Text
     policy create
     creates Comment
       target = CommentTarget.customer
@@ -90,12 +94,12 @@ feature comment
   surface web admin
     view issue_thread SidePanel
       source query.for_issue(issue_id: route.issue_id)
-      block ext.thread_view
+      block @client.thread_view
 
     view customer_thread SidePanel
       source query.for_customer(customer_id: route.customer_id)
-      block ext.thread_view
+      block @client.thread_view
 
   extensions
     client thread_view: ViewBlock[Comment]
-    server extract_mentions: Function[Text, User[]]
+    fn extract_mentions: Function[Text, User[]]

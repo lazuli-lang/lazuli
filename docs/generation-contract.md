@@ -5,7 +5,7 @@ Lazuli generates runnable software only where the `.lzi` semantics are declarati
 ```txt
 Declarative -> generated implementation
 Custom      -> generated contract + required implementation
-Raw         -> generated wiring + required external file
+SQL         -> generated wiring + required external file
 Escape      -> registered, not governed
 ```
 
@@ -15,7 +15,7 @@ These constructs should generate working Go and React with the default adapters:
 
 - `resource`
 - `constraints`
-- declarative `query`
+- declarative `query.list` and `query.lookup`
 - `policies`
 - `command`
 - `workflow`
@@ -43,18 +43,18 @@ These constructs generate typed contracts and require source implementation:
 
 - `extensions client`
 - `extensions server`
-- candidate `auth` adapters
-- candidate `job ... trigger ... handler`
-- candidate `webhook verify "<path>"` and `handler "<path>"`
+- `auth` adapters
+- `job ... trigger ... handler`
+- `webhook verify "<path>"` and `handler "<path>"`
 - inline view blocks and resource validators declared with implementation paths
 
 `lazuli generate --stubs` may create editable stubs in `features/<feature>/...`.
 
 `lazuli check --strict` must fail if required custom implementations are missing.
 
-## Raw
+## SQL
 
-`query <name> raw` must have:
+`query.sql <name>` must have:
 
 - `returns`
 - visible `scope`
@@ -80,4 +80,4 @@ lazuli check --strict
 
 - `generate`: emits generated code for declarative parts and reports missing custom implementations.
 - `generate --stubs`: also creates editable custom stubs.
-- `check --strict`: fails on missing custom code, missing raw files, missing escape route files, unresolved policies, and adapter contract mismatches.
+- `check --strict`: fails on missing custom code, missing SQL files, missing escape route files, unresolved policies, and adapter contract mismatches.

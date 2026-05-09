@@ -1,9 +1,7 @@
-# Full Lazuli audit fixture.
-# This is a kitchen-sink suite for LLM review.
-# It demonstrates the intended granularity rule:
-# a feature is a product capability, not "everything that touches one entity".
-# It mixes stable canonical constructs with candidate Tier 2 constructs.
-# Design fixture only; not compiler-executable yet.
+# Full Lazuli canonical fixture.
+# Exercises domain, policies, auth, commands, workflows, jobs, webhooks, surfaces, extensions, and escape routes.
+# Granularity: a feature is a product capability, not an entity wrapper.
+# Design fixture only; parser and codegen coverage may lag this surface.
 
 feature customer
   purpose "CRM customer lifecycle, ownership, tiering, scoring, and customer-facing surfaces."
@@ -20,6 +18,7 @@ feature customer
   defaults
     tenancy org
     timestamps
+    policy @actor.system
 
   uses org, user, billing
 
@@ -44,7 +43,7 @@ feature customer
     resource Customer previously Account
       owner: User required
       name: Text required
-      email: Email required
+      email: @semantic.Email required
       lifecycle_stage: CustomerStatus previously status = lead
       tier: CustomerTier = free
       source: CustomerSource = manual
@@ -62,7 +61,9 @@ feature customer
       index org, owner
       index org, tier
 
-    query list
+    query.list list
+      modifier @query_modifier.query_scope_modifier
+
       params
         lifecycle_stage: CustomerStatus optional
         tier: CustomerTier optional
@@ -78,19 +79,11 @@ feature customer
       order created_at desc
       paginate 50
 
-    query by_id
-      params
-        id: ID
+    query.lookup by_id by id: ID
 
-      key id = params.id
+    query.lookup by_email by email: @semantic.Email
 
-    query by_email
-      params
-        email: Email
-
-      key email = params.email
-
-    query global_search
+    query.list global_search
       params
         search: Text
 
@@ -103,7 +96,7 @@ feature customer
       order updated_at desc
       paginate 100
 
-    query lifetime_value raw
+    query.sql lifetime_value
       returns CustomerLtv[]
 
       scope
@@ -111,7 +104,7 @@ feature customer
 
       sql "./queries/customer_lifetime_value.sql"
 
-    query churn_risk raw
+    query.sql churn_risk
       returns CustomerRiskRow[]
 
       params
@@ -123,129 +116,163 @@ feature customer
       sql "./queries/customer_churn_risk.sql"
 
     rule "archived customers cannot be reassigned"
-      deny Customer.reassign when customer.lifecycle_stage = CustomerStatus.archived
+      deny Customer.reassign when self.lifecycle_stage = CustomerStatus.archived
       message "Cannot reassign an archived customer"
 
+      tests
+        denies when self.lifecycle_stage = archived
+        allows when self.lifecycle_stage = active
+        allows when self.lifecycle_stage = paused
+        allows when self.lifecycle_stage = lead
+
     rule "deleted customers cannot be archived"
-      deny Customer.archive when customer.deleted_at != nil
+      deny Customer.archive when self.deleted_at != nil
       message "Cannot archive a deleted customer"
 
+      tests
+        denies when self.deleted_at != nil
+        allows when self.deleted_at = nil
+
     rule "enterprise customers require owner before activation"
-      deny Customer.activate when customer.tier = CustomerTier.enterprise AND customer.owner = nil
+      deny Customer.activate when self.tier = CustomerTier.enterprise AND self.owner = nil
       message "Enterprise customers require an owner before activation"
+
+      tests
+        denies when self.tier = enterprise AND self.owner = nil
+        allows when self.tier = enterprise AND self.owner != nil
+        allows when self.tier = free AND self.owner = nil
+        allows when self.tier = pro AND self.owner = nil
 
     events customer_* on Customer
       payload
         customer_id = id
         org_id = org.id
+        by_id = ctx.user.id when @actor.user
 
     event customer_created
-      email: Email
+      email: @semantic.Email
       source: CustomerSource
 
     event customer_status_changed
       from: CustomerStatus
       to: CustomerStatus
-      by_id: ID
 
     event customer_activated
-      by_id: ID
 
     event customer_paused
-      by_id: ID
 
     event customer_archived
-      by_id: ID
 
     event customer_reassigned
-      owner_id: ID
-      by_id: ID
+      to_owner_id: ID
 
     event customer_score_recomputed
       score: Integer
       reason: Text
 
   policies
-    create: role_admin, role_sales
-    update: role_admin, role_sales
-    delete: role_admin
-    read: same_org
-    global_read: role_admin
+    create: @role.admin, @role.sales
+    update: @role.admin, @role.sales
+    delete: @role.admin
+    read: @scope.same_org
+    global_read: @role.admin
 
     fields Customer
       email
-        read: same_org
-        write: role_admin, role_sales
+        read: @scope.same_org
+        write: @role.admin, @role.sales
 
       score
-        read: role_admin, sales_manager
-        write: system
+        read: @role.admin, @role.sales_manager
+        write: @actor.system
 
       external_id
-        read: role_admin, integrations_admin
-        write: system, integrations_admin
+        read: @role.admin, @role.integrations_admin
+        write: @actor.system, @role.integrations_admin
 
   command create
     input name, email, tier, source
     policy create
-    creates Customer
-      name = input.name
-      email = input.email
-      tier = input.tier
-      source = input.source
+    creates Customer from input
       owner = ctx.user
     emits customer_created
+
+    tests
+      allow @role.admin, @role.sales
+      deny @role.viewer
+      deny @scope.public
 
   command reassign previously assign_owner
     route id: ID
     input owner
-    target query.by_id(id: route.id)
     policy update
     updates Customer
       owner = input.owner
     emits customer_reassigned
 
+    tests
+      allow @role.admin, @role.sales
+      deny @role.viewer
+      denies when self.lifecycle_stage = archived
+      allows when self.lifecycle_stage = active
+      allows when self.lifecycle_stage = paused
+
   command update_tier
     route id: ID
     input tier
-    target query.by_id(id: route.id)
     policy update
     updates Customer
       tier = input.tier
+
+    tests
+      allow @role.admin, @role.sales
+      deny @role.viewer
+      deny @scope.public
 
   workflow lifecycle on Customer.lifecycle_stage
     policy update
     emits customer_status_changed
 
-    activate: lead -> active
-      emits customer_activated
+    activate: lead -> active emits customer_activated
+      tests
+        allows from lead
+        denies from active
+        denies from archived
+        denies from paused
+        denies as @role.viewer
 
-    pause: active -> paused
-      emits customer_paused
+    pause: active -> paused emits customer_paused
+      tests
+        allows from active
+        denies from lead
+        denies from archived
 
     resume: paused -> active
+      tests
+        allows from paused
+        denies from active
+        denies from lead
 
-    archive previously deactivate: active -> archived
-      policy delete
-      emits customer_archived
+    archive previously deactivate: active -> archived requires delete emits customer_archived
+      tests
+        allows from active as @role.admin
+        denies from active as @role.sales
+        denies from paused
+        denies from lead
 
-  # Candidate Tier 2: consume another feature event.
   job recompute_score_after_invoice
     trigger event billing.invoice_paid
-    idempotency event.id
-    policy system
-    target query.by_id(id: event.customer_id)
-    let new_score = ext.risk_score(self)
+    idempotency by envelope.id
+    target query.by_id(id: payload.customer_id)
+    let new_score = @fn.risk_score(self)
     updates Customer
       score = new_score
     emits customer_score_recomputed
       score = new_score
       reason = "invoice_paid"
 
-  # Candidate Tier 2: scheduled/background work.
   job recompute_scores
     trigger schedule "0 2 * * *"
-    policy system
     handler "./jobs/recompute_scores.go"
 
   surface web admin
@@ -256,13 +283,19 @@ feature customer
       filter lifecycle_stage, tier, owner
 
       cells
-        lifecycle_stage ext.status_cell
-        score ext.score_cell
-        owner ext.owner_cell
+        lifecycle_stage @client.status_cell
+        score @client.score_cell
+        owner @client.owner_cell
 
-    view detail SidePanel id customer_detail
+    view detail SidePanel id @anchor.customer_detail
+      extensible_by customer_tags, customer_import
       source query.by_id(id: route.id)
-      block ext.activity_timeline
+      block @client.activity_timeline
+
+      tests
+        accepted by customer_tags
+        accepted by customer_import
+        rejected by billing
 
     view ltv_report Table
       source query.lifetime_value
@@ -291,14 +324,14 @@ feature customer
     client owner_cell: CellRenderer[Customer]
     client activity_timeline: ViewBlock[Customer]
 
-    server before_create: Hook[CreateCustomer]
-    server after_archive: Hook[ArchiveCustomer]
-    server risk_score: Function[Customer, RiskScore]
-    server query_scope_modifier: QueryModifier[Customer]
+    hook before_create: Hook[CreateCustomer]
+    hook after_archive: Hook[ArchiveCustomer]
+    fn risk_score: Function[Customer, RiskScore]
+    query_modifier query_scope_modifier: QueryModifier[Customer]
 
   escape_route "/admin/customer-debug"
     at "./pages/customer_debug.tsx"
-    policy role_admin
+    policy @role.admin
     tenant org
 
 feature customer_auth
@@ -322,11 +355,15 @@ feature customer_auth
 
     resource CustomerSession
       customer: Customer required on_delete restrict
-      refresh_token_hash: Secret required
+      refresh_token_hash: @cap.Secret required
       provider: AuthProvider required
       expires_at: DateTime required
 
-    query active_sessions
+    resource CustomerMfaConfig
+      customer: Customer required on_delete restrict
+      verified_at: DateTime required
+
+    query.list active_sessions
       params
         customer_id: ID
 
@@ -346,24 +383,24 @@ feature customer_auth
       by_id: ID
 
   policies
-    login: public
-    update: same_org
-    read: same_org
+    login: @scope.public
+    update: @scope.same_org
+    read: @scope.same_org
 
   auth
     identity Customer.email
 
     password
-      hash ext.hash_customer_password
-      verify ext.verify_customer_password
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
       rate_limit "5 per 10 minutes"
 
     oauth google
-      adapter ext.google_oauth
+      adapter @adapter.google_oauth
 
     mfa totp
-      enroll ext.enroll_customer_totp
-      verify ext.verify_customer_totp
+      enroll @fn.enroll_customer_totp
+      verify @validator.verify_customer_totp
 
     sessions
       resource CustomerSession
@@ -371,10 +408,15 @@ feature customer_auth
       refresh false
 
   command login
-    input email, password
+    input
+      email: @semantic.Email
+      password: Text
     policy login
     returns AuthSession
     emits customer_logged_in
+
+    tests
+      allow @scope.public
 
   command enable_mfa
     route customer_id: ID
@@ -382,8 +424,14 @@ feature customer_auth
       totp_code: Text
     target customer.query.by_id(id: route.customer_id)
     policy update
-    updates Customer
+    creates CustomerMfaConfig
+      customer = self
+      verified_at = ctx.now
     emits customer_mfa_enabled
+
+    tests
+      allow @scope.same_org
+      deny @scope.public
 
   surface web public
     view login Form
@@ -396,11 +444,11 @@ feature customer_auth
       fields totp_code
 
   extensions
-    server hash_customer_password: Function[Text, Secret] at "./auth/hash_customer_password.go"
-    server verify_customer_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_customer_password.go"
-    server google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
-    server enroll_customer_totp: Function[Customer, TotpEnrollment] at "./auth/enroll_customer_totp.go"
-    server verify_customer_totp: Validator[TotpVerifyInput] at "./auth/verify_customer_totp.go"
+    fn hash_customer_password: Function[Text, @cap.Secret] at "./auth/hash_customer_password.go"
+    fn verify_customer_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_customer_password.go"
+    adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
+    fn enroll_customer_totp: Function[Customer, TotpEnrollment] at "./auth/enroll_customer_totp.go"
+    validator verify_customer_totp: Validator[TotpVerifyInput] at "./auth/verify_customer_totp.go"
 
 feature customer_tags
   purpose "Customer tag taxonomy and tag assignments with assignment metadata."
@@ -432,16 +480,12 @@ feature customer_tags
       index org, tag
       index org, customer
 
-    query list_tags
+    query.list list_tags
       order name asc
 
-    query tag_by_id
-      params
-        id: ID
+    query.lookup tag_by_id by id: ID
 
-      key id = params.id
-
-    query assignments_for_customer
+    query.list assignments_for_customer
       params
         customer_id: ID
 
@@ -450,7 +494,7 @@ feature customer_tags
 
       order added_at desc
 
-    query assignment_by_customer_tag
+    query.lookup assignment_by_customer_tag
       params
         customer_id: ID
         tag_id: ID
@@ -459,7 +503,7 @@ feature customer_tags
         customer.id = params.customer_id
         tag.id = params.tag_id
 
-    query customers_by_tag
+    query.list customers_by_tag
       params
         tag_id: ID
 
@@ -469,25 +513,26 @@ feature customer_tags
       order added_at desc
       paginate 100
 
-    event customer_tag_created
+    events tag_assignment_* on CustomerTagAssignment
+      payload
+        customer_id = customer.id
+        tag_id = tag.id
+        org_id = org.id
+        by_id = ctx.user.id when @actor.user
+
+    event tag_created
       tag_id: ID
       org_id: ID
 
-    event customer_tag_assigned
-      customer_id: ID
-      tag_id: ID
-      by_id: ID
+    event tag_assignment_created
 
-    event customer_tag_removed
-      customer_id: ID
-      tag_id: ID
-      by_id: ID
+    event tag_assignment_removed
 
   policies
-    create: role_admin, sales_ops
-    update: role_admin, sales_ops
-    delete: role_admin
-    read: same_org
+    create: @role.admin, @role.sales_ops
+    update: @role.admin, @role.sales_ops
+    delete: @role.admin
+    read: @scope.same_org
 
   command create_tag
     input name, color
@@ -495,7 +540,12 @@ feature customer_tags
     creates CustomerTag
       name = input.name
       color = input.color
-    emits customer_tag_created
+    emits tag_created
+
+    tests
+      allow @role.admin, @role.sales_ops
+      deny @role.viewer
+      deny @scope.public
 
   command assign_tag
     input
@@ -507,7 +557,11 @@ feature customer_tags
       tag = input.tag
       added_by = ctx.user
       added_at = ctx.now
-    emits customer_tag_assigned
+    emits tag_assignment_created
+
+    tests
+      allow @role.admin, @role.sales_ops
+      deny @role.viewer
 
   command remove_tag
     input
@@ -516,23 +570,31 @@ feature customer_tags
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy update
     deletes CustomerTagAssignment
-    emits customer_tag_removed
+    emits tag_assignment_removed
+
+    tests
+      allow @role.admin, @role.sales_ops
+      deny @role.viewer
 
   surface web admin
     view tags Table
       source query.list_tags
       columns name, color, created_at
 
+    view tag_detail SidePanel
+      source query.tag_by_id(id: route.tag_id)
+      fields name, color, created_at
+
     view assignments Table
       source query.assignments_for_customer(customer_id: route.customer_id)
       columns tag, added_by, added_at
 
-  extends @customer_detail
-    block ext.tag_editor
+  extends @anchor.customer_detail
+    block @client.tag_editor
 
   extensions
     client tag_editor: ViewBlock[Customer]
-    server before_assign_tag: Hook[AssignCustomerTag]
+    hook before_assign_tag: Hook[AssignCustomerTag]
 
 feature customer_import
   purpose "Customer CSV uploads, CRM webhook ingestion, row validation, and async processing."
@@ -544,7 +606,7 @@ feature customer_import
   defaults
     tenancy org
     timestamps
-    policy system
+    policy @actor.system
 
   uses org, user, customer
 
@@ -558,7 +620,7 @@ feature customer_import
 
     resource CustomerImportBatch
       uploaded_by: User required
-      file: File required
+      file: @cap.File required
       status: ImportStatus = uploaded
       total_rows: Integer = 0
       valid_rows: Integer = 0
@@ -571,13 +633,9 @@ feature customer_import
       error: Text optional
       validate "./domain/validate_row.go"
 
-    query by_id
-      params
-        id: ID
+    query.lookup by_id by id: ID
 
-      key id = params.id
-
-    query rows
+    query.list rows
       params
         batch_id: ID
 
@@ -597,15 +655,14 @@ feature customer_import
       valid_rows: Integer
       failed_rows: Integer
 
-    event customer_webhook_received
-      observability_only
+    event.trace customer_webhook_received
       external_id: Text
       org_id: ID
 
   policies
-    import: role_admin, sales_ops
-    read: same_org
-    delete: role_admin
+    import: @role.admin, @role.sales_ops
+    read: @scope.same_org
+    delete: @role.admin
 
   command upload
     input file
@@ -615,20 +672,23 @@ feature customer_import
       uploaded_by = ctx.user
     emits customer_import_uploaded
 
-  # Candidate Tier 2: queued/background work.
+    tests
+      allow @role.admin, @role.sales_ops
+      deny @role.viewer
+      deny @scope.public
+
   job process_import
     trigger event customer_import_uploaded
     queue customer_imports
-    idempotency event.batch_id
+    idempotency by payload.batch_id
     retry 3 backoff exponential
     handler "./jobs/process_import.go"
     emits customer_import_completed
 
-  # Candidate Tier 2: external inbound payload.
   webhook crm_customer_upsert
     path "/webhooks/crm/customer-upsert"
     verify "./integrations/crm.go"
-    idempotency payload.external_id
+    idempotency by payload.external_id
     handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
 
@@ -645,9 +705,15 @@ feature customer_import
       source query.rows(batch_id: route.id)
       columns row_number, error, created_at
 
+  extends @anchor.customer_detail
+    block @client.import_history
+
+  extensions
+    client import_history: ViewBlock[Customer]
+
   escape_route "/admin/customer-imports"
     at "./pages/customer_imports.tsx"
-    policy role_admin
+    policy @role.admin
     tenant org
 
 feature customer_outreach
@@ -658,19 +724,27 @@ feature customer_outreach
     customer: "customer lifecycle ownership"
 
   defaults
-    policy system
+    policy @actor.system
 
   uses customer
 
-  # Candidate Tier 2: pure event-consumer feature with no resources.
+  domain
+    event.trace welcome_email_sent
+      customer_id: ID
+
+    event.trace archive_survey_sent
+      customer_id: ID
+
   job send_welcome
     trigger event customer.customer_activated
-    idempotency event.id
+    idempotency by envelope.id
     retry 3 backoff exponential
     handler "./outreach/send_welcome_email.go"
+    emits welcome_email_sent
 
   job send_archive_survey
     trigger event customer.customer_archived
-    idempotency event.id
+    idempotency by envelope.id
     retry 3 backoff exponential
     handler "./outreach/send_archive_survey.go"
+    emits archive_survey_sent
