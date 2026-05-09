@@ -1,6 +1,9 @@
 # Lazuli IR ABI
 
-The IR is the canonical machine representation of a `.lzi` capsule. It is derived from DSL, never authored, and exposed to consumers as a stable, versioned data shape.
+The IR is the canonical machine representation of Lazuli source. `.lzi`
+lowers to domain/capability `Module` IR, and `.lzx` lowers to
+experience/surface `ExperienceModule` IR. Both are derived from DSL, never
+authored, and exposed to consumers as stable, versioned data shapes.
 
 ## Audience
 
@@ -8,12 +11,13 @@ The IR is for toolmakers: backend code generators, planners, LSP servers, MCP se
 
 ## Source Of Truth
 
-DSL is the source of truth. IR is `lower(parse(source))`. The IR has no edit API: there is no public mutator on `lazuli_ir`, no builder factory outside `lazuli_analyzer`, no MCP endpoint that accepts IR patches. Re-authoring means rewriting `.lzi`.
+DSL is the source of truth. IR is `lower(parse(source))`. The IR has no edit API: there is no public mutator on `lazuli_ir`, no builder factory outside `lazuli_analyzer`, no MCP endpoint that accepts IR patches. Re-authoring means rewriting `.lzi`/`.lzx`.
 
 The lifecycle is:
 
 ```txt
-authored .lzi capsule -> AST -> IR -> inspect JSON / codegen / planner / MCP
+authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
+authored .lzx experience source -> AST -> ExperienceModule IR -> inspect JSON / UI codegen / MCP
 ```
 
 In this repository, "capsule" means the authored `.lzi` source that contains
@@ -62,7 +66,8 @@ Backends and tooling never read IR of an incompatible major version. The compati
 
 | `LZI_LANG` | `LZIR_SCHEMA` | Notes   |
 |------------|---------------|---------|
-| 0.1.0      | 0.1.0         | initial |
+| 0.1.0      | 0.1.0         | initial domain/capability IR |
+| 0.2.0      | 0.2.0         | adds `.lzx` `ExperienceModule` IR |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -128,9 +133,29 @@ Renames break the ID by design. Rename is a semantic event, not a layout detail.
 
 If a field's only justification is "an editor needs it later," reject the field.
 
+## Experience IR
+
+`.lzx` lowers into `ExperienceModule`, separate from `.lzi` `Module`. The
+split is intentional:
+
+- `.lzi` domain/capability IR is compilable without UI source.
+- abstract `.lzx` `Experience` nodes import domain features and declare product
+  view-model intent.
+- concrete `.web.lzx`/`.mobile.lzx` `PlatformSurface` nodes project an
+  abstract experience for `audience`/`tenant` variants.
+
+Experience IR has the same no-edit rule as feature IR. Consumers may compose
+`Module` and `ExperienceModule` for UI codegen, inspect output, or MCP context,
+but neither IR writes back into the other.
+
 ## Producers
 
-The only producer of IR is `lazuli_analyzer::lower_document(&Document) -> Result<Module, AnalyzeError>`. There is no second public producer. Tempting cases that must be refused:
+The only producers of IR are analyzer lowering functions:
+
+- `lazuli_analyzer::lower_document(&Document) -> Result<Module, AnalyzeError>`
+- `lazuli_analyzer::lower_lzx_document(&LzxDocument) -> ExperienceModule`
+
+There is no public IR producer outside `lazuli_analyzer`. Tempting cases that must be refused:
 
 - Builder fluent API for tests. Tests parse `.lzi` strings through the real pipeline.
 - Migration tool that rewrites IR. Migration rewrites `.lzi`.

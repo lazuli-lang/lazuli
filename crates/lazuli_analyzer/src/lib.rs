@@ -96,6 +96,85 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
     })
 }
 
+pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
+    ir::ExperienceModule {
+        experiences: document.experiences.iter().map(lower_experience).collect(),
+        surfaces: document
+            .surfaces
+            .iter()
+            .map(lower_platform_surface)
+            .collect(),
+    }
+}
+
+fn lower_experience(experience: &syntax::LzxExperience) -> ir::Experience {
+    ir::Experience {
+        name: experience.name.clone(),
+        imports: experience.imports.clone(),
+        views: experience.views.iter().map(lower_experience_view).collect(),
+        span_ref: Some(span_of(experience.span)),
+    }
+}
+
+fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView {
+    ir::ExperienceView {
+        name: view.name.clone(),
+        anchor: view.anchor.clone(),
+        source: view.source.clone(),
+        submit: view.submit.clone(),
+        actions: view.actions.iter().map(lower_experience_action).collect(),
+        opens: view.opens.clone(),
+        span_ref: Some(span_of(view.span)),
+    }
+}
+
+fn lower_experience_action(action: &syntax::LzxAction) -> ir::ExperienceAction {
+    ir::ExperienceAction {
+        name: action.name.clone(),
+        target: action.target.clone(),
+        span_ref: Some(span_of(action.span)),
+    }
+}
+
+fn lower_platform_surface(surface: &syntax::LzxSurface) -> ir::PlatformSurface {
+    ir::PlatformSurface {
+        experience: surface.experience.clone(),
+        platform: match surface.platform {
+            syntax::LzxPlatform::Web => ir::Platform::Web,
+            syntax::LzxPlatform::Mobile => ir::Platform::Mobile,
+        },
+        uses_experience: surface.uses_experience.clone(),
+        audiences: surface
+            .audiences
+            .iter()
+            .map(lower_audience_surface)
+            .collect(),
+        span_ref: Some(span_of(surface.span)),
+    }
+}
+
+fn lower_audience_surface(audience: &syntax::LzxAudience) -> ir::AudienceSurface {
+    ir::AudienceSurface {
+        name: audience.name.clone(),
+        qualifiers: audience.qualifiers.clone(),
+        views: audience.views.iter().map(lower_platform_view).collect(),
+        span_ref: Some(span_of(audience.span)),
+    }
+}
+
+fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
+    ir::PlatformView {
+        name: view.name.clone(),
+        view_type: view.view_type.clone(),
+        columns: view.columns.clone(),
+        fields: view.fields.clone(),
+        sections: view.sections.clone(),
+        actions: view.actions.clone(),
+        submit: view.submit.clone(),
+        span_ref: Some(span_of(view.span)),
+    }
+}
+
 struct LoweredAggregate {
     resource: ir::Resource,
     commands: Vec<ir::Command>,
@@ -367,9 +446,9 @@ fn span_of(span: syntax::Span) -> ir::SpanRef {
 
 #[cfg(test)]
 mod tests {
-    use lazuli_syntax::parse_document;
+    use lazuli_syntax::{parse_document, parse_lzx_document};
 
-    use super::{AnalyzeError, lower_document};
+    use super::{AnalyzeError, lower_document, lower_lzx_document};
 
     #[test]
     fn lowers_valid_document_to_ir() {
@@ -422,5 +501,33 @@ mod tests {
         let error = lower_document(&document).unwrap_err();
 
         assert!(matches!(error, AnalyzeError::MissingCommandPolicy { .. }));
+    }
+
+    #[test]
+    fn lowers_lzx_experience_and_surface_to_ir() {
+        let experience =
+            parse_lzx_document(include_str!("../../../examples/customer.lzx")).unwrap();
+        let surface =
+            parse_lzx_document(include_str!("../../../examples/customer.web.lzx")).unwrap();
+
+        let experience_ir = lower_lzx_document(&experience);
+        let surface_ir = lower_lzx_document(&surface);
+
+        assert_eq!(experience_ir.experiences[0].name, "customer");
+        assert_eq!(experience_ir.experiences[0].imports, vec!["customer"]);
+        assert_eq!(
+            experience_ir.experiences[0].views[0].actions[0].target,
+            "customer.command.create"
+        );
+        assert_eq!(surface_ir.surfaces[0].experience, "customer");
+        assert_eq!(
+            surface_ir.surfaces[0].uses_experience.as_deref(),
+            Some("customer")
+        );
+        assert_eq!(surface_ir.surfaces[0].audiences[0].name, "admin");
+        assert_eq!(
+            surface_ir.surfaces[0].audiences[0].views[0].columns,
+            vec!["name", "email", "tier", "score", "lifecycle_stage"]
+        );
     }
 }

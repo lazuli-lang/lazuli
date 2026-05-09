@@ -1,9 +1,10 @@
 //! Lazuli intermediate representation.
 //!
 //! Shape governance lives in `docs/ir-abi.md`. This crate exposes types only;
-//! it has no public mutator. The single producer is `lazuli_analyzer::lower_document`.
+//! it has no public mutator. Producers live in `lazuli_analyzer` lowering
+//! parsed `.lzi` and `.lzx` source.
 //! All consumers (codegens, planner, LSP, MCP, CLI) read this data and never
-//! write back. Re-authoring means rewriting `.lzi`.
+//! write back. Re-authoring means rewriting source.
 //!
 //! Phase 1a foundation: `Module` / `Feature` / `Resource` / `Field` (with
 //! `TypeRef` enum), `EnumDecl`, `Command` (with `Effect`), `Query` (List /
@@ -14,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.1.0";
+pub const LZIR_SCHEMA: &str = "0.2.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -700,6 +701,102 @@ pub struct CellBinding {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockBinding {
     pub renderer: String,
+}
+
+// =============================================================================
+// Experience IR — `.lzx`
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExperienceModule {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub experiences: Vec<Experience>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<PlatformSurface>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Experience {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imports: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub views: Vec<ExperienceView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExperienceView {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<ExperienceAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub opens: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExperienceAction {
+    pub name: String,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlatformSurface {
+    pub experience: String,
+    pub platform: Platform,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uses_experience: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audiences: Vec<AudienceSurface>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    Web,
+    Mobile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudienceSurface {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub qualifiers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub views: Vec<PlatformView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlatformView {
+    pub name: String,
+    pub view_type: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 // =============================================================================
