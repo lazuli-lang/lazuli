@@ -6,7 +6,8 @@ feature customer_sensitive
   purpose "Customer fields with role-specific visibility and write access."
 
   non_goals
-    customer: "customer lifecycle ownership"
+    delegated_to
+      customer: "customer lifecycle ownership"
 
   uses org, user, customer
 
@@ -57,7 +58,7 @@ feature customer_sensitive
       tax_id: Text
       annual_revenue: @semantic.Money optional
     target query.by_customer(customer_id: route.customer_id)
-    policy update
+    policy @policy.update
     updates CustomerSensitiveProfile
       legal_name = input.legal_name
       tax_id = input.tax_id

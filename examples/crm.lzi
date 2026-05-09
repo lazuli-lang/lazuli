@@ -30,6 +30,7 @@ aggregate Project {
 
   command Create {
     input title, ownerEmail
+    policy project.create
     emits ProjectCreated
   }
 
@@ -43,4 +44,3 @@ aggregate Project {
     form fields title, ownerEmail, active
   }
 }
-

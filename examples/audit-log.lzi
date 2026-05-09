@@ -6,11 +6,12 @@ feature audit_log
   purpose "Persist important domain events for compliance, support, and debugging."
 
   non_goals
-    anti_pattern.event_sourcing: "full event sourcing"
-    anti_pattern.analytics_warehouse: "analytics warehouse"
+    out_of_scope
+      event_sourcing: "full event sourcing"
+      analytics_warehouse: "analytics warehouse"
 
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses org, user, customer, issue, billing
 

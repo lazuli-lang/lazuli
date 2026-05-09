@@ -62,7 +62,7 @@ These constructs generate typed contracts and require source implementation:
 - visible `scope`
 - `sql`
 
-Lazuli wires the SQL file into generated query handlers, but it should not silently rewrite arbitrary SQL. Tenant and soft-delete boundaries must remain visible in the capsule.
+The `returns` type must resolve to a local `record`, resource, or registered external adapter contract. Lazuli wires the SQL file into generated query handlers, but it should not infer result shape from SQL text or silently rewrite arbitrary SQL. Tenant and soft-delete boundaries must remain visible in the capsule.
 
 ## Escape
 

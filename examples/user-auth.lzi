@@ -6,8 +6,9 @@ feature user
   purpose "User identity, login sessions, MFA, and account recovery."
 
   non_goals
-    org: "organization membership"
-    billing: "billing identity"
+    delegated_to
+      org: "organization membership"
+      billing: "billing identity"
 
   domain
     enum UserStatus
@@ -22,10 +23,10 @@ feature user
       github
 
     resource User
-      email: @semantic.Email required
+      email: @semantic.Email @pii.contact required
       display_name: Text optional
       status: UserStatus = invited
-      password_hash: @cap.Secret optional
+      password_hash: @cap.Hashed(algorithm:argon2id) optional
       mfa_enabled: Boolean = false
 
       soft_delete
@@ -33,7 +34,8 @@ feature user
 
     resource Session
       user: User required
-      refresh_token_hash: @cap.Secret required
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
       provider: AuthProvider required
       expires_at: DateTime required
 
@@ -55,7 +57,7 @@ feature user
 
     event user_registered
       user_id: ID
-      email: @semantic.Email
+      email: @semantic.Email @pii.contact
 
     event user_logged_in
       user_id: ID
@@ -77,6 +79,7 @@ feature user
     identity User.email
 
     password
+      algorithm argon2id
       hash @fn.hash_password
       verify @fn.verify_password
       rate_limit "5 per 10 minutes"
@@ -98,7 +101,8 @@ feature user
       email: @semantic.Email
       password: Text
       display_name: Text optional
-    policy register
+    policy @policy.register
+    rate_limit "5 per 10 minutes per ip"
     creates User
       email = input.email
       password_hash = @fn.hash_password(input.password)
@@ -110,7 +114,8 @@ feature user
     input
       email: @semantic.Email
       password: Text
-    policy login
+    policy @policy.login
+    rate_limit "5 per 10 minutes per ip"
     returns AuthSession
     emits user_logged_in
 
@@ -118,7 +123,7 @@ feature user
     route id: ID
     input
       totp_code: Text
-    policy update
+    policy @policy.update
     updates User
       mfa_enabled = true
     emits user_mfa_enabled
@@ -137,7 +142,7 @@ feature user
       source query.by_id(id: route.id)
 
   extensions
-    fn hash_password: Function[Text, @cap.Secret] at "./auth/hash_password.go"
+    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./auth/hash_password.go"
     fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_password.go"
     adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
     fn enroll_totp: Function[User, TotpEnrollment] at "./auth/enroll_totp.go"

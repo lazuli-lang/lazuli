@@ -6,8 +6,9 @@ feature org
   purpose "Organizations, teams, memberships, and role inheritance for tenant-aware features."
 
   non_goals
-    user: "user identity"
-    billing: "billing subscription ownership"
+    delegated_to
+      user: "user identity"
+      billing: "billing subscription ownership"
 
   uses user
 
@@ -73,7 +74,7 @@ feature org
 
   command create
     input name, slug
-    policy create
+    policy @policy.create
     creates Org
       name = input.name
       slug = input.slug
@@ -84,7 +85,7 @@ feature org
       email: @semantic.Email
       role: MembershipRole
       team: Team optional
-    policy invite
+    policy @policy.invite
     creates Membership
       user = @fn.resolve_or_invite_user(input.email)
       role = input.role

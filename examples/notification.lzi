@@ -6,11 +6,12 @@ feature notification
   purpose "Deliver email and in-app notifications from domain events."
 
   non_goals
-    anti_pattern.event_source_of_truth: "producers own their events"
-    anti_pattern.preferences_ui: "user preferences UI beyond notification settings"
+    out_of_scope
+      event_source_of_truth: "producers own their events"
+      preferences_ui: "user preferences UI beyond notification settings"
 
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses org, user, customer, issue
 

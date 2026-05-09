@@ -90,7 +90,7 @@ Canonical output granularity is:
 
 Avoid both extremes: do not generate one giant `server.go`/`App.tsx` for the whole project, and do not create one file per individual command/query/view unless a target adapter has a concrete reason. The default is feature plus category.
 
-`.lazuli/manifest.json` is derived from the capsule. It should include custom implementation files from both reusable `extensions` blocks and inline declarations such as job `handler`, webhook `verify`, resource `validate`/`validates`, and inline view `block ... at`.
+`.lazuli/manifest.json` is derived from the capsule. It should include custom implementation files from both reusable `extensions` blocks and inline declarations such as job `handler`, webhook `verify`, resource `validates resource`/`validates field`, and inline view `block ... at`.
 
 ## Conventions
 

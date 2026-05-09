@@ -44,8 +44,8 @@ Call sites reference extension contracts through capability namespaces instead o
 cells
   status @client.status_cell
 
-let score = @fn.risk_score(self)
-validates tier @validator.validate_tier
+let score = @fn.risk_score(target)
+validates field tier @validator.validate_tier
 ```
 
 The closed extension namespace set is `@client.*`, `@fn.*`, `@hook.*`, `@validator.*`, `@adapter.*`, and `@query_modifier.*`.
@@ -154,6 +154,11 @@ query.list list
 SQL-backed queries stay in the `query.*` reference namespace, but the declaration mode must be explicit:
 
 ```lazuli
+record CustomerLtv
+  customer_id: ID
+  amount: @semantic.Money
+  currency: Text
+
 query.sql customer_lifetime_value
   returns CustomerLtv[]
 
@@ -166,6 +171,7 @@ query.sql customer_lifetime_value
 `query.sql` means:
 
 - Lazuli cannot fully derive policy safety.
+- The return shape must resolve to a `record`, resource, or registered external contract before codegen.
 - The query must still declare `scope`; raw SQL is not allowed to silently bypass tenant or soft-delete boundaries.
 - Schema renames are not automatically safe.
 - Manual tests are expected.
@@ -179,7 +185,7 @@ These conventions keep the explicit syntax predictable. See also [Canonical sema
 - Query params exposed to routes and APIs should prefer scalar IDs, e.g. `parent_id: ID`, over passing hydrated entities.
 - Many-to-many filters should name both sides and their guard, e.g. `labels has params.label when params.label`.
 - Events use serializable IDs by default, e.g. `customer_id: ID` and `by_id: ID`.
-- `workflow` may declare shared defaults such as `policy update` and `emits status_changed`; transitions inherit them, and a transition uses `requires <policy>` only when it needs stronger authority.
+- `workflow` may declare shared defaults such as `policy @policy.update` and `emits status_changed`; transitions inherit them, and a transition uses `requires @policy.<name>` only when it needs stronger authority.
 - Views inherit read safety from their `source query.*`; inherited tenancy/soft-delete scope plus local query `scope` remain the source of tenant and soft-delete boundaries.
 
 Query modifiers are explicit query attachments:
@@ -221,7 +227,7 @@ Extension points implemented:
   risk_score    -> not implemented
 ```
 
-`lazuli inspect` should also expose a derived manifest of every custom file implied by inline declarations such as `handler`, `verify`, `validate`/`validates`, and inline `block ... at`. The authoring syntax keeps implementations near their semantic use; the manifest preserves the old index-style view for generators and agents.
+`lazuli inspect` should also expose a derived manifest of every custom file implied by inline declarations such as `handler`, `verify`, `validates resource`/`validates field`, and inline `block ... at`. The authoring syntax keeps implementations near their semantic use; the manifest preserves the old index-style view for generators and agents.
 
 The agent reads the capsule plus the small set of custom files, not the generated application.
 

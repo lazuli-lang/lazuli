@@ -77,12 +77,14 @@ function Convert-FixtureText {
     }
     $Updated = $Updated -replace "(?m)^(\s*)query\s+([A-Za-z_][A-Za-z0-9_]*)\b", '$1query.list $2'
     $Updated = $Updated -replace "(?m)^(\s*)query\.lookup\s+([A-Za-z_][A-Za-z0-9_]*)\r?\n\1  params\r?\n\1    ([A-Za-z_][A-Za-z0-9_]*): ([^\r\n]+)\r?\n\r?\n\1  key \3 = params\.\3", '$1query.lookup $2 by $3: $4'
+    $Updated = $Updated -replace "(?m)^(\s*)events(\s+[A-Za-z_][A-Za-z0-9_]*_\*\s+on\s+[A-Za-z_][A-Za-z0-9_]*\s*)$", '$1event_group$2'
 
     $Updated = $Updated -replace ": Email\b", ": @semantic.Email"
     $Updated = $Updated -replace ": Money\b", ": @semantic.Money"
     $Updated = $Updated -replace ": File\b", ": @cap.File"
-    $Updated = $Updated -replace ": Secret\b", ": @cap.Secret"
-    $Updated = $Updated -replace "Function\[Text, Secret\]", "Function[Text, @cap.Secret]"
+    $Updated = $Updated -replace ": Secret\b", ": @cap.Hashed(algorithm:argon2id)"
+    $Updated = $Updated -replace "\b@cap\.Secret\b", "@cap.Hashed(algorithm:argon2id)"
+    $Updated = $Updated -replace "Function\[Text, Secret\]", "Function[Text, @cap.Hashed(algorithm:argon2id)]"
     $Updated = $Updated -replace "Function\[Email, User\]", "Function[@semantic.Email, User]"
 
     $ExtensionRefs = [ordered]@{
@@ -134,6 +136,12 @@ function Convert-FixtureText {
     $Updated = $Updated -replace "(?m)^    target query\.by_id\(id: route\.id\)\r?\n", ""
     $Updated = $Updated -replace " when actor\.user\b", " when @actor.user"
     $Updated = $Updated -replace "(?m)^(\s*)event\s+([A-Za-z_][A-Za-z0-9_]*)\r?\n\1  observability_only", '$1event.trace $2'
+    $Updated = $Updated -replace '(?m)^(\s*)validate\s+(")', '$1validates resource $2'
+    $Updated = $Updated -replace '(?m)^(\s*)validates\s+field\s+resource\s+(")', '$1validates resource $2'
+    $Updated = $Updated -replace '(?m)^(\s*)validates\s+(?!resource\b|field\b)([A-Za-z_][A-Za-z0-9_]*)\s+(")', '$1validates field $2 $3'
+    $Updated = $Updated -replace '(?m)^(\s*)([A-Za-z_][A-Za-z0-9_]*):\s+(.+?)\s+previously\s+([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*.*)?$', '$1$2 previously $4: $3$5'
+    $Updated = $Updated -replace '(?m)^(\s*)allow\s+(@)', '$1permits $2'
+    $Updated = $Updated -replace '(?m)^(\s*)deny\s+(@)', '$1forbids $2'
     $Updated = $Updated -replace "(?m)^(\s*)event customer_reassigned(\r?\n\1  )owner_id: ID", '$1event customer_reassigned$2to_owner_id: ID'
     $Updated = $Updated -replace "\bcustomer_tag_created\b", "tag_created"
     $Updated = $Updated -replace "\bcustomer_tag_assigned\b", "tag_assignment_created"
@@ -146,6 +154,11 @@ function Convert-FixtureText {
     $Updated = $Updated -replace "(?m)^(\s*extensible_by customer_tags, customer_import)(\r?\n)\1\b", '$1$2'
     $Updated = $Updated -replace "(?m)^(\s*extensible_by customer_tags, customer_import)(\r?\n)\s*\r?\n(\s*source )", '$1$2$3'
     $Updated = Convert-PolicyLines $Updated
+    $Updated = $Updated -replace "(?m)^(\s*policy\s+)(create|update|delete|read|import|login|register|invite|global_read)(\s*)$", '$1@policy.$2$3'
+    $Updated = $Updated -replace "(?m)^(\s*requires\s+)(create|update|delete|read|import|login|register|invite|global_read)(\s*)$", '$1@policy.$2$3'
+    $Updated = $Updated -replace "(?m)(->\s+[A-Za-z_][A-Za-z0-9_]*\s+requires\s+)(create|update|delete|read|import|login|register|invite|global_read)(\s+emits\s+)", '$1@policy.$2$3'
+    $Updated = $Updated -replace "(?m)^(\s*)policy\s+@actor\.system\s*$", '$1policy_for jobs, webhooks: @actor.system'
+    $Updated = $Updated -replace "(?m)^(\s*policy_for jobs, webhooks: @actor\.system)(\r?\n)(?:[ \t]*\r?\n)*(\s*uses\b)", '$1$2$2$3'
 
     return $Updated.TrimEnd() + "`n"
 }

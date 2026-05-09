@@ -44,13 +44,20 @@ feature customer
       order created_at desc
       paginate 50
 
+    event_group customer_* on Customer
+      payload
+        customer_id = id
+
+      event created
+        email: @semantic.Email
+
   policies
     create: @role.admin
     read: @scope.same_org
 
   command create
     input name, email
-    policy create
+    policy @policy.create
     creates Customer from input
     emits customer_created
 
@@ -65,7 +72,7 @@ feature customer
 ```bash
 cargo run -p lazuli_cli -- parse examples/crm.lzi
 cargo run -p lazuli_cli -- compile examples/crm.lzi --out generated/crm
-cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=events,targets --format=json
+cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
 cargo run -p lazuli_cli -- inspect examples/full-capsule.lzi --expand=all --format=lazuli
 cargo run -p lazuli_cli -- init examples/new-app.lzi
 cargo run -p lazuli_cli -- lsp
@@ -103,6 +110,7 @@ The highlighter currently follows the canonical indentation-based Lazuli sketch:
 The fuller syntax fixtures are:
 
 - `examples/full-capsule.lzi` as the kitchen-sink audit fixture suite for LLM review.
+- `docs/quickref.md` is the small context pack to load before asking an agent to edit `.lzi`.
 - `examples/customer.ctx.md` for the co-located prose context convention.
 - `examples/linear-issue.lzi` as a pressure test for state transitions, self references, labels, filters, and custom UI blocks.
 - Additional pressure fixtures:
@@ -117,8 +125,11 @@ The fuller syntax fixtures are:
 
 ## Design Notes
 
+- [Quick reference for agents and authors](docs/quickref.md)
 - [Canonical semantics](docs/canonical-semantics.md)
+- [Language invariants](docs/invariants.md)
 - [Extension points](docs/extension-points.md)
+- [IR ABI](docs/ir-abi.md)
 - [Generation contract](docs/generation-contract.md)
 - [Error contract](docs/error-contract.md)
 - [Project structure](docs/project-structure.md)

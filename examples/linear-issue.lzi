@@ -6,8 +6,10 @@ feature issue
   purpose "Linear-style issue tracking with workflow, assignee, labels, and sub-issues."
 
   non_goals
-    comment: "comments as first-class resource for now"
-    anti_pattern.recursive_tree: "full recursive tree modeling in declarative query"
+    delegated_to
+      comment: "comments as first-class resource for now"
+    out_of_scope
+      recursive_tree: "full recursive tree modeling in declarative query"
 
   uses team, user, project, cycle, label
 
@@ -47,6 +49,13 @@ feature issue
       unique title per team
       index team, status
       index team, assignee
+
+    record IssueTreeNode
+      issue_id: ID
+      parent_id: ID
+      title: Text
+      status: IssueStatus
+      assignee_id: ID
 
     query.list list
       params
@@ -115,7 +124,7 @@ feature issue
 
   command create
     input title, description, project, cycle, assignee, priority, labels
-    policy create
+    policy @policy.create
     creates Issue
       title = input.title
       description = input.description
@@ -131,13 +140,13 @@ feature issue
     route id: ID
     input
       assignee: User
-    policy update
+    policy @policy.update
     updates Issue
       assignee = input.assignee
     emits issue_assigned
 
   workflow status on Issue.status
-    policy update
+    policy @policy.update
     emits issue_status_changed
 
     triage: backlog -> todo

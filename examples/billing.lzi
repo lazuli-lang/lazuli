@@ -6,11 +6,13 @@ feature billing
   purpose "Invoices, Stripe payment webhooks, retryable billing events, and invoice status."
 
   non_goals
-    customer: "customer lifecycle ownership"
-    anti_pattern.tax_engine: "tax calculation engine - external integration"
+    delegated_to
+      customer: "customer lifecycle ownership"
+    out_of_scope
+      tax_engine: "tax calculation engine - external integration"
 
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses org, customer
 
@@ -85,7 +87,7 @@ feature billing
 
   command create
     input customer, amount_cents, currency
-    policy create
+    policy @policy.create
     creates Invoice
       customer = input.customer
       amount_cents = input.amount_cents
@@ -94,7 +96,7 @@ feature billing
     emits invoice_created
 
   workflow status on Invoice.status
-    policy update
+    policy @policy.update
     emits invoice_status_changed
 
     open: draft -> open

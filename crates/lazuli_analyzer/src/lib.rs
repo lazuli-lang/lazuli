@@ -33,6 +33,9 @@ pub enum AnalyzeError {
         context: String,
         field: String,
     },
+
+    #[error("command `{command}` in aggregate `{aggregate}` is missing an explicit policy")]
+    MissingCommandPolicy { aggregate: String, command: String },
 }
 
 pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
@@ -177,7 +180,7 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
         .commands
         .iter()
         .map(|c| lower_command(c, &resource_name))
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let queries = aggregate.queries.iter().map(lower_query).collect();
 
@@ -214,12 +217,18 @@ fn lower_field(field: &syntax::Field) -> ir::Field {
     }
 }
 
-fn lower_command(command: &syntax::Command, resource_name: &str) -> ir::Command {
+fn lower_command(
+    command: &syntax::Command,
+    resource_name: &str,
+) -> Result<ir::Command, AnalyzeError> {
     let policy = command
         .policy
         .as_ref()
         .map(|raw| ir::PolicyRef::Unresolved(raw.clone()))
-        .unwrap_or(ir::PolicyRef::None);
+        .ok_or_else(|| AnalyzeError::MissingCommandPolicy {
+            aggregate: resource_name.to_owned(),
+            command: command.name.clone(),
+        })?;
 
     // Legacy `command Create { input ... emits ... }` is treated as a create
     // effect over the parent aggregate with `from_input` semantics. The
@@ -234,7 +243,7 @@ fn lower_command(command: &syntax::Command, resource_name: &str) -> ir::Command 
         assignments: Vec::new(),
     });
 
-    ir::Command {
+    Ok(ir::Command {
         name: command.name.clone(),
         kind: ir::CommandKind::Create,
         route: Vec::new(),
@@ -247,7 +256,7 @@ fn lower_command(command: &syntax::Command, resource_name: &str) -> ir::Command 
         tests: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(command.span)),
-    }
+    })
 }
 
 fn lower_query(query: &syntax::Query) -> ir::Query {
@@ -262,10 +271,7 @@ fn lower_query(query: &syntax::Query) -> ir::Query {
             predicate: ir::Predicate::Comparison {
                 left: ir::Expr::Path(ir::Path::from_segments([name.clone()])),
                 op: ir::CompareOp::Eq,
-                right: ir::Expr::Path(ir::Path::from_segments([
-                    "params".to_owned(),
-                    name.clone(),
-                ])),
+                right: ir::Expr::Path(ir::Path::from_segments(["params".to_owned(), name.clone()])),
             },
             when: Some(name.clone()),
         })
@@ -389,6 +395,7 @@ mod tests {
 
               command Create {
                 input email
+                policy customer.create
               }
             }
         "#;
@@ -397,5 +404,23 @@ mod tests {
         let error = lower_document(&document).unwrap_err();
 
         assert!(matches!(error, AnalyzeError::UnknownField { .. }));
+    }
+
+    #[test]
+    fn rejects_commands_without_policy() {
+        let source = r#"
+            aggregate Customer {
+              name: Text
+
+              command Create {
+                input name
+              }
+            }
+        "#;
+
+        let document = parse_document(source).unwrap();
+        let error = lower_document(&document).unwrap_err();
+
+        assert!(matches!(error, AnalyzeError::MissingCommandPolicy { .. }));
     }
 }

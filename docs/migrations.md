@@ -54,7 +54,7 @@ Required decisions:
 The planner must not infer renames from string similarity alone. Use `previously` when continuity matters:
 
 ```lazuli
-lifecycle_status: CustomerStatus previously status = lead
+lifecycle_status previously status: CustomerStatus = lead
 ```
 
 If no identity hint exists, planner should treat the change as remove + add.

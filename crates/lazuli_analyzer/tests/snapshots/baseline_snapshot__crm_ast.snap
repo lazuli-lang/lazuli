@@ -164,13 +164,13 @@ expression: document
             "title",
             "ownerEmail"
           ],
-          "policy": null,
+          "policy": "project.create",
           "emits": [
             "ProjectCreated"
           ],
           "span": {
             "start": 514,
-            "end": 587
+            "end": 613
           }
         }
       ],
@@ -185,8 +185,8 @@ expression: document
             "active"
           ],
           "span": {
-            "start": 591,
-            "end": 654
+            "start": 617,
+            "end": 680
           }
         }
       ],
@@ -205,19 +205,19 @@ expression: document
           ],
           "detail_fields": [],
           "span": {
-            "start": 658,
-            "end": 760
+            "start": 684,
+            "end": 786
           }
         }
       ],
       "span": {
         "start": 408,
-        "end": 762
+        "end": 788
       }
     }
   ],
   "span": {
     "start": 0,
-    "end": 764
+    "end": 789
   }
 }

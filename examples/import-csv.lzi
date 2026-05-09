@@ -6,11 +6,13 @@ feature customer_import
   purpose "Upload CSV files, validate rows, and create customers in a background job."
 
   non_goals
-    customer: "customer lifecycle rules"
-    anti_pattern.generic_etl: "generic ETL platform"
+    delegated_to
+      customer: "customer lifecycle rules"
+    out_of_scope
+      generic_etl: "generic ETL platform"
 
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses org, user, customer
 
@@ -40,7 +42,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validate "./domain/validate_row.go"
+      validates resource "./domain/validate_row.go"
 
       timestamps
 
@@ -74,7 +76,7 @@ feature customer_import
 
   command upload
     input file
-    policy create
+    policy @policy.create
     creates ImportBatch
       file = input.file
       uploaded_by = ctx.user
@@ -83,6 +85,7 @@ feature customer_import
   job process_batch
     trigger event import_uploaded
     queue customer_imports
+    tenant_from payload.org_id
     idempotency by payload.batch_id
     retry 3 backoff exponential
     handler "./jobs/process_batch.go"

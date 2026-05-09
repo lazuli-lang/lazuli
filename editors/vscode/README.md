@@ -18,7 +18,8 @@ feature name
   purpose "short product reason"
 
   non_goals
-    anti_pattern.unowned: "thing this feature does not own"
+    out_of_scope
+      unowned: "thing this feature does not own"
 
   uses org
 
@@ -92,7 +93,7 @@ Current consistency rules:
 
 Highlighting groups:
 
-- Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `events`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
+- Structural constructors: `feature`, `resource`, `record`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
 - Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `defaults`, `constraints`, `policies`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`.
-- Internal statements: `observability_only`, `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.
+- Section containers: `defaults`, `constraints`, `policies`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`.
+- Internal statements: `observability_only`, `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.

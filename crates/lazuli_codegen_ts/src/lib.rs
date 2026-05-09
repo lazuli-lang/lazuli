@@ -568,6 +568,10 @@ mod tests {
         let files = generate(&module);
 
         assert!(files.iter().any(|file| file.path == "frontend/src/App.tsx"));
-        assert!(files.iter().any(|file| file.contents.contains("lazuliModule")));
+        assert!(
+            files
+                .iter()
+                .any(|file| file.contents.contains("lazuliModule"))
+        );
     }
 }

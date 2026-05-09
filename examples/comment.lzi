@@ -6,8 +6,9 @@ feature comment
   purpose "Threaded comments on issues and customers with explicit target resources."
 
   non_goals
-    anti_pattern.rich_text_editor: "rich text editor implementation"
-    anti_pattern.activity_timeline: "cross-feature activity timeline ownership"
+    out_of_scope
+      rich_text_editor: "rich text editor implementation"
+      activity_timeline: "cross-feature activity timeline ownership"
 
   uses org, user, issue, customer
 
@@ -71,7 +72,7 @@ feature comment
     input
       issue_id: ID
       body: Text
-    policy create
+    policy @policy.create
     creates Comment
       target = CommentTarget.issue
       target_id = input.issue_id
@@ -83,7 +84,7 @@ feature comment
     input
       customer_id: ID
       body: Text
-    policy create
+    policy @policy.create
     creates Comment
       target = CommentTarget.customer
       target_id = input.customer_id

@@ -2,12 +2,16 @@
 
 This is the short spec for canonical `.lzi` files. The goal is a single authoring voice: explicit enough for agents and compilers, still readable by humans.
 
+For agent context and first-read authoring, load `docs/quickref.md` first. This file is the fuller normative reference and includes migration notes, rationale, and tooling detail that should not be required for ordinary feature edits.
+
+Normative wording in this file follows ordinary spec meaning: `must`/`MUST` is required for canonical v0, `should`/`SHOULD` is expected or linted unless a feature has a reason to diverge, `may`/`MAY` is optional, and `reserved` means intentionally outside v0.
+
 ## Quick Reference
 
 Canonical feature block order:
 
 ```txt
-meta -> defaults -> uses -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route
+meta -> defaults -> uses -> refs -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route
 ```
 
 Closed reference namespaces:
@@ -17,8 +21,11 @@ Closed reference namespaces:
 | `@role.*` | role authorization atoms |
 | `@scope.*` | authorization predicates such as same-org, owner, public, none |
 | `@actor.*` | executor identities such as user, system, service |
+| `@policy.*` | feature-local policy categories such as create, update, import |
 | `@semantic.*` | built-in semantic types with validation/formatting |
-| `@cap.*` | built-in capability types such as secrets and files |
+| `@cap.*` | built-in capability types such as files, hashed values, encrypted values, and tokens |
+| `@pii.*` | data-classification markers such as contact, credential, external, derived |
+| `@key.*` | cryptographic key scopes such as app, tenant, user, record |
 | `@client.*` | UI extension contracts |
 | `@fn.*` | pure server-side functions |
 | `@hook.*` | lifecycle hooks |
@@ -39,7 +46,7 @@ Query modes:
 Workflow transitions may inline scalar clauses:
 
 ```lazuli
-archive previously deactivate: active -> archived requires delete emits customer_archived
+archive previously deactivate: active -> archived requires @policy.delete emits customer_archived
 ```
 
 `lazuli fmt --expand` rewrites inline transition clauses as child statements; `lazuli fmt --compact` may inline them again where the compact form is legal.
@@ -48,13 +55,13 @@ Execution locator namespaces:
 
 | Context | Locators |
 |---------|----------|
-| command | `route.*`, `input.*`, `ctx.*`, and `self` after `target` |
+| command | `route.*`, `input.*`, `ctx.*`, and `target` after `target ...` |
 | query | `params.*`, `ctx.*` |
-| event-triggered job | `envelope.*`, `payload.*`, `ctx.*`, and `self` after `target` |
+| event-triggered job | `envelope.*`, `payload.*`, `ctx.*`, and `target` after `target ...` |
 | webhook | `payload.*`, `ctx.*` |
 | schedule job | `schedule.*`, `ctx.*` |
 | rule | `self`, `ctx.*` |
-| tests | `self`, `ctx.*` |
+| tests | `target` in command tests; `self` in rule and workflow tests; `ctx.*` |
 
 Event-triggered jobs keep event bus metadata in `envelope.*` and authored event fields in `payload.*`. For example, use `idempotency by envelope.id` and `target query.by_id(id: payload.customer_id)`.
 
@@ -64,21 +71,21 @@ Inline assertions, last child of the construct. Optional by default; `--strict-t
 
 | Construct | Verbs |
 |-----------|-------|
-| command | `allow`/`deny <actor>`; `allows`/`denies when <predicate>` |
+| command | `permits`/`forbids <actor>`; `allows`/`denies when <predicate>` |
 | workflow transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined form |
 | rule | `allows`/`denies when <predicate>` |
 | extensible view | `accepted`/`rejected by <feature>` |
 
-Tests use `self`, reuse the predicate language, and do not use fixtures or mocks. Run `lazuli test` for IR checks, or `lazuli test --runtime` for generated Go/TypeScript checks.
+Tests use the same binding as the construct under test, reuse the predicate language, and do not use fixtures or mocks. Run `lazuli test` for IR checks, or `lazuli test --runtime` for generated Go/TypeScript checks.
 
 Inspect expansion:
 
 ```bash
-lazuli inspect feature.lzi --expand=events,targets --format=json
+lazuli inspect feature.lzi --expand=events,targets,locators,dependencies,security --format=json
 lazuli inspect feature.lzi --expand=all --format=lazuli
 ```
 
-`--expand` accepts `none`, `all`, or a comma-separated list of `events`, `targets`, `policies`, `tests`, and `defaults`. `none` is the default. `--format=json` is the canonical inspect contract; `--format=lazuli` is a human projection that re-emits an expanded `.lzi` view where possible.
+`--expand` accepts `none`, `all`, or a comma-separated list of `refs`, `summary`, `locators`, `dependencies`, `security`, `events`, `targets`, `policies`, `tests`, and `defaults`. `none` is the default. `--format=json` is the canonical inspect contract; `--format=lazuli` is a human projection that re-emits an expanded `.lzi` view where possible.
 
 ## Canonical Shape
 
@@ -89,7 +96,8 @@ feature customer
   purpose "CRM customers within an org."
 
   non_goals
-    invoice: "invoicing"
+    delegated_to
+      invoice: "invoicing"
 
   defaults
     tenancy org
@@ -97,8 +105,13 @@ feature customer
 
   uses org, user
 
+  refs
+    core: @role, @scope, @actor, @policy, @semantic
+    extensions: @client, @fn
+
   domain
     resource Customer
+    record CustomerLtv
     query.list list
     event customer_created
 
@@ -113,7 +126,7 @@ feature customer
   escape_route "/admin/customer-debug"
 ```
 
-The canonical form avoids compact aliases. Use `domain`, `resource`, `query.<mode>`, `policies`, `command`, `workflow`, `surface`, and `extensions` explicitly. `domain` may contain any subset of enums, resources, constraints, queries, rules, and events. Resource-less features commonly declare only events under `domain`.
+The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `query.<mode>`, `policies`, `command`, `workflow`, `surface`, and `extensions` explicitly. `domain` may contain any subset of enums, resources, records, constraints, queries, rules, and events. Resource-less features commonly declare only events under `domain`.
 
 Feature blocks have a canonical lint/format order:
 
@@ -121,7 +134,8 @@ Feature blocks have a canonical lint/format order:
 meta: purpose, non_goals, context
 defaults
 uses
-domain (enums, resources, constraints, queries, rules, events)
+refs
+domain (enums, resources, records, constraints, queries, rules, events)
 policies
 auth
 commands
@@ -183,6 +197,8 @@ The qualifier is the feature id, not a generated package name. Canonical `.lzi` 
 
 `<feature>.query.<name>` is the canonical cross-feature query path. The short `query.<name>` form always resolves inside the current feature.
 
+Resolution is local-first only for unqualified operation references. Lazuli does not search `uses` in declaration order for `target query.*`, `source query.*`, `submit command.*`, or other operation-like references; write the feature prefix when the target lives outside the current feature. This keeps `uses` as a dependency declaration, not an import-order namespace.
+
 When one feature calls another feature's query, the provider query's effective scope still applies. The caller's policy authorizes the caller's operation; the provider feature's query scope preserves the provider's data boundary. `explain` should show both edges:
 
 ```txt
@@ -196,6 +212,36 @@ Cross-feature event jobs (`job send_archive_survey` with `trigger event customer
 
 `uses` is strict in canonical v0. Every listed feature should be referenced by type, query, command, event, view extension, or another semantic edge in the capsule. Do not use `uses` for conceptual prose dependencies; put those in `purpose`, `non_goals`, or `<feature>.ctx.md`.
 
+## Refs And Generated Summary
+
+`refs` is an authored namespace manifest for the feature. It is not an import system and does not change name resolution. It exists so humans and agents can understand which `@...` capability families appear in the feature before scanning the body:
+
+```lazuli
+refs
+  core: @role, @scope, @actor, @policy, @semantic, @cap, @pii, @key
+  extensions: @client, @fn, @hook, @query_modifier
+  anchors: @anchor
+```
+
+The group names (`core`, `extensions`, `anchors`) are documentation keys, not grammar. `refs` is per-feature and optional: a feature that omits it still resolves every namespace normally. `lazuli check` should warn when a present `refs` block omits a used namespace or declares a namespace not used by that same feature. If a feature omits `refs`, tooling should not warn by default; `lazuli inspect --expand=refs` can generate the manifest from the body.
+
+`summary` is generated, not authored. It is a table of contents derived from the body and emitted by `lazuli inspect --expand=summary` for humans, agents, and context injection:
+
+```lazuli
+# inspect projection, not source
+resources: Customer
+queries: list, by_id, by_email
+commands: create, reassign, update_tier
+workflows: lifecycle(activate, pause, resume, archive)
+jobs: recompute_score_after_invoice, recompute_scores
+events: customer_created, customer_status_changed, customer_archived
+surfaces: web/admin, web/public, mobile/sales
+anchors: @anchor.customer_detail
+extended_by: customer_tags, customer_import
+```
+
+Do not write a `summary` block in canonical source; the LSP warns when one appears. This avoids drift while preserving the O(1) overview that agents need.
+
 ## Reference Namespaces
 
 Capability references use a closed `@namespace.name` catalog:
@@ -203,8 +249,11 @@ Capability references use a closed `@namespace.name` catalog:
 - `@role.*` for role-based authorization atoms.
 - `@scope.*` for authorization predicates such as same-org, public, owner, or none.
 - `@actor.*` for executor identities such as user, system, or service.
+- `@policy.*` for feature-local policy categories declared in the `policies` dictionary.
 - `@semantic.*` for built-in semantic types that add validation or formatting.
-- `@cap.*` for built-in capability types that need runtime behavior such as secrets or files.
+- `@cap.*` for built-in capability types that need runtime behavior such as files, hashed values, encrypted values, and single-use tokens.
+- `@pii.*` for data classification such as contact data, credentials, external identifiers, derived risk data, or network identifiers.
+- `@key.*` for cryptographic key scopes such as app-wide, tenant, user, or per-record keys.
 - `@client.*` for UI extension contracts.
 - `@fn.*` for pure server-side functions.
 - `@hook.*` for lifecycle hooks.
@@ -222,15 +271,17 @@ The standard long-form context file is co-located beside the capsule as `<featur
 
 Use inline `purpose` and `non_goals` for short metadata. Use `<feature>.ctx.md` for history, gotchas, performance notes, decision logs, and narrative examples. Do not duplicate schema, operations, policies, rules, events, or extension contracts there.
 
-`non_goals` is a small dictionary of boundary reasons. Prefer a feature id when the boundary is another Lazuli feature, and use `anti_pattern.<slug>` for a design boundary that is not owned by another feature:
+`non_goals` is a small structured boundary section. Use `delegated_to` when another Lazuli feature owns the capability, and `out_of_scope` when the boundary is an intentional product or architecture non-goal:
 
 ```lazuli
 non_goals
-  customer_auth: "customer login and MFA"
-  anti_pattern.generic_etl: "generic ETL platform"
+  delegated_to
+    customer_auth: "customer login and MFA"
+  out_of_scope
+    generic_etl: "generic ETL platform"
 ```
 
-Referenced features in `non_goals` are validated as feature ids, but they do not count as `uses`. `anti_pattern.*` entries are intentionally not feature references. These entries document boundaries; they are not semantic dependencies.
+Referenced features under `delegated_to` are validated as feature ids, but they do not count as `uses`. `out_of_scope` entries are intentionally not feature references. These entries document boundaries; they are not semantic dependencies. Earlier drafts used direct keys and `anti_pattern.*`; canonical v0 groups entries explicitly so humans and agents do not need to infer which keys are feature references.
 
 `context` is only an override when the convention is not enough:
 
@@ -248,13 +299,17 @@ Fields are declared as `name: Type modifier`. Required/optional should be visibl
 Type names are intentionally a closed catalog unless they resolve to a local resource, enum, or imported type. Plain scalar types include `ID`, `Text`, `Boolean`, `Integer`, `Decimal`, `Date`, `DateTime`, and `JSON`. Types that carry framework behavior are namespaced:
 
 ```lazuli
-email: @semantic.Email required
+email: @semantic.Email @pii.contact required
 revenue: @semantic.Money optional
-password_hash: @cap.Secret optional
+password_hash: @cap.Hashed(algorithm:argon2id) optional
+api_key: @cap.Encrypted(key:@key.tenant) @pii.credential optional
+reset_token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
 file: @cap.File required
 ```
 
-`@semantic.*` means Lazuli should apply domain validation or formatting. `@cap.*` means the type carries platform behavior such as upload storage, redaction, or secret handling. The analyzer should reject invented built-ins unless they are added to the closed catalog or resolved through `uses`.
+`@semantic.*` means Lazuli should apply domain validation or formatting. `@cap.*` means the type carries platform behavior such as upload storage, redaction, hashing, encryption, token expiry, or secret handling. `@pii.*` is classification metadata used by logs, event stores, exports, and erasure workflows. `@key.*` declares key blast radius for encrypted values. The analyzer should reject invented built-ins unless they are added to the closed catalog or resolved through `uses`.
+
+A built-in belongs under `@cap.*` only when it changes runtime handling in at least two target families, such as Go persistence, React forms, Expo/mobile upload flows, generated API serialization, or logs/redaction. Prefer `@semantic.*` for pure validation/formatting and a project extension for single-target behavior.
 
 Use feature-level `defaults` to remove repeated resource traits:
 
@@ -318,14 +373,14 @@ Resource-local custom validation may be attached inline when the validator is si
 ```lazuli
 resource ImportRow
   raw: JSON required
-  validate "./domain/validate_row.go"
+  validates resource "./domain/validate_row.go"
 
 resource Customer
   tier: CustomerTier = free
-  validates tier "./hooks/validate_tier.go"
+  validates field tier "./hooks/validate_tier.go"
 ```
 
-Use `validate "./path.go"` for whole-resource validation and `validates <field> "./path.go"` for field-level validation. The different verbs are intentional: `validate` runs against the resource write as a whole, while `validates <field>` is scoped to writes that touch that field. Reusable validators should live under `extensions` as `validator <name>: Validator[...]` and be referenced by name where needed.
+Use `validates resource "./path.go"` for whole-resource validation and `validates field <name> "./path.go"` for field-level validation. The first runs against the resource write as a whole; the second is scoped to writes that touch that field. Earlier drafts used `validate "./path.go"` and `validates <field> "./path.go"`; canonical v0 uses one verb with an explicit scope. Reusable validators should live under `extensions` as `validator <name>: Validator[...]` and be referenced by name where needed.
 
 ## Formatting
 
@@ -383,6 +438,8 @@ query.list list
   order updated_at desc
   paginate 100
 ```
+
+`paginate <n>` declares the default generated page size for list queries. It is not a hard product maximum by itself; adapters may add project-wide maximums later. Use `paginate` rather than a generic number so generated APIs, views, and inspectors agree that the value is pagination shape, not arbitrary limit logic.
 
 Inherited scope is always applied unless a query explicitly uses `scope override`. Local `scope` extends inherited scope and should be reserved for safety boundaries. `filters` describe data predicates. A filter without `when` is always applied. A filter with `when` is conditional.
 
@@ -458,11 +515,15 @@ Use `scope override` only for an explicitly cross-tenant or admin query:
 
 ```lazuli
 query.list global_audit
+  policy @policy.global_read
+
   scope override
+    reason "Global audit intentionally crosses tenant scope."
     deleted_at = nil
 ```
 
-An override disables inherited tenancy scope and should require a strong policy.
+An override disables inherited tenancy scope and requires both an explicit query `policy @policy.*` and a `reason "..."` child under `scope override`.
+It is an absolute replacement of inherited safety scope, not a filter reset. If a future syntax such as `scope override(org)` proves necessary, it should be introduced as a stricter spelling of the same dangerous operation rather than as a second scoping model.
 
 ### SQL Queries
 
@@ -482,6 +543,21 @@ SQL queries still need `params`, `scope`, and a declared return type. The SQL ca
 
 The declaration mode is the semantic fork: `query.list` and `query.lookup` are generated and analyzable, while `query.sql` is an externally implemented query wrapper. `lazuli inspect` should expose the resolved kind as `list`, `lookup`, or `sql` so generators do not infer it from body shape or prose.
 
+`returns` types for SQL queries must resolve before code generation. They may be local `record`/resource types, extension contracts, or adapter-provided external types, but they are not inferred from the SQL file. Use `record` for non-persisted DTO/result shapes owned by the feature:
+
+```lazuli
+record CustomerLtv
+  customer_id: ID
+  amount: @semantic.Money
+  currency: Text
+
+query.sql lifetime_value
+  returns CustomerLtv[]
+  sql "./queries/customer_lifetime_value.sql"
+```
+
+`record` is not a resource: it has fields and types, but no tenancy, policies, commands, lifecycle hooks, storage migrations, or generated CRUD. It exists so SQL wrappers, handlers, and UI surfaces have a checked shape instead of a free-floating type name.
+
 `modifier @query_modifier.*` runs after inherited tenancy/soft-delete scope, after local `scope`, and after `filters`. It cannot remove inherited or local safety predicates; use `scope override` when a query intentionally disables inherited scope. Typical uses are ordering, ranking, provider-specific computed fields, or appending extra predicates that the fixed predicate language cannot express.
 
 ## Commands
@@ -489,6 +565,8 @@ The declaration mode is the semantic fork: `query.list` and `query.lookup` are g
 Commands have two caller-facing slots: `route` and `input`.
 
 Queries use `params`; commands do not. `route` declares locator or context values supplied by the invoking route or caller context. `input` describes the fields a user or API caller submits as the operation body. Locator values such as `route.id` belong in `target`, not in `input`, unless the locator is genuinely entered by the caller.
+
+The names intentionally mirror channels rather than types: query `params` are read arguments, command `route` slots are path/context locators, and command `input` slots are submitted body fields. Keep these three namespaces separate even when their field shapes look similar.
 
 Any command expression that references `route.<name>` must declare that slot:
 
@@ -498,9 +576,9 @@ command enable_mfa
   input
     totp_code: Text
   target customer.query.by_id(id: route.customer_id)
-  policy update
+  policy @policy.update
   creates CustomerMfaConfig
-    customer = self
+    customer = target
     verified_at = ctx.now
 ```
 
@@ -517,7 +595,7 @@ Create commands declare caller input and then assign resource fields inside `cre
 ```lazuli
 command create
   input name, email
-  policy create
+  policy @policy.create
   creates Customer from input
     owner = ctx.user
   emits customer_created
@@ -541,19 +619,19 @@ command reassign
   route id: ID
   input owner
   target query.by_id(id: route.id)
-  policy update
+  policy @policy.update
   updates Customer
     owner = input.owner
   emits customer_reassigned
 ```
 
-`updates Customer` names the resource being changed. The `target` line is only the lookup expression. The loaded target is available as immutable `self` inside command expressions, rules, hooks, and generated code.
+`updates Customer` names the resource being changed. The `target` line is only the lookup expression. The loaded record is available as immutable `target` inside command and job expressions.
 
-`self` is the target snapshot loaded before mutation. It does not change after `updates`. If a value is derived from `self` and later used by both a write and an event payload, bind it with `let`:
+`target` is the snapshot loaded before mutation. It does not change after `updates`. If a value is derived from `target` and later used by both a write and an event payload, bind it with `let`:
 
 ```lazuli
 target query.by_id(id: payload.customer_id)
-let new_score = @fn.risk_score(self)
+let new_score = @fn.risk_score(target)
 updates Customer
   score = new_score
 emits customer_score_recomputed
@@ -570,7 +648,7 @@ For the common case where a mutating command targets one local resource by `rout
 command reassign
   route id: ID
   input owner
-  policy update
+  policy @policy.update
   updates Customer
     owner = input.owner
 ```
@@ -582,12 +660,12 @@ command reassign
   route id: ID
   input owner
   target query.by_id(id: route.id)
-  policy update
+  policy @policy.update
   updates Customer
     owner = input.owner
 ```
 
-Use the explicit form when the locator is not `route.id`, the target is cross-feature, the command has multiple locator values, or the lookup query is not `by_id`.
+This inference is deliberately narrow: it requires `route id: ID`, a local mutating effect (`updates` or `deletes`), and a local `query.lookup by_id`. Use the explicit form when the locator is not `route.id`, the target is cross-feature, the command has multiple locator values, or the lookup query is not `by_id`.
 
 If a resource field is `required`, a create command must provide it through a `creates` assignment, a resource default, or resource-level injection such as `tenancy`. Required fields should not be filled by invisible convention.
 
@@ -599,7 +677,7 @@ Update and delete commands should be explicit too:
 command update_tier
   route id: ID
   input tier
-  policy update
+  policy @policy.update
   updates Customer
     tier = input.tier
 ```
@@ -610,7 +688,7 @@ command remove_tag
     customer_id: ID
     tag_id: ID
   target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
-  policy update
+  policy @policy.update
   deletes CustomerTagAssignment
 ```
 
@@ -618,7 +696,7 @@ command remove_tag
 
 `updates X` means the command changes the targeted resource. In canonical authoring, use one explicit effect for every mutating command: `creates`, `updates`, or `deletes`. The analyzer should reject mutating commands with multiple effects or none. Non-mutating request/response commands may use `returns` without an effect when documented by their adapter, such as `command login`.
 
-Commands must declare `policy` explicitly. The common mapping (`creates` -> `policy create`, `updates` -> `policy update`, `deletes` -> `policy delete`) is a generator suggestion, not an invisible semantic default. Declare a different policy when the business intent differs from the write shape, such as `assign_tag` using `policy update` even though it creates a join resource.
+Commands must declare `policy` explicitly. The common mapping (`creates` -> `policy @policy.create`, `updates` -> `policy @policy.update`, `deletes` -> `policy @policy.delete`) is a generator suggestion, not an invisible semantic default. Declare a different policy when the business intent differs from the write shape, such as `assign_tag` using `policy @policy.update` even though it creates a join resource.
 
 `input` has two canonical forms. Use the short list only when every item maps one-to-one to a field on the single local resource named by `creates` or `updates` in the same command:
 
@@ -627,6 +705,8 @@ input name, email, tier
 ```
 
 Short inputs inherit the resource field's type and requiredness. If the caller-facing shape differs from the stored field, use a typed block instead.
+
+There is no `input from Customer:` syntax in canonical v0. The inference source is already constrained by the command effect (`creates Customer` or `updates Customer`), and `lazuli inspect` can expose the expanded input types without adding another authored annotation that could drift.
 
 Use a typed block when inputs do not map one-to-one to `creates` or `updates` fields, when the command only `returns`, when the command only `deletes`, when multiple resources are involved, when the input contains locator IDs, or when inference would be ambiguous:
 
@@ -646,7 +726,7 @@ command login
   input
     email: @semantic.Email
     password: Text
-  policy login
+  policy @policy.login
   returns AuthSession
 ```
 
@@ -660,7 +740,7 @@ A workflow owns transitions for one resource field:
 
 ```lazuli
 workflow status on Issue.status
-  policy update
+  policy @policy.update
   emits issue_status_changed
 
   start: todo -> in_progress
@@ -676,13 +756,13 @@ Policy behavior:
 
 ```lazuli
 workflow lifecycle on Customer.lifecycle_stage
-  policy update
+  policy @policy.update
 
   pause: active -> paused
-  archive previously deactivate: active -> archived requires delete
+  archive previously deactivate: active -> archived requires @policy.delete
 ```
 
-`requires delete` keeps the workflow's normal policy visible while declaring that the transition needs a higher feature-local policy category. Use it for capability upgrades such as archive/delete, publish/admin, or force/manual operations. Do not use transition-level `policy` for this pattern in canonical v0.
+`requires @policy.delete` keeps the workflow's normal policy visible while declaring that the transition needs a higher feature-local policy category. Use it for capability upgrades such as archive/delete, publish/admin, or force/manual operations. Do not use transition-level `policy` for this pattern in canonical v0.
 
 Event behavior:
 
@@ -698,11 +778,11 @@ Workflow transitions accept trailing scalar clauses on the header line. The comp
 
 ```lazuli
 # compact
-archive previously deactivate: active -> archived requires delete emits customer_archived
+archive previously deactivate: active -> archived requires @policy.delete emits customer_archived
 
 # expanded
 archive previously deactivate: active -> archived
-  requires delete
+  requires @policy.delete
   emits customer_archived
 ```
 
@@ -727,25 +807,32 @@ Unlisted transitions are invalid; if an enum value is reachable, model the trans
 
 ## Inspect
 
-`lazuli inspect` exposes the effective view that humans, agents, and generators need without changing the authored `.lzi` file. It is a read-only projection, not a second source format.
+`lazuli inspect` exposes effective derived views that humans, agents, dashboards, and generators can use without changing the authored `.lzi` file. It is a read-only projection, not a second source format.
 
 JSON is the canonical inspect output:
 
 ```bash
-lazuli inspect examples/full-capsule.lzi --expand=events,targets,policies --format=json
+lazuli inspect examples/full-capsule.lzi --expand=events,targets,policies,locators,dependencies,security --format=json
 ```
 
-The JSON root includes `schema`, `source`, `expand`, and `features`. The current schema id is `lazuli.inspect.v0`. Expansion classes are explicit so agents can request only the context they need:
+The JSON root includes `schema`, `source`, `expand`, and `features`. The current schema id is `lazuli.inspect.v0`. Expansion classes are explicit and stable so agents can request only the context they need:
 
 | Expansion | Meaning |
 |-----------|---------|
-| `events` | shows event payload fields after merging matching `events <pattern> on <Resource>` payload groups with event-local fields |
+| `refs` | shows authored `refs`, detected namespace use, and missing/unused namespace entries |
+| `summary` | shows the generated feature index: resources, records, queries, commands, workflows, jobs, events, surfaces, anchors, extension edges, and a derived `provides` object |
+| `locators` | shows the bindings available to each construct, such as `route.*`, `input.*`, `params.*`, `target`, `envelope.*`, `payload.*`, `schedule.*`, and `ctx.*` |
+| `dependencies` | shows feature edges from `uses`, `emits`, `trigger event`, `extends @anchor.*`, and query references |
+| `security` | shows security-relevant field and event-payload markers (`@pii.*`, `@cap.*`, `@key.*`), operation policies/rate limits/scope overrides, job `tenant_from`, and webhook verification |
+| `events` | shows event payload fields after merging matching `event_group <pattern> on <Resource>` payload groups with event-local fields |
 | `targets` | shows explicit and inferred command targets, including local `route id` target inference |
 | `policies` | shows operation policies resolved to policy atoms and transition `requires` as additional requirements |
 | `tests` | groups inline tests by subject and assertion kind (`authz`, `transition`, `predicate`, `anchor`) |
-| `defaults` | shows feature defaults such as `tenancy`, `timestamps`, and default system `policy` with their affected constructs |
+| `defaults` | shows feature defaults such as `tenancy`, `timestamps`, and scoped `policy_for` with their affected constructs |
 
 Every expanded item carries provenance through an `origin` field. Examples include `event_group:customer_*`, `event:customer_created`, `explicit`, `workflow.policy`, `transition.requires`, and `inferred from local route id and query.lookup by_id`. Provenance is part of the inspect contract; do not add expanded facts without explaining where they came from.
+
+Each expansion should answer one bounded question. If a proposed derived fact does not fit an existing expansion class, add a new explicit class instead of silently changing `--expand=all` shape. Future useful expansion classes include `surfaces` and `extensions`; they should follow the same JSON and provenance contract when implemented.
 
 `--format=lazuli` is useful for debugging syntax sugar:
 
@@ -754,6 +841,81 @@ lazuli inspect examples/full-capsule.lzi --expand=all --format=lazuli
 ```
 
 It may expand local sugar such as inline transition clauses, single-key lookup shorthand, `creates X from input`, inferred local targets, and inherited event payload fields. The JSON output remains the stable contract for tooling and golden tests.
+
+## Working With Agents
+
+Agents should treat authored `.lzi` files as the only editable source. Generated `summary` output, expanded inspect JSON, capsules, and codegen artifacts are read-only context unless a task explicitly targets those tools.
+
+For feature edits, load the smallest stable context pack that answers the task:
+
+```bash
+lazuli inspect examples/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
+```
+
+Pair that inspect payload with this spec section and `docs/invariants.md` when the agent is generating or reviewing Lazuli source. `summary` answers "what exists", `refs` answers namespace use, `events` answers payload contracts, `policies` answers effective authorization, `locators` answers which bindings are in scope, `dependencies` answers cross-feature impact, and `security` answers which fields/operations/webhooks carry security obligations.
+
+Agents should prefer explicit source changes over new sugar. If a repeated pattern is only a reading problem, add or improve an inspect expansion before changing the language. If a proposed sugar cannot be expanded mechanically and locally, keep it out of canonical v0.
+
+## Security And Crypto Contracts
+
+Lazuli declares security properties; adapters implement them with audited runtime libraries. Do not implement cryptographic primitives in the DSL or in generated templates beyond wiring to standard libraries/KMS providers.
+
+Queries that use `scope override` must declare `policy @policy.*` on the query. The override replaces inherited tenant/soft-delete safety scope, so the authorization boundary must be visible at the same construct:
+
+```lazuli
+query.list global_search
+  policy @policy.global_read
+
+  scope override
+    reason "Global admin search intentionally crosses tenant scope."
+    deleted_at = nil
+```
+
+The `reason` is part of the authoring contract for dangerous scope replacement. It is not generated into business logic, but it appears in `lazuli inspect --expand=security` so reviewers and agents can distinguish intentional cross-tenant access from an accidental missing tenant predicate.
+
+Public commands should declare command-level rate limits. This applies when the command policy resolves to `@scope.public`, including via `@policy.login` or `@policy.register`:
+
+```lazuli
+command login
+  policy @policy.login
+  rate_limit "5 per 10 minutes per ip"
+```
+
+Data classification uses `@pii.*` markers on fields and event payloads. The initial catalog is open only by spec update, not by ad hoc invention:
+
+- `@pii.contact` for email, phone, address, and similar contact data.
+- `@pii.credential` for OAuth tokens, API keys, and credential-like material.
+- `@pii.external` for third-party identifiers.
+- `@pii.derived` for scores, risk labels, or inferred sensitive facts.
+- `@pii.network` for IP addresses and device/network identifiers.
+
+Event payloads may also carry `@pii.*`, `@cap.*`, or `@key.*` markers. `lazuli inspect --expand=security` exposes those markers under event payloads so cross-feature consumers can be audited without opening handler code. Consumers may only read `payload.*` fields declared by the producer event contract; the analyzer validates this across features when both producer and consumer are present in the same capsule.
+
+Capability crypto tiers are explicit:
+
+- `@cap.Hashed(algorithm:<name>)` is one-way material such as password hashes and refresh-token hashes.
+- `@cap.Encrypted(key:@key.<scope>)` is server-readable encrypted material.
+- `@cap.E2ee(key:@key.<scope>)` is ciphertext the server should store but not read.
+- `@cap.Token(ttl:<duration>,single_use:true|false,store:hashed)` is generated token material such as password reset, magic link, email verification, or share-link tokens.
+
+Key scopes use `@key.*`:
+
+- `@key.app` for app-wide keys; use sparingly.
+- `@key.tenant` for tenant/org isolation.
+- `@key.user` for per-user isolation.
+- `@key.record` for per-record or per-field data keys.
+
+Webhook verification may be declarative for common signature schemes:
+
+```lazuli
+webhook stripe_invoice_paid
+  path "/webhooks/stripe/invoice-paid"
+  verify hmac sha256
+    secret env.STRIPE_WEBHOOK_SECRET
+    header "Stripe-Signature"
+```
+
+Use `verify "./path.go"` for provider-specific protocols that need custom code. Declarative verify blocks and custom verify handlers both run before idempotency and handler execution.
 
 ## Rules
 
@@ -818,9 +980,9 @@ A `tests` block is the last child of a `command`, workflow transition, `rule`, o
 
 Within a `tests` block, the parent construct is the implicit subject. Tests inside `command reassign` are about `command reassign`. Tests inside a rule are about the operation that the rule denies. The subject is never restated.
 
-Tests use `self` to refer to the target snapshot of the operation under test, the same binding available to commands, jobs, and rules. Predicates inside tests reuse the closed predicate language: `=`, `!=`, `has`, `AND`, `OR`, paths, enum literals, strings, integers, and `nil`. Tests add no new operators or functions.
+Command tests use `target` for the loaded command target when the command has one. Rule and workflow tests use `self` for the resource snapshot under the rule or transition. Predicates inside tests reuse the closed predicate language: `=`, `!=`, `has`, `AND`, `OR`, paths, enum literals, strings, integers, and `nil`. Tests add no new operators or functions.
 
-Path expressions are allowed in test predicates the same way they are allowed in query filters. `denies when self.customer.lifecycle_stage = archived` is valid when the resource being tested has a `customer` relation.
+Path expressions are allowed in test predicates the same way they are allowed in query filters. `denies when self.customer.lifecycle_stage = archived` is valid in a rule test when the resource being tested has a `customer` relation; `denies when target.lifecycle_stage = archived` is valid in a command test when the command target has that field.
 
 ### Verbs By Category
 
@@ -828,13 +990,17 @@ Command tests accept:
 
 ```lazuli
 tests
-  allow @role.admin, @role.sales
-  deny @role.viewer
-  allows when self.lifecycle_stage = active
-  denies when self.lifecycle_stage = archived
+  permits @role.admin, @role.sales
+  forbids @role.viewer
+  allows when target.lifecycle_stage = active
+  denies when target.lifecycle_stage = archived
 ```
 
-`allow`/`deny` test command policy. `allows when`/`denies when` test rule applicability against the target snapshot.
+`permits`/`forbids` test command policy. `allows when`/`denies when` test rule applicability against the loaded command target.
+
+The actor-matrix verbs are intentionally different from the predicate verbs:
+`permits`/`forbids` always talk about authorization subjects, while
+`allows`/`denies` always talk about evaluated predicates or workflow edges.
 
 Workflow transition tests accept three forms with separate semantics:
 
@@ -892,7 +1058,7 @@ Multi-step scenarios that span constructs are reserved for later.
 
 `tests` is optional in every construct. `lazuli check` accepts features without tests and emits no warning. `lazuli check --strict-tests` emits warnings for commands with non-trivial policy, rules, transitions, and extensible views that lack tests. Use `--strict-tests` in production-grade features and CI.
 
-A construct has non-trivial policy when its `policy` differs from the feature's `defaults policy`, or when the feature has no policy default and the construct declares a specific policy. Constructs that inherit `@actor.system` from defaults are typically internal and exempt from the strict warning.
+A construct has non-trivial policy when it declares a local `policy`, when that policy differs from any scoped `policy_for` fallback that applies to its construct family, or when the feature has no applicable policy fallback. Constructs that inherit `@actor.system` through `policy_for jobs, webhooks` are typically internal and exempt from the strict warning.
 
 ### Two Test Layers
 
@@ -903,9 +1069,9 @@ Tests run at two layers:
 
 Authors edit only `tests` blocks in `.lzi` files. Generated runtime test files in `dist/` follow the same rule as other generated artifacts: regenerate them, do not edit them by hand.
 
-### Migration: `customer` To `self` In Rules
+### Migration: Rule Aliases To `self`
 
-Canonical v0 uses `self` as the snapshot binding everywhere. Earlier drafts used a lowercased resource name in rules:
+Canonical v0 uses `self` as the snapshot binding inside rules and workflow tests. Commands and declarative jobs use `target` for the loaded target record. Earlier drafts used a lowercased resource name in rules:
 
 ```lazuli
 # before
@@ -952,13 +1118,13 @@ When many events for one resource share the same envelope fields, declare that e
 resource Customer
   tenancy org
 
-events customer_* on Customer
+event_group customer_* on Customer
   payload
     customer_id = id
     org_id = org.id
     by_id = ctx.user.id when @actor.user
 
-event customer_archived
+  event archived
 ```
 
 The event contract expands to:
@@ -970,9 +1136,13 @@ event customer_archived
   by_id: ID
 ```
 
-`events <event-pattern> on <Resource>` is explicit sugar, not hidden magic. The pattern must currently be a single trailing-wildcard event-name pattern such as `customer_*`. It applies only to events in the same feature whose names match that pattern, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. It is not a payload profile name, metadata label, or global base event. Choose event prefixes owned by the local feature/resource, such as `tag_assignment_*` inside a tag-assignment feature, so a reader does not confuse same-feature inheritance with similarly named events elsewhere. `lazuli expand` and `lazuli inspect` must show the fully expanded event payload, and the analyzer should warn when an `events` pattern matches no events.
+`event_group <event-pattern> on <Resource>` is explicit sugar, not hidden magic. The name is deliberately different from `event`: the group declares a shared payload template, while nested `event` and `event.trace` children declare concrete event contracts. The pattern must currently be a single trailing-wildcard event-name pattern such as `customer_*`. A nested short event name is appended to the prefix, so `event archived` under `event_group customer_*` declares `customer_archived`. The group applies only to nested events and same-feature legacy sibling events whose names match that pattern, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. It is not a payload profile name, metadata label, or global base event. Choose event prefixes owned by the local feature/resource, such as `tag_assignment_*` inside a tag-assignment feature, so a reader does not confuse same-feature inheritance with similarly named events elsewhere. `lazuli expand` and `lazuli inspect --expand=events` must show the fully expanded event payload, and the analyzer should warn when an `event_group` pattern matches no events.
 
-Payload expressions under `events <pattern> on <Resource>` resolve against that resource. The analyzer should warn when a payload expression references a field that does not exist on the resource after defaults such as `tenancy org` are applied. For example, `org.id` is valid only when the resource has an `org` relation from an explicit field or tenancy injection.
+Do not repeat the group name on every `event` line, such as `event customer_created : customer_*`. That would create a second source of truth for inheritance. For isolated event documentation, use the inspect expansion; it shows inherited and event-local payload fields with provenance.
+
+Earlier drafts used `events <pattern> on <Resource>` for the same construct and placed concrete matching events as sibling declarations below the group. Tooling may accept both as legacy aliases, but canonical v0 source should use `event_group` with nested concrete events so inheritance is visible where the event is authored.
+
+Payload expressions under `event_group <pattern> on <Resource>` resolve against that resource. The analyzer should warn when a payload expression references a field that does not exist on the resource after defaults such as `tenancy org` are applied. For example, `org.id` is valid only when the resource has an `org` relation from an explicit field or tenancy injection.
 
 Path expressions in payloads follow the same resolution as filter paths: a declared field, a tenancy-injected field, or a built-in resource field such as `id`. For example, `customer.id`, `tag.id`, and `org.id` may come from declared relations and tenancy injection but use the same path syntax.
 
@@ -983,7 +1153,7 @@ event customer_reassigned
   to_owner_id: ID
 ```
 
-Use per-event fields for data specific to that event. Prefer `by_id` for the actor, `from_*` and `to_*` for state changes, and plain `*_id` for related entities. Use shared `events ... payload` only for stable, repeated envelope fields such as resource id, tenant id, or actor id.
+Use per-event fields for data specific to that event. Prefer `by_id` for the actor, `from_*` and `to_*` for state changes, and plain `*_id` for related entities. Use shared `event_group ... payload` only for stable, repeated envelope fields such as resource id, tenant id, or actor id.
 
 The analyzer should warn about emitted events with no subscribers unless the event is intentionally for logs, audit streams, or external observers:
 
@@ -992,7 +1162,7 @@ event.trace customer_webhook_received
   external_id: Text
 ```
 
-`event.trace` marks a domain signal that is intentionally not part of the feature-to-feature reaction graph. Other features should not subscribe to it unless the event is promoted back to an ordinary `event`. This keeps integration logs visible without making every audit signal look like missing product behavior.
+`event.trace` marks a domain signal that is intentionally not part of the feature-to-feature reaction graph. Other features should not subscribe to it unless the event is promoted back to an ordinary `event`. In strict mode, `trigger event <trace-event>` is invalid. This keeps integration logs, webhook receipt markers, and side-effect audit signals visible without making every audit signal look like missing product behavior.
 
 `emits` works the same for `event` and `event.trace` declarations. The distinction affects subscriber warnings and reaction-graph generation, not how a command, workflow, job, or webhook publishes the signal.
 
@@ -1012,11 +1182,11 @@ policies
   read: @scope.same_org
 ```
 
-Commands and workflows reference those categories by name:
+Commands and workflows reference those categories through the `@policy.*` namespace:
 
 ```lazuli
 command upload
-  policy import
+  policy @policy.import
   creates CustomerImportBatch
 ```
 
@@ -1024,48 +1194,50 @@ Commands write their policy category explicitly, even when it maps directly to t
 
 ```lazuli
 command create
-  policy create
+  policy @policy.create
   creates Customer
 
 command rename
-  policy update
+  policy @policy.update
   updates Customer
 
 command destroy
-  policy delete
+  policy @policy.delete
   deletes Customer
 ```
 
-This is intentionally a little more verbose than effect-derived policy inference. A reader should not need to remember a hidden rule to know who may run a command. Any divergent business verb should still state the semantic policy inline, such as `command assign_tag` using `policy update` even though it creates a join resource.
+This is intentionally a little more verbose than effect-derived policy inference. A reader should not need to remember a hidden rule to know who may run a command. Any divergent business verb should still state the semantic policy inline, such as `command assign_tag` using `policy @policy.update` even though it creates a join resource.
 
 `@actor.system` is reserved for internal work without an end-user actor: event consumers, webhooks after verification, scheduled jobs, queues, generated maintenance operations, and field writes performed by those operations. A project should not redefine it as an ordinary user role.
 
-Feature-level `defaults` may include `policy <name>` for repeated operations:
+Feature-level `defaults` may include `policy_for <families>: <atom>` for repeated internal operations:
 
 ```lazuli
 feature customer_outreach
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 ```
 
-Local `policy` always wins. Commands should use local `policy`; feature defaults are mainly for jobs, webhooks, and resource-less system features so write commands do not accidentally become system operations.
+`policy_for` is scoped by construct family. The initial v0 families are `jobs` and `webhooks`; future families must be added explicitly to the spec. Local `policy` always wins. Commands should use local `policy`; `policy_for` exists for jobs, webhooks, and resource-less system features so write commands do not accidentally become system operations.
 
-A feature that only consumes events or runs jobs may omit `policies` when `defaults policy @actor.system` covers every operation. Add a `policies` block only when the feature needs reusable policy categories.
+A feature that only consumes events or runs jobs may omit `policies` when `defaults policy_for jobs, webhooks: @actor.system` covers every operation. Add a `policies` block only when the feature needs reusable policy categories.
 
 `lazuli inspect` should show the effective policy for every command, workflow transition, job, webhook, escape route, and generated endpoint after local overrides and feature defaults are applied. Authoring keeps defaults compact; inspection makes the security surface auditable without scanning the whole feature by hand.
 
 Policy names have two layers:
 
 - Project/global atoms such as `@role.admin`, `@scope.same_org`, `@scope.public`, `@scope.none`, and reserved `@actor.system`.
-- Feature-local policy categories such as `create`, `update`, `import`, `login`, and `global_read`.
+- Feature-local policy categories referenced as `@policy.create`, `@policy.update`, `@policy.import`, `@policy.login`, and `@policy.global_read`.
 
-`policy update` inside `feature customer_tags` always refers to that feature's local `update` policy category, even if the command references `Customer` from the `customer` feature. Cross-feature policy references must be feature-qualified:
+Commands and workflows should always reference feature-local categories with `@policy.*`. Put `@role.*`, `@scope.*`, and `@actor.*` atoms in the `policies` dictionary, then point commands/workflows at that category. Jobs, webhooks, escape routes, and `policy_for` defaults may still use direct atoms such as `@actor.system` or `@role.admin` when no reusable category is needed.
+
+`policy @policy.update` inside `feature customer_tags` always refers to that feature's local `update` policy category, even if the command references `Customer` from the `customer` feature. Cross-feature policy references must be feature-qualified:
 
 ```lazuli
 policy customer.update
 ```
 
-Feature-qualified policies are an explicit semantic dependency and require the referenced feature to appear in `uses`.
+Feature-qualified policies are an explicit semantic dependency and require the referenced feature to appear in `uses`. Bare local policy names such as `policy update` are a legacy compatibility form; canonical v0 authoring uses `@policy.*` so policy category references are visually distinct from verbs and built-in actors/scopes.
 
 Field-level policies use the same `name: predicate` punctuation as the feature policy dictionary:
 
@@ -1083,7 +1255,7 @@ policies
 
 ## Surfaces
 
-Read views consume query sources. A view does not need to restate `policy read` if the source query is scoped and the feature has a `read` policy.
+Read views consume query sources. A view does not need to restate `policy @policy.read` if the source query is scoped and the feature has a `read` policy.
 
 ```lazuli
 view detail SidePanel
@@ -1190,7 +1362,7 @@ feature customer_outreach
     customer: "customer lifecycle ownership"
 
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses customer
 
@@ -1200,13 +1372,14 @@ feature customer_outreach
 
   job send_welcome
     trigger event customer.customer_activated
+    tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
     handler "./outreach/send_welcome_email.go"
     emits welcome_email_sent
 ```
 
-Do not fold this kind of capability into `customer` just because it listens to customer events. A feature may be only reactions when that is the product boundary. It may still declare its own events directly under `domain`; resource-backed `events ... on <Resource>` inheritance is optional and only applies when the feature has a relevant resource.
+Do not fold this kind of capability into `customer` just because it listens to customer events. A feature may be only reactions when that is the product boundary. It may still declare its own events directly under `domain`; resource-backed `event_group ... on <Resource>` inheritance is optional and only applies when the feature has a relevant resource.
 
 Scheduled jobs use a cron-like trigger:
 
@@ -1222,15 +1395,16 @@ Event jobs can also declare a queue lane when the adapter should enqueue work in
 job process_import
   trigger event customer_import_uploaded
   queue customer_imports
+  tenant_from payload.org_id
   idempotency by payload.batch_id
   retry 3 backoff exponential
   handler "./jobs/process_import.go"
   emits customer_import_completed
 ```
 
-`idempotency by` names the dedupe key for the trigger execution. Event-triggered jobs use `envelope.*` for event-bus metadata and `payload.*` for the producer-authored event payload. `envelope.id` refers to the event-envelope id supplied by the event bus and does not need to be repeated in the authored event payload. Webhooks use the verified inbound `payload.*` namespace. Do not write bare webhook keys such as `idempotency by external_id`; write `idempotency by payload.external_id` so the source is explicit. `retry <count> backoff <strategy>` is declarative delivery policy; adapters should support at least `fixed` and `exponential` before accepting those strategies in strict mode.
+`idempotency by` names the dedupe key for the trigger execution. Event-triggered jobs use `envelope.*` for event-bus metadata and `payload.*` for the producer-authored event payload. `envelope.id` refers to the event-envelope id supplied by the event bus and does not need to be repeated in the authored event payload. Use `envelope.id` when each bus delivery should be processed once; use `payload.<business_key>` when the product needs dedupe by a domain key such as an import batch id. Consumers may only reference payload fields declared by the producer event contract, including fields inherited from matching `event_group` payloads; `lazuli check` should report `payload.*` references that do not exist in the producer event. If the producer event contract includes `org_id`, event-triggered jobs should declare `tenant_from payload.org_id`; generated handlers should run with that tenant fixed in `ctx` so follow-up queries do not accidentally run cross-tenant. Webhooks use the verified inbound `payload.*` namespace. Do not write bare webhook keys such as `idempotency by external_id`; write `idempotency by payload.external_id` so the source is explicit. `retry <count> backoff <strategy>` is declarative delivery policy; `retry 3` means up to three retry attempts after the initial attempt fails. Adapters should support at least `fixed` and `exponential` before accepting those strategies in strict mode.
 
-Async snippets that omit `policy` assume the surrounding feature declares `defaults policy @actor.system`; otherwise write `policy @actor.system` inline.
+Async snippets that omit `policy` assume the surrounding feature declares an applicable `defaults policy_for ...: @actor.system`; otherwise write `policy @actor.system` inline. `policy_for` is a fallback for constructs without a local policy, primarily jobs, webhooks, and resource-less system features. Commands should keep local policy declarations so a feature-level system default cannot quietly authorize user-facing writes.
 
 `handler` may declare `returns <Type>` when the return value is semantically consumed elsewhere:
 
@@ -1287,7 +1461,7 @@ job recompute_score_after_invoice
   trigger event billing.invoice_paid
   idempotency by envelope.id
   target query.by_id(id: payload.customer_id)
-  let new_score = @fn.risk_score(self)
+  let new_score = @fn.risk_score(target)
   updates Customer
     score = new_score
   emits customer_score_recomputed
@@ -1295,7 +1469,7 @@ job recompute_score_after_invoice
     reason = "invoice_paid"
 ```
 
-Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as immutable `self`, regardless of the resource name. Resource creation belongs under `creates <Resource>` assignment blocks, resource mutation belongs under `updates <Resource>` assignment blocks, and event payload values belong under `emits <event>`. Inside a declarative job body, use this order: `target`, zero or more `let` bindings, one write effect (`creates`/`updates`/`deletes`), then `emits`. Use `let` for derived values that are used by both mutation and event payloads; do not rely on `self` changing timing between lines.
+Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as an immutable `target` binding, regardless of the resource name. Resource creation belongs under `creates <Resource>` assignment blocks, resource mutation belongs under `updates <Resource>` assignment blocks, and event payload values belong under `emits <event>`. Inside a declarative job body, use this order: `target`, zero or more `let` bindings, one write effect (`creates`/`updates`/`deletes`), then `emits`. Use `let` for derived values that are used by both mutation and event payloads; do not rely on `target` changing timing between lines.
 
 Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, or `deletes`.
 
@@ -1337,8 +1511,8 @@ The extension declaration keyword is the namespace used at call sites. Reference
 cells
   status @client.status_cell
 
-let score = @fn.risk_score(self)
-validates tier @validator.validate_tier
+let score = @fn.risk_score(target)
+validates field tier @validator.validate_tier
 ```
 
 This invariant keeps the lookup mechanical: `fn risk_score` resolves as `@fn.risk_score`, `hook before_create` resolves as `@hook.before_create`, and `adapter google_oauth` resolves as `@adapter.google_oauth`.
@@ -1363,8 +1537,8 @@ The full convention table:
 | `adapter <name>: IntegrationAdapter[X]` | `features/<feature>/integrations/<name>.go` |
 | `query_modifier <name>: QueryModifier[X]` | `features/<feature>/queries/<name>.go` |
 | `job <name> handler`               | `features/<feature>/jobs/<name>.go`         |
-| `resource <name> validate`         | `features/<feature>/domain/validate_<name>.go` |
-| `resource <name> validates <field>` | `features/<feature>/domain/validate_<name>_<field>.go` |
+| `resource <name> validates resource` | `features/<feature>/domain/validate_<name>.go` |
+| `resource <name> validates field <field>` | `features/<feature>/domain/validate_<name>_<field>.go` |
 | `block <name>: ViewBlock[X]`       | `features/<feature>/ui/<name>.tsx`          |
 | `webhook <name> verify`           | `features/<feature>/integrations/<name>.go` |
 
@@ -1378,7 +1552,7 @@ When a command, transition, query, field, or resource is renamed, downstream art
 
 ```lazuli
 command register previously create
-  policy create
+  policy @policy.create
   creates Customer
   ...
 
@@ -1389,7 +1563,7 @@ resource Account previously Customer
   ...
 
 resource Customer
-  lifecycle_stage: CustomerStatus previously status = lead
+  lifecycle_stage previously status: CustomerStatus = lead
 ```
 
 `previously` is universal for renameable identifiers: resources, fields, queries, commands, workflows, workflow transitions, views, jobs, webhooks, and extension symbols may all carry it when the compiler needs identity continuity.
@@ -1397,6 +1571,8 @@ resource Customer
 The `previously` clause carries one or more prior names. The compiler records them on the IR node as `previous_names`. The planner, MCP, and semantic diff respect the link instead of treating the rename as drop-and-create.
 
 `previously` is a migration tool. Use it when continuity matters. Do not use it as a versioning hint or a design alias for documentation; commentary belongs in `<feature>.ctx.md`.
+
+Keep `previously` only while the compiler, semantic diff, or migration planner still needs to connect the current node to a deployed or stored prior identity. Once every supported environment has migrated and the stored IR baseline no longer contains the old name, `previously` may be removed in an ordinary cleanup change. Future tooling may warn about stale `previously` aliases when it can prove the old identity is no longer reachable.
 
 `previously` does not chain implicitly. To preserve identity across multiple renames, list each prior name:
 
@@ -1411,7 +1587,7 @@ These are intentionally not solved by the simple canonical syntax yet:
 - Many-to-many relations with payload or ordering. Use an explicit join resource.
 - SQL query body verification beyond declared params/scope/returns.
 - Workflow transition groups such as `any -> canceled`.
-- Multiple `events <pattern> on <Resource>` blocks are allowed only when patterns do not overlap; overlapping event payload templates are an error.
+- Multiple `event_group <pattern> on <Resource>` blocks are allowed only when patterns do not overlap; overlapping event payload templates are an error.
 - Cross-feature event re-emission is intentionally not modeled in v0. Use a new event in the consumer feature; do not re-emit the producer's event from a different feature.
 - Schedule jobs currently require an effective `@actor.system` policy through feature defaults or an inline `policy`; making schedule jobs system-only by construction is reserved for a later decision.
 - Non-exact rule matching such as matching both `reassign` and `bulk_reassign`.

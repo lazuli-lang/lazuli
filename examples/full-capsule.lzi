@@ -7,20 +7,26 @@ feature customer
   purpose "CRM customer lifecycle, ownership, tiering, scoring, and customer-facing surfaces."
 
   non_goals
-    user: "staff authentication"
-    customer_auth: "customer login and MFA"
-    customer_tags: "tag management"
-    customer_import: "CSV import and external CRM ingestion"
-    billing: "invoicing"
+    delegated_to
+      user: "staff authentication"
+      customer_auth: "customer login and MFA"
+      customer_tags: "tag management"
+      customer_import: "CSV import and external CRM ingestion"
+      billing: "invoicing"
 
   context "@docs/customer/customer.ctx.md"
 
   defaults
     tenancy org
     timestamps
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses org, user, billing
+
+  refs
+    core: @role, @scope, @actor, @policy, @semantic, @cap, @pii, @key
+    extensions: @client, @fn, @query_modifier
+    anchors: @anchor
 
   domain
     enum CustomerStatus
@@ -43,16 +49,16 @@ feature customer
     resource Customer previously Account
       owner: User required
       name: Text required
-      email: @semantic.Email required
-      lifecycle_stage: CustomerStatus previously status = lead
+      email: @semantic.Email @pii.contact required
+      lifecycle_stage previously status: CustomerStatus = lead
       tier: CustomerTier = free
       source: CustomerSource = manual
-      score: Integer = 0
-      external_id: Text optional
+      score: Integer @pii.derived = 0
+      external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
 
       soft_delete
 
-      validates tier "./hooks/validate_tier.go"
+      validates field tier "./hooks/validate_tier.go"
 
     constraints
       unique email per org
@@ -60,6 +66,16 @@ feature customer
       index org, lifecycle_stage
       index org, owner
       index org, tier
+
+    record CustomerLtv
+      customer_id: ID
+      amount: @semantic.Money
+      currency: Text
+
+    record CustomerRiskRow
+      customer_id: ID
+      risk_score: Integer
+      reason: Text
 
     query.list list
       modifier @query_modifier.query_scope_modifier
@@ -84,10 +100,13 @@ feature customer
     query.lookup by_email by email: @semantic.Email
 
     query.list global_search
+      policy @policy.global_read
+
       params
         search: Text
 
       scope override
+        reason "Global admin search intentionally crosses tenant scope."
         deleted_at = nil
 
       filters
@@ -143,32 +162,32 @@ feature customer
         allows when self.tier = free AND self.owner = nil
         allows when self.tier = pro AND self.owner = nil
 
-    events customer_* on Customer
+    event_group customer_* on Customer
       payload
         customer_id = id
         org_id = org.id
         by_id = ctx.user.id when @actor.user
 
-    event customer_created
-      email: @semantic.Email
-      source: CustomerSource
+      event created
+        email: @semantic.Email @pii.contact
+        source: CustomerSource
 
-    event customer_status_changed
-      from: CustomerStatus
-      to: CustomerStatus
+      event status_changed
+        from: CustomerStatus
+        to: CustomerStatus
 
-    event customer_activated
+      event activated
 
-    event customer_paused
+      event paused
 
-    event customer_archived
+      event archived
 
-    event customer_reassigned
-      to_owner_id: ID
+      event reassigned
+        to_owner_id: ID
 
-    event customer_score_recomputed
-      score: Integer
-      reason: Text
+      event.trace score_recomputed
+        score: Integer
+        reason: Text
 
   policies
     create: @role.admin, @role.sales
@@ -192,45 +211,46 @@ feature customer
 
   command create
     input name, email, tier, source
-    policy create
+    policy @policy.create
+    rate_limit "30 per hour per ip"
     creates Customer from input
       owner = ctx.user
     emits customer_created
 
     tests
-      allow @role.admin, @role.sales
-      deny @role.viewer
-      deny @scope.public
+      permits @role.admin, @role.sales
+      forbids @role.viewer
+      forbids @scope.public
 
   command reassign previously assign_owner
     route id: ID
     input owner
-    policy update
+    policy @policy.update
     updates Customer
       owner = input.owner
     emits customer_reassigned
 
     tests
-      allow @role.admin, @role.sales
-      deny @role.viewer
-      denies when self.lifecycle_stage = archived
-      allows when self.lifecycle_stage = active
-      allows when self.lifecycle_stage = paused
+      permits @role.admin, @role.sales
+      forbids @role.viewer
+      denies when target.lifecycle_stage = archived
+      allows when target.lifecycle_stage = active
+      allows when target.lifecycle_stage = paused
 
   command update_tier
     route id: ID
     input tier
-    policy update
+    policy @policy.update
     updates Customer
       tier = input.tier
 
     tests
-      allow @role.admin, @role.sales
-      deny @role.viewer
-      deny @scope.public
+      permits @role.admin, @role.sales
+      forbids @role.viewer
+      forbids @scope.public
 
   workflow lifecycle on Customer.lifecycle_stage
-    policy update
+    policy @policy.update
     emits customer_status_changed
 
     activate: lead -> active emits customer_activated
@@ -253,7 +273,7 @@ feature customer
         denies from active
         denies from lead
 
-    archive previously deactivate: active -> archived requires delete emits customer_archived
+    archive previously deactivate: active -> archived requires @policy.delete emits customer_archived
       tests
         allows from active as @role.admin
         denies from active as @role.sales
@@ -262,9 +282,10 @@ feature customer
 
   job recompute_score_after_invoice
     trigger event billing.invoice_paid
+    tenant_from payload.org_id
     idempotency by envelope.id
     target query.by_id(id: payload.customer_id)
-    let new_score = @fn.risk_score(self)
+    let new_score = @fn.risk_score(target)
     updates Customer
       score = new_score
     emits customer_score_recomputed
@@ -338,8 +359,9 @@ feature customer_auth
   purpose "Customer-facing login, sessions, OAuth, MFA, and account access."
 
   non_goals
-    user: "staff authentication"
-    customer: "customer lifecycle ownership"
+    delegated_to
+      user: "staff authentication"
+      customer: "customer lifecycle ownership"
 
   defaults
     tenancy org
@@ -355,13 +377,19 @@ feature customer_auth
 
     resource CustomerSession
       customer: Customer required on_delete restrict
-      refresh_token_hash: @cap.Secret required
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
       provider: AuthProvider required
       expires_at: DateTime required
 
     resource CustomerMfaConfig
       customer: Customer required on_delete restrict
       verified_at: DateTime required
+
+    resource CustomerPasswordReset
+      customer: Customer required on_delete cascade
+      token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
+      requested_at: DateTime required
 
     query.list active_sessions
       params
@@ -391,6 +419,7 @@ feature customer_auth
     identity Customer.email
 
     password
+      algorithm argon2id
       hash @fn.hash_customer_password
       verify @fn.verify_customer_password
       rate_limit "5 per 10 minutes"
@@ -411,27 +440,28 @@ feature customer_auth
     input
       email: @semantic.Email
       password: Text
-    policy login
+    policy @policy.login
+    rate_limit "5 per 10 minutes per ip"
     returns AuthSession
     emits customer_logged_in
 
     tests
-      allow @scope.public
+      permits @scope.public
 
   command enable_mfa
     route customer_id: ID
     input
       totp_code: Text
     target customer.query.by_id(id: route.customer_id)
-    policy update
+    policy @policy.update
     creates CustomerMfaConfig
-      customer = self
+      customer = target
       verified_at = ctx.now
     emits customer_mfa_enabled
 
     tests
-      allow @scope.same_org
-      deny @scope.public
+      permits @scope.same_org
+      forbids @scope.public
 
   surface web public
     view login Form
@@ -444,7 +474,7 @@ feature customer_auth
       fields totp_code
 
   extensions
-    fn hash_customer_password: Function[Text, @cap.Secret] at "./auth/hash_customer_password.go"
+    fn hash_customer_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./auth/hash_customer_password.go"
     fn verify_customer_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_customer_password.go"
     adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
     fn enroll_customer_totp: Function[Customer, TotpEnrollment] at "./auth/enroll_customer_totp.go"
@@ -454,8 +484,10 @@ feature customer_tags
   purpose "Customer tag taxonomy and tag assignments with assignment metadata."
 
   non_goals
-    customer: "customer lifecycle ownership"
-    anti_pattern.generic_taxonomy: "generic taxonomy system"
+    delegated_to
+      customer: "customer lifecycle ownership"
+    out_of_scope
+      generic_taxonomy: "generic taxonomy system"
 
   defaults
     tenancy org
@@ -513,20 +545,20 @@ feature customer_tags
       order added_at desc
       paginate 100
 
-    events tag_assignment_* on CustomerTagAssignment
+    event_group tag_assignment_* on CustomerTagAssignment
       payload
         customer_id = customer.id
         tag_id = tag.id
         org_id = org.id
         by_id = ctx.user.id when @actor.user
 
+      event created
+
+      event removed
+
     event tag_created
       tag_id: ID
       org_id: ID
-
-    event tag_assignment_created
-
-    event tag_assignment_removed
 
   policies
     create: @role.admin, @role.sales_ops
@@ -536,22 +568,22 @@ feature customer_tags
 
   command create_tag
     input name, color
-    policy create
+    policy @policy.create
     creates CustomerTag
       name = input.name
       color = input.color
     emits tag_created
 
     tests
-      allow @role.admin, @role.sales_ops
-      deny @role.viewer
-      deny @scope.public
+      permits @role.admin, @role.sales_ops
+      forbids @role.viewer
+      forbids @scope.public
 
   command assign_tag
     input
       customer: Customer
       tag: CustomerTag
-    policy update
+    policy @policy.update
     creates CustomerTagAssignment
       customer = input.customer
       tag = input.tag
@@ -560,21 +592,21 @@ feature customer_tags
     emits tag_assignment_created
 
     tests
-      allow @role.admin, @role.sales_ops
-      deny @role.viewer
+      permits @role.admin, @role.sales_ops
+      forbids @role.viewer
 
   command remove_tag
     input
       customer_id: ID
       tag_id: ID
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
-    policy update
+    policy @policy.update
     deletes CustomerTagAssignment
     emits tag_assignment_removed
 
     tests
-      allow @role.admin, @role.sales_ops
-      deny @role.viewer
+      permits @role.admin, @role.sales_ops
+      forbids @role.viewer
 
   surface web admin
     view tags Table
@@ -600,13 +632,15 @@ feature customer_import
   purpose "Customer CSV uploads, CRM webhook ingestion, row validation, and async processing."
 
   non_goals
-    customer: "customer lifecycle ownership"
-    anti_pattern.generic_etl: "generic ETL platform"
+    delegated_to
+      customer: "customer lifecycle ownership"
+    out_of_scope
+      generic_etl: "generic ETL platform"
 
   defaults
     tenancy org
     timestamps
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses org, user, customer
 
@@ -631,7 +665,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validate "./domain/validate_row.go"
+      validates resource "./domain/validate_row.go"
 
     query.lookup by_id by id: ID
 
@@ -666,20 +700,22 @@ feature customer_import
 
   command upload
     input file
-    policy import
+    policy @policy.import
+    rate_limit "20 per hour per user"
     creates CustomerImportBatch
       file = input.file
       uploaded_by = ctx.user
     emits customer_import_uploaded
 
     tests
-      allow @role.admin, @role.sales_ops
-      deny @role.viewer
-      deny @scope.public
+      permits @role.admin, @role.sales_ops
+      forbids @role.viewer
+      forbids @scope.public
 
   job process_import
     trigger event customer_import_uploaded
     queue customer_imports
+    tenant_from payload.org_id
     idempotency by payload.batch_id
     retry 3 backoff exponential
     handler "./jobs/process_import.go"
@@ -687,7 +723,9 @@ feature customer_import
 
   webhook crm_customer_upsert
     path "/webhooks/crm/customer-upsert"
-    verify "./integrations/crm.go"
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
     idempotency by payload.external_id
     handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
@@ -720,11 +758,12 @@ feature customer_outreach
   purpose "Send customer lifecycle outreach from events without owning storage."
 
   non_goals
-    notification: "notification persistence"
-    customer: "customer lifecycle ownership"
+    delegated_to
+      notification: "notification persistence"
+      customer: "customer lifecycle ownership"
 
   defaults
-    policy @actor.system
+    policy_for jobs, webhooks: @actor.system
 
   uses customer
 
@@ -737,6 +776,7 @@ feature customer_outreach
 
   job send_welcome
     trigger event customer.customer_activated
+    tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
     handler "./outreach/send_welcome_email.go"
@@ -744,6 +784,7 @@ feature customer_outreach
 
   job send_archive_survey
     trigger event customer.customer_archived
+    tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
     handler "./outreach/send_archive_survey.go"

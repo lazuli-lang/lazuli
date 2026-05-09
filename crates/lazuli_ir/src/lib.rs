@@ -109,10 +109,10 @@ pub struct Resource {
     pub fields: Vec<Field>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<Constraint>,
-    /// Resource-level inline validator: `validate "./domain/validate_row.go"`.
+    /// Resource-level inline validator: `validates resource "./domain/validate_row.go"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validate: Option<PathRef>,
-    /// Field-level inline validators: `validates <field> "./hooks/validate_tier.go"`.
+    /// Field-level inline validators: `validates field <field> "./hooks/validate_tier.go"`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub validates: Vec<FieldValidation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -567,8 +567,8 @@ pub struct Transition {
     pub name: String,
     pub from: String,
     pub to: String,
-    /// `requires <category>` raises the policy bar for this transition above
-    /// the workflow default (e.g. `requires delete`).
+    /// `requires @policy.<category>` raises the policy bar for this transition
+    /// above the workflow default (e.g. `requires @policy.delete`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requires: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -708,8 +708,8 @@ pub struct BlockBinding {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NonGoal {
-    /// Boundary key. Either a feature id (`customer_auth`) or
-    /// `anti_pattern.<slug>` for non-feature design boundaries.
+    /// Boundary key. Canonical capsules group these under `delegated_to`
+    /// or `out_of_scope`; the lowered IR keeps a flat key for now.
     pub key: String,
     pub description: String,
 }
@@ -795,10 +795,7 @@ pub enum ExtensionContract {
     /// `validator <name>: Validator[X]`
     Validator { type_arg: TypeRef },
     /// `fn <name>: Function[X, Y]`
-    Function {
-        input: TypeRef,
-        output: TypeRef,
-    },
+    Function { input: TypeRef, output: TypeRef },
     /// `query_modifier <name>: QueryModifier[X]`
     QueryModifier { type_arg: TypeRef },
     /// `adapter <name>: IntegrationAdapter[X]`
@@ -1044,13 +1041,15 @@ pub struct TestBlock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "verb", content = "value")]
 pub enum TestAssertion {
-    /// Command policy: `allow @role.admin, @role.sales`.
+    /// Command policy: `permits @role.admin, @role.sales`.
     PolicyAllow { actors: Vec<String> },
-    /// Command policy: `deny @role.viewer`.
+    /// Command policy: `forbids @role.viewer`.
     PolicyDeny { actors: Vec<String> },
-    /// Command/rule predicate: `allows when self.status = active`.
+    /// Command/rule predicate: `allows when target.status = active` or
+    /// `allows when self.status = active`, depending on the parent construct.
     AllowsWhen { predicate: Predicate },
-    /// Command/rule predicate: `denies when self.deleted_at != nil`.
+    /// Command/rule predicate: `denies when target.deleted_at != nil` or
+    /// `denies when self.deleted_at != nil`, depending on the parent construct.
     DeniesWhen { predicate: Predicate },
     /// Workflow transition state edge: `allows from active`.
     AllowsFrom { state: String },

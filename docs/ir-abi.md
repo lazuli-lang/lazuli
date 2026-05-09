@@ -10,6 +10,18 @@ The IR is for toolmakers: backend code generators, planners, LSP servers, MCP se
 
 DSL is the source of truth. IR is `lower(parse(source))`. The IR has no edit API: there is no public mutator on `lazuli_ir`, no builder factory outside `lazuli_analyzer`, no MCP endpoint that accepts IR patches. Re-authoring means rewriting `.lzi`.
 
+The lifecycle is:
+
+```txt
+authored .lzi capsule -> AST -> IR -> inspect JSON / codegen / planner / MCP
+```
+
+In this repository, "capsule" means the authored `.lzi` source that contains
+one or more feature blocks. Code generators consume derived IR, not the source
+text and not `lazuli inspect` projections. `lazuli inspect --format=json` is a
+stable read model for tools and agents, but it is not the IR ABI and should not
+become a write target.
+
 Round-trip `IR → DSL → IR` is not preserved. Comments, blank lines, and formatting live in the AST (`lazuli_syntax`) and die at lowering. If a consumer needs to display authored intent, it reads AST. If it needs to reason about semantics, it reads IR.
 
 ## Versioning
