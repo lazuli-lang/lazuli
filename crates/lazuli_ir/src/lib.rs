@@ -792,6 +792,12 @@ pub struct PlatformView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filter: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submit: Option<String>,

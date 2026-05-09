@@ -387,6 +387,9 @@ fn parse_lzx_platform_view(
     let mut columns = Vec::new();
     let mut fields = Vec::new();
     let mut sections = Vec::new();
+    let mut search = Vec::new();
+    let mut filter = Vec::new();
+    let mut cells = Vec::new();
     let mut actions = Vec::new();
     let mut submit = None;
     let mut index = start + 1;
@@ -424,6 +427,12 @@ fn parse_lzx_platform_view(
             fields = split_lzx_list(rest);
         } else if let Some(rest) = trimmed.strip_prefix("sections ") {
             sections = split_lzx_list(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("search ") {
+            search = split_lzx_list(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("filter ") {
+            filter = split_lzx_list(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("cells ") {
+            cells = split_lzx_list(rest);
         } else if let Some(rest) = trimmed.strip_prefix("actions ") {
             actions = split_lzx_list(rest);
         } else if let Some(rest) = trimmed.strip_prefix("submit ") {
@@ -431,7 +440,7 @@ fn parse_lzx_platform_view(
         } else {
             return Err(line_error(
                 line,
-                "platform view children are `columns`, `fields`, `sections`, `actions`, or `submit`",
+                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `cells`, `actions`, or `submit`",
             ));
         }
 
@@ -445,6 +454,9 @@ fn parse_lzx_platform_view(
             columns,
             fields,
             sections,
+            search,
+            filter,
+            cells,
             actions,
             submit,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
@@ -752,7 +764,7 @@ mod tests {
     #[test]
     fn parses_lzx_experience_and_platform_surface() {
         let experience =
-            parse_lzx_document(include_str!("../../../examples/customer.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../examples/customer-capsule.lzx")).unwrap();
         assert_eq!(experience.experiences.len(), 1);
         assert_eq!(experience.experiences[0].name, "customer");
         assert_eq!(experience.experiences[0].imports, vec!["customer"]);
@@ -761,13 +773,10 @@ mod tests {
             experience.experiences[0].views[0].source.as_deref(),
             Some("customer.query.list")
         );
-        assert_eq!(
-            experience.experiences[0].views[1].anchor.as_deref(),
-            Some("@anchor.customer_detail")
-        );
+        assert_eq!(experience.experiences[0].views[1].anchor.as_deref(), None);
 
         let surface =
-            parse_lzx_document(include_str!("../../../examples/customer.web.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../examples/customer-capsule.web.lzx")).unwrap();
         assert_eq!(surface.surfaces.len(), 1);
         assert_eq!(surface.surfaces[0].experience, "customer");
         assert_eq!(surface.surfaces[0].platform, LzxPlatform::Web);
@@ -778,7 +787,15 @@ mod tests {
         assert_eq!(surface.surfaces[0].audiences[0].name, "admin");
         assert_eq!(
             surface.surfaces[0].audiences[0].views[0].columns,
-            vec!["name", "email", "tier", "score", "lifecycle_stage"]
+            vec!["name", "email", "status", "created_at"]
+        );
+        assert_eq!(
+            surface.surfaces[0].audiences[0].views[0].filter,
+            vec!["status"]
+        );
+        assert_eq!(
+            surface.surfaces[0].audiences[0].views[0].cells,
+            vec!["status @client.status_cell"]
         );
     }
 

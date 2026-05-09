@@ -1,5 +1,5 @@
 # Customer capsule canonical fixture.
-# Exercises CRM customer lifecycle, ownership, tiering, scoring, and admin surfaces.
+# Exercises CRM customer lifecycle, ownership, tiering, scoring, and admin experience.
 # Design fixture only; parser and codegen coverage may lag this surface.
 
 feature customer
@@ -83,19 +83,6 @@ feature customer
 
     archive: active -> archived
       emits customer_archived
-
-  surface web admin
-    view list Table
-      source query.list
-      columns name, email, status, created_at
-      search name, email
-      filter status
-
-      cells
-        status @client.status_cell
-
-    view detail SidePanel
-      source query.by_id(id: route.id)
 
   extensions
     client status_cell: CellRenderer[Customer]

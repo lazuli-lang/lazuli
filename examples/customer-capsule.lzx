@@ -1,0 +1,13 @@
+# Abstract customer experience/view model.
+# Platform projections live in customer-capsule.web.lzx.
+
+experience customer
+  imports customer
+
+  view list
+    source customer.query.list
+    action create -> customer.command.create
+    opens detail
+
+  view detail
+    source customer.query.by_id(id: route.id)

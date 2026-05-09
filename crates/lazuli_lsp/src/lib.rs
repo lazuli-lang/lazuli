@@ -4727,12 +4727,12 @@ feature customer
     fn lzx_examples_satisfy_lsp_contracts() {
         let examples = [
             (
-                "customer.lzx",
-                include_str!("../../../examples/customer.lzx"),
+                "customer-capsule.lzx",
+                include_str!("../../../examples/customer-capsule.lzx"),
             ),
             (
-                "customer.web.lzx",
-                include_str!("../../../examples/customer.web.lzx"),
+                "customer-capsule.web.lzx",
+                include_str!("../../../examples/customer-capsule.web.lzx"),
             ),
         ];
 

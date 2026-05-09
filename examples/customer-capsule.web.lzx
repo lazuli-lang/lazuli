@@ -6,14 +6,11 @@ surface customer web
 
   audience admin
     view list Table
-      columns name, email, tier, score, lifecycle_stage
+      columns name, email, status, created_at
+      search name, email
+      filter status
+      cells status @client.status_cell
       actions create
 
     view detail SidePanel
-      sections header, timeline, tags
-      actions reassign, archive
-
-  audience public
-    view lead_capture Form
-      fields name, email, tier, source
-      submit create
+      sections header, timeline

@@ -169,6 +169,9 @@ fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
         columns: view.columns.clone(),
         fields: view.fields.clone(),
         sections: view.sections.clone(),
+        search: view.search.clone(),
+        filter: view.filter.clone(),
+        cells: view.cells.clone(),
         actions: view.actions.clone(),
         submit: view.submit.clone(),
         span_ref: Some(span_of(view.span)),
@@ -506,9 +509,9 @@ mod tests {
     #[test]
     fn lowers_lzx_experience_and_surface_to_ir() {
         let experience =
-            parse_lzx_document(include_str!("../../../examples/customer.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../examples/customer-capsule.lzx")).unwrap();
         let surface =
-            parse_lzx_document(include_str!("../../../examples/customer.web.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../examples/customer-capsule.web.lzx")).unwrap();
 
         let experience_ir = lower_lzx_document(&experience);
         let surface_ir = lower_lzx_document(&surface);
@@ -527,7 +530,15 @@ mod tests {
         assert_eq!(surface_ir.surfaces[0].audiences[0].name, "admin");
         assert_eq!(
             surface_ir.surfaces[0].audiences[0].views[0].columns,
-            vec!["name", "email", "tier", "score", "lifecycle_stage"]
+            vec!["name", "email", "status", "created_at"]
+        );
+        assert_eq!(
+            surface_ir.surfaces[0].audiences[0].views[0].search,
+            vec!["name", "email"]
+        );
+        assert_eq!(
+            surface_ir.surfaces[0].audiences[0].views[0].cells,
+            vec!["status @client.status_cell"]
         );
     }
 }
