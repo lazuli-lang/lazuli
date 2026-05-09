@@ -196,7 +196,7 @@ Extension points implemented:
   risk_score    -> not implemented
 ```
 
-`lazuli inspect` should also expose a derived manifest of every custom file implied by inline declarations such as `handler`, `verify`, `validates`, and inline `block ... at`. The authoring syntax keeps implementations near their semantic use; the manifest preserves the old index-style view for generators and agents.
+`lazuli inspect` should also expose a derived manifest of every custom file implied by inline declarations such as `handler`, `verify`, `validate`/`validates`, and inline `block ... at`. The authoring syntax keeps implementations near their semantic use; the manifest preserves the old index-style view for generators and agents.
 
 The agent reads the capsule plus the small set of custom files, not the generated application.
 

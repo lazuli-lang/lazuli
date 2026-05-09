@@ -88,10 +88,13 @@ feature billing
     delete: billing_admin
 
   command create
-    creates Invoice
     input customer, amount_cents, currency
-    derive number = ext.next_invoice_number(ctx.user.org)
     policy create
+    creates Invoice
+      customer = input.customer
+      amount_cents = input.amount_cents
+      currency = input.currency
+      number = ext.next_invoice_number(ctx.user.org)
     emits invoice_created
 
   workflow status on Invoice.status

@@ -40,7 +40,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validates "./domain/validate_row.go"
+      validate "./domain/validate_row.go"
 
       timestamps
 
@@ -77,10 +77,11 @@ feature customer_import
     delete: role_admin
 
   command upload
-    creates ImportBatch
     input file
-    derive uploaded_by = ctx.user
     policy create
+    creates ImportBatch
+      file = input.file
+      uploaded_by = ctx.user
     emits import_uploaded
 
   job process_batch

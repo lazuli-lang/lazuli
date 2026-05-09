@@ -67,10 +67,12 @@ feature customer
     read: same_org
 
   command create
-    creates Customer
     input name, email
-    derive owner = ctx.user
     policy create
+    creates Customer
+      name = input.name
+      email = input.email
+      owner = ctx.user
     emits customer_created
 
   workflow lifecycle on Customer.status

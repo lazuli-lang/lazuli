@@ -47,16 +47,20 @@ feature name
     read: same_org
 
   command create
-    creates Thing
     input name
+    policy create
+    creates Thing
+      name = input.name
     emits thing_created
 
   command rename
-    updates Thing
+    route id: ID
     input
       name: Text
     target query.by_id(id: route.id)
     policy update
+    updates Thing
+      name = input.name
 
   workflow status on Thing.status
     policy update
@@ -76,11 +80,12 @@ feature name
 Current consistency rules:
 
 - Blocks are opened by indentation, not `do`/`end` or braces.
-- Fields, typed extension contracts, and command derivations use `name: Type` or `name = expression`.
+- Fields, typed extension contracts, and assignment blocks use `name: Type` or `name = expression`.
 - Required/optional is explicit in canonical resource fields.
 - Defaults use `=`, e.g. `status: Status = active`.
 - Transitions use `->`, e.g. `archive: active -> archived`.
-- Required command fields that are not caller input should be explicit with `derive`.
+- Resource writes should use assignment blocks under `creates` or `updates`.
+- Route/context values used by commands should be explicit with `route`.
 - Commands that mutate an existing record should bind it with `target`.
 - `<feature>.ctx.md` sits next to the capsule by convention. `context` is only an override for non-standard locations.
 - Context files are source, not generated frontend/backend output.
@@ -89,5 +94,5 @@ Highlighting groups:
 
 - Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `events`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
 - Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `defaults`, `constraints`, `policies`, `params`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`.
-- Internal statements: `observability_only`, `creates`, `updates`, `deletes`, `input`, `derive`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validates`, `deny`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.
+- Section containers: `defaults`, `constraints`, `policies`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`.
+- Internal statements: `observability_only`, `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.

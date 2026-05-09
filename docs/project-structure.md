@@ -53,7 +53,7 @@ These are generated and should be treated as disposable:
 
 Generated files may be committed or ignored depending on target adapter, but they are not source of truth.
 
-`.lazuli/manifest.json` is derived from the capsule. It should include custom implementation files from both reusable `extensions` blocks and inline declarations such as job `handler`, webhook `verify`, resource `validates`, and inline view `block ... at`.
+`.lazuli/manifest.json` is derived from the capsule. It should include custom implementation files from both reusable `extensions` blocks and inline declarations such as job `handler`, webhook `verify`, resource `validate`/`validates`, and inline view `block ... at`.
 
 ## Conventions
 

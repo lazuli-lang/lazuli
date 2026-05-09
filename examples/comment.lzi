@@ -68,21 +68,23 @@ feature comment
     read: same_org
 
   command create_for_issue
-    creates Comment
     input issue_id, body
-    derive target = CommentTarget.issue
-    derive target_id = input.issue_id
-    derive author = ctx.user
     policy create
+    creates Comment
+      target = CommentTarget.issue
+      target_id = input.issue_id
+      body = input.body
+      author = ctx.user
     emits comment_created
 
   command create_for_customer
-    creates Comment
     input customer_id, body
-    derive target = CommentTarget.customer
-    derive target_id = input.customer_id
-    derive author = ctx.user
     policy create
+    creates Comment
+      target = CommentTarget.customer
+      target_id = input.customer_id
+      body = input.body
+      author = ctx.user
     emits comment_created
 
   surface web admin

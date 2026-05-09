@@ -102,10 +102,13 @@ feature user
       refresh true
 
   command register
-    creates User
     input email, password, display_name
-    derive password_hash = ext.hash_password(input.password)
     policy register
+    creates User
+      email = input.email
+      password_hash = ext.hash_password(input.password)
+      display_name = input.display_name
+      status = UserStatus.active
     emits user_registered
 
   command login
@@ -116,11 +119,12 @@ feature user
 
   command enable_mfa
     route id: ID
-    updates User
     input
       totp_code: Text
     target query.by_id(id: route.id)
     policy update
+    updates User
+      mfa_enabled = true
     emits user_mfa_enabled
 
   surface web public

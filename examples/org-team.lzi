@@ -72,16 +72,20 @@ feature org
     invite: org_admin
 
   command create
-    creates Org
     input name, slug
     policy create
+    creates Org
+      name = input.name
+      slug = input.slug
     emits org_created
 
   command invite_member
-    creates Membership
     input email, role, team
-    derive user = ext.resolve_or_invite_user(input.email)
     policy invite
+    creates Membership
+      user = ext.resolve_or_invite_user(input.email)
+      role = input.role
+      team = input.team
     emits member_invited
 
   surface web admin

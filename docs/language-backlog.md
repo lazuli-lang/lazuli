@@ -9,17 +9,18 @@ This document tracks design pressure that is not yet part of the core canonical 
 - Local references omit the feature prefix; cross-feature references must be feature-qualified and backed by `uses`.
 - `uses` is strict; do not list conceptual dependencies that are not referenced semantically.
 - `params` and `input` stay separate in commands.
-- Commands are not route-owned; surfaces pass route data into command input.
+- Commands are not route-owned; commands declare `route` slots for routing/context values and `input` slots for submitted body values. Surfaces pass only submitted input explicitly; route slots bind by name from route context.
 - Commands declare exactly one explicit effect: `creates`, `updates`, or `deletes`.
-- Command policy may be omitted when it derives cleanly from that effect.
+- Any `route.*` reference must be declared by a `route` slot.
+- Command policy is explicit; effect-derived policy is a generator suggestion, not an invisible semantic default.
+- `derive` is not canonical; `creates` and `updates` use assignment blocks.
 - Commands may `returns` typed data when the immediate caller needs response data, not as a substitute for events.
 - `policies` is a named dictionary; entries use `name: predicate, predicate`.
 - Field-level policy overrides live under `policies fields`; `non_goals` uses the same `name: value` punctuation.
-- Commands use one caller payload, `input`; mutating commands use `command <name> on <Resource>`.
 - Feature-level `defaults` can provide repeated `tenancy`, `timestamps`, and async/system `policy` defaults.
 - `scope` is reserved for safety boundaries; ordinary caller predicates belong in `filters`.
 - Read views use `source query.*`; write forms use `submit command.*`.
-- Cross-feature view composition uses `extends <feature>.surface.<target>.<area>.view.<name>`.
+- Cross-feature view composition uses `extends @<view_id>` for explicit ids or `extends <feature>.<surface_id>.<view_name>` for implicit ids.
 - `tenancy` and `soft_delete` inject default declarative query scope.
 - Raw queries must declare their safety scope explicitly.
 - Webhooks run server extensions after verification; no magical declarative webhook upsert in v0.
@@ -27,7 +28,8 @@ This document tracks design pressure that is not yet part of the core canonical 
 - Single-use view blocks and resource validators may declare their implementation inline instead of creating an `extensions` index entry.
 - Workflow-level `policy` is a default; transition-level `policy` overrides it.
 - Workflow-level `emits` always fires; transition-level `emits` fires additionally.
-- Event payloads are explicit; shared repeated envelope fields use `events <event-pattern> on <Resource>`.
+- Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `events <event-pattern> on <Resource>` for matching events in the same feature.
+- `self` is an immutable target snapshot; declarative jobs and commands use `let` for derived values shared by writes and emitted payloads.
 - `context` is only an override for the co-located `<feature>.ctx.md` convention.
 - `on_delete` governs hard delete only; soft-delete cascades must be explicit behavior.
 

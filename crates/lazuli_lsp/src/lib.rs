@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use lazuli_syntax::{Span, parse_document};
@@ -262,7 +262,10 @@ impl Backend {
 
 fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
-        return canonical_order_diagnostics(source);
+        let mut diagnostics = canonical_order_diagnostics(source);
+        diagnostics.extend(event_payload_reference_diagnostics(source));
+        diagnostics.extend(command_contract_diagnostics(source));
+        return diagnostics;
     }
 
     let document = match parse_document(source) {
@@ -310,7 +313,6 @@ enum CanonicalBlockKind {
     Defaults,
     Uses,
     Domain,
-    Events,
     Policies,
     Auth,
     Command,
@@ -329,16 +331,15 @@ impl CanonicalBlockKind {
             Self::Defaults => 1,
             Self::Uses => 2,
             Self::Domain => 3,
-            Self::Events => 4,
-            Self::Policies => 5,
-            Self::Auth => 6,
-            Self::Command => 7,
-            Self::Workflow => 8,
-            Self::Job => 9,
-            Self::Webhook => 10,
-            Self::Surface => 11,
-            Self::Extensions => 12,
-            Self::EscapeRoute => 13,
+            Self::Policies => 4,
+            Self::Auth => 5,
+            Self::Command => 6,
+            Self::Workflow => 7,
+            Self::Job => 8,
+            Self::Webhook => 9,
+            Self::Surface => 10,
+            Self::Extensions => 11,
+            Self::EscapeRoute => 12,
         }
     }
 
@@ -348,7 +349,6 @@ impl CanonicalBlockKind {
             Self::Defaults => "defaults",
             Self::Uses => "uses",
             Self::Domain => "domain",
-            Self::Events => "events",
             Self::Policies => "policies",
             Self::Auth => "auth",
             Self::Command => "command",
@@ -362,7 +362,7 @@ impl CanonicalBlockKind {
     }
 }
 
-const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> domain -> events -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
+const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
 
 fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -469,7 +469,6 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "defaults" => Some(CanonicalBlockKind::Defaults),
         "uses" => Some(CanonicalBlockKind::Uses),
         "domain" => Some(CanonicalBlockKind::Domain),
-        "events" => Some(CanonicalBlockKind::Events),
         "policies" => Some(CanonicalBlockKind::Policies),
         "auth" => Some(CanonicalBlockKind::Auth),
         "command" => Some(CanonicalBlockKind::Command),
@@ -480,6 +479,618 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "extensions" => Some(CanonicalBlockKind::Extensions),
         "escape_route" => Some(CanonicalBlockKind::EscapeRoute),
         _ => None,
+    }
+}
+
+#[derive(Debug, Default)]
+struct CanonicalFeatureFacts {
+    default_tenancy: Option<String>,
+    default_timestamps: bool,
+    resources: HashMap<String, CanonicalResourceFacts>,
+}
+
+#[derive(Debug)]
+struct CanonicalResourceFacts {
+    fields: HashSet<String>,
+    tenancy_field: Option<String>,
+}
+
+impl CanonicalResourceFacts {
+    fn new(default_tenancy: Option<&str>, default_timestamps: bool) -> Self {
+        let mut facts = Self {
+            fields: HashSet::from(["id".to_owned()]),
+            tenancy_field: None,
+        };
+
+        if let Some(tenancy) = default_tenancy {
+            facts.set_tenancy(tenancy);
+        }
+
+        if default_timestamps {
+            facts.set_timestamps(true);
+        }
+
+        facts
+    }
+
+    fn set_tenancy(&mut self, tenancy: &str) {
+        if let Some(previous) = self.tenancy_field.take() {
+            self.fields.remove(&previous);
+        }
+
+        if tenancy != "none" {
+            self.fields.insert(tenancy.to_owned());
+            self.tenancy_field = Some(tenancy.to_owned());
+        }
+    }
+
+    fn set_timestamps(&mut self, enabled: bool) {
+        if enabled {
+            self.fields.insert("created_at".to_owned());
+            self.fields.insert("updated_at".to_owned());
+        } else {
+            self.fields.remove("created_at");
+            self.fields.remove("updated_at");
+        }
+    }
+}
+
+fn event_payload_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let features = collect_canonical_feature_facts(source);
+    let mut diagnostics = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_events_resource: Option<String> = None;
+    let mut in_payload = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+                current_events_resource = None;
+                in_payload = false;
+            }
+            2 => {
+                current_top = trimmed.split_whitespace().next();
+                current_events_resource = None;
+                in_payload = false;
+            }
+            4 if current_top == Some("domain") => {
+                current_events_resource = events_resource_name(trimmed).map(str::to_owned);
+                in_payload = false;
+            }
+            6 if current_top == Some("domain") && current_events_resource.is_some() => {
+                in_payload = trimmed == "payload";
+            }
+            8 if current_top == Some("domain") && in_payload => {
+                let Some(feature_name) = current_feature.as_deref() else {
+                    continue;
+                };
+                let Some(resource_name) = current_events_resource.as_deref() else {
+                    continue;
+                };
+                let Some(rhs) = payload_assignment_rhs(trimmed) else {
+                    continue;
+                };
+                let Some(field_name) = resource_field_reference(rhs) else {
+                    continue;
+                };
+                let Some(resource) = features
+                    .get(feature_name)
+                    .and_then(|feature| feature.resources.get(resource_name))
+                else {
+                    continue;
+                };
+
+                if !resource.fields.contains(field_name) {
+                    diagnostics.push(event_payload_reference_diagnostic(
+                        line_index,
+                        line,
+                        resource_name,
+                        field_name,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    diagnostics
+}
+
+fn collect_canonical_feature_facts(source: &str) -> HashMap<String, CanonicalFeatureFacts> {
+    let mut features = HashMap::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_resource: Option<String> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                let name = feature_name(trimmed);
+                features
+                    .entry(name.clone())
+                    .or_insert_with(CanonicalFeatureFacts::default);
+                current_feature = Some(name);
+                current_top = None;
+                current_resource = None;
+            }
+            2 => {
+                current_top = trimmed.split_whitespace().next();
+                current_resource = None;
+            }
+            4 if current_top == Some("defaults") => {
+                let Some(feature_name) = current_feature.as_deref() else {
+                    continue;
+                };
+                let feature = features.entry(feature_name.to_owned()).or_default();
+
+                if let Some(tenancy) = tenancy_axis(trimmed) {
+                    feature.default_tenancy = Some(tenancy.to_owned());
+                } else if trimmed == "timestamps" {
+                    feature.default_timestamps = true;
+                }
+            }
+            4 if current_top == Some("domain") => {
+                let Some(feature_name) = current_feature.as_deref() else {
+                    continue;
+                };
+
+                if let Some(resource_name) = resource_name(trimmed) {
+                    let feature = features.entry(feature_name.to_owned()).or_default();
+                    let resource = CanonicalResourceFacts::new(
+                        feature.default_tenancy.as_deref(),
+                        feature.default_timestamps,
+                    );
+                    feature
+                        .resources
+                        .entry(resource_name.to_owned())
+                        .or_insert(resource);
+                    current_resource = Some(resource_name.to_owned());
+                } else {
+                    current_resource = None;
+                }
+            }
+            6 if current_top == Some("domain") => {
+                let Some(feature_name) = current_feature.as_deref() else {
+                    continue;
+                };
+                let Some(resource_name) = current_resource.as_deref() else {
+                    continue;
+                };
+                let Some(resource) = features
+                    .get_mut(feature_name)
+                    .and_then(|feature| feature.resources.get_mut(resource_name))
+                else {
+                    continue;
+                };
+
+                if let Some(tenancy) = tenancy_axis(trimmed) {
+                    resource.set_tenancy(tenancy);
+                } else if trimmed == "timestamps" {
+                    resource.set_timestamps(true);
+                } else if trimmed == "no_timestamps" {
+                    resource.set_timestamps(false);
+                } else if trimmed == "soft_delete" {
+                    resource.fields.insert("deleted_at".to_owned());
+                } else if let Some(field) = field_name(trimmed) {
+                    resource.fields.insert(field.to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    features
+}
+
+fn tenancy_axis(trimmed_line: &str) -> Option<&str> {
+    let mut parts = trimmed_line.split_whitespace();
+    if parts.next()? == "tenancy" {
+        parts.next()
+    } else {
+        None
+    }
+}
+
+fn resource_name(trimmed_line: &str) -> Option<&str> {
+    let mut parts = trimmed_line.split_whitespace();
+    if parts.next()? == "resource" {
+        parts.next()
+    } else {
+        None
+    }
+}
+
+fn events_resource_name(trimmed_line: &str) -> Option<&str> {
+    let mut parts = trimmed_line.split_whitespace();
+    if parts.next()? != "events" {
+        return None;
+    }
+
+    while let Some(part) = parts.next() {
+        if part == "on" {
+            return parts.next();
+        }
+    }
+
+    None
+}
+
+fn field_name(trimmed_line: &str) -> Option<&str> {
+    let (name, _) = trimmed_line.split_once(':')?;
+    let name = name.trim();
+
+    if name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        Some(name)
+    } else {
+        None
+    }
+}
+
+fn payload_assignment_rhs(trimmed_line: &str) -> Option<&str> {
+    let (_, rhs) = trimmed_line.split_once('=')?;
+    Some(rhs.trim())
+}
+
+fn resource_field_reference(expression: &str) -> Option<&str> {
+    let first = expression.bytes().next()?;
+
+    if first == b'"' || first.is_ascii_digit() || first.is_ascii_uppercase() {
+        return None;
+    }
+
+    let end = expression
+        .bytes()
+        .position(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_'))
+        .unwrap_or(expression.len());
+    let segment = &expression[..end];
+
+    if segment.is_empty()
+        || matches!(
+            segment,
+            "ctx"
+                | "event"
+                | "ext"
+                | "input"
+                | "nil"
+                | "null"
+                | "params"
+                | "payload"
+                | "route"
+                | "self"
+                | "true"
+                | "false"
+        )
+    {
+        None
+    } else {
+        Some(segment)
+    }
+}
+
+fn event_payload_reference_diagnostic(
+    line_index: usize,
+    line: &str,
+    resource_name: &str,
+    field_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "event-payload-field".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "event payload references `{field_name}`, but resource `{resource_name}` has no field named `{field_name}`. Shared event payload expressions resolve against the `events ... on {resource_name}` resource."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+#[derive(Debug)]
+struct CanonicalCommandFacts {
+    name: String,
+    line_index: usize,
+    line: String,
+    route_slots: HashSet<String>,
+    route_references: Vec<CommandRouteReference>,
+    has_policy: bool,
+    has_target: bool,
+    has_write_effect: bool,
+    needs_default_route_target: bool,
+}
+
+impl CanonicalCommandFacts {
+    fn new(name: String, line_index: usize, line: &str) -> Self {
+        Self {
+            name,
+            line_index,
+            line: line.to_owned(),
+            route_slots: HashSet::new(),
+            route_references: Vec::new(),
+            has_policy: false,
+            has_target: false,
+            has_write_effect: false,
+            needs_default_route_target: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CommandRouteReference {
+    name: String,
+    line_index: usize,
+    line: String,
+}
+
+fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_command: Option<CanonicalCommandFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("command ") {
+            if let Some(command) = current_command.take() {
+                diagnostics.extend(command_diagnostics(command));
+            }
+
+            current_command = Some(CanonicalCommandFacts::new(
+                command_name(trimmed),
+                line_index,
+                line,
+            ));
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 {
+            if let Some(command) = current_command.take() {
+                diagnostics.extend(command_diagnostics(command));
+            }
+            continue;
+        }
+
+        let Some(command) = current_command.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4 {
+            if let Some(route_slot) = command_route_slot(trimmed) {
+                command.route_slots.insert(route_slot.to_owned());
+            }
+
+            if trimmed.starts_with("policy ") {
+                command.has_policy = true;
+            } else if trimmed.starts_with("target ") {
+                command.has_target = true;
+            } else if let Some(effect) = command_write_effect(trimmed) {
+                command.has_write_effect = true;
+                command.needs_default_route_target = matches!(effect, "updates" | "deletes");
+            }
+        }
+
+        for route_reference in route_references(line) {
+            command.route_references.push(CommandRouteReference {
+                name: route_reference,
+                line_index,
+                line: line.to_owned(),
+            });
+        }
+    }
+
+    if let Some(command) = current_command {
+        diagnostics.extend(command_diagnostics(command));
+    }
+
+    diagnostics
+}
+
+fn command_diagnostics(command: CanonicalCommandFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if !command.has_policy {
+        diagnostics.push(command_policy_diagnostic(
+            command.line_index,
+            &command.line,
+            &command.name,
+        ));
+    }
+
+    for reference in command.route_references {
+        if !command.route_slots.contains(&reference.name) {
+            diagnostics.push(command_route_diagnostic(
+                reference.line_index,
+                &reference.line,
+                &command.name,
+                &reference.name,
+            ));
+        }
+    }
+
+    if command.has_write_effect
+        && command.needs_default_route_target
+        && !command.has_target
+        && !command.route_slots.contains("id")
+    {
+        diagnostics.push(command_default_route_diagnostic(
+            command.line_index,
+            &command.line,
+            &command.name,
+        ));
+    }
+
+    diagnostics
+}
+
+fn command_name(trimmed_line: &str) -> String {
+    trimmed_line
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("<anonymous>")
+        .to_owned()
+}
+
+fn command_route_slot(trimmed_line: &str) -> Option<&str> {
+    let mut parts = trimmed_line.split_whitespace();
+    if parts.next()? != "route" {
+        return None;
+    }
+
+    Some(parts.next()?.trim_end_matches(':'))
+}
+
+fn command_write_effect(trimmed_line: &str) -> Option<&str> {
+    let effect = trimmed_line.split_whitespace().next()?;
+    if matches!(effect, "creates" | "updates" | "deletes") {
+        Some(effect)
+    } else {
+        None
+    }
+}
+
+fn route_references(line: &str) -> Vec<String> {
+    let mut references = Vec::new();
+    let mut rest = line;
+
+    while let Some(start) = rest.find("route.") {
+        let after_prefix = &rest[start + "route.".len()..];
+        let end = after_prefix
+            .bytes()
+            .position(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_'))
+            .unwrap_or(after_prefix.len());
+        let name = &after_prefix[..end];
+
+        if !name.is_empty() {
+            references.push(name.to_owned());
+        }
+
+        rest = &after_prefix[end..];
+    }
+
+    references
+}
+
+fn command_policy_diagnostic(line_index: usize, line: &str, command_name: &str) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-policy".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` should declare `policy` explicitly; canonical commands do not rely on effect-derived policy defaults."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn command_route_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+    route_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-route".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` references `route.{route_name}` but does not declare `route {route_name}: ...`."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn command_default_route_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "command-route-target".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "command `{command_name}` omits `target`; declare `route id: ID` when relying on the default `query.by_id(id: route.id)` target."
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
     }
 }
 
@@ -710,6 +1321,8 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "query" => Some("Declares a read operation for an aggregate."),
         "surface" => Some("Declares UI projections for list, form, and detail views."),
         "input" => Some("Lists fields accepted by a command."),
+        "route" => Some("Declares route or context values accepted by a command."),
+        "let" => Some("Binds a derived value for later command, job, or event expressions."),
         "policy" => Some("Associates a command with an authorization policy capability."),
         "emits" => Some("Declares a domain event emitted by a command."),
         "search" => Some("Lists fields used by a query search index."),
@@ -719,6 +1332,8 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "detail" => Some("Declares read-only detail fields for a surface."),
         "columns" => Some("Introduces list columns."),
         "fields" => Some("Introduces form or detail fields."),
+        "validate" => Some("Attaches a whole-resource validator implementation."),
+        "validates" => Some("Attaches a field-scoped validator implementation."),
         "required" => Some("Marks a field as required."),
         "unique" => Some("Marks a field as unique."),
         "default" => Some("Declares a default field value."),
@@ -734,6 +1349,8 @@ const KEYWORDS: &[&str] = &[
     "query",
     "surface",
     "input",
+    "route",
+    "let",
     "policy",
     "emits",
     "search",
@@ -743,6 +1360,8 @@ const KEYWORDS: &[&str] = &[
     "detail",
     "columns",
     "fields",
+    "validate",
+    "validates",
     "required",
     "unique",
     "default",
@@ -751,6 +1370,7 @@ const KEYWORDS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::{diagnostics_for, format_canonical_source};
+    use tower_lsp::lsp_types::DiagnosticSeverity;
 
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
@@ -770,6 +1390,7 @@ feature customer
     read: same_org
 
   command create
+    policy create
     creates Customer
 
   workflow lifecycle on Customer.status
@@ -803,6 +1424,89 @@ feature customer
         assert!(
             diagnostics.is_empty(),
             "expected no canonical ordering diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_events_payload_warns_for_unknown_resource_field() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  defaults
+    tenancy org
+
+  domain
+    resource Customer
+      name: Text required
+
+    events customer_* on Customer
+      payload
+        customer_id = id
+        org_id = org.id
+        team_id = team.id
+
+    event customer_created
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("resource `Customer` has no field named `team`")
+        );
+    }
+
+    #[test]
+    fn canonical_command_warns_for_missing_policy() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+
+  command create
+    creates Customer
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("command `create` should declare `policy` explicitly")
+        );
+    }
+
+    #[test]
+    fn canonical_command_warns_for_undeclared_route_reference() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+
+  command rename
+    input name
+    target query.by_id(id: route.id)
+    policy update
+    updates Customer
+      name = input.name
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("references `route.id` but does not declare `route id: ...`")
         );
     }
 

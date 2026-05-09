@@ -114,19 +114,27 @@ feature issue
     read: same_team
 
   command create
-    creates Issue
     input title, description, project, cycle, assignee, priority, labels
-    derive creator = ctx.user
     policy create
+    creates Issue
+      title = input.title
+      description = input.description
+      project = input.project
+      cycle = input.cycle
+      assignee = input.assignee
+      priority = input.priority
+      labels = input.labels
+      creator = ctx.user
     emits issue_created
 
   command assign
     route id: ID
-    updates Issue
     input
       assignee: User
     target query.by_id(id: route.id)
     policy update
+    updates Issue
+      assignee = input.assignee
     emits issue_assigned
 
   workflow status on Issue.status

@@ -160,7 +160,7 @@
         },
         {
           "name": "keyword.section.lazuli",
-          "match": "\\b(defaults|non_goals|constraints|policies|params|key|scope|filters|cells|payload)\\b"
+          "match": "\\b(defaults|non_goals|constraints|policies|params|route|key|scope|filters|cells|payload)\\b"
         }
       ]
     },
@@ -264,7 +264,7 @@
         },
         {
           "name": "entity.name.function.statement.resource.lazuli",
-          "match": "\\b(tenancy|soft_delete|timestamps|no_timestamps|observability_only|validates|unique|index|on_delete)\\b"
+          "match": "\\b(tenancy|soft_delete|timestamps|no_timestamps|observability_only|validate|validates|unique|index|on_delete)\\b"
         },
         {
           "name": "entity.name.function.statement.query.lazuli",
@@ -272,7 +272,7 @@
         },
         {
           "name": "entity.name.function.statement.command.lazuli",
-          "match": "\\b(creates|updates|deletes|input|derive|target|policy|emits|returns|on)\\b"
+          "match": "\\b(creates|updates|deletes|input|route|let|target|policy|emits|returns|on)\\b"
         },
         {
           "name": "entity.name.function.statement.view.lazuli",

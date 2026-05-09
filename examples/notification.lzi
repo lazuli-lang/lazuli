@@ -65,10 +65,10 @@ feature notification
     idempotency event.id
     retry 3 backoff exponential
     creates Notification
-    derive recipient = event.by_id
-    derive channel = NotificationChannel.email
-    derive subject = "Customer archived"
-    derive body = ext.render_customer_archived(event)
+      recipient = event.by_id
+      channel = NotificationChannel.email
+      subject = "Customer archived"
+      body = ext.render_customer_archived(event)
     emits notification_queued
 
   job queue_issue_assigned
@@ -76,10 +76,10 @@ feature notification
     idempotency event.id
     retry 3 backoff exponential
     creates Notification
-    derive recipient = event.assignee_id
-    derive channel = NotificationChannel.in_app
-    derive subject = "Issue assigned"
-    derive body = ext.render_issue_assigned(event)
+      recipient = event.assignee_id
+      channel = NotificationChannel.in_app
+      subject = "Issue assigned"
+      body = ext.render_issue_assigned(event)
     emits notification_queued
 
   job send_queued

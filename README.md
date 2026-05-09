@@ -45,8 +45,11 @@ feature customer
     read: same_org
 
   command create
-    creates Customer
     input name, email
+    policy create
+    creates Customer
+      name = input.name
+      email = input.email
     emits customer_created
 
   surface web admin

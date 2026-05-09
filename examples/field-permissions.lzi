@@ -52,13 +52,16 @@ feature customer_sensitive
 
   command update_financials
     route customer_id: ID
-    updates CustomerSensitiveProfile
     input
       legal_name: Text
       tax_id: Text
       annual_revenue: Money optional
     target query.by_customer(customer_id: route.customer_id)
     policy update
+    updates CustomerSensitiveProfile
+      legal_name = input.legal_name
+      tax_id = input.tax_id
+      annual_revenue = input.annual_revenue
 
   surface web admin
     view detail SidePanel

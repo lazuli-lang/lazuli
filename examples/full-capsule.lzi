@@ -186,19 +186,32 @@ feature customer
         write: system, integrations_admin
 
   command create
-    creates Customer
     input name, email, tier, source
-    derive owner = ctx.user
+    policy create
+    creates Customer
+      name = input.name
+      email = input.email
+      tier = input.tier
+      source = input.source
+      owner = ctx.user
     emits customer_created
 
   command reassign previously assign_owner
-    updates Customer
+    route id: ID
     input owner
+    target query.by_id(id: route.id)
+    policy update
+    updates Customer
+      owner = input.owner
     emits customer_reassigned
 
   command update_tier
-    updates Customer
+    route id: ID
     input tier
+    target query.by_id(id: route.id)
+    policy update
+    updates Customer
+      tier = input.tier
 
   workflow lifecycle on Customer.lifecycle_stage
     policy update
@@ -365,11 +378,11 @@ feature customer_auth
 
   command enable_mfa
     route customer_id: ID
-    updates Customer
     input
       totp_code: Text
     target customer.query.by_id(id: route.customer_id)
     policy update
+    updates Customer
     emits customer_mfa_enabled
 
   surface web public
@@ -379,7 +392,7 @@ feature customer_auth
 
   surface web account
     view enable_mfa Form
-      submit command.enable_mfa(customer_id: route.customer_id)
+      submit command.enable_mfa
       fields totp_code
 
   extensions
@@ -477,27 +490,32 @@ feature customer_tags
     read: same_org
 
   command create_tag
-    creates CustomerTag
     input name, color
+    policy create
+    creates CustomerTag
+      name = input.name
+      color = input.color
     emits customer_tag_created
 
   command assign_tag
-    creates CustomerTagAssignment
     input
       customer: Customer
       tag: CustomerTag
-    derive added_by = ctx.user
-    derive added_at = ctx.now
     policy update
+    creates CustomerTagAssignment
+      customer = input.customer
+      tag = input.tag
+      added_by = ctx.user
+      added_at = ctx.now
     emits customer_tag_assigned
 
   command remove_tag
-    deletes CustomerTagAssignment
     input
       customer_id: ID
       tag_id: ID
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy update
+    deletes CustomerTagAssignment
     emits customer_tag_removed
 
   surface web admin
@@ -551,7 +569,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validates "./domain/validate_row.go"
+      validate "./domain/validate_row.go"
 
     query by_id
       params
@@ -590,10 +608,11 @@ feature customer_import
     delete: role_admin
 
   command upload
-    creates CustomerImportBatch
     input file
-    derive uploaded_by = ctx.user
     policy import
+    creates CustomerImportBatch
+      file = input.file
+      uploaded_by = ctx.user
     emits customer_import_uploaded
 
   # Candidate Tier 2: queued/background work.

@@ -24,10 +24,6 @@ feature customer
     query list
     event customer_created
 
-  events customer_* on Customer
-    payload
-      customer_id = id
-
   policies
   auth
   command create
@@ -39,7 +35,7 @@ feature customer
   escape_route "/admin/customer-debug"
 ```
 
-The canonical form avoids compact aliases. Use `domain`, `resource`, `query`, `policies`, `command`, `workflow`, `surface`, and `extensions` explicitly.
+The canonical form avoids compact aliases. Use `domain`, `resource`, `query`, `policies`, `command`, `workflow`, `surface`, and `extensions` explicitly. Domain declarations include enums, resources, constraints, queries, rules, and events.
 
 Feature blocks have a canonical lint/format order:
 
@@ -47,8 +43,7 @@ Feature blocks have a canonical lint/format order:
 meta: purpose, non_goals, context
 defaults
 uses
-domain
-events
+domain (enums, resources, constraints, queries, rules, events)
 policies
 auth
 commands
@@ -107,6 +102,8 @@ extends @customer_detail
 ```
 
 The qualifier is the feature id, not a generated package name. Canonical `.lzi` should not rely on import-like aliasing in v0.
+
+`<feature>.query.<name>` is the canonical cross-feature query path. The short `query.<name>` form always resolves inside the current feature.
 
 When one feature calls another feature's query, the provider query's effective scope still applies. The caller's policy authorizes the caller's operation; the provider feature's query scope preserves the provider's data boundary. `explain` should show both edges:
 
@@ -212,14 +209,14 @@ Resource-local custom validation may be attached inline when the validator is si
 ```lazuli
 resource ImportRow
   raw: JSON required
-  validates "./domain/validate_row.go"
+  validate "./domain/validate_row.go"
 
 resource Customer
   tier: CustomerTier = free
   validates tier "./hooks/validate_tier.go"
 ```
 
-Use `validates "./path.go"` for whole-resource validation and `validates <field> "./path.go"` for field-level validation. Reusable validators should still live in `extensions server` and be referenced by name where needed.
+Use `validate "./path.go"` for whole-resource validation and `validates <field> "./path.go"` for field-level validation. The different verbs are intentional: `validate` runs against the resource write as a whole, while `validates <field>` is scoped to writes that touch that field. Reusable validators should still live in `extensions server` and be referenced by name where needed.
 
 ## Formatting
 
@@ -228,7 +225,7 @@ Canonical `.lzi` style is deliberately boring so agents can copy it safely:
 - Separate major child blocks (`resource`, `query`, `event`, `command`, `job`, `view`) with one blank line.
 - Keep scalar statements inside one block contiguous unless a nested block follows.
 - Inside `query`, put one blank line between `params`, `key`/`filters`, `order`, and `paginate`.
-- Inside `command`, keep `creates`/`updates`/`deletes`, `input`, `derive`, `policy`, and `emits` contiguous.
+- Inside `command`, keep caller slots first (`route`, `input`), then `target`, `let`, `policy`, the write effect (`creates`/`updates`/`deletes`), and `emits`.
 - Inside `job`, keep trigger metadata (`trigger`, `queue`, `idempotency`, `retry`, `policy`) contiguous, followed by either a declarative body or a handler body.
 
 Fields whose type is a resource from another feature create a semantic foreign-key edge:
@@ -344,18 +341,40 @@ Raw queries still need `params`, `scope`, and a declared return type. The SQL ca
 
 ## Commands
 
-Commands have one semantic caller payload: `input`.
+Commands have two caller-facing slots: `route` and `input`.
 
-Queries use `params`; commands do not. `input` should describe the fields a caller submits for the operation. Locator values such as `route.id` or `event.customer_id` belong in `target`, not in `input`, unless the locator is genuinely entered by the caller.
+Queries use `params`; commands do not. `route` declares locator or context values supplied by the invoking route or caller context. `input` describes the fields a user or API caller submits as the operation body. Locator values such as `route.id` or `event.customer_id` belong in `target`, not in `input`, unless the locator is genuinely entered by the caller.
 
-Create commands often have only `input` and `derive`:
+Any command expression that references `route.<name>` must declare that slot:
+
+```lazuli
+command enable_mfa
+  route customer_id: ID
+  input
+    totp_code: Text
+  target customer.query.by_id(id: route.customer_id)
+  policy update
+  updates Customer
+```
+
+Surfaces call commands with named arguments for submitted input. They do not pass route values manually; the compiler connects matching `route` slots from the surface route context by name and should reject missing or ambiguous route slots:
+
+```lazuli
+view enable_mfa Form
+  submit command.enable_mfa
+  fields totp_code
+```
+
+Create commands declare caller input and then assign resource fields inside `creates <Resource>`:
 
 ```lazuli
 command create
-  creates Customer
   input name, email
-  derive owner = ctx.user
   policy create
+  creates Customer
+    name = input.name
+    email = input.email
+    owner = ctx.user
   emits customer_created
 ```
 
@@ -363,13 +382,29 @@ Commands that mutate an existing resource declare the resource through `updates 
 
 ```lazuli
 command reassign
-  updates Customer
+  route id: ID
   input owner: User
   target query.by_id(id: route.id)
+  policy update
+  updates Customer
+    owner = input.owner
   emits customer_reassigned
 ```
 
-`updates Customer` names the resource being changed. The `target` line is only the lookup expression. The loaded target is available as `self` inside command expressions, rules, hooks, and generated code.
+`updates Customer` names the resource being changed. The `target` line is only the lookup expression. The loaded target is available as immutable `self` inside command expressions, rules, hooks, and generated code.
+
+`self` is the target snapshot loaded before mutation. It does not change after `updates`. If a value is derived from `self` and later used by both a write and an event payload, bind it with `let`:
+
+```lazuli
+target query.by_id(id: event.customer_id)
+let new_score = ext.risk_score(self)
+updates Customer
+  score = new_score
+emits customer_score_recomputed
+  score = new_score
+```
+
+`let` values are evaluated after `target` binding and before the write effect. They may be referenced by `creates`, `updates`, and `emits`.
 
 `on <Resource>` is reserved for non-mutating commands that still operate in the context of a resource for policy, route, or authorization purposes. Do not repeat it on mutating commands where `updates X` or `deletes X` already names the resource.
 
@@ -377,49 +412,58 @@ For the common case where a mutating command targets one local resource by `rout
 
 ```lazuli
 command reassign
-  updates Customer
+  route id: ID
   input owner
+  policy update
+  updates Customer
+    owner = input.owner
 ```
 
 This expands to:
 
 ```lazuli
 command reassign
-  updates Customer
+  route id: ID
   input owner
   target query.by_id(id: route.id)
+  policy update
+  updates Customer
+    owner = input.owner
 ```
 
 Use the explicit form when the locator is not `route.id`, the target is cross-feature, the command has multiple locator values, or the lookup query is not `by_id`.
 
-If a resource field is `required`, a create command must provide it through `input`, `derive`, a resource default, or resource-level injection such as `tenancy`. Required fields should not be filled by invisible convention.
+If a resource field is `required`, a create command must provide it through a `creates` assignment, a resource default, or resource-level injection such as `tenancy`. Required fields should not be filled by invisible convention.
 
-`creates Customer` is the create-command counterpart to `target`: it makes the write effect explicit for humans, agents, plans, and generated handlers.
+`creates Customer` is the create-command counterpart to `target`: it makes the write effect explicit for humans, agents, plans, and generated handlers. In canonical authoring, `creates` uses an assignment block. This removes the older `derive` primitive and gives create and update bodies the same shape.
 
 Update and delete commands should be explicit too:
 
 ```lazuli
 command update_tier
-  updates Customer
+  route id: ID
   input tier: CustomerTier
   target query.by_id(id: route.id)
+  policy update
+  updates Customer
+    tier = input.tier
 ```
 
 ```lazuli
 command remove_tag
-  deletes CustomerTagAssignment
   input
     customer_id: ID
     tag_id: ID
   target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
   policy update
+  deletes CustomerTagAssignment
 ```
 
 `deletes X` means the command removes the targeted resource. Soft-deleted resources should use the resource's soft-delete mechanism unless the adapter or command explicitly opts into hard delete later.
 
 `updates X` means the command changes the targeted resource. In canonical authoring, use one explicit effect for every mutating command: `creates`, `updates`, or `deletes`. The analyzer should reject mutating commands with multiple effects or none. Non-mutating request/response commands may use `returns` without an effect when documented by their adapter, such as `command login`.
 
-If the command effect maps cleanly to a policy category with the same semantic name (`creates` -> `create`, `updates` -> `update`, `deletes` -> `delete`), the command may omit `policy`; the default is visible in `lazuli expand`. Declare `policy` when the command uses a non-default category, such as `upload` using `policy import` or `archive` using `policy delete`.
+Commands must declare `policy` explicitly. The common mapping (`creates` -> `policy create`, `updates` -> `policy update`, `deletes` -> `policy delete`) is a generator suggestion, not an invisible semantic default. Declare a different policy when the business intent differs from the write shape, such as `assign_tag` using `policy update` even though it creates a join resource.
 
 `input` has two canonical forms. Use the short list when every item is a field whose type can be inferred from the created or updated resource, and none of the items are locator-only metadata:
 
@@ -497,7 +541,7 @@ Rules are automatic preconditions. The runtime evaluates matching rules before t
 - `Customer.archive` matches a workflow transition named `archive` on `Customer`.
 - `Customer.reassign` does not match `Customer.bulk_reassign`.
 
-Policies answer "who may attempt this operation?" Rules answer "is this operation valid in the current domain state?" A typical generated flow is: decode input, derive fields, load target, check policy, evaluate rules, execute operation, publish events.
+Policies answer "who may attempt this operation?" Rules answer "is this operation valid in the current domain state?" A typical generated flow is: decode input, bind route and target, check policy, evaluate rules, execute assignment blocks, publish events.
 
 Cross-feature predicates are allowed, but the target operation owner should own the guard:
 
@@ -587,6 +631,10 @@ event customer_archived
 
 `events <event-pattern> on <Resource>` is explicit sugar, not hidden magic. The pattern must currently be a single trailing-wildcard event-name pattern such as `customer_*`. It applies to events in the same feature whose names match that pattern, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. It is not a payload profile name, metadata label, or global base event. `lazuli expand` and `lazuli inspect` must show the fully expanded event payload, and the analyzer should warn when an `events` pattern matches no events.
 
+Payload expressions under `events <pattern> on <Resource>` resolve against that resource. The analyzer should warn when a payload expression references a field that does not exist on the resource after defaults such as `tenancy org` are applied. For example, `org.id` is valid only when the resource has an `org` relation from an explicit field or tenancy injection.
+
+Inheritance is mandatory for matching events in the same feature. If an event should not carry the shared resource envelope, give it a name outside the pattern or move it to the feature that owns that different event contract. Canonical v0 intentionally has no `no_payload_inheritance` escape hatch because optional inheritance makes the shared block unreliable for readers and generators.
+
 ```lazuli
 event customer_archived
   customer_id: ID
@@ -623,24 +671,27 @@ Commands and workflows reference those categories by name:
 
 ```lazuli
 command upload
-  creates CustomerImportBatch
   policy import
+  creates CustomerImportBatch
 ```
 
-Commands may omit `policy` when the operation maps directly to the standard effect category:
+Commands write their policy category explicitly, even when it maps directly to the standard effect category:
 
 ```lazuli
 command create
+  policy create
   creates Customer
 
 command rename
+  policy update
   updates Customer
 
 command destroy
+  policy delete
   deletes Customer
 ```
 
-These expand to `policy create`, `policy update`, and `policy delete` respectively. Any divergent business verb should state the policy inline, such as `command assign_tag` using `policy update` even though it creates a join resource.
+This is intentionally a little more verbose than effect-derived policy inference. A reader should not need to remember a hidden rule to know who may run a command. Any divergent business verb should still state the semantic policy inline, such as `command assign_tag` using `policy update` even though it creates a join resource.
 
 `system` is reserved for internal work without an end-user actor: event consumers, webhooks after verification, scheduled jobs, queues, generated maintenance operations, and field writes performed by those operations. A project should not redefine `system` as an ordinary user role.
 
@@ -652,7 +703,7 @@ feature customer_outreach
     policy system
 ```
 
-Local `policy` always wins. For commands, the effect-derived policy (`creates` -> `create`, `updates` -> `update`, `deletes` -> `delete`) wins over a feature default so write commands do not accidentally become system operations.
+Local `policy` always wins. Commands should use local `policy`; feature defaults are mainly for jobs, webhooks, and resource-less system features so write commands do not accidentally become system operations.
 
 A feature that only consumes events or runs jobs may omit `policies` when `defaults policy system` covers every operation. Add a `policies` block only when the feature needs reusable policy categories.
 
@@ -704,6 +755,8 @@ Use `source` for data loading and `submit` for write targets. Avoid `source comm
 
 The compiler should surface this derivation in `explain`.
 
+Every view has an implicit stable id: `<feature>.<surface_id>.<view_name>`, where `surface_id` joins the surface words with `_`. For example, `feature customer` + `surface web admin` + `view detail` has the implicit id `customer.web_admin.detail`. Authors may override it with `id <name>` when they want a shorter public anchor.
+
 `filter` inside a view describes UI controls. `filters` inside a query describes data predicates. The view filter names should be backed by query params and query filters when they affect server-side data.
 
 Custom view slots may either reference a reusable extension or declare a single-use block inline:
@@ -732,14 +785,14 @@ feature customer_tags
     block ext.tag_editor
 ```
 
-The target view should declare a stable id:
+The target view may declare a shorter stable id:
 
 ```lazuli
 view detail SidePanel id customer_detail
   source query.by_id(id: route.id)
 ```
 
-Use `extends @<view_id>` for cross-feature view composition. The `@` form is an id reference, not a structural path, so it survives surface/platform renames. The extending feature owns the inserted block and its extension implementation; the target feature still owns the base view.
+Use `extends @<view_id>` when a view declares an explicit id, or `extends <feature>.<surface_id>.<view_name>` for the implicit id. The `@` form is an explicit id reference; the canonical path form is available for every view and avoids a later rename just to make extension possible. The extending feature owns the inserted block and its extension implementation; the target feature still owns the base view.
 
 The target view type determines which slots are accepted. For example, `SidePanel` may accept `block`, while `Table` may accept `cells`. The analyzer should reject unsupported slots with a targeted diagnostic.
 
@@ -818,7 +871,7 @@ job process_import
   emits customer_import_completed
 ```
 
-`idempotency` names the dedupe key for the trigger execution. `event.id` refers to the event-envelope id supplied by the event bus; it does not need to be repeated in the authored event payload. `retry <count> backoff <strategy>` is declarative delivery policy; adapters should support at least `fixed` and `exponential` before accepting those strategies in strict mode.
+`idempotency` names the dedupe key for the trigger execution. Event-triggered jobs use the `event.*` namespace; `event.id` refers to the event-envelope id supplied by the event bus and does not need to be repeated in the authored event payload. Webhooks use the verified inbound `payload.*` namespace. Do not write bare webhook keys such as `idempotency external_id`; write `idempotency payload.external_id` so the source is explicit. `retry <count> backoff <strategy>` is declarative delivery policy; adapters should support at least `fixed` and `exponential` before accepting those strategies in strict mode.
 
 Async snippets that omit `policy` assume the surrounding feature declares `defaults policy system`; otherwise write `policy system` inline.
 
@@ -836,7 +889,7 @@ Webhook handlers are explicit inbound edges from the outside world. In canonical
 webhook stripe_invoice_paid
   path "/webhooks/stripe/invoice-paid"
   verify "./integrations/stripe.go"
-  idempotency provider_event_id
+  idempotency payload.provider_event_id
   policy system
   handler "./integrations/record_stripe_invoice_paid.go" returns BillingWebhook
   emits invoice_paid
@@ -868,22 +921,23 @@ job record_customer_created
   trigger event customer.customer_created
   idempotency event.id
   creates AuditEvent
-  derive payload = event
+    payload = event
 
 job recompute_score_after_invoice
   trigger event billing.invoice_paid
   idempotency event.id
   target query.by_id(id: event.customer_id)
+  let new_score = ext.risk_score(self)
   updates Customer
-    score = ext.risk_score(self)
+    score = new_score
   emits customer_score_recomputed
-    score = self.score
+    score = new_score
     reason = "invoice_paid"
 ```
 
-Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as `self`, regardless of the resource name. Resource mutation belongs under `updates <Resource>`; event payload values belong under `emits <event>`.
+Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as immutable `self`, regardless of the resource name. Resource creation belongs under `creates <Resource>` assignment blocks, resource mutation belongs under `updates <Resource>` assignment blocks, and event payload values belong under `emits <event>`. Use `let` for derived values that are used by both mutation and event payloads; do not rely on `self` changing timing between lines.
 
-Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, `deletes`, or `derive`.
+Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, or `deletes`.
 
 ## Auth
 
@@ -935,7 +989,8 @@ The full convention table:
 | `server <name>: Function[X, Y]`    | `features/<feature>/domain/<name>.go`       |
 | `server <name>: QueryModifier[X]`  | `features/<feature>/queries/<name>.go`      |
 | `job <name> handler`               | `features/<feature>/jobs/<name>.go`         |
-| `resource <name> validates`        | `features/<feature>/domain/validate_<name>.go` |
+| `resource <name> validate`         | `features/<feature>/domain/validate_<name>.go` |
+| `resource <name> validates <field>` | `features/<feature>/domain/validate_<name>_<field>.go` |
 | `block <name>: ViewBlock[X]`       | `features/<feature>/ui/<name>.tsx`          |
 | `webhook <name> verify`           | `features/<feature>/integrations/<name>.go` |
 
@@ -949,6 +1004,7 @@ When a command, transition, query, field, or resource is renamed, downstream art
 
 ```lazuli
 command register previously create
+  policy create
   creates Customer
   ...
 
