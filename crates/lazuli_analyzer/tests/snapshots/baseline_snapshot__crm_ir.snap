@@ -119,6 +119,8 @@ expression: app
           }
         }
       ],
+      "events": [],
+      "rules": [],
       "commands": [
         {
           "name": "Create",
@@ -258,6 +260,8 @@ expression: app
           }
         }
       ],
+      "workflows": [],
+      "surfaces": [],
       "span_ref": {
         "start": 0,
         "end": 764

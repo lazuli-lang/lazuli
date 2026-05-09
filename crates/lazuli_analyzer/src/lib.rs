@@ -66,8 +66,12 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         uses: Vec::new(),
         enums: Vec::new(),
         resources,
+        events: Vec::new(),
+        rules: Vec::new(),
         commands,
         queries,
+        workflows: Vec::new(),
+        surfaces: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
             start: document.span.start,

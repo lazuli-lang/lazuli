@@ -40,8 +40,12 @@ pub struct Feature {
     pub uses: Vec<String>,
     pub enums: Vec<EnumDecl>,
     pub resources: Vec<Resource>,
+    pub events: Vec<Event>,
+    pub rules: Vec<Rule>,
     pub commands: Vec<Command>,
     pub queries: Vec<Query>,
+    pub workflows: Vec<Workflow>,
+    pub surfaces: Vec<Surface>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -440,4 +444,215 @@ impl Path {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+// =============================================================================
+// Phase 1b — events, rules, workflows, surfaces
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Event {
+    pub name: String,
+    pub kind: EventKind,
+    pub payload: Vec<EventField>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventKind {
+    /// Standard domain event published into the feature reaction graph.
+    Domain,
+    /// `event.trace` — intentionally not part of the reaction graph; for logs,
+    /// audit streams, and external observers.
+    Trace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventField {
+    pub name: String,
+    pub type_ref: TypeRef,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub optional: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rule {
+    /// Author's prose title: `rule "archived customers cannot be reassigned"`.
+    pub title: String,
+    pub denies: OperationRef,
+    pub when: Predicate,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationRef {
+    pub resource: QualifiedName,
+    pub op_name: String,
+    pub kind: OperationKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OperationKind {
+    Command,
+    Transition,
+    /// Resolution deferred to the analyzer; default for legacy lowering.
+    Unresolved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Workflow {
+    pub name: String,
+    pub on: FieldRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_policy: Option<PolicyRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_emits: Vec<String>,
+    pub transitions: Vec<Transition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldRef {
+    pub resource: QualifiedName,
+    pub field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Transition {
+    pub name: String,
+    pub from: String,
+    pub to: String,
+    /// `requires <category>` raises the policy bar for this transition above
+    /// the workflow default (e.g. `requires delete`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Surface {
+    /// Surface words joined by space: `surface web admin` -> `name = "web admin"`.
+    pub name: String,
+    pub views: Vec<View>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed view kinds. New kinds enter via minor bump (see `docs/ir-abi.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum View {
+    Table(TableView),
+    SidePanel(SidePanelView),
+    Form(FormView),
+    Custom(CustomView),
+}
+
+impl View {
+    pub fn name(&self) -> &str {
+        match self {
+            View::Table(v) => &v.name,
+            View::SidePanel(v) => &v.name,
+            View::Form(v) => &v.name,
+            View::Custom(v) => &v.name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableView {
+    pub name: String,
+    pub source: SourceRef,
+    pub columns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filter: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<CellBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensible_by: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SidePanelView {
+    pub name: String,
+    pub source: SourceRef,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<BlockBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensible_by: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormView {
+    pub name: String,
+    pub submit: QualifiedName,
+    pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomView {
+    pub name: String,
+    /// Authored type label: `SidePanel`, `KanbanBoard`, etc. Lazuli does not
+    /// generate a renderer for these; they reach extension contracts.
+    pub view_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceRef {
+    pub query: QualifiedName,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<NamedArg>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CellBinding {
+    pub field: String,
+    /// `@client.<name>` reference resolved against the feature's `extensions`.
+    pub renderer: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockBinding {
+    pub renderer: String,
 }
