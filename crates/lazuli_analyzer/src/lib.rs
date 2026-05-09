@@ -63,6 +63,9 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
     let feature = ir::Feature {
         name: feature_name,
         purpose: None,
+        non_goals: Vec::new(),
+        context_path: None,
+        defaults: ir::Defaults::default(),
         uses: Vec::new(),
         enums: Vec::new(),
         resources,
@@ -72,6 +75,8 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         queries,
         workflows: Vec::new(),
         surfaces: Vec::new(),
+        extensions: Vec::new(),
+        escape_routes: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
             start: document.span.start,
@@ -153,7 +158,13 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
     let resource_name = aggregate.name.clone();
     let resource = ir::Resource {
         name: resource_name.clone(),
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
         fields,
+        constraints: Vec::new(),
+        validate: None,
+        validates: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(span_of(aggregate.span)),
     };

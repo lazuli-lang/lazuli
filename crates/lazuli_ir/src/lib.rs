@@ -37,6 +37,11 @@ pub struct Module {
 pub struct Feature {
     pub name: String,
     pub purpose: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub non_goals: Vec<NonGoal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_path: Option<String>,
+    pub defaults: Defaults,
     pub uses: Vec<String>,
     pub enums: Vec<EnumDecl>,
     pub resources: Vec<Resource>,
@@ -46,6 +51,8 @@ pub struct Feature {
     pub queries: Vec<Query>,
     pub workflows: Vec<Workflow>,
     pub surfaces: Vec<Surface>,
+    pub extensions: Vec<Extension>,
+    pub escape_routes: Vec<EscapeRoute>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -83,7 +90,26 @@ pub enum StorageValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resource {
     pub name: String,
+    /// Tenancy axis: `tenancy org`, `tenancy team`, or `tenancy none` (opt-out).
+    /// `None` means inherit from feature `defaults`. After lowering's derived
+    /// pass this should be resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenancy: Option<Tenancy>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub soft_delete: bool,
+    /// `None` means inherit from feature `defaults`. `Some(true)` = explicit
+    /// `timestamps`, `Some(false)` = explicit `no_timestamps` opt-out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamps: Option<bool>,
     pub fields: Vec<Field>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<Constraint>,
+    /// Resource-level inline validator: `validate "./domain/validate_row.go"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validate: Option<PathRef>,
+    /// Field-level inline validators: `validates <field> "./hooks/validate_tier.go"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub validates: Vec<FieldValidation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -655,4 +681,151 @@ pub struct CellBinding {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockBinding {
     pub renderer: String,
+}
+
+// =============================================================================
+// Phase 1c — feature defaults, resource enrichment, extensions, escape routes
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NonGoal {
+    /// Boundary key. Either a feature id (`customer_auth`) or
+    /// `anti_pattern.<slug>` for non-feature design boundaries.
+    pub key: String,
+    pub description: String,
+}
+
+/// Feature-level `defaults` block. Resource-local declarations override these.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Defaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenancy: Option<Tenancy>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub timestamps: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyRef>,
+}
+
+/// Tenancy axis. Non-tenant resources use `Tenancy::None` (the explicit
+/// `tenancy none` opt-out); resources inheriting feature defaults carry
+/// `Resource.tenancy = None` until the derived pass resolves them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "axis", content = "value")]
+pub enum Tenancy {
+    Org,
+    Team,
+    /// Custom axis identifier (`tenancy workspace`, etc.).
+    Custom(String),
+    /// Explicit `tenancy none` opt-out.
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum Constraint {
+    Unique(UniqueConstraint),
+    Index(IndexConstraint),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UniqueConstraint {
+    pub fields: Vec<String>,
+    /// `unique email per org` -> `qualifier = Some("org")`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexConstraint {
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldValidation {
+    pub field: String,
+    pub path: PathRef,
+}
+
+/// An extension contract declared under `extensions` and resolved to a
+/// filesystem implementation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Extension {
+    pub name: String,
+    pub contract: ExtensionContract,
+    pub resolved_path: PathRef,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of extension contracts. Adding a contract is a minor bump;
+/// changing one is a major bump. See `docs/canonical-semantics.md`
+/// "Extension Path Convention" for the full table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ExtensionContract {
+    /// `client <name>: CellRenderer[X]`
+    CellRenderer { type_arg: TypeRef },
+    /// `client <name>: ViewBlock[X]` or single-use `block <name>: ViewBlock[X]`
+    ViewBlock { type_arg: TypeRef },
+    /// `client <name>: FormField[X]`
+    FormField { type_arg: TypeRef },
+    /// `hook <name>: Hook[X]`
+    Hook { type_arg: TypeRef },
+    /// `validator <name>: Validator[X]`
+    Validator { type_arg: TypeRef },
+    /// `fn <name>: Function[X, Y]`
+    Function {
+        input: TypeRef,
+        output: TypeRef,
+    },
+    /// `query_modifier <name>: QueryModifier[X]`
+    QueryModifier { type_arg: TypeRef },
+    /// `adapter <name>: IntegrationAdapter[X]`
+    IntegrationAdapter { type_arg: TypeRef },
+}
+
+/// Filesystem path with provenance. `Convention` paths are derived from the
+/// extension name + contract kind via the table in `docs/canonical-semantics.md`;
+/// `Authored` paths come from an explicit `at "..."` clause.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PathRef {
+    pub path: String,
+    pub source: PathSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PathSource {
+    Convention,
+    Authored,
+}
+
+impl PathRef {
+    pub fn convention(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            source: PathSource::Convention,
+        }
+    }
+
+    pub fn authored(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            source: PathSource::Authored,
+        }
+    }
+}
+
+/// Pages Lazuli should know about but should not govern internally.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EscapeRoute {
+    pub route: String,
+    pub at: PathRef,
+    pub policy: PolicyRef,
+    /// Coarse tenant axis for the escape page. `None` = no tenant scope claimed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<Tenancy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
