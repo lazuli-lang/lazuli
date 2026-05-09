@@ -13,11 +13,11 @@ feature customer
   non_goals
     invoice: "invoicing"
 
-  uses org, user
-
   defaults
     tenancy org
     timestamps
+
+  uses org, user
 
   domain
     resource Customer
@@ -25,13 +25,37 @@ feature customer
     event customer_created
 
   policies
+  auth
   command create
   workflow lifecycle on Customer.status
+  job recompute_scores
+  webhook crm_customer_upsert
   surface web admin
   extensions
+  escape_route "/admin/customer-debug"
 ```
 
 The canonical form avoids compact aliases. Use `domain`, `resource`, `query`, `policies`, `command`, `workflow`, `surface`, and `extensions` explicitly.
+
+Feature blocks have a canonical lint/format order:
+
+```txt
+meta: purpose, non_goals, context
+defaults
+uses
+domain
+policies
+auth
+commands
+workflows
+jobs
+webhooks
+surfaces
+extensions
+escape_routes
+```
+
+Authors may draft in any order, but `lazuli fmt` should reorder blocks and `lazuli check --strict` should report non-canonical ordering. This is intentionally predictable for LLM context scans and semantic diffs.
 
 ## Feature Granularity
 
@@ -66,15 +90,15 @@ It is not an import statement for generated code. It gives the analyzer, graph, 
 Local references omit the feature prefix:
 
 ```lazuli
-target customer = query.by_id(id: params.id)
+target query.by_id(id: input.id)
 source query.list
 ```
 
 Cross-feature references must be feature-qualified and the referenced feature must appear in `uses`:
 
 ```lazuli
-target customer = customer.query.by_id(id: params.customer_id)
-extends customer.surface.web.admin.view.detail
+target customer.query.by_id(id: input.customer_id)
+extends @customer_detail
 ```
 
 The qualifier is the feature id, not a generated package name. Canonical `.lzi` should not rely on import-like aliasing in v0.
@@ -315,13 +339,9 @@ Raw queries still need `params`, `scope`, and a declared return type. The SQL ca
 
 ## Commands
 
-Commands have three conceptual inputs:
+Commands have one semantic caller payload: `input`.
 
-- `params`: route/locator data.
-- `target`: loaded resource instance for existing-record mutations.
-- `input`: payload being changed or created.
-
-Canonical v0 keeps `params` and `input` separate. `params` are locator/caller coordinates that can come from routes, jobs, API calls, tests, or other commands. `input` is the domain payload being written. Do not depend on implicit `route.id` inside a command; surfaces may pass route values into command params, but commands are not route-owned.
+Queries use `params`; commands do not. `input` should describe the fields a caller submits for the operation. Locator values such as `route.id` or `event.customer_id` belong in `target`, not in `input`, unless the locator is genuinely entered by the caller.
 
 Create commands often have only `input` and `derive`:
 
@@ -334,28 +354,26 @@ command create
   emits customer_created
 ```
 
-Commands that mutate an existing resource should bind their target explicitly:
+Commands that mutate an existing resource declare the resource through `updates X` or `deletes X`. They should bind their target with a lookup expression:
 
 ```lazuli
 command reassign
-  params
-    id: ID
-
-  target customer = query.by_id(id: params.id)
-
+  updates Customer
   input owner: User
-  policy update
+  target query.by_id(id: route.id)
   emits customer_reassigned
 ```
 
-The target binding gives rules and hooks a named resource instance. In this example, predicates can reference `customer.status` because `target customer` exists.
+`updates Customer` names the resource being changed. The `target` line is only the lookup expression. The loaded target is available as `self` inside command expressions, rules, hooks, and generated code.
 
-For the common case where a command targets one local resource by the conventional `id` param and the resource has a local `query by_id`, use the target shorthand:
+`on <Resource>` is reserved for non-mutating commands that still operate in the context of a resource for policy, route, or authorization purposes. Do not repeat it on mutating commands where `updates X` or `deletes X` already names the resource.
+
+For the common case where a mutating command targets one local resource by `route.id` and the resource has a local `query by_id`, the lookup can be omitted:
 
 ```lazuli
-command reassign on Customer
+command reassign
   updates Customer
-  input owner: User
+  input owner
 ```
 
 This expands to:
@@ -363,16 +381,11 @@ This expands to:
 ```lazuli
 command reassign
   updates Customer
-
-  params
-    id: ID
-
-  target customer = query.by_id(id: params.id)
-
-  input owner: User
+  input owner
+  target query.by_id(id: route.id)
 ```
 
-Use the explicit form when the locator is not `id`, the target is cross-feature, the command has multiple locator params, or the lookup query is not `by_id`.
+Use the explicit form when the locator is not `route.id`, the target is cross-feature, the command has multiple locator values, or the lookup query is not `by_id`.
 
 If a resource field is `required`, a create command must provide it through `input`, `derive`, a resource default, or resource-level injection such as `tenancy`. Required fields should not be filled by invisible convention.
 
@@ -383,24 +396,17 @@ Update and delete commands should be explicit too:
 ```lazuli
 command update_tier
   updates Customer
-
-  params
-    id: ID
-
-  target customer = query.by_id(id: params.id)
   input tier: CustomerTier
-  policy update
+  target query.by_id(id: route.id)
 ```
 
 ```lazuli
 command remove_tag
   deletes CustomerTagAssignment
-
-  params
+  input
     customer_id: ID
     tag_id: ID
-
-  target assignment = query.assignment_by_customer_tag(customer_id: params.customer_id, tag_id: params.tag_id)
+  target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
   policy update
 ```
 
@@ -410,16 +416,17 @@ command remove_tag
 
 If the command effect maps cleanly to a policy category with the same semantic name (`creates` -> `create`, `updates` -> `update`, `deletes` -> `delete`), the command may omit `policy`; the default is visible in `lazuli expand`. Declare `policy` when the command uses a non-default category, such as `upload` using `policy import` or `archive` using `policy delete`.
 
-`input` has two canonical forms. Use the short list when the command creates or updates fields whose types can be inferred from the target resource:
+`input` has two canonical forms. Use the short list when every item is a field whose type can be inferred from the created or updated resource, and none of the items are locator-only metadata:
 
 ```lazuli
 input name, email, tier
 ```
 
-Use a typed block when the inputs do not map one-to-one to fields, when multiple target resources are involved, or when inference would be ambiguous:
+Use a typed block when inputs do not map one-to-one to target fields, when multiple resources are involved, when the input contains typed IDs, or when inference would be ambiguous:
 
 ```lazuli
 input
+  customer_id: ID
   customer: Customer
   tag: CustomerTag
 ```
@@ -549,13 +556,14 @@ If no explicit value is given, the semantic value is the identifier.
 
 Events are external contracts, so their payloads should be visible in canonical v0. Lazuli does not implicitly add `<feature>_id` to every event.
 
-When many events for one resource share the same envelope fields, declare that envelope explicitly on the resource with an event-name pattern:
+When many events for one resource share the same envelope fields, declare that envelope explicitly in `domain` with an event-name pattern:
 
 ```lazuli
 resource Customer
   tenancy org
 
-  event_payload customer_*
+events customer_* on Customer
+  payload
     customer_id = id
     org_id = org.id
 
@@ -572,7 +580,7 @@ event customer_archived
   by_id: ID
 ```
 
-`event_payload <event-pattern>` is explicit sugar, not hidden magic. The pattern must currently be a single trailing-wildcard event-name pattern such as `customer_*`. It applies to events in the same feature whose names match that pattern, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. It is not a payload profile name, metadata label, or global base event. `lazuli expand` and `lazuli inspect` must show the fully expanded event payload, and the analyzer should warn when an `event_payload` pattern matches no events.
+`events <event-pattern> on <Resource>` is explicit sugar, not hidden magic. The pattern must currently be a single trailing-wildcard event-name pattern such as `customer_*`. It applies to events in the same feature whose names match that pattern, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. It is not a payload profile name, metadata label, or global base event. `lazuli expand` and `lazuli inspect` must show the fully expanded event payload, and the analyzer should warn when an `events` pattern matches no events.
 
 ```lazuli
 event customer_archived
@@ -580,7 +588,7 @@ event customer_archived
   by_id: ID
 ```
 
-Use per-event fields for data specific to that event. Use `event_payload` only for stable, repeated envelope fields such as resource id, tenant id, or actor id.
+Use per-event fields for data specific to that event. Use shared `events ... payload` only for stable, repeated envelope fields such as resource id, tenant id, or actor id.
 
 The analyzer should warn about emitted events with no subscribers unless the event is intentionally for logs, audit streams, or external observers:
 
@@ -620,10 +628,10 @@ Commands may omit `policy` when the operation maps directly to the standard effe
 command create
   creates Customer
 
-command rename on Customer
+command rename
   updates Customer
 
-command destroy on Customer
+command destroy
   deletes Customer
 ```
 
@@ -648,15 +656,26 @@ Policy names have two layers:
 - Project/global atoms such as `role_admin`, `same_org`, `public`, `none`, and reserved `system`.
 - Feature-local policy categories such as `create`, `update`, `import`, `login`, and `global_read`.
 
-`policy update` inside `feature customer_tags` refers to that feature's local `update` policy category. It does not call `customer.policies.update` unless explicitly feature-qualified in a future extension.
+`policy update` inside `feature customer_tags` always refers to that feature's local `update` policy category, even if the command references `Customer` from the `customer` feature. Cross-feature policy references must be feature-qualified:
+
+```lazuli
+policy customer.update
+```
+
+Feature-qualified policies are an explicit semantic dependency and require the referenced feature to appear in `uses`.
 
 Field-level policies use the same `name: predicate` punctuation as the feature policy dictionary:
 
 ```lazuli
-field_policies Customer
-  email
-    read: same_org
-    write: role_admin, role_sales
+policies
+  create: role_admin, role_sales
+  update: role_admin, role_sales
+  read: same_org
+
+  fields Customer
+    email
+      read: same_org
+      write: role_admin, role_sales
 ```
 
 ## Surfaces
@@ -704,15 +723,35 @@ A feature may extend a view owned by another feature when it owns an adjacent ca
 feature customer_tags
   uses customer
 
-  extends customer.surface.web.admin.view.detail
+  extends @customer_detail
     block ext.tag_editor
 ```
 
-Use the fully qualified target path in canonical `.lzi`: `<feature>.surface.<target>.<area>.view.<name>`. The extending feature owns the inserted block and its extension implementation; the target feature still owns the base view.
+The target view should declare a stable id:
+
+```lazuli
+view detail SidePanel id customer_detail
+  source query.by_id(id: route.id)
+```
+
+Use `extends @<view_id>` for cross-feature view composition. The `@` form is an id reference, not a structural path, so it survives surface/platform renames. The extending feature owns the inserted block and its extension implementation; the target feature still owns the base view.
 
 The target view type determines which slots are accepted. For example, `SidePanel` may accept `block`, while `Table` may accept `cells`. The analyzer should reject unsupported slots with a targeted diagnostic.
 
 Cross-feature view composition should not be used to replace the base view. If a feature needs a completely different screen, create its own view or an explicit `escape_route`.
+
+## Escape Routes
+
+Escape routes register pages Lazuli should know about but should not govern internally. They must still declare where the file lives and the coarse security envelope:
+
+```lazuli
+escape_route "/admin/customer-debug"
+  at "./pages/customer_debug.tsx"
+  policy role_admin
+  tenant org
+```
+
+The route implementation remains custom code. Lazuli records the route, policy, tenant axis, and source path in generated manifests so escape hatches do not become invisible security holes.
 
 ## Async Work, Webhooks, And Jobs
 
@@ -729,6 +768,30 @@ job send_archive_survey
 ```
 
 An event-consumer feature may have no resources of its own. That is valid when the feature owns only reactions or external effects.
+
+This is the canonical shape for a resource-less capability feature:
+
+```lazuli
+feature customer_outreach
+  purpose "Send customer lifecycle outreach from events without owning storage."
+
+  non_goals
+    notification: "notification persistence"
+    customer: "customer lifecycle ownership"
+
+  defaults
+    policy system
+
+  uses customer
+
+  job send_welcome
+    trigger event customer.customer_activated
+    idempotency event.id
+    retry 3 backoff exponential
+    handler "./outreach/send_welcome_email.go"
+```
+
+Do not fold this kind of capability into `customer` just because it listens to customer events. A feature may be only reactions when that is the product boundary.
 
 Scheduled jobs use a cron-like trigger:
 
@@ -802,14 +865,20 @@ job record_customer_created
   creates AuditEvent
   derive payload = event
 
-job process_import
-  trigger event import_uploaded
-  queue customer_imports
-  handler "./jobs/process_import.go"
-  emits import_completed
+job recompute_score_after_invoice
+  trigger event billing.invoice_paid
+  idempotency event.id
+  target query.by_id(id: event.customer_id)
+  updates Customer
+    score = ext.risk_score(self)
+  emits customer_score_recomputed
+    score = self.score
+    reason = "invoice_paid"
 ```
 
-Use the declarative body for small reactions that bind targets, create resources, derive values, or emit events without custom control flow. Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, `deletes`, or `derive`.
+Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as `self`, regardless of the resource name. Resource mutation belongs under `updates <Resource>`; event payload values belong under `emits <event>`.
+
+Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, `deletes`, or `derive`.
 
 ## Auth
 
@@ -887,6 +956,8 @@ resource Account previously Customer
 resource Customer
   lifecycle_stage: CustomerStatus previously status = lead
 ```
+
+`previously` is universal for renameable identifiers: resources, fields, queries, commands, workflows, workflow transitions, views, jobs, webhooks, and extension symbols may all carry it when the compiler needs identity continuity.
 
 The `previously` clause carries one or more prior names. The compiler records them on the IR node as `previous_names`. The planner, MCP, and semantic diff respect the link instead of treating the rename as drop-and-create.
 

@@ -122,13 +122,9 @@ feature issue
 
   command assign
     updates Issue
-
-    params
-      id: ID
-
-    target issue = query.by_id(id: params.id)
-
-    input assignee: User
+    input
+      assignee: User
+    target query.by_id(id: route.id)
     policy update
     emits issue_assigned
 

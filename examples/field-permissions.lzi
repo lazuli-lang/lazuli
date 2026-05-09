@@ -33,32 +33,30 @@ feature customer_sensitive
     update: role_admin, finance_admin
     delete: role_admin
 
-  field_policies CustomerSensitiveProfile
-    legal_name
-      read: same_org
-      write: role_admin, finance_admin
+    fields CustomerSensitiveProfile
+      legal_name
+        read: same_org
+        write: role_admin, finance_admin
 
-    tax_id
-      read: finance_admin
-      write: finance_admin
+      tax_id
+        read: finance_admin
+        write: finance_admin
 
-    annual_revenue
-      read: finance_admin, sales_manager
-      write: finance_admin
+      annual_revenue
+        read: finance_admin, sales_manager
+        write: finance_admin
 
-    internal_notes
-      read: role_admin, account_owner
-      write: role_admin, account_owner
+      internal_notes
+        read: role_admin, account_owner
+        write: role_admin, account_owner
 
   command update_financials
     updates CustomerSensitiveProfile
-
-    params
-      customer_id: ID
-
-    target profile = query.by_customer(customer_id: params.customer_id)
-
-    input legal_name, tax_id, annual_revenue
+    input
+      legal_name: Text
+      tax_id: Text
+      annual_revenue: Money optional
+    target query.by_customer(customer_id: route.customer_id)
     policy update
 
   surface web admin

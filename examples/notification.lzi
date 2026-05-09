@@ -9,10 +9,10 @@ feature notification
     anti_pattern.event_source_of_truth: "producers own their events"
     anti_pattern.preferences_ui: "user preferences UI beyond notification settings"
 
-  uses org, user, customer, issue
-
   defaults
     policy system
+
+  uses org, user, customer, issue
 
   domain
     enum NotificationChannel

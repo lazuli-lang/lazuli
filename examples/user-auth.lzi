@@ -74,6 +74,13 @@ feature user
       user_id: ID
       by_id: ID
 
+  policies
+    register: public
+    login: public
+    read: self, role_admin
+    update: self, role_admin
+    delete: role_admin
+
   auth
     identity User.email
 
@@ -94,13 +101,6 @@ feature user
       ttl "30 days"
       refresh true
 
-  policies
-    register: public
-    login: public
-    read: self, role_admin
-    update: self, role_admin
-    delete: role_admin
-
   command register
     creates User
     input email, password, display_name
@@ -116,13 +116,9 @@ feature user
 
   command enable_mfa
     updates User
-
-    params
-      id: ID
-
-    target user = query.by_id(id: params.id)
-
-    input totp_code: Text
+    input
+      totp_code: Text
+    target query.by_id(id: route.id)
     policy update
     emits user_mfa_enabled
 

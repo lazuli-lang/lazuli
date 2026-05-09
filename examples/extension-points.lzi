@@ -19,4 +19,7 @@ feature customer_metrics
     client ltv_cell: CellRenderer[CustomerLtv]
     server refresh_ltv: Hook[RefreshCustomerLtv]
 
-  escape_route "/admin/raw-sql-console" at "./pages/sql_console.tsx"
+  escape_route "/admin/raw-sql-console"
+    at "./pages/sql_console.tsx"
+    policy role_admin
+    tenant org

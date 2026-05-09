@@ -173,10 +173,13 @@ These conventions keep the explicit syntax predictable. See also [Canonical sema
 Some routes do not belong inside Lazuli. Mark them explicitly:
 
 ```lazuli
-escape_route "/admin/raw-sql-console" at "./pages/sql_console.tsx"
+escape_route "/admin/raw-sql-console"
+  at "./pages/sql_console.tsx"
+  policy role_admin
+  tenant org
 ```
 
-Lazuli should know that the route exists, but it should not try to generate its policies, queries, views, or commands.
+Lazuli should know that the route exists and should still track its coarse security envelope. It should not try to generate the route's queries, views, commands, or internal behavior.
 
 ## Inspect Output
 

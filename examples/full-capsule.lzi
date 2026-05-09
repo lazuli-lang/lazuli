@@ -17,11 +17,11 @@ feature customer
 
   context "@docs/customer/customer.ctx.md"
 
-  uses org, user, billing
-
   defaults
     tenancy org
     timestamps
+
+  uses org, user, billing
 
   domain
     enum CustomerStatus
@@ -54,10 +54,6 @@ feature customer
       soft_delete
 
       validates tier "./hooks/validate_tier.go"
-
-      event_payload customer_*
-        customer_id = id
-        org_id = org.id
 
     constraints
       unique email per org
@@ -138,6 +134,11 @@ feature customer
       deny Customer.activate when customer.tier = CustomerTier.enterprise AND customer.owner = nil
       message "Enterprise customers require an owner before activation"
 
+    events customer_* on Customer
+      payload
+        customer_id = id
+        org_id = org.id
+
     event customer_created
       email: Email
       source: CustomerSource
@@ -171,18 +172,18 @@ feature customer
     read: same_org
     global_read: role_admin
 
-  field_policies Customer
-    email
-      read: same_org
-      write: role_admin, role_sales
+    fields Customer
+      email
+        read: same_org
+        write: role_admin, role_sales
 
-    score
-      read: role_admin, sales_manager
-      write: system
+      score
+        read: role_admin, sales_manager
+        write: system
 
-    external_id
-      read: role_admin, integrations_admin
-      write: system, integrations_admin
+      external_id
+        read: role_admin, integrations_admin
+        write: system, integrations_admin
 
   command create
     creates Customer
@@ -190,14 +191,14 @@ feature customer
     derive owner = ctx.user
     emits customer_created
 
-  command reassign previously assign_owner on Customer
+  command reassign previously assign_owner
     updates Customer
-    input owner: User
+    input owner
     emits customer_reassigned
 
-  command update_tier on Customer
+  command update_tier
     updates Customer
-    input tier: CustomerTier
+    input tier
 
   workflow lifecycle on Customer.lifecycle_stage
     policy update
@@ -220,10 +221,12 @@ feature customer
     trigger event billing.invoice_paid
     idempotency event.id
     policy system
-    target customer = query.by_id(id: event.customer_id)
-    derive score = ext.risk_score(customer)
-    derive reason = "invoice_paid"
+    target query.by_id(id: event.customer_id)
+    updates Customer
+      score = ext.risk_score(self)
     emits customer_score_recomputed
+      score = self.score
+      reason = "invoice_paid"
 
   # Candidate Tier 2: scheduled/background work.
   job recompute_scores
@@ -243,7 +246,7 @@ feature customer
         score ext.score_cell
         owner ext.owner_cell
 
-    view detail SidePanel
+    view detail SidePanel id customer_detail
       source query.by_id(id: route.id)
       block ext.activity_timeline
 
@@ -279,7 +282,10 @@ feature customer
     server risk_score: Function[Customer, RiskScore]
     server query_scope_modifier: QueryModifier[Customer]
 
-  escape_route "/admin/customer-debug" at "./pages/customer_debug.tsx"
+  escape_route "/admin/customer-debug"
+    at "./pages/customer_debug.tsx"
+    policy role_admin
+    tenant org
 
 feature customer_auth
   purpose "Customer-facing login, sessions, OAuth, MFA, and account access."
@@ -288,11 +294,11 @@ feature customer_auth
     user: "staff authentication"
     customer: "customer lifecycle ownership"
 
-  uses org, customer
-
   defaults
     tenancy org
     timestamps
+
+  uses org, customer
 
   domain
     enum AuthProvider
@@ -325,6 +331,11 @@ feature customer_auth
       customer_id: ID
       by_id: ID
 
+  policies
+    login: public
+    update: same_org
+    read: same_org
+
   auth
     identity Customer.email
 
@@ -345,11 +356,6 @@ feature customer_auth
       ttl "7 days"
       refresh false
 
-  policies
-    login: public
-    update: same_org
-    read: same_org
-
   command login
     input email, password
     policy login
@@ -358,13 +364,9 @@ feature customer_auth
 
   command enable_mfa
     updates Customer
-
-    params
-      customer_id: ID
-
-    target customer = customer.query.by_id(id: params.customer_id)
-
-    input totp_code: Text
+    input
+      totp_code: Text
+    target customer.query.by_id(id: route.customer_id)
     policy update
     emits customer_mfa_enabled
 
@@ -392,11 +394,11 @@ feature customer_tags
     customer: "customer lifecycle ownership"
     anti_pattern.generic_taxonomy: "generic taxonomy system"
 
-  uses org, user, customer
-
   defaults
     tenancy org
     timestamps
+
+  uses org, user, customer
 
   domain
     resource CustomerTag
@@ -489,13 +491,10 @@ feature customer_tags
 
   command remove_tag
     deletes CustomerTagAssignment
-
-    params
+    input
       customer_id: ID
       tag_id: ID
-
-    target assignment = query.assignment_by_customer_tag(customer_id: params.customer_id, tag_id: params.tag_id)
-
+    target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy update
     emits customer_tag_removed
 
@@ -508,7 +507,7 @@ feature customer_tags
       source query.assignments_for_customer(customer_id: route.customer_id)
       columns tag, added_by, added_at
 
-  extends customer.surface.web.admin.view.detail
+  extends @customer_detail
     block ext.tag_editor
 
   extensions
@@ -522,12 +521,12 @@ feature customer_import
     customer: "customer lifecycle ownership"
     anti_pattern.generic_etl: "generic ETL platform"
 
-  uses org, user, customer
-
   defaults
     tenancy org
     timestamps
     policy system
+
+  uses org, user, customer
 
   domain
     enum ImportStatus
@@ -595,14 +594,6 @@ feature customer_import
     policy import
     emits customer_import_uploaded
 
-  # Candidate Tier 2: external inbound payload.
-  webhook crm_customer_upsert
-    path "/webhooks/crm/customer-upsert"
-    verify "./integrations/crm.go"
-    idempotency external_id
-    handler "./integrations/upsert_customer_from_crm.go" returns Customer
-    emits customer_webhook_received
-
   # Candidate Tier 2: queued/background work.
   job process_import
     trigger event customer_import_uploaded
@@ -611,6 +602,14 @@ feature customer_import
     retry 3 backoff exponential
     handler "./jobs/process_import.go"
     emits customer_import_completed
+
+  # Candidate Tier 2: external inbound payload.
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    verify "./integrations/crm.go"
+    idempotency external_id
+    handler "./integrations/upsert_customer_from_crm.go" returns Customer
+    emits customer_webhook_received
 
   surface web admin
     view upload Form
@@ -625,7 +624,10 @@ feature customer_import
       source query.rows(batch_id: route.id)
       columns row_number, error, created_at
 
-  escape_route "/admin/customer-imports" at "./pages/customer_imports.tsx"
+  escape_route "/admin/customer-imports"
+    at "./pages/customer_imports.tsx"
+    policy role_admin
+    tenant org
 
 feature customer_outreach
   purpose "Send customer lifecycle outreach from events without owning storage."
@@ -634,10 +636,10 @@ feature customer_outreach
     notification: "notification persistence"
     customer: "customer lifecycle ownership"
 
-  uses customer
-
   defaults
     policy system
+
+  uses customer
 
   # Candidate Tier 2: pure event-consumer feature with no resources.
   job send_welcome

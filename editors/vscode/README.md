@@ -52,10 +52,10 @@ feature name
     emits thing_created
 
   command rename
-    params
-      id: ID
-    target thing = query.by_id(id: params.id)
-    input name
+    updates Thing
+    input
+      name: Text
+    target query.by_id(id: route.id)
     policy update
 
   workflow status on Thing.status
@@ -87,7 +87,7 @@ Current consistency rules:
 
 Highlighting groups:
 
-- Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `webhook`, `job`, `auth`, `field_policies`, `extends`, `escape_route`.
+- Structural constructors: `feature`, `resource`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `events`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
 - Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `defaults`, `constraints`, `policies`, `params`, `key`, `scope`, `filters`, `cells`, `non_goals`.
-- Internal statements: `event_payload`, `observability_only`, `creates`, `updates`, `deletes`, `input`, `derive`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validates`, `deny`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.
+- Section containers: `defaults`, `constraints`, `policies`, `params`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`.
+- Internal statements: `observability_only`, `creates`, `updates`, `deletes`, `input`, `derive`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validates`, `deny`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.

@@ -64,9 +64,9 @@ Lazuli wires the SQL file into generated query handlers, but it should not silen
 
 ## Escape
 
-`escape_route` registers something Lazuli should know exists but should not own.
+`escape_route` registers something Lazuli should know exists but should not own. It must still declare `at`, `policy`, and `tenant` so the generated route manifest has a visible security envelope.
 
-Lazuli should not generate policies, queries, views, migrations, or tests for escape routes unless a future adapter provides explicit support.
+Lazuli should not generate queries, views, migrations, or internal tests for escape routes unless a future adapter provides explicit support.
 
 ## Modes
 

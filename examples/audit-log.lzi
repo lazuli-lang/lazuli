@@ -9,10 +9,10 @@ feature audit_log
     anti_pattern.event_sourcing: "full event sourcing"
     anti_pattern.analytics_warehouse: "analytics warehouse"
 
-  uses org, user, customer, issue, billing
-
   defaults
     policy system
+
+  uses org, user, customer, issue, billing
 
   domain
     resource AuditEvent

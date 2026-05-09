@@ -30,7 +30,7 @@ Tier 2 pressure fixtures now exist for:
 
 The full audit fixture also includes capability-split customer satellites (`customer_auth`, `customer_tags`, `customer_import`, `customer_outreach`) to pressure cross-feature references, view composition, explicit deletes, and pure event-consumer features.
 
-These pressure fixtures intentionally include candidate constructs that are not part of the parser MVP yet: `auth`, `webhook`, `job trigger`, `field_policies`, and `extends`.
+These pressure fixtures intentionally include candidate constructs that are not part of the parser MVP yet: `auth`, `webhook`, `job trigger`, policy `fields`, and `extends`.
 
 ## Questions Per Feature
 

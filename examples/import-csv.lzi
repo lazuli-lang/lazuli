@@ -9,10 +9,10 @@ feature customer_import
     customer: "customer lifecycle rules"
     anti_pattern.generic_etl: "generic ETL platform"
 
-  uses org, user, customer
-
   defaults
     policy system
+
+  uses org, user, customer
 
   domain
     enum ImportStatus

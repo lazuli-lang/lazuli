@@ -240,6 +240,10 @@ impl Backend {
 }
 
 fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
+    if is_canonical_source(source) {
+        return canonical_order_diagnostics(source);
+    }
+
     let document = match parse_document(source) {
         Ok(document) => document,
         Err(error) => {
@@ -271,6 +275,200 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
             data: None,
         }],
     }
+}
+
+fn is_canonical_source(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| line.trim_start().starts_with("feature "))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalBlockKind {
+    Meta,
+    Defaults,
+    Uses,
+    Domain,
+    Policies,
+    Auth,
+    Command,
+    Workflow,
+    Job,
+    Webhook,
+    Surface,
+    Extensions,
+    EscapeRoute,
+}
+
+impl CanonicalBlockKind {
+    fn rank(self) -> u8 {
+        match self {
+            Self::Meta => 0,
+            Self::Defaults => 1,
+            Self::Uses => 2,
+            Self::Domain => 3,
+            Self::Policies => 4,
+            Self::Auth => 5,
+            Self::Command => 6,
+            Self::Workflow => 7,
+            Self::Job => 8,
+            Self::Webhook => 9,
+            Self::Surface => 10,
+            Self::Extensions => 11,
+            Self::EscapeRoute => 12,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Meta => "meta",
+            Self::Defaults => "defaults",
+            Self::Uses => "uses",
+            Self::Domain => "domain",
+            Self::Policies => "policies",
+            Self::Auth => "auth",
+            Self::Command => "command",
+            Self::Workflow => "workflow",
+            Self::Job => "job",
+            Self::Webhook => "webhook",
+            Self::Surface => "surface",
+            Self::Extensions => "extensions",
+            Self::EscapeRoute => "escape_route",
+        }
+    }
+}
+
+const CANONICAL_FEATURE_ORDER: &str =
+    "meta -> defaults -> uses -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
+
+fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_feature: Option<CanonicalFeatureOrder> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            current_feature = Some(CanonicalFeatureOrder::new(feature_name(trimmed)));
+            continue;
+        }
+
+        let Some(feature) = current_feature.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) != 2 {
+            continue;
+        }
+
+        let Some(kind) = canonical_block_kind(trimmed) else {
+            continue;
+        };
+
+        if let Some(previous) = feature.last_kind {
+            if kind.rank() < previous.rank() {
+                diagnostics.push(canonical_order_diagnostic(
+                    line_index,
+                    line,
+                    &feature.name,
+                    kind,
+                    previous,
+                ));
+                continue;
+            }
+        }
+
+        feature.last_kind = Some(kind);
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct CanonicalFeatureOrder {
+    name: String,
+    last_kind: Option<CanonicalBlockKind>,
+}
+
+impl CanonicalFeatureOrder {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            last_kind: None,
+        }
+    }
+}
+
+fn canonical_order_diagnostic(
+    line_index: usize,
+    line: &str,
+    feature_name: &str,
+    found: CanonicalBlockKind,
+    previous: CanonicalBlockKind,
+) -> Diagnostic {
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: line_index as u32,
+                character: leading_spaces(line) as u32,
+            },
+            end: Position {
+                line: line_index as u32,
+                character: line.len().max(leading_spaces(line) + 1) as u32,
+            },
+        },
+        severity: Some(DiagnosticSeverity::ERROR),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "canonical-order".to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-canonical".to_owned()),
+        message: format!(
+            "non-canonical block order in feature `{feature_name}`: `{}` appears after `{}`. Expected order: {CANONICAL_FEATURE_ORDER}.",
+            found.label(),
+            previous.label()
+        ),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
+    let first = trimmed_line.split_whitespace().next()?;
+
+    match first {
+        "purpose" | "non_goals" | "context" => Some(CanonicalBlockKind::Meta),
+        "defaults" => Some(CanonicalBlockKind::Defaults),
+        "uses" => Some(CanonicalBlockKind::Uses),
+        "domain" => Some(CanonicalBlockKind::Domain),
+        "policies" => Some(CanonicalBlockKind::Policies),
+        "auth" => Some(CanonicalBlockKind::Auth),
+        "command" => Some(CanonicalBlockKind::Command),
+        "workflow" => Some(CanonicalBlockKind::Workflow),
+        "job" => Some(CanonicalBlockKind::Job),
+        "webhook" => Some(CanonicalBlockKind::Webhook),
+        "surface" => Some(CanonicalBlockKind::Surface),
+        "extensions" => Some(CanonicalBlockKind::Extensions),
+        "escape_route" => Some(CanonicalBlockKind::EscapeRoute),
+        _ => None,
+    }
+}
+
+fn leading_spaces(line: &str) -> usize {
+    line.bytes().take_while(|byte| *byte == b' ').count()
+}
+
+fn feature_name(trimmed_line: &str) -> String {
+    trimmed_line
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("<anonymous>")
+        .to_owned()
 }
 
 fn range_from_span(source: &str, span: Span) -> Range {
@@ -389,3 +587,124 @@ const KEYWORDS: &[&str] = &[
     "unique",
     "default",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::diagnostics_for;
+
+    #[test]
+    fn canonical_order_accepts_feature_blocks_in_order() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  defaults
+    tenancy org
+
+  uses org
+
+  domain
+    resource Customer
+
+  policies
+    read: same_org
+
+  command create
+    creates Customer
+
+  workflow lifecycle on Customer.status
+    policy update
+
+  job sync
+    trigger schedule "0 2 * * *"
+
+  webhook inbound
+    path "/webhooks/inbound"
+
+  surface web admin
+    view list Table
+
+  extensions
+    server before_create: Hook[CreateCustomer]
+
+  escape_route "/admin/customer-debug"
+    at "./pages/customer_debug.tsx"
+    policy role_admin
+    tenant org
+"#;
+
+        assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn canonical_order_accepts_full_capsule_fixture() {
+        let diagnostics = diagnostics_for(include_str!("../../../examples/full-capsule.lzi"));
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected no canonical ordering diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_order_reports_late_uses() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+
+  uses org
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("`uses` appears after `domain`"));
+    }
+
+    #[test]
+    fn canonical_order_reports_late_webhook_after_surface() {
+        let source = r#"
+feature billing
+  purpose "Billing"
+
+  domain
+    resource Invoice
+
+  surface web admin
+    view list Table
+
+  webhook stripe_invoice_paid
+    path "/webhooks/stripe/invoice-paid"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("`webhook` appears after `surface`")
+        );
+    }
+
+    #[test]
+    fn legacy_aggregate_still_uses_parser_diagnostics() {
+        let source = r#"
+aggregate Customer {
+  name: Text
+
+  command Create {
+    input email
+  }
+}
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].source.as_deref(), Some("lazuli-analyzer"));
+    }
+}
