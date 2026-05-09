@@ -95,4 +95,4 @@ feature org
       columns org, role
 
   extensions
-    server resolve_or_invite_user: Function[Email, User] at "./domain/resolve_or_invite_user.go"
+    server resolve_or_invite_user: Function[Email, User]

@@ -53,7 +53,9 @@ feature customer
 
       soft_delete
 
-      event_payload customer
+      validates tier "./hooks/validate_tier.go"
+
+      event_payload customer_*
         customer_id = id
         org_id = org.id
 
@@ -216,9 +218,11 @@ feature customer
   # Candidate Tier 2: consume another feature event.
   job recompute_score_after_invoice
     trigger event billing.invoice_paid
+    idempotency event.id
     policy system
     target customer = query.by_id(id: event.customer_id)
     derive score = ext.risk_score(customer)
+    derive reason = "invoice_paid"
     emits customer_score_recomputed
 
   # Candidate Tier 2: scheduled/background work.
@@ -268,13 +272,12 @@ feature customer
     client status_cell: CellRenderer[Customer]
     client score_cell: CellRenderer[Customer]
     client owner_cell: CellRenderer[Customer]
-    client activity_timeline: ViewBlock[Customer] at "./ui/activity_timeline.tsx"
+    client activity_timeline: ViewBlock[Customer]
 
     server before_create: Hook[CreateCustomer]
     server after_archive: Hook[ArchiveCustomer]
-    server risk_score: Function[Customer, RiskScore] at "./domain/risk_score.go"
-    server validate_tier: Validator[Customer.tier] at "./hooks/validate_tier.go"
-    server query_scope_modifier: QueryModifier[Customer] at "./queries/query_scope_modifier.go"
+    server risk_score: Function[Customer, RiskScore]
+    server query_scope_modifier: QueryModifier[Customer]
 
   escape_route "/admin/customer-debug" at "./pages/customer_debug.tsx"
 
@@ -509,8 +512,8 @@ feature customer_tags
     block ext.tag_editor
 
   extensions
-    client tag_editor: ViewBlock[Customer] at "./ui/tag_editor.tsx"
-    server before_assign_tag: Hook[AssignCustomerTag] at "./hooks/before_assign_tag.go"
+    client tag_editor: ViewBlock[Customer]
+    server before_assign_tag: Hook[AssignCustomerTag]
 
 feature customer_import
   purpose "Customer CSV uploads, CRM webhook ingestion, row validation, and async processing."
@@ -595,9 +598,9 @@ feature customer_import
   # Candidate Tier 2: external inbound payload.
   webhook crm_customer_upsert
     path "/webhooks/crm/customer-upsert"
-    verify WebhookAdapter[CrmCustomerUpsert] at "./integrations/crm.go"
+    verify "./integrations/crm.go"
     idempotency external_id
-    handler Function[CrmCustomerPayload, Customer] at "./integrations/upsert_customer_from_crm.go"
+    handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
 
   # Candidate Tier 2: queued/background work.

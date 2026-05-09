@@ -184,9 +184,23 @@ Resource-local custom validation may be attached inline when the validator is si
 resource ImportRow
   raw: JSON required
   validates "./domain/validate_row.go"
+
+resource Customer
+  tier: CustomerTier = free
+  validates tier "./hooks/validate_tier.go"
 ```
 
-Reusable validators should still live in `extensions server` and be referenced by name where needed.
+Use `validates "./path.go"` for whole-resource validation and `validates <field> "./path.go"` for field-level validation. Reusable validators should still live in `extensions server` and be referenced by name where needed.
+
+## Formatting
+
+Canonical `.lzi` style is deliberately boring so agents can copy it safely:
+
+- Separate major child blocks (`resource`, `query`, `event`, `command`, `job`, `view`) with one blank line.
+- Keep scalar statements inside one block contiguous unless a nested block follows.
+- Inside `query`, put one blank line between `params`, `key`/`filters`, `order`, and `paginate`.
+- Inside `command`, keep `creates`/`updates`/`deletes`, `input`, `derive`, `policy`, and `emits` contiguous.
+- Inside `job`, keep trigger metadata (`trigger`, `queue`, `idempotency`, `retry`, `policy`) contiguous, followed by either a declarative body or a handler body.
 
 Fields whose type is a resource from another feature create a semantic foreign-key edge:
 
@@ -535,13 +549,13 @@ If no explicit value is given, the semantic value is the identifier.
 
 Events are external contracts, so their payloads should be visible in canonical v0. Lazuli does not implicitly add `<feature>_id` to every event.
 
-When many events for one resource share the same envelope fields, declare that envelope explicitly on the resource:
+When many events for one resource share the same envelope fields, declare that envelope explicitly on the resource with an event-name pattern:
 
 ```lazuli
 resource Customer
   tenancy org
 
-  event_payload customer
+  event_payload customer_*
     customer_id = id
     org_id = org.id
 
@@ -558,7 +572,7 @@ event customer_archived
   by_id: ID
 ```
 
-`event_payload <prefix>` is explicit sugar, not hidden magic. The identifier is an event-name prefix, not a decorative payload profile. It applies to events in the same feature whose names start with that prefix, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. `lazuli expand` and `lazuli inspect` must show the fully expanded event payload, and the analyzer should warn when an `event_payload` prefix matches no events.
+`event_payload <event-pattern>` is explicit sugar, not hidden magic. The pattern must currently be a single trailing-wildcard event-name pattern such as `customer_*`. It applies to events in the same feature whose names match that pattern, such as `customer_created`, `customer_archived`, and `customer_score_recomputed`. It is not a payload profile name, metadata label, or global base event. `lazuli expand` and `lazuli inspect` must show the fully expanded event payload, and the analyzer should warn when an `event_payload` pattern matches no events.
 
 ```lazuli
 event customer_archived
@@ -740,23 +754,23 @@ job process_import
 
 Async snippets that omit `policy` assume the surrounding feature declares `defaults policy system`; otherwise write `policy system` inline.
 
-`handler` may be a typed contract when the return type is semantically consumed elsewhere:
+`handler` may declare `returns <Type>` when the return value is semantically consumed elsewhere:
 
 ```lazuli
-handler Function[Customer, RiskScore] at "./domain/risk_score.go"
+handler "./integrations/upsert_customer_from_crm.go" returns Customer
 ```
 
 For fire-and-consume jobs whose only meaningful result is success or failure, `handler "./path.go"` is preferred. The input type is derived from the trigger event or job payload, and Go adapters should generate `func <JobName>(ctx, event) error`-style contracts.
 
-Webhook handlers are explicit inbound edges from the outside world. In canonical v0, webhooks should verify and then run a server extension:
+Webhook handlers are explicit inbound edges from the outside world. In canonical v0, webhooks should verify and then run a server extension. The verifier and handler input types are derived from the webhook name by adapter convention; only the return type is written when it matters semantically:
 
 ```lazuli
 webhook stripe_invoice_paid
   path "/webhooks/stripe/invoice-paid"
-  verify WebhookAdapter[StripeInvoicePaid] at "./integrations/stripe.go"
+  verify "./integrations/stripe.go"
   idempotency provider_event_id
   policy system
-  handler Function[StripeInvoicePaid, BillingWebhook] at "./integrations/record_stripe_invoice_paid.go"
+  handler "./integrations/record_stripe_invoice_paid.go" returns BillingWebhook
   emits invoice_paid
 ```
 
@@ -778,6 +792,24 @@ job recompute_scores
 `trigger event` means event-consumer work. `trigger schedule` means cron-like recurring processing. `queue` is an execution lane, not the source of truth for why the job runs.
 
 Jobs and webhooks declare their required implementation inline with `handler` (and `verify` for webhooks). Do not duplicate those handlers in `extensions`; reserve `extensions` for reusable UI renderers, hooks, validators, query modifiers, and domain functions that are referenced by name from multiple constructs.
+
+A job chooses one body style:
+
+```lazuli
+job record_customer_created
+  trigger event customer.customer_created
+  idempotency event.id
+  creates AuditEvent
+  derive payload = event
+
+job process_import
+  trigger event import_uploaded
+  queue customer_imports
+  handler "./jobs/process_import.go"
+  emits import_completed
+```
+
+Use the declarative body for small reactions that bind targets, create resources, derive values, or emit events without custom control flow. Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, `deletes`, or `derive`.
 
 ## Auth
 
@@ -831,9 +863,9 @@ The full convention table:
 | `job <name> handler`               | `features/<feature>/jobs/<name>.go`         |
 | `resource <name> validates`        | `features/<feature>/domain/validate_<name>.go` |
 | `block <name>: ViewBlock[X]`       | `features/<feature>/ui/<name>.tsx`          |
-| `webhook <name> verify WebhookAdapter[X]` | `features/<feature>/integrations/<name>.go` |
+| `webhook <name> verify`           | `features/<feature>/integrations/<name>.go` |
 
-Use `at` only when the implementation lives outside the convention.
+Use `at` only when the implementation lives outside the convention. Missing implementation status is not encoded by `at`: `lazuli inspect` and `lazuli check --strict` determine whether the conventional file exists and whether a stub should be generated.
 
 The convention is part of the IR ABI (see `ir-abi.md`): changing a default path is a major bump. Adding a contract type is a minor bump.
 

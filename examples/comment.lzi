@@ -95,5 +95,5 @@ feature comment
       block ext.thread_view
 
   extensions
-    client thread_view: ViewBlock[Comment] at "./ui/thread_view.tsx"
-    server extract_mentions: Function[Text, User[]] at "./domain/extract_mentions.go"
+    client thread_view: ViewBlock[Comment]
+    server extract_mentions: Function[Text, User[]]

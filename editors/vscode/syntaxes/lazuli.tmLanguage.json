@@ -316,7 +316,7 @@
         },
         {
           "name": "support.type.extension.lazuli",
-          "match": "\\b(Cell|Block|CellRenderer|Hook|Function|Validator|QueryModifier|WorkflowEffect|PageBlock|ViewBlock|FormField|BackgroundJob|WebhookAdapter|IntegrationAdapter)\\b"
+          "match": "\\b(Cell|Block|CellRenderer|Hook|Function|Validator|QueryModifier|WorkflowEffect|PageBlock|ViewBlock|FormField|IntegrationAdapter)\\b"
         },
         {
           "name": "support.type.domain.lazuli",

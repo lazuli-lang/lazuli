@@ -177,9 +177,9 @@ feature issue
   extensions
     client status_cell: CellRenderer[Issue]
     client priority_cell: CellRenderer[Issue]
-    client comment_thread: ViewBlock[Issue] at "./ui/comment_thread.tsx"
-    client sub_issue_list: ViewBlock[Issue] at "./ui/sub_issue_list.tsx"
+    client comment_thread: ViewBlock[Issue]
+    client sub_issue_list: ViewBlock[Issue]
 
     server before_create: Hook[CreateIssue]
     server after_assign: Hook[AssignIssue]
-    server rank_score: Function[Issue, IssueRankScore] at "./domain/rank_score.go"
+    server rank_score: Function[Issue, IssueRankScore]

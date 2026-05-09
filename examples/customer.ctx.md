@@ -19,4 +19,4 @@ Customer is the CRM-facing identity for an organization account. It tracks lifec
 ## Decision Log
 
 - Customer events are intentionally small. Consumers should load the current customer snapshot if they need more than the event payload.
-- `at:` is optional for extensions. Omit it when the implementation follows the feature-local convention.
+- `at` is optional for `extensions` entries. Omit it when the implementation follows the feature-local convention; missing files are reported by `lazuli check --strict`.

@@ -40,7 +40,7 @@ Use `at` only when the convention is not enough:
 
 ```lazuli
 extensions
-  client status_cell: CellRenderer[Customer] at "./ui/status_cell.tsx"
+  client status_cell: CellRenderer[Customer] at "@shared/customer/status_cell.tsx"
 ```
 
 ## TypeScript Contract
@@ -114,8 +114,9 @@ Lazuli should connect Go extensions by generated registration code, not runtime 
 - Pure domain functions
 - Custom validators
 - Query modifiers
-- Background jobs
-- Webhooks and integration adapters
+- Integration adapters referenced by auth or other reusable contracts
+
+Background job handlers, webhook verifiers, and webhook handlers are custom source files, but they are declared inline on `job` and `webhook` rather than listed in `extensions`.
 
 ## Not Allowed As Feature Extensions
 

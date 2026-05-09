@@ -27,7 +27,7 @@ This document tracks design pressure that is not yet part of the core canonical 
 - Single-use view blocks and resource validators may declare their implementation inline instead of creating an `extensions` index entry.
 - Workflow-level `policy` is a default; transition-level `policy` overrides it.
 - Workflow-level `emits` always fires; transition-level `emits` fires additionally.
-- Event payloads are explicit; shared repeated envelope fields use resource-level `event_payload`.
+- Event payloads are explicit; shared repeated envelope fields use resource-level `event_payload <event-pattern>`.
 - `context` is only an override for the co-located `<feature>.ctx.md` convention.
 - `on_delete` governs hard delete only; soft-delete cascades must be explicit behavior.
 
@@ -46,8 +46,8 @@ Candidate shape to test later:
 ```lazuli
 webhook stripe_payment
   path "/webhooks/stripe"
-  verify WebhookAdapter[StripePayment] at "./integrations/stripe.go"
-  handler Function[StripePayment, Payment] at "./integrations/record_payment.go"
+  verify "./integrations/stripe.go"
+  handler "./integrations/record_payment.go" returns Payment
   emits payment_received
 ```
 

@@ -106,9 +106,9 @@ feature billing
 
   webhook stripe_invoice_paid
     path "/webhooks/stripe/invoice-paid"
-    verify WebhookAdapter[StripeInvoicePaid] at "./integrations/stripe.go"
+    verify "./integrations/stripe.go"
     idempotency provider_event_id
-    handler Function[StripeInvoicePaid, BillingWebhook] at "./integrations/record_stripe_invoice_paid.go"
+    handler "./integrations/record_stripe_invoice_paid.go" returns BillingWebhook
     emits invoice_paid
 
   job retry_failed_webhooks
@@ -126,4 +126,4 @@ feature billing
       source query.by_id(id: route.id)
 
   extensions
-    server next_invoice_number: Function[Org, Text] at "./domain/next_invoice_number.go"
+    server next_invoice_number: Function[Org, Text]

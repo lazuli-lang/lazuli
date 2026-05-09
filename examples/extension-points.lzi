@@ -16,7 +16,7 @@ feature customer_metrics
       columns customer_id, amount, currency
 
   extensions
-    client ltv_cell: CellRenderer[CustomerLtv] at "./ui/ltv_cell.tsx"
+    client ltv_cell: CellRenderer[CustomerLtv]
     server refresh_ltv: Hook[RefreshCustomerLtv]
 
   escape_route "/admin/raw-sql-console" at "./pages/sql_console.tsx"
