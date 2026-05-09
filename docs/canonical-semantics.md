@@ -288,7 +288,19 @@ The compiler may validate that the referenced file exists and `lazuli inspect` m
 
 ## Resources And Relations
 
-Fields are declared as `name: Type modifier`. Required/optional should be visible for non-default cases.
+Fields are declared in this canonical order:
+
+```txt
+<name> [previously <old_name>]: <type> [markers...] [required|optional|= default] [relation modifiers...]
+```
+
+`<type>` may itself be a capability type such as `@cap.Encrypted(...)`.
+Markers such as `@pii.*` follow the type. Presence/default comes after type and
+markers: use `required`, `optional`, or `= <default>`, not both presence and a
+default. Relation modifiers such as `on_delete restrict` follow presence
+because they qualify the relation, not the stored scalar shape. Keeping this
+order stable makes field lines parseable for humans, agents, formatters, and
+semantic diffs.
 
 Type names are intentionally a closed catalog unless they resolve to a local resource, enum, or imported type. Plain scalar types include `ID`, `Text`, `Boolean`, `Integer`, `Decimal`, `Date`, `DateTime`, and `JSON`. Types that carry framework behavior are namespaced:
 
@@ -299,6 +311,7 @@ password_hash: @cap.Hashed(algorithm:argon2id) optional
 api_key: @cap.Encrypted(key:@key.tenant) @pii.credential optional
 reset_token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
 file: @cap.File required
+owner: User required on_delete restrict
 ```
 
 `@semantic.*` means Lazuli should apply domain validation or formatting. `@cap.*` means the type carries platform behavior such as upload storage, redaction, hashing, encryption, token expiry, or secret handling. `@pii.*` is classification metadata used by logs, event stores, exports, and erasure workflows. `@key.*` declares key blast radius for encrypted values. The analyzer should reject invented built-ins unless they are added to the closed catalog or resolved through `uses`.
@@ -913,6 +926,18 @@ Capability crypto tiers are explicit:
 - `@cap.E2ee(key:@key.<scope>)` is ciphertext the server should store but not read.
 - `@cap.Token(ttl:<duration>,single_use:true|false,store:hashed)` is generated token material such as password reset, magic link, email verification, or share-link tokens.
 
+Capability arguments use a closed mini-grammar, not arbitrary strings:
+
+- `<duration>` is an integer plus unit with no spaces: `30s`, `10m`, `1h`, `7d`.
+- `single_use` is exactly `true` or `false`.
+- `store` is `hashed` in canonical v0. Add other strategies only by spec update.
+- `algorithm` for `@cap.Hashed` is `argon2id` in canonical v0; adapters may
+  accept `bcrypt` only for migration/legacy compatibility.
+- `key` is a `@key.*` reference such as `@key.tenant`.
+
+Adapters may map those symbolic choices to concrete library parameters, but
+source should not invent new argument keys or free-form values.
+
 Key scopes use `@key.*`:
 
 - `@key.app` for app-wide keys; use sparingly.
@@ -1191,6 +1216,8 @@ event.trace customer_webhook_received
 `event.trace` marks a domain signal that is intentionally not part of the feature-to-feature reaction graph. Other features should not subscribe to it unless the event is promoted back to an ordinary `event`. In strict mode, `trigger event <trace-event>` is invalid. This keeps integration logs, webhook receipt markers, and side-effect audit signals visible without making every audit signal look like missing product behavior.
 
 `emits` works the same for `event` and `event.trace` declarations. The distinction affects subscriber warnings and reaction-graph generation, not how a command, workflow, job, or webhook publishes the signal.
+
+Event publication is always authored. Do not infer `emits customer_reassigned` from `command reassign` or `emits customer_archived` from `archive: active -> archived`; the explicit line is the contract that creates a reaction-graph edge. Likewise, shared resource envelopes belong in `event_group ... payload`, not in hidden feature-level payload defaults. If a repeated event-envelope pattern becomes universal, Lazuli should promote it to a named language primitive instead of adding project-local macros or invisible defaults.
 
 ## Policies
 

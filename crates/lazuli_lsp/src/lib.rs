@@ -1585,7 +1585,12 @@ fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             ));
         }
 
-        if line.contains("@cap.Hashed") && !line.contains("algorithm:") {
+        let hashed_args = capability_args(line, "Hashed");
+        if line.contains("@cap.Hashed")
+            && !hashed_args
+                .as_deref()
+                .is_some_and(|args| capability_arg(args, "algorithm").is_some())
+        {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -1594,35 +1599,88 @@ fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "`@cap.Hashed` should declare `algorithm:<name>` so the hash contract is audit-visible.",
             ));
         }
-
-        if line.contains("@cap.Encrypted")
-            && !(line.contains("key:@key.") || line.contains("key: @key."))
-        {
-            diagnostics.push(simple_canonical_diagnostic(
+        if let Some(args) = hashed_args.as_deref() {
+            warn_unknown_capability_args(
+                &mut diagnostics,
                 line_index,
                 line,
-                DiagnosticSeverity::WARNING,
-                "crypto-key-scope",
-                "`@cap.Encrypted` should declare `key:@key.<scope>` so key blast radius is audit-visible.",
-            ));
+                "@cap.Hashed",
+                args,
+                &["algorithm"],
+            );
+            if let Some(algorithm) = capability_arg(args, "algorithm")
+                && !matches!(algorithm, "argon2id" | "bcrypt")
+            {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "crypto-hash-algorithm",
+                    "canonical v0 hash algorithms are `argon2id` or `bcrypt` for legacy migration.",
+                ));
+            }
+        }
+
+        for capability in ["Encrypted", "E2ee"] {
+            let args = capability_args(line, capability);
+            if line.contains(&format!("@cap.{capability}"))
+                && !args
+                    .as_deref()
+                    .is_some_and(|args| capability_arg(args, "key").is_some())
+            {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "crypto-key-scope",
+                    &format!(
+                        "`@cap.{capability}` should declare `key:@key.<scope>` so key blast radius is audit-visible."
+                    ),
+                ));
+            }
+            if let Some(args) = args.as_deref() {
+                warn_unknown_capability_args(
+                    &mut diagnostics,
+                    line_index,
+                    line,
+                    &format!("@cap.{capability}"),
+                    args,
+                    &["key"],
+                );
+                if let Some(key) = capability_arg(args, "key")
+                    && !is_key_scope(key)
+                {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "crypto-key-scope",
+                        "encryption capability keys should use `key:@key.<scope>`.",
+                    ));
+                }
+            }
         }
 
         if line.contains("@cap.Token") {
+            let token_args = capability_args(line, "Token");
             for (required, message) in [
                 (
-                    "ttl:",
+                    "ttl",
                     "`@cap.Token` should declare `ttl:<duration>` for expiry.",
                 ),
                 (
-                    "single_use:",
+                    "single_use",
                     "`@cap.Token` should declare `single_use:true|false`.",
                 ),
                 (
-                    "store:",
+                    "store",
                     "`@cap.Token` should declare `store:hashed` or another explicit storage strategy.",
                 ),
             ] {
-                if !line.contains(required) {
+                if !token_args
+                    .as_deref()
+                    .is_some_and(|args| capability_arg(args, required).is_some())
+                {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
                         line,
@@ -1632,10 +1690,124 @@ fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     ));
                 }
             }
+            if let Some(args) = token_args.as_deref() {
+                warn_unknown_capability_args(
+                    &mut diagnostics,
+                    line_index,
+                    line,
+                    "@cap.Token",
+                    args,
+                    &["ttl", "single_use", "store"],
+                );
+                if let Some(ttl) = capability_arg(args, "ttl")
+                    && !is_duration_literal(ttl)
+                {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "crypto-token-contract",
+                        "`@cap.Token` ttl should use `ttl:<duration>` such as `30s`, `10m`, `1h`, or `7d`.",
+                    ));
+                }
+                if let Some(single_use) = capability_arg(args, "single_use")
+                    && !matches!(single_use, "true" | "false")
+                {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "crypto-token-contract",
+                        "`@cap.Token` single_use should be `true` or `false`.",
+                    ));
+                }
+                if let Some(store) = capability_arg(args, "store")
+                    && store != "hashed"
+                {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "crypto-token-contract",
+                        "`@cap.Token` store should be `hashed` in canonical v0.",
+                    ));
+                }
+            }
         }
     }
 
     diagnostics
+}
+
+fn capability_args(line: &str, capability: &str) -> Option<Vec<(String, String)>> {
+    let marker = format!("@cap.{capability}(");
+    let start = line.find(&marker)? + marker.len();
+    let args = line[start..].split_once(')')?.0;
+
+    Some(
+        args.split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(|part| {
+                part.split_once(':')
+                    .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
+                    .unwrap_or_else(|| (part.to_owned(), String::new()))
+            })
+            .collect(),
+    )
+}
+
+fn capability_arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    args.iter()
+        .find(|(arg_key, _)| arg_key == key)
+        .map(|(_, value)| value.as_str())
+}
+
+fn warn_unknown_capability_args(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    capability: &str,
+    args: &[(String, String)],
+    allowed: &[&str],
+) {
+    for (key, _) in args {
+        if !allowed.contains(&key.as_str()) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "crypto-capability-arguments",
+                &format!(
+                    "{capability} only accepts canonical arguments: {}.",
+                    allowed.join(", ")
+                ),
+            ));
+        }
+    }
+}
+
+fn is_duration_literal(value: &str) -> bool {
+    let digit_count = value
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .count();
+
+    if digit_count == 0 || digit_count == value.len() {
+        return false;
+    }
+
+    let Ok(amount) = value[..digit_count].parse::<u64>() else {
+        return false;
+    };
+
+    amount > 0 && matches!(&value[digit_count..], "s" | "m" | "h" | "d")
+}
+
+fn is_key_scope(value: &str) -> bool {
+    value
+        .strip_prefix("@key.")
+        .is_some_and(|scope| is_identifier(scope))
 }
 
 fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -4561,6 +4733,48 @@ feature auth
                 .iter()
                 .any(|message| { message.contains("`@cap.Token` should declare `store:hashed`") })
         );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_crypto_capability_arguments() {
+        let source = r#"
+feature auth
+  purpose "Auth"
+
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:md5,pepper:true) required
+      api_key: @cap.Encrypted(key:tenant) required
+      private_note: @cap.E2ee(key:tenant) optional
+      reset_token: @cap.Token(ttl:"one hour",single_use:yes,store:plain) required
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.iter().any(|message| {
+            message.contains("canonical v0 hash algorithms are `argon2id` or `bcrypt`")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("@cap.Hashed only accepts canonical arguments: algorithm")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("encryption capability keys should use `key:@key.<scope>`")
+        }));
+        assert!(
+            messages.iter().any(|message| {
+                message.contains("`@cap.Token` ttl should use `ttl:<duration>`")
+            })
+        );
+        assert!(messages.iter().any(|message| {
+            message.contains("`@cap.Token` single_use should be `true` or `false`")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("`@cap.Token` store should be `hashed` in canonical v0")
+        }));
     }
 
     #[test]

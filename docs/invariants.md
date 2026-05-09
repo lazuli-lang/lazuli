@@ -93,6 +93,12 @@ source that only fails later.
   `event` first.
 - `emits` can publish either `event` or `event.trace`; the distinction affects
   graph/subscriber analysis, not publishing syntax.
+- `emits` is explicit. Lazuli does not infer event publication from command,
+  workflow, or job names because events are contracts and reaction-graph edges,
+  not logging conventions.
+- Shared event payload belongs in `event_group ... payload`; canonical v0 has
+  no hidden feature-level actor or tenant payload defaults. Repeated payload
+  shape should become a named language primitive only after it proves universal.
 - Event-triggered jobs use `envelope.*` for bus metadata and `payload.*` for
   producer-authored fields.
 - Event consumers may only reference payload fields declared by the producer
@@ -137,6 +143,10 @@ source that only fails later.
 - `@cap.Hashed` declares an algorithm.
 - `@cap.Encrypted` and `@cap.E2ee` declare a `@key.*` scope.
 - `@cap.Token` declares TTL, single-use behavior, and storage strategy.
+- Capability arguments are closed: token TTL is `<integer><s|m|h|d>`,
+  `single_use` is `true|false`, token `store` is `hashed` in v0, hash
+  `algorithm` is `argon2id` canonically (`bcrypt` only for legacy migration),
+  and encryption keys are `@key.*` references.
 - Declarative webhook verification (`verify hmac sha256`, with `secret` and
   `header`) is preferred for common HMAC providers; custom `verify "./path.go"`
   remains the escape hatch.

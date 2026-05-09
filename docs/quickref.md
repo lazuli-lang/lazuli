@@ -275,6 +275,9 @@ Use these in source, not just Go/runtime:
 - Event consumers may only read fields declared by the producer event contract,
   including inherited `event_group` payload fields.
 - Mark sensitive fields and event payloads with `@pii.*`, `@cap.*`, and `@key.*`.
+- Use canonical capability arguments: `@cap.Hashed(algorithm:argon2id)`,
+  `@cap.Encrypted(key:@key.tenant)`, and
+  `@cap.Token(ttl:1h,single_use:true,store:hashed)`.
 - Prefer declarative webhook verification:
 
 ```lazuli
