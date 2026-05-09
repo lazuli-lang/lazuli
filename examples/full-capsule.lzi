@@ -92,7 +92,6 @@ feature customer
         owner when params.owner
         name = params.search when params.search
 
-      order created_at desc
       paginate 50
 
     query.lookup by_id by id: ID
@@ -217,11 +216,6 @@ feature customer
       owner = ctx.user
     emits customer_created
 
-    tests
-      permits @role.admin, @role.sales
-      forbids @role.viewer
-      forbids @scope.public
-
   command reassign previously assign_owner
     route id: ID
     input owner
@@ -231,8 +225,6 @@ feature customer
     emits customer_reassigned
 
     tests
-      permits @role.admin, @role.sales
-      forbids @role.viewer
       denies when target.lifecycle_stage = archived
       allows when target.lifecycle_stage = active
       allows when target.lifecycle_stage = paused
@@ -243,11 +235,6 @@ feature customer
     policy @policy.update
     updates Customer
       tier = input.tier
-
-    tests
-      permits @role.admin, @role.sales
-      forbids @role.viewer
-      forbids @scope.public
 
   workflow lifecycle on Customer.lifecycle_stage
     policy @policy.update
@@ -399,8 +386,6 @@ feature customer_auth
         customer.id = params.customer_id
         expires_at != nil
 
-      order created_at desc
-
     event customer_logged_in
       customer_id: ID
       session_id: ID
@@ -445,9 +430,6 @@ feature customer_auth
     returns AuthSession
     emits customer_logged_in
 
-    tests
-      permits @scope.public
-
   command enable_mfa
     route customer_id: ID
     input
@@ -458,10 +440,6 @@ feature customer_auth
       customer = target
       verified_at = ctx.now
     emits customer_mfa_enabled
-
-    tests
-      permits @scope.same_org
-      forbids @scope.public
 
   surface web public
     view login Form
@@ -574,11 +552,6 @@ feature customer_tags
       color = input.color
     emits tag_created
 
-    tests
-      permits @role.admin, @role.sales_ops
-      forbids @role.viewer
-      forbids @scope.public
-
   command assign_tag
     input
       customer: Customer
@@ -591,10 +564,6 @@ feature customer_tags
       added_at = ctx.now
     emits tag_assignment_created
 
-    tests
-      permits @role.admin, @role.sales_ops
-      forbids @role.viewer
-
   command remove_tag
     input
       customer_id: ID
@@ -603,10 +572,6 @@ feature customer_tags
     policy @policy.update
     deletes CustomerTagAssignment
     emits tag_assignment_removed
-
-    tests
-      permits @role.admin, @role.sales_ops
-      forbids @role.viewer
 
   surface web admin
     view tags Table
@@ -706,11 +671,6 @@ feature customer_import
       file = input.file
       uploaded_by = ctx.user
     emits customer_import_uploaded
-
-    tests
-      permits @role.admin, @role.sales_ops
-      forbids @role.viewer
-      forbids @scope.public
 
   job process_import
     trigger event customer_import_uploaded

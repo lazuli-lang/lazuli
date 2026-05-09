@@ -1041,9 +1041,9 @@ pub struct TestBlock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "verb", content = "value")]
 pub enum TestAssertion {
-    /// Command policy: `permits @role.admin, @role.sales`.
+    /// Generated command policy matrix row: `permits @role.admin, @role.sales`.
     PolicyAllow { actors: Vec<String> },
-    /// Command policy: `forbids @role.viewer`.
+    /// Generated command policy matrix row: `forbids @role.viewer`.
     PolicyDeny { actors: Vec<String> },
     /// Command/rule predicate: `allows when target.status = active` or
     /// `allows when self.status = active`, depending on the parent construct.

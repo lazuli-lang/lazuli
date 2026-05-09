@@ -35,11 +35,9 @@ feature audit_log
         subject_type = params.subject_type
         subject_id = params.subject_id
 
-      order created_at desc
       paginate 100
 
     query.list recent
-      order created_at desc
       paginate 100
 
   policies

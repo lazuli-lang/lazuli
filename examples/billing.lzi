@@ -59,7 +59,6 @@ feature billing
         status when params.status
         customer when params.customer
 
-      order created_at desc
       paginate 50
 
     query.lookup by_id by id: ID

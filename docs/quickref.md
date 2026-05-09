@@ -32,7 +32,6 @@ feature ping
       message: Text required
 
     query.list list
-      order created_at desc
       paginate 50
 
     event ping_created
@@ -217,6 +216,8 @@ it is a macro, not v0 sugar.
 
 `params` belongs to queries. `input` and `route` belong to commands.
 `paginate <n>` is the generated default page size, not a hard maximum.
+`query.list` defaults to `order created_at desc`; declare `order` only when a
+query intentionally differs from newest-first listing.
 
 `query.sql` return types such as `CustomerLtv[]` must resolve through local
 `record` declarations, resources, extension contracts, or adapter-provided
@@ -240,10 +241,15 @@ Tests are inline IR assertions. They are optional by default and strict in
 
 | Construct | Verbs | Binding |
 |-----------|-------|---------|
-| command | `permits`/`forbids <actor>`; `allows`/`denies when <predicate>` | `target` |
+| command | authored: `allows`/`denies when <predicate>`; generated: `permits`/`forbids <actor>` from `policy @policy.*` | `target` |
 | workflow transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined | `self` |
 | rule | `allows`/`denies when <predicate>` | `self` |
 | extensible view | `accepted`/`rejected by <feature>` | none |
+
+Do not copy command policy matrices into source. `lazuli inspect --expand=tests`
+and runtime test generation derive `permits`/`forbids` from the effective
+command policy. Authors write command tests only for rule/predicate behavior
+that is not already stated by `policy @policy.*`.
 
 No fixtures, mocks, event emission assertions, effect assertions, or
 given/when/then framing in v0 tests.

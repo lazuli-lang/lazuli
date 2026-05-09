@@ -39,7 +39,6 @@ feature customer
       filters
         status when params.status
 
-      order created_at desc
       paginate 50
 
     query.lookup by_id by id: ID

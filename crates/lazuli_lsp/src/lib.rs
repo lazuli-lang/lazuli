@@ -272,6 +272,7 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
         diagnostics.extend(refs_block_diagnostics(source));
         diagnostics.extend(policy_namespace_diagnostics(source));
         diagnostics.extend(scope_override_policy_diagnostics(source));
+        diagnostics.extend(query_order_default_diagnostics(source));
         diagnostics.extend(public_command_rate_limit_diagnostics(source));
         diagnostics.extend(event_job_tenant_from_diagnostics(source));
         diagnostics.extend(crypto_contract_diagnostics(source));
@@ -544,6 +545,36 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "unknown query mode. Use `query.list`, `query.lookup`, or `query.sql`.",
                 ));
             }
+        }
+    }
+
+    diagnostics
+}
+
+fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_query_list = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading <= 4 {
+            in_query_list = leading == 4 && trimmed.starts_with("query.list ");
+        }
+
+        if in_query_list && leading == 6 && trimmed == "order created_at desc" {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-order-default",
+                "`query.list` defaults to `order created_at desc`; omit the line unless the query intentionally uses a different order.",
+            ));
         }
     }
 
@@ -2051,6 +2082,17 @@ fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
                     DiagnosticSeverity::WARNING,
                     "tests-vocabulary",
                     "unknown test assertion for this construct. Use the closed tests vocabulary for command, workflow transition, rule, or view anchor blocks.",
+                ));
+            } else if indent >= 6
+                && context == "command"
+                && (trimmed.starts_with("permits @") || trimmed.starts_with("forbids @"))
+            {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "tests-generated-policy-matrix",
+                    "command policy actor-matrix tests are generated from `policy @policy.*`; author only predicate tests that add behavior beyond the policy.",
                 ));
             }
         }
@@ -3883,8 +3925,12 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "tests" => Some(
             "Declares inline IR assertions for a command, transition, rule, or view extension.",
         ),
-        "permits" => Some("Declares a positive command authorization test assertion."),
-        "forbids" => Some("Declares a negative command authorization test assertion."),
+        "permits" => Some(
+            "Generated command authorization assertion; authored command policy matrices are redundant with `policy @policy.*`.",
+        ),
+        "forbids" => Some(
+            "Generated command authorization assertion; authored command policy matrices are redundant with `policy @policy.*`.",
+        ),
         "allows" => Some("Declares a positive predicate or transition test assertion."),
         "deny" => Some("Declares a rule precondition that rejects an operation."),
         "denies" => Some("Declares a negative predicate or transition test assertion."),
@@ -4883,6 +4929,67 @@ feature customer
         let formatted = format_canonical_source(source).expect("canonical source");
 
         assert_eq!(formatted, source);
+    }
+
+    #[test]
+    fn canonical_warns_for_authored_command_policy_matrix_tests() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      name: Text required
+
+  policies
+    update: @role.admin
+
+  command rename
+    input
+      name: Text
+    policy @policy.update
+    creates Customer
+      name = input.name
+
+    tests
+      permits @role.admin
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("policy actor-matrix tests are generated")
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_explicit_default_list_order() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      name: Text required
+
+    query.list list
+      order created_at desc
+      paginate 50
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("defaults to `order created_at desc`")
+        );
     }
 
     #[test]

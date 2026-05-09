@@ -103,6 +103,8 @@ source that only fails later.
 
 - `paginate <n>` is the generated default page size for list queries, not a
   hard product maximum.
+- `query.list` defaults to `order created_at desc`; explicit `order` is used
+  only when a query intentionally differs.
 - `scope override` is an absolute replacement of inherited safety scope. Use it
   only for explicitly cross-tenant or admin queries.
 - Queries that use `scope override` must declare explicit `policy @policy.*`.
@@ -148,11 +150,13 @@ source that only fails later.
 - `tests` blocks are optional and inline.
 - Tests are allowed only on commands, workflow transitions, rules, and
   extensible views.
-- Tests cover decisions with inference: policy, rule predicates, transition
-  validity, and anchor allowlists. They do not restate effects or emitted
-  events.
-- Command actor-matrix tests use `permits` and `forbids`; predicate and
-  transition tests use `allows` and `denies`.
+- Tests cover decisions with inference: rule predicates, transition validity,
+  and anchor allowlists. They do not restate effects or emitted events.
+- Command actor-matrix tests are generated from the effective
+  `policy @policy.*`; authored command tests should cover only predicate
+  behavior beyond policy.
+- Generated command actor-matrix tests use `permits` and `forbids`; authored
+  predicate and transition tests use `allows` and `denies`.
 - Command tests use `target` when a loaded target exists. Rule and workflow
   tests use `self`.
 - Tests use the same closed predicate language as rules and filters; no

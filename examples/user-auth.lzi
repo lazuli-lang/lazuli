@@ -53,8 +53,6 @@ feature user
         user.id = params.user_id
         expires_at != nil
 
-      order created_at desc
-
     event user_registered
       user_id: ID
       email: @semantic.Email @pii.contact

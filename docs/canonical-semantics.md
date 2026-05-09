@@ -71,12 +71,12 @@ Inline assertions, last child of the construct. Optional by default; `--strict-t
 
 | Construct | Verbs |
 |-----------|-------|
-| command | `permits`/`forbids <actor>`; `allows`/`denies when <predicate>` |
+| command | authored `allows`/`denies when <predicate>`; generated `permits`/`forbids <actor>` from effective policy |
 | workflow transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined form |
 | rule | `allows`/`denies when <predicate>` |
 | extensible view | `accepted`/`rejected by <feature>` |
 
-Tests use the same binding as the construct under test, reuse the predicate language, and do not use fixtures or mocks. Run `lazuli test` for IR checks, or `lazuli test --runtime` for generated Go/TypeScript checks.
+Tests use the same binding as the construct under test, reuse the predicate language, and do not use fixtures or mocks. Command policy matrices are derived from `policy @policy.*`; do not copy them into source. Run `lazuli test` for IR checks, or `lazuli test --runtime` for generated Go/TypeScript checks.
 
 Inspect expansion:
 
@@ -440,6 +440,12 @@ query.list list
 ```
 
 `paginate <n>` declares the default generated page size for list queries. It is not a hard product maximum by itself; adapters may add project-wide maximums later. Use `paginate` rather than a generic number so generated APIs, views, and inspectors agree that the value is pagination shape, not arbitrary limit logic.
+
+`query.list` defaults to `order created_at desc` when no explicit `order` is
+declared. This is a language convention, not project sugar: authors write an
+`order` line only when the query intentionally differs from newest-first
+resource listing. `lazuli inspect --expand=defaults` reports the generated
+query-order default with `origin: "language default"`.
 
 Inherited scope is always applied unless a query explicitly uses `scope override`. Local `scope` extends inherited scope and should be reserved for safety boundaries. `filters` describe data predicates. A filter without `when` is always applied. A filter with `when` is conditional.
 
@@ -827,10 +833,10 @@ The JSON root includes `schema`, `source`, `expand`, and `features`. The current
 | `events` | shows event payload fields after merging matching `event_group <pattern> on <Resource>` payload groups with event-local fields |
 | `targets` | shows explicit and inferred command targets, including local `route id` target inference |
 | `policies` | shows operation policies resolved to policy atoms and transition `requires` as additional requirements |
-| `tests` | groups inline tests by subject and assertion kind (`authz`, `transition`, `predicate`, `anchor`) |
+| `tests` | groups authored predicate/transition/anchor tests plus generated command policy authz rows by subject and assertion kind (`authz`, `transition`, `predicate`, `anchor`) |
 | `defaults` | shows feature defaults such as `tenancy`, `timestamps`, and scoped `policy_for` with their affected constructs |
 
-Every expanded item carries provenance through an `origin` field. Examples include `event_group:customer_*`, `event:customer_created`, `explicit`, `workflow.policy`, `transition.requires`, and `inferred from local route id and query.lookup by_id`. Provenance is part of the inspect contract; do not add expanded facts without explaining where they came from.
+Every expanded item carries provenance through an `origin` field. Examples include `event_group:customer_*`, `event:customer_created`, `explicit`, `workflow.policy`, `transition.requires`, `generated from command policy @policy.create`, and `inferred from local route id and query.lookup by_id`. Provenance is part of the inspect contract; do not add expanded facts without explaining where they came from.
 
 Each expansion should answer one bounded question. If a proposed derived fact does not fit an existing expansion class, add a new explicit class instead of silently changing `--expand=all` shape. Future useful expansion classes include `surfaces` and `extensions`; they should follow the same JSON and provenance contract when implemented.
 
@@ -986,20 +992,24 @@ Path expressions are allowed in test predicates the same way they are allowed in
 
 ### Verbs By Category
 
-Command tests accept:
+Command tests authored in source accept predicate assertions:
 
 ```lazuli
 tests
-  permits @role.admin, @role.sales
-  forbids @role.viewer
   allows when target.lifecycle_stage = active
   denies when target.lifecycle_stage = archived
 ```
 
-`permits`/`forbids` test command policy. `allows when`/`denies when` test rule applicability against the loaded command target.
+`allows when`/`denies when` test rule applicability against the loaded command target.
 
-The actor-matrix verbs are intentionally different from the predicate verbs:
-`permits`/`forbids` always talk about authorization subjects, while
+The command actor matrix is generated from the effective command policy.
+For a command with `policy @policy.create`, `lazuli inspect --expand=tests`
+and runtime test generation emit derived `permits`/`forbids` rows with policy
+provenance. Authors do not restate those rows in source, because they would
+only duplicate the `policy @policy.*` contract.
+
+The actor-matrix verbs are intentionally reserved for generated authorization
+rows: `permits`/`forbids` always talk about authorization subjects, while
 `allows`/`denies` always talk about evaluated predicates or workflow edges.
 
 Workflow transition tests accept three forms with separate semantics:
@@ -1056,9 +1066,9 @@ Multi-step scenarios that span constructs are reserved for later.
 
 ### Optional, With Strict Mode For Production
 
-`tests` is optional in every construct. `lazuli check` accepts features without tests and emits no warning. `lazuli check --strict-tests` emits warnings for commands with non-trivial policy, rules, transitions, and extensible views that lack tests. Use `--strict-tests` in production-grade features and CI.
+`tests` is optional in every construct. `lazuli check` accepts features without tests and emits no warning. `lazuli check --strict-tests` emits warnings for commands with target-dependent rule behavior, rules, transitions, and extensible views that lack authored tests. Plain command policy coverage is generated from `policy @policy.*`, so a command does not need an authored `tests` block merely to prove who can call it. Use `--strict-tests` in production-grade features and CI.
 
-A construct has non-trivial policy when it declares a local `policy`, when that policy differs from any scoped `policy_for` fallback that applies to its construct family, or when the feature has no applicable policy fallback. Constructs that inherit `@actor.system` through `policy_for jobs, webhooks` are typically internal and exempt from the strict warning.
+A command has target-dependent rule behavior when a matching rule or command-local predicate can deny the operation beyond the policy category. Constructs that inherit `@actor.system` through `policy_for jobs, webhooks` are typically internal and exempt from the strict warning.
 
 ### Two Test Layers
 
@@ -1584,6 +1594,10 @@ command register previously create, signup
 
 These are intentionally not solved by the simple canonical syntax yet:
 
+- Project-defined templates, macros, or parameterized includes. Lazuli grows by
+  adding language primitives or compiler inference, not by letting each project
+  create its own dialect. If repeated source is genuinely universal, promote it
+  into the language; if it is project-specific, keep the repetition explicit.
 - Many-to-many relations with payload or ordering. Use an explicit join resource.
 - SQL query body verification beyond declared params/scope/returns.
 - Workflow transition groups such as `any -> canceled`.

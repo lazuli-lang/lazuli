@@ -124,6 +124,11 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add `@pii.*`, `@key.*`, explicit crypto tiers, declarative HMAC webhook verification, and token contracts to the canonical fixture.
 - [x] Add `docs/quickref.md` as the short context pack for agents and first-read authors.
 - [x] Replace ambiguous `defaults policy @actor.system` with scoped `policy_for jobs, webhooks: @actor.system`.
+- [x] Treat command policy actor-matrix tests as generated facts from
+  `policy @policy.*`; source authors write only predicate tests that add
+  behavior beyond policy.
+- [x] Treat `query.list` newest-first ordering (`created_at desc`) as a
+  language default instead of repeated source boilerplate.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.
@@ -144,7 +149,9 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add a generated `provides` object to `inspect --expand=summary` for exported anchors, events, queries, and types.
 - [x] Nest concrete events under `event_group` so same-feature payload inheritance is visible at the declaration site.
 - [ ] Consider moving stale `previously` aliases into a generated history/audit projection only after inline `previously` starts materially polluting mature features.
-- [ ] Consider policy matrix syntax with the role/scope axis inverted only if large real features repeat the same atoms across many policy categories.
+- [ ] Consider policy category display improvements only if large real features
+  make `inspect --expand=policies,tests` insufficient; avoid adding
+  project-defined policy macros.
 - [ ] Consider structured `rate_limit 30/hour per ip` only if string contracts become hard for adapters to validate consistently.
 - [ ] Consider a project-level terms/glossary registry for `@semantic.*`, `@pii.*`, `@cap.*`, `@scope.*`, and `@actor.*` once multiple adapters need shared descriptions.
 - [ ] Revisit the `@cap.*` namespace name only before public v1 if enough first-time readers confuse it with "capsule" rather than "capability"; avoid churn after adapters depend on it.

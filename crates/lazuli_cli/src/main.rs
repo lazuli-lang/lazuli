@@ -465,7 +465,13 @@ struct InspectPolicyRequirement {
 #[derive(Debug, Serialize)]
 struct InspectTests {
     subject: String,
-    groups: BTreeMap<String, Vec<String>>,
+    groups: BTreeMap<String, Vec<InspectTestAssertion>>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectTestAssertion {
+    assertion: String,
+    origin: String,
 }
 
 fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -> InspectReport {
@@ -527,7 +533,7 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
         policies: expansions
             .policies
             .then(|| inspect_policies(lines, &policies)),
-        tests: expansions.tests.then(|| inspect_tests(lines)),
+        tests: expansions.tests.then(|| inspect_tests(lines, &policies)),
     }
 }
 
@@ -1166,6 +1172,23 @@ fn inspect_defaults(lines: &[String]) -> Vec<InspectDefault> {
         }
     }
 
+    for query in query_blocks(lines) {
+        let header = query[0].trim_start();
+        if !header.starts_with("query.list ") {
+            continue;
+        }
+        if direct_child_value(query, "order ").is_some() {
+            continue;
+        }
+        let name = query_name(header).unwrap_or("unknown");
+        defaults.push(InspectDefault {
+            name: "query_order".to_owned(),
+            value: "created_at desc".to_owned(),
+            origin: "language default",
+            applies_to: vec![format!("query.{name}")],
+        });
+    }
+
     defaults
 }
 
@@ -1330,10 +1353,39 @@ fn inspect_policies(
     policies
 }
 
-fn inspect_tests(lines: &[String]) -> Vec<InspectTests> {
+fn inspect_tests(
+    lines: &[String],
+    policy_atoms: &BTreeMap<String, Vec<String>>,
+) -> Vec<InspectTests> {
     let mut tests = Vec::new();
     let mut subject_stack: Vec<(usize, String)> = Vec::new();
     let mut index = 0;
+
+    for command in command_blocks(lines) {
+        let name = command_name(command[0].trim_start()).unwrap_or("unknown");
+        let Some(policy) = direct_child_value(command, "policy ") else {
+            continue;
+        };
+        let atoms = resolve_policy_atoms(&policy, policy_atoms);
+        if atoms.is_empty() {
+            continue;
+        }
+        let subject = format!("command.{name}");
+        push_inspect_test_assertion(
+            &mut tests,
+            &subject,
+            "authz",
+            format!("permits {}", atoms.join(", ")),
+            format!("generated from command policy {policy}"),
+        );
+        push_inspect_test_assertion(
+            &mut tests,
+            &subject,
+            "authz",
+            format!("forbids actors outside {policy}"),
+            format!("generated from closed-world command policy {policy}"),
+        );
+    }
 
     while index < lines.len() {
         let line = &lines[index];
@@ -1361,7 +1413,7 @@ fn inspect_tests(lines: &[String]) -> Vec<InspectTests> {
                 .last()
                 .map(|(_, subject)| subject.clone())
                 .unwrap_or_else(|| "unknown".to_owned());
-            let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            let mut groups: BTreeMap<String, Vec<InspectTestAssertion>> = BTreeMap::new();
             let mut child_index = index + 1;
 
             while child_index < lines.len() && leading_spaces(&lines[child_index]) > leading {
@@ -1370,12 +1422,15 @@ fn inspect_tests(lines: &[String]) -> Vec<InspectTests> {
                     groups
                         .entry(test_group(assertion).to_owned())
                         .or_default()
-                        .push(assertion.to_owned());
+                        .push(InspectTestAssertion {
+                            assertion: assertion.to_owned(),
+                            origin: "authored".to_owned(),
+                        });
                 }
                 child_index += 1;
             }
 
-            tests.push(InspectTests { subject, groups });
+            merge_inspect_tests(&mut tests, InspectTests { subject, groups });
             index = child_index;
             continue;
         }
@@ -1384,6 +1439,45 @@ fn inspect_tests(lines: &[String]) -> Vec<InspectTests> {
     }
 
     tests
+}
+
+fn push_inspect_test_assertion(
+    tests: &mut Vec<InspectTests>,
+    subject: &str,
+    group: &str,
+    assertion: String,
+    origin: String,
+) {
+    let Some(existing) = tests.iter_mut().find(|entry| entry.subject == subject) else {
+        tests.push(InspectTests {
+            subject: subject.to_owned(),
+            groups: BTreeMap::from([(
+                group.to_owned(),
+                vec![InspectTestAssertion { assertion, origin }],
+            )]),
+        });
+        return;
+    };
+
+    existing
+        .groups
+        .entry(group.to_owned())
+        .or_default()
+        .push(InspectTestAssertion { assertion, origin });
+}
+
+fn merge_inspect_tests(tests: &mut Vec<InspectTests>, incoming: InspectTests) {
+    let Some(existing) = tests
+        .iter_mut()
+        .find(|entry| entry.subject == incoming.subject)
+    else {
+        tests.push(incoming);
+        return;
+    };
+
+    for (group, assertions) in incoming.groups {
+        existing.groups.entry(group).or_default().extend(assertions);
+    }
 }
 
 fn collect_policy_atoms(lines: &[String]) -> BTreeMap<String, Vec<String>> {
@@ -2729,6 +2823,9 @@ feature customer
 
     query.lookup by_id by id: ID
 
+    query.list list
+      paginate 50
+
     event_group customer_* on Customer
       payload
         customer_id = id
@@ -2798,6 +2895,9 @@ feature customer
 
     query.lookup by_id by id: ID
 
+    query.list list
+      paginate 50
+
     event_group customer_* on Customer
       payload
         customer_id = id
@@ -2826,6 +2926,7 @@ feature customer
         expansions.locators = true;
         expansions.dependencies = true;
         expansions.security = true;
+        expansions.tests = true;
 
         let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
         let json = serde_json::to_string(&report).unwrap();
@@ -2844,6 +2945,8 @@ feature customer
         );
         assert!(json.contains("\"origin\":\"explicit\""));
         assert!(json.contains("\"origin\":\"defaults\""));
+        assert!(json.contains("\"name\":\"query_order\""));
+        assert!(json.contains("\"origin\":\"language default\""));
         assert!(json.contains("\"locators\""));
         assert!(json.contains("\"name\":\"route.id\""));
         assert!(json.contains("\"name\":\"target\""));
@@ -2852,6 +2955,9 @@ feature customer
         assert!(json.contains("\"security\""));
         assert!(json.contains("\"markers\":[\"@pii.contact\""));
         assert!(json.contains("@cap.Encrypted(key:@key.tenant)"));
+        assert!(json.contains("\"tests\""));
+        assert!(json.contains("\"assertion\":\"permits @role.admin\""));
+        assert!(json.contains("\"origin\":\"generated from command policy @policy.update\""));
     }
 
     #[test]
