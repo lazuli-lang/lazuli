@@ -105,10 +105,6 @@ feature customer
 
   uses org, user
 
-  refs
-    core: @role, @scope, @actor, @policy, @semantic
-    extensions: @client, @fn
-
   domain
     resource Customer
     record CustomerLtv
@@ -134,7 +130,7 @@ Feature blocks have a canonical lint/format order:
 meta: purpose, non_goals, context
 defaults
 uses
-refs
+refs (optional reading aid; omit core namespace lists)
 domain (enums, resources, records, constraints, queries, rules, events)
 policies
 auth
@@ -214,16 +210,14 @@ Cross-feature event jobs (`job send_archive_survey` with `trigger event customer
 
 ## Refs And Generated Summary
 
-`refs` is an authored namespace manifest for the feature. It is not an import system and does not change name resolution. It exists so humans and agents can understand which `@...` capability families appear in the feature before scanning the body:
+`refs` is an optional authored namespace manifest for unusual feature-local reading aids. It is not an import system and does not change name resolution. Core capability namespaces are already self-identifying through their prefixes (`@role.*`, `@scope.*`, `@actor.*`, `@policy.*`, `@semantic.*`, `@cap.*`, `@pii.*`, `@key.*`) and should not be restated in source just to make a manifest. Use `lazuli inspect --expand=refs` when a human or agent needs the complete detected namespace set.
 
 ```lazuli
 refs
-  core: @role, @scope, @actor, @policy, @semantic, @cap, @pii, @key
-  extensions: @client, @fn, @hook, @query_modifier
-  anchors: @anchor
+  local: @client, @fn, @hook, @query_modifier, @anchor
 ```
 
-The group names (`core`, `extensions`, `anchors`) are documentation keys, not grammar. `refs` is per-feature and optional: a feature that omits it still resolves every namespace normally. `lazuli check` should warn when a present `refs` block omits a used namespace or declares a namespace not used by that same feature. If a feature omits `refs`, tooling should not warn by default; `lazuli inspect --expand=refs` can generate the manifest from the body.
+The group names are documentation keys, not grammar. `refs` is per-feature and optional: a feature that omits it still resolves every namespace normally. `lazuli check` should warn when a present `refs` block omits a used namespace or declares a namespace not used by that same feature. If a feature omits `refs`, tooling should not warn by default; `lazuli inspect --expand=refs` can generate the manifest from the body.
 
 `summary` is generated, not authored. It is a table of contents derived from the body and emitted by `lazuli inspect --expand=summary` for humans, agents, and context injection:
 
@@ -1494,7 +1488,7 @@ job recompute_score_after_invoice
     reason = "invoice_paid"
 ```
 
-Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as an immutable `target` binding, regardless of the resource name. Resource creation belongs under `creates <Resource>` assignment blocks, resource mutation belongs under `updates <Resource>` assignment blocks, and event payload values belong under `emits <event>`. Inside a declarative job body, use this order: `target`, zero or more `let` bindings, one write effect (`creates`/`updates`/`deletes`), then `emits`. Use `let` for derived values that are used by both mutation and event payloads; do not rely on `target` changing timing between lines.
+Use the declarative body for small reactions that bind targets, create resources, update resources, or emit events without custom control flow. `target` makes the loaded resource available as an immutable `target` binding, regardless of the resource name. Resource creation belongs under `creates <Resource>` assignment blocks, resource mutation belongs under `updates <Resource>` assignment blocks, and event payload values belong under `emits <event>`. The `emits` child assignments fill event-specific payload fields that are not already supplied by the matching `event_group` envelope. They do not replace the inherited envelope; `lazuli inspect --expand=events` shows the full contract and provenance. Inside a declarative job body, use this order: `target`, zero or more `let` bindings, one write effect (`creates`/`updates`/`deletes`), then `emits`. Use `let` for derived values that are used by both mutation and event payloads; do not rely on `target` changing timing between lines.
 
 Use `handler` when the job mutates state through non-trivial IO, loops over batches, calls providers, handles partial failure, or needs custom code. A handler-backed job may still declare `emits` so the event graph remains visible, but it should not also declare `target`, `creates`, `updates`, or `deletes`.
 

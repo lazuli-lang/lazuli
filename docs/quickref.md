@@ -56,11 +56,14 @@ feature ping
 ## Canonical Order
 
 ```txt
-meta -> defaults -> uses -> refs -> domain -> policies -> auth -> command
+meta -> defaults -> uses -> refs? -> domain -> policies -> auth -> command
 -> workflow -> job -> webhook -> surface -> extensions -> escape_route
 ```
 
 `meta` means `purpose`, `non_goals`, and `context`.
+`refs` is optional and documentary. Do not author it just to list core
+`@role.*`/`@scope.*`/`@policy.*` namespaces; use
+`lazuli inspect --expand=refs` for that generated manifest.
 
 ## Policy Vocabulary
 
@@ -226,6 +229,8 @@ Simple equality filters derive language-managed indexes. With `tenancy org`,
 `query.sql` return types such as `CustomerLtv[]` must resolve through local
 `record` declarations, resources, extension contracts, or adapter-provided
 external types before codegen. They are not inferred from SQL text in v0.
+`record` is a typed projection/DTO, not persisted domain state: no tenancy,
+soft delete, lifecycle, policies, or generated commands.
 
 ```lazuli
 record CustomerLtv
@@ -305,6 +310,9 @@ longer contains the old name. Do not move rename continuity to comments.
 
 `emits` works for both `event` and `event.trace`; only reaction graph behavior
 differs.
+Child assignments under `emits <event>` fill event-specific payload fields.
+They do not replace fields inherited from `event_group`; inspect events to see
+the full payload with provenance.
 
 ## Non-Goals
 

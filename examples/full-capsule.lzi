@@ -23,11 +23,6 @@ feature customer
 
   uses org, user, billing
 
-  refs
-    core: @role, @scope, @actor, @policy, @semantic, @cap, @pii, @key
-    extensions: @client, @fn, @query_modifier
-    anchors: @anchor
-
   domain
     enum CustomerStatus
       lead = 10

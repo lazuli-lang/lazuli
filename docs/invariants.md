@@ -13,6 +13,8 @@ source that only fails later.
   `lazuli inspect --expand=summary`.
 - `refs` is optional and documentary. When present, it must match namespaces
   used by that feature; it does not change resolution.
+- Do not author `refs` merely to list core `@...` namespaces; those prefixes
+  are self-describing and `inspect --expand=refs` can generate the manifest.
 - `lazuli inspect --format=json` is the stable inspect contract. Human
   projections such as `--format=lazuli` are derived views over that contract.
 - `summary`, `refs`, `events`, `policies`, `locators`, and `dependencies`
