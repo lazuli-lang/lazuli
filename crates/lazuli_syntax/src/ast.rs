@@ -201,3 +201,127 @@ pub struct LzxPlatformView {
     pub blocks: Vec<String>,
     pub span: Span,
 }
+
+// =============================================================================
+// Cut A — canonical-indent slice for `feature` skeletons and `agent` blocks.
+//
+// Sibling to `Document` (legacy brace MVP). The slice deliberately covers
+// only `feature <name>` headers and indented `agent <name>` blocks plus
+// their Cut A children (tools / evals / discriminated output). Other
+// feature children (resources, commands, queries, workflows, ...) remain
+// in the legacy pipeline until later cuts migrate them.
+//
+// See docs/proposals/ai-primitives-v0-implementation.md §3.2 / §3.4.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeatureSkeleton {
+    pub name: String,
+    pub agents: Vec<Agent>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Agent {
+    pub name: String,
+    pub input: Vec<AgentInputSlot>,
+    pub context: Option<String>,
+    pub policy: Option<Vec<String>>,
+    pub rate_limit: Option<String>,
+    pub output: Option<AgentOutput>,
+    pub model: Option<String>,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<u32>,
+    pub top_p: Option<f64>,
+    pub seed: Option<i64>,
+    pub prompt: Option<String>,
+    pub safety: Vec<String>,
+    pub tools: Vec<AgentTool>,
+    pub evals: Vec<AgentEvalCase>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentInputSlot {
+    pub name: String,
+    pub type_text: String,
+    pub required: bool,
+    pub optional: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum AgentOutput {
+    /// `output stream <Type>` — streaming output of the named type.
+    Stream(String),
+    /// `output discriminator <Enum>` — single enum-variant output.
+    Discriminator(String),
+    /// `output <Type>` — bare type reference. Disambiguated at lowering:
+    /// records with a `discriminator` marker field become DiscriminatedRecord;
+    /// everything else becomes Text (legacy form, soft-warned per Q-impl-5).
+    Plain(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentTool {
+    /// Canonical source text: `customer.query.by_id`, `@tool.web_search`,
+    /// `query.by_id` (local shorthand). Lowering qualifies and resolves.
+    pub reference: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentEvalCase {
+    pub name: String,
+    pub assertions: Vec<AgentEvalAssertion>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentEvalAssertion {
+    pub kind: AgentEvalKind,
+    pub predicate: AgentEvalPredicate,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentEvalKind {
+    Requires,
+    Forbids,
+}
+
+/// Parser-level eval predicate. Captures the three shapes the EBNF (§14)
+/// allows inside `requires` / `forbids`:
+///
+/// - the closed predicate language (recorded verbatim for lowering),
+/// - `<ref> contains <STRING | @semantic.Type>`,
+/// - `tools.calls includes|excludes <tool-ref>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum AgentEvalPredicate {
+    /// Source text passed through to lowering, which re-parses against the
+    /// canonical predicate AST. The parser captures the raw form here so
+    /// any predicate-language extensions land without churn in this crate.
+    Closed { text: String },
+    Contains { lhs: String, rhs: ContainsRhs },
+    ToolsCalls { op: ToolsCallsOp, target: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ContainsRhs {
+    /// `requires output contains "active"` — substring literal match.
+    Literal(String),
+    /// `forbids output contains @semantic.Email` — semantic-type membership.
+    /// Validation dispatches at `lazuli test --evals`, never at check-time.
+    SemanticType(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolsCallsOp {
+    Includes,
+    Excludes,
+}
