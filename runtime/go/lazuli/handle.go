@@ -56,18 +56,72 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	return output, nil
 }
 
-// enforcePolicy is the v0 placeholder. Real implementation arrives with the
-// auth/RBAC cut (Phase D).
+// enforcePolicy walks the resolved atom list and grants access on the first
+// match (OR semantics). Empty atom lists are a registration bug per the DSL
+// invariant — fail closed with 500.
+//
+// Atom semantics for the spike:
+//
+//	@actor.user        → ctx.Actor == ActorUser
+//	@actor.system      → ctx.Actor == ActorSystem
+//	@actor.anonymous   → ctx.Actor == ActorAnonymous
+//	@role.<name>       → ctx.User != nil AND <name> in ctx.User.Roles
+//	@scope.public      → always
+//	@scope.authenticated → ctx.User != nil
+//	@scope.same_org    → ctx.Tenant != nil
+//	@scope.self/owner  → returns false until target loading lands
 func enforcePolicy(ctx *Ctx, p Policy) error {
 	if len(p.Atoms) == 0 {
-		// Empty policy — the DSL invariant rejects this at compile time, so
-		// reaching here means a registration bug. Fail closed.
 		return &Error{Status: 500, Code: CodeInternal,
 			Message: "command/query registered with empty policy: " + p.Name}
 	}
-	// Placeholder: accept everything. Phase D inspects ctx.Actor / ctx.User
-	// against p.Atoms.
-	return nil
+	for _, atom := range p.Atoms {
+		if atomMatches(ctx, atom) {
+			return nil
+		}
+	}
+	return &Error{Status: 403, Code: CodePolicyDenied,
+		Message: "no policy atom matches the active actor for " + p.Name}
+}
+
+// atomMatches reports whether the active context satisfies one policy atom.
+func atomMatches(ctx *Ctx, atom PolicyAtom) bool {
+	switch atom.Namespace {
+	case "actor":
+		switch atom.Name {
+		case "user":
+			return ctx.Actor == ActorUser
+		case "system":
+			return ctx.Actor == ActorSystem
+		case "anonymous":
+			return ctx.Actor == ActorAnonymous
+		}
+	case "role":
+		if ctx.User == nil {
+			return false
+		}
+		for _, r := range ctx.User.Roles {
+			if r == atom.Name {
+				return true
+			}
+		}
+		return false
+	case "scope":
+		switch atom.Name {
+		case "public":
+			return true
+		case "authenticated":
+			return ctx.User != nil
+		case "same_org":
+			return ctx.Tenant != nil
+		case "self", "owner":
+			// These require a loaded target row to compare ownership.
+			// Target binding is deferred; these atoms always fail closed
+			// for now.
+			return false
+		}
+	}
+	return false
 }
 
 // applyEffect runs the registered effect against the given transaction. The

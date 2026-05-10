@@ -114,11 +114,12 @@ func readRequestBody(r *http.Request) (json.RawMessage, error) {
 	return json.RawMessage(buf), nil
 }
 
-// newRequestCtx builds the Ctx for an inbound HTTP request. v0 spike: no
-// auth wiring; everything is anonymous. The auth cut populates Actor /
-// User / Tenant from session/JWT/HMAC.
+// newRequestCtx builds the Ctx for an inbound HTTP request. The dev-mode
+// session reader (`populateDevSession`) reads `X-Lazuli-*` headers to set
+// Actor / User / Tenant; the future auth cut replaces that helper with
+// real cookie/JWT/HMAC sessions without changing this function's contract.
 func newRequestCtx(r *http.Request) *Ctx {
-	return &Ctx{
+	ctx := &Ctx{
 		Context:   r.Context(),
 		Actor:     ActorAnonymous,
 		User:      nil,
@@ -127,6 +128,8 @@ func newRequestCtx(r *http.Request) *Ctx {
 		TraceID:   r.Header.Get("X-Trace-ID"),
 		Now:       time.Now(),
 	}
+	populateDevSession(r, ctx)
+	return ctx
 }
 
 // writeJSON marshals v to JSON with the given status. Encoding errors are
