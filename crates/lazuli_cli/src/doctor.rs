@@ -202,7 +202,7 @@ impl DoctorPackage {
                                         .0,
                                         column: 1,
                                         severity: DoctorSeverity::Error,
-                                        code: "AGENT-LOWER".to_owned(),
+                                        code: "agent_lower_failed_diagnostics".to_owned(),
                                         message: format!("agent lowering failed: {error}"),
                                     });
                                 }
@@ -215,7 +215,7 @@ impl DoctorPackage {
                             line: line_col_for_offset(&file.source, error.span().start).0,
                             column: line_col_for_offset(&file.source, error.span().start).1,
                             severity: DoctorSeverity::Error,
-                            code: "AGENT-PARSE".to_owned(),
+                            code: "agent_parse_failed_diagnostics".to_owned(),
                             message: error.to_string(),
                         });
                     }

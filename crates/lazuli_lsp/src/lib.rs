@@ -331,6 +331,9 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(derived_field_diagnostics(source));
         diagnostics.extend(has_many_diagnostics(source));
         diagnostics.extend(agent_contract_diagnostics(source));
+        diagnostics.extend(agent_tools_diagnostics(source));
+        diagnostics.extend(agent_evals_diagnostics(source));
+        diagnostics.extend(agent_discriminator_diagnostics(source));
         diagnostics.extend(notification_contract_diagnostics(source));
         diagnostics.extend(emits_derived_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
@@ -3440,6 +3443,439 @@ fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+// =============================================================================
+// Cut A — file-local additions for `tools`, `evals`, and discriminator scoping.
+//
+// These are intentionally file-local: cross-feature resolution of tool
+// targets, policy compatibility, and discriminator enum/record lookup
+// lives in `crates/lazuli_cli/src/doctor.rs` (Phase 3). The LSP is the
+// fast inner loop; doctor is the workspace pass.
+//
+// See docs/proposals/ai-primitives-v0-implementation.md §6.
+// =============================================================================
+
+/// Iterate every `agent <name>` block in the source, yielding the
+/// header line index and the body slice (one-based inclusive on the
+/// header, exclusive on the next sibling). The caller decides which
+/// children to inspect. Shared helper for the three Cut A LSP checks.
+fn iter_agent_blocks(source: &str) -> Vec<(usize, Vec<usize>)> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut blocks: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+        if leading == 2 && trimmed.starts_with("agent ") {
+            let header = index;
+            let mut body = Vec::new();
+            index += 1;
+            while index < lines.len() {
+                let inner = lines[index];
+                let inner_trimmed = inner.trim_start();
+                if inner_trimmed.is_empty() || inner_trimmed.starts_with('#') {
+                    body.push(index);
+                    index += 1;
+                    continue;
+                }
+                if leading_spaces(inner) <= 2 {
+                    break;
+                }
+                body.push(index);
+                index += 1;
+            }
+            blocks.push((header, body));
+            continue;
+        }
+        index += 1;
+    }
+    blocks
+}
+
+/// Reject tool entries whose *shape* is invalid. Cross-feature
+/// reachability is doctor's job — this layer only catches malformed
+/// shorthand (e.g. `query.list` with no name; `customer..by_id`).
+fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    for (_, body) in iter_agent_blocks(source) {
+        let mut in_tools = false;
+        for &line_index in &body {
+            let raw = lines[line_index];
+            let trimmed = raw.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let leading = leading_spaces(raw);
+            if leading == 4 {
+                in_tools = trimmed == "tools";
+                continue;
+            }
+            if !in_tools {
+                continue;
+            }
+            if leading != 6 {
+                continue;
+            }
+            if let Some(message) = validate_tool_reference_shape(trimmed) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    raw,
+                    DiagnosticSeverity::ERROR,
+                    "agent_tools_diagnostics",
+                    &message,
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Validate one tool-entry source token. The closed shapes:
+///   - `@tool.<seg>(.<seg>)*` — adapter tool
+///   - `query.list.<name>` / `query.lookup.<name>` / `query.sql.<name>`
+///   - `query.<name>` (unspecified subkind — doctor narrows)
+///   - `command.<name>` / `api.<name>`
+///   - `<feature>.<above>` cross-feature prefix
+fn validate_tool_reference_shape(text: &str) -> Option<String> {
+    if text.split_whitespace().count() != 1 {
+        return Some(
+            "each tool entry is a single qualified reference (one per line)".to_owned(),
+        );
+    }
+    let token = text.trim();
+    if token.contains("..") {
+        return Some(format!("tool reference `{token}` has an empty segment"));
+    }
+
+    if let Some(rest) = token.strip_prefix("@tool.") {
+        if rest.is_empty() {
+            return Some("`@tool.` requires a name (e.g. `@tool.web_search`)".to_owned());
+        }
+        if rest.split('.').any(|seg| !is_lower_ident(seg)) {
+            return Some(format!(
+                "`@tool.<...>` segments must be lower_snake idents; got `{token}`"
+            ));
+        }
+        return None;
+    }
+
+    let segments: Vec<&str> = token.split('.').collect();
+    let valid_local = matches!(
+        segments.as_slice(),
+        ["query", "list", _name]
+            | ["query", "lookup", _name]
+            | ["query", "sql", _name]
+            | ["query", _name]
+            | ["command", _name]
+            | ["api", _name]
+    );
+    if valid_local {
+        if segments.iter().any(|seg| !is_lower_ident(seg)) {
+            return Some(format!(
+                "tool reference `{token}` segments must be lower_snake idents"
+            ));
+        }
+        return None;
+    }
+
+    let valid_cross = matches!(
+        segments.as_slice(),
+        [_feature, "query", "list", _name]
+            | [_feature, "query", "lookup", _name]
+            | [_feature, "query", "sql", _name]
+            | [_feature, "query", _name]
+            | [_feature, "command", _name]
+            | [_feature, "api", _name]
+    );
+    if valid_cross {
+        if segments.iter().any(|seg| !is_lower_ident(seg)) {
+            return Some(format!(
+                "tool reference `{token}` segments must be lower_snake idents"
+            ));
+        }
+        return None;
+    }
+
+    Some(format!(
+        "tool reference `{token}` is not a recognised shape; expected `<feature>.<kind>.<name>`, `<kind>.<name>`, or `@tool.<dotted>` where kind is `query[.list|.lookup|.sql]`, `command`, or `api`"
+    ))
+}
+
+/// Reject eval cases whose *predicate language* or *vocabulary* is
+/// malformed. Cases without `temperature 0` + `seed <int>` also surface
+/// a warning here so the inner loop catches non-determinism without
+/// waiting on `lazuli doctor`.
+fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    for (header, body) in iter_agent_blocks(source) {
+        let mut in_evals = false;
+        let mut has_evals_block = false;
+        let mut temperature_zero = false;
+        let mut seed_present = false;
+
+        for &line_index in &body {
+            let raw = lines[line_index];
+            let trimmed = raw.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let leading = leading_spaces(raw);
+            if leading == 4 {
+                if let Some(rest) = trimmed.strip_prefix("temperature ") {
+                    temperature_zero = rest.trim().parse::<f64>().ok() == Some(0.0);
+                } else if trimmed.starts_with("seed ") {
+                    seed_present = true;
+                }
+                in_evals = trimmed == "evals";
+                if in_evals {
+                    has_evals_block = true;
+                }
+                continue;
+            }
+            if !in_evals {
+                continue;
+            }
+            if leading == 6 {
+                if trimmed.starts_with("given ") || trimmed == "given" {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        "`given` is legacy vocabulary; eval blocks use `case <name>` then `requires`/`forbids` clauses.",
+                    ));
+                } else if !trimmed.starts_with("case ") {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        "eval children must be `case <name>` blocks at six-space indentation.",
+                    ));
+                } else if trimmed
+                    .strip_prefix("case ")
+                    .map(str::trim)
+                    .is_none_or(str::is_empty)
+                {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        "`case` requires a name (e.g. `case redacts_email`).",
+                    ));
+                }
+            }
+            if leading == 8 {
+                if trimmed.starts_with("expect ") || trimmed == "expect" {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        "`expect` is legacy vocabulary; eval assertions are `requires <predicate>` or `forbids <predicate>`.",
+                    ));
+                    continue;
+                }
+                let predicate = trimmed
+                    .strip_prefix("requires ")
+                    .or_else(|| trimmed.strip_prefix("forbids "));
+                let Some(predicate) = predicate else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        "eval assertions start with `requires` or `forbids`.",
+                    ));
+                    continue;
+                };
+                if predicate.trim().is_empty() {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        "eval assertion is missing its predicate body.",
+                    ));
+                    continue;
+                }
+                if let Some(message) = validate_eval_predicate_shape(predicate) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        raw,
+                        DiagnosticSeverity::ERROR,
+                        "agent_evals_diagnostics",
+                        &message,
+                    ));
+                }
+            }
+        }
+
+        if has_evals_block && (!temperature_zero || !seed_present) {
+            let reason = if !temperature_zero {
+                "missing `temperature 0`"
+            } else {
+                "missing `seed <int>`"
+            };
+            diagnostics.push(simple_canonical_diagnostic(
+                header,
+                lines[header],
+                DiagnosticSeverity::WARNING,
+                "eval_nondeterministic_warning",
+                &format!(
+                    "agent declares `evals` but is non-deterministic ({reason}); cases run as informational results until both `temperature 0` and `seed <int>` are pinned."
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+/// File-local predicate-shape check. The full closed-predicate AST
+/// lives in `lazuli_analyzer`; this layer only catches obviously
+/// malformed bodies (missing rhs after `contains`, unknown ordered
+/// operators, dangling `tools.calls`). Anything that looks like a
+/// `<path> <op> <value>` shape passes through — doctor and analyzer
+/// own the deeper validation.
+fn validate_eval_predicate_shape(body: &str) -> Option<String> {
+    let body = body.trim();
+    if let Some(rest) = body.strip_prefix("tools.calls ") {
+        let mut parts = rest.split_whitespace();
+        let op = parts.next();
+        let target = parts.next();
+        if !matches!(op, Some("includes" | "excludes")) {
+            return Some(
+                "`tools.calls` operator must be `includes` or `excludes` followed by a tool reference"
+                    .to_owned(),
+            );
+        }
+        if target.is_none() {
+            return Some("`tools.calls <op>` requires a tool reference target".to_owned());
+        }
+        if parts.next().is_some() {
+            return Some(
+                "`tools.calls <op> <ref>` accepts a single tool reference".to_owned(),
+            );
+        }
+        return None;
+    }
+
+    if let Some(idx) = body.find(" contains ") {
+        let lhs = body[..idx].trim();
+        let rhs = body[idx + " contains ".len()..].trim();
+        if lhs.is_empty() {
+            return Some("`contains` predicate requires a left-hand reference".to_owned());
+        }
+        if rhs.is_empty() {
+            return Some("`contains` predicate requires a right-hand value".to_owned());
+        }
+        if !(rhs.starts_with('"') || rhs.starts_with("@semantic.")) {
+            return Some(
+                "`contains` rhs must be a quoted string literal or a `@semantic.<Type>` reference"
+                    .to_owned(),
+            );
+        }
+        return None;
+    }
+
+    None
+}
+
+/// Reject the `discriminator` field marker when it appears outside a
+/// `record <Name>` block. Per proposal §A2 the marker is record-only;
+/// authors who attach it to other constructs (agent input, command
+/// input, query params) get a fast LSP error.
+fn agent_discriminator_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut record_starts: Vec<(usize, usize)> = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("record ") {
+            record_starts.push((index, leading_spaces(line)));
+        }
+    }
+
+    // Build the half-open ranges that each record occupies. A record
+    // ends at the next line whose indent is <= the record's own.
+    let mut record_ranges: Vec<(usize, usize)> = Vec::new();
+    for (start, record_indent) in record_starts {
+        let mut end = lines.len();
+        for (offset, line) in lines.iter().enumerate().skip(start + 1) {
+            let trimmed = line.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if leading_spaces(line) <= record_indent {
+                end = offset;
+                break;
+            }
+        }
+        record_ranges.push((start, end));
+    }
+
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // `output discriminator <Enum>` is the agent-side form; not a
+        // misuse, skip.
+        if trimmed.starts_with("output discriminator ") {
+            continue;
+        }
+        // Look for `discriminator` as a tail modifier on a field-like
+        // line: `<name>: <type> ... discriminator`.
+        if !contains_token(trimmed, "discriminator") {
+            continue;
+        }
+        if !trimmed.contains(':') {
+            continue;
+        }
+        let in_record = record_ranges
+            .iter()
+            .any(|(start, end)| index > *start && index < *end);
+        if !in_record {
+            diagnostics.push(simple_canonical_diagnostic(
+                index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "agent_discriminator_diagnostics",
+                "`discriminator` is a field marker that only applies inside a `record <Name>` block; it cannot appear elsewhere.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+/// Stand-alone `discriminator` token (not a substring of a longer
+/// identifier). Used to avoid false positives on names like
+/// `discriminators_list`.
+fn contains_token(line: &str, token: &str) -> bool {
+    line.split(|c: char| !(c == '_' || c.is_ascii_alphanumeric()))
+        .any(|word| word == token)
+}
+
+/// `lower_snake` identifier: ASCII letters / digits / underscores, must
+/// not start with a digit, must be non-empty.
+fn is_lower_ident(token: &str) -> bool {
+    let mut chars = token.chars();
+    let Some(first) = chars.next() else { return false };
+    if !(first.is_ascii_lowercase() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -10853,7 +11289,7 @@ mod tests {
         SecurityProfile, diagnostics_for, diagnostics_for_uri, diagnostics_for_with_profile,
         format_canonical_source,
     };
-    use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+    use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Url};
 
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
@@ -12582,6 +13018,223 @@ feature customer
             diagnostics
                 .iter()
                 .any(|d| d.message.contains("must be a `@llm.<name>` reference"))
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Cut A — file-local diagnostics (§6.2 snapshot tests)
+    // -------------------------------------------------------------------------
+
+    fn diagnostic_codes(diagnostics: &[Diagnostic]) -> Vec<String> {
+        diagnostics
+            .iter()
+            .filter_map(|d| match d.code.as_ref()? {
+                tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.clone()),
+                tower_lsp::lsp_types::NumberOrString::Number(n) => Some(n.to_string()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn agent_tools_accepts_canonical_block() {
+        let source = r#"
+feature customer
+  agent triage
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      customer.query.lookup.by_id
+      query.by_id
+      command.archive
+      @tool.web_search
+      @tool.calendar.create_event
+"#;
+        let diagnostics = diagnostics_for(source);
+        let codes = diagnostic_codes(&diagnostics);
+        assert!(
+            !codes.iter().any(|c| c == "agent_tools_diagnostics"),
+            "canonical tool block should not produce agent_tools_diagnostics; got: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn agent_tools_rejects_unknown_kind_segment() {
+        let source = r#"
+feature customer
+  agent broken
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      customer.script.run_unsafe
+"#;
+        let diagnostics = diagnostics_for(source);
+        let codes = diagnostic_codes(&diagnostics);
+        assert!(
+            codes.iter().any(|c| c == "agent_tools_diagnostics"),
+            "expected agent_tools_diagnostics for unknown kind; got: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn agent_tools_rejects_empty_segment() {
+        // `customer..by_id` has an empty segment — must be rejected.
+        let source = r#"
+feature customer
+  agent broken
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      customer..by_id
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "agent_tools_diagnostics"),
+            "expected agent_tools_diagnostics for empty segment"
+        );
+    }
+
+    #[test]
+    fn agent_evals_accepts_case_with_requires_forbids() {
+        let source = r#"
+feature customer
+  agent summarize
+    input
+      customer_id: Customer.ID required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case redacts_email
+        requires customer.email = "ada@example.com"
+        forbids output contains @semantic.Email
+"#;
+        let diagnostics = diagnostics_for(source);
+        let codes = diagnostic_codes(&diagnostics);
+        assert!(
+            !codes.iter().any(|c| c == "agent_evals_diagnostics"),
+            "canonical evals block should not produce agent_evals_diagnostics; got: {codes:?}"
+        );
+        assert!(
+            !codes.iter().any(|c| c == "eval_nondeterministic_warning"),
+            "agent pinned at temperature 0 + seed 1 must not warn nondeterministic; got: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn agent_evals_rejects_given_expect_legacy_vocabulary() {
+        let source = r#"
+feature customer
+  agent legacy
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      given a_case
+        expect output contains "ok"
+"#;
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert!(
+            messages.iter().any(|m| m.contains("`given` is legacy")),
+            "expected `given` legacy diagnostic; got: {messages:?}"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("`expect` is legacy")),
+            "expected `expect` legacy diagnostic; got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn agent_discriminator_rejects_when_marker_outside_record() {
+        // Field `tag: Status discriminator` declared inside `agent
+        // input` instead of a record — must be rejected.
+        let source = r#"
+feature customer
+  agent classify
+    input
+      message: Text required
+      tag: Status discriminator
+    policy @policy.read
+    output discriminator Intent
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "agent_discriminator_diagnostics"),
+            "expected agent_discriminator_diagnostics when marker appears outside record"
+        );
+    }
+
+    #[test]
+    fn agent_evals_warns_without_temperature_zero_seed() {
+        // Agent has an evals block but `temperature 0.7` (non-zero) and
+        // no `seed` — must emit `eval_nondeterministic_warning`.
+        let source = r#"
+feature customer
+  agent flaky
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0.7
+    prompt "./p.md"
+    evals
+      case smoke
+        requires output contains "ok"
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "eval_nondeterministic_warning"),
+            "expected eval_nondeterministic_warning"
+        );
+    }
+
+    #[test]
+    fn agent_discriminator_allows_marker_inside_record() {
+        // Sanity gate: `discriminator` on a record field is the
+        // canonical use; must not fire the file-local diagnostic.
+        let source = r#"
+feature customer
+  domain
+    record Action
+      kind: ActionKind discriminator
+      customer_id: Customer.ID optional
+"#;
+        let diagnostics = diagnostics_for(source);
+        let codes = diagnostic_codes(&diagnostics);
+        assert!(
+            !codes.iter().any(|c| c == "agent_discriminator_diagnostics"),
+            "canonical record-field marker must not produce agent_discriminator_diagnostics; got: {codes:?}"
         );
     }
 
