@@ -45,6 +45,38 @@ app AcmeCRM
     event_bus internal
     tracing optional
 
+  architecture
+    mode modular_monolith
+    service_ready true
+    enforce_service_boundaries true
+
+  services
+    service identity
+      owns customer_auth
+      exposes
+        command customer_auth.command.login
+        command customer_auth.command.enable_mfa
+      publishes customer_auth.customer_*
+
+    service crm
+      owns customer, customer_tags, customer_import, customer_outreach
+      exposes
+        query customer.query.list
+        query customer.query.by_id
+        command customer.command.create
+        command customer.command.reassign
+        api customer.api.customer_export
+      publishes customer.customer_*, customer_tags.tag_assignment_*, customer_import.customer_import_*, customer_outreach.*
+      consumes billing.invoice_paid
+
+  communication
+    internal sync rpc
+    external http
+    async event_bus
+    propagate actor, tenant, trace_id, request_id
+    timeout default "2s"
+    retry default 2 backoff exponential
+
   runtime
     unit api
       serves queries, commands, webhooks, apis

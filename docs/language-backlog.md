@@ -39,6 +39,9 @@ This document tracks design pressure that is not yet part of the core canonical 
 - Workflow-level `emits` always fires; transition-level `emits` fires additionally.
 - Workflow transitions may use inline trailing clauses for scalar `requires` and `emits`; this is local syntax sugar over the same child statements, not a macro.
 - Workflow transition child statements are contiguous with the transition header; no blank line separates the header from `requires`, `emits`, or `tests`.
+- `app.lzi` service boundaries are logical ownership contracts, not mandatory
+  deploy boundaries. Drusa may materialize the same graph as a monolith,
+  modular monolith, or split services.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
 - Observability-only events use `event.trace <name>` rather than an `observability_only` modifier.
@@ -166,6 +169,10 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   `allow/deny` syntax must preserve static rejection of wrong assertions by
   construct and keep predicate, transition, actor, and anchor dimensions
   visually distinct.
+- [ ] Final cleanup item: decide whether command/view locator slots should keep
+  the `route` keyword or be renamed after top-level `.lzx route` and app route
+  builders have stabilized. Do this last because it touches source vocabulary,
+  docs, diagnostics, fixtures, and generated clients.
 
 ### Broader Validation
 

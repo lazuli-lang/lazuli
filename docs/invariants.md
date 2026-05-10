@@ -12,9 +12,12 @@ source that only fails later.
 - `.lzi` owns the domain/capability contract. It must compile without any UI
   source present.
 - Top-level `.lzi app` owns the app entrypoint, generated targets,
-  environments, URLs, env schema, runtime units, capabilities, and
-  provider-neutral deploy gates. It is not a product feature and should not
-  hide domain behavior.
+  environments, URLs, env schema, runtime units, capabilities,
+  provider-neutral deploy gates, and logical service boundaries. It is not a
+  product feature and should not hide domain behavior.
+- App `services` declare logical ownership boundaries. They do not by
+  themselves require separate processes; Drusa decides whether the same
+  boundary graph runs as a monolith, modular monolith, or split services.
 - Abstract `.lzx` owns the experience/view model and imports `.lzi`
   capabilities.
 - Top-level `.lzx route` owns concrete web paths/mobile route patterns. Dynamic

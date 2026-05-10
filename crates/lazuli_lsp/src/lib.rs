@@ -910,6 +910,19 @@ fn unquote_lzx_literal(value: &str) -> &str {
         .unwrap_or(value)
 }
 
+fn is_quoted_lzx_literal(value: &str) -> bool {
+    value.starts_with('"') && value.ends_with('"') && value.len() >= 2
+}
+
+fn split_items(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 fn lzx_route_view_diagnostics(view: LzxRouteViewFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -1250,7 +1263,7 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         };
 
-        if first == "query" {
+        if first == "query" && leading_spaces(line) <= 4 {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -4691,9 +4704,13 @@ struct AppOperationalFacts {
     has_environments: bool,
     has_runtime: bool,
     has_deploy: bool,
+    has_architecture: bool,
+    has_services: bool,
+    has_communication: bool,
     deploy_has_migrations: bool,
     deploy_has_rollback: bool,
     runtime_units: Vec<AppRuntimeUnitFacts>,
+    services: Vec<AppServiceFacts>,
 }
 
 impl AppOperationalFacts {
@@ -4706,9 +4723,13 @@ impl AppOperationalFacts {
             has_environments: false,
             has_runtime: false,
             has_deploy: false,
+            has_architecture: false,
+            has_services: false,
+            has_communication: false,
             deploy_has_migrations: false,
             deploy_has_rollback: false,
             runtime_units: Vec::new(),
+            services: Vec::new(),
         }
     }
 }
@@ -4734,11 +4755,32 @@ impl AppRuntimeUnitFacts {
     }
 }
 
+#[derive(Debug)]
+struct AppServiceFacts {
+    line_index: usize,
+    line: String,
+    name: String,
+    has_owns: bool,
+}
+
+impl AppServiceFacts {
+    fn new(line_index: usize, line: &str, name: &str) -> Self {
+        Self {
+            line_index,
+            line: line.to_owned(),
+            name: name.to_owned(),
+            has_owns: false,
+        }
+    }
+}
+
 fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_app: Option<AppOperationalFacts> = None;
     let mut current_app_child: Option<&'static str> = None;
     let mut current_runtime_unit: Option<usize> = None;
+    let mut current_service: Option<usize> = None;
+    let mut current_service_child: Option<&'static str> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -4753,6 +4795,8 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             }
             current_app_child = None;
             current_runtime_unit = None;
+            current_service = None;
+            current_service_child = None;
 
             if trimmed.starts_with("app ") {
                 let parts: Vec<_> = trimmed.split_whitespace().collect();
@@ -4777,12 +4821,17 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
         match leading_spaces(line) {
             2 => {
                 current_runtime_unit = None;
+                current_service = None;
+                current_service_child = None;
                 if let Some(child) = app_child_block(trimmed) {
                     current_app_child = Some(child);
                     match child {
                         "uses" => app.has_uses = true,
                         "targets" => app.has_targets = true,
                         "environments" => app.has_environments = true,
+                        "architecture" => app.has_architecture = true,
+                        "services" => app.has_services = true,
+                        "communication" => app.has_communication = true,
                         "runtime" => app.has_runtime = true,
                         "deploy" => app.has_deploy = true,
                         _ => {}
@@ -4798,7 +4847,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "app manifests own app/runtime contracts: use `uses`, `targets`, `environments`, `urls`, `env`, `capabilities`, `runtime`, or `deploy` blocks.",
+                        "app manifests own app/runtime contracts: use `uses`, `targets`, `environments`, `urls`, `env`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
                     ));
                 }
             }
@@ -4837,6 +4886,31 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 Some("capabilities") => {
                     validate_app_capability_line(&mut diagnostics, line_index, line)
                 }
+                Some("architecture") => {
+                    validate_app_architecture_line(&mut diagnostics, line_index, line, trimmed)
+                }
+                Some("services") => {
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    if parts.len() != 2 || parts[0] != "service" || !is_identifier(parts[1]) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "app-service-contract",
+                            "service boundaries use `service <name>` under `services`.",
+                        ));
+                        current_service = None;
+                        current_service_child = None;
+                    } else {
+                        app.services
+                            .push(AppServiceFacts::new(line_index, line, parts[1]));
+                        current_service = app.services.len().checked_sub(1);
+                        current_service_child = None;
+                    }
+                }
+                Some("communication") => {
+                    validate_app_communication_line(&mut diagnostics, line_index, line, trimmed)
+                }
                 Some("runtime") => {
                     let parts: Vec<_> = trimmed.split_whitespace().collect();
                     if parts.len() != 2 || parts[0] != "unit" || !is_identifier(parts[1]) {
@@ -4866,35 +4940,67 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 )),
             },
             6 => {
-                if current_app_child != Some("runtime") {
+                if current_app_child == Some("runtime") {
+                    let Some(unit_index) = current_runtime_unit else {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "app-runtime-contract",
+                            "runtime unit children must follow a `unit <name>` declaration.",
+                        ));
+                        continue;
+                    };
+
+                    validate_app_runtime_unit_child(
+                        &mut diagnostics,
+                        &mut app.runtime_units[unit_index],
+                        line_index,
+                        line,
+                        trimmed,
+                    );
+                } else if current_app_child == Some("services") {
+                    let Some(service_index) = current_service else {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "app-service-contract",
+                            "service boundary children must follow a `service <name>` declaration.",
+                        ));
+                        continue;
+                    };
+                    validate_app_service_child(
+                        &mut diagnostics,
+                        &mut app.services[service_index],
+                        &mut current_service_child,
+                        line_index,
+                        line,
+                        trimmed,
+                    );
+                } else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "six-space app manifest declarations are only valid inside `runtime unit` blocks.",
+                        "six-space app manifest declarations are only valid inside `runtime unit` or `services service` blocks.",
                     ));
-                    continue;
                 }
-
-                let Some(unit_index) = current_runtime_unit else {
+            }
+            8 => {
+                if current_app_child == Some("services") && current_service_child == Some("exposes")
+                {
+                    validate_app_service_exposure_line(&mut diagnostics, line_index, line, trimmed);
+                } else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
                         line,
                         DiagnosticSeverity::WARNING,
-                        "app-runtime-contract",
-                        "runtime unit children must follow a `unit <name>` declaration.",
+                        "app-operational-contract",
+                        "eight-space app manifest declarations are only valid inside `services service exposes` blocks.",
                     ));
-                    continue;
-                };
-
-                validate_app_runtime_unit_child(
-                    &mut diagnostics,
-                    &mut app.runtime_units[unit_index],
-                    line_index,
-                    line,
-                    trimmed,
-                );
+                }
             }
             _ => diagnostics.push(simple_canonical_diagnostic(
                 line_index,
@@ -4922,6 +5028,9 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         "urls" => Some("urls"),
         "env" => Some("env"),
         "capabilities" => Some("capabilities"),
+        "architecture" => Some("architecture"),
+        "services" => Some("services"),
+        "communication" => Some("communication"),
         "runtime" => Some("runtime"),
         "deploy" => Some("deploy"),
         _ => None,
@@ -4951,7 +5060,16 @@ fn validate_app_child_header(
     let first = trimmed.split_whitespace().next().unwrap_or_default();
     if matches!(
         first,
-        "targets" | "environments" | "urls" | "env" | "capabilities" | "runtime" | "deploy"
+        "targets"
+            | "environments"
+            | "urls"
+            | "env"
+            | "capabilities"
+            | "architecture"
+            | "services"
+            | "communication"
+            | "runtime"
+            | "deploy"
     ) && trimmed != first
     {
         diagnostics.push(simple_canonical_diagnostic(
@@ -4978,6 +5096,132 @@ fn validate_app_scalar_child(
             DiagnosticSeverity::WARNING,
             "app-operational-contract",
             "app scalar declarations need a value.",
+        ));
+    }
+}
+
+fn validate_app_architecture_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        ["mode", value]
+            if matches!(*value, "monolith" | "modular_monolith" | "microservices") => {}
+        ["service_ready", value] | ["enforce_service_boundaries", value]
+            if matches!(*value, "true" | "false") => {}
+        _ => diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-architecture-contract",
+            "architecture lines use `mode monolith|modular_monolith|microservices`, `service_ready true|false`, or `enforce_service_boundaries true|false`.",
+        )),
+    }
+}
+
+fn validate_app_communication_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        ["internal", "sync", value] if matches!(*value, "rpc" | "http" | "in_process") => {}
+        ["external", value] if matches!(*value, "http") => {}
+        ["async", value] if matches!(*value, "event_bus" | "in_process") => {}
+        ["propagate", rest @ ..]
+            if !rest.is_empty()
+                && split_items(&rest.join(" ")).iter().all(|item| {
+                    matches!(
+                        item.as_str(),
+                        "actor" | "tenant" | "trace_id" | "request_id" | "locale"
+                    )
+                }) => {}
+        ["timeout", "default", value] if is_quoted_lzx_literal(value) => {}
+        ["retry", "default", count, "backoff", strategy]
+            if count.parse::<u32>().is_ok() && matches!(*strategy, "fixed" | "exponential") => {}
+        _ => diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-communication-contract",
+            "communication lines use `internal sync rpc|http|in_process`, `external http`, `async event_bus|in_process`, `propagate ...`, `timeout default \"...\"`, or `retry default <n> backoff fixed|exponential`.",
+        )),
+    }
+}
+
+fn validate_app_service_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    service: &mut AppServiceFacts,
+    current_service_child: &mut Option<&'static str>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    if let Some(rest) = trimmed.strip_prefix("owns ") {
+        service.has_owns = true;
+        *current_service_child = None;
+        if split_items(rest).is_empty() {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "app-service-contract",
+                "service ownership uses `owns feature_a, feature_b`.",
+            ));
+        }
+        return;
+    }
+
+    if trimmed == "exposes" {
+        *current_service_child = Some("exposes");
+        return;
+    }
+
+    if let Some(rest) = trimmed
+        .strip_prefix("publishes ")
+        .or_else(|| trimmed.strip_prefix("consumes "))
+    {
+        *current_service_child = None;
+        if split_items(rest).is_empty() {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "app-service-contract",
+                "service event edges use `publishes event.*` or `consumes feature.event_name`.",
+            ));
+        }
+        return;
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "app-service-contract",
+        "service children use `owns ...`, `exposes`, `publishes ...`, or `consumes ...`.",
+    ));
+}
+
+fn validate_app_service_exposure_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() != 2 || !matches!(parts[0], "query" | "command" | "api" | "workflow") {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-service-contract",
+            "service exposures use `query|command|api|workflow <feature>.<kind>.<name>`.",
         ));
     }
 }
@@ -5205,6 +5449,26 @@ fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic
         ));
     }
 
+    if app.has_services && !app.has_architecture {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-architecture-contract",
+            "apps with `services` should declare `architecture` so boundaries are separated from deploy topology.",
+        ));
+    }
+
+    if app.has_services && !app.has_communication {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-communication-contract",
+            "apps with `services` should declare `communication` context propagation and sync/async intent.",
+        ));
+    }
+
     if !app.has_runtime {
         diagnostics.push(simple_canonical_diagnostic(
             app.line_index,
@@ -5269,6 +5533,21 @@ fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic
                 DiagnosticSeverity::WARNING,
                 "app-runtime-contract",
                 "the `api` runtime unit should declare `healthcheck` and/or `readiness` paths for deploy safety.",
+            ));
+        }
+    }
+
+    for service in app.services {
+        if !service.has_owns {
+            diagnostics.push(simple_canonical_diagnostic(
+                service.line_index,
+                &service.line,
+                DiagnosticSeverity::WARNING,
+                "app-service-contract",
+                &format!(
+                    "service `{}` should declare `owns ...` so feature ownership is explicit.",
+                    service.name
+                ),
             ));
         }
     }
@@ -7726,10 +8005,34 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "capabilities" => Some(
             "Declares required runtime capabilities without choosing concrete infrastructure providers.",
         ),
+        "architecture" => Some(
+            "Declares provider-neutral architecture mode and service-boundary enforcement intent.",
+        ),
+        "services" => Some("Declares logical service ownership boundaries for the app."),
+        "service" => Some("Declares one logical app service boundary under `services`."),
+        "owns" => Some("Declares which Lazuli features a logical service owns."),
+        "exposes" => Some("Groups commands, queries, APIs, or workflows exposed by a service."),
+        "publishes" => Some("Declares event patterns a logical service publishes."),
+        "consumes" => Some("Declares external or cross-service events a logical service consumes."),
+        "communication" => {
+            Some("Declares sync/async intent and context propagation across service boundaries.")
+        }
+        "internal" => Some("Declares the internal sync communication contract."),
+        "external" => Some("Declares the external communication contract."),
+        "async" => Some("Declares the asynchronous communication contract."),
+        "propagate" => Some("Declares context values propagated across service boundaries."),
+        "timeout" => Some("Declares a default service-boundary timeout."),
         "runtime" => {
             Some("Declares generated runtime units such as api, web, worker, and scheduler.")
         }
         "unit" => Some("Declares one app runtime unit under the app manifest `runtime` block."),
+        "mode" => Some("Declares the app architecture mode."),
+        "service_ready" => Some(
+            "Marks whether the app keeps service boundaries visible for future split deployments.",
+        ),
+        "enforce_service_boundaries" => {
+            Some("Marks whether cross-service ownership boundaries should be enforced by tooling.")
+        }
         "serves" => Some("Declares which contracts a runtime unit serves."),
         "runs" => Some("Declares which jobs or schedules a runtime unit runs."),
         "healthcheck" => Some("Declares a runtime healthcheck path for deploy safety."),
@@ -7896,6 +8199,22 @@ const KEYWORDS: &[&str] = &[
     "environments",
     "urls",
     "capabilities",
+    "architecture",
+    "services",
+    "service",
+    "mode",
+    "service_ready",
+    "enforce_service_boundaries",
+    "owns",
+    "exposes",
+    "publishes",
+    "consumes",
+    "communication",
+    "internal",
+    "external",
+    "async",
+    "propagate",
+    "timeout",
     "runtime",
     "unit",
     "serves",
@@ -8159,6 +8478,27 @@ app AcmeCRM
   capabilities
     database postgres
     queue background_jobs
+
+  architecture
+    mode modular_monolith
+    service_ready true
+    enforce_service_boundaries true
+
+  services
+    service crm
+      owns customer
+      exposes
+        query customer.query.list
+        command customer.command.create
+      publishes customer.*
+
+  communication
+    internal sync rpc
+    external http
+    async event_bus
+    propagate actor, tenant, trace_id, request_id
+    timeout default "2s"
+    retry default 2 backoff exponential
 
   runtime
     unit api

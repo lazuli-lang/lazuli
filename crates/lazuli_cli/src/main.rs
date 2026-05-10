@@ -3232,6 +3232,20 @@ app AcmeCRM
   capabilities
     database postgres
 
+  architecture
+    mode modular_monolith
+    service_ready true
+
+  services
+    service crm
+      owns customer
+      exposes
+        query customer.query.list
+
+  communication
+    internal sync rpc
+    propagate actor, tenant
+
   runtime
     unit api
       serves queries, commands
@@ -3250,6 +3264,10 @@ app AcmeCRM
         assert!(json.contains("\"environments\":[\"local\",\"production\"]"));
         assert!(json.contains("\"url\":\"https://api.acme.example\""));
         assert!(json.contains("\"DATABASE_URL\""));
+        assert!(json.contains("\"architecture\""));
+        assert!(json.contains("\"mode\":\"modular_monolith\""));
+        assert!(json.contains("\"services\""));
+        assert!(json.contains("\"communication\""));
         assert!(json.contains("\"runtime\""));
         assert!(json.contains("\"migrations\":\"before_deploy\""));
     }

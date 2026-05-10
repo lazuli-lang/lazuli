@@ -1626,6 +1626,8 @@ app AcmeCRM
   uses
     customer
     customer_auth
+    customer_tags
+    customer_import
 
   targets
     backend go
@@ -1656,6 +1658,34 @@ app AcmeCRM
     event_bus internal
     tracing optional
 
+  architecture
+    mode modular_monolith
+    service_ready true
+    enforce_service_boundaries true
+
+  services
+    service identity
+      owns customer_auth
+      exposes
+        command customer_auth.command.login
+      publishes customer_auth.customer_*
+
+    service crm
+      owns customer, customer_tags, customer_import
+      exposes
+        query customer.query.by_id
+        command customer.command.create
+      publishes customer.customer_*
+      consumes billing.invoice_paid
+
+  communication
+    internal sync rpc
+    external http
+    async event_bus
+    propagate actor, tenant, trace_id, request_id
+    timeout default "2s"
+    retry default 2 backoff exponential
+
   runtime
     unit api
       serves queries, commands, webhooks, apis
@@ -1683,12 +1713,24 @@ configured. Concrete provider choices such as Fly, AWS, Kubernetes, Neon, R2,
 Redis, SendGrid, or OpenTelemetry exporters belong in Drusa adapter
 configuration.
 
+`architecture` and `services` describe logical service boundaries, not
+mandatory process boundaries. `mode modular_monolith` lets Drusa generate one
+deployable app with enforced ownership boundaries; `mode microservices` is a
+topology choice Drusa may materialize later with RPC clients, event routing, and
+separate deploy units. Lazuli owns `owns`, `exposes`, `publishes`, `consumes`,
+and context propagation because those facts affect static analysis, generated
+clients, policy/tenant propagation, idempotency, and contract tests. Concrete
+choices such as gRPC, Connect, Kafka, NATS, Kubernetes, Envoy, or service mesh
+providers stay in Drusa adapters.
+
 `lazuli inspect app.lzi --format=json` exposes this manifest under the `app`
 key using the same operational shape consumed by Drusa. `lazuli doctor` loads
 the package manifest and checks it against local features and projections:
 feature `uses`, `env.*` references, `@cap.File` storage needs, custom APIs,
 webhooks, jobs, scheduled jobs, web/mobile targets, and public URLs must be
-represented in the app contract.
+represented in the app contract. When `services` are declared, every local
+feature should be owned by exactly one service boundary and a service should not
+expose commands, queries, APIs, or workflows from features it does not own.
 
 Concrete routes stay in `.lzx` because they bind web URLs and mobile route
 patterns to experience views and platform surfaces:

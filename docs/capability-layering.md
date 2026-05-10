@@ -107,6 +107,7 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 | Capability | Language artifact | Status |
 |------------|-------------------|--------|
 | App/runtime manifest | `app.lzi` with targets, locale/timezone, fallback routes, used features, environments, URLs, env schema, runtime units, capabilities, and deploy gates | implemented as app operational contract in IR/inspect/doctor |
+| Service boundaries | `app.lzi` `architecture`, `services`, and `communication` with logical ownership, exposures, published/consumed events, and context propagation | implemented as microservice-ready contract; Drusa may materialize as monolith, modular monolith, or split services |
 | Type-safe app routes | top-level `.lzx route <name>` with canonical `path`, `params`, `to`, `surface`, and `audience`; legacy `stack` remains compatibility syntax | implemented as route-builder contract |
 | Env/secrets schema | `app.lzi` `env` or top-level `.lzi env` with `server|client|mobile NAME: Type required|optional` | implemented as source contract |
 | Deploy/runtime contract | `app.lzi` `runtime`, `capabilities`, and `deploy` blocks | implemented as provider-neutral operational contract; doctor cross-checks package usage; Drusa/adapters materialize it |
@@ -131,6 +132,13 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 | Event bus | `event`, `event_group`, `event.trace`, `trigger event` | declarations and emissions are language; routing runtime and broker adapters later |
 | Tracing | `event.trace` | implemented as language signal; OTel runtime later |
 | Feature flags | possible future `when flag.*` | deferred until repeated source pressure |
+
+Microservice readiness follows the same boundary: Lazuli owns service
+ownership, exposed contracts, event edges, and context propagation because those
+facts are checkable and affect generated APIs. Drusa owns whether the graph runs
+as a monolith, modular monolith, or split services. Concrete transports and
+infra such as gRPC, Connect, Kafka, NATS, SQS, Kubernetes, Envoy, and service
+mesh settings are adapters.
 
 ## Drusa Capability Packs
 

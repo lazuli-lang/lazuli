@@ -789,6 +789,10 @@ fn app_contract_diagnostics(
         }
     }
 
+    if !manifest.services.is_empty() {
+        diagnostics.extend(app_service_contract_diagnostics(app, operational));
+    }
+
     for env_ref in &operational.env_references {
         if !env_names.contains(env_ref.name.as_str()) {
             diagnostics.push(DoctorDiagnostic {
@@ -901,6 +905,87 @@ fn app_missing_contract_diagnostic(
         code: code.to_owned(),
         message: message.to_owned(),
     }
+}
+
+fn app_service_contract_diagnostics(
+    app: &DoctorAppManifest,
+    operational: &OperationalFacts,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut owners: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+
+    for service in &app.manifest.services {
+        for owned in &service.owns {
+            owners
+                .entry(owned.as_str())
+                .or_default()
+                .push(service.name.as_str());
+        }
+
+        for exposure in &service.exposes {
+            if let Some(feature_name) = exposure.target.split('.').next()
+                && !service.owns.iter().any(|owned| owned == feature_name)
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "APP-SVC-003".to_owned(),
+                    message: format!(
+                        "service `{}` exposes `{}` from feature `{feature_name}`, but does not own that feature.",
+                        service.name, exposure.target
+                    ),
+                });
+            }
+        }
+    }
+
+    for feature in operational.features.values() {
+        match owners.get(feature.name.as_str()) {
+            Some(service_names) if service_names.len() == 1 => {}
+            Some(service_names) => diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-SVC-001".to_owned(),
+                message: format!(
+                    "feature `{}` is owned by multiple app services: {}.",
+                    feature.name,
+                    service_names.join(", ")
+                ),
+            }),
+            None => diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "APP-SVC-002".to_owned(),
+                message: format!(
+                    "feature `{}` is not assigned to any app service boundary.",
+                    feature.name
+                ),
+            }),
+        }
+    }
+
+    for owned in owners.keys() {
+        if !operational.features.contains_key(*owned) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "APP-SVC-004".to_owned(),
+                message: format!(
+                    "app service owns `{owned}`, but no local feature with that name was found in this package."
+                ),
+            });
+        }
+    }
+
+    diagnostics
 }
 
 fn app_has_target(app: &AppManifest, target: &str) -> bool {
@@ -1510,6 +1595,21 @@ app AcmeCRM
     server INBOUND_SECRET: Secret required
   capabilities
     object_storage files
+  architecture
+    mode modular_monolith
+    service_ready true
+    enforce_service_boundaries true
+  services
+    service crm
+      owns customer
+      exposes
+        query customer.query.list
+      publishes customer.*
+  communication
+    internal sync rpc
+    external http
+    async event_bus
+    propagate actor, tenant, trace_id, request_id
   runtime
     unit api
       serves queries, commands, webhooks, apis
@@ -1560,5 +1660,57 @@ route customer_list
         ]);
 
         assert!(package.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn doctor_reports_app_service_ownership_gaps() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    customer
+    billing
+  targets
+    backend go
+  services
+    service crm
+      owns customer
+      exposes
+        query billing.query.invoice_by_id
+
+    service finance
+      owns customer, billing
+"#,
+            ),
+            (
+                "customer.lzi",
+                r#"
+feature customer
+"#,
+            ),
+            (
+                "billing.lzi",
+                r#"
+feature billing
+"#,
+            ),
+        ]);
+
+        let diagnostics = package.diagnostics();
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "APP-SVC-001"
+                && diagnostic
+                    .message
+                    .contains("feature `customer` is owned by multiple app services")
+        }));
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "APP-SVC-003"
+                && diagnostic
+                    .message
+                    .contains("service `crm` exposes `billing.query.invoice_by_id`")
+        }));
     }
 }

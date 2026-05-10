@@ -78,6 +78,24 @@ app PingApp
   capabilities
     database postgres
 
+  architecture
+    mode modular_monolith
+    service_ready true
+    enforce_service_boundaries true
+
+  services
+    service core
+      owns ping
+      exposes
+        query ping.query.by_id
+      publishes ping.*
+
+  communication
+    internal sync rpc
+    external http
+    async event_bus
+    propagate actor, tenant, trace_id, request_id
+
   runtime
     unit api
       serves queries, commands

@@ -140,9 +140,11 @@ If a field's only justification is "an editor needs it later," reject the field.
 
 `app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
 by inspect/doctor. The manifest is provider-neutral: targets, environments,
-URLs, env schema, capabilities, runtime units, and deploy gates enter IR;
-provider-specific details such as AWS accounts, Kubernetes namespaces, Fly app
-ids, bucket names, or Terraform settings stay in Drusa adapter configuration.
+URLs, env schema, capabilities, logical service boundaries, communication
+intent, runtime units, and deploy gates enter IR; provider-specific details
+such as AWS accounts, Kubernetes namespaces, Fly app ids, bucket names, gRPC
+implementations, Kafka/NATS/SQS brokers, or Terraform settings stay in Drusa
+adapter configuration.
 
 ## Experience IR
 

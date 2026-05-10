@@ -739,6 +739,12 @@ pub struct AppManifest {
     pub not_found: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<AppArchitecture>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<AppService>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication: Option<AppCommunication>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environments: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -753,6 +759,51 @@ pub struct AppManifest {
     pub deploy: Option<AppDeploy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AppArchitecture {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_ready: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enforce_service_boundaries: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppService {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exposes: Vec<AppServiceExposure>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub publishes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consumes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppServiceExposure {
+    pub kind: String,
+    pub target: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AppCommunication {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub internal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asynchronous: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub propagate: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_default: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_default: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
