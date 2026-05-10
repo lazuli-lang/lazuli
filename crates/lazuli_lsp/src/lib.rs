@@ -332,6 +332,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(has_many_diagnostics(source));
         diagnostics.extend(agent_contract_diagnostics(source));
         diagnostics.extend(notification_contract_diagnostics(source));
+        diagnostics.extend(emits_derived_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
         diagnostics.extend(event_payload_reference_diagnostics(source));
         diagnostics.extend(event_kind_diagnostics(source));
@@ -3404,6 +3405,81 @@ fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    for (line_index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        // Match `emits <event> from creates|updates|deletes`. The header is
+        // the only place where this clause is canonical.
+        let Some(rest) = trimmed.strip_prefix("emits ") else {
+            continue;
+        };
+        let mut tokens = rest.split_whitespace();
+        let Some(_event_token) = tokens.next() else {
+            continue;
+        };
+        let Some(from_keyword) = tokens.next() else {
+            continue;
+        };
+        if from_keyword != "from" {
+            continue;
+        }
+        let Some(effect) = tokens.next() else {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "emits-derived-contract",
+                "`emits <event> from <effect>` requires the effect block name (`creates`, `updates`, or `deletes`).",
+            ));
+            continue;
+        };
+        if !matches!(effect, "creates" | "updates" | "deletes") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "emits-derived-contract",
+                "`emits <event> from <effect>` requires `creates`, `updates`, or `deletes`. Drusa derives the payload by name match against that effect's bindings.",
+            ));
+            continue;
+        }
+
+        // The body, if present, must be empty. Inline bindings duplicate what
+        // the cited effect already declares, defeating the point of `from`.
+        let header_indent = leading_spaces(line);
+        let child_indent = header_indent + 2;
+        for next in lines.iter().skip(line_index + 1) {
+            let next_trimmed = next.trim_start();
+            if next_trimmed.is_empty() || next_trimmed.starts_with('#') {
+                continue;
+            }
+            let next_indent = leading_spaces(next);
+            if next_indent <= header_indent {
+                break;
+            }
+            if next_indent == child_indent && next_trimmed.contains(" = ") {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "emits-derived-contract",
+                    "`emits <event> from <effect>` derives the payload from the cited effect's bindings; inline `<field> = <value>` children duplicate that mapping. Remove the body or drop `from <effect>`.",
+                ));
+                break;
+            }
+        }
+    }
+
+    diagnostics
+}
+
 fn notification_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -4454,12 +4530,17 @@ fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_feature_errors = false;
     let mut in_command_errors = false;
+    let mut in_contract = false;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
 
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
+        }
+
+        if leading_spaces(line) == 0 {
+            in_contract = trimmed.starts_with("contract ");
         }
 
         if leading_spaces(line) <= 2 {
@@ -4497,6 +4578,15 @@ fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "error exposure uses `expose client 4xx|5xx message, code, data` so public/private error payloads are explicit.",
                 ));
             }
+        }
+
+        // Inside a top-level `contract <name>` block, `error` cases on
+        // operations expose schema-defined fields, not the
+        // command-level `message|code|data` envelope. The
+        // contract-operation validator handles the shape; skip the
+        // command-level rules here.
+        if in_contract {
+            continue;
         }
 
         if trimmed.starts_with("error ") {
@@ -5839,9 +5929,13 @@ fn validate_contract_operation_line(
         || matches!(parts.as_slice(), ["method", value] if matches!(*value, "GET" | "POST" | "PUT" | "PATCH" | "DELETE"))
         || matches!(parts.as_slice(), ["path", value] if is_quoted_lzx_literal(value))
         || matches!(parts.as_slice(), ["input", value] if is_type_name(value))
-        || matches!(parts.as_slice(), ["output", value] if is_type_name(value) || *value == "stream")
+        || matches!(parts.as_slice(), ["output", value] if is_type_name(value))
+        || matches!(parts.as_slice(), ["output", "stream", value] if is_type_name(value))
         || matches!(parts.as_slice(), ["auth", value] if matches!(*value, "service" | "none" | "propagate"))
-        || matches!(parts.as_slice(), ["timeout", value] if is_quoted_lzx_literal(value));
+        || matches!(parts.as_slice(), ["timeout", value] if is_quoted_lzx_literal(value))
+        || is_contract_operation_retry(&parts)
+        || is_contract_operation_idempotency(&parts)
+        || is_contract_operation_error(&parts);
 
     if !valid {
         diagnostics.push(simple_canonical_diagnostic(
@@ -5849,9 +5943,65 @@ fn validate_contract_operation_line(
             line,
             DiagnosticSeverity::WARNING,
             "contract-operation",
-            "operation children use `transport http|rpc|event`, `method GET|POST|PUT|PATCH|DELETE`, `path \"...\"`, `input Type`, `output Type`, `auth service|none|propagate`, or `timeout \"...\"`.",
+            "operation children use `transport http|rpc|event`, `method GET|POST|PUT|PATCH|DELETE`, `path \"...\"`, `input Type`, `output [stream] Type`, `auth service|none|propagate`, `timeout \"...\"`, `retry <n> [backoff <strategy>]`, `idempotency by <field>[, <field>...]`, or `error <Name> status <code> [expose <field>...]`.",
         ));
     }
+}
+
+fn is_contract_operation_retry(parts: &[&str]) -> bool {
+    if parts.first().copied() != Some("retry") {
+        return false;
+    }
+    match parts.len() {
+        2 => parts[1].parse::<u32>().is_ok(),
+        4 => {
+            parts[1].parse::<u32>().is_ok()
+                && parts[2] == "backoff"
+                && matches!(parts[3], "exponential" | "linear" | "fixed")
+        }
+        _ => false,
+    }
+}
+
+fn is_contract_operation_idempotency(parts: &[&str]) -> bool {
+    parts.len() >= 3
+        && parts[0] == "idempotency"
+        && parts[1] == "by"
+        && parts.iter().skip(2).all(|t| !t.is_empty())
+}
+
+fn is_contract_operation_error(parts: &[&str]) -> bool {
+    if parts.first().copied() != Some("error") {
+        return false;
+    }
+    if parts.len() < 2 || !is_type_name(parts[1]) {
+        return false;
+    }
+    // Allow `error <Name>` alone, or with optional `status <code>` and
+    // `expose <field>...` clauses in any order.
+    let mut iter = parts.iter().skip(2);
+    while let Some(token) = iter.next() {
+        match *token {
+            "status" => {
+                let Some(value) = iter.next() else {
+                    return false;
+                };
+                if value.parse::<u16>().is_err() {
+                    return false;
+                }
+            }
+            "expose" => {
+                if iter.next().is_none() {
+                    return false;
+                }
+                // Consume the rest as expose fields.
+                while iter.next().is_some() {}
+                return true;
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 fn validate_contract_field_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {

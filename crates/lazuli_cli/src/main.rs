@@ -2527,12 +2527,17 @@ fn emits_dependencies(feature: &str, subject: &str, lines: &[String]) -> Vec<Ins
         let trimmed = line.trim_start();
 
         if let Some(events) = trimmed.strip_prefix("emits ") {
+            let origin = if emits_derived_effect(events).is_some() {
+                "emits.derived"
+            } else {
+                "emits"
+            };
             for event in parse_event_list(events) {
                 dependencies.push(inspect_dependency(
                     "emits_event",
                     subject,
                     qualify_event_ref(feature, &event),
-                    "emits",
+                    origin,
                 ));
             }
         } else if is_transition_line(trimmed) {
@@ -2548,6 +2553,20 @@ fn emits_dependencies(feature: &str, subject: &str, lines: &[String]) -> Vec<Ins
     }
 
     dependencies
+}
+
+fn emits_derived_effect(emits_rest: &str) -> Option<&'static str> {
+    let mut tokens = emits_rest.split_whitespace();
+    tokens.next()?;
+    if tokens.next()? != "from" {
+        return None;
+    }
+    match tokens.next()? {
+        "creates" => Some("creates"),
+        "updates" => Some("updates"),
+        "deletes" => Some("deletes"),
+        _ => None,
+    }
 }
 
 fn query_reference_dependencies(subject: &str, lines: &[String]) -> Vec<InspectDependency> {

@@ -131,6 +131,18 @@ source that only fails later.
 - Cache invalidation entries accept fully qualified queries
   (`<feature>.query.<name>` or `<feature>.query.*` wildcard) and same-feature
   short forms (`query.<name>` or `query.*`).
+- Commands may emit events with payload bindings derived from the surrounding
+  effect: `emits <event> from creates|updates|deletes` declares that Drusa
+  should derive the event payload from the cited effect's bindings by name
+  match. The derived form rejects an inline body, since duplicated bindings
+  defeat the contract.
+- External `contract` operations may declare AI-first transport dimensions on
+  top of `transport` / `method` / `path` / `input` / `output` / `auth` /
+  `timeout`. Supported children: `output stream <Type>`,
+  `retry <count> [backoff <strategy>]`, `idempotency by <field>[, ...]`, and
+  `error <Name> [status <code>] [expose <field>...]`. Error fields inside
+  `contract` operations expose schema-defined keys, not the
+  `message|code|data` envelope used by feature commands.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as

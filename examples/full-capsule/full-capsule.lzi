@@ -240,9 +240,7 @@ feature customer
       tier = CustomerTier.free
       source = CustomerSource.manual
       owner = nil
-    emits customer_created
-      email = input.email
-      source = CustomerSource.manual
+    emits customer_created from creates
     invalidates
       query.list
       query.global_search
@@ -261,9 +259,7 @@ feature customer
       tier = input.tier
       source = input.source
       owner = ctx.user
-    emits customer_created
-      email = input.email
-      source = input.source
+    emits customer_created from creates
     invalidates
       query.list
       query.global_search

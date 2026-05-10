@@ -21,9 +21,14 @@ contract acme.ai.v1
     method POST
     path "/v1/customer-summary"
     input CustomerSummaryRequest
-    output CustomerSummaryResult
+    output stream CustomerSummaryResult
     auth service
     timeout "10s"
+    retry 2 backoff exponential
+    idempotency by input.customer_id, input.prompt
+    error UpstreamUnavailable status 503 expose retry_after
+    error PromptRejected status 422 expose reason
+    error ContextOverflow status 413 expose limit_tokens, prompt_tokens
 
   event summary_ready
     topic "ai.summary_ready"

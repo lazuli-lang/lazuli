@@ -121,6 +121,12 @@ when this list went stale.
   feature-to-feature reaction graph)
 - `escape_route "<path>"` (controlled exit route with `at` / `policy` /
   `tenancy`)
+- `emits <event> from creates|updates|deletes` (auto-derive event payload
+  from the surrounding command effect's bindings)
+- AI-first dimensions on `contract` operations: `output stream <Type>`,
+  `retry <count> [backoff <strategy>]`, `idempotency by <field>...`, and
+  `error <Name> status <code> expose <fields>` (with schema-defined fields,
+  not the command-level `message|code|data` envelope)
 
 Likely candidates worth exploring (not yet implemented). Each must declare
 at least 2 use sites in the fixture; otherwise drop it.
@@ -130,10 +136,6 @@ at least 2 use sites in the fixture; otherwise drop it.
 - `import_pipeline` (CSV/external-source ingestion as primitive)
 - `webhook_outbound` (declarative outgoing webhook with retry/dlq
   contract — distinct from `webhook` which is inbound)
-- AI-first dimensions on `contract <name>` `operation` (currently the
-  external contract carries `transport` / `method` / `path` / `auth` /
-  `timeout`; an LLM-shaped operation should also be able to declare
-  `output stream`, `retry`, `idempotency`, and a typed `error` shape).
 
 Each candidate must declare: what feature in the fixture would use it,
 what it removes (handler files? jobs? duplicate state?), and the

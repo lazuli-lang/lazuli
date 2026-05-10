@@ -4,8 +4,8 @@ use lazuli_ir::{
     AppManifest, AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy,
     AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService,
     AppServiceExposure, AppUrl, AppWorkspace, ContractEvent, ContractField, ContractImport,
-    ContractOperation, ContractRecord, FeatureRequirement, WorkspaceApp, WorkspaceBoundary,
-    WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
+    ContractOperation, ContractOperationError, ContractRecord, FeatureRequirement, WorkspaceApp,
+    WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
 pub fn parse_app_contracts(source: &str) -> Vec<AppContract> {
@@ -94,6 +94,9 @@ fn parse_app_contract_block(name: &str, lines: &[&str]) -> AppContract {
                         output: None,
                         auth: None,
                         timeout: None,
+                        retry: None,
+                        idempotency: None,
+                        errors: Vec::new(),
                     });
                     current_operation = contract.operations.len().checked_sub(1);
                 } else if let Some(name) = named_block_name(trimmed, "event") {
@@ -112,15 +115,29 @@ fn parse_app_contract_block(name: &str, lines: &[&str]) -> AppContract {
                     }
                 } else if let Some(operation_index) = current_operation {
                     let operation = &mut contract.operations[operation_index];
+                    if let Some(rest) = trimmed.strip_prefix("error ") {
+                        if let Some(err) = parse_contract_operation_error(rest) {
+                            operation.errors.push(err);
+                        }
+                        continue;
+                    }
                     let parts: Vec<_> = trimmed.split_whitespace().collect();
                     match parts.as_slice() {
                         ["transport", value] => operation.transport = Some((*value).to_owned()),
                         ["method", value] => operation.method = Some((*value).to_owned()),
                         ["path", value] => operation.path = Some(unquote(value).to_owned()),
                         ["input", value] => operation.input = Some((*value).to_owned()),
-                        ["output", value] => operation.output = Some((*value).to_owned()),
+                        ["output", rest @ ..] if !rest.is_empty() => {
+                            operation.output = Some(rest.join(" "));
+                        }
                         ["auth", value] => operation.auth = Some((*value).to_owned()),
                         ["timeout", value] => operation.timeout = Some(unquote(value).to_owned()),
+                        ["retry", rest @ ..] if !rest.is_empty() => {
+                            operation.retry = Some(rest.join(" "));
+                        }
+                        ["idempotency", "by", rest @ ..] if !rest.is_empty() => {
+                            operation.idempotency = Some(rest.join(" "));
+                        }
                         _ => {}
                     }
                 } else if let Some(event_index) = current_event {
@@ -1010,6 +1027,42 @@ fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = rest.trim_start();
     let name = rest.split_whitespace().next()?;
     is_identifier(name).then_some(name)
+}
+
+fn parse_contract_operation_error(rest: &str) -> Option<ContractOperationError> {
+    // Shape: `<Name> [status <code>] [expose <field>, <field>...]`
+    let mut tokens = rest.split_whitespace();
+    let name = tokens.next()?.to_owned();
+    let mut status = None;
+    let mut expose: Vec<String> = Vec::new();
+
+    let mut state = "start";
+    for token in tokens {
+        match (state, token) {
+            (_, "status") => state = "status",
+            (_, "expose") => state = "expose",
+            ("status", value) => {
+                status = Some(value.to_owned());
+                state = "after";
+            }
+            ("expose", value) => {
+                expose.extend(
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|f| !f.is_empty())
+                        .map(str::to_owned),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    Some(ContractOperationError {
+        name,
+        status,
+        expose,
+    })
 }
 
 fn parse_contract_field(trimmed: &str) -> Option<ContractField> {
