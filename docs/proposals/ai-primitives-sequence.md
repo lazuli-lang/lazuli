@@ -34,6 +34,9 @@ on top of Cut A's `Agent` IR.
 | **B** | flow + budget tokens + knowledge + quota cost | language-light + pack | A | ≥1 pilot with multi-step flow + each sub-cut has own gate | [Cut B section in A](./ai-primitives-v0.md) |
 | **D** | multi-slot `context` block (Tier 2) | language | A | pilot writes `@fn.*`/`query.sql` joining contexts for one agent | [proposal](./ai-primitives-cut-d.md) |
 | **E** | `calls agent.<name>(args)` in jobs/commands (Tier 2) | language | A | pilot writes job handler dispatching an agent | [proposal](./ai-primitives-cut-e.md) |
+| **F** | `input from contract.X.Y` / `output from` (record reuse) | language | A | pilot's agent input/output drifted from a contract record in production with the asymmetry visible in code review | [audit](./pressure-6-agent-contract-binding.md) |
+| **G** | `calls contract.X.Y` in agent body (dispatch via contract) | language | A; E (precedent) | pilot's agent `handler` reduces to translation between agent shape and contract operation | [audit](./pressure-6-agent-contract-binding.md) |
+| **H** | typed prompt manifest (inline `prompt { vars { ... } body }`) | language | A; A.6 (compositional substrate) | pilot's prompt variable list drifted from `input`/`context` and shipped to production | [audit](./pressure-2-typed-prompt-manifest.md) |
 
 ## Sequence rationale
 
@@ -283,20 +286,36 @@ The architect grades each cut individually before it lands. The
   you which cuts you need to actively coordinate (A.8) vs which
   you consume passively (A, A.5, A.6, A.7).
 
-## Tier 2 — pilot-gated
+## Pilot-gated cuts (D, E, F, G, H)
 
-Cuts D and E close the audit's Tier 2 candidates. Both are
-designed (proposals approved-in-principle by the architect via the
-audit endorsement) but require pilot evidence before landing.
-Neither blocks the Cut A series.
+These cuts close the audit's design space. All are designed
+(audits or proposals graded by the architect) but require pilot
+evidence before landing. None blocks the Cut A series.
 
-| Cut | When to ship |
-|---|---|
-| D | A pilot writes a join-shaped `@fn.*` or `query.sql` whose only job is to compose multiple resource contexts for one agent. |
-| E | A pilot writes a `job` whose `handler` delegates to a Lazuli agent. |
+| Cut | When to ship | Audit / proposal |
+|---|---|---|
+| D | A pilot writes a join-shaped `@fn.*` or `query.sql` whose only job is to compose multiple resource contexts for one agent. | [proposal](./ai-primitives-cut-d.md) |
+| E | A pilot writes a `job` whose `handler` delegates to a Lazuli agent. | [proposal](./ai-primitives-cut-e.md) |
+| F | A pilot's agent input/output drifted from a contract record's shape and shipped to production with the asymmetry visible in code review. | [audit](./pressure-6-agent-contract-binding.md) |
+| G | A pilot's agent `handler` (or wrapping job's `handler`) only translates between agent shape and a contract operation. | [audit](./pressure-6-agent-contract-binding.md) |
+| H | A pilot's prompt variable list drifted from the agent's `input`/`context` and shipped to production before being caught. Only after Cut A.6 lands (tool result schema is the compositional substrate). | [audit](./pressure-2-typed-prompt-manifest.md) |
 
-Each lands independently when its gate fires. They are not
-ordered relative to each other.
+D, E, F, G land independently in any order — each touches a
+different IR surface. H is sequenced after A.6.
+
+## Open audits — none
+
+Both open questions from the AI-first roadmap audit
+(`docs/proposals/ai-first-roadmap.md`) have been audited:
+
+- Pressure 2 (typed prompt manifest) → audit recommends Approach
+  B; promotes to Cut H after Cut A.6.
+- Pressure 6 (agent ↔ contract binding) → audit recommends
+  splitting into Cuts F (record reuse) and G (calls contract).
+
+The design space surface for agents is now comprehensively
+explored. Future audits should arrive from new pressure points,
+not from the existing audit's residue.
 
 ## Changelog
 
@@ -304,3 +323,7 @@ ordered relative to each other.
   A.8 proposed; Cut B deferred per architect.
 - 2026-05-10 — Cuts D (multi-slot `context`) and E (async agent
   via `calls`) added as Tier 2 pilot-gated proposals.
+- 2026-05-10 — Cuts F (record reuse via `from`), G (`calls
+  contract.*`), and H (typed prompt manifest) added from
+  exploratory audits of Pressure 2 and Pressure 6. All
+  pilot-gated; no open audits remain.
