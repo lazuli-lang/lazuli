@@ -359,6 +359,8 @@ struct InspectReport {
     expand: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace: Option<lazuli_ir::AppWorkspace>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    contracts: Vec<lazuli_ir::AppContract>,
     #[serde(skip_serializing_if = "Option::is_none")]
     app: Option<lazuli_ir::AppManifest>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -615,6 +617,7 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         source: input.display().to_string(),
         expand: expansions.labels(),
         workspace: app_manifest::parse_app_workspace(source),
+        contracts: app_manifest::parse_app_contracts(source),
         app: app_manifest::parse_app_manifest(source),
         registry: app_manifest::parse_app_registry(source),
         profiles: app_manifest::parse_app_profiles(source),

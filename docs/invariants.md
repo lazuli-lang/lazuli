@@ -22,6 +22,10 @@ source that only fails later.
 - Workspace apps may be Lazuli/Drusa packages or external implementations in
   another language. External apps must reference a contract; Lazuli validates
   the contract graph, while Drusa/Go materializes transport bindings.
+- Top-level `.lzi contract <name>` owns imported or authored external service
+  schemas. It may import OpenAPI, AsyncAPI, Proto, JSON Schema, or Avro and may
+  author records, operations, and events. It does not describe SDK generation,
+  provider clients, broker endpoints, or implementation code.
 - Workspace gateways route to app ids and should declare `auth propagate` and
   `tenant propagate`. Gateway/proxy providers, service mesh, broker providers,
   repo URLs, branches, ports, and deploy mechanics stay outside Lazuli.

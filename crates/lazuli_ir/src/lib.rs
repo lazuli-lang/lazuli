@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.3.5";
+pub const LZIR_SCHEMA: &str = "0.3.6";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -31,6 +31,8 @@ pub struct SpanRef {
 pub struct Module {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<AppWorkspace>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contracts: Vec<AppContract>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<AppManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -38,6 +40,76 @@ pub struct Module {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<AppProfile>,
     pub features: Vec<Feature>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppContract {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imports: Vec<ContractImport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<ContractRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub operations: Vec<ContractOperation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<ContractEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractImport {
+    pub format: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractRecord {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<ContractField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractField {
+    pub name: String,
+    pub type_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requiredness: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractOperation {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractEvent {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload: Vec<ContractField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

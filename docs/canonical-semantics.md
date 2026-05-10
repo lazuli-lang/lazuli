@@ -1831,6 +1831,50 @@ materializes workspace edges primarily as Go transport bindings, event
 publishers/consumers, gateway wiring, mocks, and contract tests for the Lazuli
 apps that participate in the graph.
 
+`contract.lzi` declares the contract for non-Lazuli services or published
+schemas. It can import existing ecosystem specs or author the small subset
+Lazuli needs for static checks and Go transport bindings:
+
+```lazuli
+contract acme.ai.v1
+  purpose "AI inference service for customer summaries."
+  compatibility backward
+  import openapi "./contracts/ai.openapi.json"
+
+  record CustomerSummaryRequest
+    org_id: ID required
+    customer_id: ID required
+    email: @semantic.Email @pii.contact optional
+
+  record CustomerSummaryResult
+    customer_id: ID required
+    summary: Text required
+    generated_at: DateTime required
+
+  operation summarize_customer
+    transport http
+    method POST
+    path "/v1/customer-summary"
+    input CustomerSummaryRequest
+    output CustomerSummaryResult
+    auth service
+    timeout "10s"
+
+  event summary_ready
+    topic "ai.summary_ready"
+    payload
+      org_id: ID required
+      customer_id: ID required
+      summary: Text required
+```
+
+Supported import formats are `openapi`, `asyncapi`, `proto`, `json_schema`,
+and `avro`. The language records the contract and enough transport intent for
+doctor/codegen. It does not encode provider clients, Python SDKs, broker
+configuration, generated package names, or service implementation details.
+Those are Drusa/adapters. External SDK export may be a future publication
+artifact, but it is not the runtime model.
+
 `architecture` and `services` describe logical service boundaries, not
 mandatory process boundaries. `mode modular_monolith` lets Drusa generate one
 deployable app with enforced ownership boundaries; `mode microservices` is a

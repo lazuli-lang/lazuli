@@ -1,0 +1,33 @@
+contract acme.ai.v1
+  purpose "AI inference service for customer summaries and lifecycle signals."
+  compatibility backward
+  import openapi "./contracts/ai.openapi.json"
+
+  record CustomerSummaryRequest
+    org_id: ID required
+    customer_id: ID required
+    name: Text required
+    email: @semantic.Email @pii.contact optional
+    lifecycle_stage: Text required
+
+  record CustomerSummaryResult
+    customer_id: ID required
+    summary: Text required
+    model: Text required
+    generated_at: DateTime required
+
+  operation summarize_customer
+    transport http
+    method POST
+    path "/v1/customer-summary"
+    input CustomerSummaryRequest
+    output CustomerSummaryResult
+    auth service
+    timeout "10s"
+
+  event summary_ready
+    topic "ai.summary_ready"
+    payload
+      org_id: ID required
+      customer_id: ID required
+      summary: Text required

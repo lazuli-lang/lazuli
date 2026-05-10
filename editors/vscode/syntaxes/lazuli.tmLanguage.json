@@ -104,6 +104,17 @@
           "match": "^\\s*\\b(registry|profile)\\b"
         },
         {
+          "match": "^\\s*\\b(contract)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "entity.name.type.contract.lazuli"
+            }
+          }
+        },
+        {
           "match": "^\\s*\\b(experience)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
           "captures": {
             "1": {
@@ -148,7 +159,7 @@
           }
         },
         {
-          "match": "^\\s*\\b(query(?:\\.(?:list|lookup|sql))?|command|api|workflow|view|event(?:\\.trace)?|event_group|events|webhook|job|auth|extends)\\s+([A-Za-z_][A-Za-z0-9_\\.*]*)\\b",
+          "match": "^\\s*\\b(query(?:\\.(?:list|lookup|sql))?|command|api|operation|workflow|view|event(?:\\.trace)?|event_group|events|webhook|job|auth|extends)\\s+([A-Za-z_][A-Za-z0-9_\\.*]*)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.declaration.structural.lazuli"
@@ -311,7 +322,7 @@
       "patterns": [
         {
           "name": "entity.name.function.statement.metadata.lazuli",
-          "match": "\\b(title|version|default_locale|default_timezone|auth_failed_redirect|not_found|purpose|context|uses|imports|target|targets|path|stack|to|params|surface|audience|lazy|prerender|at|external|contract|tenant|tenant_from|reason|verify|secret|header|idempotency|trigger|schedule|queue|unit|mode|service_ready|enforce_service_boundaries|service|owns|exposes|publishes|consumes|internal|async|propagate|timeout|serves|runs|healthcheck|readiness|migrations|migration_lock|destructive_migrations|rollback|topology|environment|retry|backoff|handler|returns|identity|password|oauth|mfa|sessions|ttl|refresh|hash|algorithm|adapter|credentials|data_classification|enroll|rate_limit|extensible_by|tests)\\b"
+          "match": "\\b(title|version|default_locale|default_timezone|auth_failed_redirect|not_found|purpose|compatibility|import|transport|context|uses|imports|target|targets|path|stack|to|params|surface|audience|lazy|prerender|at|external|contract|tenant|tenant_from|reason|verify|secret|header|idempotency|trigger|schedule|queue|unit|mode|service_ready|enforce_service_boundaries|service|owns|exposes|publishes|consumes|internal|async|propagate|timeout|serves|runs|healthcheck|readiness|migrations|migration_lock|destructive_migrations|rollback|topology|environment|retry|backoff|handler|returns|identity|password|oauth|mfa|sessions|ttl|refresh|hash|algorithm|adapter|credentials|data_classification|enroll|rate_limit|extensible_by|tests)\\b"
         },
         {
           "name": "entity.name.function.statement.resource.lazuli",

@@ -220,6 +220,42 @@ workspace AcmeERP
 Repository URLs, branches, local ports, concrete brokers, gateways/proxies, and
 deploy providers belong in Drusa/adapters, not `workspace.lzi`.
 
+`contract.lzi` describes a non-Lazuli service or external schema:
+
+```lazuli
+contract acme.ai.v1
+  purpose "AI inference service."
+  compatibility backward
+  import openapi "./contracts/ai.openapi.json"
+
+  record CustomerSummaryRequest
+    customer_id: ID required
+    email: @semantic.Email @pii.contact optional
+
+  record CustomerSummaryResult
+    summary: Text required
+    generated_at: DateTime required
+
+  operation summarize_customer
+    transport http
+    method POST
+    path "/v1/customer-summary"
+    input CustomerSummaryRequest
+    output CustomerSummaryResult
+    auth service
+    timeout "10s"
+
+  event summary_ready
+    topic "ai.summary_ready"
+    payload
+      customer_id: ID required
+      summary: Text required
+```
+
+Supported import formats: `openapi`, `asyncapi`, `proto`, `json_schema`,
+`avro`. Drusa should turn contracts into Go HTTP/RPC/event bindings and tests;
+SDK export is optional publication tooling, not core Lazuli runtime semantics.
+
 Use a block when a feature needs more than one slot:
 
 ```lazuli

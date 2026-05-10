@@ -20,6 +20,7 @@ The lifecycle is:
 ```txt
 authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / Drusa
 authored workspace.lzi -> AppWorkspace IR -> inspect JSON / doctor / Drusa
+authored contract.lzi -> AppContract IR -> inspect JSON / doctor / Drusa
 authored registry.lzi -> AppRegistry IR -> inspect JSON / doctor / Drusa
 authored profile.lzi -> AppProfile IR -> inspect JSON / doctor / Drusa
 authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
@@ -80,6 +81,7 @@ Backends and tooling never read IR of an incompatible major version. The compati
 | 0.3.3      | 0.3.3         | adds app pack enablement and registry pack catalog entries |
 | 0.3.4      | 0.3.4         | adds adapter provenance metadata for app, registry, and profile integrations |
 | 0.3.5      | 0.3.5         | adds optional workspace contract IR for distributed app graphs |
+| 0.3.6      | 0.3.6         | adds external contract IR for imported/authored service schemas |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -160,6 +162,15 @@ references, an optional shared registry path, event-pattern boundaries,
 communication propagation defaults, and provider-neutral gateway routes.
 Remote repo URLs, branches, deploy providers, concrete brokers, local ports,
 and proxy implementations belong in future `drusa.toml` or adapter config.
+
+`contract.lzi` lowers into `AppContract` entries on `Module`. A contract may
+import external schemas (`openapi`, `asyncapi`, `proto`, `json_schema`, `avro`)
+and/or author a small Lazuli-native contract with records, operations, and
+events. `ContractOperation` records provider-neutral transport intent
+(`http`, `rpc`, or `event`), input/output records, auth mode, path/method when
+HTTP, and timeout. `ContractEvent` records topic and payload fields. SDK export
+is not part of the core IR; Drusa consumes contracts primarily to wire Go
+HTTP/RPC/event bindings, gateway mocks, and contract tests.
 
 `app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
 by inspect/doctor. `registry.lzi` lowers into an optional `AppRegistry`.

@@ -304,6 +304,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(registry_contract_diagnostics(source));
         diagnostics.extend(profile_contract_diagnostics(source));
         diagnostics.extend(workspace_contract_diagnostics(source));
+        diagnostics.extend(external_contract_diagnostics(source));
         diagnostics.extend(feature_requirements_contract_diagnostics(source));
         diagnostics.extend(external_call_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
@@ -409,6 +410,7 @@ fn is_canonical_source(source: &str) -> bool {
         || has_canonical_registry_block(source)
         || has_canonical_profile_block(source)
         || has_canonical_workspace_block(source)
+        || has_canonical_contract_block(source)
 }
 
 fn has_canonical_app_block(source: &str) -> bool {
@@ -448,6 +450,12 @@ fn has_canonical_workspace_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("workspace "))
+}
+
+fn has_canonical_contract_block(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("contract "))
 }
 
 fn is_lzx_source(source: &str) -> bool {
@@ -5113,6 +5121,284 @@ fn quoted_prefix(value: &str) -> Option<(&str, &str)> {
     Some((&rest[..end], rest[end + 1..].trim()))
 }
 
+fn external_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_contract = false;
+    let mut current_child: Option<&'static str> = None;
+    let mut in_event_payload = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            in_contract = trimmed.starts_with("contract ");
+            current_child = None;
+            in_event_payload = false;
+            if in_contract {
+                let parts: Vec<_> = trimmed.split_whitespace().collect();
+                if parts.len() != 2 || !is_contract_name(parts[1]) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "contract-header",
+                        "external contracts use `contract <namespace.version>`, e.g. `contract acme.ai.v1`.",
+                    ));
+                }
+            }
+            continue;
+        }
+
+        if !in_contract {
+            continue;
+        }
+
+        match leading {
+            2 => {
+                current_child = None;
+                in_event_payload = false;
+                if let Some(rest) = trimmed.strip_prefix("purpose ") {
+                    if !is_quoted_lzx_literal(rest.trim()) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "contract-purpose",
+                            "contract purpose uses a quoted sentence.",
+                        ));
+                    }
+                } else if let Some(rest) = trimmed.strip_prefix("compatibility ") {
+                    if !matches!(rest.trim(), "backward" | "none" | "manual") {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "contract-compatibility",
+                            "contract compatibility uses `backward`, `none`, or `manual`.",
+                        ));
+                    }
+                } else if trimmed.starts_with("import ") {
+                    validate_contract_import_line(&mut diagnostics, line_index, line, trimmed);
+                } else if let Some(name) = named_block_name(trimmed, "record") {
+                    current_child = Some("record");
+                    if !is_type_name(name) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "contract-record",
+                            "contract records use `record <TypeName>`.",
+                        ));
+                    }
+                } else if let Some(name) = named_block_name(trimmed, "operation") {
+                    current_child = Some("operation");
+                    if !is_identifier(name) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "contract-operation",
+                            "contract operations use `operation <name>`.",
+                        ));
+                    }
+                } else if let Some(name) = named_block_name(trimmed, "event") {
+                    current_child = Some("event");
+                    if !is_identifier(name) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "contract-event",
+                            "contract events use `event <name>`.",
+                        ));
+                    }
+                } else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "contract-shape",
+                        "contract blocks use `purpose`, `compatibility`, `import`, `record`, `operation`, and `event` children.",
+                    ));
+                }
+            }
+            4 => match current_child {
+                Some("record") => {
+                    validate_contract_field_line(&mut diagnostics, line_index, line)
+                }
+                Some("operation") => {
+                    validate_contract_operation_line(&mut diagnostics, line_index, line, trimmed)
+                }
+                Some("event") => {
+                    if let Some(rest) = trimmed.strip_prefix("topic ") {
+                        in_event_payload = false;
+                        if !is_quoted_lzx_literal(rest.trim()) {
+                            diagnostics.push(simple_canonical_diagnostic(
+                                line_index,
+                                line,
+                                DiagnosticSeverity::WARNING,
+                                "contract-event-topic",
+                                "contract event topics use `topic \"event.name\"`.",
+                            ));
+                        }
+                    } else if trimmed == "payload" {
+                        in_event_payload = true;
+                    } else {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "contract-event",
+                            "contract event children use `topic \"...\"` or `payload`.",
+                        ));
+                    }
+                }
+                _ => diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "contract-shape",
+                    "four-space contract declarations must belong to `record`, `operation`, or `event` blocks.",
+                )),
+            },
+            6 => {
+                if current_child == Some("event") && in_event_payload {
+                    validate_contract_field_line(&mut diagnostics, line_index, line);
+                } else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "contract-shape",
+                        "six-space contract declarations are only valid inside event `payload`.",
+                    ));
+                }
+            }
+            _ => diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "contract-shape",
+                "contract declarations use two, four, or six spaces of indentation.",
+            )),
+        }
+    }
+
+    diagnostics
+}
+
+fn validate_contract_import_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if !matches!(
+        parts.as_slice(),
+        ["import", format, source]
+            if matches!(*format, "openapi" | "asyncapi" | "proto" | "json_schema" | "avro")
+                && is_quoted_lzx_literal(source)
+    ) {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "contract-import",
+            "contract imports use `import openapi|asyncapi|proto|json_schema|avro \"./path\"`.",
+        ));
+    }
+}
+
+fn validate_contract_operation_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    let valid = matches!(parts.as_slice(), ["transport", value] if matches!(*value, "http" | "rpc" | "event"))
+        || matches!(parts.as_slice(), ["method", value] if matches!(*value, "GET" | "POST" | "PUT" | "PATCH" | "DELETE"))
+        || matches!(parts.as_slice(), ["path", value] if is_quoted_lzx_literal(value))
+        || matches!(parts.as_slice(), ["input", value] if is_type_name(value))
+        || matches!(parts.as_slice(), ["output", value] if is_type_name(value) || *value == "stream")
+        || matches!(parts.as_slice(), ["auth", value] if matches!(*value, "service" | "none" | "propagate"))
+        || matches!(parts.as_slice(), ["timeout", value] if is_quoted_lzx_literal(value));
+
+    if !valid {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "contract-operation",
+            "operation children use `transport http|rpc|event`, `method GET|POST|PUT|PATCH|DELETE`, `path \"...\"`, `input Type`, `output Type`, `auth service|none|propagate`, or `timeout \"...\"`.",
+        ));
+    }
+}
+
+fn validate_contract_field_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let Some((name, rest)) = trimmed.split_once(':') else {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "contract-field",
+            "contract fields use `<name>: <Type> required|optional`.",
+        ));
+        return;
+    };
+
+    let parts: Vec<_> = rest.split_whitespace().collect();
+    if !is_identifier(name.trim())
+        || parts.len() < 2
+        || !is_contract_type_token(parts[0])
+        || !parts
+            .last()
+            .is_some_and(|last| matches!(*last, "required" | "optional"))
+        || parts[1..parts.len() - 1]
+            .iter()
+            .any(|part| !part.starts_with('@'))
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "contract-field",
+            "contract fields use `<name>: <Type> [@pii.* ...] required|optional`.",
+        ));
+    }
+}
+
+fn is_contract_name(value: &str) -> bool {
+    let mut parts = value.split('.');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    is_identifier(first)
+        && parts.all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+}
+
+fn is_contract_type_token(value: &str) -> bool {
+    value.starts_with("@semantic.")
+        || value.starts_with("@cap.")
+        || is_type_name(value)
+        || matches!(
+            value,
+            "ID" | "Text" | "Integer" | "Decimal" | "Float" | "Boolean" | "DateTime" | "Date"
+        )
+}
+
 fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_app: Option<AppOperationalFacts> = None;
@@ -6099,7 +6385,11 @@ fn command_name_if(trimmed: &str) -> Option<String> {
 }
 
 fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = trimmed.strip_prefix(keyword)?.trim_start();
+    let rest = trimmed.strip_prefix(keyword)?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let rest = rest.trim_start();
     let name = rest.split_whitespace().next()?;
     is_identifier(name).then_some(name)
 }
@@ -9376,6 +9666,11 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "contract" => {
             Some("References a versioned external service contract, not an implementation.")
         }
+        "compatibility" => Some("Declares the external contract compatibility policy."),
+        "import" => Some(
+            "Imports an external contract schema such as OpenAPI, AsyncAPI, Proto, JSON Schema, or Avro.",
+        ),
+        "operation" => Some("Declares one provider-neutral external service operation."),
         "environments" => {
             Some("Declares deployment/runtime environments such as local, staging, and production.")
         }
@@ -9586,6 +9881,9 @@ const KEYWORDS: &[&str] = &[
     "boundaries",
     "gateway",
     "contract",
+    "compatibility",
+    "import",
+    "operation",
     "env",
     "aggregate",
     "entity",
@@ -10199,6 +10497,107 @@ workspace 123
     }
 
     #[test]
+    fn canonical_accepts_external_contract() {
+        let source = r#"
+contract acme.ai.v1
+  purpose "AI inference service."
+  compatibility backward
+  import openapi "./contracts/ai.openapi.json"
+
+  record CustomerSummaryRequest
+    customer_id: ID required
+    email: @semantic.Email @pii.contact optional
+
+  record CustomerSummaryResult
+    summary: Text required
+    generated_at: DateTime required
+
+  operation summarize_customer
+    transport http
+    method POST
+    path "/v1/customer-summary"
+    input CustomerSummaryRequest
+    output CustomerSummaryResult
+    auth service
+    timeout "10s"
+
+  event summary_ready
+    topic "ai.summary_ready"
+    payload
+      customer_id: ID required
+      summary: Text required
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected external contract to pass LSP diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_external_contract() {
+        let source = r#"
+contract 123
+  compatibility future
+  import swagger ./ai.yaml
+  record request
+    customer_id ID required
+  operation summarize
+    transport grpc
+    method FETCH
+    path /v1/summary
+  event summary_ready
+    topic ai.summary_ready
+    payload
+      customer_id: ID
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("external contracts use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("contract compatibility"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("contract imports use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("contract records use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("contract fields use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("operation children use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("contract event topics"))
+        );
+    }
+
+    #[test]
     fn canonical_examples_satisfy_lsp_contracts() {
         let examples = [
             (
@@ -10216,6 +10615,10 @@ workspace 123
             (
                 "full-capsule-workspace.lzi",
                 include_str!("../../../examples/full-capsule/workspace.lzi"),
+            ),
+            (
+                "full-capsule-contract-ai.lzi",
+                include_str!("../../../examples/full-capsule/contracts/ai.lzi"),
             ),
             (
                 "audit-log.lzi",

@@ -9,6 +9,9 @@ profiles.lzi
 # optional, only for distributed systems
 workspace.lzi
 
+contracts/
+  acme.ai.v1.lzi
+
 features/
   customer/
     customer.lzi
@@ -76,6 +79,7 @@ These are authored and committed:
 - `app.lzi`
 - `registry.lzi`
 - `workspace.lzi` when the repo is a distributed-system root
+- `contracts/**/*.lzi` for external service/schema contracts
 - `profiles.lzi` or `profiles/**/*.lzi`
 - `features/**/<feature>.lzx`
 - `features/**/<feature>.web.lzx`
@@ -95,6 +99,13 @@ product has multiple apps, external services, shared event contracts, or
 gateway edges. It points at app entrypoints and external contracts; repo URLs,
 branches, local ports, broker providers, proxy implementations, and deploy
 mechanics belong in `drusa.toml` or adapter config.
+
+`contracts/**/*.lzi` contains external service contracts, not service
+implementations. A contract can import OpenAPI, AsyncAPI, Proto, JSON Schema,
+or Avro and can declare Lazuli-native records, operations, and events for
+doctor/codegen. Drusa consumes those contracts to wire Go transport bindings;
+the external service may be implemented in Python, Java, Node, Rust, or any
+other stack.
 
 ## Generated
 

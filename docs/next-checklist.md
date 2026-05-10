@@ -37,10 +37,10 @@ get lost in chat history.
 | 7 | Pack registry | done | `registry.lzi` catalogs packs and app `packs` enables them; doctor lets enabled packs satisfy `uses` and requires bindings for pack integration slots. |
 | 8 | Adapter binding provenance | done | Adapter sources now derive `drusa`, `plugin`, or `local` provenance from `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or local paths; doctor rejects unknown source shapes. |
 | 9 | Workspace contract | done | `workspace.lzi` now models local/external apps, shared registry, event boundaries, communication propagation, and provider-neutral gateways with IR/inspect/doctor/LSP coverage. |
-| 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and optional external SDK exports represent non-Lazuli services. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
-| 11 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
-| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile/pack/workspace syntax and adapter package refs; re-audit again after external contract import syntax lands. |
-| 13 | IR/inspect coverage audit | partial | App, registry, packs, requirements, bindings, external calls, profiles, and workspace appear in inspect/doctor. External contract imports still need stable inspect shape. |
+| 10 | External contract imports | done | `contract <name>` now models imported OpenAPI/AsyncAPI/Proto/JSON Schema/Avro plus authored records, operations, and events with IR/inspect/doctor/LSP coverage. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
+| 11 | Gateway/proxy contract | partial | Workspace `gateway` now covers provider-neutral ingress to apps. Raw proxy, sidecar, service mesh, and provider routing mechanics stay in Drusa/adapters. |
+| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile/pack/workspace/contract syntax and adapter package refs; re-audit again after final vocabulary cleanup. |
+| 13 | IR/inspect coverage audit | partial | App, registry, packs, requirements, bindings, external calls, profiles, workspace, and contracts appear in inspect/doctor. |
 | 14 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
 
 ## Registry Decision Pressure
@@ -194,13 +194,41 @@ SDK exports for Python/TypeScript/etc. are optional contract-publication
 artifacts for external teams or partners. They are not the central runtime
 model for Lazuli apps.
 
-Future contract inputs may include:
+Contract inputs now include:
 
 - Lazuli-authored `contract.lzi`.
 - OpenAPI for HTTP APIs.
 - AsyncAPI for broker/event contracts.
 - Proto/Buf for RPC contracts.
 - JSON Schema or Avro when an enterprise broker/schema registry requires it.
+
+Canonical authoring:
+
+```lazuli
+contract acme.ai.v1
+  purpose "AI inference service."
+  compatibility backward
+  import openapi "./contracts/ai.openapi.json"
+
+  record CustomerSummaryRequest
+    customer_id: ID required
+    email: @semantic.Email @pii.contact optional
+
+  operation summarize_customer
+    transport http
+    method POST
+    path "/v1/customer-summary"
+    input CustomerSummaryRequest
+    output CustomerSummaryResult
+    auth service
+    timeout "10s"
+
+  event summary_ready
+    topic "ai.summary_ready"
+    payload
+      customer_id: ID required
+      summary: Text required
+```
 
 ## Adapter And Container Decision
 

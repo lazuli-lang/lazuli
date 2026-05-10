@@ -3,13 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use lazuli_ir::{AppManifest, AppProfile, AppRegistry, AppWorkspace};
+use lazuli_ir::{AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace};
 use lazuli_lsp::SecurityProfile;
 use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::app_manifest::{
-    parse_app_manifest, parse_app_profiles, parse_app_registry, parse_app_workspace,
+    parse_app_contracts, parse_app_manifest, parse_app_profiles, parse_app_registry,
+    parse_app_workspace,
 };
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
@@ -35,6 +36,7 @@ pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result
 struct DoctorPackage {
     files: Vec<DoctorFile>,
     workspace: Option<DoctorAppWorkspace>,
+    contracts: Vec<DoctorAppContract>,
     app: Option<DoctorAppManifest>,
     registry: Option<DoctorAppRegistry>,
     profiles: Vec<DoctorAppProfile>,
@@ -52,6 +54,7 @@ impl DoctorPackage {
 
         let mut files = Vec::new();
         let mut workspace = None;
+        let mut contracts = Vec::new();
         let mut app = None;
         let mut registry = None;
         let mut profiles = Vec::new();
@@ -77,6 +80,14 @@ impl DoctorPackage {
             }
 
             if is_lzi_path(&file.path) {
+                contracts.extend(
+                    parse_app_contracts(&file.source)
+                        .into_iter()
+                        .map(|manifest| DoctorAppContract {
+                            path: file.path.clone(),
+                            manifest,
+                        }),
+                );
                 if let Some(manifest) = parse_app_workspace(&file.source) {
                     if workspace.is_none() {
                         workspace = Some(DoctorAppWorkspace {
@@ -162,6 +173,7 @@ impl DoctorPackage {
         Ok(Self {
             files,
             workspace,
+            contracts,
             app,
             registry,
             profiles,
@@ -190,6 +202,10 @@ impl DoctorPackage {
             &self.operational,
         ));
         diagnostics.extend(workspace_contract_diagnostics(self.workspace.as_ref()));
+        diagnostics.extend(external_contract_diagnostics(
+            &self.contracts,
+            self.workspace.as_ref(),
+        ));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -206,6 +222,12 @@ impl DoctorPackage {
 struct DoctorAppWorkspace {
     path: PathBuf,
     manifest: AppWorkspace,
+}
+
+#[derive(Debug)]
+struct DoctorAppContract {
+    path: PathBuf,
+    manifest: AppContract,
 }
 
 #[derive(Debug)]
@@ -1381,6 +1403,149 @@ fn event_pattern_covers(published: &str, consumed: &str) -> bool {
         .is_some_and(|prefix| consumed.starts_with(prefix))
 }
 
+fn external_contract_diagnostics(
+    contracts: &[DoctorAppContract],
+    workspace: Option<&DoctorAppWorkspace>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut contract_names = BTreeMap::new();
+
+    for contract in contracts {
+        if let Some(previous) = contract_names.insert(contract.manifest.name.as_str(), contract) {
+            diagnostics.push(DoctorDiagnostic {
+                path: contract.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "CONTRACT-001".to_owned(),
+                message: format!(
+                    "contract `{}` is declared more than once; first seen in {}.",
+                    contract.manifest.name,
+                    previous.path.display()
+                ),
+            });
+        }
+
+        if contract.manifest.imports.is_empty()
+            && contract.manifest.operations.is_empty()
+            && contract.manifest.events.is_empty()
+        {
+            diagnostics.push(DoctorDiagnostic {
+                path: contract.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "CONTRACT-002".to_owned(),
+                message: format!(
+                    "contract `{}` declares no imports, operations, or events.",
+                    contract.manifest.name
+                ),
+            });
+        }
+
+        for operation in &contract.manifest.operations {
+            if operation.transport.is_none() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: contract.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "CONTRACT-OP-001".to_owned(),
+                    message: format!(
+                        "contract `{}` operation `{}` should declare `transport http|rpc|event`.",
+                        contract.manifest.name, operation.name
+                    ),
+                });
+            }
+
+            if operation.transport.as_deref() == Some("http")
+                && (operation.method.is_none() || operation.path.is_none())
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: contract.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "CONTRACT-OP-002".to_owned(),
+                    message: format!(
+                        "contract `{}` HTTP operation `{}` should declare both `method` and `path`.",
+                        contract.manifest.name, operation.name
+                    ),
+                });
+            }
+
+            if operation.input.is_none() || operation.output.is_none() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: contract.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "CONTRACT-OP-003".to_owned(),
+                    message: format!(
+                        "contract `{}` operation `{}` should declare input and output records.",
+                        contract.manifest.name, operation.name
+                    ),
+                });
+            }
+
+            if operation.timeout.is_none() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: contract.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "CONTRACT-OP-004".to_owned(),
+                    message: format!(
+                        "contract `{}` operation `{}` should declare timeout so Go transport bindings do not infer it.",
+                        contract.manifest.name, operation.name
+                    ),
+                });
+            }
+        }
+
+        for event in &contract.manifest.events {
+            if event.topic.is_none() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: contract.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "CONTRACT-EVENT-001".to_owned(),
+                    message: format!(
+                        "contract `{}` event `{}` should declare a topic.",
+                        contract.manifest.name, event.name
+                    ),
+                });
+            }
+        }
+    }
+
+    if let Some(workspace) = workspace
+        && !contracts.is_empty()
+    {
+        for app in &workspace.manifest.apps {
+            let Some(contract_name) = app.contract.as_deref() else {
+                continue;
+            };
+            if !contract_names.contains_key(contract_name) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: workspace.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "WS-CONTRACT-001".to_owned(),
+                    message: format!(
+                        "workspace app `{}` references external contract `{contract_name}`, but no local `contract {contract_name}` block was found in this package.",
+                        app.name
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
 fn app_binding_contract_diagnostics(
     app: &DoctorAppManifest,
     registry: Option<&DoctorAppRegistry>,
@@ -2457,6 +2622,7 @@ mod tests {
     fn package_from_sources(sources: Vec<(&str, &str)>) -> DoctorPackage {
         let mut files = Vec::new();
         let mut workspace = None;
+        let mut contracts = Vec::new();
         let mut app = None;
         let mut registry = None;
         let mut profiles = Vec::new();
@@ -2473,6 +2639,14 @@ mod tests {
             };
 
             if path.ends_with(".lzi") {
+                contracts.extend(
+                    parse_app_contracts(&file.source)
+                        .into_iter()
+                        .map(|manifest| DoctorAppContract {
+                            path: file.path.clone(),
+                            manifest,
+                        }),
+                );
                 if let Some(manifest) = parse_app_workspace(&file.source) {
                     workspace = Some(DoctorAppWorkspace {
                         path: file.path.clone(),
@@ -2511,6 +2685,7 @@ mod tests {
         DoctorPackage {
             files,
             workspace,
+            contracts,
             app,
             registry,
             profiles,
@@ -3513,5 +3688,76 @@ workspace AcmeERP
         assert!(codes.contains("WS-GW-003"));
         assert!(codes.contains("WS-GW-004"));
         assert!(codes.contains("WS-COMM-001"));
+    }
+
+    #[test]
+    fn doctor_validates_external_contracts() {
+        let valid = package_from_sources(vec![
+            (
+                "workspace.lzi",
+                r#"
+workspace AcmeERP
+  apps
+    ai external contract "acme.ai.v1"
+"#,
+            ),
+            (
+                "contracts/ai.lzi",
+                r#"
+contract acme.ai.v1
+  import openapi "./contracts/ai.openapi.json"
+  record CustomerSummaryRequest
+    customer_id: ID required
+  record CustomerSummaryResult
+    summary: Text required
+  operation summarize_customer
+    transport http
+    method POST
+    path "/v1/customer-summary"
+    input CustomerSummaryRequest
+    output CustomerSummaryResult
+    timeout "10s"
+  event summary_ready
+    topic "ai.summary_ready"
+    payload
+      customer_id: ID required
+"#,
+            ),
+        ]);
+
+        assert!(
+            valid.diagnostics().is_empty(),
+            "expected external contract to pass doctor"
+        );
+
+        let invalid = package_from_sources(vec![
+            (
+                "workspace.lzi",
+                r#"
+workspace AcmeERP
+  apps
+    ai external contract "acme.ai.v2"
+"#,
+            ),
+            (
+                "contracts/ai.lzi",
+                r#"
+contract acme.ai.v1
+  operation summarize_customer
+    transport http
+"#,
+            ),
+        ]);
+
+        let diagnostics = invalid.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(codes.contains("CONTRACT-OP-002"));
+        assert!(codes.contains("CONTRACT-OP-003"));
+        assert!(codes.contains("CONTRACT-OP-004"));
+        assert!(codes.contains("WS-CONTRACT-001"));
     }
 }

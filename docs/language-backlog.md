@@ -69,9 +69,10 @@ The active implementation queue and open registry/import decisions live in
 - Lazuli workspaces are polyglot contract graphs. A service may be implemented
   in Python, Java, Node, Rust, Go, or another stack as long as it exposes a
   contract Lazuli can inspect through `contract.lzi`, OpenAPI, AsyncAPI,
-  Proto/Buf, JSON Schema, Avro, or a generated contract artifact. Lazuli does
-  not execute those integrations; Drusa wires generated Go transport bindings
-  and adapters do the actual HTTP/RPC/broker/webhook work.
+  Proto/Buf, JSON Schema, Avro, or a generated contract artifact. `contract.lzi`
+  is canonical v0 for local contract authoring/imports. Lazuli does not execute
+  those integrations; Drusa wires generated Go transport bindings and adapters
+  do the actual HTTP/RPC/broker/webhook work.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
 - Observability-only events use `event.trace <name>` rather than an `observability_only` modifier.
@@ -190,15 +191,16 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add adapter provenance for Drusa adapters, third-party plugin adapters,
   and local app adapters with `@drusa/...`, `@plugin/publisher/name`,
   `@adapter.<local>`, and local path sources.
-- [ ] Decide whether `workspace.lzi` should become the semantic distributed
-  system contract for multi-repo/monorepo apps while `drusa.toml` remains
-  operational repo/deploy/tooling glue.
-- [ ] Decide external contract import/export shape for non-Lazuli services
-  using `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, Avro, and
-  optional SDK/contract-test artifacts. SDK export is secondary; the core
-  runtime path is typed Go bindings for HTTP/RPC/events.
-- [ ] Decide whether distributed ingress should use `gateway`, `proxy`, or both
-  after service boundaries, profiles, and app bindings stabilize.
+- [x] Add `workspace.lzi` as the semantic distributed system contract for
+  multi-repo/monorepo apps while `drusa.toml` remains operational
+  repo/deploy/tooling glue.
+- [x] Add external contract import/export shape for non-Lazuli services using
+  `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, Avro, and optional
+  SDK/contract-test artifacts. SDK export is secondary; the core runtime path
+  is typed Go bindings for HTTP/RPC/events.
+- [x] Use `gateway` for provider-neutral distributed ingress in `workspace.lzi`.
+  Raw `proxy`, sidecar, service mesh, and provider routing mechanics stay in
+  Drusa/adapters.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.
