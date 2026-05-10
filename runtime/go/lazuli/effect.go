@@ -74,27 +74,38 @@ func Creates[T any](r *Resource[T], bind Bindings) CreatesEffect {
 }
 
 // UpdatesEffect is the effect for an `updates <Resource>` block.
+//
+// Where names the row to mutate (typically `id` keyed by `FromInput("ID")`);
+// Bind names the columns whose values change. The runtime composes
+// `UPDATE <resource> SET <bind> WHERE <where> AND <tenancy> AND deleted_at
+// IS NULL RETURNING *`.
 type UpdatesEffect struct {
 	Resource *resourceErased
+	Where    Bindings
 	Bind     Bindings
 }
 
 func (UpdatesEffect) effectKind() effectKind { return effectUpdates }
 
-// Updates builds an UpdatesEffect.
-func Updates[T any](r *Resource[T], bind Bindings) UpdatesEffect {
-	return UpdatesEffect{Resource: r.erased(), Bind: bind}
+// Updates builds an UpdatesEffect. `where` selects the row(s); `bind`
+// supplies the new column values.
+func Updates[T any](r *Resource[T], where Bindings, bind Bindings) UpdatesEffect {
+	return UpdatesEffect{Resource: r.erased(), Where: where, Bind: bind}
 }
 
 // DeletesEffect is the effect for a `deletes <Resource>` block. The runtime
-// uses soft-delete semantics when the resource declares `SoftDelete: true`.
+// chooses soft-delete (`UPDATE ... SET deleted_at = now()`) when
+// `Resource.SoftDelete` is true; otherwise hard-delete (`DELETE FROM ...`).
+// Both variants honour `Where` (to scope the row(s)), tenant scoping, and
+// the existing `deleted_at IS NULL` filter so a delete is idempotent.
 type DeletesEffect struct {
 	Resource *resourceErased
+	Where    Bindings
 }
 
 func (DeletesEffect) effectKind() effectKind { return effectDeletes }
 
-// Deletes builds a DeletesEffect.
-func Deletes[T any](r *Resource[T]) DeletesEffect {
-	return DeletesEffect{Resource: r.erased()}
+// Deletes builds a DeletesEffect. `where` selects the row(s) to remove.
+func Deletes[T any](r *Resource[T], where Bindings) DeletesEffect {
+	return DeletesEffect{Resource: r.erased(), Where: where}
 }

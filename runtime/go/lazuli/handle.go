@@ -2,6 +2,7 @@ package lazuli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -16,7 +17,7 @@ import (
 //  1. enforce policy (placeholder for v0)
 //  2. run validators (placeholder for v0)
 //  3. open transaction
-//  4. apply effect (insert/update/delete)
+//  4. apply effect (insert / update / delete)
 //  5. publish events (placeholder for v0)
 //  6. write audit (placeholder for v0)
 //  7. invalidate caches (placeholder for v0)
@@ -31,7 +32,7 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		return zero, err
 	}
 
-	// 2. validators (TODO: invoke c.Validators)
+	// 2. validators (TODO Phase F: invoke c.Validators in declaration order)
 	_ = c.Validators
 
 	// 3-4. effect inside a transaction
@@ -48,24 +49,24 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		return zero, err
 	}
 
-	// 5. emits (TODO: publish c.Emits)
-	// 6. audit (TODO: record according to c.Audit)
-	// 7. invalidate (TODO: signal c.Invalidates)
+	// 5. emits (TODO Phase E: publish c.Emits / c.EmitsTrace)
+	// 6. audit (TODO Phase D-ish: record according to c.Audit)
+	// 7. invalidate (TODO Phase H: signal c.Invalidates to the cache layer)
 
 	return output, nil
 }
 
 // enforcePolicy is the v0 placeholder. Real implementation arrives with the
-// auth/RBAC cut.
+// auth/RBAC cut (Phase D).
 func enforcePolicy(ctx *Ctx, p Policy) error {
 	if len(p.Atoms) == 0 {
 		// Empty policy — the DSL invariant rejects this at compile time, so
 		// reaching here means a registration bug. Fail closed.
 		return &Error{Status: 500, Code: CodeInternal,
-			Message: "command registered with empty policy: " + p.Name}
+			Message: "command/query registered with empty policy: " + p.Name}
 	}
-	// Placeholder: accept everything. The real check inspects ctx.Actor /
-	// ctx.User against p.Atoms.
+	// Placeholder: accept everything. Phase D inspects ctx.Actor / ctx.User
+	// against p.Atoms.
 	return nil
 }
 
@@ -82,26 +83,21 @@ func applyEffect[I, O any](ctx *Ctx, tx pgx.Tx, effect Effect, input I) (O, erro
 	case CreatesEffect:
 		return applyCreates[I, O](ctx, tx, eff, input)
 	case UpdatesEffect:
-		return zero, &Error{Status: 501, Code: CodeInternal,
-			Message: "updates effect not yet implemented in runtime spike"}
+		return applyUpdates[I, O](ctx, tx, eff, input)
 	case DeletesEffect:
-		return zero, &Error{Status: 501, Code: CodeInternal,
-			Message: "deletes effect not yet implemented in runtime spike"}
+		return applyDeletes[I, O](ctx, tx, eff, input)
 	default:
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown effect kind: %T", effect)}
 	}
 }
 
-// applyCreates resolves the bindings, builds an INSERT, and returns the
-// inserted row's ID populated into a freshly-zeroed O.
-//
-// v0 spike: minimal SQL building. Real implementation will live in a query
-// builder under runtime/lazuli/query.go.
+// applyCreates resolves the bindings, builds an `INSERT ... RETURNING *`,
+// and scans the inserted row into O. Tenancy auto-injection adds `org_id`
+// when the resource declares `TenancyOrg` and the request has a tenant.
 func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O, error) {
 	var zero O
 
-	// Resolve every binding to a value the database accepts.
 	cols := make([]string, 0, len(eff.Bind))
 	values := make([]any, 0, len(eff.Bind))
 	placeholders := make([]string, 0, len(eff.Bind))
@@ -110,37 +106,155 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 		if err != nil {
 			return zero, err
 		}
-		cols = append(cols, col)
+		cols = append(cols, quoteIdent(col))
 		values = append(values, val)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
 	}
 
-	// Tenancy auto-injection.
 	if eff.Resource.Tenancy == TenancyOrg && ctx.Tenant != nil {
-		cols = append(cols, "org_id")
+		cols = append(cols, quoteIdent("org_id"))
 		values = append(values, ctx.Tenant.OrgID)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
 	}
 
 	sql := fmt.Sprintf(
-		`INSERT INTO %s (%s) VALUES (%s) RETURNING id`,
-		eff.Resource.Name,
+		`INSERT INTO %s (%s) VALUES (%s) RETURNING *`,
+		quoteIdent(eff.Resource.Name),
 		strings.Join(cols, ", "),
 		strings.Join(placeholders, ", "),
 	)
 
-	var id ID
-	if err := tx.QueryRow(ctx, sql, values...).Scan(&id); err != nil {
+	rows, err := tx.Query(ctx, sql, values...)
+	if err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "insert failed: " + err.Error()}
 	}
+	defer rows.Close()
 
-	// Populate ID on the output if it has an `ID` field.
-	out := reflect.New(reflect.TypeOf(zero)).Elem()
-	if idField := out.FieldByName("ID"); idField.IsValid() && idField.CanSet() {
-		idField.SetInt(id)
+	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[O])
+	if err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "insert scan failed: " + err.Error()}
 	}
-	return out.Interface().(O), nil
+	return out, nil
+}
+
+// applyUpdates resolves the where + bind sources, builds an `UPDATE ... SET
+// ... WHERE ... RETURNING *`, and scans the updated row into O. Adds
+// tenancy + soft-delete scoping to the WHERE clause.
+func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O, error) {
+	var zero O
+	if len(eff.Where) == 0 {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "updates effect requires Where bindings"}
+	}
+	if len(eff.Bind) == 0 {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "updates effect requires Bind bindings"}
+	}
+
+	values := make([]any, 0, len(eff.Bind)+len(eff.Where))
+	sets := make([]string, 0, len(eff.Bind))
+	for col, src := range eff.Bind {
+		val, err := resolveSource(ctx, src, input)
+		if err != nil {
+			return zero, err
+		}
+		values = append(values, val)
+		sets = append(sets, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+	}
+	// Always bump updated_at if the table has it.
+	sets = append(sets, `"updated_at" = now()`)
+
+	conds, condValues := baseScopeConditions(ctx, eff.Resource)
+	values = append(values, condValues...)
+	for col, src := range eff.Where {
+		val, err := resolveSource(ctx, src, input)
+		if err != nil {
+			return zero, err
+		}
+		values = append(values, val)
+		conds = append(conds, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+	}
+
+	sql := fmt.Sprintf(
+		`UPDATE %s SET %s WHERE %s RETURNING *`,
+		quoteIdent(eff.Resource.Name),
+		strings.Join(sets, ", "),
+		strings.Join(conds, " AND "),
+	)
+
+	rows, err := tx.Query(ctx, sql, values...)
+	if err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "update failed: " + err.Error()}
+	}
+	defer rows.Close()
+
+	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[O])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return zero, &Error{Status: 404, Code: CodeNotFound,
+			Message: "no row matches update where clause"}
+	}
+	if err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "update scan failed: " + err.Error()}
+	}
+	return out, nil
+}
+
+// applyDeletes resolves the where bindings and either soft-deletes or
+// hard-deletes the matching row, returning the affected row in O. Soft
+// delete is the canonical path when `Resource.SoftDelete` is true.
+func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O, error) {
+	var zero O
+	if len(eff.Where) == 0 {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "deletes effect requires Where bindings"}
+	}
+
+	conds, values := baseScopeConditions(ctx, eff.Resource)
+	for col, src := range eff.Where {
+		val, err := resolveSource(ctx, src, input)
+		if err != nil {
+			return zero, err
+		}
+		values = append(values, val)
+		conds = append(conds, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+	}
+
+	var sql string
+	if eff.Resource.SoftDelete {
+		sql = fmt.Sprintf(
+			`UPDATE %s SET "deleted_at" = now(), "updated_at" = now() WHERE %s RETURNING *`,
+			quoteIdent(eff.Resource.Name),
+			strings.Join(conds, " AND "),
+		)
+	} else {
+		sql = fmt.Sprintf(
+			`DELETE FROM %s WHERE %s RETURNING *`,
+			quoteIdent(eff.Resource.Name),
+			strings.Join(conds, " AND "),
+		)
+	}
+
+	rows, err := tx.Query(ctx, sql, values...)
+	if err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "delete failed: " + err.Error()}
+	}
+	defer rows.Close()
+
+	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[O])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return zero, &Error{Status: 404, Code: CodeNotFound,
+			Message: "no row matches delete where clause"}
+	}
+	if err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "delete scan failed: " + err.Error()}
+	}
+	return out, nil
 }
 
 // resolveSource turns a binding Source into a concrete value at execution
@@ -195,9 +309,6 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 		if ctx.User == nil {
 			return nil, &Error{Status: 401, Code: CodePolicyDenied,
 				Message: "no authenticated user in context"}
-		}
-		if path == "user" {
-			return ctx.User.ID, nil
 		}
 		return ctx.User.ID, nil
 	case "tenant.org_id":

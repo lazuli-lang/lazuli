@@ -48,6 +48,8 @@ get lost in chat history.
 | 12 | Syntax highlighting audit | done | TextMate scopes cover current integration/binding/calls/profile/pack/workspace/contract syntax, adapter package refs, top-level `route` declarations, and the realigned `route <name>: <Type>` route slot syntax. Legacy `stack` removed. |
 | 13 | IR/inspect coverage audit | done | App, registry, packs, requirements, bindings, external calls, profiles, workspace, contracts, and `.lzx` routes/experiences/surfaces all appear in inspect/doctor. |
 | 14 | Final vocabulary cleanup | done | Top-level `.lzx route` blocks now declare path slots with `route <name>: <Type>` and reference them as `route.<name>`, matching command/view route locator syntax. Legacy `stack` removed. `params` is reserved for query/API read arguments. `path` only names URL strings. |
+| 15 | AI primitives Cut A | proposal approved | `tools` child of `agent`, discriminated `output`, `evals` block with `case`/`requires`/`forbids`. Closes the unimplemented "optional tool list" invariant on `agent`. Graded 8.5+ across axes by `lazuli-language-architect` (second pass). See `docs/proposals/ai-primitives-v0.md`. Cut B (`flow`, `budget tokens`, `knowledge`, `quota cost`) deferred with explicit promotion gates. |
+| 16 | `.lzi` formal grammar | done | Canonical indent-form EBNF in `docs/grammar.lzi.md` covers current syntax + Cut A primitives. Lexical layer documented (INDENT/DEDENT contract, token classes, reserved words). Sibling grammars for `.lzx`, `app.lzi`, `registry.lzi`, `workspace.lzi`, `contract.lzi` deferred. |
 
 ## Registry Decision Pressure
 

@@ -79,6 +79,26 @@ The active implementation queue and open registry/import decisions live in
 - `target` is the immutable loaded target in commands and declarative jobs; `self` is reserved for rule and workflow snapshots.
 - `context` is only an override for the co-located `<feature>.ctx.md` convention.
 - `on_delete` governs hard delete only; soft-delete cascades must be explicit behavior.
+- AI primitives ship in two cuts. Cut A (proposal approved 2026-05-10) is
+  language-core: `tools` child of `agent` (effect derived from underlying
+  capability, not declared at the binding site), discriminated `output`
+  (`output discriminator <Enum>` and `discriminator` field marker on records),
+  and `evals` (block of `case <name>` with `requires`/`forbids` clauses;
+  gates only when the agent declares `temperature 0` and `seed`). Cut B
+  (`flow`, `budget tokens`, `knowledge`, `quota cost`) is deferred behind
+  pilot-evidence promotion gates. See `docs/proposals/ai-primitives-v0.md`.
+- `evals` and `tests` are intentionally distinct constructs. `tests` are
+  pure-IR predicates evaluated by `lazuli check`/`lazuli test`; `evals`
+  dispatch to the configured `@llm.<name>` under `lazuli test --evals` and
+  gate CI only under explicit determinism. Reusing `tests` for both would
+  silently break `lazuli check` determinism.
+- Discriminated `output` lands before any orchestration construct (`flow`).
+  Branch typing in routing graphs must be implementable from day one of
+  the orchestration primitive.
+- The closed predicate language is extended only inside `evals` (`<ref>
+  contains <token-literal>` for substring; `<ref> contains <@semantic.Type>`
+  for semantic membership; `tools.calls includes|excludes <tool-ref>`). The
+  extension is enforced by parser scope, not by diagnostic.
 
 ## Missing Constructs Under Pressure Test
 

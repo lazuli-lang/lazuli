@@ -86,6 +86,66 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 }
 
 // ----------------------------------------------------------------------------
+// Command: customer.update_email
+//   command update_email
+//     route id: ID
+//     input
+//       email: @semantic.Email @pii.contact required
+//     policy @policy.update
+//     rate_limit "10 per hour per user"
+//     updates Customer
+//       email = input.email
+// ----------------------------------------------------------------------------
+
+// UpdateCustomerEmailInput carries the row id (canonical lookup key) and the
+// new email value. The runtime maps `ID` to `WHERE id = $...` via the
+// `Where` bindings on UpdatesEffect.
+type UpdateCustomerEmailInput struct {
+	ID    lazuli.ID `json:"id"`
+	Email string    `json:"email"`
+}
+
+var updateCustomerEmail = lazuli.Command[UpdateCustomerEmailInput, Customer]{
+	Name:      "customer.update_email",
+	Resource:  &customerResource,
+	Policy:    lazuli.Policy{Name: "@policy.update", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
+	RateLimit: "10 per hour per user",
+	Audit:     lazuli.AuditDefault,
+	Effect: lazuli.Updates(&customerResource,
+		lazuli.Bindings{"id": lazuli.FromInput("ID")},
+		lazuli.Bindings{"email": lazuli.FromInput("Email")},
+	),
+	Invalidates: []string{"customer.query.list", "customer.query.by_id"},
+}
+
+// ----------------------------------------------------------------------------
+// Command: customer.archive
+//   command archive
+//     route id: ID
+//     policy @policy.delete
+//     deletes Customer
+// ----------------------------------------------------------------------------
+
+// ArchiveCustomerInput carries the id of the row to soft-delete. The
+// runtime uses `Resource.SoftDelete: true` to switch DELETE to
+// `UPDATE ... SET deleted_at = now()`.
+type ArchiveCustomerInput struct {
+	ID lazuli.ID `json:"id"`
+}
+
+var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
+	Name:      "customer.archive",
+	Resource:  &customerResource,
+	Policy:    lazuli.Policy{Name: "@policy.delete", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
+	RateLimit: "10 per hour per user",
+	Audit:     lazuli.AuditDefault,
+	Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{
+		"id": lazuli.FromInput("ID"),
+	}),
+	Invalidates: []string{"customer.query.list", "customer.query.by_id"},
+}
+
+// ----------------------------------------------------------------------------
 // Query: customer.query.list
 //   query.list list
 //     paginate 50
@@ -130,6 +190,8 @@ func init() {
 	lazuli.Register(
 		&customerResource,
 		&createCustomer,
+		&updateCustomerEmail,
+		&archiveCustomer,
 		&listCustomers,
 		&customerByID,
 	)
