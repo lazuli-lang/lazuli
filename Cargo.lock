@@ -562,6 +562,7 @@ dependencies = [
  "clap",
  "lazuli_analyzer",
  "lazuli_codegen_go",
+ "lazuli_codegen_spec",
  "lazuli_codegen_ts",
  "lazuli_ir",
  "lazuli_lsp",
@@ -578,15 +579,21 @@ name = "lazuli_codegen_go"
 version = "0.1.0"
 dependencies = [
  "lazuli_analyzer",
+ "lazuli_codegen_spec",
  "lazuli_ir",
  "lazuli_syntax",
 ]
+
+[[package]]
+name = "lazuli_codegen_spec"
+version = "0.1.0"
 
 [[package]]
 name = "lazuli_codegen_ts"
 version = "0.1.0"
 dependencies = [
  "lazuli_analyzer",
+ "lazuli_codegen_spec",
  "lazuli_ir",
  "lazuli_syntax",
  "serde_json",

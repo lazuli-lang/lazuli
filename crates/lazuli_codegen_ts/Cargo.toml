@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 lazuli_ir = { path = "../lazuli_ir" }
+lazuli_codegen_spec = { path = "../lazuli_codegen_spec" }
 serde_json.workspace = true
 
 [dev-dependencies]

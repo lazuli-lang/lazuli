@@ -1,3 +1,7 @@
+pub mod runtime;
+
+pub use runtime::emit_feature_go;
+
 use lazuli_ir::{BuiltinType, CommandInput, Field, Module, Resource, TypeRef};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

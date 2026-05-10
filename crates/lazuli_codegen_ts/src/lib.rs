@@ -1,3 +1,7 @@
+pub mod runtime;
+
+pub use runtime::emit_feature_ts;
+
 use lazuli_ir::Module;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

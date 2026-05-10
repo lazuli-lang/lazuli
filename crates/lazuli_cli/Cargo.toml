@@ -14,6 +14,7 @@ anyhow.workspace = true
 clap.workspace = true
 lazuli_analyzer = { path = "../lazuli_analyzer" }
 lazuli_codegen_go = { path = "../lazuli_codegen_go" }
+lazuli_codegen_spec = { path = "../lazuli_codegen_spec" }
 lazuli_codegen_ts = { path = "../lazuli_codegen_ts" }
 lazuli_ir = { path = "../lazuli_ir" }
 lazuli_lsp = { path = "../lazuli_lsp" }

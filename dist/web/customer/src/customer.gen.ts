@@ -37,12 +37,12 @@ export interface CreateCustomerInput {
   email: string;
 }
 
-export const createCustomer = defineCommand<CreateCustomerInput, Customer>(
-  "customer.create",
-  {
-    invalidates: ["customer.query.list", "customer.query.global_search"],
-  },
-);
+export const createCustomer = defineCommand<
+  CreateCustomerInput,
+  Customer
+>("customer.create", {
+  invalidates: ["customer.query.list", "customer.query.global_search"],
+});
 
 // ----------------------------------------------------------------------------
 // Command: customer.update_email
@@ -68,12 +68,12 @@ export interface ArchiveCustomerInput {
   ID: ID;
 }
 
-export const archiveCustomer = defineCommand<ArchiveCustomerInput, Customer>(
-  "customer.archive",
-  {
-    invalidates: ["customer.query.list", "customer.query.by_id"],
-  },
-);
+export const archiveCustomer = defineCommand<
+  ArchiveCustomerInput,
+  Customer
+>("customer.archive", {
+  invalidates: ["customer.query.list", "customer.query.by_id"],
+});
 
 // ----------------------------------------------------------------------------
 // Query: customer.query.list
@@ -99,3 +99,4 @@ export interface CustomerByIDArgs {
 export const customerByID = defineQuery<CustomerByIDArgs, Customer>(
   "customer.query.by_id",
 );
+

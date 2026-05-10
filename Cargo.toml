@@ -3,6 +3,7 @@ members = [
   "crates/lazuli_analyzer",
   "crates/lazuli_cli",
   "crates/lazuli_codegen_go",
+  "crates/lazuli_codegen_spec",
   "crates/lazuli_codegen_ts",
   "crates/lazuli_ir",
   "crates/lazuli_lsp",

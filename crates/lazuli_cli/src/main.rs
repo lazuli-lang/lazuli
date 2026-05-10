@@ -52,6 +52,16 @@ enum Commands {
         path: PathBuf,
     },
     Lsp,
+    /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
+    /// files from the hand-built customer spec. Phase J spike: replaces
+    /// the hand-written dist files with deterministic codegen output.
+    SpikeGenerate {
+        /// Workspace root (defaults to the current directory). The
+        /// command writes to `<root>/dist/go/customer/customer.gen.go`
+        /// and `<root>/dist/web/customer/src/customer.gen.ts`.
+        #[arg(long, short, default_value = ".")]
+        root: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -177,7 +187,35 @@ fn main() -> Result<()> {
         } => inspect_command(&input, &expand, format),
         Commands::Init { path } => init_command(&path),
         Commands::Lsp => lsp_command(),
+        Commands::SpikeGenerate { root } => spike_generate_command(&root),
     }
+}
+
+fn spike_generate_command(root: &Path) -> Result<()> {
+    let feature = lazuli_codegen_spec::customer_spike();
+    let go_path = root.join("dist/go/customer/customer.gen.go");
+    let ts_path = root.join("dist/web/customer/src/customer.gen.ts");
+
+    let go_source = lazuli_codegen_go::emit_feature_go(&feature);
+    let ts_source = lazuli_codegen_ts::emit_feature_ts(&feature);
+
+    if let Some(parent) = go_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create {}", parent.display()))?;
+    }
+    if let Some(parent) = ts_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create {}", parent.display()))?;
+    }
+
+    fs::write(&go_path, go_source)
+        .with_context(|| format!("write {}", go_path.display()))?;
+    fs::write(&ts_path, ts_source)
+        .with_context(|| format!("write {}", ts_path.display()))?;
+
+    println!("wrote {}", go_path.display());
+    println!("wrote {}", ts_path.display());
+    Ok(())
 }
 
 fn check_command(input: &Path, security_profile: CheckSecurityProfile) -> Result<()> {

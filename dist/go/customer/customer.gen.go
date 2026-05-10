@@ -15,12 +15,6 @@ import (
 // ----------------------------------------------------------------------------
 // Resource: Customer
 //   resource Customer
-//     name: Text required
-//     email: @semantic.Email @pii.contact required
-//     ...
-//     tenancy org
-//     soft_delete
-//     retention 7y then anonymize
 // ----------------------------------------------------------------------------
 
 // Customer is the row materialised from the Customer resource. Each field
@@ -35,8 +29,6 @@ type Customer struct {
 	DeletedAt *lazuli.Time `db:"deleted_at" json:"deleted_at,omitempty"`
 }
 
-// customerResource is the typed resource declaration registered with the
-// runtime at package init.
 var customerResource = lazuli.Resource[Customer]{
 	Name:       "customer",
 	Feature:    "customer",
@@ -51,21 +43,8 @@ var customerResource = lazuli.Resource[Customer]{
 // ----------------------------------------------------------------------------
 // Command: customer.create
 //   command create
-//     input
-//       name: Text required
-//       email: @semantic.Email @pii.contact required
-//     policy @policy.create
-//     rate_limit "30 per hour per ip"
-//     creates Customer
-//       name = input.name
-//       email = input.email
-//     emits customer_created from creates
-//     invalidates
-//       query.list
-//       query.global_search
 // ----------------------------------------------------------------------------
 
-// CreateCustomerInput mirrors the DSL `input` block.
 type CreateCustomerInput struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
@@ -79,7 +58,7 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 	Audit:      lazuli.AuditDefault,
 	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")},
 	Effect: lazuli.Creates(&customerResource, lazuli.Bindings{
-		"name":  lazuli.FromInput("name"),
+		"name": lazuli.FromInput("name"),
 		"email": lazuli.FromInput("email"),
 	}),
 	Emits: []lazuli.EventEmit{
@@ -91,27 +70,17 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 // ----------------------------------------------------------------------------
 // Command: customer.update_email
 //   command update_email
-//     route id: ID
-//     input
-//       email: @semantic.Email @pii.contact required
-//     policy @policy.update
-//     rate_limit "10 per hour per user"
-//     updates Customer
-//       email = input.email
 // ----------------------------------------------------------------------------
 
-// UpdateCustomerEmailInput carries the row id (canonical lookup key) and the
-// new email value. The runtime maps `ID` to `WHERE id = $...` via the
-// `Where` bindings on UpdatesEffect.
 type UpdateCustomerEmailInput struct {
 	ID    lazuli.ID `json:"id"`
 	Email string    `json:"email"`
 }
 
 var updateCustomerEmail = lazuli.Command[UpdateCustomerEmailInput, Customer]{
-	Name:       "customer.update_email",
-	Resource:   &customerResource,
-	Policy:     lazuli.Policy{Name: "@policy.update", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
+	Name:      "customer.update_email",
+	Resource:  &customerResource,
+	Policy:    lazuli.Policy{Name: "@policy.update", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
 	RateLimit:  "10 per hour per user",
 	Audit:      lazuli.AuditDefault,
 	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")},
@@ -125,14 +94,8 @@ var updateCustomerEmail = lazuli.Command[UpdateCustomerEmailInput, Customer]{
 // ----------------------------------------------------------------------------
 // Command: customer.archive
 //   command archive
-//     route id: ID
-//     policy @policy.delete
-//     deletes Customer
 // ----------------------------------------------------------------------------
 
-// ArchiveCustomerInput carries the id of the row to soft-delete. The
-// runtime uses `Resource.SoftDelete: true` to switch DELETE to
-// `UPDATE ... SET deleted_at = now()`.
 type ArchiveCustomerInput struct {
 	ID lazuli.ID `json:"id"`
 }
@@ -141,19 +104,17 @@ var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
 	Name:      "customer.archive",
 	Resource:  &customerResource,
 	Policy:    lazuli.Policy{Name: "@policy.delete", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
-	RateLimit: "10 per hour per user",
-	Audit:     lazuli.AuditDefault,
+	RateLimit:  "10 per hour per user",
+	Audit:      lazuli.AuditDefault,
 	Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{
 		"id": lazuli.FromInput("ID"),
 	}),
-	// Explicit emit: payload binds from input + ctx, demonstrating the
-	// non-derived path. Most emits are derived (`from creates|updates|deletes`).
 	Emits: []lazuli.EventEmit{
 		{
 			Name: "customer_archived",
 			Bind: lazuli.Bindings{
 				"customer_id": lazuli.FromInput("ID"),
-				"actor_id":    lazuli.FromCtx("user.id"),
+				"actor_id": lazuli.FromCtx("user.id"),
 			},
 		},
 	},
@@ -163,15 +124,8 @@ var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
 // ----------------------------------------------------------------------------
 // Query: customer.query.list
 //   query.list list
-//     paginate 50
-//
-// Phase B spike: filters, search, modifier, and cache deferred to later cuts.
-// The current shape covers the core "scan resource with tenancy + soft-delete"
-// path so the web layer can call into a real `useQuery`.
 // ----------------------------------------------------------------------------
 
-// ListCustomersArgs mirrors the DSL `params` block. All fields are
-// pointers so omission means "no filter on this column".
 type ListCustomersArgs struct {
 	Email  *string `json:"email,omitempty"`
 	Search *string `json:"search,omitempty"`
@@ -181,7 +135,7 @@ var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
 	Name:     "customer.query.list",
 	Resource: &customerResource,
 	Kind:     lazuli.QueryList,
-	Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
+	Policy:    lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
 	Filters: []lazuli.FilterRule{
 		{Column: "email", When: lazuli.FromInput("Email")},
 	},
@@ -199,10 +153,9 @@ var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
 
 // ----------------------------------------------------------------------------
 // Query: customer.query.by_id
-//   query.lookup by_id by id: ID
+//   query.lookup by_id
 // ----------------------------------------------------------------------------
 
-// CustomerByIDArgs carries the lookup key.
 type CustomerByIDArgs struct {
 	ID lazuli.ID `json:"id"`
 }
@@ -211,7 +164,7 @@ var customerByID = lazuli.Query[CustomerByIDArgs, Customer]{
 	Name:     "customer.query.by_id",
 	Resource: &customerResource,
 	Kind:     lazuli.QueryLookup,
-	Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
+	Policy:    lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
 	LookupBy: []lazuli.LookupKey{
 		{Column: "id", Source: lazuli.FromInput("ID")},
 	},
