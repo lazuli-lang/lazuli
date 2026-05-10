@@ -1,0 +1,15 @@
+{
+  "name": "lazuli-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lazuli runtime spike — Go (under runtime/go and dist/go) + TypeScript (under runtime/web and dist/web).",
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.6.0"
+  }
+}

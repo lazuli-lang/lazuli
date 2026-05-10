@@ -23,3 +23,9 @@
 .claude/agents/_orion-pipeline-*.md
 .claude/agents/lazuli-language-architect.md
 .claude/commands/lazuli-*.md
+
+# TypeScript build artifacts (web spike under runtime/web and dist/web).
+node_modules/
+runtime/web/**/dist/
+dist/web/**/dist/
+*.tsbuildinfo
