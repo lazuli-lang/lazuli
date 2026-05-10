@@ -310,7 +310,9 @@ than raw proxy mechanics.
   what exists and how global bindings resolve.
 - Do not introduce `container.lzi` as a runtime DI config unless registry
   contracts fail under real adapter/plugin pressure.
-- Do not implement `workspace.lzi`, `gateway`, or `proxy` before profiles,
-  app bindings, service boundaries, and registry contracts settle.
+- `workspace.lzi` and provider-neutral `gateway` are now implemented. Keep raw
+  `proxy`, sidecar, service mesh, and provider routing mechanics in
+  Drusa/adapters unless future static-analysis pressure justifies a language
+  primitive.
 - Any magic package discovery must be visible in `lazuli inspect`, `doctor`, and
   LSP diagnostics so it does not become hidden runtime behavior.
