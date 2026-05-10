@@ -7,12 +7,16 @@
 //! (`dist/go/customer/customer.gen.go`) and TS file
 //! (`dist/web/customer/src/customer.gen.ts`).
 //!
-//! A future cut implements `from_module(&Module) -> RuntimeFeature` so the
-//! same emitter runs against a real `.lzi` source via the existing
-//! syntax + analyzer pipeline. The `customer_spike()` fixture below pins
-//! the proven form so codegen output never silently drifts.
+//! Phase K decouples the spec from the hardcoded `customer_spike()`
+//! fixture: every type derives serde traits, and producers can ship a
+//! spec as JSON. A future cut adds `from_module(&Module) -> RuntimeFeature`
+//! once the modern `.lzi` syntax has parser coverage. Until then, JSON
+//! manifests are the portable interchange format between authoring tools
+//! (LLMs, IDEs, hand-written) and the codegen pipeline.
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeFeature {
     /// Canonical feature name. Drives package names, import paths, route
     /// prefixes, and (for the Go emitter) the package directive.
@@ -25,7 +29,7 @@ pub struct RuntimeFeature {
     pub queries: Vec<RuntimeQuery>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeResource {
     /// Lower-case canonical name, e.g. `customer`. Used for table name and
     /// file scope. The Go struct is the PascalCase variant.
@@ -42,13 +46,13 @@ pub struct RuntimeResource {
     pub fields: Vec<RuntimeField>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Tenancy {
     Org,
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetentionSpec {
     /// Window string, e.g. "7y" or "30d".
     pub window: String,
@@ -56,20 +60,20 @@ pub struct RetentionSpec {
     pub action: RetentionAction,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum RetentionAction {
     Anonymize,
     Purge,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeField {
     /// Canonical lowercase name as written in the DSL.
     pub name: String,
     pub kind: FieldKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldKind {
     Text,
     Email,
@@ -77,7 +81,7 @@ pub enum FieldKind {
     Boolean,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeCommand {
     /// Short name inside the feature (e.g. `create`, `update_email`).
     /// The fully qualified name is `<feature>.<name>`.
@@ -96,7 +100,7 @@ pub struct RuntimeCommand {
     pub invalidates: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeInput {
     /// Field name as it appears on the Go input struct (PascalCase).
     pub field_name: String,
@@ -105,7 +109,7 @@ pub struct RuntimeInput {
     pub kind: FieldKind,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum RuntimeEffect {
     /// `creates Customer` — bind every input field as the same column.
     CreatesFromInput,
@@ -116,13 +120,13 @@ pub enum RuntimeEffect {
     DeletesByID,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeEmit {
     pub name: String,
     pub kind: RuntimeEmitKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuntimeEmitKind {
     /// Derived emit: payload is the producing row from creates/updates/deletes.
     FromCreates,
@@ -130,13 +134,13 @@ pub enum RuntimeEmitKind {
     Bind(Vec<(String, EmitSource)>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmitSource {
     Input(String),
     Ctx(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeQuery {
     /// Short name inside the feature (e.g. `list`, `by_id`). Fully qualified
     /// is `<feature>.query.<name>`.
@@ -156,13 +160,13 @@ pub struct RuntimeQuery {
     pub lookup_by: Vec<RuntimeLookupKey>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryKind {
     List,
     Lookup,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeArg {
     /// Field name as it appears on the args struct. PascalCase for Go,
     /// lowercase or original for TS (the emitter handles casing).
@@ -172,25 +176,25 @@ pub struct RuntimeArg {
     pub optional: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeCache {
     pub key: String,
     pub ttl: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeFilter {
     pub column: String,
     pub when_input: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeSearch {
     pub source_input: String,
     pub over: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeLookupKey {
     pub column: String,
     pub source_input: String,

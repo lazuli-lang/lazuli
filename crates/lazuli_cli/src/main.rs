@@ -53,14 +53,20 @@ enum Commands {
     },
     Lsp,
     /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
-    /// files from the hand-built customer spec. Phase J spike: replaces
-    /// the hand-written dist files with deterministic codegen output.
+    /// files from a runtime spec. Without `--spec`, uses the in-process
+    /// `customer_spike()` fixture; with `--spec <path>`, loads a JSON
+    /// `RuntimeFeature` manifest (see `examples/runtime-spec/customer.json`).
     SpikeGenerate {
         /// Workspace root (defaults to the current directory). The
         /// command writes to `<root>/dist/go/customer/customer.gen.go`
         /// and `<root>/dist/web/customer/src/customer.gen.ts`.
         #[arg(long, short, default_value = ".")]
         root: PathBuf,
+        /// Optional JSON path to a serialised `RuntimeFeature`. The CLI
+        /// reads it via serde and runs the same emitter as the in-process
+        /// fixture, decoupling codegen from the hardcoded spec.
+        #[arg(long)]
+        spec: Option<PathBuf>,
     },
 }
 
@@ -187,12 +193,20 @@ fn main() -> Result<()> {
         } => inspect_command(&input, &expand, format),
         Commands::Init { path } => init_command(&path),
         Commands::Lsp => lsp_command(),
-        Commands::SpikeGenerate { root } => spike_generate_command(&root),
+        Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
     }
 }
 
-fn spike_generate_command(root: &Path) -> Result<()> {
-    let feature = lazuli_codegen_spec::customer_spike();
+fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
+    let feature = match spec {
+        Some(path) => {
+            let text = fs::read_to_string(path)
+                .with_context(|| format!("read {}", path.display()))?;
+            serde_json::from_str(&text)
+                .with_context(|| format!("parse runtime spec JSON {}", path.display()))?
+        }
+        None => lazuli_codegen_spec::customer_spike(),
+    };
     let go_path = root.join("dist/go/customer/customer.gen.go");
     let ts_path = root.join("dist/web/customer/src/customer.gen.ts");
 

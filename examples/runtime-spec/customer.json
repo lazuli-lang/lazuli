@@ -1,0 +1,208 @@
+{
+  "name": "customer",
+  "source_path": "examples/full-capsule/full-capsule.lzi",
+  "resources": [
+    {
+      "name": "customer",
+      "tenancy": "Org",
+      "soft_delete": true,
+      "retention": {
+        "window": "7y",
+        "action": "Anonymize"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "kind": "Text"
+        },
+        {
+          "name": "email",
+          "kind": "Email"
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "short_name": "create",
+      "policy_name": "@policy.create",
+      "policy_atoms": [
+        [
+          "role",
+          "admin"
+        ]
+      ],
+      "rate_limit": "30 per hour per ip",
+      "validators": [
+        "email_check"
+      ],
+      "effect": "CreatesFromInput",
+      "inputs": [
+        {
+          "field_name": "Name",
+          "kind": "Text"
+        },
+        {
+          "field_name": "Email",
+          "kind": "Email"
+        }
+      ],
+      "emits": [
+        {
+          "name": "customer_created",
+          "kind": "FromCreates"
+        }
+      ],
+      "invalidates": [
+        "customer.query.list",
+        "customer.query.global_search"
+      ]
+    },
+    {
+      "short_name": "update_email",
+      "policy_name": "@policy.update",
+      "policy_atoms": [
+        [
+          "role",
+          "admin"
+        ]
+      ],
+      "rate_limit": "10 per hour per user",
+      "validators": [
+        "email_check"
+      ],
+      "effect": "UpdatesByID",
+      "inputs": [
+        {
+          "field_name": "ID",
+          "kind": "Integer"
+        },
+        {
+          "field_name": "Email",
+          "kind": "Email"
+        }
+      ],
+      "emits": [],
+      "invalidates": [
+        "customer.query.list",
+        "customer.query.by_id"
+      ]
+    },
+    {
+      "short_name": "archive",
+      "policy_name": "@policy.delete",
+      "policy_atoms": [
+        [
+          "role",
+          "admin"
+        ]
+      ],
+      "rate_limit": "10 per hour per user",
+      "validators": [],
+      "effect": "DeletesByID",
+      "inputs": [
+        {
+          "field_name": "ID",
+          "kind": "Integer"
+        }
+      ],
+      "emits": [
+        {
+          "name": "customer_archived",
+          "kind": {
+            "Bind": [
+              [
+                "customer_id",
+                {
+                  "Input": "ID"
+                }
+              ],
+              [
+                "actor_id",
+                {
+                  "Ctx": "user.id"
+                }
+              ]
+            ]
+          }
+        }
+      ],
+      "invalidates": [
+        "customer.query.list",
+        "customer.query.by_id"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "short_name": "list",
+      "kind": "List",
+      "policy_name": "@policy.read",
+      "policy_atoms": [
+        [
+          "scope",
+          "same_org"
+        ]
+      ],
+      "args": [
+        {
+          "field_name": "Email",
+          "kind": "Email",
+          "optional": true
+        },
+        {
+          "field_name": "Search",
+          "kind": "Text",
+          "optional": true
+        }
+      ],
+      "cache": {
+        "key": "customer.list",
+        "ttl": "5 * time.Minute"
+      },
+      "paginate": 50,
+      "filters": [
+        {
+          "column": "email",
+          "when_input": "Email"
+        }
+      ],
+      "search": {
+        "source_input": "Search",
+        "over": [
+          "name",
+          "email"
+        ]
+      },
+      "lookup_by": []
+    },
+    {
+      "short_name": "by_id",
+      "kind": "Lookup",
+      "policy_name": "@policy.read",
+      "policy_atoms": [
+        [
+          "scope",
+          "same_org"
+        ]
+      ],
+      "args": [
+        {
+          "field_name": "ID",
+          "kind": "Integer",
+          "optional": false
+        }
+      ],
+      "cache": null,
+      "paginate": 0,
+      "filters": [],
+      "search": null,
+      "lookup_by": [
+        {
+          "column": "id",
+          "source_input": "ID"
+        }
+      ]
+    }
+  ]
+}
