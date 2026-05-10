@@ -108,6 +108,9 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 | App/runtime manifest | `.lzx app <Name>` with targets, locale/timezone, fallback routes, and used features | implemented as app-shell contract |
 | Type-safe app routes | top-level `.lzx route <name>` with `path`/`stack`, `params`, `to`, `surface`, and `audience` | implemented as route-builder contract |
 | Env/secrets schema | top-level `.lzi env` with `server|client|mobile NAME: Type required|optional` | implemented as source contract |
+| Custom HTTP APIs | `api <name>` with method, path, route/input, output, policy, handler | implemented as language-light endpoint contract |
+| Error exposure | feature `errors` plus command/rule `error <Name> status ... expose ...` | implemented as public/private error contract |
+| Cache/invalidation | query `cache` and command `invalidates` | implemented as client/server cache contract |
 | RBAC/policy | `@role.*`, `@scope.*`, `@policy.*`, field policies, audience reachability | implemented, keep hardening doctor checks |
 | Auth context | `auth`, actors, `ctx.user`, `ctx.customer`, route-from-context | implemented as contract, framework flows later |
 | Multi-tenancy | `tenancy`, `tenant_from`, tenant fanout, tenant-aware idempotency | implemented, keep moving text checks into IR |

@@ -182,6 +182,13 @@ source that only fails later.
 - Commands that mutate state or whose effective policy includes `@scope.public`
   declare a command-level `rate_limit` or explicit `rate_limit none` with a
   `reason "..."` child.
+- Custom `api` declarations expose typed HTTP boundaries and declare `method`,
+  `path`, `output`, `policy`, and `handler`. Dynamic path params declare
+  matching `route` slots.
+- Query cache contracts declare both `key` and `ttl`. Command invalidation
+  contracts list explicit query targets under `invalidates`.
+- Feature-level `errors` defaults decide public/private client exposure. Named
+  error cases declare HTTP status and exposed payload fields.
 - Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
 - A top-level `env` block declares every `env.NAME` reference with scope,

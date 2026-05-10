@@ -94,8 +94,9 @@ surface ping web
 `.lzi` feature block order:
 
 ```txt
-meta -> defaults -> uses -> refs? -> domain -> policies -> auth -> command
--> workflow -> job -> webhook -> surface -> extensions -> escape_route
+meta -> defaults -> uses -> refs? -> domain -> policies -> errors -> auth
+-> command -> api -> workflow -> job -> webhook -> surface -> extensions
+-> escape_route
 ```
 
 `meta` means `purpose`, `non_goals`, and `context`.
@@ -359,6 +360,11 @@ opt-outs such as `verify none` without a deployment allowlist.
 - Every `command` requires explicit `policy`.
 - Commands that mutate state or whose effective policy includes `@scope.public`
   require `rate_limit` or `rate_limit none` with a `reason "..."` child.
+- Custom APIs declare `method`, `path`, `output`, `policy`, and `handler`.
+- Query `cache` blocks declare `key` and `ttl`; command `invalidates` blocks
+  point at explicit query targets.
+- Feature `errors` blocks define client exposure; named error cases use
+  `error <Name> status <http-status> expose message, code, data`.
 - Command validators should be blocking: use `validate @validator.*`, or use
   `let result = @validator.*` plus `requires result`.
 - Sensitive fields with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,

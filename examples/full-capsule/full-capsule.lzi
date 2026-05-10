@@ -93,6 +93,10 @@ feature customer
       search params.search over name, email
         mode contains
 
+      cache
+        key customer.list(params)
+        ttl "5 minutes"
+
       paginate 50
 
     query.lookup by_id by id: ID
@@ -210,6 +214,11 @@ feature customer
         read: @role.admin, @role.integrations_admin
         write: @actor.system, @role.integrations_admin
 
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
   command capture_lead
     input
       name: Text required
@@ -226,6 +235,9 @@ feature customer
     emits customer_created
       email = input.email
       source = CustomerSource.manual
+    invalidates
+      customer.query.list
+      customer.query.global_search
 
   command create
     input
@@ -244,6 +256,9 @@ feature customer
     emits customer_created
       email = input.email
       source = input.source
+    invalidates
+      customer.query.list
+      customer.query.global_search
 
   command reassign previously assign_owner
     route id: ID
@@ -257,6 +272,9 @@ feature customer
       owner = resolved_owner
     emits customer_reassigned
       to_owner_id = input.owner_id
+    invalidates
+      customer.query.list
+      customer.query.by_id(id: route.id)
 
     tests
       denies when target.lifecycle_stage = archived
@@ -272,6 +290,28 @@ feature customer
     rate_limit "30 per minute per user"
     updates Customer
       tier = input.tier
+    invalidates
+      customer.query.list
+      customer.query.by_id(id: route.id)
+
+  api customer_export
+    method GET
+    path "/api/customers/export"
+    output @cap.File(max_size:100mb,accept:text/csv)
+    policy @policy.global_read
+    rate_limit "10 per hour per user"
+    handler "./api/export_customers.go"
+
+  api customer_summary_stream
+    method POST
+    path "/api/customers/:id/summary/stream"
+    route id: Customer.ID
+    input
+      prompt: Text required
+    output stream Text
+    policy @policy.read
+    rate_limit "20 per hour per user"
+    handler "./api/stream_customer_summary.go"
 
   workflow lifecycle on Customer.lifecycle_stage
     policy @policy.update

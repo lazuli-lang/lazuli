@@ -11,7 +11,7 @@ Normative wording in this file follows ordinary spec meaning: `must`/`MUST` is r
 Canonical feature block order:
 
 ```txt
-meta -> defaults -> uses -> refs -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route
+meta -> defaults -> uses -> refs -> domain -> policies -> errors -> auth -> command -> api -> workflow -> job -> webhook -> surface -> extensions -> escape_route
 ```
 
 Closed reference namespaces:
@@ -584,6 +584,23 @@ query.list global_audit
 An override disables inherited tenancy scope and requires both an explicit query `policy @policy.*` and a `reason "..."` child under `scope override`.
 It is an absolute replacement of inherited safety scope, not a filter reset. If a future syntax such as `scope override(org)` proves necessary, it should be introduced as a stricter spelling of the same dangerous operation rather than as a second scoping model.
 
+Generated list/lookup queries may declare cache shape:
+
+```lazuli
+query.list list
+  params
+    search: Text optional
+
+  cache
+    key customer.list(params)
+    ttl "5 minutes"
+```
+
+`cache` is a cross-stack contract, not a Redis/provider choice. Lazuli owns the
+stable key expression and stale-time semantics so React, Expo, server loaders,
+and tests can agree on query identity. Drusa/runtime owns the actual cache
+implementation.
+
 ### SQL Queries
 
 `query.sql` means the query bypasses Lazuli's declarative query builder and is backed by an external SQL file. Lazuli can connect it, type it, and record it in the graph, but it cannot fully analyze the SQL body.
@@ -835,6 +852,81 @@ command login
 This is not auth-specific; generated adapters should expose the return type in the client API. Prefer events for domain side effects and `returns` for immediate caller data.
 
 Use `returns` when the caller needs immediate response data that is not simply the updated resource shape, such as an auth session, generated download URL, preview payload, or import validation summary. Do not use `returns` as a substitute for events.
+
+Commands that affect cached queries may declare invalidation targets:
+
+```lazuli
+command reassign
+  route id: ID
+  input
+    owner_id: User.ID required
+  target customer.query.by_id(id: route.id)
+  policy @policy.update
+  updates Customer
+    owner = input.owner_id
+  invalidates
+    customer.query.list
+    customer.query.by_id(id: route.id)
+```
+
+`invalidates` is intentionally query-shaped. It tells generated clients and
+server loaders which query identities become stale after a command succeeds.
+It does not choose React Query, Redis, HTTP cache headers, or any provider.
+
+Feature-level error exposure is explicit:
+
+```lazuli
+errors
+  default hide
+  expose client 4xx message, code
+  expose client 5xx code
+```
+
+Rules or commands may define named public error cases:
+
+```lazuli
+rule "deleted customers cannot be archived"
+  deny Customer.archive when self.deleted_at != nil
+  error CustomerAlreadyDeleted status 409 expose message, code
+  message "Cannot archive a deleted customer"
+```
+
+The public contract separates developer diagnostics from client payloads.
+Adapters may log stack traces and internal details, but generated clients only
+receive what the error contract exposes.
+
+## Custom APIs
+
+Use `api` for typed HTTP boundaries that are not semantic commands, queries, or
+webhooks: streaming, file downloads, provider proxies, health-ish product
+endpoints, and request/response handlers that need raw HTTP shape.
+
+```lazuli
+api customer_export
+  method GET
+  path "/api/customers/export"
+  output @cap.File
+  policy @policy.global_read
+  rate_limit "10 per hour per user"
+  handler "./api/export_customers.go"
+
+api customer_summary_stream
+  method POST
+  path "/api/customers/:id/summary/stream"
+  route id: Customer.ID
+  input
+    prompt: Text required
+  output stream Text
+  policy @policy.read
+  rate_limit "20 per hour per user"
+  handler "./api/stream_customer_summary.go"
+```
+
+`api` is not a replacement for `command` or `query`. Commands model domain
+writes, emit domain events, and participate in policy/rule/effect analysis.
+Queries model analyzable reads. Webhooks model verified inbound provider calls.
+Custom APIs model explicit HTTP shape and still keep auth, route params, output
+shape, rate limits, and handler ownership visible to check/doctor/codegen.
 
 ## Workflows
 

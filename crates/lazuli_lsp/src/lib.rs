@@ -330,6 +330,9 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(rule_self_diagnostics(source));
         diagnostics.extend(required_field_nil_rule_diagnostics(source));
         diagnostics.extend(command_validator_diagnostics(source));
+        diagnostics.extend(error_contract_diagnostics(source));
+        diagnostics.extend(cache_contract_diagnostics(source));
+        diagnostics.extend(api_contract_diagnostics(source));
         diagnostics.extend(anchor_whitelist_diagnostics(source));
         diagnostics.extend(test_block_diagnostics(source));
         diagnostics.extend(command_contract_diagnostics(source));
@@ -1008,8 +1011,10 @@ enum CanonicalBlockKind {
     Refs,
     Domain,
     Policies,
+    Errors,
     Auth,
     Command,
+    Api,
     Workflow,
     Job,
     Webhook,
@@ -1027,14 +1032,16 @@ impl CanonicalBlockKind {
             Self::Refs => 3,
             Self::Domain => 4,
             Self::Policies => 5,
-            Self::Auth => 6,
-            Self::Command => 7,
-            Self::Workflow => 8,
-            Self::Job => 9,
-            Self::Webhook => 10,
-            Self::Surface => 11,
-            Self::Extensions => 12,
-            Self::EscapeRoute => 13,
+            Self::Errors => 6,
+            Self::Auth => 7,
+            Self::Command => 8,
+            Self::Api => 9,
+            Self::Workflow => 10,
+            Self::Job => 11,
+            Self::Webhook => 12,
+            Self::Surface => 13,
+            Self::Extensions => 14,
+            Self::EscapeRoute => 15,
         }
     }
 
@@ -1046,8 +1053,10 @@ impl CanonicalBlockKind {
             Self::Refs => "refs",
             Self::Domain => "domain",
             Self::Policies => "policies",
+            Self::Errors => "errors",
             Self::Auth => "auth",
             Self::Command => "command",
+            Self::Api => "api",
             Self::Workflow => "workflow",
             Self::Job => "job",
             Self::Webhook => "webhook",
@@ -1058,7 +1067,7 @@ impl CanonicalBlockKind {
     }
 }
 
-const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> refs -> domain -> policies -> auth -> command -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
+const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> refs -> domain -> policies -> errors -> auth -> command -> api -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
 
 fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -1167,8 +1176,10 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "refs" => Some(CanonicalBlockKind::Refs),
         "domain" => Some(CanonicalBlockKind::Domain),
         "policies" => Some(CanonicalBlockKind::Policies),
+        "errors" => Some(CanonicalBlockKind::Errors),
         "auth" => Some(CanonicalBlockKind::Auth),
         "command" => Some(CanonicalBlockKind::Command),
+        "api" => Some(CanonicalBlockKind::Api),
         "workflow" => Some(CanonicalBlockKind::Workflow),
         "job" => Some(CanonicalBlockKind::Job),
         "webhook" => Some(CanonicalBlockKind::Webhook),
@@ -3426,6 +3437,466 @@ fn command_validator_facts_diagnostics(command: CommandValidatorFacts) -> Vec<Di
             )
         })
         .collect()
+}
+
+#[derive(Debug)]
+struct ApiContractFacts {
+    line_index: usize,
+    line: String,
+    has_method: bool,
+    has_path: bool,
+    has_output: bool,
+    has_policy: bool,
+    has_handler: bool,
+    routes: HashSet<String>,
+    path_params: Vec<String>,
+}
+
+fn api_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_api: Option<ApiContractFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("api ") {
+            if let Some(api) = current_api.take() {
+                diagnostics.extend(api_facts_diagnostics(api));
+            }
+            current_api = Some(ApiContractFacts {
+                line_index,
+                line: line.to_owned(),
+                has_method: false,
+                has_path: false,
+                has_output: false,
+                has_policy: false,
+                has_handler: false,
+                routes: HashSet::new(),
+                path_params: Vec::new(),
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 {
+            if let Some(api) = current_api.take() {
+                diagnostics.extend(api_facts_diagnostics(api));
+            }
+            continue;
+        }
+
+        let Some(api) = current_api.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) != 4 {
+            continue;
+        }
+
+        if let Some(method) = trimmed.strip_prefix("method ") {
+            api.has_method = true;
+            if !matches!(method.trim(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "api-contract",
+                    "api methods should be one of `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`.",
+                ));
+            }
+        } else if let Some(path) = trimmed.strip_prefix("path ") {
+            api.has_path = true;
+            let path = unquote_lzx_literal(path.trim());
+            if !path.starts_with('/') {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "api-contract",
+                    "api paths should be absolute and start with `/`.",
+                ));
+            }
+            api.path_params.extend(lzx_declared_path_params(path));
+        } else if let Some(route) = trimmed.strip_prefix("route ") {
+            if let Some(name) = route_slot_name(route) {
+                api.routes.insert(name.to_owned());
+            }
+        } else if let Some(output) = trimmed.strip_prefix("output ") {
+            api.has_output = true;
+            if output.trim_start().starts_with("stream ") {
+                let stream_type = output.trim_start().trim_start_matches("stream ").trim();
+                if stream_type.is_empty() {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "api-contract",
+                        "streaming APIs use `output stream <Type>` so generated clients know the stream item shape.",
+                    ));
+                }
+            }
+        } else if trimmed.starts_with("policy ") {
+            api.has_policy = true;
+        } else if trimmed.starts_with("handler ") {
+            api.has_handler = true;
+        }
+    }
+
+    if let Some(api) = current_api {
+        diagnostics.extend(api_facts_diagnostics(api));
+    }
+
+    diagnostics
+}
+
+fn api_facts_diagnostics(api: ApiContractFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut missing = Vec::new();
+
+    if !api.has_method {
+        missing.push("method");
+    }
+    if !api.has_path {
+        missing.push("path");
+    }
+    if !api.has_output {
+        missing.push("output");
+    }
+    if !api.has_policy {
+        missing.push("policy");
+    }
+    if !api.has_handler {
+        missing.push("handler");
+    }
+
+    if !missing.is_empty() {
+        diagnostics.push(simple_canonical_diagnostic(
+            api.line_index,
+            &api.line,
+            DiagnosticSeverity::ERROR,
+            "api-contract",
+            &format!(
+                "custom APIs should declare {} so HTTP shape, authorization, generated clients, and handler boundaries are explicit.",
+                missing.join(", ")
+            ),
+        ));
+    }
+
+    for path_param in api.path_params {
+        if !api.routes.contains(&path_param) {
+            diagnostics.push(simple_canonical_diagnostic(
+                api.line_index,
+                &api.line,
+                DiagnosticSeverity::WARNING,
+                "api-route-contract",
+                &format!(
+                    "api path parameter `{path_param}` should be declared with `route {path_param}: <Type>` so generated handlers and clients are type-safe.",
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct QueryCacheFacts {
+    line_index: usize,
+    line: String,
+    has_key: bool,
+    has_ttl: bool,
+}
+
+#[derive(Debug)]
+struct CommandInvalidationFacts {
+    line_index: usize,
+    line: String,
+    entries: usize,
+}
+
+fn cache_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_query = false;
+    let mut in_command = false;
+    let mut current_cache: Option<QueryCacheFacts> = None;
+    let mut current_invalidates: Option<CommandInvalidationFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) <= 4 {
+            if let Some(cache) = current_cache.take() {
+                diagnostics.extend(query_cache_diagnostics(cache));
+            }
+        }
+        if leading_spaces(line) <= 4 {
+            if let Some(invalidates) = current_invalidates.take() {
+                diagnostics.extend(command_invalidation_diagnostics(invalidates));
+            }
+        }
+
+        match leading_spaces(line) {
+            2 => {
+                in_command = trimmed.starts_with("command ");
+                in_query = false;
+            }
+            4 => {
+                in_query = trimmed.starts_with("query.");
+                if !trimmed.starts_with("command ") {
+                    in_command = in_command && !trimmed.starts_with("api ");
+                }
+            }
+            _ => {}
+        }
+
+        if leading_spaces(line) == 6 && trimmed == "cache" {
+            if !in_query {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "cache-contract",
+                    "`cache` belongs under a `query.*` declaration.",
+                ));
+                continue;
+            }
+            current_cache = Some(QueryCacheFacts {
+                line_index,
+                line: line.to_owned(),
+                has_key: false,
+                has_ttl: false,
+            });
+            continue;
+        }
+
+        if let Some(cache) = current_cache.as_mut()
+            && leading_spaces(line) == 8
+        {
+            if trimmed.starts_with("key ") {
+                cache.has_key = true;
+            } else if let Some(ttl) = trimmed.strip_prefix("ttl ") {
+                cache.has_ttl = true;
+                let value = unquote_lzx_literal(ttl.trim());
+                if !ttl.trim().starts_with('"') && !is_duration_literal(value) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "cache-contract",
+                        "cache ttl should be quoted prose or a duration literal such as `30s`, `10m`, `1h`, or `7d`.",
+                    ));
+                }
+            }
+            continue;
+        }
+
+        if leading_spaces(line) == 4 && trimmed == "invalidates" {
+            if !in_command {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "cache-invalidation-contract",
+                    "`invalidates` belongs as a command child.",
+                ));
+                continue;
+            }
+            current_invalidates = Some(CommandInvalidationFacts {
+                line_index,
+                line: line.to_owned(),
+                entries: 0,
+            });
+            continue;
+        }
+
+        if let Some(invalidates) = current_invalidates.as_mut()
+            && leading_spaces(line) == 6
+        {
+            if !trimmed.contains(".query.") {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "cache-invalidation-contract",
+                    "cache invalidation entries should target explicit queries such as `customer.query.list` or `customer.query.by_id(id: route.id)`.",
+                ));
+            }
+            invalidates.entries += 1;
+        }
+    }
+
+    if let Some(cache) = current_cache {
+        diagnostics.extend(query_cache_diagnostics(cache));
+    }
+    if let Some(invalidates) = current_invalidates {
+        diagnostics.extend(command_invalidation_diagnostics(invalidates));
+    }
+
+    diagnostics
+}
+
+fn query_cache_diagnostics(cache: QueryCacheFacts) -> Vec<Diagnostic> {
+    if cache.has_key && cache.has_ttl {
+        return Vec::new();
+    }
+
+    let mut missing = Vec::new();
+    if !cache.has_key {
+        missing.push("key");
+    }
+    if !cache.has_ttl {
+        missing.push("ttl");
+    }
+
+    vec![simple_canonical_diagnostic(
+        cache.line_index,
+        &cache.line,
+        DiagnosticSeverity::WARNING,
+        "cache-contract",
+        &format!(
+            "query cache contracts should declare {} so generated clients can share stable cache keys and stale-time behavior.",
+            missing.join(", ")
+        ),
+    )]
+}
+
+fn command_invalidation_diagnostics(invalidates: CommandInvalidationFacts) -> Vec<Diagnostic> {
+    if invalidates.entries > 0 {
+        return Vec::new();
+    }
+
+    vec![simple_canonical_diagnostic(
+        invalidates.line_index,
+        &invalidates.line,
+        DiagnosticSeverity::WARNING,
+        "cache-invalidation-contract",
+        "`invalidates` should list at least one query target.",
+    )]
+}
+
+fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_feature_errors = false;
+    let mut in_command_errors = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 {
+            in_feature_errors = leading_spaces(line) == 2 && trimmed == "errors";
+            in_command_errors = false;
+            continue;
+        }
+
+        if leading_spaces(line) == 4 && trimmed == "errors" {
+            in_command_errors = true;
+            continue;
+        }
+
+        if leading_spaces(line) <= 4 && in_command_errors {
+            in_command_errors = false;
+        }
+
+        if in_feature_errors && leading_spaces(line) == 4 {
+            if let Some(mode) = trimmed.strip_prefix("default ") {
+                if !matches!(mode.trim(), "hide" | "expose") {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "error-contract",
+                        "feature error defaults use `default hide` or `default expose`.",
+                    ));
+                }
+            } else if !valid_error_exposure_line(trimmed) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "error-contract",
+                    "error exposure uses `expose client 4xx|5xx message, code, data` so public/private error payloads are explicit.",
+                ));
+            }
+        }
+
+        if trimmed.starts_with("error ") {
+            if let Some(message) = error_case_contract_error(trimmed) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "error-contract",
+                    message,
+                ));
+            }
+        }
+
+        if in_command_errors && leading_spaces(line) == 6 {
+            let candidate = format!("error {trimmed}");
+            if let Some(message) = error_case_contract_error(&candidate) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "error-contract",
+                    message,
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn valid_error_exposure_line(line: &str) -> bool {
+    let parts: Vec<_> = line.split_whitespace().collect();
+    parts.len() >= 4
+        && parts[0] == "expose"
+        && parts[1] == "client"
+        && matches!(parts[2], "4xx" | "5xx")
+        && error_exposure_fields_valid(parts[3..].join(" ").as_str())
+}
+
+fn error_case_contract_error(line: &str) -> Option<&'static str> {
+    let parts: Vec<_> = line.split_whitespace().collect();
+    if parts.len() < 6 || parts[0] != "error" || parts[2] != "status" || parts[4] != "expose" {
+        return Some(
+            "error cases use `error <Name> status <http-status> expose message, code, data`.",
+        );
+    }
+
+    if !is_http_status_code(parts[3]) {
+        return Some("error status should be an HTTP status code from 100 to 599.");
+    }
+
+    if !error_exposure_fields_valid(parts[5..].join(" ").as_str()) {
+        return Some("error exposure fields are limited to `message`, `code`, and `data`.");
+    }
+
+    None
+}
+
+fn error_exposure_fields_valid(fields: &str) -> bool {
+    fields
+        .split(',')
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .all(|field| matches!(field, "message" | "code" | "data"))
+}
+
+fn is_http_status_code(value: &str) -> bool {
+    matches!(value.parse::<u16>(), Ok(status) if (100..=599).contains(&status))
 }
 
 fn collect_required_resource_fields(source: &str) -> HashSet<(String, String, String)> {
@@ -6579,6 +7050,10 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "domain" => Some("Groups resources, records, queries, rules, and events."),
         "policies" => Some("Declares feature-local policy categories and field policies."),
         "auth" => Some("Declares identity, credential, session, OAuth, or MFA contracts."),
+        "errors" => Some("Declares public/private client error exposure defaults or cases."),
+        "api" => {
+            Some("Declares a custom typed HTTP endpoint outside command/query/webhook semantics.")
+        }
         "event_group" => Some("Declares a shared same-feature event payload template."),
         "event.trace" => {
             Some("Declares an observability-only event that is outside the feature reaction graph.")
@@ -6593,7 +7068,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "route" => Some(
             "Declares route or context values accepted by a command/view, or a top-level typed app route in `.lzx`.",
         ),
-        "path" => Some("Declares a concrete web URL pattern for a top-level `.lzx` route."),
+        "path" => Some("Declares a concrete URL path for app routes, APIs, or webhooks."),
         "stack" => Some(
             "Declares a concrete mobile navigation stack pattern for a top-level `.lzx` route.",
         ),
@@ -6603,6 +7078,14 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "policy" => Some("Associates a command with an authorization policy capability."),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
+        "method" => Some("Declares the HTTP method for a custom API endpoint."),
+        "output" => Some("Declares the response shape for a custom API endpoint."),
+        "cache" => Some("Declares generated query cache identity and stale-time behavior."),
+        "key" => Some("Declares a cache key, lookup key, or dedupe key depending on context."),
+        "ttl" => Some("Declares a time-to-live contract."),
+        "invalidates" => Some("Declares queries that become stale after a command succeeds."),
+        "error" => Some("Declares a named public error case with status and exposure fields."),
+        "expose" => Some("Declares which error fields are visible to generated clients."),
         "write_window" => Some("Declares the temporal write window checked before a command runs."),
         "idempotency" => Some("Declares a dedupe key for jobs and webhooks."),
         "job" => Some("Declares asynchronous or scheduled work."),
@@ -6683,7 +7166,9 @@ const KEYWORDS: &[&str] = &[
     "defaults",
     "domain",
     "policies",
+    "errors",
     "auth",
+    "api",
     "event_group",
     "event.trace",
     "tenancy",
@@ -6709,6 +7194,14 @@ const KEYWORDS: &[&str] = &[
     "policy",
     "policy_for",
     "rate_limit",
+    "method",
+    "output",
+    "cache",
+    "key",
+    "ttl",
+    "invalidates",
+    "error",
+    "expose",
     "write_window",
     "idempotency",
     "job",
@@ -6789,10 +7282,22 @@ feature customer
     update: @role.admin
     read: @scope.same_org
 
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
   command create
     policy @policy.create
     rate_limit "30 per hour per user"
     creates Customer
+
+  api export
+    method GET
+    path "/api/customers/export"
+    output @cap.File(max_size:100mb,accept:text/csv)
+    policy @policy.read
+    handler "./api/export.go"
 
   workflow lifecycle on Customer.status
     policy @policy.update
@@ -7508,6 +8013,96 @@ feature integration
                 .message
                 .contains("environment reference `env.INBOUND_WEBHOOK_SECRET`")
         }));
+    }
+
+    #[test]
+    fn canonical_warns_for_incomplete_api_contract() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  api stream_summary
+    method POST
+    path "/api/customers/:id/summary"
+    output stream Text
+    policy @policy.read
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.iter().any(|message| message.contains("handler")));
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("api path parameter `id` should be declared") })
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_incomplete_cache_contract() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+
+    query.list list
+      cache
+        key customer.list(params)
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("query cache contracts should declare ttl")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_error_contract() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  errors
+    default leak
+    expose client 4xx stack
+
+  command archive
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    error CustomerGone status 900 expose stack
+    deletes Customer
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("feature error defaults use `default hide`") })
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("error exposure uses `expose client") })
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("HTTP status code from 100 to 599"))
+        );
     }
 
     #[test]
