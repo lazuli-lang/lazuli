@@ -47,7 +47,8 @@ feature customer
       api
       webhook
 
-    resource Customer previously migrated Account
+    resource Customer
+      previously migrated Account
       owner: User optional
       name: Text required
       email: @semantic.Email @pii.contact required
@@ -63,7 +64,7 @@ feature customer
       soft_delete
       retention 7y then anonymize
 
-      validates field tier @validator.tier_check
+      validates @validator.tier_check
 
     resource CustomerNote
       customer: Customer required
@@ -264,7 +265,8 @@ feature customer
       query.list
       query.global_search
 
-  command reassign previously migrated assign_owner
+  command reassign
+    previously migrated assign_owner
     route id: ID
     input
       owner_id: User.ID required
@@ -357,7 +359,8 @@ feature customer
         denies from active
         denies from lead
 
-    archive previously migrated deactivate: active -> archived requires @policy.delete emits customer_archived
+    archive: active -> archived requires @policy.delete emits customer_archived
+      previously migrated deactivate
       tests
         allows from active as @role.admin
         denies from active as @role.sales
@@ -690,7 +693,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validates resource @validator.row_check
+      validates @validator.row_check
 
     query.lookup by_id by id: ID
 

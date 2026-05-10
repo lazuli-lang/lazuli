@@ -110,11 +110,14 @@ when this list went stale.
   `top_p` / `seed` config siblings)
 - `notification` (multi-channel: email, push, sms, in_app — replaces
   `job` + `handler "./..."` for outreach dispatch)
-- `validates field|resource @validator.<name>` (typed reference; the
-  validator implementation is declared once under
-  `extensions.validator <name> at "./path.go"`)
-- `previously migrated|alias <old>` as a field child (header inline form
-  is reserved for resources / commands / transitions / features)
+- `validates @validator.<name>` (typed reference; scope is encoded in the
+  validator's `Validator[<scope>]` type under `extensions`. Legacy forms
+  `validates field <name> @validator.<name>` and `validates resource
+  @validator.<name>` warn because the scope keyword duplicates the typed
+  declaration.)
+- `previously migrated|alias <old>` as a child of the block it migrates,
+  uniformly across fields, resources, commands, transitions, and other
+  named blocks. Inline header forms still parse but warn.
 - `invalidates query.<name>` / `invalidates query.*` (same-feature short
   form and wildcard, on top of fully qualified)
 - `event.trace <name>` (audit/observability events outside the

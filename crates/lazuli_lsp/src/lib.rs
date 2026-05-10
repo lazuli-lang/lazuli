@@ -1349,35 +1349,60 @@ fn previously_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        // When the `previously` clause is inline on a field declaration, it
-        // splits the field name from its type/default, hurting cold-read
-        // legibility. Encourage child placement: keep `<name>: <Type> = <value>`
-        // contiguous and put `previously migrated <old>` as an indented child.
-        // Headers like `resource Customer previously migrated Account` and
-        // `command reassign previously migrated assign_owner` are fine.
-        if is_inline_previously_on_field(head, tail) {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "previously-field-inline",
-                "field-level `previously migrated|alias <old>` should be a child of the field, not inline before `:`. Keep `<name>: <Type> = <value>` contiguous and put `previously migrated <old>` on the next line indented one level deeper.",
-            ));
+        match inline_previously_kind(head, tail) {
+            InlinePreviouslyKind::Field => {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "previously-field-inline",
+                    "field-level `previously migrated|alias <old>` should be a child of the field, not inline before `:`. Keep `<name>: <Type> = <value>` contiguous and put `previously migrated <old>` on the next line indented one level deeper.",
+                ));
+            }
+            InlinePreviouslyKind::Header => {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "previously-header-inline",
+                    "header-level `previously migrated|alias <old>` should be a child of the block, not inline. Keep the kind + name on the header line and put `previously migrated <old>` on the next line indented one level deeper so cold-readers see one concept per line.",
+                ));
+            }
+            InlinePreviouslyKind::Transition => {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "previously-transition-inline",
+                    "workflow transitions should keep the `<name>: <state> -> <state>` shape contiguous; declare `previously migrated <old>` as a transition child on the next line.",
+                ));
+            }
+            InlinePreviouslyKind::Other => {}
         }
     }
 
     diagnostics
 }
 
-fn is_inline_previously_on_field(head: &str, tail: &str) -> bool {
-    // Field shape: `<name>` followed by `previously migrated|alias <old>: <Type>`.
-    // Header shape: `resource <Name>` / `command <name>` / `enum <Name>` etc.
-    // Transition shape: `<name> previously migrated <old>: <state> -> <state>`.
+#[derive(Debug, PartialEq, Eq)]
+enum InlinePreviouslyKind {
+    Field,
+    Header,
+    Transition,
+    Other,
+}
+
+fn inline_previously_kind(head: &str, tail: &str) -> InlinePreviouslyKind {
     let head = head.trim();
     if head.is_empty() {
-        return false;
+        return InlinePreviouslyKind::Other;
     }
     let first = head.split_whitespace().next().unwrap_or("");
+
+    // Block headers (`resource <Name>`, `command <name>`, etc.) — the
+    // identifier comes first, then `previously migrated <old>`. Tail has
+    // *no* `:` (no field/transition shape) and the head is two tokens
+    // (kind + name).
     if matches!(
         first,
         "resource"
@@ -1392,17 +1417,28 @@ fn is_inline_previously_on_field(head: &str, tail: &str) -> bool {
             | "rule"
             | "agent"
             | "feature"
+            | "notification"
     ) {
-        return false;
+        return InlinePreviouslyKind::Header;
     }
-    if head.contains(' ') {
-        return false;
-    }
-    // Workflow transitions use `<name>: <state> -> <state>`. Exclude.
+
+    // Transition shape: `<name>: <state> -> <state>` (with optional `previously
+    // migrated <old>` between name and `:`). Detected by the `->` token in
+    // tail.
     if tail.contains(" -> ") {
-        return false;
+        return InlinePreviouslyKind::Transition;
     }
-    tail.contains(':')
+
+    // Field shape: a single identifier head followed by `previously migrated
+    // <old>: <Type>`.
+    if head.contains(' ') {
+        return InlinePreviouslyKind::Other;
+    }
+    if tail.contains(':') {
+        return InlinePreviouslyKind::Field;
+    }
+
+    InlinePreviouslyKind::Other
 }
 
 fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -3702,7 +3738,7 @@ fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::WARNING,
                 "validation-syntax",
-                "whole-resource validators should use `validates resource @validator.<name>`.",
+                "validators are referenced through `validates @validator.<name>`; the scope (field or resource) is declared by the validator's `Validator[<scope>]` type in `extensions`.",
             ));
             continue;
         }
@@ -3712,18 +3748,28 @@ fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
         };
 
         let argument = rest.trim();
-        let target = if let Some(field_rest) = argument.strip_prefix("field ") {
-            // Drop the field name token to inspect what's left.
-            field_rest.split_whitespace().skip(1).next().unwrap_or("")
+
+        // Canonical: `validates @validator.<name>`
+        if argument.starts_with("@validator.") {
+            continue;
+        }
+
+        // Legacy with explicit scope: `validates field <name> @validator.<name>`
+        // or `validates resource @validator.<name>`. Both forms still parse but
+        // warn — the validator's `Validator[<scope>]` type already carries the
+        // scope, so repeating it at the call site is redundant.
+        let (legacy_form, target) = if let Some(field_rest) = argument.strip_prefix("field ") {
+            let target = field_rest.split_whitespace().skip(1).next().unwrap_or("");
+            ("legacy-scoped-field", target)
         } else if let Some(resource_rest) = argument.strip_prefix("resource") {
-            resource_rest.trim()
+            ("legacy-scoped-resource", resource_rest.trim())
         } else {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
                 DiagnosticSeverity::WARNING,
                 "validation-syntax",
-                "field validators should use `validates field <name> @validator.<name>`.",
+                "validators are referenced through `validates @validator.<name>`; the scope (field or resource) is declared by the validator's `Validator[<scope>]` type in `extensions`.",
             ));
             continue;
         };
@@ -3734,9 +3780,27 @@ fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::WARNING,
                 "validation-syntax",
-                "inline `\"./path.go\"` validator references are legacy. Declare the validator under `extensions.validator <name>: \"./path.go\"` and reference it as `@validator.<name>`.",
+                "inline `\"./path.go\"` validator references are legacy. Declare the validator under `extensions.validator <name>: Validator[<scope>] at \"./path.go\"` and reference it as `validates @validator.<name>`.",
             ));
-        } else if !target.starts_with("@validator.") && !target.is_empty() {
+        } else if target.starts_with("@validator.") {
+            // Legacy scope keyword present but otherwise canonical — warn that
+            // the scope is redundant.
+            let hint = match legacy_form {
+                "legacy-scoped-field" => {
+                    "drop the `field <name>` prefix; the validator's `Validator[<scope>]` type already names the field."
+                }
+                _ => {
+                    "drop the `resource` prefix; the validator's `Validator[<scope>]` type already targets the resource."
+                }
+            };
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "validation-syntax",
+                &format!("`validates @validator.<name>` is the canonical form: {hint}"),
+            ));
+        } else if !target.is_empty() {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -12718,11 +12782,37 @@ feature import
             .collect();
 
         assert!(messages.iter().any(|message| {
-            message.contains("whole-resource validators should use `validates resource")
+            message.contains("validators are referenced through `validates @validator.<name>`")
         }));
-        assert!(messages.iter().any(|message| {
-            message.contains("field validators should use `validates field <name>")
-        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_redundant_validates_scope_keyword() {
+        let scoped_field = r#"
+feature customer
+  domain
+    resource Customer
+      tier: Text required
+      validates field tier @validator.tier_check
+"#;
+        assert!(
+            diagnostics_for(scoped_field)
+                .iter()
+                .any(|d| d.message.contains("drop the `field <name>` prefix"))
+        );
+
+        let scoped_resource = r#"
+feature customer
+  domain
+    resource Customer
+      tier: Text required
+      validates resource @validator.row_check
+"#;
+        assert!(
+            diagnostics_for(scoped_resource)
+                .iter()
+                .any(|d| d.message.contains("drop the `resource` prefix"))
+        );
     }
 
     #[test]

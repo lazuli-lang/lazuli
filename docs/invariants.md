@@ -117,17 +117,18 @@ source that only fails later.
   `policy @policy.<name>`. Optional: `tenant_from`, `idempotency by`, `retry`,
   `rate_limit`, `emits`. Lazuli owns the dispatch contract; Drusa generates
   wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.
-- Resource and field validators reference declared validator extensions:
-  `validates field <name> @validator.<name>` and
-  `validates resource @validator.<name>`. The validator implementation is
-  declared once under `extensions.validator <name> at "./path.go"` and
-  referenced through the `@validator.<name>` namespace. Inline `"./path.go"`
-  references on `validates` are legacy and warn.
-- Field-level `previously migrated|alias <old>` should be a child of the field
-  block, keeping `<name>: <Type> = <value>` contiguous on the header line and
-  putting the migration on the next line indented one level deeper. Inline
-  `previously` on resource, command, transition, or feature headers is
-  canonical because the head identifier comes first.
+- Validators are referenced through `validates @validator.<name>`. The
+  validator's `Validator[<scope>]` type in `extensions` declares the scope —
+  field (`Validator[Resource.field]`) or whole-resource
+  (`Validator[Resource]`). The legacy forms `validates field <name>
+  @validator.<name>` and `validates resource @validator.<name>` are still
+  parsed but warn because the scope keyword duplicates the validator's typed
+  declaration. Inline `"./path.go"` references warn for the same reason.
+- `previously migrated|alias <old>` is a child of the block it migrates,
+  not inline on the header line. This applies uniformly to fields,
+  resources, commands, workflow transitions, and any other named block:
+  keep one concept per line so cold-readers process the kind + name first
+  and then the migration history. Legacy inline forms still parse but warn.
 - Cache invalidation entries accept fully qualified queries
   (`<feature>.query.<name>` or `<feature>.query.*` wildcard) and same-feature
   short forms (`query.<name>` or `query.*`).

@@ -42,7 +42,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validates resource @validator.row_check
+      validates @validator.row_check
 
       timestamps
 
