@@ -1,12 +1,18 @@
-# Proposal-only fixture for Cut A of `docs/proposals/ai-primitives-v0.md`.
+# Proposal-only fixture demonstrating the full Cut A.x series.
 #
-# Demonstrates `tools`, discriminated `output`, and `evals` (case/requires/forbids).
-# Cut B primitives (flow, budget tokens, knowledge, quota cost) are NOT shown
-# here — they live in the proposal text as sketches and require pilot
+# Exercises:
+#   - Cut A   (proposals/ai-primitives-v0.md):     tools, discriminator, evals
+#   - Cut A.5 (proposals/ai-primitives-cut-a-5.md): safety as list, PII coverage
+#   - Cut A.6 (proposals/ai-primitives-cut-a-6.md): tool result schema (in registry)
+#   - Cut A.7 (proposals/ai-primitives-cut-a-7.md): agent expose http
+#   - Cut A.8 (proposals/ai-primitives-cut-a-8.md): agent_run trace subscription
+#
+# Cut B primitives (flow, budget tokens, knowledge, quota cost) and Cuts D/E
+# (multi-slot context, async via job) are NOT shown — they require pilot
 # evidence before promotion.
 #
 # Not part of the canonical fixture set. Do not regenerate `examples/full-capsule`
-# from this file. LSP/doctor do not yet enforce these constructs.
+# from this file. LSP/doctor do not yet enforce all of these constructs.
 
 feature customer_support
   purpose "AI-assisted triage and summarization of customer tickets."
@@ -37,6 +43,13 @@ feature customer_support
     seed 42
     prompt "./prompts/classify_intent.md"
     rate_limit "60 per minute per user"
+
+    # Cut A.7 — auto-mount as HTTP endpoint; replaces the boilerplate
+    # `api classify_inbound` that would otherwise be a sibling.
+    expose http
+      method POST
+      path "/api/intent/classify"
+
     evals
       case urgent_for_outage
         requires input.message contains "outage"
@@ -59,11 +72,23 @@ feature customer_support
     max_tokens 1024
     top_p 0.9
     prompt "./prompts/summarize_customer.md"
-    safety @validator.pii_scrub
     rate_limit "20 per hour per user"
+
+    # Cut A.5 — safety accepts a list of validators. PII coverage union
+    # of {@pii.contact, @pii.behavioral} from tools must be covered by
+    # the union of validator covers_pii_classes declared below in extensions.
+    safety @validator.pii_email_scrub, @validator.pii_behavioral_scrub
+
     tools
-      customer.query.by_id
-      customer.query.recent_events
+      customer.query.by_id            # returns @pii.contact (email)
+      customer.query.recent_events    # returns @pii.behavioral (derived)
+
+    # Cut A.7 — agent exposes its own HTTP endpoint; no api shim needed.
+    expose http
+      method POST
+      path "/api/customers/:customer_id/summary"
+      route customer_id: Customer.ID
+
     evals
       case short_for_active
         requires customer.lifecycle_stage = active
@@ -87,26 +112,73 @@ feature customer_support
     temperature 0.4
     max_tokens 800
     prompt "./prompts/draft_reply.md"
-    safety @validator.pii_scrub
+    safety @validator.pii_email_scrub
     rate_limit "10 per hour per user"
+
     tools
-      customer.query.by_id
+      customer.query.by_id            # @pii.contact via the email field
+      # Cut A.6 — `@tool.web_search` declares `result Record` in registry.lzi
+      # below. Field references on the result (e.g., `tools.web_search.title`)
+      # become statically checkable.
       @tool.web_search
 
-  api ticket_inbound
-    method POST
-    path "/api/tickets"
-    input
-      message: Text required
-      customer_id: Customer.ID required
-    output stream Text
-    policy @policy.read
-    rate_limit "60 per hour per user"
-    handler "./api/dispatch_ticket.go"
+  # Cut A.8 — built-in trace event `agent_run` fires on every agent
+  # dispatch. This job aggregates per-tenant cost into the billing pack.
+  # The trace event's payload schema is canonical; doctor checks any
+  # field reference here.
+  job aggregate_agent_costs
+    trigger event.trace agent_run
+    tenant_from payload.tenant
+    idempotency by envelope.id, payload.agent
+    handler "./jobs/aggregate_agent_costs.go"
+    emits agent_cost_aggregated
+      tenant_id = payload.tenant
+      agent = payload.agent
+      tokens = payload.tokens_total
+      cost_usd = payload.cost_usd
+
+  event agent_cost_aggregated
+    payload
+      tenant_id: ID required
+      agent: Text required
+      tokens: Integer required
+      cost_usd: Decimal optional
 
   extensions
-    validator pii_scrub: Validator[Text]
-      at "./extensions/pii_scrub.go"
+    # Cut A.5 — each validator declares which @pii.* classes it covers.
+    # Doctor's `agent_safety_pii_coverage_gap_diagnostics` checks that
+    # union(safety[].covers_pii) >= union(tools[].resolved_pii_classes).
+    validator pii_email_scrub: Validator[Text]
+      at "./extensions/pii_email_scrub.go"
+      covers_pii @pii.contact
+
+    validator pii_behavioral_scrub: Validator[Text]
+      at "./extensions/pii_behavioral_scrub.go"
+      covers_pii @pii.behavioral, @pii.derived
 
     client classifier: LLM
       at "@runtime/anthropic"
+
+# ============================================================================
+# Companion registry.lzi snippet (Cut A.6) — would normally live in a
+# separate file, included here for the audit's convenience.
+# ============================================================================
+#
+# registry
+#   tools
+#     tool web_search
+#       effect read
+#       pii_class behavioral
+#       adapter @runtime/serper
+#       result Record
+#         title: Text required
+#         url: Text required
+#         snippet: Text required
+#         published_at: DateTime optional
+#
+#     tool calendar.create_event
+#       effect write
+#       adapter @runtime/google_calendar
+#       result Record
+#         event_id: ID required
+#         confirmation_link: Text required
