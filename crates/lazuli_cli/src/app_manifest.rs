@@ -4,9 +4,37 @@ use lazuli_ir::{
     AppManifest, AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy,
     AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService,
     AppServiceExposure, AppUrl, AppWorkspace, ContractEvent, ContractField, ContractImport,
-    ContractOperation, ContractOperationError, ContractRecord, FeatureRequirement, WorkspaceApp,
-    WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
+    ContractOperation, ContractOperationError, ContractRecord, FeatureRequirement, QualifiedName,
+    RegistryToolEntry, ToolEffect, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication,
+    WorkspaceGateway, WorkspaceGatewayRoute,
 };
+
+/// Side-channel captured during registry parsing for entries that exist
+/// syntactically but lack `effect`. The IR's `RegistryToolEntry` carries
+/// `effect` as a required field, so we cannot encode a missing-effect
+/// entry there. Doctor consumes this list to emit
+/// `tool_registry_effect_required_diagnostics`.
+#[derive(Debug, Clone)]
+pub struct RegistryToolEntryDefect {
+    /// 1-based line where the offending `tool <name>` header appears.
+    pub line: usize,
+    pub name: String,
+    pub reason: RegistryToolDefectReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryToolDefectReason {
+    EffectMissing,
+    EffectInvalid,
+}
+
+/// Output of `parse_app_registry`. Splits the well-formed registry IR
+/// from the defect list so doctor can surface both.
+#[derive(Debug, Clone, Default)]
+pub struct RegistryParseOutput {
+    pub registry: Option<AppRegistry>,
+    pub tool_defects: Vec<RegistryToolEntryDefect>,
+}
 
 pub fn parse_app_contracts(source: &str) -> Vec<AppContract> {
     let lines: Vec<_> = source.lines().collect();
@@ -631,11 +659,21 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     Some(app)
 }
 
+/// Backwards-compatible entry: returns just the well-formed registry IR.
+/// Doctor uses `parse_app_registry_with_defects` to also collect the
+/// `tool <name>` entries that lack an `effect` child.
 pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
+    parse_app_registry_with_defects(source).registry
+}
+
+pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     let lines: Vec<_> = source.lines().collect();
-    let start = lines
+    let Some(start) = lines
         .iter()
-        .position(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")?;
+        .position(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")
+    else {
+        return RegistryParseOutput::default();
+    };
 
     let mut registry = AppRegistry {
         env: Vec::new(),
@@ -650,17 +688,26 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
     let mut current_integration_child: Option<&str> = None;
     let mut current_pack: Option<usize> = None;
 
-    for line in lines.iter().skip(start + 1) {
+    // Pending tool: when the parser encounters `tool <name>` at indent 4
+    // it stages a PendingTool; effect / pii_classes / adapter children
+    // fill it. When the tool exits (next indent <= 4) the parser either
+    // commits to `registry.tools` (effect present) or records a defect.
+    let mut pending_tool: Option<PendingTool> = None;
+    let mut tool_defects: Vec<RegistryToolEntryDefect> = Vec::new();
+
+    for (offset, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
         if leading_spaces(line) == 0 {
+            flush_pending_tool(&mut pending_tool, &mut registry, &mut tool_defects);
             break;
         }
 
         match leading_spaces(line) {
             2 => {
+                flush_pending_tool(&mut pending_tool, &mut registry, &mut tool_defects);
                 current_env_group = None;
                 current_integration = None;
                 current_integration_child = None;
@@ -719,6 +766,22 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                         current_pack = None;
                     }
                 }
+                Some("tools") => {
+                    flush_pending_tool(&mut pending_tool, &mut registry, &mut tool_defects);
+                    if let Some(rest) = trimmed.strip_prefix("tool ") {
+                        let name = rest.trim().to_owned();
+                        if !name.is_empty() {
+                            pending_tool = Some(PendingTool {
+                                name,
+                                line: offset + 1,
+                                effect: None,
+                                effect_invalid: false,
+                                pii_classes: Vec::new(),
+                                adapter: None,
+                            });
+                        }
+                    }
+                }
                 _ => {}
             },
             6 => {
@@ -764,6 +827,30 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                     } else if let Some(requirement) = parse_pack_requirement(trimmed) {
                         pack.requirements.push(requirement);
                     }
+                } else if current_child == Some("tools") {
+                    let Some(pending) = pending_tool.as_mut() else {
+                        continue;
+                    };
+                    if let Some(rest) = trimmed.strip_prefix("effect ") {
+                        match rest.trim() {
+                            "read" => pending.effect = Some(ToolEffect::Read),
+                            "write" => pending.effect = Some(ToolEffect::Write),
+                            _ => pending.effect_invalid = true,
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("pii_classes ") {
+                        pending.pii_classes = split_items(rest)
+                            .into_iter()
+                            .map(|raw| QualifiedName {
+                                feature: None,
+                                name: pii_class_name(&raw),
+                            })
+                            .collect();
+                    } else if let Some(rest) = trimmed.strip_prefix("adapter ") {
+                        pending.adapter = Some(QualifiedName {
+                            feature: None,
+                            name: rest.trim().to_owned(),
+                        });
+                    }
                 }
             }
             8 => {
@@ -789,7 +876,69 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
         }
     }
 
-    Some(registry)
+    flush_pending_tool(&mut pending_tool, &mut registry, &mut tool_defects);
+
+    RegistryParseOutput {
+        registry: Some(registry),
+        tool_defects,
+    }
+}
+
+#[derive(Debug)]
+struct PendingTool {
+    name: String,
+    line: usize,
+    effect: Option<ToolEffect>,
+    effect_invalid: bool,
+    pii_classes: Vec<QualifiedName>,
+    adapter: Option<QualifiedName>,
+}
+
+fn flush_pending_tool(
+    pending: &mut Option<PendingTool>,
+    registry: &mut AppRegistry,
+    defects: &mut Vec<RegistryToolEntryDefect>,
+) {
+    let Some(tool) = pending.take() else { return };
+
+    if tool.effect_invalid {
+        defects.push(RegistryToolEntryDefect {
+            line: tool.line,
+            name: tool.name,
+            reason: RegistryToolDefectReason::EffectInvalid,
+        });
+        return;
+    }
+
+    let Some(effect) = tool.effect else {
+        defects.push(RegistryToolEntryDefect {
+            line: tool.line,
+            name: tool.name,
+            reason: RegistryToolDefectReason::EffectMissing,
+        });
+        return;
+    };
+
+    registry.tools.push(RegistryToolEntry {
+        name: tool.name,
+        effect,
+        pii_classes: tool.pii_classes,
+        adapter: tool.adapter,
+        span_ref: None,
+    });
+}
+
+/// Normalise a raw `pii_classes` token (e.g. `contact`, `@pii.contact`)
+/// to the canonical closed-namespace form. The IR keeps it as a string
+/// inside `QualifiedName::name` so doctor can compare against the
+/// agent-side `@pii.*` references uniformly.
+fn pii_class_name(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("@pii.") {
+        trimmed.to_owned()
+    } else {
+        format!("@pii.{trimmed}")
+    }
 }
 
 pub fn parse_app_profiles(source: &str) -> Vec<AppProfile> {
@@ -1125,6 +1274,7 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
         "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
         "packs" => Some("packs"),
+        "tools" => Some("tools"),
         _ => None,
     }
 }

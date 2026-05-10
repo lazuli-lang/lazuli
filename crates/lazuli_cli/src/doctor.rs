@@ -3,14 +3,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use lazuli_ir::{AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace};
+use lazuli_analyzer::lower_feature_skeleton;
+use lazuli_ir::{
+    self as ir, Agent, AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace,
+};
 use lazuli_lsp::SecurityProfile;
-use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView};
+use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView, parse_feature_skeletons};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::app_manifest::{
-    parse_app_contracts, parse_app_manifest, parse_app_profiles, parse_app_registry,
-    parse_app_workspace,
+    RegistryParseOutput, RegistryToolDefectReason, RegistryToolEntryDefect, parse_app_contracts,
+    parse_app_manifest, parse_app_profiles, parse_app_registry_with_defects, parse_app_workspace,
 };
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
@@ -43,6 +46,15 @@ struct DoctorPackage {
     commands: BTreeMap<CommandKey, CommandPolicy>,
     experiences: BTreeMap<String, ExperienceFacts>,
     operational: OperationalFacts,
+    /// Cut A: agent IR per feature, loaded through
+    /// `lazuli_syntax::parse_feature_skeletons` +
+    /// `lazuli_analyzer::lower_feature_skeleton`.
+    agents: Vec<AgentFacts>,
+    /// Cut A: per-feature enum/record/query/command symbol tables used
+    /// for discriminator + tool-policy cross-resolution.
+    feature_symbols: BTreeMap<String, FeatureSymbols>,
+    /// Cut A: registry `tool <name>` headers that lacked `effect`.
+    registry_tool_defects: Vec<RegistryToolDefect>,
 }
 
 impl DoctorPackage {
@@ -61,6 +73,9 @@ impl DoctorPackage {
         let mut commands = BTreeMap::new();
         let mut experiences = BTreeMap::new();
         let mut operational = OperationalFacts::default();
+        let mut agents: Vec<AgentFacts> = Vec::new();
+        let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
+        let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
 
         for path in paths {
             let source = fs::read_to_string(&path)
@@ -124,7 +139,11 @@ impl DoctorPackage {
                         });
                     }
                 }
-                if let Some(manifest) = parse_app_registry(&file.source) {
+                let RegistryParseOutput {
+                    registry: parsed_registry,
+                    tool_defects,
+                } = parse_app_registry_with_defects(&file.source);
+                if let Some(manifest) = parsed_registry {
                     if registry.is_none() {
                         registry = Some(DoctorAppRegistry {
                             path: file.path.clone(),
@@ -142,6 +161,66 @@ impl DoctorPackage {
                         });
                     }
                 }
+                registry_tool_defects.extend(tool_defects.into_iter().map(|defect| {
+                    RegistryToolDefect {
+                        path: file.path.clone(),
+                        line: defect.line,
+                        name: defect.name,
+                        reason: defect.reason,
+                    }
+                }));
+
+                // Cut A — agent IR collection + feature symbol scan.
+                match parse_feature_skeletons(&file.source) {
+                    Ok(features) => {
+                        for skeleton in &features {
+                            match lower_feature_skeleton(skeleton) {
+                                Ok(feature) => {
+                                    let header_line =
+                                        line_col_for_offset(&file.source, skeleton.span.start).0;
+                                    for agent in feature.agents {
+                                        let agent_line = agent
+                                            .span_ref
+                                            .as_ref()
+                                            .map(|s| line_col_for_offset(&file.source, s.start).0)
+                                            .unwrap_or(header_line);
+                                        agents.push(AgentFacts {
+                                            feature: feature.name.clone(),
+                                            agent,
+                                            path: file.path.clone(),
+                                            line: agent_line,
+                                        });
+                                    }
+                                }
+                                Err(error) => {
+                                    file.local_diagnostics.push(DoctorDiagnostic {
+                                        path: file.path.clone(),
+                                        line: line_col_for_offset(
+                                            &file.source,
+                                            skeleton.span.start,
+                                        )
+                                        .0,
+                                        column: 1,
+                                        severity: DoctorSeverity::Error,
+                                        code: "AGENT-LOWER".to_owned(),
+                                        message: format!("agent lowering failed: {error}"),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        file.local_diagnostics.push(DoctorDiagnostic {
+                            path: file.path.clone(),
+                            line: line_col_for_offset(&file.source, error.span().start).0,
+                            column: line_col_for_offset(&file.source, error.span().start).1,
+                            severity: DoctorSeverity::Error,
+                            code: "AGENT-PARSE".to_owned(),
+                            message: error.to_string(),
+                        });
+                    }
+                }
+                collect_feature_symbols(&file, &mut feature_symbols);
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
                     DoctorAppProfile {
                         path: file.path.clone(),
@@ -180,6 +259,9 @@ impl DoctorPackage {
             commands,
             experiences,
             operational,
+            agents,
+            feature_symbols,
+            registry_tool_defects,
         })
     }
 
@@ -206,6 +288,19 @@ impl DoctorPackage {
             &self.contracts,
             self.workspace.as_ref(),
         ));
+
+        // Cut A — agent + tool + eval + discriminator cross-feature checks.
+        diagnostics.extend(registry_tool_effect_diagnostics(&self.registry_tool_defects));
+        diagnostics.extend(agent_tool_diagnostics(
+            &self.agents,
+            &self.feature_symbols,
+            self.registry.as_ref(),
+        ));
+        diagnostics.extend(agent_discriminator_diagnostics(
+            &self.agents,
+            &self.feature_symbols,
+        ));
+        diagnostics.extend(agent_eval_diagnostics(&self.agents));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -254,6 +349,80 @@ struct DoctorFile {
     source: String,
     local_diagnostics: Vec<DoctorDiagnostic>,
     lzx: Option<LzxDocument>,
+}
+
+// Cut A — typed agent + symbol facts gathered for cross-feature checks.
+
+#[derive(Debug, Clone)]
+struct AgentFacts {
+    feature: String,
+    agent: Agent,
+    path: PathBuf,
+    /// 1-based source line where the `agent <name>` header lives.
+    line: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct FeatureSymbols {
+    enums: BTreeMap<String, SymbolFact>,
+    records: BTreeMap<String, RecordFact>,
+    /// Maps short query name (e.g. `by_id`, `list`) to its registered
+    /// policy reference text and kind. Used for tool-policy compatibility
+    /// checks.
+    queries: BTreeMap<String, QuerySymbolFact>,
+    /// Maps short command name (e.g. `archive`) to its registered policy
+    /// + safety hint. Commands are inherently write-effect for Cut A.
+    commands: BTreeMap<String, CommandSymbolFact>,
+}
+
+#[derive(Debug, Clone)]
+struct SymbolFact {
+    path: PathBuf,
+    line: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RecordFact {
+    base: SymbolFact,
+    /// Field name -> (field type text, whether the field has a
+    /// `discriminator` marker).
+    fields: BTreeMap<String, RecordFieldFact>,
+}
+
+#[derive(Debug, Clone)]
+struct RecordFieldFact {
+    type_text: String,
+    is_discriminator: bool,
+}
+
+#[derive(Debug, Clone)]
+struct QuerySymbolFact {
+    base: SymbolFact,
+    policy: Option<String>,
+    kind: ir::ToolKind,
+}
+
+#[derive(Debug, Clone)]
+struct CommandSymbolFact {
+    base: SymbolFact,
+    policy: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RegistryToolDefect {
+    path: PathBuf,
+    line: usize,
+    name: String,
+    reason: RegistryToolDefectReason,
+}
+
+impl Default for SymbolFact {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::new(),
+            line: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -2661,6 +2830,744 @@ fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     references
 }
 
+// =============================================================================
+// Cut A — cross-feature diagnostics (8 ids per plan §5.2).
+//
+// Lives downstream of the typed `AgentFacts` collected during package
+// load and the per-feature symbol tables populated by
+// `collect_feature_symbols`. File-local checks (predicate shape, block
+// well-formedness) stay in `crates/lazuli_lsp/src/lib.rs`; this module
+// owns the workspace-wide work that the LSP cannot perform.
+// =============================================================================
+
+/// Walk a `.lzi` file's text and harvest the names that downstream Cut A
+/// diagnostics need to resolve across features:
+///
+///   - `enum <Name>` headers (for `output discriminator <Enum>` targets)
+///   - `record <Name>` headers + `<field>: <type>` children + the
+///     `discriminator` marker on the disambiguation field
+///   - `command <name>` and `query.{list,lookup,sql} <name>` headers with
+///     their `policy @policy.<rule>` if present
+///
+/// The walker is text-based on purpose: the canonical-indent parser only
+/// covers `agent` blocks today. When later cuts migrate the rest of the
+/// feature body to typed AST, this collector collapses into the IR.
+fn collect_feature_symbols(
+    file: &DoctorFile,
+    feature_symbols: &mut BTreeMap<String, FeatureSymbols>,
+) {
+    let lines: Vec<&str> = file.source.lines().collect();
+
+    let mut feature_ranges: Vec<(String, usize, usize)> = Vec::new();
+    let mut current_start: Option<(String, usize)> = None;
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            if let Some((prev_name, prev_start)) = current_start.take() {
+                feature_ranges.push((prev_name, prev_start, index));
+            }
+            if let Some(name) = trimmed.strip_prefix("feature ") {
+                current_start = Some((name.trim().to_owned(), index));
+            }
+        }
+    }
+    if let Some((name, start)) = current_start {
+        feature_ranges.push((name, start, lines.len()));
+    }
+
+    for (feature, start, end) in feature_ranges {
+        let symbols = feature_symbols.entry(feature.clone()).or_default();
+        scan_feature_range(file, &lines[start..end], start, symbols);
+    }
+}
+
+fn scan_feature_range(
+    file: &DoctorFile,
+    lines: &[&str],
+    feature_start: usize,
+    symbols: &mut FeatureSymbols,
+) {
+    let mut i = 0;
+    while i < lines.len() {
+        let raw = lines[i];
+        let trimmed = raw.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+
+        // The fixture's domain block lives at indent 2 with payload at 4.
+        // Most enum / record / command / query declarations appear at
+        // indent 4 inside `domain`, or at indent 2 directly under feature.
+        // Either form is tolerated.
+        let leading = leading_spaces(raw);
+        if leading < 2 {
+            i += 1;
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("enum ") {
+            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+            if !name.is_empty() {
+                symbols.enums.insert(
+                    name,
+                    SymbolFact {
+                        path: file.path.clone(),
+                        line: feature_start + i + 1,
+                    },
+                );
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("record ") {
+            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+            if !name.is_empty() {
+                let record_indent = leading;
+                let mut record = RecordFact {
+                    base: SymbolFact {
+                        path: file.path.clone(),
+                        line: feature_start + i + 1,
+                    },
+                    fields: BTreeMap::new(),
+                };
+                let mut j = i + 1;
+                while j < lines.len() {
+                    let inner = lines[j];
+                    let inner_trim = inner.trim_start();
+                    if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                        j += 1;
+                        continue;
+                    }
+                    if leading_spaces(inner) <= record_indent {
+                        break;
+                    }
+                    if let Some(field) = parse_record_field(inner_trim) {
+                        record.fields.insert(field.0, field.1);
+                    }
+                    j += 1;
+                }
+                symbols.records.insert(name, record);
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("command ") {
+            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+            if !name.is_empty() {
+                let policy =
+                    scan_block_for_policy(&lines[i + 1..], leading_spaces(raw));
+                symbols.commands.insert(
+                    name,
+                    CommandSymbolFact {
+                        base: SymbolFact {
+                            path: file.path.clone(),
+                            line: feature_start + i + 1,
+                        },
+                        policy,
+                    },
+                );
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("query.list ") {
+            insert_query_symbol(
+                rest,
+                ir::ToolKind::QueryList,
+                file,
+                feature_start + i + 1,
+                raw,
+                &lines[i + 1..],
+                symbols,
+            );
+        } else if let Some(rest) = trimmed.strip_prefix("query.lookup ") {
+            insert_query_symbol(
+                rest,
+                ir::ToolKind::QueryLookup,
+                file,
+                feature_start + i + 1,
+                raw,
+                &lines[i + 1..],
+                symbols,
+            );
+        } else if let Some(rest) = trimmed.strip_prefix("query.sql ") {
+            insert_query_symbol(
+                rest,
+                ir::ToolKind::QuerySql,
+                file,
+                feature_start + i + 1,
+                raw,
+                &lines[i + 1..],
+                symbols,
+            );
+        }
+        i += 1;
+    }
+}
+
+fn parse_record_field(trimmed: &str) -> Option<(String, RecordFieldFact)> {
+    let (name_part, rest) = trimmed.split_once(':')?;
+    let name = name_part.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let mut tokens = rest.split_whitespace();
+    let type_text = tokens.next()?.to_owned();
+    let is_discriminator = tokens.any(|tok| tok == "discriminator");
+    Some((
+        name.to_owned(),
+        RecordFieldFact {
+            type_text,
+            is_discriminator,
+        },
+    ))
+}
+
+fn insert_query_symbol(
+    rest: &str,
+    kind: ir::ToolKind,
+    file: &DoctorFile,
+    line_number: usize,
+    raw_header: &str,
+    body: &[&str],
+    symbols: &mut FeatureSymbols,
+) {
+    let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+    if name.is_empty() {
+        return;
+    }
+    let policy = scan_block_for_policy(body, leading_spaces(raw_header));
+    symbols.queries.insert(
+        name,
+        QuerySymbolFact {
+            base: SymbolFact {
+                path: file.path.clone(),
+                line: line_number,
+            },
+            policy,
+            kind,
+        },
+    );
+}
+
+fn scan_block_for_policy(body: &[&str], parent_indent: usize) -> Option<String> {
+    for line in body {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) <= parent_indent {
+            break;
+        }
+        if let Some(rest) = trimmed.strip_prefix("policy ") {
+            return Some(rest.trim().to_owned());
+        }
+    }
+    None
+}
+
+// -----------------------------------------------------------------------------
+// Diagnostic id: tool_registry_effect_required_diagnostics
+// -----------------------------------------------------------------------------
+
+fn registry_tool_effect_diagnostics(
+    defects: &[RegistryToolDefect],
+) -> Vec<DoctorDiagnostic> {
+    defects
+        .iter()
+        .map(|defect| DoctorDiagnostic {
+            path: defect.path.clone(),
+            line: defect.line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "tool_registry_effect_required_diagnostics".to_owned(),
+            message: match defect.reason {
+                RegistryToolDefectReason::EffectMissing => format!(
+                    "registry tool `{}` is missing `effect: read | write`; doctor cannot derive the tool's effect from the registry without it.",
+                    defect.name
+                ),
+                RegistryToolDefectReason::EffectInvalid => format!(
+                    "registry tool `{}` declares an unknown `effect`; valid values are `read` and `write`.",
+                    defect.name
+                ),
+            },
+        })
+        .collect()
+}
+
+// -----------------------------------------------------------------------------
+// Diagnostic ids: agent_tool_policy / write_unguarded / pii_unsafetied
+// -----------------------------------------------------------------------------
+
+fn agent_tool_diagnostics(
+    agents: &[AgentFacts],
+    feature_symbols: &BTreeMap<String, FeatureSymbols>,
+    registry: Option<&DoctorAppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let registry_tools: BTreeMap<String, &lazuli_ir::RegistryToolEntry> = registry
+        .map(|r| {
+            r.manifest
+                .tools
+                .iter()
+                .map(|t| (t.name.clone(), t))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for fact in agents {
+        let agent = &fact.agent;
+        let agent_safety_empty = agent.safety.is_empty();
+        let mut has_write_tool = false;
+        let mut has_pii_tool = false;
+        let agent_policy_text = format_agent_policy(agent);
+
+        for binding in &agent.tools {
+            let (tool_label, resolved) = resolve_tool(
+                fact,
+                &binding.reference,
+                feature_symbols,
+                &registry_tools,
+            );
+
+            if resolved.effect == ResolvedToolEffect::Write {
+                has_write_tool = true;
+            }
+            if !resolved.pii_classes.is_empty() {
+                has_pii_tool = true;
+            }
+
+            // agent_tool_policy_diagnostics: when the tool's policy is
+            // known and stricter than the agent's, emit. Cut A keeps the
+            // comparison conservative: we report a gap only when both
+            // sides resolve and the tool's policy is *more* restrictive
+            // by surface (atom set is a strict superset). Full lattice
+            // ranking lands when the policy lattice helper migrates here.
+            if let Some(tool_policy) = &resolved.policy {
+                if policy_atoms_more_restrictive(tool_policy, &agent_policy_text) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: fact.path.clone(),
+                        line: fact.line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "agent_tool_policy_diagnostics".to_owned(),
+                        message: format!(
+                            "agent `{}` declares policy `{}`, but tool `{}` requires `{}` — agent policy must be at least as strict as every tool.",
+                            agent.name,
+                            agent_policy_text,
+                            tool_label,
+                            tool_policy,
+                        ),
+                    });
+                }
+            }
+        }
+
+        // agent_tool_write_unguarded_diagnostics: any write tool requires
+        // a non-empty `safety` list (Cut A; Q-impl-4 deferred
+        // `idempotency by` to Cut B).
+        if has_write_tool && agent_safety_empty {
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "agent_tool_write_unguarded_diagnostics".to_owned(),
+                message: format!(
+                    "agent `{}` dispatches a `write` tool but declares no `safety @validator.<name>`; Cut A requires at least one safety validator for write-effect tools.",
+                    agent.name
+                ),
+            });
+        }
+
+        // agent_pii_unsafetied_warning: any PII-bearing tool plus an
+        // empty safety list emits a warning.
+        if has_pii_tool && agent_safety_empty {
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "agent_pii_unsafetied_warning".to_owned(),
+                message: format!(
+                    "agent `{}` invokes a tool that resolves to a `@pii.*` class but declares no `safety @validator.<name>`; consider adding a scrub validator.",
+                    agent.name
+                ),
+            });
+        }
+    }
+    diagnostics
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ResolvedToolEffect {
+    Read,
+    Write,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedTool {
+    effect: ResolvedToolEffect,
+    policy: Option<String>,
+    pii_classes: Vec<String>,
+}
+
+fn resolve_tool(
+    fact: &AgentFacts,
+    reference: &ir::QualifiedToolRef,
+    feature_symbols: &BTreeMap<String, FeatureSymbols>,
+    registry_tools: &BTreeMap<String, &lazuli_ir::RegistryToolEntry>,
+) -> (String, ResolvedTool) {
+    match reference {
+        ir::QualifiedToolRef::Adapter { dotted } => {
+            let key = dotted.join(".");
+            let label = format!("@tool.{key}");
+            let resolved = registry_tools
+                .get(&key)
+                .map(|entry| ResolvedTool {
+                    effect: match entry.effect {
+                        ir::ToolEffect::Read => ResolvedToolEffect::Read,
+                        ir::ToolEffect::Write => ResolvedToolEffect::Write,
+                    },
+                    policy: None,
+                    pii_classes: entry
+                        .pii_classes
+                        .iter()
+                        .map(|q| q.name.clone())
+                        .collect(),
+                })
+                .unwrap_or(ResolvedTool {
+                    effect: ResolvedToolEffect::Unknown,
+                    policy: None,
+                    pii_classes: Vec::new(),
+                });
+            (label, resolved)
+        }
+        ir::QualifiedToolRef::Local { kind, name }
+        | ir::QualifiedToolRef::CrossFeature { kind, name, .. } => {
+            let owning_feature = match reference {
+                ir::QualifiedToolRef::CrossFeature { feature, .. } => feature.clone(),
+                _ => fact.feature.clone(),
+            };
+            let kind_word = tool_kind_word(*kind);
+            let label = format!("{}.{}.{}", owning_feature, kind_word, name);
+            let symbols = feature_symbols.get(&owning_feature);
+            let resolved = match (*kind, symbols) {
+                (ir::ToolKind::Command, Some(syms)) => syms
+                    .commands
+                    .get(name)
+                    .map(|cmd| ResolvedTool {
+                        effect: ResolvedToolEffect::Write,
+                        policy: cmd.policy.clone(),
+                        pii_classes: Vec::new(),
+                    })
+                    .unwrap_or(ResolvedTool {
+                        effect: ResolvedToolEffect::Write,
+                        policy: None,
+                        pii_classes: Vec::new(),
+                    }),
+                (
+                    ir::ToolKind::QueryList
+                    | ir::ToolKind::QueryLookup
+                    | ir::ToolKind::QuerySql
+                    | ir::ToolKind::QueryUnspecified,
+                    Some(syms),
+                ) => syms
+                    .queries
+                    .get(name)
+                    .map(|q| ResolvedTool {
+                        effect: ResolvedToolEffect::Read,
+                        policy: q.policy.clone(),
+                        pii_classes: Vec::new(),
+                    })
+                    .unwrap_or(ResolvedTool {
+                        effect: ResolvedToolEffect::Read,
+                        policy: None,
+                        pii_classes: Vec::new(),
+                    }),
+                (ir::ToolKind::Command, None) => ResolvedTool {
+                    effect: ResolvedToolEffect::Write,
+                    policy: None,
+                    pii_classes: Vec::new(),
+                },
+                _ => ResolvedTool {
+                    effect: ResolvedToolEffect::Read,
+                    policy: None,
+                    pii_classes: Vec::new(),
+                },
+            };
+            (label, resolved)
+        }
+    }
+}
+
+fn tool_kind_word(kind: ir::ToolKind) -> &'static str {
+    match kind {
+        ir::ToolKind::QueryList => "query.list",
+        ir::ToolKind::QueryLookup => "query.lookup",
+        ir::ToolKind::QuerySql => "query.sql",
+        ir::ToolKind::QueryUnspecified => "query",
+        ir::ToolKind::Command => "command",
+        ir::ToolKind::Api => "api",
+    }
+}
+
+fn format_agent_policy(agent: &Agent) -> String {
+    match agent.policy.as_ref() {
+        Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
+        Some(ir::PolicyRef::Local(name)) => format!("@policy.{name}"),
+        Some(ir::PolicyRef::External { feature, name }) => format!("{feature}.{name}"),
+        Some(ir::PolicyRef::Unresolved(text)) => text.clone(),
+        Some(ir::PolicyRef::None) | None => "<none>".to_owned(),
+    }
+}
+
+/// Conservative `more restrictive than` check: a policy is considered
+/// stricter than the agent's when both texts parse as `@policy.<x>` and
+/// the names diverge in a documented hierarchy. For Cut A we surface a
+/// gap whenever the tool policy text is a non-empty stricter category
+/// (`delete`, `update`) and the agent's is a weaker one (`read`).
+///
+/// Plan §5.4 punts the full lattice migration to a later cut; this stub
+/// keeps the diagnostic firing for the obvious cases without false
+/// positives.
+fn policy_atoms_more_restrictive(tool_policy: &str, agent_policy: &str) -> bool {
+    let order = |text: &str| match text {
+        s if s.contains("delete") => 3,
+        s if s.contains("update") => 2,
+        s if s.contains("create") => 1,
+        s if s.contains("read") => 0,
+        _ => 0,
+    };
+    order(tool_policy) > order(agent_policy)
+}
+
+// -----------------------------------------------------------------------------
+// Diagnostic ids: agent_discriminator_target_invalid / field_invalid
+// -----------------------------------------------------------------------------
+
+fn agent_discriminator_diagnostics(
+    agents: &[AgentFacts],
+    feature_symbols: &BTreeMap<String, FeatureSymbols>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for fact in agents {
+        let agent = &fact.agent;
+        match (&agent.output_kind, agent.output_discriminator.as_ref()) {
+            (ir::AgentOutputKind::DiscriminatedEnum, Some(ir::DiscriminatorRef::Enum(qn))) => {
+                let enum_name = &qn.name;
+                let found = feature_symbols
+                    .values()
+                    .any(|symbols| symbols.enums.contains_key(enum_name));
+                if !found {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: fact.path.clone(),
+                        line: fact.line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "agent_discriminator_target_invalid_diagnostics".to_owned(),
+                        message: format!(
+                            "agent `{}` declares `output discriminator {}` but no enum named `{}` exists in any reachable feature.",
+                            agent.name, enum_name, enum_name,
+                        ),
+                    });
+                }
+            }
+            // DiscriminatedRecord lowering produces output_kind=Text +
+            // output_type=Unresolved("X") today; the expand pass (Phase 5)
+            // is what promotes to DiscriminatedRecord and resolves the
+            // discriminator field. Until then `agent_discriminator_field_invalid`
+            // has no producer in IR, but we still report when the bare
+            // `output <Record>` references an unknown record so the
+            // author gets a fast signal.
+            (ir::AgentOutputKind::Text, _) => {
+                if let Some(ir::TypeRef::Unresolved(name)) = agent.output_type.as_ref() {
+                    // Heuristic: titlecase first letter means it's an
+                    // intended record/enum reference (vs `Text`/`Integer`
+                    // which match Builtin earlier).
+                    let first = name.chars().next();
+                    if first.is_some_and(|c| c.is_ascii_uppercase()) {
+                        let found = feature_symbols.values().any(|symbols| {
+                            symbols.records.contains_key(name)
+                                || symbols.enums.contains_key(name)
+                        });
+                        if !found {
+                            diagnostics.push(DoctorDiagnostic {
+                                path: fact.path.clone(),
+                                line: fact.line,
+                                column: 1,
+                                severity: DoctorSeverity::Error,
+                                code: "agent_discriminator_target_invalid_diagnostics".to_owned(),
+                                message: format!(
+                                    "agent `{}` declares `output {}` but no enum or record named `{}` exists in any reachable feature.",
+                                    agent.name, name, name,
+                                ),
+                            });
+                            continue;
+                        }
+                        // Validate field-level discriminator marker on
+                        // records — proposal §A2 requires exactly one
+                        // field carrying the marker, and its type must
+                        // resolve to an enum.
+                        for symbols in feature_symbols.values() {
+                            if let Some(record) = symbols.records.get(name) {
+                                diagnostics.extend(check_record_discriminator(
+                                    fact,
+                                    agent,
+                                    name,
+                                    record,
+                                    feature_symbols,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    diagnostics
+}
+
+fn check_record_discriminator(
+    fact: &AgentFacts,
+    agent: &Agent,
+    record_name: &str,
+    record: &RecordFact,
+    feature_symbols: &BTreeMap<String, FeatureSymbols>,
+) -> Vec<DoctorDiagnostic> {
+    let markers: Vec<&String> = record
+        .fields
+        .iter()
+        .filter(|(_, f)| f.is_discriminator)
+        .map(|(name, _)| name)
+        .collect();
+
+    if markers.is_empty() {
+        // No discriminator: it's a legacy `output <Record>` shape, not a
+        // DiscriminatedRecord. Cut A's soft-warn for legacy output is
+        // emitted in the LSP file-local layer (Phase 4); nothing to do
+        // here.
+        return Vec::new();
+    }
+
+    let mut diagnostics = Vec::new();
+
+    if markers.len() > 1 {
+        diagnostics.push(DoctorDiagnostic {
+            path: fact.path.clone(),
+            line: fact.line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "agent_discriminator_field_invalid_diagnostics".to_owned(),
+            message: format!(
+                "agent `{}` references record `{}` with {} `discriminator` markers; at most one field per record may carry the marker.",
+                agent.name,
+                record_name,
+                markers.len(),
+            ),
+        });
+        return diagnostics;
+    }
+
+    let field_name = markers[0];
+    let field = &record.fields[field_name];
+    let enum_exists = feature_symbols
+        .values()
+        .any(|s| s.enums.contains_key(&field.type_text));
+    if !enum_exists {
+        diagnostics.push(DoctorDiagnostic {
+            path: fact.path.clone(),
+            line: fact.line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "agent_discriminator_field_invalid_diagnostics".to_owned(),
+            message: format!(
+                "agent `{}` references record `{}` whose discriminator field `{}` has type `{}`, but no enum by that name exists; the marked field must resolve to an enum.",
+                agent.name, record_name, field_name, field.type_text,
+            ),
+        });
+    }
+
+    diagnostics
+}
+
+// -----------------------------------------------------------------------------
+// Diagnostic ids: eval_ordered_op_invalid / eval_nondeterministic_warning
+// -----------------------------------------------------------------------------
+
+fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for fact in agents {
+        let agent = &fact.agent;
+
+        if !agent.evals.is_empty()
+            && (agent.temperature != Some(0.0) || agent.seed.is_none())
+        {
+            let reason = if agent.temperature != Some(0.0) {
+                "missing `temperature 0`"
+            } else {
+                "missing `seed <int>`"
+            };
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "eval_nondeterministic_warning".to_owned(),
+                message: format!(
+                    "agent `{}` declares `evals` but the agent is non-deterministic ({}); cases run as informational results until both `temperature 0` and `seed <int>` are pinned.",
+                    agent.name, reason,
+                ),
+            });
+        }
+
+        for case in &agent.evals {
+            for assertion in &case.assertions {
+                if let ir::EvalPredicate::Closed(ir::Predicate::Comparison {
+                    left,
+                    op,
+                    right,
+                }) = &assertion.predicate
+                {
+                    if matches!(
+                        op,
+                        ir::CompareOp::Lt | ir::CompareOp::Le | ir::CompareOp::Gt | ir::CompareOp::Ge
+                    ) && !operand_resolves_numeric(left)
+                        && !operand_resolves_numeric(right)
+                    {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: fact.path.clone(),
+                            line: fact.line,
+                            column: 1,
+                            severity: DoctorSeverity::Error,
+                            code: "eval_ordered_op_invalid_diagnostics".to_owned(),
+                            message: format!(
+                                "agent `{}` eval case `{}` uses an ordered operator but neither operand resolves to a numeric type; ordered comparisons require numeric refs (`<ref>.length`, `<ref>.count`, integer fields).",
+                                agent.name, case.name,
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Best-effort numeric-operand check. The closed-predicate IR doesn't
+/// carry resolved types yet, so we accept the canonical numeric paths
+/// (`<x>.length`, `<x>.count`) and integer literals. Everything else is
+/// rejected as non-numeric — authors who hit a false positive can split
+/// the case until type resolution arrives.
+fn operand_resolves_numeric(expr: &ir::Expr) -> bool {
+    match expr {
+        ir::Expr::Integer(_) => true,
+        ir::Expr::Path(path) => {
+            let last = path.segments.last().map(String::as_str);
+            matches!(last, Some("length") | Some("count") | Some("size"))
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2675,6 +3582,9 @@ mod tests {
         let mut commands = BTreeMap::new();
         let mut experiences = BTreeMap::new();
         let mut operational = OperationalFacts::default();
+        let mut agents: Vec<AgentFacts> = Vec::new();
+        let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
+        let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
 
         for (path, source) in sources {
             let mut file = DoctorFile {
@@ -2705,12 +3615,24 @@ mod tests {
                         manifest,
                     });
                 }
-                if let Some(manifest) = parse_app_registry(&file.source) {
+                let RegistryParseOutput {
+                    registry: parsed_registry,
+                    tool_defects,
+                } = parse_app_registry_with_defects(&file.source);
+                if let Some(manifest) = parsed_registry {
                     registry = Some(DoctorAppRegistry {
                         path: file.path.clone(),
                         manifest,
                     });
                 }
+                registry_tool_defects.extend(tool_defects.into_iter().map(|defect| {
+                    RegistryToolDefect {
+                        path: file.path.clone(),
+                        line: defect.line,
+                        name: defect.name,
+                        reason: defect.reason,
+                    }
+                }));
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
                     DoctorAppProfile {
                         path: file.path.clone(),
@@ -2718,6 +3640,30 @@ mod tests {
                     }
                 }));
                 collect_canonical_facts(&file, &mut commands, &mut operational);
+
+                // Cut A — typed agent + feature-symbol collection.
+                if let Ok(features) = parse_feature_skeletons(&file.source) {
+                    for skeleton in &features {
+                        if let Ok(feature) = lower_feature_skeleton(skeleton) {
+                            let header_line =
+                                line_col_for_offset(&file.source, skeleton.span.start).0;
+                            for agent in feature.agents {
+                                let agent_line = agent
+                                    .span_ref
+                                    .as_ref()
+                                    .map(|s| line_col_for_offset(&file.source, s.start).0)
+                                    .unwrap_or(header_line);
+                                agents.push(AgentFacts {
+                                    feature: feature.name.clone(),
+                                    agent,
+                                    path: file.path.clone(),
+                                    line: agent_line,
+                                });
+                            }
+                        }
+                    }
+                }
+                collect_feature_symbols(&file, &mut feature_symbols);
             } else {
                 let document = lazuli_syntax::parse_lzx_document(&file.source).unwrap();
                 collect_lzx_experience_facts(&document, &mut experiences);
@@ -2738,6 +3684,9 @@ mod tests {
             commands,
             experiences,
             operational,
+            agents,
+            feature_symbols,
+            registry_tool_defects,
         }
     }
 
@@ -3864,5 +4813,259 @@ contract acme.ai.v1
         assert!(codes.contains("CONTRACT-OP-003"));
         assert!(codes.contains("CONTRACT-OP-004"));
         assert!(codes.contains("WS-CONTRACT-001"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Cut A — cross-feature diagnostics (§5.3 snapshot pattern)
+    // -------------------------------------------------------------------------
+
+    fn codes(diagnostics: &[DoctorDiagnostic]) -> BTreeSet<&str> {
+        diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn doctor_rejects_tool_with_stricter_policy_than_agent() {
+        // Agent declares `policy @policy.read` but invokes a `command`
+        // whose policy is `@policy.delete` — the conservative lattice
+        // ordering flags this as `agent_tool_policy_diagnostics`.
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command archive
+    policy @policy.delete
+    deletes Customer
+
+  agent triage
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    safety @validator.pii_scrub
+    tools
+      command.archive
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("agent_tool_policy_diagnostics"),
+            "expected agent_tool_policy_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_write_tool_without_safety() {
+        // Same write-tool fan-in but with no `safety` declared — Cut A
+        // requires safety as the write-tool guard (Q-impl-4 deferred
+        // `idempotency by` to Cut B).
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command archive
+    policy @policy.delete
+    deletes Customer
+
+  agent triage
+    policy @policy.delete
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      command.archive
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("agent_tool_write_unguarded_diagnostics"),
+            "expected agent_tool_write_unguarded_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_warns_pii_tool_without_safety() {
+        // Registry declares `@tool.web_search` with `pii_classes contact`
+        // and the agent invokes it with no safety — emit
+        // `agent_pii_unsafetied_warning`.
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+registry
+  tools
+    tool web_search
+      effect read
+      pii_classes contact
+      adapter @adapter.serp
+
+feature customer
+  agent triage
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      @tool.web_search
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("agent_pii_unsafetied_warning"),
+            "expected agent_pii_unsafetied_warning; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_unknown_discriminator_target() {
+        // No `enum Intent` is declared anywhere — emit
+        // `agent_discriminator_target_invalid_diagnostics`.
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer_support
+  agent classify_intent
+    policy @policy.read
+    output discriminator Intent
+    model @llm.classifier
+    temperature 0
+    seed 42
+    prompt "./p.md"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("agent_discriminator_target_invalid_diagnostics"),
+            "expected agent_discriminator_target_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_warns_evals_without_determinism_pin() {
+        // Agent has evals but no `temperature 0` and no `seed` — emit
+        // `eval_nondeterministic_warning`.
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  agent flaky
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0.7
+    prompt "./p.md"
+    evals
+      case smoke
+        requires output contains "ok"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("eval_nondeterministic_warning"),
+            "expected eval_nondeterministic_warning; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_registry_tool_missing_effect() {
+        // `tool_registry_effect_required_diagnostics` is the only id
+        // that fires off the registry-side IR. The parser collects a
+        // defect for every `tool <name>` whose block omits `effect`.
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+registry
+  tools
+    tool calendar_create_event
+      adapter @adapter.google_calendar
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("tool_registry_effect_required_diagnostics"),
+            "expected tool_registry_effect_required_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_eval_ordered_op_on_non_numeric_operands() {
+        // `requires customer.email < "x"` is an ordered op on text —
+        // emit `eval_ordered_op_invalid_diagnostics`.
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  agent bounded
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case bad
+        requires customer.email < "z@example.com"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("eval_ordered_op_invalid_diagnostics"),
+            "expected eval_ordered_op_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_well_formed_agent() {
+        // Sanity gate: an agent that pins determinism, supplies safety,
+        // and uses local read tools whose targets exist emits none of
+        // the Cut A error codes.
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    query.lookup by_id by id: ID
+      policy @policy.read
+
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    safety @validator.pii_email_scrub
+    tools
+      query.lookup.by_id
+    evals
+      case mentions_status
+        requires output contains "active"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let cut_a_errors = [
+            "agent_tool_policy_diagnostics",
+            "agent_tool_write_unguarded_diagnostics",
+            "agent_discriminator_target_invalid_diagnostics",
+            "agent_discriminator_field_invalid_diagnostics",
+            "eval_ordered_op_invalid_diagnostics",
+            "tool_registry_effect_required_diagnostics",
+        ];
+        let surfaced = codes(&diagnostics);
+        for code in cut_a_errors {
+            assert!(
+                !surfaced.contains(code),
+                "well-formed agent should not emit {code}; got {:?}",
+                diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+            );
+        }
     }
 }
