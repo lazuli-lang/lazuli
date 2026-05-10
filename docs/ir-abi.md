@@ -164,8 +164,9 @@ never enter IR.
 `AppIntegration` entries preserve the provider-neutral registry: integration
 name, capability kind, adapter reference, allowed environments, credential
 scope, and credential bindings. They intentionally exclude provider operation
-schemas, SDK-specific methods, concrete base URLs, and infrastructure secret
-store details. Those belong to Drusa packs and adapter configuration.
+schemas, provider client/SDK-specific methods, concrete base URLs, and
+infrastructure secret store details. Those belong to Drusa packs and adapter
+configuration.
 
 `FeatureRequirement` entries preserve abstract feature dependencies such as
 `integration gateway: PaymentGateway`. A requirement names a local slot and a
@@ -177,6 +178,12 @@ provider.
 and points to an app/registry integration entry. Doctor verifies that every
 feature requirement has a binding and that the integration kind matches the
 required capability contract.
+
+The IR models integration intent only. Lazuli does not execute integrations.
+Drusa consumes this IR to generate/wire Go interfaces, typed HTTP/RPC transport
+clients, event publishers/consumers, webhook receivers, and adapter injection.
+Optional external SDK exports may be derived from contracts later, but SDKs are
+not the core runtime abstraction.
 
 ## Experience IR
 

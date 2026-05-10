@@ -34,7 +34,7 @@ get lost in chat history.
 | 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |
 | 8 | Adapter binding provenance | pending | Decide how registry entries reference Drusa adapters, third-party plugin adapters, and local inline adapters without becoming a provider operation schema. |
 | 9 | Workspace contract | pending | Decide the exact `workspace.lzi` shape for distributed apps spanning monorepos, multiple repos, external services, and sidecars. |
-| 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and generated SDKs represent non-Lazuli services. |
+| 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and optional external SDK exports represent non-Lazuli services. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
 | 11 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
 | 12 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
 | 13 | IR/inspect coverage audit | pending | Confirm every accepted new construct appears in inspect JSON and doctor diagnostics with stable shape. |
@@ -166,10 +166,15 @@ workspace AcmeERP
 ```
 
 The `ai` service might be Python/FastAPI, Java, Node, Rust, or another stack.
-Lazuli owns the API/event/schema contract and context propagation guarantees;
-Drusa may generate clients, mocks, gateway config, SDKs, and contract tests.
-Adapters own HTTP, gRPC/Connect, Kafka, NATS, RabbitMQ, SQS, Pub/Sub, Envoy,
-Kubernetes ingress, and other concrete transports.
+Lazuli owns the API/event/schema contract and context propagation guarantees.
+Drusa materializes that contract mostly as Go runtime wiring: typed HTTP/RPC
+clients, event publishers/consumers, webhook receivers, mocks, gateway config,
+and contract tests. Adapters own HTTP, gRPC/Connect, Kafka, NATS, RabbitMQ,
+SQS, Pub/Sub, Envoy, Kubernetes ingress, and other concrete transports.
+
+SDK exports for Python/TypeScript/etc. are optional contract-publication
+artifacts for external teams or partners. They are not the central runtime
+model for Lazuli apps.
 
 Future contract inputs may include:
 
@@ -209,8 +214,9 @@ Reason:
 - Dependency injection mechanics belong in Drusa: construction order,
   lifetimes, logger/database/client instances, test doubles, and runtime
   wiring.
-- Provider details belong in adapters/config: HTTP endpoints, SDK setup,
-  connection pools, logger sinks, database driver settings, and cloud ids.
+- Provider details belong in adapters/config: HTTP endpoints, optional provider
+  SDK setup inside Go adapters, connection pools, logger sinks, database driver
+  settings, and cloud ids.
 
 If real adapters need static checks that cannot be expressed through
 `registry.lzi`, promote the missing part as a small registry primitive before

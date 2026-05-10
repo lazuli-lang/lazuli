@@ -1750,13 +1750,21 @@ clients, policy/tenant propagation, idempotency, and contract tests. Concrete
 choices such as gRPC, Connect, Kafka, NATS, Kubernetes, Envoy, or service mesh
 providers stay in Drusa adapters.
 
+Lazuli itself does not call external systems. It declares the contract that
+Drusa turns into Go runtime wiring. The Go backend performs HTTP/RPC/broker
+publishing, broker consuming, and webhook handling through generated transport
+bindings and adapter implementations. React and Expo clients consume generated
+commands, queries, APIs, routes, and UI state; they should not call provider
+integrations such as MercadoPago, Serasa, or internal AI services directly.
+
 `integrations` is the external integration registry. It declares provider-
 neutral names, capability kinds, adapter references, allowed environments, and
 credential scope. It does not describe provider HTTP operations, raw payload
-schemas, SDK methods, sandbox URLs, or cloud secret stores. Use it to say that
-the app has `crm: CRMProvider`, `mercadopago: PaymentGateway`, or
-`serasa: CreditBureau`; feature `.lzi` files and Drusa packs declare why and
-when those integrations are called, and adapters declare how they are called.
+schemas, provider client/SDK methods, sandbox URLs, or cloud secret stores. Use
+it to say that the app has `crm: CRMProvider`, `mercadopago: PaymentGateway`,
+or `serasa: CreditBureau`; feature `.lzi` files and Drusa packs declare why
+and when those integrations are called, and Go adapters declare how they are
+called.
 Credential scopes are `platform`, `tenant`, or `actor`. Credential bindings may
 reference declared `env.NAME` values or later credential resources, but
 provider-specific storage stays outside core Lazuli.
@@ -1798,9 +1806,11 @@ app AcmeCRM
 
 Binding sources use `integrations.<name>` or `registry.integrations.<name>`.
 They reference entries from `app.lzi` or the package-level `registry.lzi`.
-Adapters implement the call mechanics. `lazuli inspect` exposes both app
-bindings and feature requirements, and `lazuli doctor` rejects missing,
-unknown, or type-mismatched integration bindings.
+Drusa uses those bindings to wire Go interfaces/clients to adapter
+implementations. Adapters implement the concrete transport mechanics.
+`lazuli inspect` exposes both app bindings and feature requirements, and
+`lazuli doctor` rejects missing, unknown, or type-mismatched integration
+bindings.
 
 `lazuli inspect app.lzi --format=json` exposes the entrypoint manifest under
 `app`; `lazuli inspect registry.lzi --format=json` exposes the package catalog

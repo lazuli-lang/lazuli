@@ -20,6 +20,13 @@ The short rule is:
 - Adapters own concrete infrastructure choices such as Redis, S3, Stripe,
   OpenTelemetry exporters, search engines, OAuth providers, and KMS.
 
+Lazuli is not an integration runtime. It says that a command/job/webhook needs
+an external contract with specific policy, PII, tenant, idempotency, timeout,
+and event guarantees. Drusa turns that contract into Go backend wiring. The Go
+backend performs real HTTP/RPC/broker/webhook work through adapters. React and
+Expo clients stay behind generated app APIs and should not call provider
+integrations directly.
+
 Do not promote every useful product feature into language syntax. Lazuli should
 stay small enough to read and strict enough to prove dangerous behavior. The
 Drusa framework can be broad because its packs are authored on top of the
@@ -41,8 +48,8 @@ own:
   -> Lazuli check/doctor/expand
   -> Capsule IR
   -> Drusa packs/codegen/runtime
-  -> Go + React + Expo + jobs + webhooks
-  -> adapters: Redis/S3/Stripe/KMS/OAuth/OTel/search/etc.
+  -> Go backend + React web + Expo mobile + jobs + webhooks
+  -> Go adapters/transports: HTTP/RPC/brokers/storage/auth/OTel/search/etc.
 ```
 
 This keeps one semantic source of truth. Drusa packs may add templates,
@@ -140,6 +147,12 @@ facts are checkable and affect generated APIs. Drusa owns whether the graph runs
 as a monolith, modular monolith, or split services. Concrete transports and
 infra such as gRPC, Connect, Kafka, NATS, SQS, Kubernetes, Envoy, and service
 mesh settings are adapters.
+
+For non-Lazuli services, such as a Python AI service, Lazuli should import or
+author the contract. Drusa should generate/wire typed Go transport bindings and
+contract tests. The external service implements HTTP/RPC/broker semantics in
+its own stack. Optional SDK exports for other languages are publication
+artifacts, not the core Drusa runtime path.
 
 ## Drusa Capability Packs
 

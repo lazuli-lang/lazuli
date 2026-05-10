@@ -25,8 +25,8 @@ source that only fails later.
   config inside the manifest.
 - Registry `integrations` declare provider-neutral external integration registry
   entries: name, capability kind, adapter reference, environments, and
-  credential scope. They do not declare provider HTTP operations, SDK methods,
-  or cloud secret storage.
+  credential scope. They do not declare provider HTTP operations, provider
+  client/SDK methods, or cloud secret storage.
 - Feature `requires integration <slot>: <CapabilityType>` declares dependency
   inversion at the feature boundary. It names an abstract slot the feature can
   call later; it must not import or select a concrete provider directly.
@@ -34,6 +34,10 @@ source that only fails later.
   registry entries with `<feature>.<slot> = integrations.<name>` or
   `<feature>.<slot> = registry.integrations.<name>`. The integration kind must
   match the required capability type.
+- Lazuli integration constructs are contracts only. Drusa materializes them as
+  Go runtime wiring, and Go adapters perform real HTTP/RPC/event/webhook work.
+  React and Expo clients should consume generated app APIs, not provider
+  integrations directly.
 - App `services` declare logical ownership boundaries. They do not by
   themselves require separate processes; Drusa decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.

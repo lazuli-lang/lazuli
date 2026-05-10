@@ -65,7 +65,9 @@ The active implementation queue and open registry/import decisions live in
 - Lazuli workspaces are polyglot contract graphs. A service may be implemented
   in Python, Java, Node, Rust, Go, or another stack as long as it exposes a
   contract Lazuli can inspect through `contract.lzi`, OpenAPI, AsyncAPI,
-  Proto/Buf, JSON Schema, Avro, or a generated contract artifact.
+  Proto/Buf, JSON Schema, Avro, or a generated contract artifact. Lazuli does
+  not execute those integrations; Drusa wires generated Go transport bindings
+  and adapters do the actual HTTP/RPC/broker/webhook work.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
 - Observability-only events use `event.trace <name>` rather than an `observability_only` modifier.
@@ -179,7 +181,8 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   operational repo/deploy/tooling glue.
 - [ ] Decide external contract import/export shape for non-Lazuli services
   using `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, Avro, and
-  generated SDK/contract-test artifacts.
+  optional SDK/contract-test artifacts. SDK export is secondary; the core
+  runtime path is typed Go bindings for HTTP/RPC/events.
 - [ ] Decide whether distributed ingress should use `gateway`, `proxy`, or both
   after service boundaries, profiles, and app bindings stabilize.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
