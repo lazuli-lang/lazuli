@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lazuli
+      POSTGRES_PASSWORD: lazuli
+      POSTGRES_DB: lazuli
+    ports:
+      - "5432:5432"
+    volumes:
+      - lazuli_pg:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lazuli -d lazuli"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  lazuli_pg:

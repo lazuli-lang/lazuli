@@ -6,6 +6,14 @@
 **/*.rs.bk
 /CLAUDE.md
 
+# Go build artifacts inside the spike `dist/` and `runtime/`. The Go source
+# files are versioned; binaries and test caches are not.
+**/*.exe
+/dist/go/dist/
+/runtime/go/dist/
+/dist/go/vendor/
+/runtime/go/vendor/
+
 # Orion runtime state (per orion-next architecture: pipelines/ and boards/
 # are declarative code; runs/ and worktrees/ are runtime).
 .orion/runs/
