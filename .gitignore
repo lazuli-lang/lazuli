@@ -4,3 +4,4 @@
 /editors/vscode/node_modules/
 *.vsix
 **/*.rs.bk
+/CLAUDE.md
