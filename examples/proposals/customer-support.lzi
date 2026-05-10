@@ -1,0 +1,112 @@
+# Proposal-only fixture for Cut A of `docs/proposals/ai-primitives-v0.md`.
+#
+# Demonstrates `tools`, discriminated `output`, and `evals` (case/requires/forbids).
+# Cut B primitives (flow, budget tokens, knowledge, quota cost) are NOT shown
+# here — they live in the proposal text as sketches and require pilot
+# evidence before promotion.
+#
+# Not part of the canonical fixture set. Do not regenerate `examples/full-capsule`
+# from this file. LSP/doctor do not yet enforce these constructs.
+
+feature customer_support
+  purpose "AI-assisted triage and summarization of customer tickets."
+  uses customer
+
+  defaults
+    tenancy org
+    timestamps created_at, updated_at
+    policy_for jobs, webhooks: @actor.system
+
+  policies
+    read: @role.support, @role.admin, @scope.same_org
+    write: @role.support_lead, @role.admin, @scope.same_org
+
+  enum Intent
+    urgent
+    refund_request
+    question
+    other
+
+  agent classify_intent
+    input
+      message: Text required
+    policy @policy.read
+    output discriminator Intent
+    model @llm.classifier
+    temperature 0
+    seed 42
+    prompt "./prompts/classify_intent.md"
+    rate_limit "60 per minute per user"
+    evals
+      case urgent_for_outage
+        requires input.message contains "outage"
+        requires output = urgent
+      case refund_for_chargeback
+        requires input.message contains "chargeback"
+        requires output = refund_request
+      case question_for_how_do_i
+        requires input.message contains "how do i"
+        requires output = question
+
+  agent summarize_customer
+    input
+      customer_id: Customer.ID required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    max_tokens 1024
+    top_p 0.9
+    prompt "./prompts/summarize_customer.md"
+    safety @validator.pii_scrub
+    rate_limit "20 per hour per user"
+    tools
+      customer.query.by_id
+      customer.query.recent_events
+    evals
+      case short_for_active
+        requires customer.lifecycle_stage = active
+        requires output.length < 800
+        requires output contains "active"
+      case redacts_email
+        requires customer.email = "ada@example.com"
+        forbids output contains @semantic.Email
+      case uses_lookup_when_id_known
+        requires input.customer_id = "cus_123"
+        requires tools.calls includes customer.query.by_id
+
+  agent draft_reply
+    input
+      customer_id: Customer.ID required
+      intent: Intent required
+      summary: Text required
+    policy @policy.write
+    output stream Text
+    model @llm.default
+    temperature 0.4
+    max_tokens 800
+    prompt "./prompts/draft_reply.md"
+    safety @validator.pii_scrub
+    rate_limit "10 per hour per user"
+    tools
+      customer.query.by_id
+      @tool.web_search
+
+  api ticket_inbound
+    method POST
+    path "/api/tickets"
+    input
+      message: Text required
+      customer_id: Customer.ID required
+    output stream Text
+    policy @policy.read
+    rate_limit "60 per hour per user"
+    handler "./api/dispatch_ticket.go"
+
+  extensions
+    validator pii_scrub: Validator[Text]
+      at "./extensions/pii_scrub.go"
+
+    client classifier: LLM
+      at "@runtime/anthropic"
