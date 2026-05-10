@@ -32,6 +32,8 @@ on top of Cut A's `Agent` IR.
 | **A.6** | tool result schema in registry | language | A | first pilot referencing `tools.<x>.<field>` | [proposal](./ai-primitives-cut-a-6.md) |
 | **A.8** | `agent_run` built-in trace event | language-light + runtime + adapter | A | runtime team ready to instrument | [proposal](./ai-primitives-cut-a-8.md) |
 | **B** | flow + budget tokens + knowledge + quota cost | language-light + pack | A | ≥1 pilot with multi-step flow + each sub-cut has own gate | [Cut B section in A](./ai-primitives-v0.md) |
+| **D** | multi-slot `context` block (Tier 2) | language | A | pilot writes `@fn.*`/`query.sql` joining contexts for one agent | [proposal](./ai-primitives-cut-d.md) |
+| **E** | `calls agent.<name>(args)` in jobs/commands (Tier 2) | language | A | pilot writes job handler dispatching an agent | [proposal](./ai-primitives-cut-e.md) |
 
 ## Sequence rationale
 
@@ -281,7 +283,24 @@ The architect grades each cut individually before it lands. The
   you which cuts you need to actively coordinate (A.8) vs which
   you consume passively (A, A.5, A.6, A.7).
 
+## Tier 2 — pilot-gated
+
+Cuts D and E close the audit's Tier 2 candidates. Both are
+designed (proposals approved-in-principle by the architect via the
+audit endorsement) but require pilot evidence before landing.
+Neither blocks the Cut A series.
+
+| Cut | When to ship |
+|---|---|
+| D | A pilot writes a join-shaped `@fn.*` or `query.sql` whose only job is to compose multiple resource contexts for one agent. |
+| E | A pilot writes a `job` whose `handler` delegates to a Lazuli agent. |
+
+Each lands independently when its gate fires. They are not
+ordered relative to each other.
+
 ## Changelog
 
 - 2026-05-10 — Initial sequence document. Cuts A, A.5, A.6, A.7,
   A.8 proposed; Cut B deferred per architect.
+- 2026-05-10 — Cuts D (multi-slot `context`) and E (async agent
+  via `calls`) added as Tier 2 pilot-gated proposals.
