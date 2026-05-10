@@ -20,6 +20,9 @@ get lost in chat history.
   owns the registry contract and typed bindings; it should not grow a
   `container.lzi` until real plugin/runtime pressure proves that `registry.lzi`
   cannot express the contract.
+- `workspace.lzi` is the optional distributed-system contract for multi-app,
+  polyrepo, external-service, and gateway graphs. It is not required for normal
+  apps and does not replace per-app `app.lzi`.
 
 ## Next Implementation Cuts
 
@@ -33,11 +36,11 @@ get lost in chat history.
 | 6 | Profiles | done | `profile <environment>` now models URL, binding, integration environment/adapter, and provider-neutral deploy topology overrides with inspect and doctor coverage. |
 | 7 | Pack registry | done | `registry.lzi` catalogs packs and app `packs` enables them; doctor lets enabled packs satisfy `uses` and requires bindings for pack integration slots. |
 | 8 | Adapter binding provenance | done | Adapter sources now derive `drusa`, `plugin`, or `local` provenance from `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or local paths; doctor rejects unknown source shapes. |
-| 9 | Workspace contract | pending | Decide the exact `workspace.lzi` shape for distributed apps spanning monorepos, multiple repos, external services, and sidecars. |
+| 9 | Workspace contract | done | `workspace.lzi` now models local/external apps, shared registry, event boundaries, communication propagation, and provider-neutral gateways with IR/inspect/doctor/LSP coverage. |
 | 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and optional external SDK exports represent non-Lazuli services. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
 | 11 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
-| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile/pack syntax and adapter package refs; re-audit again after workspace/contract syntax lands. |
-| 13 | IR/inspect coverage audit | partial | App, registry, packs, requirements, bindings, external calls, and profiles appear in inspect/doctor. Workspace/contract imports still need stable inspect shape. |
+| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile/pack/workspace syntax and adapter package refs; re-audit again after external contract import syntax lands. |
+| 13 | IR/inspect coverage audit | partial | App, registry, packs, requirements, bindings, external calls, profiles, and workspace appear in inspect/doctor. External contract imports still need stable inspect shape. |
 | 14 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
 
 ## Registry Decision Pressure
@@ -114,7 +117,8 @@ while still leaving room for a deterministic future escape hatch.
 
 ## Workspace Decision Pressure
 
-`workspace.lzi` is deferred until there is real multi-app pressure.
+`workspace.lzi` is the optional semantic coordination artifact for real
+multi-app pressure.
 
 Intended split:
 
@@ -125,9 +129,7 @@ Intended split:
   provider ids, CI wiring, deploy providers, local ports, adapter provider
   choices, and other concrete mechanics.
 
-Do not implement `workspace.lzi` before app/registry/profile contracts settle.
-When it lands, it should model distributed contract shape, not repository
-automation.
+It models distributed contract shape, not repository automation.
 
 Expected ownership model:
 
@@ -163,6 +165,22 @@ workspace AcmeERP
   apps
     crm at "./apps/crm/app.lzi"
     ai external contract "acme.ai.v1"
+
+  shared_registry "./registry.lzi"
+
+  boundaries
+    crm publishes customer.*
+    ai consumes customer.*
+
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
 ```
 
 The `ai` service might be Python/FastAPI, Java, Node, Rust, or another stack.

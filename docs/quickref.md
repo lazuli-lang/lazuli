@@ -191,6 +191,35 @@ profile local
     topology monolith
 ```
 
+`workspace.lzi` is optional. Use it only above multi-app/polyrepo/external
+service systems:
+
+```lazuli
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+    ai external contract "acme.ai.v1"
+
+  shared_registry "./registry.lzi"
+
+  boundaries
+    crm publishes customer.*
+    ai consumes customer.*
+
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
+```
+
+Repository URLs, branches, local ports, concrete brokers, gateways/proxies, and
+deploy providers belong in Drusa/adapters, not `workspace.lzi`.
+
 Use a block when a feature needs more than one slot:
 
 ```lazuli

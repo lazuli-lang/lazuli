@@ -1,0 +1,21 @@
+workspace FullCapsule
+  apps
+    crm at "./app.lzi"
+    ai external contract "acme.ai.v1"
+
+  shared_registry "./registry.lzi"
+
+  boundaries
+    crm publishes customer.*
+    ai consumes customer.*
+
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
+      timeout "5s"

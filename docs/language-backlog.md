@@ -60,10 +60,12 @@ The active implementation queue and open registry/import decisions live in
 - No `container.lzi` exists in v0. Lazuli handles dependency inversion through
   abstract requirements plus registry/app bindings; Drusa handles dependency
   injection mechanics and runtime construction.
-- `workspace.lzi` is reserved for semantic distributed-system contracts.
-  `drusa.toml`, not `drusa-workspace.toml`, is the preferred operational Drusa
-  config name for repo loading, local ports, deploy providers, adapter choices,
-  CI wiring, and other concrete mechanics.
+- `workspace.lzi` is canonical v0 for semantic distributed-system contracts:
+  local apps, external service contracts, shared registries, event boundaries,
+  communication propagation, and provider-neutral gateways. `drusa.toml`, not
+  `drusa-workspace.toml`, is the preferred operational Drusa config name for
+  repo loading, local ports, deploy providers, adapter choices, CI wiring, and
+  other concrete mechanics.
 - Lazuli workspaces are polyglot contract graphs. A service may be implemented
   in Python, Java, Node, Rust, Go, or another stack as long as it exposes a
   contract Lazuli can inspect through `contract.lzi`, OpenAPI, AsyncAPI,

@@ -114,6 +114,7 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 | Capability | Language artifact | Status |
 |------------|-------------------|--------|
 | App/runtime manifest | `app.lzi` with targets, locale/timezone, fallback routes, used features, environments, URLs, runtime units, and deploy gates | implemented as app operational contract in IR/inspect/doctor |
+| Workspace contract | optional `workspace.lzi` with local/external apps, shared registry, event boundaries, context propagation, and provider-neutral gateways | implemented as distributed-system contract; Drusa/adapters own repo loading, brokers, proxy/runtime mechanics |
 | Environment profiles | `profile <environment>` with URL, binding, integration environment/adapter, and deploy topology overrides | implemented as environment override contract; provider mechanics stay in Drusa/adapters |
 | Service boundaries | `app.lzi` `architecture`, `services`, and `communication` with logical ownership, exposures, published/consumed events, and context propagation | implemented as microservice-ready contract; Drusa may materialize as monolith, modular monolith, or split services |
 | Type-safe app routes | top-level `.lzx route <name>` with canonical `path`, `params`, `to`, `surface`, and `audience`; legacy `stack` remains compatibility syntax | implemented as route-builder contract |

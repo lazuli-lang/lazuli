@@ -303,6 +303,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(app_operational_contract_diagnostics(source));
         diagnostics.extend(registry_contract_diagnostics(source));
         diagnostics.extend(profile_contract_diagnostics(source));
+        diagnostics.extend(workspace_contract_diagnostics(source));
         diagnostics.extend(feature_requirements_contract_diagnostics(source));
         diagnostics.extend(external_call_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
@@ -407,6 +408,7 @@ fn is_canonical_source(source: &str) -> bool {
     }) || has_canonical_app_block(source)
         || has_canonical_registry_block(source)
         || has_canonical_profile_block(source)
+        || has_canonical_workspace_block(source)
 }
 
 fn has_canonical_app_block(source: &str) -> bool {
@@ -440,6 +442,12 @@ fn has_canonical_profile_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("profile "))
+}
+
+fn has_canonical_workspace_block(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("workspace "))
 }
 
 fn is_lzx_source(source: &str) -> bool {
@@ -4820,6 +4828,291 @@ impl AppIntegrationFacts {
     }
 }
 
+fn workspace_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_workspace = false;
+    let mut current_child: Option<&'static str> = None;
+    let mut in_gateway = false;
+    let mut in_gateway_route = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            in_workspace = trimmed.starts_with("workspace ");
+            current_child = None;
+            in_gateway = false;
+            in_gateway_route = false;
+            if in_workspace {
+                let parts: Vec<_> = trimmed.split_whitespace().collect();
+                if parts.len() != 2 || !is_type_name(parts[1]) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "workspace-contract",
+                        "workspace contracts use `workspace <Name>` as the distributed-system header.",
+                    ));
+                }
+            }
+            continue;
+        }
+
+        if !in_workspace {
+            continue;
+        }
+
+        match leading {
+            2 => {
+                in_gateway = false;
+                in_gateway_route = false;
+                if let Some(rest) = trimmed.strip_prefix("shared_registry ") {
+                    current_child = None;
+                    if !is_quoted_lzx_literal(rest.trim()) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "workspace-registry-contract",
+                            "shared registries use `shared_registry \"./registry.lzi\"`.",
+                        ));
+                    }
+                } else if let Some(name) = trimmed.strip_prefix("gateway ") {
+                    current_child = Some("gateway");
+                    in_gateway = true;
+                    if !is_identifier(name.trim()) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "workspace-gateway-contract",
+                            "workspace gateways use `gateway <name>`.",
+                        ));
+                    }
+                } else {
+                    current_child = match trimmed {
+                        "apps" => Some("apps"),
+                        "boundaries" => Some("boundaries"),
+                        "communication" => Some("communication"),
+                        _ => {
+                            diagnostics.push(simple_canonical_diagnostic(
+                                line_index,
+                                line,
+                                DiagnosticSeverity::WARNING,
+                                "workspace-contract",
+                                "workspace blocks use `apps`, `shared_registry`, `boundaries`, `communication`, and `gateway <name>`.",
+                            ));
+                            None
+                        }
+                    };
+                }
+            }
+            4 => match current_child {
+                Some("apps") => validate_workspace_app_line(&mut diagnostics, line_index, line),
+                Some("boundaries") => {
+                    validate_workspace_boundary_line(&mut diagnostics, line_index, line)
+                }
+                Some("communication") => {
+                    validate_workspace_communication_line(&mut diagnostics, line_index, line)
+                }
+                Some("gateway") if in_gateway => {
+                    in_gateway_route =
+                        validate_workspace_gateway_route_line(&mut diagnostics, line_index, line);
+                }
+                _ => diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "workspace-contract",
+                    "four-space workspace declarations must belong to `apps`, `boundaries`, `communication`, or a `gateway` route.",
+                )),
+            },
+            6 => {
+                if in_gateway && in_gateway_route {
+                    validate_workspace_gateway_route_child(
+                        &mut diagnostics,
+                        line_index,
+                        line,
+                        trimmed,
+                    );
+                } else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "workspace-gateway-contract",
+                        "six-space workspace declarations are only valid under a gateway route.",
+                    ));
+                }
+            }
+            _ => diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "workspace-contract",
+                "workspace declarations use two, four, or six spaces of indentation.",
+            )),
+        }
+    }
+
+    diagnostics
+}
+
+fn validate_workspace_app_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    let valid = matches!(
+        parts.as_slice(),
+        [name, "at", path] if is_identifier(name) && is_quoted_lzx_literal(path)
+    ) || matches!(
+        parts.as_slice(),
+        [name, "external", "contract", contract]
+            if is_identifier(name) && is_quoted_lzx_literal(contract)
+    );
+
+    if !valid {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-app-contract",
+            "workspace apps use `<name> at \"./app.lzi\"` or `<name> external contract \"name.version\"`.",
+        ));
+    }
+}
+
+fn validate_workspace_boundary_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if !matches!(
+        parts.as_slice(),
+        [app, direction, pattern]
+            if is_identifier(app) && matches!(*direction, "publishes" | "consumes") && !pattern.is_empty()
+    ) {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-boundary-contract",
+            "workspace boundaries use `<app> publishes <event_pattern>` or `<app> consumes <event_pattern>`.",
+        ));
+    }
+}
+
+fn validate_workspace_communication_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    let valid = matches!(
+        parts.as_slice(),
+        ["propagate", rest @ ..]
+            if !rest.is_empty()
+                && split_items(&rest.join(" ")).iter().all(|item| {
+                    matches!(
+                        item.as_str(),
+                        "actor" | "tenant" | "trace_id" | "request_id" | "locale"
+                    )
+                })
+    ) || matches!(
+        parts.as_slice(),
+        ["default", "sync", "internal", value] if matches!(*value, "rpc" | "http" | "in_process")
+    ) || matches!(
+        parts.as_slice(),
+        ["default", "async", value] if matches!(*value, "event_bus" | "in_process")
+    );
+
+    if !valid {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-communication-contract",
+            "workspace communication uses `propagate ...`, `default sync internal rpc|http|in_process`, or `default async event_bus|in_process`.",
+        ));
+    }
+}
+
+fn validate_workspace_gateway_route_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) -> bool {
+    let trimmed = line.trim_start();
+    let Some(rest) = trimmed.strip_prefix("route ") else {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-gateway-contract",
+            "workspace gateway routes use `route \"/path/*\" to app <name>`.",
+        ));
+        return false;
+    };
+    let Some((_path, tail)) = quoted_prefix(rest.trim()) else {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-gateway-contract",
+            "workspace gateway route paths must be quoted.",
+        ));
+        return false;
+    };
+    let parts: Vec<_> = tail.split_whitespace().collect();
+    let valid = matches!(parts.as_slice(), ["to", "app", target] if is_identifier(target));
+    if !valid {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-gateway-contract",
+            "workspace gateway routes currently target apps with `to app <name>`.",
+        ));
+    }
+    valid
+}
+
+fn validate_workspace_gateway_route_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    let valid = matches!(parts.as_slice(), ["auth", "propagate"])
+        || matches!(parts.as_slice(), ["tenant", "propagate"])
+        || matches!(parts.as_slice(), ["timeout", value] if is_quoted_lzx_literal(value))
+        || matches!(parts.as_slice(), ["rate_limit", value] if is_quoted_lzx_literal(value));
+
+    if !valid {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "workspace-gateway-contract",
+            "gateway route children use `auth propagate`, `tenant propagate`, `timeout \"...\"`, or `rate_limit \"...\"`.",
+        ));
+    }
+}
+
+fn quoted_prefix(value: &str) -> Option<(&str, &str)> {
+    let rest = value.strip_prefix('"')?;
+    let end = rest.find('"')?;
+    Some((&rest[..end], rest[end + 1..].trim()))
+}
+
 fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_app: Option<AppOperationalFacts> = None;
@@ -9062,6 +9355,9 @@ fn is_word_byte(byte: u8) -> bool {
 
 fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
+        "workspace" => Some(
+            "Declares an optional distributed-system contract across local apps and external services.",
+        ),
         "app" => Some("Declares the `.lzi` application entrypoint and operational contract."),
         "registry" => Some(
             "Declares the package-level catalog for env, capabilities, integrations, and packs.",
@@ -9069,6 +9365,17 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "profile" => Some(
             "Declares environment-specific app overrides such as public URLs, sandbox integrations, binding overrides, and deploy topology.",
         ),
+        "apps" => Some("Groups apps that participate in a workspace graph."),
+        "shared_registry" => {
+            Some("Declares the package registry shared by apps in a workspace contract.")
+        }
+        "boundaries" => Some("Groups workspace event publication and consumption edges."),
+        "gateway" => {
+            Some("Declares provider-neutral public ingress routes for a distributed workspace.")
+        }
+        "contract" => {
+            Some("References a versioned external service contract, not an implementation.")
+        }
         "environments" => {
             Some("Declares deployment/runtime environments such as local, staging, and production.")
         }
@@ -9270,9 +9577,15 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
 }
 
 const KEYWORDS: &[&str] = &[
+    "workspace",
     "app",
     "registry",
     "profile",
+    "apps",
+    "shared_registry",
+    "boundaries",
+    "gateway",
+    "contract",
     "env",
     "aggregate",
     "entity",
@@ -9797,6 +10110,95 @@ profile local
     }
 
     #[test]
+    fn canonical_accepts_workspace_contract() {
+        let source = r#"
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+    ai external contract "acme.ai.v1"
+  shared_registry "./registry.lzi"
+  boundaries
+    crm publishes customer.*
+    ai consumes customer.*
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
+      timeout "5s"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected workspace contract to pass LSP diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_workspace_contract() {
+        let source = r#"
+workspace 123
+  apps
+    crm "./apps/crm/app.lzi"
+  shared_registry ./registry.lzi
+  boundaries
+    crm listens customer.*
+  communication
+    default sync grpc
+  gateway 123
+    route "/api/customers/*" to app crm
+      auth inherit
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("workspace contracts use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("workspace apps use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("shared registries use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("workspace boundaries use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("workspace communication uses"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("workspace gateways use"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("gateway route children use"))
+        );
+    }
+
+    #[test]
     fn canonical_examples_satisfy_lsp_contracts() {
         let examples = [
             (
@@ -9810,6 +10212,10 @@ profile local
             (
                 "full-capsule-profiles.lzi",
                 include_str!("../../../examples/full-capsule/profiles.lzi"),
+            ),
+            (
+                "full-capsule-workspace.lzi",
+                include_str!("../../../examples/full-capsule/workspace.lzi"),
             ),
             (
                 "audit-log.lzi",

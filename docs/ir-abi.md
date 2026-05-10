@@ -1,6 +1,7 @@
 # Lazuli IR ABI
 
-The IR is the canonical machine representation of Lazuli source. `app.lzi`
+The IR is the canonical machine representation of Lazuli source. `workspace.lzi`
+lowers to an optional distributed-system `AppWorkspace`; `app.lzi`
 lowers to an optional operational `AppManifest` on `Module`, feature `.lzi`
 source lowers to domain/capability `Module` IR, and `.lzx` lowers to
 experience/surface `ExperienceModule` IR. All are derived from DSL, never
@@ -18,6 +19,7 @@ The lifecycle is:
 
 ```txt
 authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / Drusa
+authored workspace.lzi -> AppWorkspace IR -> inspect JSON / doctor / Drusa
 authored registry.lzi -> AppRegistry IR -> inspect JSON / doctor / Drusa
 authored profile.lzi -> AppProfile IR -> inspect JSON / doctor / Drusa
 authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
@@ -77,6 +79,7 @@ Backends and tooling never read IR of an incompatible major version. The compati
 | 0.3.2      | 0.3.2         | adds environment profiles to app/registry package contracts |
 | 0.3.3      | 0.3.3         | adds app pack enablement and registry pack catalog entries |
 | 0.3.4      | 0.3.4         | adds adapter provenance metadata for app, registry, and profile integrations |
+| 0.3.5      | 0.3.5         | adds optional workspace contract IR for distributed app graphs |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -146,6 +149,17 @@ Renames break the ID by design. Rename is a semantic event, not a layout detail.
 If a field's only justification is "an editor needs it later," reject the field.
 
 ## App Manifest IR
+
+`workspace.lzi` lowers into an optional `AppWorkspace` attached to `Module` and
+reused by inspect/doctor. It is present only for distributed systems that need a
+root contract across multiple Lazuli apps, external services, event edges, or
+public gateways. Normal single-app packages do not need a workspace.
+
+`AppWorkspace` preserves local app entrypoints, external service contract
+references, an optional shared registry path, event-pattern boundaries,
+communication propagation defaults, and provider-neutral gateway routes.
+Remote repo URLs, branches, deploy providers, concrete brokers, local ports,
+and proxy implementations belong in future `drusa.toml` or adapter config.
 
 `app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
 by inspect/doctor. `registry.lzi` lowers into an optional `AppRegistry`.

@@ -3,8 +3,134 @@ use lazuli_ir::{
     AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest,
     AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration,
     AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
-    FeatureRequirement,
+    AppWorkspace, FeatureRequirement, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication,
+    WorkspaceGateway, WorkspaceGatewayRoute,
 };
+
+pub fn parse_app_workspace(source: &str) -> Option<AppWorkspace> {
+    let lines: Vec<_> = source.lines().collect();
+    let start = lines.iter().position(|line| {
+        leading_spaces(line) == 0 && line.trim_start().starts_with("workspace ")
+    })?;
+    let header = lines[start].trim_start();
+    let name = header.split_whitespace().nth(1)?.to_owned();
+
+    let mut workspace = AppWorkspace {
+        name,
+        apps: Vec::new(),
+        shared_registry: None,
+        boundaries: Vec::new(),
+        communication: None,
+        gateways: Vec::new(),
+        span_ref: None,
+    };
+    let mut current_child: Option<&str> = None;
+    let mut current_gateway: Option<usize> = None;
+    let mut current_gateway_route: Option<usize> = None;
+
+    for line in lines.iter().skip(start + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            break;
+        }
+
+        match leading_spaces(line) {
+            2 => {
+                current_gateway = None;
+                current_gateway_route = None;
+                if let Some(rest) = trimmed.strip_prefix("shared_registry ") {
+                    workspace.shared_registry = Some(unquote(rest.trim()).to_owned());
+                    current_child = None;
+                } else if let Some(name) = trimmed.strip_prefix("gateway ") {
+                    if is_identifier(name.trim()) {
+                        workspace.gateways.push(WorkspaceGateway {
+                            name: name.trim().to_owned(),
+                            routes: Vec::new(),
+                        });
+                        current_gateway = workspace.gateways.len().checked_sub(1);
+                        current_child = Some("gateway");
+                    } else {
+                        current_child = None;
+                    }
+                } else {
+                    current_child = workspace_child(trimmed);
+                }
+            }
+            4 => match current_child {
+                Some("apps") => {
+                    if let Some(app) = parse_workspace_app(trimmed) {
+                        workspace.apps.push(app);
+                    }
+                }
+                Some("boundaries") => {
+                    if let Some(boundary) = parse_workspace_boundary(trimmed) {
+                        workspace.boundaries.push(boundary);
+                    }
+                }
+                Some("communication") => {
+                    let communication = workspace
+                        .communication
+                        .get_or_insert_with(WorkspaceCommunication::default);
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    match parts.as_slice() {
+                        ["propagate", rest @ ..] => {
+                            communication.propagate.extend(split_items(&rest.join(" ")));
+                        }
+                        ["default", "sync", rest @ ..] if !rest.is_empty() => {
+                            communication.sync_default = Some(rest.join(" "));
+                        }
+                        ["default", "async", rest @ ..] if !rest.is_empty() => {
+                            communication.async_default = Some(rest.join(" "));
+                        }
+                        _ => {}
+                    }
+                }
+                Some("gateway") => {
+                    let Some(gateway_index) = current_gateway else {
+                        continue;
+                    };
+                    if let Some(route) = parse_workspace_gateway_route(trimmed) {
+                        workspace.gateways[gateway_index].routes.push(route);
+                        current_gateway_route = workspace.gateways[gateway_index]
+                            .routes
+                            .len()
+                            .checked_sub(1);
+                    } else {
+                        current_gateway_route = None;
+                    }
+                }
+                _ => {}
+            },
+            6 => {
+                if current_child != Some("gateway") {
+                    continue;
+                }
+                let Some(gateway_index) = current_gateway else {
+                    continue;
+                };
+                let Some(route_index) = current_gateway_route else {
+                    continue;
+                };
+                let route = &mut workspace.gateways[gateway_index].routes[route_index];
+                if let Some(rest) = trimmed.strip_prefix("auth ") {
+                    route.auth = Some(rest.trim().to_owned());
+                } else if let Some(rest) = trimmed.strip_prefix("tenant ") {
+                    route.tenant = Some(rest.trim().to_owned());
+                } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
+                    route.timeout = Some(unquote(rest.trim()).to_owned());
+                } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+                    route.rate_limit = Some(unquote(rest.trim()).to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Some(workspace)
+}
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let lines: Vec<_> = source.lines().collect();
@@ -646,6 +772,76 @@ fn upsert_profile_integration<'a>(
     &mut profile.integrations[index]
 }
 
+fn workspace_child(trimmed: &str) -> Option<&'static str> {
+    match trimmed.split_whitespace().next()? {
+        "apps" => Some("apps"),
+        "boundaries" => Some("boundaries"),
+        "communication" => Some("communication"),
+        _ => None,
+    }
+}
+
+fn parse_workspace_app(trimmed: &str) -> Option<WorkspaceApp> {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        [name, "at", path] if is_identifier(name) => Some(WorkspaceApp {
+            name: (*name).to_owned(),
+            kind: "local".to_owned(),
+            path: Some(unquote(path).to_owned()),
+            contract: None,
+        }),
+        [name, "external", "contract", contract] if is_identifier(name) => Some(WorkspaceApp {
+            name: (*name).to_owned(),
+            kind: "external".to_owned(),
+            path: None,
+            contract: Some(unquote(contract).to_owned()),
+        }),
+        _ => None,
+    }
+}
+
+fn parse_workspace_boundary(trimmed: &str) -> Option<WorkspaceBoundary> {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        [app, direction, pattern]
+            if is_identifier(app) && matches!(*direction, "publishes" | "consumes") =>
+        {
+            Some(WorkspaceBoundary {
+                app: (*app).to_owned(),
+                direction: (*direction).to_owned(),
+                pattern: (*pattern).to_owned(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn parse_workspace_gateway_route(trimmed: &str) -> Option<WorkspaceGatewayRoute> {
+    let rest = trimmed.strip_prefix("route ")?;
+    let (path, tail) = parse_quoted_prefix(rest.trim())?;
+    let parts: Vec<_> = tail.split_whitespace().collect();
+    match parts.as_slice() {
+        ["to", target_kind, target] if is_identifier(target) => Some(WorkspaceGatewayRoute {
+            path,
+            target_kind: (*target_kind).to_owned(),
+            target: (*target).to_owned(),
+            auth: None,
+            tenant: None,
+            timeout: None,
+            rate_limit: None,
+        }),
+        _ => None,
+    }
+}
+
+fn parse_quoted_prefix(value: &str) -> Option<(String, &str)> {
+    let rest = value.strip_prefix('"')?;
+    let end = rest.find('"')?;
+    let quoted = &rest[..end];
+    let tail = rest[end + 1..].trim();
+    Some((quoted.to_owned(), tail))
+}
+
 fn app_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "uses" => Some("uses"),
@@ -953,7 +1149,7 @@ fn is_type_name(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_app_manifest, parse_app_profiles, parse_app_registry};
+    use super::{parse_app_manifest, parse_app_profiles, parse_app_registry, parse_app_workspace};
 
     #[test]
     fn parses_operational_manifest() {
@@ -1069,6 +1265,58 @@ app AcmeCRM
                 .as_ref()
                 .and_then(|deploy| deploy.rollback.as_deref()),
             Some("on_failed_healthcheck")
+        );
+    }
+
+    #[test]
+    fn parses_workspace_contract() {
+        let source = r#"
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+    ai external contract "acme.ai.v1"
+  shared_registry "./registry.lzi"
+  boundaries
+    crm publishes customer.*
+    ai consumes customer.*
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
+      timeout "5s"
+"#;
+
+        let workspace = parse_app_workspace(source).unwrap();
+
+        assert_eq!(workspace.name, "AcmeERP");
+        assert_eq!(workspace.apps[0].name, "crm");
+        assert_eq!(workspace.apps[0].kind, "local");
+        assert_eq!(
+            workspace.apps[0].path.as_deref(),
+            Some("./apps/crm/app.lzi")
+        );
+        assert_eq!(workspace.apps[1].name, "ai");
+        assert_eq!(workspace.apps[1].kind, "external");
+        assert_eq!(workspace.apps[1].contract.as_deref(), Some("acme.ai.v1"));
+        assert_eq!(workspace.shared_registry.as_deref(), Some("./registry.lzi"));
+        assert_eq!(workspace.boundaries[0].direction, "publishes");
+        assert_eq!(
+            workspace
+                .communication
+                .as_ref()
+                .and_then(|communication| communication.sync_default.as_deref()),
+            Some("internal rpc")
+        );
+        assert_eq!(workspace.gateways[0].name, "public_api");
+        assert_eq!(workspace.gateways[0].routes[0].path, "/api/customers/*");
+        assert_eq!(workspace.gateways[0].routes[0].target, "crm");
+        assert_eq!(
+            workspace.gateways[0].routes[0].auth.as_deref(),
+            Some("propagate")
         );
     }
 

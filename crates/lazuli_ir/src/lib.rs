@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.3.4";
+pub const LZIR_SCHEMA: &str = "0.3.5";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -30,12 +30,80 @@ pub struct SpanRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Module {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<AppWorkspace>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<AppManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<AppRegistry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<AppProfile>,
     pub features: Vec<Feature>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppWorkspace {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apps: Vec<WorkspaceApp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_registry: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boundaries: Vec<WorkspaceBoundary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication: Option<WorkspaceCommunication>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gateways: Vec<WorkspaceGateway>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceApp {
+    pub name: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceBoundary {
+    pub app: String,
+    pub direction: String,
+    pub pattern: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WorkspaceCommunication {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub propagate: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_default: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub async_default: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceGateway {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub routes: Vec<WorkspaceGatewayRoute>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceGatewayRoute {
+    pub path: String,
+    pub target_kind: String,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
 }
 
 /// A feature is the unit of product capability authored in one `.lzi` file.

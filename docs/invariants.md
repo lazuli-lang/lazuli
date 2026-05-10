@@ -15,6 +15,16 @@ source that only fails later.
   environments, URLs, runtime units, provider-neutral deploy gates, and logical
   service boundaries. It is not a product feature and should not hide domain
   behavior.
+- Top-level `.lzi workspace` is optional and owns distributed-system contracts:
+  local app entrypoints, external service contracts, shared registry path,
+  event publication/consumption edges, context propagation defaults, and public
+  gateway routes. It is not required for normal apps.
+- Workspace apps may be Lazuli/Drusa packages or external implementations in
+  another language. External apps must reference a contract; Lazuli validates
+  the contract graph, while Drusa/Go materializes transport bindings.
+- Workspace gateways route to app ids and should declare `auth propagate` and
+  `tenant propagate`. Gateway/proxy providers, service mesh, broker providers,
+  repo URLs, branches, ports, and deploy mechanics stay outside Lazuli.
 - Top-level `.lzi registry` owns package-level env schema, capabilities,
   integrations, adapters, packs, and global bindings. Small apps may keep
   registry-shaped blocks in `app.lzi`, but `registry.lzi` is the preferred

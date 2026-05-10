@@ -93,6 +93,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
     };
 
     Ok(ir::Module {
+        workspace: None,
         app: None,
         registry: None,
         profiles: Vec::new(),

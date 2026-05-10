@@ -1792,6 +1792,45 @@ Those remain Drusa/adapters. `lazuli inspect` exposes profiles under
 `environments`, integration overrides against app/registry integrations, and
 profile bindings against feature requirements.
 
+`workspace.lzi` is optional and exists only above one app package. It describes
+the semantic contract of a distributed system: local apps, external services,
+shared registries, event publication/consumption edges, context propagation,
+and provider-neutral public gateways. It is not a repo manager or infra file:
+remote repositories, branches, local ports, deploy providers, brokers, and
+proxy implementations belong in `drusa.toml` or adapter config.
+
+```lazuli
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+    billing at "./apps/billing/app.lzi"
+    ai external contract "acme.ai.v1"
+
+  shared_registry "./registry.lzi"
+
+  boundaries
+    crm publishes customer.*
+    billing publishes billing.*
+    ai consumes customer.*
+
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
+      timeout "5s"
+```
+
+An external app may be Python, Java, Node, Rust, or any other stack. Lazuli does
+not require the implementation to use Drusa; it requires a contract. Drusa
+materializes workspace edges primarily as Go transport bindings, event
+publishers/consumers, gateway wiring, mocks, and contract tests for the Lazuli
+apps that participate in the graph.
+
 `architecture` and `services` describe logical service boundaries, not
 mandatory process boundaries. `mode modular_monolith` lets Drusa generate one
 deployable app with enforced ownership boundaries; `mode microservices` is a

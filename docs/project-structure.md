@@ -6,6 +6,8 @@ Feature folders are the source of truth. Generated output is disposable.
 app.lzi
 registry.lzi
 profiles.lzi
+# optional, only for distributed systems
+workspace.lzi
 
 features/
   customer/
@@ -73,6 +75,7 @@ These are authored and committed:
 - `features/**/<feature>.lzi`
 - `app.lzi`
 - `registry.lzi`
+- `workspace.lzi` when the repo is a distributed-system root
 - `profiles.lzi` or `profiles/**/*.lzi`
 - `features/**/<feature>.lzx`
 - `features/**/<feature>.web.lzx`
@@ -86,6 +89,12 @@ available packs, integrations, env schema, and capabilities. A pack entry such
 as `customer_import from @drusa/customer-import` points to reusable source that
 Drusa can materialize; pack internals, provider payloads, handlers, and adapter
 mechanics remain in the pack/adapters.
+
+`workspace.lzi` is optional. Use it at a monorepo/polyrepo/system root when a
+product has multiple apps, external services, shared event contracts, or
+gateway edges. It points at app entrypoints and external contracts; repo URLs,
+branches, local ports, broker providers, proxy implementations, and deploy
+mechanics belong in `drusa.toml` or adapter config.
 
 ## Generated
 

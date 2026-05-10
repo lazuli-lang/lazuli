@@ -3,12 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use lazuli_ir::{AppManifest, AppProfile, AppRegistry};
+use lazuli_ir::{AppManifest, AppProfile, AppRegistry, AppWorkspace};
 use lazuli_lsp::SecurityProfile;
 use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
-use crate::app_manifest::{parse_app_manifest, parse_app_profiles, parse_app_registry};
+use crate::app_manifest::{
+    parse_app_manifest, parse_app_profiles, parse_app_registry, parse_app_workspace,
+};
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
     let package = DoctorPackage::load(input, security_profile)?;
@@ -32,6 +34,7 @@ pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result
 #[derive(Debug)]
 struct DoctorPackage {
     files: Vec<DoctorFile>,
+    workspace: Option<DoctorAppWorkspace>,
     app: Option<DoctorAppManifest>,
     registry: Option<DoctorAppRegistry>,
     profiles: Vec<DoctorAppProfile>,
@@ -48,6 +51,7 @@ impl DoctorPackage {
         }
 
         let mut files = Vec::new();
+        let mut workspace = None;
         let mut app = None;
         let mut registry = None;
         let mut profiles = Vec::new();
@@ -73,6 +77,24 @@ impl DoctorPackage {
             }
 
             if is_lzi_path(&file.path) {
+                if let Some(manifest) = parse_app_workspace(&file.source) {
+                    if workspace.is_none() {
+                        workspace = Some(DoctorAppWorkspace {
+                            path: file.path.clone(),
+                            manifest,
+                        });
+                    } else {
+                        file.local_diagnostics.push(DoctorDiagnostic {
+                            path: file.path.clone(),
+                            line: 1,
+                            column: 1,
+                            severity: DoctorSeverity::Error,
+                            code: "WS-001".to_owned(),
+                            message: "package should declare at most one workspace contract."
+                                .to_owned(),
+                        });
+                    }
+                }
                 if let Some(manifest) = parse_app_manifest(&file.source) {
                     if app.is_none() {
                         app = Some(DoctorAppManifest {
@@ -139,6 +161,7 @@ impl DoctorPackage {
 
         Ok(Self {
             files,
+            workspace,
             app,
             registry,
             profiles,
@@ -166,6 +189,7 @@ impl DoctorPackage {
             &self.profiles,
             &self.operational,
         ));
+        diagnostics.extend(workspace_contract_diagnostics(self.workspace.as_ref()));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -176,6 +200,12 @@ impl DoctorPackage {
         });
         diagnostics
     }
+}
+
+#[derive(Debug)]
+struct DoctorAppWorkspace {
+    path: PathBuf,
+    manifest: AppWorkspace,
 }
 
 #[derive(Debug)]
@@ -1163,6 +1193,192 @@ fn app_missing_contract_diagnostic(
         code: code.to_owned(),
         message: message.to_owned(),
     }
+}
+
+fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
+    let Some(workspace) = workspace else {
+        return Vec::new();
+    };
+
+    let mut diagnostics = Vec::new();
+    let mut app_names = BTreeSet::new();
+    let mut published = Vec::new();
+
+    for app in &workspace.manifest.apps {
+        if !app_names.insert(app.name.as_str()) {
+            diagnostics.push(DoctorDiagnostic {
+                path: workspace.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "WS-APP-001".to_owned(),
+                message: format!(
+                    "workspace declares app `{}` more than once; app ids must be unique.",
+                    app.name
+                ),
+            });
+        }
+
+        if app.kind == "local"
+            && app
+                .path
+                .as_deref()
+                .is_some_and(|path| !path.ends_with(".lzi"))
+        {
+            diagnostics.push(DoctorDiagnostic {
+                path: workspace.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "WS-APP-002".to_owned(),
+                message: format!(
+                    "workspace local app `{}` should point at an `app.lzi` entrypoint.",
+                    app.name
+                ),
+            });
+        }
+    }
+
+    for boundary in &workspace.manifest.boundaries {
+        if !app_names.contains(boundary.app.as_str()) {
+            diagnostics.push(DoctorDiagnostic {
+                path: workspace.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "WS-BOUNDARY-001".to_owned(),
+                message: format!(
+                    "workspace boundary references unknown app `{}`.",
+                    boundary.app
+                ),
+            });
+        }
+
+        if boundary.direction == "publishes" {
+            published.push(boundary.pattern.as_str());
+        }
+    }
+
+    for boundary in &workspace.manifest.boundaries {
+        if boundary.direction != "consumes" {
+            continue;
+        }
+        if !published
+            .iter()
+            .any(|published| event_pattern_covers(published, &boundary.pattern))
+        {
+            diagnostics.push(DoctorDiagnostic {
+                path: workspace.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "WS-EVENT-001".to_owned(),
+                message: format!(
+                    "workspace app `{}` consumes `{}`, but no workspace app publishes a compatible event pattern.",
+                    boundary.app, boundary.pattern
+                ),
+            });
+        }
+    }
+
+    for gateway in &workspace.manifest.gateways {
+        for route in &gateway.routes {
+            if route.target_kind != "app" {
+                diagnostics.push(DoctorDiagnostic {
+                    path: workspace.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "WS-GW-001".to_owned(),
+                    message: format!(
+                        "workspace gateway `{}` route `{}` targets `{}`; only `to app <name>` is supported in the language contract.",
+                        gateway.name, route.path, route.target_kind
+                    ),
+                });
+            } else if !app_names.contains(route.target.as_str()) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: workspace.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "WS-GW-002".to_owned(),
+                    message: format!(
+                        "workspace gateway `{}` route `{}` targets unknown app `{}`.",
+                        gateway.name, route.path, route.target
+                    ),
+                });
+            }
+
+            if route.auth.as_deref() != Some("propagate") {
+                diagnostics.push(DoctorDiagnostic {
+                    path: workspace.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "WS-GW-003".to_owned(),
+                    message: format!(
+                        "workspace gateway `{}` route `{}` should declare `auth propagate` so Drusa does not infer auth context.",
+                        gateway.name, route.path
+                    ),
+                });
+            }
+
+            if route.tenant.as_deref() != Some("propagate") {
+                diagnostics.push(DoctorDiagnostic {
+                    path: workspace.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "WS-GW-004".to_owned(),
+                    message: format!(
+                        "workspace gateway `{}` route `{}` should declare `tenant propagate` so tenant context crosses app boundaries explicitly.",
+                        gateway.name, route.path
+                    ),
+                });
+            }
+        }
+    }
+
+    if !workspace.manifest.gateways.is_empty() {
+        let propagated: BTreeSet<_> = workspace
+            .manifest
+            .communication
+            .as_ref()
+            .map(|communication| {
+                communication
+                    .propagate
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+        for required in ["tenant", "trace_id", "request_id"] {
+            if !propagated.contains(required) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: workspace.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "WS-COMM-001".to_owned(),
+                    message: format!(
+                        "workspace gateways should propagate `{required}` in the `communication` block."
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn event_pattern_covers(published: &str, consumed: &str) -> bool {
+    if published == consumed {
+        return true;
+    }
+
+    published
+        .strip_suffix('*')
+        .is_some_and(|prefix| consumed.starts_with(prefix))
 }
 
 fn app_binding_contract_diagnostics(
@@ -2240,6 +2456,7 @@ mod tests {
 
     fn package_from_sources(sources: Vec<(&str, &str)>) -> DoctorPackage {
         let mut files = Vec::new();
+        let mut workspace = None;
         let mut app = None;
         let mut registry = None;
         let mut profiles = Vec::new();
@@ -2256,6 +2473,12 @@ mod tests {
             };
 
             if path.ends_with(".lzi") {
+                if let Some(manifest) = parse_app_workspace(&file.source) {
+                    workspace = Some(DoctorAppWorkspace {
+                        path: file.path.clone(),
+                        manifest,
+                    });
+                }
                 if let Some(manifest) = parse_app_manifest(&file.source) {
                     app = Some(DoctorAppManifest {
                         path: file.path.clone(),
@@ -2287,6 +2510,7 @@ mod tests {
 
         DoctorPackage {
             files,
+            workspace,
             app,
             registry,
             profiles,
@@ -3232,5 +3456,62 @@ feature billing
                     .message
                     .contains("service `crm` exposes `billing.query.invoice_by_id`")
         }));
+    }
+
+    #[test]
+    fn doctor_validates_workspace_contract_edges() {
+        let valid = package_from_sources(vec![(
+            "workspace.lzi",
+            r#"
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+    ai external contract "acme.ai.v1"
+  boundaries
+    crm publishes customer.*
+    ai consumes customer.*
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus
+  gateway public_api
+    route "/api/customers/*" to app crm
+      auth propagate
+      tenant propagate
+"#,
+        )]);
+
+        assert!(
+            valid.diagnostics().is_empty(),
+            "expected valid workspace contract to pass doctor"
+        );
+
+        let invalid = package_from_sources(vec![(
+            "workspace.lzi",
+            r#"
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+  boundaries
+    ai consumes ai.*
+  communication
+    propagate actor
+  gateway public_api
+    route "/api/ai/*" to app ai
+"#,
+        )]);
+
+        let diagnostics = invalid.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(codes.contains("WS-BOUNDARY-001"));
+        assert!(codes.contains("WS-EVENT-001"));
+        assert!(codes.contains("WS-GW-002"));
+        assert!(codes.contains("WS-GW-003"));
+        assert!(codes.contains("WS-GW-004"));
+        assert!(codes.contains("WS-COMM-001"));
     }
 }

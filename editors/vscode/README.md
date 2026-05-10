@@ -3,7 +3,7 @@
 Adds Lazuli `.lzi` and `.lzx` language support:
 
 - Syntax highlighting for canonical feature capsules
-- Syntax highlighting for app manifests, routes, experiences, and projections
+- Syntax highlighting for workspace contracts, app manifests, routes, experiences, and projections
 - Bracket configuration
 
 ## Development
@@ -117,11 +117,11 @@ Current consistency rules:
 Highlighting groups use standard TextMate scopes so IDE themes can style them
 without Lazuli-specific colors:
 
-- Structural constructors: `app`, `registry`, `profile`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
-- App/registry contract sections: `env`, `capabilities`, `integrations`, `packs`, `bindings`, `profiles`, `runtime`, `deploy`, `services`, and `communication`.
+- Structural constructors: `workspace`, `app`, `registry`, `profile`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
+- Workspace/app/registry contract sections: `apps`, `shared_registry`, `boundaries`, `gateway`, `env`, `capabilities`, `integrations`, `packs`, `bindings`, `profiles`, `runtime`, `deploy`, `services`, and `communication`.
 - Adapter sources are highlighted as ordinary references. Canonical provenance
   is checked by the LSP/doctor: `@drusa/...`, `@plugin/publisher/name`,
   `@adapter.<local>`, or local paths.
 - Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `requires`, `targets`, `environments`, `urls`, `env`, `group`, `integrations`, `bindings`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, `deploy`.
+- Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `requires`, `apps`, `shared_registry`, `boundaries`, `gateway`, `targets`, `environments`, `urls`, `env`, `group`, `integrations`, `bindings`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, `deploy`.
 - Internal statements: `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `calls`, `emits`, `invalidates`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `sections`, `slot`, `platforms`, `previously`, `migrated`, `alias`, and app/runtime verbs such as `service`, `owns`, `exposes`, `publishes`, `consumes`, `credentials`, `propagate`, `serves`, `runs`, `healthcheck`, `migrations`, `topology`, `environment`, and `rollback`.
