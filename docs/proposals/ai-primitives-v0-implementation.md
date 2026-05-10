@@ -145,7 +145,7 @@ once it lands.
 
 pub struct Agent {
     pub name: String,
-    pub span: Span,
+    pub span_ref: Option<Span>,
     pub input: Option<Vec<TypedSlot>>,
     pub context: Option<TargetExpr>,
     pub policy: Option<PolicyAtomList>,
@@ -157,14 +157,14 @@ pub struct Agent {
     pub top_p: Option<f64>,
     pub seed: Option<i64>,
     pub prompt: String,             // path literal
-    pub safety: Option<Vec<NamespaceRef>>, // @validator.* (Cut A.5 ready: list)
+    pub safety: Vec<NamespaceRef>,         // @validator.* (Cut A.5 ready: list; today 0..1)
     pub tools: Option<Vec<AgentTool>>,
     pub evals: Option<Vec<AgentEvalCase>>,
 }
 
 pub struct AgentTool {
     pub reference: ToolRef,         // <feature>.<kind>.<name> or @tool.<name>
-    pub span: Span,
+    pub span_ref: Option<Span>,
 }
 
 pub enum AgentOutput {
@@ -176,14 +176,14 @@ pub enum AgentOutput {
 
 pub struct AgentEvalCase {
     pub name: String,
-    pub span: Span,
+    pub span_ref: Option<Span>,
     pub assertions: Vec<AgentEvalAssertion>,
 }
 
 pub struct AgentEvalAssertion {
     pub kind: AgentEvalKind,        // Requires | Forbids
     pub predicate: AgentEvalPredicate,
-    pub span: Span,
+    pub span_ref: Option<Span>,
 }
 
 pub enum AgentEvalPredicate {
@@ -203,31 +203,36 @@ pub enum ToolsCallsOp {
 }
 ```
 
-### 3.3 Parser strategy
+### 3.3 Parser strategy (decided)
 
-Two implementation choices for the indent layer:
+**Decision**: hand-written line-walker, mirroring the existing
+`parse_lzx_document` shape in `parser.rs:65`. The LZX parser already
+walks `SourceLine` arrays; the agent block follows the same pattern.
 
-**Option α — Add an indent preprocessor.** A tokenizer pass converts
-indent depth changes into virtual `INDENT`/`DEDENT` tokens, then a
-new pest grammar consumes those tokens. This matches `docs/grammar
-.lzi.md §1.2`.
+The alternative — adding a pest INDENT/DEDENT preprocessor and
+extending the pest grammar — is the right *long-term* shape for the
+canonical-indent migration, but it is a separate
+`docs/language-backlog.md:204-207` item with its own schedule. Cut A
+should not be coupled to that migration. When the preprocessor lands,
+the agent line-walker collapses into the pest grammar in a future cut.
 
-**Option β — Hand-written line-walker** (matching the existing
-`parse_lzx_document` shape in `parser.rs:65`). The LZX parser already
-walks `SourceLine` arrays; the agent block is amenable to the same
-treatment.
+### 3.4 Feature-skeleton scope (decided)
 
-**Recommendation**: Option β for Cut A's slice. It mirrors the
-existing LZX line-walker, ships in days not weeks, and the indent
-preprocessor (Option α) is a separate language-backlog item that can
-land on its own schedule. When Option α lands, the line-walker
-collapses into the pest grammar.
+**Decision**: the Phase 1 slice includes a minimum-viable feature
+skeleton — `feature <name>` header + indented body — that yields a
+`FeatureSkeleton { name, agents: Vec<Agent> }`. Other feature children
+(commands, queries, workflows, etc.) are NOT parsed by this slice and
+remain in the existing pipeline. The analyzer locates agents through
+the skeleton.
 
-### 3.4 Snapshot tests
+This bounds the slice to what Cut A actually needs without leaking
+into a full canonical-indent feature parser.
+
+### 3.5 Snapshot tests
 
 Add to `crates/lazuli_syntax/src/parser.rs` test module:
 
-- `agent_with_tools_block_parses` — Cut A fixture lines 51–53.
+- `agent_with_tools_block_parses`.
 - `agent_with_evals_parses` — full case/requires/forbids shape.
 - `agent_with_discriminator_output_parses` — `output discriminator
   Intent`.
@@ -235,22 +240,10 @@ Add to `crates/lazuli_syntax/src/parser.rs` test module:
   + record with `discriminator` marker.
 - `agent_rejects_unknown_output_kind` — `output stream` plus a
   `discriminator` keyword should error.
-- `agent_rejects_eval_without_temp_zero_seed_pair` — parser accepts;
-  lowering emits warning. (Test is at the analyzer level, not parser.)
 
-### 3.5 Open implementation questions for Phase 1
-
-- **Q-impl-1**: Single pest grammar with INDENT/DEDENT tokens, or
-  parallel canonical-indent grammar coexisting with the brace MVP?
-  Recommendation: parallel for now; merge when canonical-indent
-  covers the whole language.
-- **Q-impl-2**: Does Cut A's `agent` slice also need `feature`-level
-  parsing in canonical-indent (to host the agent), or is the slice
-  *just* the agent block and the surrounding feature stays text? If
-  the latter, how does the analyzer find the agent? Recommendation:
-  the slice includes a minimal feature-header recognizer (`feature
-  <name>` + indented body) that yields a `FeatureSkeleton` with a
-  `Vec<Agent>`; no other feature children are AST'd in this phase.
+(Eval determinism check — `temperature 0` AND `seed N` — is an
+analyzer/doctor concern, not a parser concern. Tests for it live in
+Phase 2 and Phase 3, not here.)
 
 ## 4. Phase 2 — IR Agent node + lowering
 
@@ -266,7 +259,7 @@ Add to `crates/lazuli_syntax/src/parser.rs` test module:
   pub struct Agent {
       pub name: String,
       pub feature: String,
-      pub input: Option<Vec<NamedSlot>>,
+      pub input: Vec<TypedSlot>,
       pub context: Option<TargetExpr>,
       pub policy: Option<PolicyRef>,
       pub rate_limit: Option<String>,
@@ -278,11 +271,12 @@ Add to `crates/lazuli_syntax/src/parser.rs` test module:
       pub max_tokens: Option<u32>,
       pub top_p: Option<f64>,
       pub seed: Option<i64>,
-      pub prompt_path: PathRef,
+      pub prompt_path: String,             // file path; bare String matches existing IR convention
       pub safety: Vec<QualifiedName>,     // @validator.*  (Cut A: 0 or 1; Cut A.5 ready)
       pub tools: Vec<ToolBinding>,
       pub evals: Vec<EvalCase>,
-      pub span: SpanRef,
+      #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
   }
 
   pub enum AgentOutputKind {
@@ -303,7 +297,8 @@ Add to `crates/lazuli_syntax/src/parser.rs` test module:
 
   pub struct ToolBinding {
       pub reference: QualifiedToolRef,
-      pub span: SpanRef,
+      #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
       // resolved_* fields populated by expand, not lowering:
       pub resolved_effect: Option<ToolEffect>,
       pub resolved_policy: Option<PolicyRef>,
@@ -332,13 +327,15 @@ Add to `crates/lazuli_syntax/src/parser.rs` test module:
   pub struct EvalCase {
       pub name: String,
       pub assertions: Vec<EvalAssertion>,
-      pub span: SpanRef,
+      #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
   }
 
   pub struct EvalAssertion {
       pub kind: EvalAssertionKind,
       pub predicate: EvalPredicate,
-      pub span: SpanRef,
+      #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
   }
 
   pub enum EvalAssertionKind {
@@ -356,7 +353,9 @@ Add to `crates/lazuli_syntax/src/parser.rs` test module:
 
 - `crates/lazuli_ir/src/lib.rs` — `Feature` struct gains
   `pub agents: Vec<Agent>` (currently `Feature` is at line 198; add
-  the field next to existing children).
+  the field next to existing children). The `Vec` shape (not
+  `BTreeMap`) matches `Feature.commands`, `queries`, `workflows`
+  already in the struct — same convention.
 
 - `crates/lazuli_analyzer/src/lib.rs` — add `lower_agent(ast::Agent)
   -> Result<ir::Agent, AnalyzeError>`. Called from the existing
@@ -394,15 +393,51 @@ fn resolve_agent_tools(
 - `lower_agent_with_evals_resolves_to_ir`.
 - `lower_agent_with_discriminator_output_resolves`.
 - `lower_agent_with_discriminated_record_resolves`.
+- `lower_agent_evals_without_temperature_zero_is_marked_nondeterministic`
+  — analyzer flags the agent's evals as informational-only when
+  `temperature != 0` or `seed.is_none()`.
 - `expand_agent_tools_resolves_cross_feature_effect`.
 - `expand_agent_tools_marks_unknown_tool_as_unresolved`.
+- `expand_agent_tools_resolves_pii_classes_from_source_resource`.
+- `lower_registry_tool_entry_with_effect_and_pii_classes`.
 
-### 4.5 Open questions for Phase 2
+### 4.5 Registry-side IR extension (in scope for Phase 2)
 
-- **Q-impl-3**: Should `Feature.agents` be a `BTreeMap<String, Agent>`
-  (matching `Feature.commands` if it exists) or `Vec<Agent>`? Survey
-  the existing IR — if `Feature.commands` is a `Vec`, follow that;
-  if `BTreeMap`, follow that. Pick consistency over preference.
+The proposal commits `RegistryToolEntry.effect: Read | Write`
+(required) and `RegistryToolEntry.pii_class: Vec<PiiClass>` (optional).
+Without these registry fields, Phase 3's
+`tool_registry_effect_required_diagnostics`,
+`agent_tool_policy_diagnostics`, and `agent_pii_unsafetied_warning`
+have no field to read. The registry IR delta is therefore part of
+Phase 2, not a separate phase.
+
+Files touched (incremental, alongside §4.1):
+
+- `crates/lazuli_ir/src/lib.rs` — locate the existing registry IR
+  shape (`AppIntegration`, `RegistryPack`, etc.) and add:
+
+  ```rust
+  pub struct RegistryToolEntry {
+      pub name: String,                     // dotted path under @tool.*
+      pub effect: ToolEffect,               // required
+      #[serde(default, skip_serializing_if = "Vec::is_empty")]
+      pub pii_classes: Vec<QualifiedName>,  // @pii.*
+      pub adapter: Option<QualifiedName>,   // @adapter.*
+      #[serde(default, skip_serializing_if = "Option::is_none")]
+      pub span_ref: Option<SpanRef>,
+  }
+  ```
+
+- `crates/lazuli_analyzer/src/lib.rs` — extend the registry lowering
+  path to populate these fields from `registry.lzi`.
+
+- `crates/lazuli_cli/src/doctor.rs` — registry-side validation
+  (`tool_registry_effect_required_diagnostics`) reads
+  `RegistryToolEntry.effect`. Lives next to the existing pack /
+  integration registry checks.
+
+The registry-side delta is small and aligned with how `RegistryPack`
+already carries `provides`/`requires` shapes. No structural drift.
 
 ## 5. Phase 3 — Doctor cross-feature checks
 
@@ -464,12 +499,15 @@ mirror the existing pattern (look for `policy_reachability_*` tests):
   guard; `idempotency by` for agents is a Cut B concern bundled with
   `flow`. Document in the diagnostic message.
 
-## 6. Phase 4 — LSP migration + new diagnostics
+## 6. Phase 4 — LSP file-local additions
 
-**Goal**: `agent_contract_diagnostics` (text-pattern) shrinks to
-file-local-only checks (required children, scalar config ranges).
-Cross-feature checks redirect to doctor. New file-local diagnostics
-for tools/evals/discriminator.
+**Goal**: extend the file-local LSP surface for Cut A. The existing
+`agent_contract_diagnostics` is already file-local-only (required
+children, scalar config ranges; no cross-feature awareness). This
+phase **adds** file-local Cut A diagnostics; cross-feature checks
+were never in LSP and remain in doctor. The phase does not "shrink"
+existing LSP — it grows it minimally and pushes any cross-feature
+ambition to Phase 3.
 
 ### 6.1 Files touched
 
@@ -618,20 +656,25 @@ agent dispatch is a separate phase that follows IR.
 
 ## 10. Estimates
 
+Honest budget after second-pass review. The earlier "13 days"
+estimate underweighted Phase 1's eval-predicate parser and Phase 2's
+registry-side IR work.
+
 | Phase | Effort | Blockers |
 |---|---|---|
-| 1 — AST + parser slice | 3–5 days | Q-impl-1 (parser strategy), Q-impl-2 (feature-skeleton scope) |
-| 2 — IR + lowering | 2 days | Phase 1 |
+| 1 — AST + parser slice | 5–7 days | none (Q-impl-1, Q-impl-2 decided) |
+| 2 — IR + lowering + registry extension | 3 days | Phase 1 |
 | 3 — Doctor diagnostics | 3 days | Phase 2; Q-impl-4 (write-guard contract) |
-| 4 — LSP shrink + new diagnostics | 1.5 days | none |
+| 4 — LSP file-local additions | 1.5 days | none |
 | 5 — Inspect projections | 1.5 days | Phase 2 |
 | 6 — Fixture + docs | 1 day | Phase 2 (docs reflect IR shape) |
 | 7 — MCP + codegen acks | 0.5 day | Phase 2 |
-| **Total** | **~13 days for one engineer** | — |
+| **Total** | **16–18 days for one engineer** | — |
 
-Phases 1–3 are sequential (~10 days). Phases 4–7 fan out from Phase
+Phases 1–3 are sequential (~12 days). Phases 4–7 fan out from Phase
 3 and total ~5 days; with a second engineer they overlap with the
-front of Phase 3.
+front of Phase 3, recovering ~4 days. End-to-end with two engineers:
+~12 days.
 
 ## 11. Acceptance criteria
 
@@ -655,21 +698,18 @@ front of Phase 3.
 
 ## 12. Open questions consolidated
 
-- **Q-impl-1** (Phase 1): pest INDENT/DEDENT preprocessor or hand-
-  written line-walker? Recommendation: line-walker for the slice;
-  preprocessor as a separate cut.
-- **Q-impl-2** (Phase 1): does the slice include feature-header
-  parsing? Recommendation: yes, minimum-viable feature skeleton,
-  not full feature body.
-- **Q-impl-3** (Phase 2): `Feature.agents` as `Vec` or `BTreeMap`?
-  Decision: follow the existing `Feature.<children>` convention;
-  audit before coding.
+Decisions Q-impl-1, Q-impl-2, Q-impl-3 from the prior draft were
+resolved in §3.3, §3.4, and §4.1 respectively. Two remain open:
+
 - **Q-impl-4** (Phase 3): write-tool guard accepts `safety` only in
-  Cut A (not `idempotency by`). Document in diagnostic message.
+  Cut A (not `idempotency by`; that is Cut B / `flow` territory).
+  Document in the diagnostic message body. Decision: yes, `safety`
+  only — pending review of one pilot product's tool surface to
+  confirm the guard scales.
 - **Q-impl-5** (Phase 6): legacy `output <T>` form (without `stream`
-  or `discriminator`) — deprecate softly with warn or accept silently?
-  Recommendation: emit a `agent_output_kind_default_warning` for
-  one cut, then require explicit kind in the cut after.
+  or `discriminator`) — deprecate softly with warn or accept
+  silently? Recommendation: emit a `agent_output_kind_default_warning`
+  for one cut, then require explicit kind in the cut after.
 
 ## 13. Risks
 
@@ -686,6 +726,22 @@ front of Phase 3.
 - **Codegen lag** if backend code is generated against IR that does
   not yet carry `tools`. Mitigation: Phase 7 ships TODO stubs;
   separate runtime cut implements dispatch.
+- **Registry-side IR delta misclassified as ambient**. Mitigation:
+  §4.5 folds `RegistryToolEntry.effect` and `pii_classes` into
+  Phase 2; doctor cannot fire `tool_registry_effect_required_*` or
+  `agent_pii_unsafetied_warning` without these.
+- **Semantic-validator dispatch from `evals` straddles two
+  pipelines.** `expect output contains @semantic.Email` resolves
+  through `@validator.<auto>` per proposal §A3. `lazuli check`
+  must validate the predicate *shape* without dispatching the
+  validator (which would require an LLM run). `lazuli test --evals`
+  does the dispatch. Mitigation: the parser produces
+  `EvalPredicate::Contains { ..., rhs: ContainsRhs::SemanticType(_) }`
+  and lowering records the semantic-type symbol; the validator
+  binding is resolved at test-execution time, not at check-time.
+  This must be documented inline in the predicate-validation code
+  to prevent a future refactor from accidentally invoking the
+  validator at check-time.
 
 ## 14. Cut A.5 readiness
 
