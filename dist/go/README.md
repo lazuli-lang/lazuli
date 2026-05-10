@@ -72,24 +72,34 @@ every command.
 ## Run locally
 
 ```sh
-# 1. start Postgres + apply schema
+# 1. start Postgres + apply schema (host port 55432 to avoid clashing with a
+#    Postgres already listening on 5432)
 docker compose up -d
 docker compose exec postgres pg_isready
 
-# 2. (optional) override DB URL
-export LAZULI_DB="postgres://lazuli:lazuli@localhost:5432/lazuli?sslmode=disable"
+# 2. point the runtime at the Postgres container
+export LAZULI_DB="postgres://lazuli:lazuli@localhost:55432/lazuli?sslmode=disable"
+export LAZULI_ADDR=":8088"   # any free port works
 
 # 3. boot the server
 go run .
 
 # 4. create a customer
-curl -X POST http://localhost:8080/api/v1/c/customer.create \
+curl -X POST http://localhost:8088/api/v1/c/customer.create \
   -H 'Content-Type: application/json' \
   -d '{"name":"Acme Co","email":"hello@acme.example"}'
-
 # expected: {"id":1,"org_id":0,"name":"","email":""}
-# (org_id is 0 because the spike has no auth; tenant resolution is a later cut)
+
+# 5. verify the row landed
+docker compose exec postgres psql -U lazuli -d lazuli \
+  -c "SELECT id, name, email FROM customer;"
 ```
+
+`org_id` is 0 in the response because the spike has no auth wired yet —
+`ctx.Tenant` is nil, so the migration's `org_id BIGINT NOT NULL DEFAULT 0`
+takes over. `name` and `email` come back empty because `Handle` only
+populates the returned struct's `ID` field; row materialisation arrives
+with the query layer in Phase B.
 
 ## What's missing (Phase A scope)
 

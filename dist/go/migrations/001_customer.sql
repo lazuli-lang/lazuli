@@ -4,7 +4,7 @@
 
 CREATE TABLE customer (
     id          BIGSERIAL PRIMARY KEY,
-    org_id      BIGINT      NOT NULL,
+    org_id      BIGINT      NOT NULL DEFAULT 0,
     name        TEXT        NOT NULL,
     email       TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),

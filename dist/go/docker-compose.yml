@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: lazuli
       POSTGRES_DB: lazuli
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
       - lazuli_pg:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
