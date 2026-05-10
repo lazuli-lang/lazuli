@@ -120,7 +120,7 @@ without Lazuli-specific colors:
 - Structural constructors: `workspace`, `contract`, `app`, `registry`, `profile`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `operation`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
 - Workspace/app/registry contract sections: `apps`, `shared_registry`, `boundaries`, `gateway`, `env`, `capabilities`, `integrations`, `packs`, `bindings`, `profiles`, `runtime`, `deploy`, `services`, and `communication`.
 - Adapter sources are highlighted as ordinary references. Canonical provenance
-  is checked by the LSP/doctor: `@drusa/...`, `@plugin/publisher/name`,
+  is checked by the LSP/doctor: `@runtime/...`, `@plugin/publisher/name`,
   `@adapter.<local>`, or local paths.
 - Layer sections: `domain`, `surface`, `extensions`.
 - Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `requires`, `apps`, `shared_registry`, `boundaries`, `gateway`, `targets`, `environments`, `urls`, `env`, `group`, `integrations`, `bindings`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, `deploy`.

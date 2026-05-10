@@ -1,45 +1,45 @@
 # Capability Layering
 
 This note records the decision boundary between Lazuli as a contract language
-and Drusa as the batteries-included framework that materializes Lazuli IR.
+and the Lazuli runtime as the batteries-included framework that materializes Lazuli IR.
 
 Use the names consistently:
 
 - Lazuli language: `.lzi`/`.lzx` syntax.
 - Lazuli compiler: parser, resolver, checker, doctor, expand, and IR.
-- Drusa framework: runtime, codegen, packs, generated app wiring, and default
+- the runtime: runtime, codegen, packs, generated app wiring, and default
   implementations.
-- Drusa adapters: concrete providers and infrastructure integrations.
+- the Lazuli runtime adapters: concrete providers and infrastructure integrations.
 
 The short rule is:
 
 - The language owns contracts that must be statically checked, lowered into IR,
   reflected in generated APIs, or enforced across backend/frontend boundaries.
-- Drusa owns reusable product capabilities: generated resources, UI
+- the runtime owns reusable product capabilities: generated resources, UI
   flows, adapters, runtime wiring, queues, providers, and defaults.
 - Adapters own concrete infrastructure choices such as Redis, S3, Stripe,
   OpenTelemetry exporters, search engines, OAuth providers, and KMS.
 
 Lazuli is not an integration runtime. It says that a command/job/webhook needs
 an external contract with specific policy, PII, tenant, idempotency, timeout,
-and event guarantees. Drusa turns that contract into Go backend wiring. The Go
+and event guarantees. the Lazuli runtime turns that contract into Go backend wiring. The Go
 backend performs real HTTP/RPC/broker/webhook work through adapters. React and
 Expo clients stay behind generated app APIs and should not call provider
 integrations directly.
 
 Do not promote every useful product feature into language syntax. Lazuli should
 stay small enough to read and strict enough to prove dangerous behavior. The
-Drusa framework can be broad because its packs are authored on top of the
+the runtime can be broad because its packs are authored on top of the
 language.
 
 ERP is a pressure test, not a namespace. If an ERP-shaped requirement is really
 a horizontal operational contract, give it a generic name and prove it outside
 ERP too. If it is a vertical module such as chart of accounts, fiscal tax rules,
-or procurement, keep it as a Drusa pack or adapter.
+or procurement, keep it as a Lazuli runtime pack or adapter.
 
 ## Pipeline
 
-Drusa should consume Lazuli IR, not re-parse source and infer semantics on its
+the Lazuli runtime should consume Lazuli IR, not re-parse source and infer semantics on its
 own:
 
 ```text
@@ -47,12 +47,12 @@ own:
   -> Lazuli parser/resolver
   -> Lazuli check/doctor/expand
   -> Capsule IR
-  -> Drusa packs/codegen/runtime
+  -> runtime packs/codegen/runtime
   -> Go backend + React web + Expo mobile + jobs + webhooks
   -> Go adapters/transports: HTTP/RPC/brokers/storage/auth/OTel/search/etc.
 ```
 
-This keeps one semantic source of truth. Drusa packs may add templates,
+This keeps one semantic source of truth. runtime packs may add templates,
 runtime behavior, and optional doctor rules, but they should not hide product
 invariants outside the IR/checking path.
 
@@ -64,7 +64,7 @@ When a candidate capability appears, classify it by asking:
    API shape, migration identity, or security proof? If yes, it is language or
    IR.
 2. Is it a reusable product module with screens, jobs, resources, templates,
-   and adapters? If yes, it is a Drusa capability pack.
+   and adapters? If yes, it is a Lazuli runtime capability pack.
 3. Is it a provider choice or runtime implementation detail? If yes, it is an
    adapter.
 4. Can the capability be written as ordinary `.lzi`/`.lzx` plus extensions? If
@@ -75,7 +75,7 @@ Use these layer names in tables and engine manifests:
 - `language`: core syntax/IR/checker semantics.
 - `language-light`: a small contract visible to Lazuli, with most behavior in a
   pack or runtime.
-- `pack`: reusable Drusa product module authored in Lazuli plus code.
+- `pack`: reusable the Lazuli runtime product module authored in Lazuli plus code.
 - `runtime`: framework execution machinery, usually not product-owned source.
 - `adapter`: concrete provider/infrastructure binding.
 
@@ -109,21 +109,21 @@ generators and checkers must understand them.
 ## Language Implementation Queue
 
 The first language-level pass should harden existing syntax before inventing
-new blocks. Drusa packs stay deferred unless a row says "pack later".
+new blocks. runtime packs stay deferred unless a row says "pack later".
 
 | Capability | Language artifact | Status |
 |------------|-------------------|--------|
 | App/runtime manifest | `app.lzi` with targets, locale/timezone, fallback routes, used features, environments, URLs, runtime units, and deploy gates | implemented as app operational contract in IR/inspect/doctor |
-| Workspace contract | optional `workspace.lzi` with local/external apps, shared registry, event boundaries, context propagation, and provider-neutral gateways | implemented as distributed-system contract; Drusa/adapters own repo loading, brokers, proxy/runtime mechanics |
-| External contract imports | `contract.lzi` with `import openapi|asyncapi|proto|json_schema|avro`, records, operations, and events | implemented as schema/transport contract; Drusa materializes Go bindings/tests, adapters own concrete transport/provider details |
-| Environment profiles | `profile <environment>` with URL, binding, integration environment/adapter, and deploy topology overrides | implemented as environment override contract; provider mechanics stay in Drusa/adapters |
-| Service boundaries | `app.lzi` `architecture`, `services`, and `communication` with logical ownership, exposures, published/consumed events, and context propagation | implemented as microservice-ready contract; Drusa may materialize as monolith, modular monolith, or split services |
+| Workspace contract | optional `workspace.lzi` with local/external apps, shared registry, event boundaries, context propagation, and provider-neutral gateways | implemented as distributed-system contract; runtime/adapters own repo loading, brokers, proxy/runtime mechanics |
+| External contract imports | `contract.lzi` with `import openapi|asyncapi|proto|json_schema|avro`, records, operations, and events | implemented as schema/transport contract; the runtime materializes Go bindings/tests, adapters own concrete transport/provider details |
+| Environment profiles | `profile <environment>` with URL, binding, integration environment/adapter, and deploy topology overrides | implemented as environment override contract; provider mechanics stay in runtime/adapters |
+| Service boundaries | `app.lzi` `architecture`, `services`, and `communication` with logical ownership, exposures, published/consumed events, and context propagation | implemented as microservice-ready contract; the Lazuli runtime may materialize as monolith, modular monolith, or split services |
 | Type-safe app routes | top-level `.lzx route <name>` with canonical `path`, typed `route <slot>: <Type>` declarations, `to ...(slot: route.<slot>)`, `surface`, and `audience` | implemented as route-builder contract |
 | Env/secrets schema | `registry.lzi` or `app.lzi` `env`, plus top-level `.lzi env`, with optional `group <name>` and `server|client|mobile NAME: Type required|optional [in environment]` | implemented as source contract; groups are organizational, not namespaces |
 | External integration registry | `registry.lzi` `integrations` with provider-neutral names, capability kind, adapter reference/provenance, environments, and credential scope | implemented as package registry contract; provider operations remain pack/adapter |
-| Pack registry | `registry.lzi` `packs` plus app `packs` enablement, with `provides` and abstract `requires integration` slots | implemented as catalog/enablement contract; pack internals remain Drusa packs/adapters |
-| External calls | command/job `calls <slot>.<operation>` with named argument bindings, timeout, retry, and idempotency context | implemented as Lazuli contract; Drusa wires typed Go transport bindings and adapters perform real provider calls |
-| Deploy/runtime contract | `app.lzi` `runtime`, `capabilities`, and `deploy` blocks | implemented as provider-neutral operational contract; doctor cross-checks package usage; Drusa/adapters materialize it |
+| Pack registry | `registry.lzi` `packs` plus app `packs` enablement, with `provides` and abstract `requires integration` slots | implemented as catalog/enablement contract; pack internals remain runtime packs/adapters |
+| External calls | command/job `calls <slot>.<operation>` with named argument bindings, timeout, retry, and idempotency context | implemented as Lazuli contract; the runtime wires typed Go transport bindings and adapters perform real provider calls |
+| Deploy/runtime contract | `app.lzi` `runtime`, `capabilities`, and `deploy` blocks | implemented as provider-neutral operational contract; doctor cross-checks package usage; runtime/adapters materialize it |
 | Custom HTTP APIs | `api <name>` with method, path, route/input, output, policy, handler | implemented as language-light endpoint contract |
 | Error exposure | feature `errors` plus command/rule `error <Name> status ... expose ...` | implemented as public/private error contract |
 | Cache/invalidation | query `cache` and command `invalidates` | implemented as client/server cache contract |
@@ -148,20 +148,20 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 
 Microservice readiness follows the same boundary: Lazuli owns service
 ownership, exposed contracts, event edges, and context propagation because those
-facts are checkable and affect generated APIs. Drusa owns whether the graph runs
+facts are checkable and affect generated APIs. the runtime owns whether the graph runs
 as a monolith, modular monolith, or split services. Concrete transports and
 infra such as gRPC, Connect, Kafka, NATS, SQS, Kubernetes, Envoy, and service
 mesh settings are adapters.
 
 For non-Lazuli services, such as a Python AI service, Lazuli should import or
-author the contract. Drusa should generate/wire typed Go transport bindings and
+author the contract. the Lazuli runtime should generate/wire typed Go transport bindings and
 contract tests. The external service implements HTTP/RPC/broker semantics in
 its own stack. Optional SDK exports for other languages are publication
-artifacts, not the core Drusa runtime path.
+artifacts, not the core Lazuli runtime path.
 
-## Drusa Capability Packs
+## the Lazuli runtime Capability Packs
 
-Drusa packs should be ordinary Lazuli features plus optional generators and
+runtime packs should be ordinary Lazuli features plus optional generators and
 runtime adapters. A pack may ship:
 
 - `.lzi` resources, policies, commands, jobs, webhooks, and events
@@ -179,14 +179,14 @@ cannot be expressed in `.lzi`/`.lzx`, it must either provide a doctor rule or
 propose a language primitive. For example, a billing pack should not secretly
 assume that posting an invoice creates balanced ledger entries; it should model
 that as source, generated checks, or a pack doctor rule such as
-`DRUSA-BILLING-001`.
+`the Lazuli runtime-BILLING-001`.
 
 ## Promotion Lifecycle
 
 Capabilities should graduate only when repeated usage proves the need:
 
 1. Custom code or extension.
-2. Reusable Drusa pack.
+2. Reusable the Lazuli runtime pack.
 3. Pack with doctor rules.
 4. `language-light` contract.
 5. Core `language` primitive.
@@ -220,17 +220,17 @@ Initial placement:
 
 | Key | Label | Engine flag | Primary layer | Notes |
 |-----|-------|-------------|---------------|-------|
-| `auth` | Authentication | `auth` | language + pack | Language owns actors, identity context, auth contracts; Drusa owns flows, session runtime, screens. |
+| `auth` | Authentication | `auth` | language + pack | Language owns actors, identity context, auth contracts; the runtime owns flows, session runtime, screens. |
 | `rbac` | RBAC | `rbac` | language | `@role.*`, `@scope.*`, `@policy.*`, field policies, and reachability are checker/codegen contracts. |
-| `2fa` | Two-factor auth | `twoFactor` | language-light + pack | Language owns challenge/validator contracts; Drusa ships TOTP/SMS/passkey flows. |
-| `oauth` | OAuth | `oauth` | language-light + pack + adapter | Language declares identity/session contracts; Drusa owns callback flow; adapters own providers. |
+| `2fa` | Two-factor auth | `twoFactor` | language-light + pack | Language owns challenge/validator contracts; the runtime ships TOTP/SMS/passkey flows. |
+| `oauth` | OAuth | `oauth` | language-light + pack + adapter | Language declares identity/session contracts; the runtime owns callback flow; adapters own providers. |
 | `magic-link` | Magic link | `magicLink` | pack | Auth flow pack using token, mail, rate limit, and session contracts. |
 | `kyc` | KYC | `kyc` | pack | Domain-specific workflow built from storage, policy, jobs, webhooks, and audit. |
 | `multi-tenancy` | Multi-tenancy | `multiTenancy` | language | Core: `tenancy`, `tenant_from`, query scope, indexes, job fanout, webhook binding. |
 | `invites` | Team invites | `invites` | pack | Pack over users, teams, tokens, email, expiry, and roles. |
 | `presence` | Presence | `presence` | runtime + adapter | Needs realtime transport and ephemeral state; language may expose events only. |
 | `soft-delete` | Soft delete | `softDelete` | language | Affects delete semantics, restore, query scope, audit, and generated endpoints. |
-| `audit-log` | Audit log | `auditLog` | language + pack | Language marks audit requirements; Drusa stores, views, and exports logs. |
+| `audit-log` | Audit log | `auditLog` | language + pack | Language marks audit requirements; the Lazuli runtime stores, views, and exports logs. |
 | `idempotency` | Idempotency | `idempotency` | language | Required for jobs, webhooks, and eventually public commands. |
 | `cqrs` | CQRS | `cqrs` | pack pattern | Prefer queries, projections, SQL, and events before adding core syntax. |
 | `event-sourcing` | Event sourcing | `eventSourcing` | runtime pattern | Advanced persistence mode; keep out of core until real adapters demand it. |
@@ -245,8 +245,8 @@ Initial placement:
 | `rate-limit` | Rate limiting | `rateLimit` | language | Security surface and generated endpoint behavior need static visibility. |
 | `tracing` | Tracing (OTel) | `tracing` | language-light + runtime + adapter | `event.trace` is language-shaped; OTel exporters and spans are adapter/runtime. |
 | `feature-flags` | Feature flags | `featureFlagsRuntime` | language-light + runtime | Runtime owns evaluation; language may later add `when flag.*` if needed. |
-| `storage` | File storage | `storage` | language + pack + adapter | Language declares `@cap.File(max_size:<size>,accept:<mime>)` and policies; Drusa owns upload flows; adapters own providers. |
-| `search` | Full-text search | `search` | language + pack + adapter | Language declares `search params.q over ...`; Drusa/adapters implement engines. |
+| `storage` | File storage | `storage` | language + pack + adapter | Language declares `@cap.File(max_size:<size>,accept:<mime>)` and policies; the runtime owns upload flows; adapters own providers. |
+| `search` | Full-text search | `search` | language + pack + adapter | Language declares `search params.q over ...`; runtime/adapters implement engines. |
 | `i18n` | Internationalization | `i18n` | pack | Labels/messages/runtime formatting first; syntax only if repeated source contracts demand it. |
 | `money` | Money + currency | `money` | language | Amount/currency/precision/rounding affect validation, storage, APIs, and UI; Stripe/subscriptions stay packs/adapters. |
 | `geolocation` | Geolocation | `geolocation` | language-light + adapter | Coordinates/geotypes are language-light; maps/geocoding are adapters. |
@@ -258,7 +258,7 @@ Initial placement:
 
 ## Product Direction
 
-The language should be conservative. Drusa packs can move faster.
+The language should be conservative. runtime packs can move faster.
 
 When a pack repeatedly needs custom analyzer logic or hidden runtime behavior,
 that is evidence for a new language primitive. Until then, the pack remains

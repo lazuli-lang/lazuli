@@ -1,5 +1,5 @@
 # Full capsule application manifest.
-# Declares the provider-neutral operational contract for Drusa.
+# Declares the provider-neutral operational contract for the Lazuli runtime.
 
 app AcmeCRM
   title "Acme CRM"

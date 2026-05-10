@@ -60,7 +60,7 @@ still use Lazuli for the operational shell around them: auth, billing, orgs,
 admin, jobs, events, and integration contracts.
 
 Use `docs/capability-layering.md` for the standing boundary between Lazuli
-language primitives, the Lazuli compiler, Drusa framework packs, runtime, and
+language primitives, the Lazuli compiler, the runtime packs, runtime, and
 adapters.
 
 ## Total Override Only

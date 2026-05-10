@@ -19,7 +19,7 @@ registry
     integration crm
 
   packs
-    customer_import from @drusa/customer-import
+    customer_import from @runtime/customer-import
       version "0.1.0"
       provides feature customer_import
       requires integration crm: CRMProvider

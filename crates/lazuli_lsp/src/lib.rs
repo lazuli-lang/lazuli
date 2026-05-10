@@ -3483,7 +3483,7 @@ fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::ERROR,
                 "emits-derived-contract",
-                "`emits <event> from <effect>` requires `creates`, `updates`, or `deletes`. Drusa derives the payload by name match against that effect's bindings.",
+                "`emits <event> from <effect>` requires `creates`, `updates`, or `deletes`. the runtime derives the payload by name match against that effect's bindings.",
             ));
             continue;
         }
@@ -6787,7 +6787,7 @@ fn validate_profile_integration_line(
         line,
         DiagnosticSeverity::WARNING,
         "profile-integration-contract",
-        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter <source>`, where adapter sources are `@drusa/...`, `@plugin/publisher/name`, `@adapter.local`, or a local path.",
+        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter <source>`, where adapter sources are `@runtime/...`, `@plugin/publisher/name`, `@adapter.local`, or a local path.",
     ));
 }
 
@@ -7436,7 +7436,7 @@ fn validate_registry_pack_header(
             line,
             DiagnosticSeverity::WARNING,
             "registry-pack-contract",
-            "registry pack entries use identifier names and package/path sources such as `payments from @drusa/payments`.",
+            "registry pack entries use identifier names and package/path sources such as `payments from @runtime/payments`.",
         ));
     }
 }
@@ -7608,17 +7608,17 @@ fn validate_app_integration_child(
             line,
             DiagnosticSeverity::WARNING,
             "app-integration-contract",
-            "integration children use `adapter @drusa/...`, `adapter @plugin/publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, or `data_classification @pii.<class>`.",
+            "integration children use `adapter @runtime/...`, `adapter @plugin/publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, or `data_classification @pii.<class>`.",
         )),
     }
 }
 
 fn adapter_source_provenance(source: &str) -> Option<&'static str> {
     if source
-        .strip_prefix("@drusa/")
+        .strip_prefix("@runtime/")
         .is_some_and(valid_pathish_tail)
     {
-        Some("drusa")
+        Some("runtime")
     } else if source
         .strip_prefix("@plugin/")
         .is_some_and(valid_plugin_tail)
@@ -7698,7 +7698,7 @@ fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
             line,
             DiagnosticSeverity::WARNING,
             "app-capability-contract",
-            "app capabilities declare intent such as `database postgres`, `queue background_jobs`, `object_storage files`, or `integration crm`; providers stay in Drusa adapters.",
+            "app capabilities declare intent such as `database postgres`, `queue background_jobs`, `object_storage files`, or `integration crm`; providers stay in adapters under `@runtime/<name>`.",
         ));
     }
 }
@@ -7791,7 +7791,7 @@ fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic
             &app.line,
             DiagnosticSeverity::ERROR,
             "app-target-contract",
-            "app manifests must declare `targets` so Drusa can materialize backend, web, and mobile outputs deterministically.",
+            "app manifests must declare `targets` so the runtime can materialize backend, web, and mobile outputs deterministically.",
         ));
     }
 
@@ -10451,7 +10451,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Binds abstract feature requirements to concrete app or registry integration entries.",
         ),
         "packs" => Some(
-            "Declares Drusa/Lazuli pack catalog entries in `registry.lzi` or enabled pack references in `app.lzi`.",
+            "Declares Lazuli pack catalog entries in `registry.lzi` or enabled pack references in `app.lzi`.",
         ),
         "provides" => {
             Some("Declares what a registry pack provides, such as `provides feature payments`.")
@@ -10514,10 +10514,10 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
         "record" => Some("Declares a non-persisted typed result/DTO shape."),
         "agent" => Some(
-            "Declares an LLM-powered capability with typed input, output, prompt template, model reference, policy, and rate limits. Drusa wires the LLM transport; Lazuli owns the contract.",
+            "Declares an LLM-powered capability with typed input, output, prompt template, model reference, policy, and rate limits. the runtime wires the LLM transport; Lazuli owns the contract.",
         ),
         "notification" => Some(
-            "Declares a multi-channel outbound notification with `channel`, `recipient`, `trigger`, `template`, and `policy`. Drusa generates dispatch wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.",
+            "Declares a multi-channel outbound notification with `channel`, `recipient`, `trigger`, `template`, and `policy`. the runtime generates dispatch wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.",
         ),
         "channel" => Some(
             "On a `notification`, declares one or more delivery channels: `email`, `push`, `sms`, `in_app`.",
@@ -10587,7 +10587,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Declares an operation as audited. Use `audit` for default fields, `audit <field>, <field>` for explicit entries, or `audit none` to opt out.",
         ),
         "has_many" => Some(
-            "Declares a collection on a resource: `has_many <name>: <Type> [inverse <field>]`. Drusa generates the inverse lookup query and foreign-key contract.",
+            "Declares a collection on a resource: `has_many <name>: <Type> [inverse <field>]`. the runtime generates the inverse lookup query and foreign-key contract.",
         ),
         "inverse" => Some(
             "Declares the field on the target resource that owns the inverse foreign key for a `has_many` collection.",
@@ -10596,7 +10596,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
         "calls" => Some(
-            "Declares that a command or job calls an abstract integration/service operation; Drusa wires this to Go transport bindings.",
+            "Declares that a command or job calls an abstract integration/service operation; the runtime wires this to Go transport bindings.",
         ),
         "method" => Some("Declares the HTTP method for a custom API endpoint."),
         "output" => Some("Declares the response shape for a custom API endpoint."),
@@ -10665,7 +10665,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "hook" => Some("Declares a reusable lifecycle hook extension contract."),
         "validator" => Some("Declares a reusable validator extension contract."),
         "adapter" => Some(
-            "Declares an integration adapter source: `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path.",
+            "Declares an integration adapter source: `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path.",
         ),
         "query_modifier" => Some("Declares a reusable query modifier extension contract."),
         "escape_route" => Some("Declares a custom route outside generated UI ownership."),
@@ -11169,11 +11169,11 @@ app AcmeCRM
 registry
   integrations
     mercadopago: PaymentGateway
-      adapter @drusa/mercadopago
+      adapter @runtime/mercadopago
     serasa: CreditBureau
       adapter @plugin/acme/serasa
   packs
-    payments from @drusa/payments
+    payments from @runtime/payments
       version "0.1.0"
       provides feature payments
       requires integration gateway: PaymentGateway
@@ -11196,7 +11196,7 @@ app AcmeCRM
 
 registry
   packs
-    payments @drusa/payments
+    payments @runtime/payments
       provides
 "#;
 
@@ -11241,7 +11241,7 @@ profile local
             .collect();
 
         assert!(messages.iter().any(|message| {
-            message.contains("adapter @drusa/") || message.contains("adapter <source>")
+            message.contains("adapter @runtime/") || message.contains("adapter <source>")
         }));
     }
 

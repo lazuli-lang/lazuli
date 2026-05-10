@@ -5,7 +5,7 @@ author, review, or patch canonical `.lzi`/`.lzx` files. It is intentionally shor
 Use `docs/canonical-semantics.md` for the full normative reference and
 `docs/invariants.md` for the checker/codegen contract. Use
 `docs/capability-layering.md` when deciding whether a capability belongs in the
-Lazuli language, Lazuli compiler, Drusa framework pack, runtime, or adapter.
+Lazuli language, Lazuli compiler, the runtime pack, runtime, or adapter.
 
 ## Status Legend
 
@@ -120,7 +120,7 @@ registry
     integration crm
 
   packs
-    customer_import from @drusa/customer-import
+    customer_import from @runtime/customer-import
       version "0.1.0"
       provides feature customer_import
       requires integration crm: CRMProvider
@@ -136,7 +136,7 @@ registry
 Adapter references declare provenance, not provider operations:
 
 ```lazuli
-adapter @drusa/mercadopago        # Drusa-maintained adapter
+adapter @runtime/mercadopago        # first-party (`@runtime/...`) adapter
 adapter @plugin/acme/serasa       # third-party plugin adapter
 adapter @adapter.crm              # local adapter extension
 adapter "./integrations/ai.go"    # local app code
@@ -144,7 +144,7 @@ adapter "./integrations/ai.go"    # local app code
 
 Pack entries belong in `registry.lzi`; `app.lzi` only enables them. A pack may
 provide a feature and require abstract slots, but its implementation details
-stay in Drusa packs/adapters:
+stay in runtime packs/adapters:
 
 ```lazuli
 app PingApp
@@ -218,7 +218,7 @@ workspace AcmeERP
 ```
 
 Repository URLs, branches, local ports, concrete brokers, gateways/proxies, and
-deploy providers belong in Drusa/adapters, not `workspace.lzi`.
+deploy providers belong in runtime/adapters, not `workspace.lzi`.
 
 `contract.lzi` describes a non-Lazuli service or external schema:
 
@@ -253,7 +253,7 @@ contract acme.ai.v1
 ```
 
 Supported import formats: `openapi`, `asyncapi`, `proto`, `json_schema`,
-`avro`. Drusa should turn contracts into Go HTTP/RPC/event bindings and tests;
+`avro`. the Lazuli runtime should turn contracts into Go HTTP/RPC/event bindings and tests;
 SDK export is optional publication tooling, not core Lazuli runtime semantics.
 
 Use a block when a feature needs more than one slot:
@@ -396,7 +396,7 @@ authorization.
 | `@query_modifier.*` | query modifiers |
 | `@anchor.*` | view composition anchors |
 
-Adapter package refs such as `@drusa/mercadopago` and
+Adapter package refs such as `@runtime/mercadopago` and
 `@plugin/acme/serasa` are registry adapter sources, not general extension
 namespaces. Unknown namespaces are errors unless the spec adds them.
 

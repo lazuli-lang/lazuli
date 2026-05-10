@@ -180,10 +180,10 @@ For each candidate that survived the gate:
 - The 1-line contract you'd give it.
 - Confirmation line: "Construct keyword `<keyword>` does not appear in
   examples/ (grep returned no hits)".
-- Whether it's Lazuli-shaped or actually Drusa/adapter (per the
+- Whether it's Lazuli-shaped or actually runtime/adapter (per the
   `lazuli-language-boundaries` rule).
 
-If a candidate is Drusa/adapter-shaped, drop it from the list — it
+If a candidate is runtime/adapter-shaped, drop it from the list — it
 doesn't belong in Lazuli core.
 """
 depends_on = ["grade-criteria"]

@@ -21,7 +21,7 @@ The active implementation queue and open registry/import decisions live in
 - `policies` is a named dictionary; entries use `name: predicate, predicate`.
 - Policy atoms are namespaced by category, e.g. `@role.admin`, `@scope.same_org`, `@actor.system`, and `@scope.public`; feature-local policy categories are referenced through `@policy.*`.
 - Capability references use a closed namespace catalog: `@role.*`, `@scope.*`, `@actor.*`, `@policy.*`, `@semantic.*`, `@cap.*`, `@client.*`, `@fn.*`, `@hook.*`, `@validator.*`, `@adapter.*`, and `@query_modifier.*`; view anchors use `@anchor.*`.
-- Adapter package refs such as `@drusa/...` and `@plugin/...` are registry
+- Adapter package refs such as `@runtime/...` and `@plugin/...` are registry
   source markers with provenance, not general extension namespaces.
 - Extension declarations use the same keyword as their call-site namespace, such as `client`, `fn`, `hook`, `validator`, `adapter`, and `query_modifier`.
 - Built-in types with behavior use a closed namespace: `@semantic.*` for validation/formatting and `@cap.*` for platform capabilities.
@@ -44,7 +44,7 @@ The active implementation queue and open registry/import decisions live in
 - Workflow transitions may use inline trailing clauses for scalar `requires` and `emits`; this is local syntax sugar over the same child statements, not a macro.
 - Workflow transition child statements are contiguous with the transition header; no blank line separates the header from `requires`, `emits`, or `tests`.
 - `app.lzi` service boundaries are logical ownership contracts, not mandatory
-  deploy boundaries. Drusa may materialize the same graph as a monolith,
+  deploy boundaries. the Lazuli runtime may materialize the same graph as a monolith,
   modular monolith, or split services.
 - `app.lzi` env groups are organizational labels, not namespaces. Env refs
   still use `env.NAME`, and `required in production` narrows requiredness to a
@@ -58,12 +58,12 @@ The active implementation queue and open registry/import decisions live in
   environments, and credential scope; MercadoPago/Serasa/etc. stay packs or
   adapters, not keywords.
 - No `container.lzi` exists in v0. Lazuli handles dependency inversion through
-  abstract requirements plus registry/app bindings; Drusa handles dependency
+  abstract requirements plus registry/app bindings; the Lazuli runtime handles dependency
   injection mechanics and runtime construction.
 - `workspace.lzi` is canonical v0 for semantic distributed-system contracts:
   local apps, external service contracts, shared registries, event boundaries,
-  communication propagation, and provider-neutral gateways. `drusa.toml`, not
-  `drusa-workspace.toml`, is the preferred operational Drusa config name for
+  communication propagation, and provider-neutral gateways. `lazuli.toml`, not
+  `the Lazuli runtime-workspace.toml`, is the preferred operational the Lazuli runtime config name for
   repo loading, local ports, deploy providers, adapter choices, CI wiring, and
   other concrete mechanics.
 - Lazuli workspaces are polyglot contract graphs. A service may be implemented
@@ -71,7 +71,7 @@ The active implementation queue and open registry/import decisions live in
   contract Lazuli can inspect through `contract.lzi`, OpenAPI, AsyncAPI,
   Proto/Buf, JSON Schema, Avro, or a generated contract artifact. `contract.lzi`
   is canonical v0 for local contract authoring/imports. Lazuli does not execute
-  those integrations; Drusa wires generated Go transport bindings and adapters
+  those integrations; the runtime wires generated Go transport bindings and adapters
   do the actual HTTP/RPC/broker/webhook work.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
@@ -188,11 +188,11 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add pack registry/enablement contracts with `registry.lzi` `packs` and
   app `packs`, including `provides feature ...` and abstract pack
   `requires integration ...` slots that doctor can bind.
-- [x] Add adapter provenance for Drusa adapters, third-party plugin adapters,
-  and local app adapters with `@drusa/...`, `@plugin/publisher/name`,
+- [x] Add adapter provenance for the Lazuli runtime adapters, third-party plugin adapters,
+  and local app adapters with `@runtime/...`, `@plugin/publisher/name`,
   `@adapter.<local>`, and local path sources.
 - [x] Add `workspace.lzi` as the semantic distributed system contract for
-  multi-repo/monorepo apps while `drusa.toml` remains operational
+  multi-repo/monorepo apps while `lazuli.toml` remains operational
   repo/deploy/tooling glue.
 - [x] Add external contract import/export shape for non-Lazuli services using
   `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, Avro, and optional
@@ -200,7 +200,7 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   is typed Go bindings for HTTP/RPC/events.
 - [x] Use `gateway` for provider-neutral distributed ingress in `workspace.lzi`.
   Raw `proxy`, sidecar, service mesh, and provider routing mechanics stay in
-  Drusa/adapters.
+  runtime/adapters.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.

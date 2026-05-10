@@ -18,11 +18,11 @@ DSL is the source of truth. IR is `lower(parse(source))`. The IR has no edit API
 The lifecycle is:
 
 ```txt
-authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / Drusa
-authored workspace.lzi -> AppWorkspace IR -> inspect JSON / doctor / Drusa
-authored contract.lzi -> AppContract IR -> inspect JSON / doctor / Drusa
-authored registry.lzi -> AppRegistry IR -> inspect JSON / doctor / Drusa
-authored profile.lzi -> AppProfile IR -> inspect JSON / doctor / Drusa
+authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / the Lazuli runtime
+authored workspace.lzi -> AppWorkspace IR -> inspect JSON / doctor / the Lazuli runtime
+authored contract.lzi -> AppContract IR -> inspect JSON / doctor / the Lazuli runtime
+authored registry.lzi -> AppRegistry IR -> inspect JSON / doctor / the Lazuli runtime
+authored profile.lzi -> AppProfile IR -> inspect JSON / doctor / the Lazuli runtime
 authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
 authored .lzx experience source -> AST -> ExperienceModule IR -> inspect JSON / UI codegen / MCP
 ```
@@ -161,7 +161,7 @@ public gateways. Normal single-app packages do not need a workspace.
 references, an optional shared registry path, event-pattern boundaries,
 communication propagation defaults, and provider-neutral gateway routes.
 Remote repo URLs, branches, deploy providers, concrete brokers, local ports,
-and proxy implementations belong in future `drusa.toml` or adapter config.
+and proxy implementations belong in future `lazuli.toml` or adapter config.
 
 `contract.lzi` lowers into `AppContract` entries on `Module`. A contract may
 import external schemas (`openapi`, `asyncapi`, `proto`, `json_schema`, `avro`)
@@ -169,7 +169,7 @@ and/or author a small Lazuli-native contract with records, operations, and
 events. `ContractOperation` records provider-neutral transport intent
 (`http`, `rpc`, or `event`), input/output records, auth mode, path/method when
 HTTP, and timeout. `ContractEvent` records topic and payload fields. SDK export
-is not part of the core IR; Drusa consumes contracts primarily to wire Go
+is not part of the core IR; the Lazuli runtime consumes contracts primarily to wire Go
 HTTP/RPC/event bindings, gateway mocks, and contract tests.
 
 `app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
@@ -182,7 +182,7 @@ integrations, and pack catalog entries. Small apps may still put registry-shaped
 blocks in `app.lzi`; doctor reads the combined app + registry contract. Provider-specific
 details such as AWS accounts, Kubernetes namespaces, Fly app ids, bucket names,
 gRPC implementations, Kafka/NATS/SQS brokers, or Terraform settings stay in
-Drusa adapter configuration.
+the Lazuli runtime adapter configuration.
 
 `AppEnvVar` entries are still keyed by explicit env variable name. Optional
 `group` metadata preserves authoring organization such as `customer_import`,
@@ -195,10 +195,10 @@ never enter IR.
 name, capability kind, adapter reference, allowed environments, credential
 scope, and credential bindings. They intentionally exclude provider operation
 schemas, provider client/SDK-specific methods, concrete base URLs, and
-infrastructure secret store details. Those belong to Drusa packs and adapter
+infrastructure secret store details. Those belong to runtime packs and adapter
 configuration. The authored adapter reference is preserved as `adapter`, while
 `adapter_provenance` records the source class when it is statically
-recognizable: `drusa` for `@drusa/...`, `plugin` for
+recognizable: `the Lazuli runtime` for `@runtime/...`, `plugin` for
 `@plugin/publisher/name`, and `local` for `@adapter.<name>` or local paths.
 Profiles use the same adapter provenance metadata for environment-specific
 adapter overrides.
@@ -222,7 +222,7 @@ provider.
 `calls gateway.create_checkout`. They record the subject command/job, the
 abstract slot, operation name, argument bindings, and visible timeout, retry,
 idempotency, and audit flags. These entries are author intent for doctor and
-Drusa. They do not contain provider HTTP paths, SDK method names, base URLs, or
+the Lazuli runtime. They do not contain provider HTTP paths, SDK method names, base URLs, or
 broker topics.
 
 `AppBinding` entries preserve app-level dependency inversion choices such as
@@ -238,7 +238,7 @@ runtime config stores: secret values, cloud resources, broker endpoints, and
 provider-specific operation schemas stay outside IR.
 
 The IR models integration intent only. Lazuli does not execute integrations.
-Drusa consumes this IR to generate/wire Go interfaces, typed HTTP/RPC transport
+the Lazuli runtime consumes this IR to generate/wire Go interfaces, typed HTTP/RPC transport
 clients, event publishers/consumers, webhook receivers, and adapter injection.
 Optional external SDK exports may be derived from contracts later, but SDKs are
 not the core runtime abstraction.

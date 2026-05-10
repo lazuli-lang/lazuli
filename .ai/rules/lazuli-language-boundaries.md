@@ -1,28 +1,29 @@
 ---
 name: Lazuli language boundaries
-description: The hard separation between Lazuli (contract), Drusa (runtime/codegen), and adapters (provider concrete). Reject any proposal that violates it.
+description: Lazuli is one framework with three internal layers — language (contract), runtime (codegen + libs), and adapters (provider concrete). Reject any proposal that blurs them.
 ---
 
-Lazuli has three sibling layers. Mixing them is the most common
-failure mode in DSL design.
+Lazuli is one framework with three internal layers. The names are not
+separate brands — they're internal labels for parts of one stack. Mixing
+them is the most common failure mode in DSL design.
 
 | Layer | Owns | Examples |
 |---|---|---|
-| **Lazuli** | Verifiable contracts: `.lzi` / `.lzx` source, IR, doctor, inspect, LSP, syntax highlighting. | `command create`, `route id: ID`, `agent summarize_customer`, `policy @policy.update` |
-| **Drusa** | Runtime/codegen/wiring: Go scaffolding, dependency injection mechanics, generated transport bindings, prompt-template loading, broker clients. | `func CreateCustomer(ctx, in) error`, generated HTTP server, generated SQL, LLM transport |
-| **Adapters** | Concrete provider implementations: HTTP, gRPC, Kafka, NATS, MercadoPago, Stripe, OpenAI, Anthropic, AWS, GCP, Envoy, K8s. | `@drusa/mercadopago`, `@plugin/acme/serasa`, `@adapter.crm` |
+| **Language** | Verifiable contracts: `.lzi` / `.lzx` source, IR, doctor, inspect, LSP, syntax highlighting. | `command create`, `route id: ID`, `agent summarize_customer`, `policy @policy.update` |
+| **Runtime** | Codegen + libs that generated code imports: `dist/go/`, `dist/web/`, `runtime/go/`, `runtime/web/`, packs, DI wiring, transport bindings, prompt-template loading, broker clients. | `func CreateCustomer(ctx, in) error`, generated HTTP server, generated TanStack Query hooks, LLM transport |
+| **Adapters** | Concrete provider implementations under `@runtime/<adapter>` (first-party) or `@plugin/<publisher>/<adapter>` (third-party). | `@runtime/mercadopago`, `@plugin/acme/serasa`, `@adapter.crm` |
 
 ## Inviolable rules
 
 1. **No provider names in core syntax.** No `stripe`, `mercadopago`,
    `openai`, `aws`, `kubernetes` keywords. Provider references go
-   through registry adapter slots (`@drusa/...`, `@plugin/...`,
+   through registry adapter slots (`@runtime/...`, `@plugin/...`,
    `@adapter.<local>`).
 
 2. **No DI mechanics in source.** Construction order, lifetimes,
-   logger/db/client instances, test doubles — all Drusa. The language
-   declares `requires integration <slot>: <Capability>` and bindings,
-   not `new()` or `inject()`.
+   logger/db/client instances, test doubles — all in the runtime layer.
+   The language declares `requires integration <slot>: <Capability>`
+   and bindings, not `new()` or `inject()`.
 
 3. **No transport mechanics in contracts.** `contract.lzi` declares
    schema, operation, event. It doesn't declare HTTP method routing
@@ -51,7 +52,12 @@ Reject the proposal in line. Do not merge it into a checklist for
 
 ## When you're unsure
 
-Ask: "could a Lazuli project still function if Drusa was replaced by
-a hypothetical second runtime targeting Rust + Yew + Flutter?" If the
-answer is no because the language is leaking Go-specific or
-React-specific assumptions, the proposal is at the wrong layer.
+Ask: "could a Lazuli project still function if the runtime layer were
+replaced by a hypothetical second runtime targeting Rust + Yew +
+Flutter?" If the answer is no because the language is leaking
+Go-specific or React-specific assumptions, the proposal is at the wrong
+layer.
+
+The v0 runtime is locked: Go + Vite/React + TanStack Query/Router +
+Expo (per `docs/target-stack.md`). The hypothetical second runtime is
+a thought experiment for boundary checking, not a roadmap commitment.

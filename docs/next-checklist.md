@@ -14,9 +14,9 @@ get lost in chat history.
 - `integrations` exists as a provider-neutral registry contract, not as a
   provider operation spec. It may live in `registry.lzi`, or temporarily in
   `app.lzi` for small apps.
-- Service boundaries are logical ownership contracts; Drusa may materialize the
+- Service boundaries are logical ownership contracts; the Lazuli runtime may materialize the
   same graph as a monolith, modular monolith, or split services.
-- Adapter and dependency injection mechanics are Drusa/runtime concerns. Lazuli
+- Adapter and dependency injection mechanics are runtime concerns. Lazuli
   owns the registry contract and typed bindings; it should not grow a
   `container.lzi` until real plugin/runtime pressure proves that `registry.lzi`
   cannot express the contract.
@@ -41,10 +41,10 @@ get lost in chat history.
 | 5 | Registry layout decision | done | Use native `registry.lzi` package convention with explicit import reserved for future non-standard layouts. |
 | 6 | Profiles | done | `profile <environment>` now models URL, binding, integration environment/adapter, and provider-neutral deploy topology overrides with inspect and doctor coverage. |
 | 7 | Pack registry | done | `registry.lzi` catalogs packs and app `packs` enables them; doctor lets enabled packs satisfy `uses` and requires bindings for pack integration slots. |
-| 8 | Adapter binding provenance | done | Adapter sources now derive `drusa`, `plugin`, or `local` provenance from `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or local paths; doctor rejects unknown source shapes. |
+| 8 | Adapter binding provenance | done | Adapter sources now derive `the Lazuli runtime`, `plugin`, or `local` provenance from `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or local paths; doctor rejects unknown source shapes. |
 | 9 | Workspace contract | done | `workspace.lzi` now models local/external apps, shared registry, event boundaries, communication propagation, and provider-neutral gateways with IR/inspect/doctor/LSP coverage. |
-| 10 | External contract imports | done | `contract <name>` now models imported OpenAPI/AsyncAPI/Proto/JSON Schema/Avro plus authored records, operations, and events with IR/inspect/doctor/LSP coverage. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
-| 11 | Gateway/proxy contract | done | Workspace `gateway` covers provider-neutral ingress to apps. Raw proxy, sidecar, service mesh, and provider routing mechanics stay in Drusa/adapters. |
+| 10 | External contract imports | done | `contract <name>` now models imported OpenAPI/AsyncAPI/Proto/JSON Schema/Avro plus authored records, operations, and events with IR/inspect/doctor/LSP coverage. Core the Lazuli runtime should generate Go transport bindings, not make SDK a language concept. |
+| 11 | Gateway/proxy contract | done | Workspace `gateway` covers provider-neutral ingress to apps. Raw proxy, sidecar, service mesh, and provider routing mechanics stay in runtime/adapters. |
 | 12 | Syntax highlighting audit | done | TextMate scopes cover current integration/binding/calls/profile/pack/workspace/contract syntax, adapter package refs, top-level `route` declarations, and the realigned `route <name>: <Type>` route slot syntax. Legacy `stack` removed. |
 | 13 | IR/inspect coverage audit | done | App, registry, packs, requirements, bindings, external calls, profiles, workspace, contracts, and `.lzx` routes/experiences/surfaces all appear in inspect/doctor. |
 | 14 | Final vocabulary cleanup | done | Top-level `.lzx route` blocks now declare path slots with `route <name>: <Type>` and reference them as `route.<name>`, matching command/view route locator syntax. Legacy `stack` removed. `params` is reserved for query/API read arguments. `path` only names URL strings. |
@@ -52,7 +52,7 @@ get lost in chat history.
 ## Registry Decision Pressure
 
 The open question is whether a root `registry.lzi` should be a native Lazuli/
-Drusa package artifact or just an arbitrary file imported by `app.lzi`.
+the Lazuli runtime package artifact or just an arbitrary file imported by `app.lzi`.
 
 ### Option A: Native `registry.lzi` Convention
 
@@ -62,7 +62,7 @@ Pros:
 
 - Keeps `app.lzi` thin without adding import noise.
 - Fits Lazuli's opinionated, token-efficient style.
-- Gives Drusa and `lazuli doctor` a stable place for global env, capabilities,
+- Gives the Lazuli runtime and `lazuli doctor` a stable place for global env, capabilities,
   integration registry, adapter bindings, and pack registry.
 - Avoids top-of-file import boilerplate in every `.lzi` and `.lzx`.
 
@@ -131,7 +131,7 @@ Intended split:
 - `workspace.lzi`: semantic contract for a distributed system or monorepo,
   including apps, external contracts, shared registry, app graph, event edges,
   and gateway contracts.
-- `drusa.toml`: operational Drusa config such as remote repo URLs, branches,
+- `lazuli.toml`: operational the Lazuli runtime config such as remote repo URLs, branches,
   provider ids, CI wiring, deploy providers, local ports, adapter provider
   choices, and other concrete mechanics.
 
@@ -145,7 +145,7 @@ Expected ownership model:
 - A distributed system spanning multiple repos may add a root `workspace.lzi`
   that references apps, external services, sidecars, shared registries, event
   edges, and public ingress/gateway contracts.
-- `drusa.toml` remains operational glue: repo URLs, branches,
+- `lazuli.toml` remains operational glue: repo URLs, branches,
   provider ids, CI/deploy wiring, and concrete mechanics.
 
 Do not make `workspace.lzi` mandatory for normal apps. It is a semantic
@@ -154,13 +154,13 @@ coordination artifact for distributed systems, not a replacement for `app.lzi`.
 Naming decision:
 
 - Use `workspace.lzi` for the semantic distributed-system contract.
-- Use `drusa.toml` for Drusa's operational/tooling configuration.
-- Avoid `drusa-workspace.toml` as the default name because it competes with
+- Use `lazuli.toml` for the Lazuli runtime's operational/tooling configuration.
+- Avoid `the Lazuli runtime-workspace.toml` as the default name because it competes with
   `workspace.lzi` and makes the source of truth less obvious.
 
 Polyglot contract rule:
 
-Lazuli does not require every service to be implemented with Lazuli or Drusa.
+Lazuli does not require every service to be implemented with Lazuli or the Lazuli runtime.
 It requires every service participating in the workspace graph to have a
 contract.
 
@@ -191,7 +191,7 @@ workspace AcmeERP
 
 The `ai` service might be Python/FastAPI, Java, Node, Rust, or another stack.
 Lazuli owns the API/event/schema contract and context propagation guarantees.
-Drusa materializes that contract mostly as Go runtime wiring: typed HTTP/RPC
+the runtime materializes that contract mostly as Go runtime wiring: typed HTTP/RPC
 clients, event publishers/consumers, webhook receivers, mocks, gateway config,
 and contract tests. Adapters own HTTP, gRPC/Connect, Kafka, NATS, RabbitMQ,
 SQS, Pub/Sub, Envoy, Kubernetes ingress, and other concrete transports.
@@ -239,7 +239,7 @@ contract acme.ai.v1
 ## Adapter And Container Decision
 
 `registry.lzi` is the native language-level catalog. It may contain bindings to
-adapters supplied by Drusa, third-party plugins, or local app code.
+adapters supplied by the Lazuli runtime, third-party plugins, or local app code.
 
 Canonical model:
 
@@ -250,7 +250,7 @@ registry
       adapter @adapter.crm
 
     payments: PaymentGateway
-      adapter @drusa/mercadopago
+      adapter @runtime/mercadopago
 
     bureau: CreditBureau
       adapter @plugin/acme/serasa
@@ -261,12 +261,12 @@ registry
 
 Allowed adapter sources:
 
-- `@drusa/<adapter>` for Drusa-maintained adapters.
+- `@runtime/<adapter>` for first-party (`@runtime/...`) adapters.
 - `@plugin/<publisher>/<adapter>` for third-party plugin adapters.
 - `@adapter.<name>` for local adapter extension references.
 - Local paths for app-owned adapters.
 
-`lazuli inspect` exposes `adapter_provenance` as `drusa`, `plugin`, or
+`lazuli inspect` exposes `adapter_provenance` as `the Lazuli runtime`, `plugin`, or
 `local`. `lazuli doctor` rejects unknown source shapes.
 
 Do not add a `container.lzi` yet.
@@ -276,7 +276,7 @@ Reason:
 - Dependency inversion belongs in the language contract: features require
   abstract integrations/capabilities, and app/registry bindings choose concrete
   implementations.
-- Dependency injection mechanics belong in Drusa: construction order,
+- Dependency injection mechanics belong in the Lazuli runtime: construction order,
   lifetimes, logger/database/client instances, test doubles, and runtime
   wiring.
 - Provider details belong in adapters/config: HTTP endpoints, optional provider
@@ -297,7 +297,7 @@ Likely split:
 - Lazuli language: `gateway` or `proxy` contract for public ingress, route
   ownership, auth propagation, tenant propagation, timeout/retry policy, and
   service exposure.
-- Drusa framework: generated gateways, service clients, local dev routing,
+- the runtime: generated gateways, service clients, local dev routing,
   request context propagation, and reverse proxy/runtime wiring.
 - Adapters: Envoy, Kubernetes ingress, Cloud Run, Fly proxy, service mesh,
   gRPC/Connect transport, and provider-specific routing.
@@ -318,7 +318,7 @@ than raw proxy mechanics.
   contracts fail under real adapter/plugin pressure.
 - `workspace.lzi` and provider-neutral `gateway` are now implemented. Keep raw
   `proxy`, sidecar, service mesh, and provider routing mechanics in
-  Drusa/adapters unless future static-analysis pressure justifies a language
+  runtime/adapters unless future static-analysis pressure justifies a language
   primitive.
 - Any magic package discovery must be visible in `lazuli inspect`, `doctor`, and
   LSP diagnostics so it does not become hidden runtime behavior.

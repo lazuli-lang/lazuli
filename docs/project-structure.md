@@ -90,20 +90,20 @@ These are authored and committed:
 
 `registry.lzi` is a catalog, not an implementation folder. It may list
 available packs, integrations, env schema, and capabilities. A pack entry such
-as `customer_import from @drusa/customer-import` points to reusable source that
-Drusa can materialize; pack internals, provider payloads, handlers, and adapter
+as `customer_import from @runtime/customer-import` points to reusable source that
+the Lazuli runtime can materialize; pack internals, provider payloads, handlers, and adapter
 mechanics remain in the pack/adapters.
 
 `workspace.lzi` is optional. Use it at a monorepo/polyrepo/system root when a
 product has multiple apps, external services, shared event contracts, or
 gateway edges. It points at app entrypoints and external contracts; repo URLs,
 branches, local ports, broker providers, proxy implementations, and deploy
-mechanics belong in `drusa.toml` or adapter config.
+mechanics belong in `lazuli.toml` or adapter config.
 
 `contracts/**/*.lzi` contains external service contracts, not service
 implementations. A contract can import OpenAPI, AsyncAPI, Proto, JSON Schema,
 or Avro and can declare Lazuli-native records, operations, and events for
-doctor/codegen. Drusa consumes those contracts to wire Go transport bindings;
+doctor/codegen. the Lazuli runtime consumes those contracts to wire Go transport bindings;
 the external service may be implemented in Python, Java, Node, Rust, or any
 other stack.
 

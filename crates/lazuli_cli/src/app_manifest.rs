@@ -1226,10 +1226,10 @@ fn parse_integration_header(trimmed: &str) -> Option<(String, String)> {
 
 fn adapter_source_provenance(source: &str) -> Option<&'static str> {
     if source
-        .strip_prefix("@drusa/")
+        .strip_prefix("@runtime/")
         .is_some_and(valid_pathish_tail)
     {
-        Some("drusa")
+        Some("runtime")
     } else if source
         .strip_prefix("@plugin/")
         .is_some_and(valid_plugin_tail)
@@ -1643,13 +1643,13 @@ registry
   capabilities
     payment_gateway mercadopago
   packs
-    payments from @drusa/payments
+    payments from @runtime/payments
       version "0.1.0"
       provides feature payments
       requires integration gateway: PaymentGateway
   integrations
     mercadopago: PaymentGateway
-      adapter @drusa/mercadopago
+      adapter @runtime/mercadopago
       environments sandbox, production
       credentials platform
         access_token env.MERCADOPAGO_ACCESS_TOKEN
@@ -1660,7 +1660,7 @@ registry
         assert_eq!(registry.env[0].group.as_deref(), Some("mercadopago"));
         assert_eq!(registry.capabilities[0].name, "payment_gateway");
         assert_eq!(registry.packs[0].name, "payments");
-        assert_eq!(registry.packs[0].source, "@drusa/payments");
+        assert_eq!(registry.packs[0].source, "@runtime/payments");
         assert_eq!(registry.packs[0].version.as_deref(), Some("0.1.0"));
         assert_eq!(registry.packs[0].provides[0].kind, "feature");
         assert_eq!(registry.packs[0].provides[0].name, "payments");
@@ -1671,7 +1671,7 @@ registry
         assert_eq!(registry.integrations[0].kind, "PaymentGateway");
         assert_eq!(
             registry.integrations[0].adapter_provenance.as_deref(),
-            Some("drusa")
+            Some("runtime")
         );
         assert_eq!(
             registry.integrations[0]

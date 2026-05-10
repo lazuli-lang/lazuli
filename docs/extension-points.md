@@ -51,7 +51,7 @@ validates field tier @validator.validate_tier
 The closed extension namespace set is `@client.*`, `@fn.*`, `@hook.*`,
 `@validator.*`, `@adapter.*`, and `@query_modifier.*`. In registry
 integration bindings, `@adapter.*` means a local adapter extension reference.
-Package adapter sources such as `@drusa/...` and `@plugin/...` are adapter
+Package adapter sources such as `@runtime/...` and `@plugin/...` are adapter
 provenance markers, not extension namespaces.
 
 Use `at` only when the convention is not enough:

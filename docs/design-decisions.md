@@ -89,7 +89,7 @@ declare.
 **Why it isn't**: services are *deployment topology*, not domain
 ownership. The feature graph defines what a feature does; the services
 graph defines which features run together as a logical service boundary.
-Drusa uses the services graph to decide:
+the Lazuli runtime uses the services graph to decide:
 
 - Whether to deploy as monolith, modular monolith, or split services.
 - Which exposures cross service boundaries (and need typed transport).
@@ -116,7 +116,7 @@ path "/admin/foo" ...` both declare HTTP paths.
   participates in audience reachability checks.
 - `escape_route "/admin/foo"` declares a *non-product route*. It bypasses
   the experience graph. There is no `.lzx view` or audience binding —
-  Drusa mounts the handler directly. Generated nav doesn't link to it.
+  the Lazuli runtime mounts the handler directly. Generated nav doesn't link to it.
   Doctor doesn't check audience reachability against it.
 
 Escape routes are the explicit way to ship admin/debug pages without

@@ -19,9 +19,9 @@ source that only fails later.
   local app entrypoints, external service contracts, shared registry path,
   event publication/consumption edges, context propagation defaults, and public
   gateway routes. It is not required for normal apps.
-- Workspace apps may be Lazuli/Drusa packages or external implementations in
+- Workspace apps may be Lazuli packages or external implementations in
   another language. External apps must reference a contract; Lazuli validates
-  the contract graph, while Drusa/Go materializes transport bindings.
+  the contract graph, while the Go runtime materializes transport bindings.
 - Top-level `.lzi contract <name>` owns imported or authored external service
   schemas. It may import OpenAPI, AsyncAPI, Proto, JSON Schema, or Avro and may
   author records, operations, and events. It does not describe SDK generation,
@@ -47,8 +47,8 @@ source that only fails later.
   credential scope. They do not declare provider HTTP operations, provider
   client/SDK methods, or cloud secret storage.
 - Integration adapter references must declare provenance through their shape:
-  `@drusa/...`, `@plugin/<publisher>/<name>`, `@adapter.<local>`, or a local
-  path. Inspect exposes derived `adapter_provenance`; Drusa owns construction,
+  `@runtime/...`, `@plugin/<publisher>/<name>`, `@adapter.<local>`, or a local
+  path. Inspect exposes derived `adapter_provenance`; the runtime owns construction,
   lifetimes, test doubles, and runtime dependency injection mechanics.
 - Registry `packs` declare reusable package entries: name, source, optional
   version, provided artifacts, and abstract requirements. They do not inline
@@ -64,7 +64,7 @@ source that only fails later.
   registry entries with `<feature>.<slot> = integrations.<name>` or
   `<feature>.<slot> = registry.integrations.<name>`. The integration kind must
   match the required capability type.
-- Lazuli integration constructs are contracts only. Drusa materializes them as
+- Lazuli integration constructs are contracts only. the runtime materializes them as
   Go runtime wiring, and Go adapters perform real HTTP/RPC/event/webhook work.
   React and Expo clients should consume generated app APIs, not provider
   integrations directly.
@@ -75,7 +75,7 @@ source that only fails later.
   `idempotency by ...` so generated Go transport bindings have explicit
   failure behavior.
 - App `services` declare logical ownership boundaries. They do not by
-  themselves require separate processes; Drusa decides whether the same
+  themselves require separate processes; the runtime decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.
 - Abstract `.lzx` owns the experience/view model and imports `.lzi`
   capabilities.
@@ -97,7 +97,7 @@ source that only fails later.
   contract instead of relying on event-name conventions.
 - Resources may declare collection edges with
   `has_many <name>: <Type> [inverse <field>]`. The optional `inverse` names the
-  field on the target resource that owns the foreign key. Drusa generates the
+  field on the target resource that owns the foreign key. the runtime generates the
   inverse query and FK contract; Lazuli only owns the relationship contract.
 - Queries declare their kind in the header: `query.list <name>`,
   `query.lookup <name>`, or `query.sql <name>`. The bare `query <name>` form
@@ -109,13 +109,13 @@ source that only fails later.
   @policy.<name>`, `output [stream] <Type>`, `model @llm.<name>`, `prompt
   "./path"`. Optional model config siblings: `temperature` (0.0-2.0), `top_p`
   (0.0-1.0), `max_tokens` (positive integer), `seed` (integer). Lazuli owns
-  the contract; Drusa wires the LLM transport, prompt-template loading, and
+  the contract; the runtime wires the LLM transport, prompt-template loading, and
   tool dispatch.
 - `notification <name>` declares a multi-channel outbound notification.
   Required children: `channel <email|push|sms|in_app>[, ...]`,
   `recipient <expression>`, `trigger event <pattern>`, `template "./path"`,
   `policy @policy.<name>`. Optional: `tenant_from`, `idempotency by`, `retry`,
-  `rate_limit`, `emits`. Lazuli owns the dispatch contract; Drusa generates
+  `rate_limit`, `emits`. Lazuli owns the dispatch contract; the runtime generates
   wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.
 - Validators are referenced through `validates @validator.<name>`. The
   validator's `Validator[<scope>]` type in `extensions` declares the scope —
@@ -133,7 +133,7 @@ source that only fails later.
   (`<feature>.query.<name>` or `<feature>.query.*` wildcard) and same-feature
   short forms (`query.<name>` or `query.*`).
 - Commands may emit events with payload bindings derived from the surrounding
-  effect: `emits <event> from creates|updates|deletes` declares that Drusa
+  effect: `emits <event> from creates|updates|deletes` declares that the Lazuli runtime
   should derive the event payload from the cited effect's bindings by name
   match. The derived form rejects an inline body, since duplicated bindings
   defeat the contract.
@@ -172,7 +172,7 @@ source that only fails later.
 - `@...` references use the closed namespace catalog: `@role`, `@scope`,
   `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@client`, `@fn`, `@hook`,
   `@validator`, `@adapter`, `@query_modifier`, `@anchor`, `@llm`, and `@tool`.
-- Registry adapter package refs such as `@drusa/...` and `@plugin/...` are
+- Registry adapter package refs such as `@runtime/...` and `@plugin/...` are
   adapter source markers, not general `@...` extension namespaces.
 - Unknown `@...` namespaces are errors.
 - Extension declaration keywords match call-site namespaces: `fn risk_score`

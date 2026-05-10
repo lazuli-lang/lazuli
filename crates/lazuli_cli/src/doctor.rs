@@ -1385,7 +1385,7 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                     severity: DoctorSeverity::Warning,
                     code: "WS-GW-003".to_owned(),
                     message: format!(
-                        "workspace gateway `{}` route `{}` should declare `auth propagate` so Drusa does not infer auth context.",
+                        "workspace gateway `{}` route `{}` should declare `auth propagate` so the runtime does not infer auth context.",
                         gateway.name, route.path
                     ),
                 });
@@ -2103,7 +2103,7 @@ fn adapter_source_diagnostic(
         severity: DoctorSeverity::Error,
         code: code.to_owned(),
         message: format!(
-            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path."
+            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path."
         ),
     }
 }
@@ -3274,7 +3274,7 @@ registry
     mercadopago: PaymentGateway
       adapter @adapter.mercadopago
   packs
-    payments from @drusa/payments
+    payments from @runtime/payments
       version "0.1.0"
       provides feature payments
       requires integration gateway: PaymentGateway

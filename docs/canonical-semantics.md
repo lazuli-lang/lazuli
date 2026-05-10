@@ -34,7 +34,7 @@ Closed reference namespaces:
 | `@query_modifier.*` | query modifiers |
 | `@anchor.*` | view composition anchors |
 
-Registry adapter package refs such as `@drusa/mercadopago` and
+Registry adapter package refs such as `@runtime/mercadopago` and
 `@plugin/acme/serasa` are adapter source/provenance markers. They are not
 general extension namespaces.
 
@@ -602,7 +602,7 @@ query.list list
 
 `cache` is a cross-stack contract, not a Redis/provider choice. Lazuli owns the
 stable key expression and stale-time semantics so React, Expo, server loaders,
-and tests can agree on query identity. Drusa/runtime owns the actual cache
+and tests can agree on query identity. runtime owns the actual cache
 implementation.
 
 ### SQL Queries
@@ -755,7 +755,7 @@ command create_invoice
 
 `write_window` is deliberately generic. It models "this write is only allowed
 for a date that belongs to an open operational window"; it is not fiscal-period,
-accounting, payroll, or inventory-specific syntax. Drusa packs define concrete
+accounting, payroll, or inventory-specific syntax. runtime packs define concrete
 windows and adapters enforce them. Lazuli keeps the command contract visible to
 doctor/check/codegen.
 
@@ -1147,7 +1147,7 @@ resource CustomerSession
 Retention is a horizontal compliance contract, not an ERP or GDPR-only module.
 The canonical form is `retention <duration|forever> then
 delete|anonymize|archive`. Export, erasure workflows, and reviewer dashboards
-belong in Drusa packs, but the retention decision belongs in source.
+belong in runtime packs, but the retention decision belongs in source.
 
 Event payloads may also carry `@pii.*`, `@cap.*`, or `@key.*` markers. `lazuli inspect --expand=security` exposes those markers under event payloads so cross-feature consumers can be audited without opening handler code. Consumers may only read `payload.*` fields declared by the producer event contract; the analyzer validates this across features when both producer and consumer are present in the same capsule.
 
@@ -1190,7 +1190,7 @@ env
 ```
 
 Any `env.NAME` reference should resolve to this schema. `group <name>` is an
-organizational key for humans, agents, inspect output, and Drusa wiring; it is
+organizational key for humans, agents, inspect output, and the Lazuli runtime wiring; it is
 not a namespace. Variable names stay explicit and globally unique inside the
 package env schema. `required in production` narrows the requirement to named
 environments declared by the app manifest; plain `required` applies to every
@@ -1622,7 +1622,7 @@ policies
 ## App Runtime and Routes
 
 `app.lzi` is the project entrypoint. It declares the provider-neutral
-operational contract that Drusa materializes into generated app wiring,
+operational contract that the runtime materializes into generated app wiring,
 runtime units, deploy gates, and adapter requirements. It is not a product
 feature and should not hide domain behavior.
 
@@ -1713,7 +1713,7 @@ app AcmeCRM
     rollback on_failed_healthcheck
 ```
 
-`registry.lzi` is the package-level catalog consumed by `app.lzi`, Drusa, and
+`registry.lzi` is the package-level catalog consumed by `app.lzi`, the Lazuli runtime, and
 doctor:
 
 ```lazuli
@@ -1735,7 +1735,7 @@ registry
     integration crm
 
   packs
-    customer_import from @drusa/customer-import
+    customer_import from @runtime/customer-import
       version "0.1.0"
       provides feature customer_import
       requires integration crm: CRMProvider
@@ -1750,7 +1750,7 @@ registry
 
 `app.lzi` declares what the app needs, not how a specific cloud provider is
 configured. Concrete provider choices such as Fly, AWS, Kubernetes, Neon, R2,
-Redis, SendGrid, or OpenTelemetry exporters belong in Drusa adapter
+Redis, SendGrid, or OpenTelemetry exporters belong in the Lazuli runtime adapter
 configuration.
 
 `profile <environment>` is the environment-specific override contract. It keeps
@@ -1787,7 +1787,7 @@ Profiles may override public URLs, feature-to-integration bindings, integration
 environment/adapter selection, and provider-neutral deploy topology/gates. They
 must not contain secret values, cloud account ids, bucket names, Kubernetes
 namespaces, concrete broker URLs, provider HTTP paths, or SDK method schemas.
-Those remain Drusa/adapters. `lazuli inspect` exposes profiles under
+Those remain runtime/adapters. `lazuli inspect` exposes profiles under
 `profiles`; `lazuli doctor` validates profile names against app
 `environments`, integration overrides against app/registry integrations, and
 profile bindings against feature requirements.
@@ -1797,7 +1797,7 @@ the semantic contract of a distributed system: local apps, external services,
 shared registries, event publication/consumption edges, context propagation,
 and provider-neutral public gateways. It is not a repo manager or infra file:
 remote repositories, branches, local ports, deploy providers, brokers, and
-proxy implementations belong in `drusa.toml` or adapter config.
+proxy implementations belong in `lazuli.toml` or adapter config.
 
 ```lazuli
 workspace AcmeERP
@@ -1826,7 +1826,7 @@ workspace AcmeERP
 ```
 
 An external app may be Python, Java, Node, Rust, or any other stack. Lazuli does
-not require the implementation to use Drusa; it requires a contract. Drusa
+not require the implementation to use the Lazuli runtime; it requires a contract. the Lazuli runtime
 materializes workspace edges primarily as Go transport bindings, event
 publishers/consumers, gateway wiring, mocks, and contract tests for the Lazuli
 apps that participate in the graph.
@@ -1872,20 +1872,20 @@ Supported import formats are `openapi`, `asyncapi`, `proto`, `json_schema`,
 and `avro`. The language records the contract and enough transport intent for
 doctor/codegen. It does not encode provider clients, Python SDKs, broker
 configuration, generated package names, or service implementation details.
-Those are Drusa/adapters. External SDK export may be a future publication
+Those are runtime/adapters. External SDK export may be a future publication
 artifact, but it is not the runtime model.
 
 `architecture` and `services` describe logical service boundaries, not
-mandatory process boundaries. `mode modular_monolith` lets Drusa generate one
+mandatory process boundaries. `mode modular_monolith` lets the Lazuli runtime generate one
 deployable app with enforced ownership boundaries; `mode microservices` is a
-topology choice Drusa may materialize later with RPC clients, event routing, and
+topology choice the Lazuli runtime may materialize later with RPC clients, event routing, and
 separate deploy units. Lazuli owns `owns`, `exposes`, `publishes`, `consumes`,
 and context propagation because those facts affect static analysis, generated
 clients, policy/tenant propagation, idempotency, and contract tests. Concrete
 choices such as gRPC, Connect, Kafka, NATS, Kubernetes, Envoy, or service mesh
-providers stay in Drusa adapters.
+providers stay in the Lazuli runtime adapters.
 
-`packs` in `registry.lzi` declares reusable Lazuli/Drusa packages available to
+`packs` in `registry.lzi` declares reusable Lazuli packages available to
 the app. A registry pack records its package/path source, optional version,
 what it provides, and the abstract slots it requires. It does not inline the
 pack's domain model, UI, provider payloads, handlers, migrations, or adapter
@@ -1894,7 +1894,7 @@ implementation:
 ```lazuli
 registry
   packs
-    payments from @drusa/payments
+    payments from @runtime/payments
       version "0.1.0"
       provides feature payments
       requires integration gateway: PaymentGateway
@@ -1917,11 +1917,11 @@ app AcmeCRM
 Enabled packs may satisfy app `uses` entries and may introduce abstract
 requirements that must be bound just like local feature requirements. This
 keeps `app.lzi` as a composition root and `registry.lzi` as a catalog; concrete
-pack internals and generated/runtime behavior remain in Drusa packs and
+pack internals and generated/runtime behavior remain in runtime packs and
 adapters.
 
 Lazuli itself does not call external systems. It declares the contract that
-Drusa turns into Go runtime wiring. The Go backend performs HTTP/RPC/broker
+the Lazuli runtime turns into Go runtime wiring. The Go backend performs HTTP/RPC/broker
 publishing, broker consuming, and webhook handling through generated transport
 bindings and adapter implementations. React and Expo clients consume generated
 commands, queries, APIs, routes, and UI state; they should not call provider
@@ -1932,7 +1932,7 @@ neutral names, capability kinds, adapter references, allowed environments, and
 credential scope. It does not describe provider HTTP operations, raw payload
 schemas, provider client/SDK methods, sandbox URLs, or cloud secret stores. Use
 it to say that the app has `crm: CRMProvider`, `mercadopago: PaymentGateway`,
-or `serasa: CreditBureau`; feature `.lzi` files and Drusa packs declare why
+or `serasa: CreditBureau`; feature `.lzi` files and runtime packs declare why
 and when those integrations are called, and Go adapters declare how they are
 called.
 
@@ -1943,7 +1943,7 @@ container:
 registry
   integrations
     mercadopago: PaymentGateway
-      adapter @drusa/mercadopago
+      adapter @runtime/mercadopago
 
     serasa: CreditBureau
       adapter @plugin/acme/serasa
@@ -1957,17 +1957,17 @@ registry
 
 Allowed adapter source classes are:
 
-- `@drusa/<adapter>` for Drusa-maintained adapters.
+- `@runtime/<adapter>` for first-party (`@runtime/...`) adapters.
 - `@plugin/<publisher>/<adapter>` for third-party plugin adapters.
 - `@adapter.<name>` for local adapter extension references.
 - local paths such as `"./integrations/local_ai.go"` when the adapter lives in
   app code.
 
 `lazuli inspect` exposes the authored `adapter` and derived
-`adapter_provenance` (`drusa`, `plugin`, or `local`). `lazuli doctor` rejects
+`adapter_provenance` (`the Lazuli runtime`, `plugin`, or `local`). `lazuli doctor` rejects
 adapter references whose provenance cannot be determined. Construction order,
 lifetimes, test doubles, logger/database clients, connection pools, provider
-base URLs, and optional provider SDK setup remain Drusa/runtime/adapter
+base URLs, and optional provider SDK setup remain runtime/adapter
 mechanics, not Lazuli syntax.
 
 Credential scopes are `platform`, `tenant`, or `actor`. Credential bindings may
@@ -2011,14 +2011,14 @@ app AcmeCRM
 
 Binding sources use `integrations.<name>` or `registry.integrations.<name>`.
 They reference entries from `app.lzi` or the package-level `registry.lzi`.
-Drusa uses those bindings to wire Go interfaces/clients to adapter
+the Lazuli runtime uses those bindings to wire Go interfaces/clients to adapter
 implementations. Adapters implement the concrete transport mechanics.
 `lazuli inspect` exposes both app bindings and feature requirements, and
 `lazuli doctor` rejects missing, unknown, or type-mismatched integration
 bindings.
 
 Commands and jobs call those abstract slots with `calls <slot>.<operation>`.
-This is still a Lazuli contract, not provider execution. Drusa lowers it to Go
+This is still a Lazuli contract, not provider execution. the Lazuli runtime lowers it to Go
 interfaces and typed transport bindings; the Go adapter performs the actual
 HTTP/RPC/event call:
 

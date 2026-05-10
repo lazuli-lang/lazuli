@@ -180,7 +180,7 @@ For each candidate that survived the gate, write:
 - What it would replace in the fixture (cite `path:line`).
 - The minimal contract: required children, validation rules, inspect
   shape.
-- The boundary against Drusa/adapters — what Drusa generates from this
+- The boundary against runtime/adapters — what the runtime generates from this
   primitive vs. what the primitive declares.
 
 Output: ranked list of candidate primitives. Be ruthless about cost

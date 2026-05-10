@@ -1,6 +1,6 @@
 ---
 name: Lazuli Language Audit
-description: How to audit Lazuli for friction, gaps, and missing primitives. Anchored to the full-capsule fixture and the design boundary between Lazuli, Drusa, and adapters.
+description: How to audit Lazuli for friction, gaps, and missing primitives. Anchored to the full-capsule fixture and the design boundary between Lazuli, the Lazuli runtime, and adapters.
 ---
 
 # Lazuli Language Audit
@@ -185,7 +185,7 @@ at least 2 use sites in the fixture; otherwise drop it.
 
 Each candidate must declare: what feature in the fixture would use it,
 what it removes (handler files? jobs? duplicate state?), and the
-boundary against Drusa/adapters.
+boundary against runtime/adapters.
 
 ### 5. AI-first sanity check
 
@@ -211,7 +211,7 @@ Sort by cost-adjusted value descending. For each finding, anchor with
 - **Polish** (rename / cosmetic / typo) — small, low-risk.
 - **Coverage gap** (LSP/doctor/inspect missing) — medium, mechanical.
 - **Primitive** (new construct) — large, design-heavy.
-- **Boundary violation** (Lazuli reaching into Drusa/adapter
+- **Boundary violation** (Lazuli reaching into runtime/adapter
   territory) — must be reverted, not deferred.
 
 The user picks what ships. Don't auto-implement unless explicitly
@@ -223,7 +223,7 @@ asked.
   in code (`crates/lazuli_lsp/src/lib.rs:is_allowed_reference_namespace`)
   and documented in `docs/invariants.md`. Adding a separate doc is
   redundant.
-- Don't propose `container.lzi` — DI mechanics are Drusa, not Lazuli.
+- Don't propose `container.lzi` — DI mechanics are the Lazuli runtime, not Lazuli.
 - Don't propose making `workspace.lzi` mandatory — it's optional by
   design.
 - Don't propose primitives whose only motivation is "other frameworks

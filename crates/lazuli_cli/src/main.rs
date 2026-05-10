@@ -3890,13 +3890,13 @@ registry
   capabilities
     payment_gateway mercadopago
   packs
-    payments from @drusa/payments
+    payments from @runtime/payments
       version "0.1.0"
       provides feature payments
       requires integration gateway: PaymentGateway
   integrations
     mercadopago: PaymentGateway
-      adapter @drusa/mercadopago
+      adapter @runtime/mercadopago
       credentials platform
         access_token env.MERCADOPAGO_ACCESS_TOKEN
 "#;
@@ -3908,11 +3908,11 @@ registry
         assert!(json.contains("\"registry\""));
         assert!(json.contains("\"group\":\"mercadopago\""));
         assert!(json.contains("\"packs\""));
-        assert!(json.contains("\"@drusa/payments\""));
+        assert!(json.contains("\"@runtime/payments\""));
         assert!(json.contains("\"provides\""));
         assert!(json.contains("\"contract\":\"PaymentGateway\""));
         assert!(json.contains("\"kind\":\"PaymentGateway\""));
-        assert!(json.contains("\"adapter_provenance\":\"drusa\""));
+        assert!(json.contains("\"adapter_provenance\":\"runtime\""));
         assert!(json.contains("\"access_token\""));
     }
 
