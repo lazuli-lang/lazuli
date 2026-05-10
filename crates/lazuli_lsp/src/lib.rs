@@ -331,6 +331,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(derived_field_diagnostics(source));
         diagnostics.extend(has_many_diagnostics(source));
         diagnostics.extend(agent_contract_diagnostics(source));
+        diagnostics.extend(notification_contract_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
         diagnostics.extend(event_payload_reference_diagnostics(source));
         diagnostics.extend(event_kind_diagnostics(source));
@@ -1283,7 +1284,16 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         };
 
-        if first == "query" && leading_spaces(line) <= 4 {
+        // Only validate query declarations, not references. Declarations live
+        // at indent 2 (legacy top-level) or 4 (canonical, inside `domain`)
+        // inside a feature; references appear in `invalidates`, `source`,
+        // `target`, `let`, etc. at deeper indents.
+        let leading = leading_spaces(line);
+        if leading != 2 && leading != 4 {
+            continue;
+        }
+
+        if first == "query" {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -1292,6 +1302,11 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, or `query.sql <name>`. The kind belongs in the header so cold-readers see it before the body.",
             ));
         } else if let Some(mode) = first.strip_prefix("query.") {
+            // Strip parens/args used in references like `query.by_id(id: route.id)`.
+            let mode = mode
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+                .unwrap_or("");
             if !matches!(mode, "list" | "lookup" | "sql") {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
@@ -1317,25 +1332,76 @@ fn previously_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        let Some((_, tail)) = trimmed.split_once(" previously ") else {
+        let Some((head, tail)) = trimmed.split_once(" previously ") else {
             continue;
         };
 
         let tail = tail.trim_start();
-        if tail.starts_with("migrated ") || tail.starts_with("alias ") {
+        if !tail.starts_with("migrated ") && !tail.starts_with("alias ") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "previously-mode-contract",
+                "`previously` should declare `migrated` or `alias` so migration-only history is distinct from compatibility aliases.",
+            ));
             continue;
         }
 
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "previously-mode-contract",
-            "`previously` should declare `migrated` or `alias` so migration-only history is distinct from compatibility aliases.",
-        ));
+        // When the `previously` clause is inline on a field declaration, it
+        // splits the field name from its type/default, hurting cold-read
+        // legibility. Encourage child placement: keep `<name>: <Type> = <value>`
+        // contiguous and put `previously migrated <old>` as an indented child.
+        // Headers like `resource Customer previously migrated Account` and
+        // `command reassign previously migrated assign_owner` are fine.
+        if is_inline_previously_on_field(head, tail) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "previously-field-inline",
+                "field-level `previously migrated|alias <old>` should be a child of the field, not inline before `:`. Keep `<name>: <Type> = <value>` contiguous and put `previously migrated <old>` on the next line indented one level deeper.",
+            ));
+        }
     }
 
     diagnostics
+}
+
+fn is_inline_previously_on_field(head: &str, tail: &str) -> bool {
+    // Field shape: `<name>` followed by `previously migrated|alias <old>: <Type>`.
+    // Header shape: `resource <Name>` / `command <name>` / `enum <Name>` etc.
+    // Transition shape: `<name> previously migrated <old>: <state> -> <state>`.
+    let head = head.trim();
+    if head.is_empty() {
+        return false;
+    }
+    let first = head.split_whitespace().next().unwrap_or("");
+    if matches!(
+        first,
+        "resource"
+            | "record"
+            | "enum"
+            | "command"
+            | "workflow"
+            | "job"
+            | "webhook"
+            | "api"
+            | "view"
+            | "rule"
+            | "agent"
+            | "feature"
+    ) {
+        return false;
+    }
+    if head.contains(' ') {
+        return false;
+    }
+    // Workflow transitions use `<name>: <state> -> <state>`. Exclude.
+    if tail.contains(" -> ") {
+        return false;
+    }
+    tail.contains(':')
 }
 
 fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -3122,6 +3188,13 @@ fn typed_line_type(trimmed_line: &str) -> Option<&str> {
     }
 }
 
+fn is_float_in_range(value: &str, min: f64, max: f64) -> bool {
+    value
+        .parse::<f64>()
+        .map(|v| v >= min && v <= max)
+        .unwrap_or(false)
+}
+
 fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -3204,6 +3277,7 @@ fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
         let mut has_model = false;
         let mut has_prompt = false;
         let mut model_value: Option<&str> = None;
+        let mut bad_config: Vec<(usize, String, String)> = Vec::new();
 
         index += 1;
         while index < lines.len() {
@@ -3228,6 +3302,43 @@ fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     model_value = Some(rest.trim());
                 } else if inner_trimmed.starts_with("prompt ") {
                     has_prompt = true;
+                } else if let Some(rest) = inner_trimmed.strip_prefix("temperature ") {
+                    let value = rest.trim();
+                    if !is_float_in_range(value, 0.0, 2.0) {
+                        bad_config.push((
+                            index,
+                            inner.to_owned(),
+                            "`temperature` requires a float in [0.0, 2.0]".to_owned(),
+                        ));
+                    }
+                } else if let Some(rest) = inner_trimmed.strip_prefix("top_p ") {
+                    let value = rest.trim();
+                    if !is_float_in_range(value, 0.0, 1.0) {
+                        bad_config.push((
+                            index,
+                            inner.to_owned(),
+                            "`top_p` requires a float in [0.0, 1.0]".to_owned(),
+                        ));
+                    }
+                } else if let Some(rest) = inner_trimmed.strip_prefix("max_tokens ") {
+                    let value = rest.trim();
+                    let valid = value.parse::<u32>().map(|v| v >= 1).unwrap_or(false);
+                    if !valid {
+                        bad_config.push((
+                            index,
+                            inner.to_owned(),
+                            "`max_tokens` requires a positive integer".to_owned(),
+                        ));
+                    }
+                } else if let Some(rest) = inner_trimmed.strip_prefix("seed ") {
+                    let value = rest.trim();
+                    if value.parse::<i64>().is_err() {
+                        bad_config.push((
+                            index,
+                            inner.to_owned(),
+                            "`seed` requires an integer".to_owned(),
+                        ));
+                    }
                 }
             }
             index += 1;
@@ -3277,6 +3388,105 @@ fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 DiagnosticSeverity::ERROR,
                 "agent-contract",
                 "`agent` declarations must declare a `prompt \"./path\"` template.",
+            ));
+        }
+        for (idx, owned_line, message) in bad_config {
+            diagnostics.push(simple_canonical_diagnostic(
+                idx,
+                &owned_line,
+                DiagnosticSeverity::ERROR,
+                "agent-contract",
+                &message,
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn notification_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if leading != 2 || !trimmed.starts_with("notification ") {
+            index += 1;
+            continue;
+        }
+
+        let header_index = index;
+        let mut has_channel = false;
+        let mut has_recipient = false;
+        let mut has_trigger = false;
+        let mut has_template = false;
+        let mut has_policy = false;
+        let mut bad_channel: Option<(usize, String)> = None;
+        let allowed_channels = ["email", "push", "sms", "in_app"];
+
+        index += 1;
+        while index < lines.len() {
+            let inner = lines[index];
+            let inner_trimmed = inner.trim_start();
+            let inner_leading = leading_spaces(inner);
+
+            if inner_trimmed.is_empty() || inner_trimmed.starts_with('#') {
+                index += 1;
+                continue;
+            }
+            if inner_leading <= 2 {
+                break;
+            }
+            if inner_leading == 4 {
+                if let Some(rest) = inner_trimmed.strip_prefix("channel ") {
+                    has_channel = true;
+                    for ch in rest.split(',').map(|c| c.trim()) {
+                        if !allowed_channels.contains(&ch) {
+                            bad_channel = Some((index, inner.to_owned()));
+                        }
+                    }
+                } else if inner_trimmed.starts_with("recipient ") {
+                    has_recipient = true;
+                } else if inner_trimmed.starts_with("trigger ") {
+                    has_trigger = true;
+                } else if inner_trimmed.starts_with("template ") {
+                    has_template = true;
+                } else if inner_trimmed.starts_with("policy ") {
+                    has_policy = true;
+                }
+            }
+            index += 1;
+        }
+
+        for (label, present) in [
+            ("`channel <email|push|sms|in_app>[, ...]`", has_channel),
+            ("`recipient <expression>`", has_recipient),
+            ("`trigger event <pattern>`", has_trigger),
+            ("`template \"./path\"`", has_template),
+            ("`policy @policy.<name>`", has_policy),
+        ] {
+            if !present {
+                diagnostics.push(simple_canonical_diagnostic(
+                    header_index,
+                    lines[header_index],
+                    DiagnosticSeverity::ERROR,
+                    "notification-contract",
+                    &format!("`notification` declarations must declare {label}."),
+                ));
+            }
+        }
+
+        if let Some((idx, owned_line)) = bad_channel {
+            diagnostics.push(simple_canonical_diagnostic(
+                idx,
+                &owned_line,
+                DiagnosticSeverity::ERROR,
+                "notification-contract",
+                "`channel` accepts a comma-separated subset of `email`, `push`, `sms`, `in_app`.",
             ));
         }
     }
@@ -3416,18 +3626,47 @@ fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::WARNING,
                 "validation-syntax",
-                "whole-resource validators should use `validates resource ...`.",
+                "whole-resource validators should use `validates resource @validator.<name>`.",
             ));
-        } else if trimmed.starts_with("validates ")
-            && !trimmed.starts_with("validates resource ")
-            && !trimmed.starts_with("validates field ")
-        {
+            continue;
+        }
+
+        let Some(rest) = trimmed.strip_prefix("validates ") else {
+            continue;
+        };
+
+        let argument = rest.trim();
+        let target = if let Some(field_rest) = argument.strip_prefix("field ") {
+            // Drop the field name token to inspect what's left.
+            field_rest.split_whitespace().skip(1).next().unwrap_or("")
+        } else if let Some(resource_rest) = argument.strip_prefix("resource") {
+            resource_rest.trim()
+        } else {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
                 DiagnosticSeverity::WARNING,
                 "validation-syntax",
-                "field validators should use `validates field <name> ...`.",
+                "field validators should use `validates field <name> @validator.<name>`.",
+            ));
+            continue;
+        };
+
+        if target.starts_with('"') {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "validation-syntax",
+                "inline `\"./path.go\"` validator references are legacy. Declare the validator under `extensions.validator <name>: \"./path.go\"` and reference it as `@validator.<name>`.",
+            ));
+        } else if !target.starts_with("@validator.") && !target.is_empty() {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "validation-syntax",
+                "validator references should use the `@validator.<name>` namespace. Declare the validator under `extensions.validator <name>` first.",
             ));
         }
     }
@@ -4141,13 +4380,21 @@ fn cache_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
         if let Some(invalidates) = current_invalidates.as_mut()
             && leading_spaces(line) == 6
         {
-            if !trimmed.contains(".query.") {
+            // Accepted forms (per docs/invariants.md):
+            //   <feature>.query.<name>              — fully qualified
+            //   <feature>.query.<name>(<args>)      — fully qualified with args
+            //   <feature>.query.*                   — feature-local wildcard
+            //   query.<name>                        — same-feature short form
+            //   query.*                             — same-feature wildcard
+            let entry = trimmed.split_whitespace().next().unwrap_or("");
+            let valid = entry.contains(".query.") || entry.starts_with("query.");
+            if !valid {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
                     DiagnosticSeverity::WARNING,
                     "cache-invalidation-contract",
-                    "cache invalidation entries should target explicit queries such as `customer.query.list` or `customer.query.by_id(id: route.id)`.",
+                    "cache invalidation entries should target queries: `<feature>.query.<name>`, `<feature>.query.*`, `query.<name>` (same feature), or `query.*` (same feature).",
                 ));
             }
             invalidates.entries += 1;
@@ -10012,6 +10259,18 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "agent" => Some(
             "Declares an LLM-powered capability with typed input, output, prompt template, model reference, policy, and rate limits. Drusa wires the LLM transport; Lazuli owns the contract.",
         ),
+        "notification" => Some(
+            "Declares a multi-channel outbound notification with `channel`, `recipient`, `trigger`, `template`, and `policy`. Drusa generates dispatch wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.",
+        ),
+        "channel" => Some(
+            "On a `notification`, declares one or more delivery channels: `email`, `push`, `sms`, `in_app`.",
+        ),
+        "recipient" => Some(
+            "On a `notification`, declares the recipient expression (e.g., `target.email`, `payload.user_id`).",
+        ),
+        "template" => {
+            Some("On a `notification`, points to the template file at `./path` (mjml/mdx/text).")
+        }
         "model" => {
             Some("On an `agent`, references the LLM model under the `@llm.<name>` namespace.")
         }
@@ -10188,6 +10447,14 @@ const KEYWORDS: &[&str] = &[
     "tools",
     "safety",
     "stream",
+    "temperature",
+    "max_tokens",
+    "top_p",
+    "seed",
+    "notification",
+    "channel",
+    "recipient",
+    "template",
     "defaults",
     "domain",
     "policies",

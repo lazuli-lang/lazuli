@@ -51,7 +51,8 @@ feature customer
       owner: User optional
       name: Text required
       email: @semantic.Email @pii.contact required
-      lifecycle_stage previously migrated status: CustomerStatus = lead
+      lifecycle_stage: CustomerStatus = lead
+        previously migrated status
       tier: CustomerTier = free
       source: CustomerSource = manual
       score: Integer @pii.derived = 0
@@ -62,7 +63,7 @@ feature customer
       soft_delete
       retention 7y then anonymize
 
-      validates field tier "./hooks/validate_tier.go"
+      validates field tier @validator.tier_check
 
     resource CustomerNote
       customer: Customer required
@@ -243,8 +244,8 @@ feature customer
       email = input.email
       source = CustomerSource.manual
     invalidates
-      customer.query.list
-      customer.query.global_search
+      query.list
+      query.global_search
 
   command create
     input
@@ -264,8 +265,8 @@ feature customer
       email = input.email
       source = input.source
     invalidates
-      customer.query.list
-      customer.query.global_search
+      query.list
+      query.global_search
 
   command reassign previously migrated assign_owner
     route id: ID
@@ -281,8 +282,8 @@ feature customer
     emits customer_reassigned
       to_owner_id = input.owner_id
     invalidates
-      customer.query.list
-      customer.query.by_id(id: route.id)
+      query.list
+      query.by_id(id: route.id)
 
     tests
       denies when target.lifecycle_stage = archived
@@ -299,8 +300,8 @@ feature customer
     updates Customer
       tier = input.tier
     invalidates
-      customer.query.list
-      customer.query.by_id(id: route.id)
+      query.list
+      query.by_id(id: route.id)
 
   api customer_export
     method GET
@@ -330,6 +331,9 @@ feature customer
     rate_limit "20 per hour per user"
     output stream Text
     model @llm.default
+    temperature 0.2
+    max_tokens 1024
+    top_p 0.9
     prompt "./prompts/summarize_customer.md"
     safety @validator.pii_scrub
 
@@ -393,6 +397,8 @@ feature customer
     hook after_archive: Hook[ArchiveCustomer]
     fn risk_score: Function[Customer, Integer]
     query_modifier query_scope_modifier: QueryModifier[Customer]
+
+    validator tier_check: Validator[Customer.tier] at "./hooks/validate_tier.go"
 
   escape_route "/admin/customer-debug"
     at "./pages/customer_debug.tsx"
@@ -688,7 +694,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validates resource "./domain/validate_row.go"
+      validates resource @validator.row_check
 
     query.lookup by_id by id: ID
 
@@ -757,6 +763,8 @@ feature customer_import
     client import_history: ViewBlock[Customer]
     client import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
 
+    validator row_check: Validator[CustomerImportRow] at "./domain/validate_row.go"
+
   escape_route "/admin/customer-imports"
     at "./pages/customer_imports.tsx"
     policy @role.admin
@@ -782,18 +790,27 @@ feature customer_outreach
     event.trace archive_survey_sent
       customer_id: ID
 
-  job send_welcome
+  policies
+    notify: @actor.system
+
+  notification welcome_email
+    channel email
+    recipient target.email
     trigger event customer.customer_activated
     tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
-    handler "./outreach/send_welcome_email.go"
+    template "./outreach/welcome_email.mjml"
+    policy @policy.notify
     emits welcome_email_sent
 
-  job send_archive_survey
+  notification archive_survey
+    channel email, in_app
+    recipient target.email
     trigger event customer.customer_archived
     tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
-    handler "./outreach/send_archive_survey.go"
+    template "./outreach/archive_survey.mjml"
+    policy @policy.notify
     emits archive_survey_sent

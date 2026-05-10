@@ -42,7 +42,7 @@ feature customer_import
       row_number: Integer required
       raw: JSON required
       error: Text optional
-      validates resource "./domain/validate_row.go"
+      validates resource @validator.row_check
 
       timestamps
 
@@ -104,3 +104,6 @@ feature customer_import
     view rows Table
       source query.rows(batch_id: route.id)
       columns row_number, error, created_at
+
+  extensions
+    validator row_check: Validator[ImportRow] at "./domain/validate_row.go"

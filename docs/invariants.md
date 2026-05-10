@@ -107,8 +107,30 @@ source that only fails later.
   policy, rate limit, output, model reference, prompt template, optional tool
   list, and optional safety classifier. Required children: `policy
   @policy.<name>`, `output [stream] <Type>`, `model @llm.<name>`, `prompt
-  "./path"`. Lazuli owns the contract; Drusa wires the LLM transport,
-  prompt-template loading, and tool dispatch.
+  "./path"`. Optional model config siblings: `temperature` (0.0-2.0), `top_p`
+  (0.0-1.0), `max_tokens` (positive integer), `seed` (integer). Lazuli owns
+  the contract; Drusa wires the LLM transport, prompt-template loading, and
+  tool dispatch.
+- `notification <name>` declares a multi-channel outbound notification.
+  Required children: `channel <email|push|sms|in_app>[, ...]`,
+  `recipient <expression>`, `trigger event <pattern>`, `template "./path"`,
+  `policy @policy.<name>`. Optional: `tenant_from`, `idempotency by`, `retry`,
+  `rate_limit`, `emits`. Lazuli owns the dispatch contract; Drusa generates
+  wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.
+- Resource and field validators reference declared validator extensions:
+  `validates field <name> @validator.<name>` and
+  `validates resource @validator.<name>`. The validator implementation is
+  declared once under `extensions.validator <name> at "./path.go"` and
+  referenced through the `@validator.<name>` namespace. Inline `"./path.go"`
+  references on `validates` are legacy and warn.
+- Field-level `previously migrated|alias <old>` should be a child of the field
+  block, keeping `<name>: <Type> = <value>` contiguous on the header line and
+  putting the migration on the next line indented one level deeper. Inline
+  `previously` on resource, command, transition, or feature headers is
+  canonical because the head identifier comes first.
+- Cache invalidation entries accept fully qualified queries
+  (`<feature>.query.<name>` or `<feature>.query.*` wildcard) and same-feature
+  short forms (`query.<name>` or `query.*`).
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as

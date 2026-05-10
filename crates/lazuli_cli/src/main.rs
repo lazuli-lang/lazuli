@@ -385,6 +385,8 @@ struct InspectFeature {
     external_calls: Vec<InspectExternalCall>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     agents: Vec<InspectAgent>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notifications: Vec<InspectNotification>,
     #[serde(skip_serializing_if = "Option::is_none")]
     refs: Option<InspectRefs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -557,6 +559,30 @@ struct InspectAudit {
 }
 
 #[derive(Debug, Serialize)]
+struct InspectNotification {
+    name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    channels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recipient: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trigger: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    template: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idempotency: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rate_limit: Option<String>,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
 struct InspectAgent {
     name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -571,6 +597,14 @@ struct InspectAgent {
     output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -729,12 +763,14 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
     let policies = collect_policy_atoms(lines);
     let external_calls = inspect_external_calls(&name, lines);
     let agents = inspect_agents(lines);
+    let notifications = inspect_notifications(lines);
 
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
         external_calls,
         agents,
+        notifications,
         refs: expansions.refs.then(|| inspect_refs(lines)),
         summary: expansions.summary.then(|| inspect_summary(lines)),
         locators: expansions.locators.then(|| inspect_locators(lines)),
@@ -2587,6 +2623,52 @@ fn direct_child_value(lines: &[String], prefix: &str) -> Option<String> {
     })
 }
 
+fn inspect_notifications(lines: &[String]) -> Vec<InspectNotification> {
+    let mut notifications = Vec::new();
+
+    for block in top_level_blocks(lines, "notification ") {
+        let name = named_top_block_name(block[0].trim_start())
+            .unwrap_or("unknown")
+            .to_owned();
+        let channels = direct_child_value(block, "channel ")
+            .map(|raw| {
+                raw.split(',')
+                    .map(|c| c.trim().to_owned())
+                    .filter(|c| !c.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let recipient = direct_child_value(block, "recipient ");
+        let trigger = direct_child_value(block, "trigger ");
+        let template = direct_child_value(block, "template ")
+            .as_deref()
+            .map(strip_quotes);
+        let policy = direct_child_value(block, "policy ");
+        let tenant_from = direct_child_value(block, "tenant_from ");
+        let idempotency = direct_child_value(block, "idempotency ");
+        let retry = direct_child_value(block, "retry ");
+        let rate_limit = direct_child_value(block, "rate_limit ")
+            .as_deref()
+            .map(strip_quotes);
+
+        notifications.push(InspectNotification {
+            name,
+            channels,
+            recipient,
+            trigger,
+            template,
+            policy,
+            tenant_from,
+            idempotency,
+            retry,
+            rate_limit,
+            origin: "notification",
+        });
+    }
+
+    notifications
+}
+
 fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
     let mut agents = Vec::new();
 
@@ -2617,6 +2699,11 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
             .unwrap_or_default();
         let safety = direct_child_value(block, "safety ");
 
+        let temperature = direct_child_value(block, "temperature ");
+        let max_tokens = direct_child_value(block, "max_tokens ");
+        let top_p = direct_child_value(block, "top_p ");
+        let seed = direct_child_value(block, "seed ");
+
         agents.push(InspectAgent {
             name,
             inputs,
@@ -2625,6 +2712,10 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
             rate_limit,
             output,
             model,
+            temperature,
+            max_tokens,
+            top_p,
+            seed,
             prompt,
             tools,
             safety,
