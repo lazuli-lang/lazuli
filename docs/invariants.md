@@ -19,6 +19,10 @@ source that only fails later.
   are still explicit global schema entries. `required in <environment>` scopes
   requiredness to named app environments without creating provider-specific
   config inside the manifest.
+- App `integrations` declare provider-neutral external integration registry
+  entries: name, capability kind, adapter reference, environments, and
+  credential scope. They do not declare provider HTTP operations, SDK methods,
+  or cloud secret storage.
 - App `services` declare logical ownership boundaries. They do not by
   themselves require separate processes; Drusa decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.
@@ -205,6 +209,9 @@ source that only fails later.
   type, and requiredness. Optional `group <name>` children organize related
   variables without changing the reference name. Client-exposed names use
   `PUBLIC_`; Expo/mobile names use `EXPO_PUBLIC_`.
+- App `integrations` entries use `<name>: <CapabilityType>` with
+  `adapter @adapter.<name>` and `credentials platform|tenant|actor`. Provider
+  operation details belong in features, packs, or adapters, not the app root.
 - File fields use `@cap.File(max_size:<size>,accept:<mime>)`; upload UI and
   providers are framework/adapters, but size and MIME acceptance are language
   contracts.

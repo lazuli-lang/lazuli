@@ -1,6 +1,7 @@
 use lazuli_ir::{
-    AppArchitecture, AppCapability, AppCommunication, AppDeploy, AppEnvVar, AppManifest,
-    AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
+    AppArchitecture, AppCapability, AppCommunication, AppDeploy, AppEnvVar, AppIntegration,
+    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest, AppRuntimeUnit,
+    AppService, AppServiceExposure, AppUrl,
 };
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
@@ -27,6 +28,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         environments: Vec::new(),
         urls: Vec::new(),
         env: Vec::new(),
+        integrations: Vec::new(),
         capabilities: Vec::new(),
         runtime: Vec::new(),
         deploy: None,
@@ -37,6 +39,8 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let mut current_service: Option<usize> = None;
     let mut current_service_child: Option<&str> = None;
     let mut current_env_group: Option<String> = None;
+    let mut current_integration: Option<usize> = None;
+    let mut current_integration_child: Option<&str> = None;
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -53,6 +57,8 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 current_service = None;
                 current_service_child = None;
                 current_env_group = None;
+                current_integration = None;
+                current_integration_child = None;
                 if let Some(rest) = trimmed.strip_prefix("title ") {
                     app.title = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
@@ -115,6 +121,23 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                             name: parts[0].to_owned(),
                             value: parts[1].to_owned(),
                         });
+                    }
+                }
+                Some("integrations") => {
+                    if let Some((name, kind)) = parse_integration_header(trimmed) {
+                        app.integrations.push(AppIntegration {
+                            name,
+                            kind,
+                            adapter: None,
+                            environments: Vec::new(),
+                            credentials: None,
+                            data_classification: None,
+                        });
+                        current_integration = app.integrations.len().checked_sub(1);
+                        current_integration_child = None;
+                    } else {
+                        current_integration = None;
+                        current_integration_child = None;
                     }
                 }
                 Some("architecture") => {
@@ -213,6 +236,27 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                             app.env.push(env_var);
                         }
                     }
+                } else if current_child == Some("integrations") {
+                    let Some(integration_index) = current_integration else {
+                        continue;
+                    };
+                    let integration = &mut app.integrations[integration_index];
+                    if let Some(rest) = trimmed.strip_prefix("adapter ") {
+                        integration.adapter = Some(rest.trim().to_owned());
+                        current_integration_child = None;
+                    } else if let Some(rest) = trimmed.strip_prefix("environments ") {
+                        integration.environments.extend(split_items(rest));
+                        current_integration_child = None;
+                    } else if let Some(rest) = trimmed.strip_prefix("credentials ") {
+                        integration.credentials = Some(AppIntegrationCredentials {
+                            scope: rest.trim().to_owned(),
+                            bindings: Vec::new(),
+                        });
+                        current_integration_child = Some("credentials");
+                    } else if let Some(rest) = trimmed.strip_prefix("data_classification ") {
+                        integration.data_classification = Some(rest.trim().to_owned());
+                        current_integration_child = None;
+                    }
                 } else if current_child == Some("runtime") {
                     let Some(unit_index) = current_runtime_unit else {
                         continue;
@@ -247,7 +291,24 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 }
             }
             8 => {
-                if current_child == Some("services") && current_service_child == Some("exposes") {
+                if current_child == Some("integrations")
+                    && current_integration_child == Some("credentials")
+                {
+                    let Some(integration_index) = current_integration else {
+                        continue;
+                    };
+                    let Some(credentials) = &mut app.integrations[integration_index].credentials
+                    else {
+                        continue;
+                    };
+                    if let Some((name, source)) = parse_credential_binding(trimmed) {
+                        credentials
+                            .bindings
+                            .push(AppIntegrationCredentialBinding { name, source });
+                    }
+                } else if current_child == Some("services")
+                    && current_service_child == Some("exposes")
+                {
                     let Some(service_index) = current_service else {
                         continue;
                     };
@@ -276,6 +337,7 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         "environments" => Some("environments"),
         "urls" => Some("urls"),
         "env" => Some("env"),
+        "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
         "architecture" => Some("architecture"),
         "services" => Some("services"),
@@ -361,6 +423,28 @@ fn parse_app_env_var(trimmed: &str, group: Option<&str>) -> Option<AppEnvVar> {
     })
 }
 
+fn parse_integration_header(trimmed: &str) -> Option<(String, String)> {
+    let (name, kind) = trimmed.split_once(':')?;
+    let name = name.trim();
+    let kind = kind.trim();
+    if is_identifier(name) && is_type_name(kind) {
+        Some((name.to_owned(), kind.to_owned()))
+    } else {
+        None
+    }
+}
+
+fn parse_credential_binding(trimmed: &str) -> Option<(String, String)> {
+    let mut parts = trimmed.split_whitespace();
+    let name = parts.next()?;
+    let source = parts.collect::<Vec<_>>().join(" ");
+    if is_identifier(name) && !source.is_empty() {
+        Some((name.to_owned(), source))
+    } else {
+        None
+    }
+}
+
 fn unquote(value: &str) -> &str {
     value
         .strip_prefix('"')
@@ -375,6 +459,12 @@ fn leading_spaces(line: &str) -> usize {
 fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn is_type_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
@@ -399,6 +489,12 @@ app AcmeCRM
     server DATABASE_URL: Secret required
     group mailer
       server MAILER_API_KEY: Secret required in production
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
   capabilities
     database postgres
   architecture
@@ -438,6 +534,19 @@ app AcmeCRM
         assert_eq!(manifest.env[1].group.as_deref(), Some("mailer"));
         assert_eq!(manifest.env[1].name, "MAILER_API_KEY");
         assert_eq!(manifest.env[1].environments, ["production"]);
+        assert_eq!(manifest.integrations[0].name, "crm");
+        assert_eq!(manifest.integrations[0].kind, "CRMProvider");
+        assert_eq!(
+            manifest.integrations[0].adapter.as_deref(),
+            Some("@adapter.crm")
+        );
+        assert_eq!(
+            manifest.integrations[0]
+                .credentials
+                .as_ref()
+                .map(|credentials| credentials.scope.as_str()),
+            Some("platform")
+        );
         assert_eq!(manifest.capabilities[0].name, "database");
         assert_eq!(
             manifest

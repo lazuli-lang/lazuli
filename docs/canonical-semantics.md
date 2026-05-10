@@ -1666,6 +1666,14 @@ app AcmeCRM
     mailer transactional
     event_bus internal
     tracing optional
+    integration crm
+
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
 
   architecture
     mode modular_monolith
@@ -1731,6 +1739,17 @@ and context propagation because those facts affect static analysis, generated
 clients, policy/tenant propagation, idempotency, and contract tests. Concrete
 choices such as gRPC, Connect, Kafka, NATS, Kubernetes, Envoy, or service mesh
 providers stay in Drusa adapters.
+
+`integrations` is the external integration registry. It declares provider-
+neutral names, capability kinds, adapter references, allowed environments, and
+credential scope. It does not describe provider HTTP operations, raw payload
+schemas, SDK methods, sandbox URLs, or cloud secret stores. Use it to say that
+the app has `crm: CRMProvider`, `mercadopago: PaymentGateway`, or
+`serasa: CreditBureau`; feature `.lzi` files and Drusa packs declare why and
+when those integrations are called, and adapters declare how they are called.
+Credential scopes are `platform`, `tenant`, or `actor`. Credential bindings may
+reference declared `env.NAME` values or later credential resources, but
+provider-specific storage stays outside core Lazuli.
 
 `lazuli inspect app.lzi --format=json` exposes this manifest under the `app`
 key using the same operational shape consumed by Drusa. `lazuli doctor` loads

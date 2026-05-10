@@ -153,6 +153,12 @@ adapter configuration.
 such as `required in production`; values and provider-specific secret storage
 never enter IR.
 
+`AppIntegration` entries preserve the provider-neutral registry: integration
+name, capability kind, adapter reference, allowed environments, credential
+scope, and credential bindings. They intentionally exclude provider operation
+schemas, SDK-specific methods, concrete base URLs, and infrastructure secret
+store details. Those belong to Drusa packs and adapter configuration.
+
 ## Experience IR
 
 `.lzx` lowers into `ExperienceModule`, separate from `.lzi` `Module`. The

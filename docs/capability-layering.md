@@ -80,8 +80,8 @@ or `pack + adapter`.
 The language should keep these cross-cutting contracts first-class:
 
 - actors, auth identity context, route/input/params binding
-- app manifest, typed app routes, route builders, environment schema, runtime
-  units, and provider-neutral deploy gates
+- app manifest, typed app routes, route builders, environment schema, external
+  integration registry, runtime units, and provider-neutral deploy gates
 - policy, RBAC atoms, scopes, field policy, audience reachability
 - tenancy, tenant binding, tenant fanout, tenant-scoped idempotency
 - soft delete and generated query scope
@@ -110,6 +110,7 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 | Service boundaries | `app.lzi` `architecture`, `services`, and `communication` with logical ownership, exposures, published/consumed events, and context propagation | implemented as microservice-ready contract; Drusa may materialize as monolith, modular monolith, or split services |
 | Type-safe app routes | top-level `.lzx route <name>` with canonical `path`, `params`, `to`, `surface`, and `audience`; legacy `stack` remains compatibility syntax | implemented as route-builder contract |
 | Env/secrets schema | `app.lzi` `env` or top-level `.lzi env` with optional `group <name>` and `server|client|mobile NAME: Type required|optional [in environment]` | implemented as source contract; groups are organizational, not namespaces |
+| External integration registry | `app.lzi` `integrations` with provider-neutral names, capability kind, adapter reference, environments, and credential scope | implemented as app manifest contract; provider operations remain pack/adapter |
 | Deploy/runtime contract | `app.lzi` `runtime`, `capabilities`, and `deploy` blocks | implemented as provider-neutral operational contract; doctor cross-checks package usage; Drusa/adapters materialize it |
 | Custom HTTP APIs | `api <name>` with method, path, route/input, output, policy, handler | implemented as language-light endpoint contract |
 | Error exposure | feature `errors` plus command/rule `error <Name> status ... expose ...` | implemented as public/private error contract |

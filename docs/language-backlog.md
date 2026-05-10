@@ -45,6 +45,10 @@ This document tracks design pressure that is not yet part of the core canonical 
 - `app.lzi` env groups are organizational labels, not namespaces. Env refs
   still use `env.NAME`, and `required in production` narrows requiredness to a
   named environment without embedding provider config in the manifest.
+- `app.lzi` integrations are registry entries, not provider operation specs.
+  They bind a neutral integration name to a capability type, adapter reference,
+  environments, and credential scope; MercadoPago/Serasa/etc. stay packs or
+  adapters, not keywords.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
 - Observability-only events use `event.trace <name>` rather than an `observability_only` modifier.
@@ -142,6 +146,8 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add grouped app env declarations and environment-scoped requiredness to
   keep provider/capability secrets readable without making `app.lzi` a
   provider config file.
+- [x] Add external integration registry entries to `app.lzi` without promoting
+  concrete providers or provider HTTP operations into core syntax.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.

@@ -752,6 +752,8 @@ pub struct AppManifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env: Vec<AppEnvVar>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub integrations: Vec<AppIntegration>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<AppCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime: Vec<AppRuntimeUnit>,
@@ -823,6 +825,33 @@ pub struct AppEnvVar {
     pub requiredness: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environments: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppIntegration {
+    pub name: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<AppIntegrationCredentials>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_classification: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppIntegrationCredentials {
+    pub scope: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<AppIntegrationCredentialBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppIntegrationCredentialBinding {
+    pub name: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

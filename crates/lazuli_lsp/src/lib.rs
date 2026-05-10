@@ -1689,6 +1689,12 @@ fn is_identifier(source: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
+fn is_type_name(source: &str) -> bool {
+    let mut chars = source.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 fn generated_summary_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -4774,6 +4780,15 @@ impl AppServiceFacts {
     }
 }
 
+#[derive(Debug)]
+struct AppIntegrationFacts;
+
+impl AppIntegrationFacts {
+    fn new() -> Self {
+        Self
+    }
+}
+
 fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_app: Option<AppOperationalFacts> = None;
@@ -4782,6 +4797,8 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut current_service: Option<usize> = None;
     let mut current_service_child: Option<&'static str> = None;
     let mut current_env_group: Option<String> = None;
+    let mut current_integration: Option<AppIntegrationFacts> = None;
+    let mut current_integration_child: Option<&'static str> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -4799,6 +4816,8 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             current_service = None;
             current_service_child = None;
             current_env_group = None;
+            current_integration = None;
+            current_integration_child = None;
 
             if trimmed.starts_with("app ") {
                 let parts: Vec<_> = trimmed.split_whitespace().collect();
@@ -4826,6 +4845,8 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 current_service = None;
                 current_service_child = None;
                 current_env_group = None;
+                current_integration = None;
+                current_integration_child = None;
                 if let Some(child) = app_child_block(trimmed) {
                     current_app_child = Some(child);
                     match child {
@@ -4850,7 +4871,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "app manifests own app/runtime contracts: use `uses`, `targets`, `environments`, `urls`, `env`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
+                        "app manifests own app/runtime contracts: use `uses`, `targets`, `environments`, `urls`, `env`, `integrations`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
                     ));
                 }
             }
@@ -4895,6 +4916,11 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 }
                 Some("capabilities") => {
                     validate_app_capability_line(&mut diagnostics, line_index, line)
+                }
+                Some("integrations") => {
+                    validate_app_integration_header(&mut diagnostics, line_index, line, trimmed);
+                    current_integration = Some(AppIntegrationFacts::new());
+                    current_integration_child = None;
                 }
                 Some("architecture") => {
                     validate_app_architecture_line(&mut diagnostics, line_index, line, trimmed)
@@ -4962,6 +4988,25 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     } else {
                         validate_app_env_line(&mut diagnostics, line_index, line);
                     }
+                } else if current_app_child == Some("integrations") {
+                    if current_integration.is_none() {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "app-integration-contract",
+                            "integration children must follow `<name>: <CapabilityType>` under `integrations`.",
+                        ));
+                        continue;
+                    }
+
+                    validate_app_integration_child(
+                        &mut diagnostics,
+                        &mut current_integration_child,
+                        line_index,
+                        line,
+                        trimmed,
+                    );
                 } else if current_app_child == Some("runtime") {
                     let Some(unit_index) = current_runtime_unit else {
                         diagnostics.push(simple_canonical_diagnostic(
@@ -5006,12 +5051,22 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "six-space app manifest declarations are only valid inside `runtime unit` or `services service` blocks.",
+                        "six-space app manifest declarations are only valid inside `env group`, `integrations`, `runtime unit`, or `services service` blocks.",
                     ));
                 }
             }
             8 => {
-                if current_app_child == Some("services") && current_service_child == Some("exposes")
+                if current_app_child == Some("integrations")
+                    && current_integration_child == Some("credentials")
+                {
+                    validate_app_integration_credential_line(
+                        &mut diagnostics,
+                        line_index,
+                        line,
+                        trimmed,
+                    );
+                } else if current_app_child == Some("services")
+                    && current_service_child == Some("exposes")
                 {
                     validate_app_service_exposure_line(&mut diagnostics, line_index, line, trimmed);
                 } else {
@@ -5020,7 +5075,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "eight-space app manifest declarations are only valid inside `services service exposes` blocks.",
+                        "eight-space app manifest declarations are only valid inside `integrations credentials` or `services service exposes` blocks.",
                     ));
                 }
             }
@@ -5029,7 +5084,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::WARNING,
                 "app-operational-contract",
-                "app manifest declarations use two, four, or six spaces of indentation.",
+                "app manifest declarations use two, four, six, or eight spaces of indentation.",
             )),
         }
     }
@@ -5049,6 +5104,7 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         "environments" => Some("environments"),
         "urls" => Some("urls"),
         "env" => Some("env"),
+        "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
         "architecture" => Some("architecture"),
         "services" => Some("services"),
@@ -5086,6 +5142,7 @@ fn validate_app_child_header(
             | "environments"
             | "urls"
             | "env"
+            | "integrations"
             | "capabilities"
             | "architecture"
             | "services"
@@ -5357,6 +5414,92 @@ fn parse_env_group_name(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn validate_app_integration_header(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    if parse_app_integration_header(trimmed).is_none() {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-integration-contract",
+            "integrations use `<name>: <CapabilityType>` such as `crm: CRMProvider`; provider details stay in adapters.",
+        ));
+    }
+}
+
+fn parse_app_integration_header(trimmed: &str) -> Option<(&str, &str)> {
+    let (name, kind) = trimmed.split_once(':')?;
+    let name = name.trim();
+    let kind = kind.trim();
+    if is_identifier(name) && is_type_name(kind) {
+        Some((name, kind))
+    } else {
+        None
+    }
+}
+
+fn validate_app_integration_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    current_integration_child: &mut Option<&'static str>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        ["adapter", adapter] if adapter.starts_with("@adapter.") => {
+            *current_integration_child = None;
+        }
+        ["environments", rest @ ..]
+            if !rest.is_empty()
+                && split_items(&rest.join(" "))
+                    .iter()
+                    .all(|environment| is_identifier(environment)) =>
+        {
+            *current_integration_child = None;
+        }
+        ["credentials", scope] if matches!(*scope, "platform" | "tenant" | "actor") => {
+            *current_integration_child = Some("credentials");
+        }
+        ["data_classification", classification] if classification.starts_with("@pii.") => {
+            *current_integration_child = None;
+        }
+        _ => diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-integration-contract",
+            "integration children use `adapter @adapter.<name>`, `environments ...`, `credentials platform|tenant|actor`, or `data_classification @pii.<class>`.",
+        )),
+    }
+}
+
+fn validate_app_integration_credential_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let mut parts = trimmed.split_whitespace();
+    let Some(name) = parts.next() else {
+        return;
+    };
+    let source = parts.collect::<Vec<_>>().join(" ");
+    if !is_identifier(name) || source.is_empty() {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-integration-contract",
+            "integration credentials use `<credential_name> <source>`, for example `access_token env.MERCADOPAGO_ACCESS_TOKEN`.",
+        ));
+    }
+}
+
 fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
@@ -5372,6 +5515,9 @@ fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
                 | "search"
                 | "cache"
                 | "storage"
+                | "integration"
+                | "payment_gateway"
+                | "credit_bureau"
         )
     {
         diagnostics.push(simple_canonical_diagnostic(
@@ -5379,7 +5525,7 @@ fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
             line,
             DiagnosticSeverity::WARNING,
             "app-capability-contract",
-            "app capabilities declare intent such as `database postgres`, `queue background_jobs`, or `object_storage files`; providers stay in Drusa adapters.",
+            "app capabilities declare intent such as `database postgres`, `queue background_jobs`, `object_storage files`, or `integration crm`; providers stay in Drusa adapters.",
         ));
     }
 }
@@ -5595,7 +5741,7 @@ fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic
 fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut declared = HashSet::new();
-    let mut in_env = false;
+    let mut env_indent: Option<usize> = None;
     let mut current_env_group: Option<String> = None;
 
     for (line_index, line) in source.lines().enumerate() {
@@ -5605,23 +5751,36 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        if leading_spaces(line) == 0 {
-            in_env = trimmed == "env";
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            env_indent = if trimmed == "env" { Some(0) } else { None };
             current_env_group = None;
             continue;
         }
 
-        if !in_env {
+        if leading == 2 && trimmed == "env" {
+            env_indent = Some(2);
+            current_env_group = None;
             continue;
         }
 
-        if leading_spaces(line) == 2 {
+        let Some(base_indent) = env_indent else {
+            continue;
+        };
+
+        if leading <= base_indent {
+            env_indent = None;
+            current_env_group = None;
+            continue;
+        }
+
+        if leading == base_indent + 2 {
             if let Some(group) = parse_env_group_name(trimmed) {
                 current_env_group = Some(group.to_owned());
                 continue;
             }
             current_env_group = None;
-        } else if leading_spaces(line) == 4 && current_env_group.is_some() {
+        } else if leading == base_indent + 4 && current_env_group.is_some() {
         } else {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
@@ -5683,7 +5842,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
                     DiagnosticSeverity::WARNING,
                     "env-schema-reference",
                     &format!(
-                        "environment reference `env.{reference}` should be declared in a top-level `env` block with scope, type, and requiredness.",
+                        "environment reference `env.{reference}` should be declared in an app or top-level `env` block with scope, type, and requiredness.",
                     ),
                 ));
             }
@@ -8051,6 +8210,13 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "capabilities" => Some(
             "Declares required runtime capabilities without choosing concrete infrastructure providers.",
         ),
+        "integrations" => Some(
+            "Declares external integration registry entries without provider-specific operation details.",
+        ),
+        "credentials" => {
+            Some("Declares credential scope and bindings for an external integration.")
+        }
+        "data_classification" => Some("Declares the broad PII class returned by an integration."),
         "architecture" => Some(
             "Declares provider-neutral architecture mode and service-boundary enforcement intent.",
         ),
@@ -8247,6 +8413,9 @@ const KEYWORDS: &[&str] = &[
     "urls",
     "group",
     "in",
+    "integrations",
+    "credentials",
+    "data_classification",
     "capabilities",
     "architecture",
     "services",
@@ -8522,14 +8691,24 @@ app AcmeCRM
 
   env
     server DATABASE_URL: Secret required
+    group webhooks
+      server CRM_WEBHOOK_SECRET: Secret required in production
     group public
       client PUBLIC_API_URL: Url required
     group mailer
       server MAILER_API_KEY: Secret required in production
 
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
+
   capabilities
     database postgres
     queue background_jobs
+    integration crm
 
   architecture
     mode modular_monolith

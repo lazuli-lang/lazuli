@@ -3231,6 +3231,13 @@ app AcmeCRM
     group mailer
       server MAILER_API_KEY: Secret required in production
 
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
+
   capabilities
     database postgres
 
@@ -3269,6 +3276,9 @@ app AcmeCRM
         assert!(json.contains("\"group\":\"mailer\""));
         assert!(json.contains("\"MAILER_API_KEY\""));
         assert!(json.contains("\"environments\":[\"production\"]"));
+        assert!(json.contains("\"integrations\""));
+        assert!(json.contains("\"kind\":\"CRMProvider\""));
+        assert!(json.contains("\"webhook_secret\""));
         assert!(json.contains("\"architecture\""));
         assert!(json.contains("\"mode\":\"modular_monolith\""));
         assert!(json.contains("\"services\""));

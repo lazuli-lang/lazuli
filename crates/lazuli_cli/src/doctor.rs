@@ -1594,8 +1594,15 @@ app AcmeCRM
   env
     group webhooks
       server INBOUND_SECRET: Secret required in production
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.INBOUND_SECRET
   capabilities
     object_storage files
+    integration crm
   architecture
     mode modular_monolith
     service_ready true
