@@ -31,7 +31,7 @@ The capsule declares contracts:
 extensions
   client status_cell: CellRenderer[Customer]
   hook before_create: Hook[CreateCustomer]
-  fn risk_score: Function[Customer, RiskScore]
+  fn risk_score: Function[Customer, Integer]
 ```
 
 By default, Lazuli resolves `status_cell` to `features/customer/ui/status_cell.*`.
@@ -102,7 +102,7 @@ Go extension contracts are generated too:
 package customer
 
 type BeforeCreateHook func(ctx Context, input CustomerCreateInput) (CustomerCreateInput, error)
-type RiskScoreFn func(ctx Context, customer Customer) (RiskScore, error)
+type RiskScoreFn func(ctx Context, customer Customer) (int, error)
 ```
 
 The user implements matching named functions:

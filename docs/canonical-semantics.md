@@ -313,11 +313,19 @@ revenue: @semantic.Money optional
 password_hash: @cap.Hashed(algorithm:argon2id) optional
 api_key: @cap.Encrypted(key:@key.tenant) @pii.credential optional
 reset_token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
-file: @cap.File required
+file: @cap.File(max_size:25mb,accept:text/csv) required
 owner: User required on_delete restrict
 ```
 
-`@semantic.*` means Lazuli should apply domain validation or formatting. `@cap.*` means the type carries platform behavior such as upload storage, redaction, hashing, encryption, token expiry, or secret handling. `@pii.*` is classification metadata used by logs, event stores, exports, and erasure workflows. `@key.*` declares key blast radius for encrypted values. The analyzer should reject invented built-ins unless they are added to the closed catalog or resolved through `uses`.
+`@semantic.*` means Lazuli should apply domain validation or formatting.
+`@cap.*` means the type carries platform behavior such as upload storage,
+redaction, hashing, encryption, token expiry, or secret handling. `@cap.File`
+declares a generated upload/storage contract and should include `max_size` and
+`accept` so backend validators, React forms, and Expo upload flows share one
+limit. `@pii.*` is classification metadata used by logs, event stores, exports,
+and erasure workflows. `@key.*` declares key blast radius for encrypted values.
+The analyzer should reject invented built-ins unless they are added to the
+closed catalog or resolved through `uses`.
 
 A built-in belongs under `@cap.*` only when it changes runtime handling in at least two target families, such as Go persistence, React forms, Expo/mobile upload flows, generated API serialization, or logs/redaction. Prefer `@semantic.*` for pure validation/formatting and a project extension for single-target behavior.
 
@@ -399,7 +407,9 @@ Canonical `.lzi` style is deliberately boring so agents can copy it safely:
 - Separate major child blocks (`resource`, `query`, `event`, `command`, `job`, `view`) with one blank line.
 - Keep scalar statements inside one block contiguous unless a nested block follows.
 - Inside `query`, put one blank line between `params`, `key`/`filters`, `order`, and `paginate`.
-- Inside `command`, keep caller slots first (`route`, `input`), then `target`, `let`, `policy`, the write effect (`creates`/`updates`/`deletes`), and `emits`.
+- Inside `command`, keep caller slots first (`route`, `input`), then `target`,
+  `let`/`validate`, `policy`, the write effect
+  (`creates`/`updates`/`deletes`), and `emits`.
 - Inside `job`, keep trigger metadata (`trigger`, `queue`, `idempotency`, `retry`, `policy`) contiguous, followed by either a declarative body or a handler body.
 
 Fields whose type is a resource from another feature create a semantic foreign-key edge:
@@ -449,7 +459,11 @@ query.list list
   paginate 100
 ```
 
-`paginate <n>` declares the default generated page size for list queries. It is not a hard product maximum by itself; adapters may add project-wide maximums later. Use `paginate` rather than a generic number so generated APIs, views, and inspectors agree that the value is pagination shape, not arbitrary limit logic.
+`paginate <n>` declares the default generated page size for list queries. It is
+not a hard product maximum by itself; adapters may add project-wide maximums
+later. Use `paginate` rather than a generic number so generated APIs, views, and
+inspectors agree that the value is pagination shape, not arbitrary limit logic.
+`paginate` belongs only to `query.list` and must be a positive integer.
 
 `query.list` defaults to `order created_at desc` when no explicit `order` is
 declared. This is a language convention, not project sugar: authors write an
@@ -466,8 +480,8 @@ simple equality filters. The compiler may generate an index for:
 
 If the feature has a single tenant axis such as `tenancy org`, the generated
 index is tenant-aware (`org, status`, `org, customer`). The compiler does not
-derive indexes for `has`, `!=`, `nil`, text-search filters such as
-`name = params.search`, `scope override`, `query.sql`, or custom modifiers.
+derive indexes for `has`, `!=`, `nil`, declarative `search`, `scope override`,
+`query.sql`, or custom modifiers.
 Those cases require explicit index design. `lazuli inspect --expand=defaults`
 reports derived filter indexes; authored duplicate `index` lines should be
 omitted.
@@ -488,7 +502,6 @@ Use the short filter form when the field name and param name are the same. Use t
 ```lazuli
 filters
   lifecycle_stage when params.lifecycle_stage
-  name = params.search when params.search
   parent.id = params.parent_id
 ```
 
@@ -500,6 +513,21 @@ filters
 ```
 
 This means "the related parent record has this id"; it is not a new field named `parent.id`.
+
+Use `search` for textual search instead of disguising a contains query as
+equality:
+
+```lazuli
+params
+  search: Text optional
+
+search params.search over name, email
+  mode contains
+```
+
+`search` is not a predicate expression. It is a query capability with its own
+indexing and adapter requirements. The initial v0 mode is `contains`; adapters
+may later add full-text or provider-specific modes explicitly.
 
 ### `key` And `scope`
 
@@ -648,12 +676,15 @@ Commands that mutate an existing resource declare the resource through `updates 
 ```lazuli
 command reassign
   route id: ID
-  input owner
+  input
+    owner_id: User.ID required
   target query.by_id(id: route.id)
+  let resolved_owner = user.query.by_id(id: input.owner_id)
   policy @policy.update
   updates Customer
-    owner = input.owner
+    owner = resolved_owner
   emits customer_reassigned
+    to_owner_id = input.owner_id
 ```
 
 `updates Customer` names the resource being changed. The `target` line is only the lookup expression. The loaded record is available as immutable `target` inside command and job expressions.
@@ -671,29 +702,67 @@ emits customer_score_recomputed
 
 `let` values are evaluated after `target` binding and before the write effect. They may be referenced by `creates`, `updates`, and `emits`.
 
+Reusable command validators are blocking when authored with `validate`:
+
+```lazuli
+command enable_mfa
+  route customer_id: ID from ctx.customer.id
+  input
+    totp_code: Text required
+  target customer.query.by_id(id: route.customer_id)
+  validate @validator.verify_customer_totp(customer_id: route.customer_id, code: input.totp_code)
+  policy @policy.update
+  creates CustomerMfaConfig
+    customer = target
+    verified_at = ctx.now
+```
+
+If a command binds a validator result with `let`, the result must be used by a
+`requires <binding>` guard. Computing validator output without using it is a
+diagnostic because the command may continue after failed validation.
+
+Commands may also declare temporal write-window guards:
+
+```lazuli
+command create_invoice
+  input customer, amount_cents, currency, issued_at
+  write_window by input.issued_at within billing.open_period
+  policy @policy.create
+  creates Invoice
+    issued_at = input.issued_at
+```
+
+`write_window` is deliberately generic. It models "this write is only allowed
+for a date that belongs to an open operational window"; it is not fiscal-period,
+accounting, payroll, or inventory-specific syntax. Drusa packs define concrete
+windows and adapters enforce them. Lazuli keeps the command contract visible to
+doctor/check/codegen.
+
 `on <Resource>` is reserved for non-mutating commands that still operate in the context of a resource for policy, route, or authorization purposes. Do not repeat it on mutating commands where `updates X` or `deletes X` already names the resource.
 
 For the common case where a mutating command targets one local resource by `route.id` and the resource has a local `query.lookup by_id`, the lookup can be omitted:
 
 ```lazuli
-command reassign
+command update_tier
   route id: ID
-  input owner
+  input
+    tier: CustomerTier required
   policy @policy.update
   updates Customer
-    owner = input.owner
+    tier = input.tier
 ```
 
 This expands to:
 
 ```lazuli
-command reassign
+command update_tier
   route id: ID
-  input owner
+  input
+    tier: CustomerTier required
   target query.by_id(id: route.id)
   policy @policy.update
   updates Customer
-    owner = input.owner
+    tier = input.tier
 ```
 
 This inference is deliberately narrow: it requires `route id: ID`, a local mutating effect (`updates` or `deletes`), and a local `query.lookup by_id`. Use the explicit form when the locator is not `route.id`, the target is cross-feature, the command has multiple locator values, or the lookup query is not `by_id`.
@@ -707,7 +776,9 @@ Update and delete commands should be explicit too:
 ```lazuli
 command update_tier
   route id: ID
-  input tier
+  input
+    tier: CustomerTier required
+  target query.by_id(id: route.id)
   policy @policy.update
   updates Customer
     tier = input.tier
@@ -716,8 +787,8 @@ command update_tier
 ```lazuli
 command remove_tag
   input
-    customer_id: ID
-    tag_id: ID
+    customer_id: ID required
+    tag_id: ID required
   target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
   policy @policy.update
   deletes CustomerTagAssignment
@@ -903,6 +974,13 @@ is made. `lazuli inspect --expand=security` is the generated audit view.
   `verify none` or `rate_limit none` as release blockers unless future deploy
   configuration allowlists them.
 
+`lazuli check <file>` is intentionally file-local. `lazuli doctor <file-or-dir>`
+loads the capsule package (`.lzi` plus sibling/descendant `.lzx` files) and runs
+cross-file diagnostics. The first package-level contract is `LZX-POL-001`:
+platform surface `submit` targets and actions resolved through the abstract
+experience must be reachable by the surface `audience` after command
+`@policy.*` references expand to policy atoms.
+
 Every command must declare local `policy`. Commands do not inherit permissive
 effect-derived policy defaults, and `policy_for` is intentionally scoped to
 jobs/webhooks.
@@ -958,6 +1036,23 @@ Data classification uses `@pii.*` markers on fields and event payloads. The init
 - `@pii.derived` for scores, risk labels, or inferred sensitive facts.
 - `@pii.network` for IP addresses and device/network identifiers.
 
+Resources that store `@pii.*` fields declare retention, or inherit it from
+`defaults`:
+
+```lazuli
+defaults
+  retention 7y then anonymize
+
+resource CustomerSession
+  provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
+  retention 30d then delete
+```
+
+Retention is a horizontal compliance contract, not an ERP or GDPR-only module.
+The canonical form is `retention <duration|forever> then
+delete|anonymize|archive`. Export, erasure workflows, and reviewer dashboards
+belong in Drusa packs, but the retention decision belongs in source.
+
 Event payloads may also carry `@pii.*`, `@cap.*`, or `@key.*` markers. `lazuli inspect --expand=security` exposes those markers under event payloads so cross-feature consumers can be audited without opening handler code. Consumers may only read `payload.*` fields declared by the producer event contract; the analyzer validates this across features when both producer and consumer are present in the same capsule.
 
 Capability crypto tiers are explicit:
@@ -986,6 +1081,20 @@ Key scopes use `@key.*`:
 - `@key.user` for per-user isolation.
 - `@key.record` for per-record or per-field data keys.
 
+Environment variables are declared in a top-level app contract:
+
+```lazuli
+env
+  server CRM_WEBHOOK_SECRET: Secret required
+  client PUBLIC_APP_URL: Url required
+  mobile EXPO_PUBLIC_API_URL: Url required
+```
+
+Any `env.NAME` reference should resolve to this schema. `server` values are
+not exposed to client bundles. `client` variables use a `PUBLIC_` prefix and
+`mobile` variables use an `EXPO_PUBLIC_` prefix so exposure is visible in
+source instead of being an adapter convention.
+
 Webhook verification may be declarative for common signature schemes:
 
 ```lazuli
@@ -994,7 +1103,8 @@ webhook stripe_invoice_paid
   verify hmac sha256
     secret env.STRIPE_WEBHOOK_SECRET
     header "Stripe-Signature"
-  idempotency by payload.provider_event_id
+  tenant_from payload.org_id
+  idempotency by payload.org_id, payload.provider_event_id
 ```
 
 Every webhook must declare verification and idempotency. Use
@@ -1027,6 +1137,24 @@ auth
     resource CustomerSession
     ttl "7 days"
 ```
+
+Queries named `active_sessions` should prove temporal validity in source:
+
+```lazuli
+query.list active_sessions
+  modifier @query_modifier.active_session_scope
+
+  params
+    customer_id: ID
+
+  filters
+    customer.id = params.customer_id
+    expires_at > ctx.now
+```
+
+If the temporal predicate is hidden inside a modifier, the modifier block must
+declare a guarantee such as `guarantees expires_at > ctx.now`; the modifier name
+alone is not enough evidence for codegen or review.
 
 ## Rules
 
@@ -1387,6 +1515,51 @@ policies
       write: @role.admin, @role.sales
 ```
 
+## App Runtime and Routes
+
+`.lzx` may declare an app manifest and concrete route table before or beside
+experiences and surfaces:
+
+```lazuli
+app AcmeCRM
+  title "Acme CRM"
+  version "0.1.0"
+  targets
+    backend go
+    web react
+    mobile expo
+  default_locale "pt-BR"
+  default_timezone "America/Sao_Paulo"
+  auth_failed_redirect public.login
+  not_found public.not_found
+  uses customer, customer_auth
+
+route admin_customer_detail
+  path "/admin/customers/:id"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer web
+  audience admin
+  lazy true
+
+route sales_customer_detail
+  stack "customers/[id]"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer mobile
+  audience sales
+```
+
+The app manifest is not a product feature. It is the runtime contract that
+connects generated targets, fallback routes, locale/timezone defaults, and the
+feature set consumed by the app shell.
+
+Top-level `route` declarations are the source of truth for generated web paths,
+mobile stack paths, and type-safe route builders. A dynamic segment such as
+`:id` or `[id]` must be declared with `params id: <Type>`. The `to` binding maps
+path parameters into an abstract experience view. `surface` and `audience`
+make platform routing and authorization context explicit.
+
 ## Surfaces
 
 Canonical experience source is split across `.lzx` layers:
@@ -1398,6 +1571,13 @@ experience customer
   view list
     source customer.query.list
     action create -> customer.command.create
+    opens detail(id: row.id)
+
+  view detail
+    route id: Customer.ID
+    anchor @anchor.customer_detail
+    source customer.query.by_id(id: route.id)
+    action archive -> customer.workflow.lifecycle.archive(id: route.id)
 
 surface customer web
   uses experience customer
@@ -1436,9 +1616,19 @@ view login Form
 
 Use `source` for data loading and `submit` for write targets. Avoid `source command.*`; it overloads source with two directions of data flow.
 
+Platform projections should not use bare submit verbs such as `submit create`.
+Use `command.create` for same-experience commands or a feature-qualified target
+such as `customer.command.capture_lead` when the command lives in another
+feature namespace.
+
 The compiler should surface this derivation in `explain`.
 
-Every view has an implicit stable id: `<feature>.<surface_id>.<view_name>`, where `surface_id` joins the surface words with `_`. For example, `feature customer` + `surface web admin` + `view detail` has the implicit id `customer.web_admin.detail`. Cross-feature composition requires an explicit `id @anchor.<name>` plus `extensible_by`; implicit view ids are for inspection and source maps, not an open extension surface.
+Every view has an implicit stable id: `<feature>.<surface_id>.<view_name>`, where `surface_id` joins the surface words with `_`. For example, `feature customer` + `surface web admin` + `view detail` has the implicit id `customer.web_admin.detail`. Cross-feature composition requires an explicit `anchor @anchor.<name>` plus `extensible_by`; implicit view ids are for inspection and source maps, not an open extension surface. The older inline form `view detail id @anchor.customer_detail` is tolerated as authoring sugar, but the expanded form keeps route, anchor, and source as separate contracts.
+
+Actions in routed abstract views should bind route arguments explicitly. Prefer
+`action archive -> customer.workflow.lifecycle.archive(id: route.id)` over a
+bare transition or command target, so generators do not infer which route value
+identifies the target.
 
 `filter` inside a view describes UI controls. `filters` inside a query describes data predicates. The view filter names should be backed by query params and query filters when they affect server-side data.
 
@@ -1465,22 +1655,51 @@ feature customer_tags
   uses customer
 
   extends @anchor.customer_detail
-    block @client.tag_editor
+    slot aside
+      block @client.tag_editor
+      platforms web, mobile
+      audience admin, sales
 ```
 
 The target view may declare a shorter stable id:
 
 ```lazuli
-view detail SidePanel id @anchor.customer_detail
+view detail
+  route id: Customer.ID
+  anchor @anchor.customer_detail
   extensible_by customer_tags, customer_import
   source query.by_id(id: route.id)
 ```
 
 Use `extends @anchor.<view_id>` only when the target view declares that exact anchor and whitelists the extending feature with `extensible_by`. Views without `extensible_by` are not extensible, even though they still have implicit stable ids for inspection. The extending feature owns the inserted block and its extension implementation; the target feature still owns the base view.
 
+Extensions should put inserted blocks under an explicit `slot`. A slot names the
+target region and may include order relative to another block:
+
+```lazuli
+extends @anchor.customer_detail
+  slot timeline after activity_timeline
+    block @client.import_history
+    platforms web
+    audience admin
+```
+
+The older direct child form is tolerated as authoring legacy:
+
+```lazuli
+extends @anchor.customer_detail
+  block @client.tag_editor
+```
+
+`lazuli check` warns on the direct form because placement, ordering, platform
+support, and audience visibility should be deterministic for generators.
+
 `lazuli check --security-profile strict` should warn when a feature listed in `extensible_by` does not declare a matching `extends @anchor.<view_id>` block. The whitelist exists to describe exercised composition, not speculative future permission.
 
-The target view type determines which slots are accepted. For example, `SidePanel` may accept `block`, while `Table` may accept `cells`. The analyzer should reject unsupported slots with a targeted diagnostic.
+The target view type determines which slots are accepted. For example, a
+`SidePanel` might accept `header`, `timeline`, `aside`, and `actions`, while a
+`Table` might accept `toolbar`, `columns`, or `row_actions`. The analyzer should
+reject unsupported slots with a targeted diagnostic.
 
 Cross-feature view composition should not be used to replace the base view. If a feature needs a completely different screen, create its own view or an explicit `escape_route`.
 
@@ -1550,7 +1769,27 @@ Scheduled jobs use a cron-like trigger:
 ```lazuli
 job recompute_scores
   trigger schedule "0 2 * * *"
+  fanout tenants org
+  idempotency by tenant.org_id, schedule.day
+  retry 3 backoff exponential
   handler "./jobs/recompute_scores.go"
+```
+
+When a feature or resource is tenant-scoped, scheduled jobs should either
+declare tenant fanout or explicitly opt into global execution:
+
+```lazuli
+job recompute_scores
+  trigger schedule "0 2 * * *"
+  fanout tenants org
+  idempotency by tenant.org_id, schedule.day
+  handler "./jobs/recompute_scores.go"
+
+job global_cleanup
+  trigger schedule "0 3 * * *"
+  scope global
+    reason "Deletes expired non-tenant operational records."
+  handler "./jobs/global_cleanup.go"
 ```
 
 Event jobs can also declare a queue lane when the adapter should enqueue work instead of running it inline:
@@ -1566,7 +1805,7 @@ job process_import
   emits customer_import_completed
 ```
 
-`idempotency by` names the dedupe key for the trigger execution. Event-triggered jobs use `envelope.*` for event-bus metadata and `payload.*` for the producer-authored event payload. `envelope.id` refers to the event-envelope id supplied by the event bus and does not need to be repeated in the authored event payload. Use `envelope.id` when each bus delivery should be processed once; use `payload.<business_key>` when the product needs dedupe by a domain key such as an import batch id. Consumers may only reference payload fields declared by the producer event contract, including fields inherited from matching `event_group` payloads; `lazuli check` should report `payload.*` references that do not exist in the producer event. If the producer event contract includes `org_id`, event-triggered jobs should declare `tenant_from payload.org_id`; generated handlers should run with that tenant fixed in `ctx` so follow-up queries do not accidentally run cross-tenant. Webhooks use the verified inbound `payload.*` namespace. Do not write bare webhook keys such as `idempotency by external_id`; write `idempotency by payload.external_id` so the source is explicit. `retry <count> backoff <strategy>` is declarative delivery policy; `retry 3` means up to three retry attempts after the initial attempt fails. Adapters should support at least `fixed` and `exponential` before accepting those strategies in strict mode.
+`idempotency by` names the dedupe key for the trigger execution. Event-triggered jobs use `envelope.*` for event-bus metadata and `payload.*` for the producer-authored event payload. `envelope.id` refers to the event-envelope id supplied by the event bus and does not need to be repeated in the authored event payload. Use `envelope.id` when each bus delivery should be processed once; use `payload.<business_key>` when the product needs dedupe by a domain key such as an import batch id. Composite keys are comma-separated, for example `idempotency by payload.org_id, payload.external_id` when an external id is only unique inside a tenant. Consumers may only reference payload fields declared by the producer event contract, including fields inherited from matching `event_group` payloads; `lazuli check` should report `payload.*` references that do not exist in the producer event. If the producer event contract includes `org_id`, event-triggered jobs should declare `tenant_from payload.org_id`; generated handlers should run with that tenant fixed in `ctx` so follow-up queries do not accidentally run cross-tenant. Webhooks use the verified inbound `payload.*` namespace. In tenant-scoped features, a webhook should declare `tenant_from payload.<axis>_id` or explicit `scope global` with a reason; idempotency by tenant key does not itself bind execution context. Do not write bare webhook keys such as `idempotency by external_id`; write `idempotency by payload.external_id` or a composite payload key so the source is explicit. `retry <count> backoff <strategy>` is declarative delivery policy; `retry 3` means up to three retry attempts after the initial attempt fails. Adapters should support at least `fixed` and `exponential` before accepting those strategies in strict mode.
 
 Async snippets that omit `policy` assume the surrounding feature declares an applicable `defaults policy_for ...: @actor.system`; otherwise write `policy @actor.system` inline. `policy_for` is a fallback for constructs without a local policy, primarily jobs, webhooks, and resource-less system features. Commands should keep local policy declarations so a feature-level system default cannot quietly authorize user-facing writes.
 
@@ -1584,7 +1823,8 @@ Webhook handlers are explicit inbound edges from the outside world. In canonical
 webhook stripe_invoice_paid
   path "/webhooks/stripe/invoice-paid"
   verify "./integrations/stripe.go"
-  idempotency by payload.provider_event_id
+  tenant_from payload.org_id
+  idempotency by payload.org_id, payload.provider_event_id
   policy @actor.system
   handler "./integrations/record_stripe_invoice_paid.go" returns BillingWebhook
   emits invoice_paid
@@ -1602,6 +1842,7 @@ job process_import
 
 job recompute_scores
   trigger schedule "0 2 * * *"
+  fanout tenants org
   handler "./jobs/recompute_scores.go"
 ```
 
@@ -1666,7 +1907,7 @@ An extension without `at` uses feature-local convention:
 extensions
   client status_cell: CellRenderer[Customer]
   hook before_create: Hook[CreateCustomer]
-  fn risk_score: Function[Customer, RiskScore]
+  fn risk_score: Function[Customer, Integer]
 ```
 
 The extension declaration keyword is the namespace used at call sites. References use capability namespaces, not the old catch-all `ext.*` namespace:

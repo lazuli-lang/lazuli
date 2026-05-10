@@ -4,6 +4,11 @@
 # Granularity: a feature is a product capability, not an entity wrapper.
 # Design fixture only; parser and codegen coverage may lag this surface.
 
+env
+  server CRM_WEBHOOK_SECRET: Secret required
+  client PUBLIC_APP_URL: Url required
+  mobile EXPO_PUBLIC_API_URL: Url required
+
 feature customer
   purpose "CRM customer lifecycle, ownership, tiering, scoring, and customer-facing surfaces."
 
@@ -43,7 +48,7 @@ feature customer
       webhook
 
     resource Customer previously Account
-      owner: User required
+      owner: User optional
       name: Text required
       email: @semantic.Email @pii.contact required
       lifecycle_stage previously status: CustomerStatus = lead
@@ -53,6 +58,7 @@ feature customer
       external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
 
       soft_delete
+      retention 7y then anonymize
 
       validates field tier "./hooks/validate_tier.go"
 
@@ -83,7 +89,9 @@ feature customer
         lifecycle_stage when params.lifecycle_stage
         tier when params.tier
         owner when params.owner
-        name = params.search when params.search
+
+      search params.search over name, email
+        mode contains
 
       paginate 50
 
@@ -101,8 +109,8 @@ feature customer
         reason "Global admin search intentionally crosses tenant scope."
         deleted_at = nil
 
-      filters
-        name = params.search
+      search params.search over name, email
+        mode contains
 
       order updated_at desc
       paginate 100
@@ -182,6 +190,7 @@ feature customer
         reason: Text
 
   policies
+    capture_lead: @scope.public
     create: @role.admin, @role.sales
     update: @role.admin, @role.sales
     delete: @role.admin
@@ -201,22 +210,53 @@ feature customer
         read: @role.admin, @role.integrations_admin
         write: @actor.system, @role.integrations_admin
 
+  command capture_lead
+    input
+      name: Text required
+      email: @semantic.Email @pii.contact required
+    policy @policy.capture_lead
+    rate_limit "10 per minute per ip"
+    creates Customer
+      name = input.name
+      email = input.email
+      lifecycle_stage = CustomerStatus.lead
+      tier = CustomerTier.free
+      source = CustomerSource.manual
+      owner = nil
+    emits customer_created
+      email = input.email
+      source = CustomerSource.manual
+
   command create
-    input name, email, tier, source
+    input
+      name: Text required
+      email: @semantic.Email @pii.contact required
+      tier: CustomerTier required
+      source: CustomerSource required
     policy @policy.create
     rate_limit "30 per hour per ip"
-    creates Customer from input
+    creates Customer
+      name = input.name
+      email = input.email
+      tier = input.tier
+      source = input.source
       owner = ctx.user
     emits customer_created
+      email = input.email
+      source = input.source
 
   command reassign previously assign_owner
     route id: ID
-    input owner
+    input
+      owner_id: User.ID required
+    target query.by_id(id: route.id)
+    let resolved_owner = user.query.by_id(id: input.owner_id)
     policy @policy.update
     rate_limit "60 per minute per user"
     updates Customer
-      owner = input.owner
+      owner = resolved_owner
     emits customer_reassigned
+      to_owner_id = input.owner_id
 
     tests
       denies when target.lifecycle_stage = archived
@@ -225,7 +265,9 @@ feature customer
 
   command update_tier
     route id: ID
-    input tier
+    input
+      tier: CustomerTier required
+    target query.by_id(id: route.id)
     policy @policy.update
     rate_limit "30 per minute per user"
     updates Customer
@@ -276,6 +318,9 @@ feature customer
 
   job recompute_scores
     trigger schedule "0 2 * * *"
+    fanout tenants org
+    idempotency by tenant.org_id, schedule.day
+    retry 3 backoff exponential
     handler "./jobs/recompute_scores.go"
 
   extensions
@@ -286,7 +331,7 @@ feature customer
 
     hook before_create: Hook[CreateCustomer]
     hook after_archive: Hook[ArchiveCustomer]
-    fn risk_score: Function[Customer, RiskScore]
+    fn risk_score: Function[Customer, Integer]
     query_modifier query_scope_modifier: QueryModifier[Customer]
 
   escape_route "/admin/customer-debug"
@@ -320,6 +365,7 @@ feature customer_auth
       provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
       provider: AuthProvider required
       expires_at: DateTime required
+      retention 30d then delete
 
     resource CustomerMfaConfig
       customer: Customer required on_delete restrict
@@ -331,12 +377,14 @@ feature customer_auth
       requested_at: DateTime required
 
     query.list active_sessions
+      modifier @query_modifier.active_session_scope
+
       params
         customer_id: ID
 
       filters
         customer.id = params.customer_id
-        expires_at != nil
+        expires_at > ctx.now
 
     event customer_logged_in
       customer_id: ID
@@ -397,10 +445,11 @@ feature customer_auth
     emits customer_logged_in
 
   command enable_mfa
-    route customer_id: ID
+    route customer_id: ID from ctx.customer.id
     input
-      totp_code: Text
+      totp_code: Text required
     target customer.query.by_id(id: route.customer_id)
+    validate @validator.verify_customer_totp(customer_id: route.customer_id, code: input.totp_code)
     policy @policy.update
     rate_limit "10 per minute per user"
     creates CustomerMfaConfig
@@ -414,6 +463,7 @@ feature customer_auth
     adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
     fn enroll_customer_totp: Function[Customer, TotpEnrollment] at "./auth/enroll_customer_totp.go"
     validator verify_customer_totp: Validator[TotpVerifyInput] at "./auth/verify_customer_totp.go"
+    query_modifier active_session_scope: QueryModifier[CustomerSession] at "./queries/active_session_scope.go"
 
 feature customer_tags
   purpose "Customer tag taxonomy and tag assignments with assignment metadata."
@@ -500,7 +550,9 @@ feature customer_tags
     read: @scope.same_org
 
   command create_tag
-    input name, color
+    input
+      name: Text required
+      color: Text optional
     policy @policy.create
     rate_limit "30 per minute per user"
     creates CustomerTag
@@ -510,21 +562,23 @@ feature customer_tags
 
   command assign_tag
     input
-      customer: Customer
-      tag: CustomerTag
+      customer_id: ID required
+      tag_id: ID required
+    target customer.query.by_id(id: input.customer_id)
+    let resolved_tag = query.tag_by_id(id: input.tag_id)
     policy @policy.update
     rate_limit "60 per minute per user"
     creates CustomerTagAssignment
-      customer = input.customer
-      tag = input.tag
+      customer = target
+      tag = resolved_tag
       added_by = ctx.user
       added_at = ctx.now
     emits tag_assignment_created
 
   command remove_tag
     input
-      customer_id: ID
-      tag_id: ID
+      customer_id: ID required
+      tag_id: ID required
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
     policy @policy.update
     rate_limit "60 per minute per user"
@@ -561,7 +615,7 @@ feature customer_import
 
     resource CustomerImportBatch
       uploaded_by: User required
-      file: @cap.File required
+      file: @cap.File(max_size:25mb,accept:text/csv) required
       status: ImportStatus = uploaded
       total_rows: Integer = 0
       valid_rows: Integer = 0
@@ -628,12 +682,14 @@ feature customer_import
     verify hmac sha256
       secret env.CRM_WEBHOOK_SECRET
       header "X-CRM-Signature"
-    idempotency by payload.external_id
+    tenant_from payload.org_id
+    idempotency by payload.org_id, payload.external_id
     handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
 
   extensions
     client import_history: ViewBlock[Customer]
+    client import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
 
   escape_route "/admin/customer-imports"
     at "./pages/customer_imports.tsx"

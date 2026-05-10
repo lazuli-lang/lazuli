@@ -6,4 +6,4 @@ surface customer_auth web
   audience account
     view enable_mfa Form
       fields totp_code
-      submit enable_mfa
+      submit customer_auth.command.enable_mfa

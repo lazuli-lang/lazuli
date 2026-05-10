@@ -308,10 +308,15 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(policy_namespace_diagnostics(source));
         diagnostics.extend(scope_override_policy_diagnostics(source));
         diagnostics.extend(query_order_default_diagnostics(source));
+        diagnostics.extend(query_pagination_diagnostics(source));
         diagnostics.extend(query_filter_index_diagnostics(source));
+        diagnostics.extend(query_search_syntax_diagnostics(source));
+        diagnostics.extend(active_session_query_diagnostics(source));
         diagnostics.extend(command_rate_limit_contract_diagnostics(source));
         diagnostics.extend(event_job_tenant_from_diagnostics(source));
+        diagnostics.extend(scheduled_job_tenancy_diagnostics(source));
         diagnostics.extend(crypto_contract_diagnostics(source));
+        diagnostics.extend(file_capability_contract_diagnostics(source));
         diagnostics.extend(sql_return_type_diagnostics(source));
         diagnostics.extend(type_namespace_diagnostics(source));
         diagnostics.extend(validation_syntax_diagnostics(source));
@@ -323,11 +328,17 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(event_locator_diagnostics(source));
         diagnostics.extend(target_binding_diagnostics(source));
         diagnostics.extend(rule_self_diagnostics(source));
+        diagnostics.extend(required_field_nil_rule_diagnostics(source));
+        diagnostics.extend(command_validator_diagnostics(source));
         diagnostics.extend(anchor_whitelist_diagnostics(source));
         diagnostics.extend(test_block_diagnostics(source));
         diagnostics.extend(command_contract_diagnostics(source));
         diagnostics.extend(field_security_policy_diagnostics(source));
+        diagnostics.extend(retention_contract_diagnostics(source));
+        diagnostics.extend(write_window_contract_diagnostics(source));
+        diagnostics.extend(env_schema_diagnostics(source));
         diagnostics.extend(webhook_security_diagnostics(source));
+        diagnostics.extend(webhook_tenant_from_diagnostics(source));
         diagnostics.extend(escape_route_security_diagnostics(source));
         diagnostics.extend(auth_security_diagnostics(source));
         diagnostics.extend(extension_reference_diagnostics(source));
@@ -337,6 +348,7 @@ fn diagnostics_for_with_profile(
 
     if is_lzx_source(source) {
         let mut diagnostics = lzx_contract_diagnostics(source);
+        diagnostics.extend(lzx_route_contract_diagnostics(source));
         diagnostics.extend(namespace_reference_diagnostics(source));
         diagnostics.extend(extension_reference_diagnostics(source));
         return diagnostics;
@@ -386,15 +398,16 @@ fn is_lzx_source(source: &str) -> bool {
         leading_spaces(line) == 0
             && matches!(
                 line.trim_start().split_whitespace().next(),
-                Some("experience" | "surface")
+                Some("app" | "route" | "experience" | "surface")
             )
     })
 }
 
 fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    let mut current_surface: Option<(usize, String, bool)> = None;
+    let mut current_surface: Option<(usize, String, bool, Option<String>)> = None;
     let mut in_audience = false;
+    let mut in_view_extension = false;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -413,8 +426,36 @@ fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             ));
         }
 
+        if leading_spaces(line) == 4
+            && let Some(target) = trimmed.strip_prefix("opens ")
+            && !target.contains('(')
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "lzx-open-binding",
+                "view navigation should bind route arguments explicitly, e.g. `opens detail(id: row.id)`, so generators do not infer row identity.",
+            ));
+        }
+
+        if leading_spaces(line) == 6
+            && let Some(target) = trimmed.strip_prefix("submit ")
+            && is_identifier(target.trim())
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "lzx-submit-target",
+                "platform form submits should use an explicit command reference such as `command.create` or `customer.command.capture_lead`, not a bare verb.",
+            ));
+        }
+
         if leading_spaces(line) == 0 {
-            if let Some((surface_line, surface_header, has_uses_experience)) =
+            in_view_extension = false;
+
+            if let Some((surface_line, surface_header, has_uses_experience, _)) =
                 current_surface.take()
                 && !has_uses_experience
             {
@@ -467,13 +508,34 @@ fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         ));
                     }
                 }
-                current_surface = Some((line_index, line.to_owned(), false));
+                current_surface = Some((
+                    line_index,
+                    line.to_owned(),
+                    false,
+                    parts.get(2).map(|platform| (*platform).to_owned()),
+                ));
             }
 
             continue;
         }
 
-        if let Some((_, _, has_uses_experience)) = current_surface.as_mut() {
+        if leading_spaces(line) == 2 {
+            in_view_extension = trimmed.starts_with("extends @anchor.");
+        } else if leading_spaces(line) < 2 {
+            in_view_extension = false;
+        }
+
+        if in_view_extension && leading_spaces(line) == 4 && trimmed.starts_with("block ") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "lzx-extension-slot",
+                "view extensions should place blocks under an explicit slot, e.g. `slot aside` then `block @client.tag_editor`, so composition order and placement are deterministic.",
+            ));
+        }
+
+        if let Some((_, _, has_uses_experience, platform)) = current_surface.as_mut() {
             if leading_spaces(line) == 2 {
                 if trimmed.starts_with("uses experience ") {
                     *has_uses_experience = true;
@@ -505,11 +567,24 @@ fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "lzx-audience-required",
                     "concrete platform views live under `audience ...` blocks.",
                 ));
+            } else if in_audience
+                && leading_spaces(line) == 4
+                && platform.as_deref() == Some("mobile")
+                && let Some(view_type) = trimmed.split_whitespace().nth(2)
+                && matches!(view_type, "Table" | "SidePanel")
+            {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "lzx-mobile-primitive",
+                    "mobile projections should use mobile-native primitives such as `List`, `Screen`, or `Sheet` instead of web-oriented `Table`/`SidePanel`.",
+                ));
             }
         }
     }
 
-    if let Some((surface_line, surface_header, has_uses_experience)) = current_surface
+    if let Some((surface_line, surface_header, has_uses_experience, _)) = current_surface
         && !has_uses_experience
     {
         diagnostics.push(simple_canonical_diagnostic(
@@ -522,6 +597,331 @@ fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+#[derive(Debug)]
+struct LzxRouteViewFacts {
+    routes: HashSet<String>,
+    references: Vec<(usize, String, String)>,
+    unbound_target_actions: Vec<(usize, String)>,
+}
+
+#[derive(Debug)]
+struct LzxAppRouteFacts {
+    line_index: usize,
+    line: String,
+    has_path_or_stack: bool,
+    has_to: bool,
+    has_surface: bool,
+    has_audience: bool,
+    declared_params: HashSet<String>,
+    path_params: Vec<String>,
+    path_references: Vec<(usize, String, String)>,
+}
+
+fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_experience = false;
+    let mut current_view: Option<LzxRouteViewFacts> = None;
+    let mut current_route: Option<LzxAppRouteFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 0 {
+            if let Some(view) = current_view.take() {
+                diagnostics.extend(lzx_route_view_diagnostics(view));
+            }
+            if let Some(route) = current_route.take() {
+                diagnostics.extend(lzx_app_route_diagnostics(route));
+            }
+            if trimmed.starts_with("route ") {
+                current_route = Some(LzxAppRouteFacts {
+                    line_index,
+                    line: line.to_owned(),
+                    has_path_or_stack: false,
+                    has_to: false,
+                    has_surface: false,
+                    has_audience: false,
+                    declared_params: HashSet::new(),
+                    path_params: Vec::new(),
+                    path_references: Vec::new(),
+                });
+            }
+            in_experience = trimmed.starts_with("experience ");
+            continue;
+        }
+
+        if let Some(route) = current_route.as_mut() {
+            if leading_spaces(line) == 2 {
+                if let Some(path) = trimmed
+                    .strip_prefix("path ")
+                    .or_else(|| trimmed.strip_prefix("stack "))
+                {
+                    route.has_path_or_stack = true;
+                    route
+                        .path_params
+                        .extend(lzx_declared_path_params(unquote_lzx_literal(path.trim())));
+                } else if let Some(params) = trimmed.strip_prefix("params ") {
+                    for param in params
+                        .split(',')
+                        .filter_map(|part| route_slot_name(part.trim()))
+                    {
+                        route.declared_params.insert(param.to_owned());
+                    }
+                } else if let Some(target) = trimmed.strip_prefix("to ") {
+                    route.has_to = true;
+                    for reference in path_references(target, "path.") {
+                        route.path_references.push((
+                            line_index,
+                            line.to_owned(),
+                            reference.to_owned(),
+                        ));
+                    }
+                } else if trimmed.starts_with("surface ") {
+                    route.has_surface = true;
+                } else if trimmed.starts_with("audience ") {
+                    route.has_audience = true;
+                }
+            }
+            continue;
+        }
+
+        if !in_experience {
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("view ") {
+            if let Some(view) = current_view.take() {
+                diagnostics.extend(lzx_route_view_diagnostics(view));
+            }
+            current_view = Some(LzxRouteViewFacts {
+                routes: HashSet::new(),
+                references: Vec::new(),
+                unbound_target_actions: Vec::new(),
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 {
+            if let Some(view) = current_view.take() {
+                diagnostics.extend(lzx_route_view_diagnostics(view));
+            }
+            continue;
+        }
+
+        let Some(view) = current_view.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4
+            && let Some(route) = trimmed.strip_prefix("route ")
+            && let Some(name) = route_slot_name(route)
+        {
+            view.routes.insert(name.to_owned());
+        }
+
+        if leading_spaces(line) == 4
+            && let Some((_, target)) = trimmed
+                .strip_prefix("action ")
+                .and_then(|rest| rest.split_once(" -> "))
+            && !target.contains('(')
+            && (target.contains(".command.") || target.contains(".workflow."))
+        {
+            view.unbound_target_actions
+                .push((line_index, line.to_owned()));
+        }
+
+        for reference in lzx_route_references(trimmed) {
+            view.references
+                .push((line_index, line.to_owned(), reference.to_owned()));
+        }
+    }
+
+    if let Some(view) = current_view {
+        diagnostics.extend(lzx_route_view_diagnostics(view));
+    }
+    if let Some(route) = current_route {
+        diagnostics.extend(lzx_app_route_diagnostics(route));
+    }
+
+    diagnostics
+}
+
+fn lzx_app_route_diagnostics(route: LzxAppRouteFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if !route.has_path_or_stack {
+        diagnostics.push(simple_canonical_diagnostic(
+            route.line_index,
+            &route.line,
+            DiagnosticSeverity::ERROR,
+            "lzx-app-route-contract",
+            "top-level routes should declare a concrete `path` for web or `stack` for mobile.",
+        ));
+    }
+    if !route.has_to {
+        diagnostics.push(simple_canonical_diagnostic(
+            route.line_index,
+            &route.line,
+            DiagnosticSeverity::ERROR,
+            "lzx-app-route-contract",
+            "top-level routes should declare `to <experience>.view.<view>(...)` so generated links and navigation have a typed target.",
+        ));
+    }
+    if !route.has_surface || !route.has_audience {
+        diagnostics.push(simple_canonical_diagnostic(
+            route.line_index,
+            &route.line,
+            DiagnosticSeverity::ERROR,
+            "lzx-app-route-contract",
+            "top-level routes should bind `surface <name> web|mobile` and `audience <name>` so authorization and platform routing are explicit.",
+        ));
+    }
+
+    for path_param in route.path_params {
+        if !route.declared_params.contains(&path_param) {
+            diagnostics.push(simple_canonical_diagnostic(
+                route.line_index,
+                &route.line,
+                DiagnosticSeverity::WARNING,
+                "lzx-route-param-contract",
+                &format!(
+                    "route path parameter `{path_param}` should be declared with `params {path_param}: <Type>` so route builders are type-safe.",
+                ),
+            ));
+        }
+    }
+
+    for (line_index, line, reference) in route.path_references {
+        if !route.declared_params.contains(&reference) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "lzx-route-param-contract",
+                &format!(
+                    "route target references `path.{reference}` but the route does not declare `params {reference}: ...`.",
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn lzx_declared_path_params(path: &str) -> Vec<String> {
+    let mut params = Vec::new();
+    let bytes = path.as_bytes();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b':' {
+            let start = index + 1;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || matches!(bytes[end], b'_'))
+            {
+                end += 1;
+            }
+            if end > start {
+                params.push(path[start..end].to_owned());
+            }
+            index = end;
+            continue;
+        }
+
+        if bytes[index] == b'[' {
+            let start = index + 1;
+            if let Some(close_offset) = path[start..].find(']') {
+                let raw = &path[start..start + close_offset];
+                let name = raw.trim_start_matches("...");
+                if is_identifier(name) {
+                    params.push(name.to_owned());
+                }
+                index = start + close_offset + 1;
+                continue;
+            }
+        }
+
+        index += 1;
+    }
+
+    params
+}
+
+fn unquote_lzx_literal(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
+}
+
+fn lzx_route_view_diagnostics(view: LzxRouteViewFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line, route) in view.references {
+        if !view.routes.contains(&route) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "lzx-route-contract",
+                &format!(
+                    "view references `route.{route}` but does not declare `route {route}: ...`; route bindings should be explicit in the abstract experience."
+                ),
+            ));
+        }
+    }
+
+    if !view.routes.is_empty() {
+        for (line_index, line) in view.unbound_target_actions {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "lzx-action-route-binding",
+                "actions in routed views should pass route arguments explicitly, e.g. `action archive -> feature.workflow.name.transition(id: route.id)`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn route_slot_name(route: &str) -> Option<&str> {
+    route
+        .split_once(':')
+        .map(|(name, _)| name.trim())
+        .or_else(|| route.split_whitespace().next())
+        .filter(|name| is_identifier(name))
+}
+
+fn lzx_route_references(source: &str) -> Vec<&str> {
+    path_references(source, "route.")
+}
+
+fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
+    let mut references = Vec::new();
+    let mut rest = source;
+
+    while let Some(start) = rest.find(prefix) {
+        let after = &rest[start + prefix.len()..];
+        let len = after
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+            .count();
+        if len > 0 {
+            references.push(&after[..len]);
+        }
+        rest = &after[len..];
+    }
+
+    references
 }
 
 fn lzx_filename_diagnostics(uri: &Url, source: &str) -> Vec<Diagnostic> {
@@ -847,6 +1247,54 @@ fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn query_pagination_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_query_mode: Option<&str> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading <= 4 {
+            current_query_mode = if leading == 4 && trimmed.starts_with("query.") {
+                trimmed.split_whitespace().next()
+            } else {
+                None
+            };
+        }
+
+        let Some(value) = trimmed.strip_prefix("paginate ") else {
+            continue;
+        };
+
+        if current_query_mode != Some("query.list") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-pagination-scope",
+                "`paginate` is a `query.list` contract; lookup and SQL queries should model limits explicitly in their own params or SQL.",
+            ));
+        }
+
+        if !matches!(value.trim().parse::<u64>(), Ok(page_size) if page_size > 0) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-pagination-size",
+                "`paginate` should declare a positive integer default page size, e.g. `paginate 50`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
 fn query_filter_index_diagnostics(source: &str) -> Vec<Diagnostic> {
     let generated = generated_query_filter_indexes(source);
     if generated.is_empty() {
@@ -871,6 +1319,124 @@ fn query_filter_index_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "`query.list` equality filters generate this tenant-aware index; omit the explicit `index` unless the query needs a non-default index shape.",
             ));
         }
+    }
+
+    diagnostics
+}
+
+fn query_search_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        if trimmed.contains("= params.search") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-search-syntax",
+                "text matching should use `search params.search over ...` instead of an equality-looking filter such as `name = params.search`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct ActiveSessionQueryFacts {
+    line_index: usize,
+    line: String,
+    has_temporal_scope: bool,
+    expires_not_nil: Option<(usize, String)>,
+}
+
+fn active_session_query_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_query: Option<ActiveSessionQueryFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 4 && trimmed.starts_with("query.list ") {
+            if let Some(query) = current_query.take() {
+                diagnostics.extend(active_session_query_facts_diagnostics(query));
+            }
+
+            if trimmed
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|name| name == "active_sessions")
+            {
+                current_query = Some(ActiveSessionQueryFacts {
+                    line_index,
+                    line: line.to_owned(),
+                    has_temporal_scope: false,
+                    expires_not_nil: None,
+                });
+            }
+            continue;
+        }
+
+        if leading_spaces(line) <= 4 && !trimmed.is_empty() {
+            if let Some(query) = current_query.take() {
+                diagnostics.extend(active_session_query_facts_diagnostics(query));
+            }
+            continue;
+        }
+
+        let Some(query) = current_query.as_mut() else {
+            continue;
+        };
+
+        if trimmed.contains("expires_at > ctx.now")
+            || trimmed.contains("expires_at >= ctx.now")
+            || trimmed.contains("guarantees expires_at > ctx.now")
+            || trimmed.contains("guarantees expires_at >= ctx.now")
+        {
+            query.has_temporal_scope = true;
+        }
+
+        if trimmed == "expires_at != nil" {
+            query.expires_not_nil = Some((line_index, line.to_owned()));
+        }
+    }
+
+    if let Some(query) = current_query {
+        diagnostics.extend(active_session_query_facts_diagnostics(query));
+    }
+
+    diagnostics
+}
+
+fn active_session_query_facts_diagnostics(query: ActiveSessionQueryFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if let Some((line_index, line)) = query.expires_not_nil {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            &line,
+            DiagnosticSeverity::WARNING,
+            "active-session-temporal-scope",
+            "`active_sessions` should prove temporal validity; `expires_at != nil` can include expired sessions. Use an explicit `expires_at > ctx.now` guard or a modifier `guarantees expires_at > ctx.now` contract.",
+        ));
+    } else if !query.has_temporal_scope {
+        diagnostics.push(simple_canonical_diagnostic(
+            query.line_index,
+            &query.line,
+            DiagnosticSeverity::WARNING,
+            "active-session-temporal-scope",
+            "`active_sessions` should declare temporal validity with an explicit `expires_at > ctx.now` guard or a modifier `guarantees expires_at > ctx.now` contract.",
+        ));
     }
 
     diagnostics
@@ -2041,6 +2607,83 @@ fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') || !line.contains("@cap.File") {
+            continue;
+        }
+
+        let Some(args) = capability_args(line, "File") else {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "storage-file-contract",
+                "`@cap.File` should declare `max_size:<size>` and `accept:<mime>` so generated upload APIs and validators have an explicit contract.",
+            ));
+            continue;
+        };
+
+        warn_unknown_capability_args(
+            &mut diagnostics,
+            line_index,
+            line,
+            "@cap.File",
+            &args,
+            &["max_size", "accept"],
+        );
+
+        if !args.iter().any(|(key, _)| key == "max_size") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "storage-file-contract",
+                "`@cap.File` should declare `max_size:<size>` such as `25mb`.",
+            ));
+        }
+
+        if !args.iter().any(|(key, _)| key == "accept") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "storage-file-contract",
+                "`@cap.File` should declare `accept:<mime>` such as `text/csv`.",
+            ));
+        }
+
+        if let Some(max_size) = capability_arg(&args, "max_size")
+            && !is_file_size_literal(max_size)
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "storage-file-contract",
+                "`@cap.File` max_size should use a positive size literal such as `500kb`, `25mb`, or `1gb`.",
+            ));
+        }
+
+        if let Some(accept) = capability_arg(&args, "accept")
+            && accept.trim().is_empty()
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "storage-file-contract",
+                "`@cap.File` accept should name a MIME type such as `text/csv` or `image/png`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
 fn capability_args(line: &str, capability: &str) -> Option<Vec<(String, String)>> {
     let marker = format!("@cap.{capability}(");
     let start = line.find(&marker)? + marker.len();
@@ -2079,7 +2722,7 @@ fn warn_unknown_capability_args(
                 line_index,
                 line,
                 DiagnosticSeverity::WARNING,
-                "crypto-capability-arguments",
+                "capability-arguments",
                 &format!(
                     "{capability} only accepts canonical arguments: {}.",
                     allowed.join(", ")
@@ -2106,6 +2749,40 @@ fn is_duration_literal(value: &str) -> bool {
     amount > 0 && matches!(&value[digit_count..], "s" | "m" | "h" | "d")
 }
 
+fn is_file_size_literal(value: &str) -> bool {
+    let digit_count = value
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .count();
+
+    if digit_count == 0 || digit_count == value.len() {
+        return false;
+    }
+
+    let Ok(amount) = value[..digit_count].parse::<u64>() else {
+        return false;
+    };
+
+    amount > 0 && matches!(&value[digit_count..], "b" | "kb" | "mb" | "gb")
+}
+
+fn is_retention_duration_literal(value: &str) -> bool {
+    let digit_count = value
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .count();
+
+    if digit_count == 0 || digit_count == value.len() {
+        return false;
+    }
+
+    let Ok(amount) = value[..digit_count].parse::<u64>() else {
+        return false;
+    };
+
+    amount > 0 && matches!(&value[digit_count..], "h" | "d" | "w" | "mo" | "y")
+}
+
 fn is_key_scope(value: &str) -> bool {
     value
         .strip_prefix("@key.")
@@ -2114,11 +2791,21 @@ fn is_key_scope(value: &str) -> bool {
 
 fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    let mut in_env = false;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
 
         if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 0 {
+            in_env = trimmed == "env";
+            continue;
+        }
+
+        if in_env {
             continue;
         }
 
@@ -2290,7 +2977,7 @@ fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        if trimmed.starts_with("validate ") {
+        if trimmed.starts_with("validate ") && !trimmed.starts_with("validate @validator.") {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -2592,6 +3279,211 @@ fn rule_self_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+fn required_field_nil_rule_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let required_fields = collect_required_resource_fields(source);
+    let mut diagnostics = Vec::new();
+    let mut current_feature: Option<String> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            current_feature = Some(feature_name(trimmed));
+            continue;
+        }
+
+        if !trimmed.starts_with("deny ") {
+            continue;
+        }
+
+        let Some(feature) = current_feature.as_deref() else {
+            continue;
+        };
+        let Some((operation, predicate)) = trimmed
+            .strip_prefix("deny ")
+            .and_then(|rest| rest.split_once(" when "))
+        else {
+            continue;
+        };
+        let Some(resource) = operation
+            .split_once('.')
+            .map(|(resource, _)| resource.trim())
+        else {
+            continue;
+        };
+
+        for field in required_fields
+            .iter()
+            .filter_map(|(field_feature, field_resource, field)| {
+                (field_feature == feature && field_resource == resource).then_some(field)
+            })
+        {
+            if predicate_references_nil_self_field(predicate, field) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "required-field-nil-rule",
+                    &format!(
+                        "rule predicate checks `self.{field}` against `nil`, but `{resource}.{field}` is declared `required`; make the field optional or remove the impossible nil branch.",
+                    ),
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct CommandValidatorFacts {
+    validators: Vec<(String, usize, String)>,
+    requirements: HashSet<String>,
+    has_blocking_validate: bool,
+}
+
+fn command_validator_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_command: Option<CommandValidatorFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("command ") {
+            if let Some(command) = current_command.take() {
+                diagnostics.extend(command_validator_facts_diagnostics(command));
+            }
+            current_command = Some(CommandValidatorFacts {
+                validators: Vec::new(),
+                requirements: HashSet::new(),
+                has_blocking_validate: false,
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 && !trimmed.is_empty() {
+            if let Some(command) = current_command.take() {
+                diagnostics.extend(command_validator_facts_diagnostics(command));
+            }
+            continue;
+        }
+
+        let Some(command) = current_command.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4 {
+            if trimmed.starts_with("validate @validator.") {
+                command.has_blocking_validate = true;
+            } else if let Some((binding, expression)) = trimmed
+                .strip_prefix("let ")
+                .and_then(|rest| rest.split_once('='))
+            {
+                if expression.trim().starts_with("@validator.") {
+                    command.validators.push((
+                        binding.trim().to_owned(),
+                        line_index,
+                        line.to_owned(),
+                    ));
+                }
+            } else if let Some(requirement) = trimmed.strip_prefix("requires ") {
+                command.requirements.insert(requirement.trim().to_owned());
+            }
+        }
+    }
+
+    if let Some(command) = current_command {
+        diagnostics.extend(command_validator_facts_diagnostics(command));
+    }
+
+    diagnostics
+}
+
+fn command_validator_facts_diagnostics(command: CommandValidatorFacts) -> Vec<Diagnostic> {
+    if command.has_blocking_validate {
+        return Vec::new();
+    }
+
+    command
+        .validators
+        .into_iter()
+        .filter(|(binding, _, _)| !command.requirements.contains(binding))
+        .map(|(binding, line_index, line)| {
+            simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "command-validator-result",
+                &format!(
+                    "validator result `{binding}` is computed but not required; use `validate @validator...` or `requires {binding}` so the command cannot continue after validation fails.",
+                ),
+            )
+        })
+        .collect()
+}
+
+fn collect_required_resource_fields(source: &str) -> HashSet<(String, String, String)> {
+    let mut fields = HashSet::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_resource: Option<String> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            current_feature = Some(feature_name(trimmed));
+            current_top = None;
+            current_resource = None;
+            continue;
+        }
+
+        if leading_spaces(line) == 2 {
+            current_top = trimmed.split_whitespace().next();
+            current_resource = None;
+            continue;
+        }
+
+        if current_top != Some("domain") {
+            continue;
+        }
+
+        if leading_spaces(line) == 4 {
+            current_resource = trimmed
+                .strip_prefix("resource ")
+                .and_then(|rest| rest.split_whitespace().next())
+                .map(str::to_owned);
+            continue;
+        }
+
+        if leading_spaces(line) == 6
+            && trimmed.contains(" required")
+            && let (Some(feature), Some(resource), Some(field)) = (
+                current_feature.as_deref(),
+                current_resource.as_deref(),
+                field_name(trimmed),
+            )
+        {
+            fields.insert((feature.to_owned(), resource.to_owned(), field.to_owned()));
+        }
+    }
+
+    fields
+}
+
+fn predicate_references_nil_self_field(predicate: &str, field: &str) -> bool {
+    let left = format!("self.{field}");
+    predicate.contains(&format!("{left} = nil")) || predicate.contains(&format!("{left} != nil"))
 }
 
 fn legacy_rule_subject_alias(predicate: &str) -> Option<&str> {
@@ -2985,6 +3877,347 @@ fn is_sensitive_field_line(line: &str) -> bool {
         || line.contains("@cap.Token")
 }
 
+#[derive(Debug)]
+struct PiiResourceFacts {
+    feature: String,
+    resource: String,
+    line_index: usize,
+    line: String,
+}
+
+fn retention_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let pii_resources = collect_pii_resource_facts(source);
+    let retention = collect_retention_facts(source, &mut diagnostics);
+
+    for resource in pii_resources {
+        if !retention.feature_defaults.contains(&resource.feature)
+            && !retention
+                .resources
+                .contains(&(resource.feature.clone(), resource.resource.clone()))
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                resource.line_index,
+                &resource.line,
+                DiagnosticSeverity::WARNING,
+                "retention-contract",
+                &format!(
+                    "resource `{}` stores `@pii.*` fields and should declare `retention <duration> then delete|anonymize|archive`, or inherit a feature default retention contract.",
+                    resource.resource
+                ),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+#[derive(Debug, Default)]
+struct RetentionFacts {
+    feature_defaults: HashSet<String>,
+    resources: HashSet<(String, String)>,
+}
+
+fn collect_retention_facts(source: &str, diagnostics: &mut Vec<Diagnostic>) -> RetentionFacts {
+    let mut facts = RetentionFacts::default();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_resource: Option<String> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+                current_resource = None;
+            }
+            2 => {
+                current_top = trimmed.split_whitespace().next();
+                current_resource = None;
+            }
+            4 if current_top == Some("domain") => {
+                current_resource = trimmed
+                    .strip_prefix("resource ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+            }
+            _ => {}
+        }
+
+        if !trimmed.starts_with("retention ") {
+            continue;
+        }
+
+        if let Some(message) = retention_contract_error(trimmed) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "retention-contract",
+                message,
+            ));
+            continue;
+        }
+
+        match (
+            leading_spaces(line),
+            current_top,
+            current_feature.as_deref(),
+        ) {
+            (4, Some("defaults"), Some(feature)) => {
+                facts.feature_defaults.insert(feature.to_owned());
+            }
+            (6, Some("domain"), Some(feature)) => {
+                if let Some(resource) = current_resource.as_deref() {
+                    facts
+                        .resources
+                        .insert((feature.to_owned(), resource.to_owned()));
+                }
+            }
+            _ => {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "retention-contract",
+                    "`retention` belongs under `defaults` or as a resource child.",
+                ));
+            }
+        }
+    }
+
+    facts
+}
+
+fn retention_contract_error(trimmed_line: &str) -> Option<&'static str> {
+    let parts: Vec<_> = trimmed_line.split_whitespace().collect();
+    if parts.len() != 4 || parts[2] != "then" {
+        return Some(
+            "retention contracts use `retention <duration|forever> then delete|anonymize|archive`.",
+        );
+    }
+
+    if parts[1] != "forever" && !is_retention_duration_literal(parts[1]) {
+        return Some(
+            "retention duration should be `forever` or a positive duration such as `30d`, `24mo`, or `7y`.",
+        );
+    }
+
+    if !matches!(parts[3], "delete" | "anonymize" | "archive") {
+        return Some("retention action should be `delete`, `anonymize`, or `archive`.");
+    }
+
+    None
+}
+
+fn collect_pii_resource_facts(source: &str) -> Vec<PiiResourceFacts> {
+    let mut resources = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut current_resource: Option<(String, usize, String)> = None;
+    let mut current_resource_has_pii = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) <= 4 {
+            if let Some((resource, resource_line_index, resource_line)) = current_resource.take()
+                && current_resource_has_pii
+                && let Some(feature) = current_feature.as_deref()
+            {
+                resources.push(PiiResourceFacts {
+                    feature: feature.to_owned(),
+                    resource,
+                    line_index: resource_line_index,
+                    line: resource_line,
+                });
+            }
+            current_resource_has_pii = false;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                current_top = None;
+            }
+            2 => current_top = trimmed.split_whitespace().next(),
+            4 if current_top == Some("domain") => {
+                current_resource = trimmed
+                    .strip_prefix("resource ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(|resource| (resource.to_owned(), line_index, line.to_owned()));
+            }
+            6 if current_top == Some("domain") && current_resource.is_some() => {
+                if line.contains("@pii.") {
+                    current_resource_has_pii = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some((resource, resource_line_index, resource_line)) = current_resource
+        && current_resource_has_pii
+        && let Some(feature) = current_feature
+    {
+        resources.push(PiiResourceFacts {
+            feature,
+            resource,
+            line_index: resource_line_index,
+            line: resource_line,
+        });
+    }
+
+    resources
+}
+
+fn write_window_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some(rest) = trimmed.strip_prefix("write_window ") else {
+            continue;
+        };
+
+        if leading_spaces(line) != 4 {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "write-window-contract",
+                "`write_window` belongs as a command child.",
+            ));
+            continue;
+        }
+
+        let parts: Vec<_> = rest.split_whitespace().collect();
+        if parts.len() != 4 || parts[0] != "by" || parts[2] != "within" {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "write-window-contract",
+                "write-window guards use `write_window by <date-expression> within <window-reference>`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut declared = HashSet::new();
+    let mut in_env = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 0 {
+            in_env = trimmed == "env";
+            continue;
+        }
+
+        if !in_env {
+            continue;
+        }
+
+        if leading_spaces(line) != 2 {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "env-schema-contract",
+                "env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional`.",
+            ));
+            continue;
+        }
+
+        let parts: Vec<_> = trimmed.split_whitespace().collect();
+        if parts.len() != 4
+            || !matches!(parts[0], "server" | "client" | "mobile")
+            || !parts[1].ends_with(':')
+            || !matches!(parts[2], "Secret" | "Text" | "Url" | "Boolean" | "Integer")
+            || !matches!(parts[3], "required" | "optional")
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "env-schema-contract",
+                "env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional`.",
+            ));
+            continue;
+        }
+
+        let name = parts[1].trim_end_matches(':');
+        declared.insert(name.to_owned());
+
+        if parts[0] == "client" && !name.starts_with("PUBLIC_") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "env-client-exposure",
+                "client env names should use a `PUBLIC_` prefix so secret/server-only values are not accidentally bundled.",
+            ));
+        }
+
+        if parts[0] == "mobile" && !name.starts_with("EXPO_PUBLIC_") {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "env-mobile-exposure",
+                "mobile env names should use an `EXPO_PUBLIC_` prefix so Expo-visible values are explicit.",
+            ));
+        }
+    }
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        for reference in path_references(trimmed, "env.") {
+            if !declared.contains(reference) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "env-schema-reference",
+                    &format!(
+                        "environment reference `env.{reference}` should be declared in a top-level `env` block with scope, type, and requiredness.",
+                    ),
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
 fn collect_field_policy_facts(source: &str) -> HashMap<(String, String, String), FieldPolicyFacts> {
     let mut policies = HashMap::new();
     let mut current_feature: Option<String> = None;
@@ -3158,6 +4391,107 @@ fn webhook_diagnostics(webhook: WebhookSecurityFacts) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+#[derive(Debug)]
+struct WebhookTenantFacts {
+    feature: String,
+    line_index: usize,
+    line: String,
+    has_tenant_from: bool,
+    has_global_scope: bool,
+}
+
+fn webhook_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let tenant_axes = collect_feature_tenant_axes(source);
+    let mut diagnostics = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_webhook: Option<WebhookTenantFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            if let Some(webhook) = current_webhook.take() {
+                diagnostics.extend(webhook_tenant_from_facts_diagnostics(webhook, &tenant_axes));
+            }
+            current_feature = Some(feature_name(trimmed));
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("webhook ") {
+            if let Some(webhook) = current_webhook.take() {
+                diagnostics.extend(webhook_tenant_from_facts_diagnostics(webhook, &tenant_axes));
+            }
+            current_webhook = current_feature.as_ref().map(|feature| WebhookTenantFacts {
+                feature: feature.clone(),
+                line_index,
+                line: line.to_owned(),
+                has_tenant_from: false,
+                has_global_scope: false,
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 && !trimmed.is_empty() {
+            if let Some(webhook) = current_webhook.take() {
+                diagnostics.extend(webhook_tenant_from_facts_diagnostics(webhook, &tenant_axes));
+            }
+            continue;
+        }
+
+        let Some(webhook) = current_webhook.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4 {
+            if trimmed.starts_with("tenant_from ") {
+                webhook.has_tenant_from = true;
+            } else if trimmed.starts_with("scope global") {
+                webhook.has_global_scope = true;
+            }
+        }
+    }
+
+    if let Some(webhook) = current_webhook {
+        diagnostics.extend(webhook_tenant_from_facts_diagnostics(webhook, &tenant_axes));
+    }
+
+    diagnostics
+}
+
+fn webhook_tenant_from_facts_diagnostics(
+    webhook: WebhookTenantFacts,
+    tenant_axes: &HashMap<String, HashSet<String>>,
+) -> Vec<Diagnostic> {
+    if webhook.has_tenant_from || webhook.has_global_scope {
+        return Vec::new();
+    }
+
+    let Some(axes) = tenant_axes
+        .get(&webhook.feature)
+        .filter(|axes| !axes.is_empty())
+    else {
+        return Vec::new();
+    };
+    let mut axes: Vec<_> = axes.iter().cloned().collect();
+    axes.sort();
+    let payload_hints: Vec<_> = axes
+        .iter()
+        .map(|axis| format!("`tenant_from payload.{axis}_id`"))
+        .collect();
+
+    vec![simple_canonical_diagnostic(
+        webhook.line_index,
+        &webhook.line,
+        DiagnosticSeverity::WARNING,
+        "webhook-tenant-from",
+        &format!(
+            "webhook in tenant-scoped feature `{}` should declare {} or explicit `scope global` with a reason.",
+            webhook.feature,
+            payload_hints.join(" or ")
+        ),
+    )]
 }
 
 #[derive(Debug)]
@@ -3766,6 +5100,167 @@ fn event_job_tenant_from_diagnostic(
         )]
     } else {
         Vec::new()
+    }
+}
+
+#[derive(Debug)]
+struct ScheduledJobFacts {
+    feature: String,
+    line_index: usize,
+    line: String,
+    is_scheduled: bool,
+    has_tenant_fanout: bool,
+    has_global_scope: bool,
+}
+
+fn scheduled_job_tenancy_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let tenant_axes = collect_feature_tenant_axes(source);
+    let mut diagnostics = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_job: Option<ScheduledJobFacts> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            if let Some(job) = current_job.take() {
+                diagnostics.extend(scheduled_job_tenancy_facts_diagnostics(job, &tenant_axes));
+            }
+            current_feature = Some(feature_name(trimmed));
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("job ") {
+            if let Some(job) = current_job.take() {
+                diagnostics.extend(scheduled_job_tenancy_facts_diagnostics(job, &tenant_axes));
+            }
+            current_job = current_feature.as_ref().map(|feature| ScheduledJobFacts {
+                feature: feature.clone(),
+                line_index,
+                line: line.to_owned(),
+                is_scheduled: false,
+                has_tenant_fanout: false,
+                has_global_scope: false,
+            });
+            continue;
+        }
+
+        if leading_spaces(line) <= 2 && !trimmed.is_empty() {
+            if let Some(job) = current_job.take() {
+                diagnostics.extend(scheduled_job_tenancy_facts_diagnostics(job, &tenant_axes));
+            }
+            continue;
+        }
+
+        let Some(job) = current_job.as_mut() else {
+            continue;
+        };
+
+        if leading_spaces(line) == 4 {
+            if trimmed.starts_with("trigger schedule ") {
+                job.is_scheduled = true;
+            } else if trimmed.starts_with("fanout tenants ") {
+                job.has_tenant_fanout = true;
+            } else if trimmed.starts_with("scope global") {
+                job.has_global_scope = true;
+            }
+        }
+    }
+
+    if let Some(job) = current_job {
+        diagnostics.extend(scheduled_job_tenancy_facts_diagnostics(job, &tenant_axes));
+    }
+
+    diagnostics
+}
+
+fn scheduled_job_tenancy_facts_diagnostics(
+    job: ScheduledJobFacts,
+    tenant_axes: &HashMap<String, HashSet<String>>,
+) -> Vec<Diagnostic> {
+    if !job.is_scheduled || job.has_tenant_fanout || job.has_global_scope {
+        return Vec::new();
+    }
+
+    let Some(axes) = tenant_axes
+        .get(&job.feature)
+        .filter(|axes| !axes.is_empty())
+    else {
+        return Vec::new();
+    };
+    let mut axes: Vec<_> = axes.iter().cloned().collect();
+    axes.sort();
+
+    vec![simple_canonical_diagnostic(
+        job.line_index,
+        &job.line,
+        DiagnosticSeverity::WARNING,
+        "scheduled-job-tenancy",
+        &format!(
+            "scheduled job in tenant-scoped feature `{}` should declare `fanout tenants {}` or explicit `scope global` with a reason.",
+            job.feature,
+            axes.join(", ")
+        ),
+    )]
+}
+
+fn collect_feature_tenant_axes(source: &str) -> HashMap<String, HashSet<String>> {
+    let mut axes: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut current_feature: Option<String> = None;
+    let mut current_top: Option<&str> = None;
+    let mut in_resource = false;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                let feature = feature_name(trimmed);
+                axes.entry(feature.clone()).or_default();
+                current_feature = Some(feature);
+                current_top = None;
+                in_resource = false;
+            }
+            2 => {
+                current_top = trimmed.split_whitespace().next();
+                in_resource = false;
+            }
+            4 if current_top == Some("domain") => {
+                in_resource = trimmed.starts_with("resource ");
+            }
+            4 if current_top == Some("defaults") => {
+                if let Some(axis) = trimmed.strip_prefix("tenancy ") {
+                    insert_tenant_axis(&mut axes, current_feature.as_deref(), axis);
+                }
+            }
+            6 if current_top == Some("domain") && in_resource => {
+                if let Some(axis) = trimmed.strip_prefix("tenancy ") {
+                    insert_tenant_axis(&mut axes, current_feature.as_deref(), axis);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    axes
+}
+
+fn insert_tenant_axis(
+    axes: &mut HashMap<String, HashSet<String>>,
+    feature: Option<&str>,
+    axis: &str,
+) {
+    let axis = axis.split_whitespace().next().unwrap_or(axis);
+    if axis != "none"
+        && let Some(feature) = feature
+    {
+        axes.entry(feature.to_owned())
+            .or_default()
+            .insert(axis.to_owned());
     }
 }
 
@@ -5071,7 +6566,8 @@ fn is_word_byte(byte: u8) -> bool {
 
 fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
-        "app" => Some("Names the generated application."),
+        "app" => Some("Declares the generated app manifest and runtime targets."),
+        "env" => Some("Declares typed environment variables and client/server exposure."),
         "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
         "record" => Some("Declares a non-persisted typed result/DTO shape."),
         "command" => Some("Declares a write operation for an aggregate."),
@@ -5079,18 +6575,43 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "query.list" => Some("Declares a generated collection query."),
         "query.lookup" => Some("Declares a generated single-record lookup query."),
         "query.sql" => Some("Declares a query backed by an external SQL file."),
+        "defaults" => Some("Declares repeated feature defaults such as tenancy and timestamps."),
+        "domain" => Some("Groups resources, records, queries, rules, and events."),
+        "policies" => Some("Declares feature-local policy categories and field policies."),
+        "auth" => Some("Declares identity, credential, session, OAuth, or MFA contracts."),
         "event_group" => Some("Declares a shared same-feature event payload template."),
         "event.trace" => {
             Some("Declares an observability-only event that is outside the feature reaction graph.")
         }
+        "tenancy" => Some("Declares the tenant axis for generated scope and indexes."),
+        "timestamps" => Some("Adds generated created/updated timestamp fields."),
+        "soft_delete" => Some("Adds generated soft-delete scope and delete semantics."),
+        "retention" => Some("Declares data retention for a resource or feature default."),
+        "paginate" => Some("Declares the positive default page size for a `query.list`."),
         "surface" => Some("Declares UI projections for list, form, and detail views."),
         "input" => Some("Lists fields accepted by a command."),
-        "route" => Some("Declares route or context values accepted by a command."),
+        "route" => Some(
+            "Declares route or context values accepted by a command/view, or a top-level typed app route in `.lzx`.",
+        ),
+        "path" => Some("Declares a concrete web URL pattern for a top-level `.lzx` route."),
+        "stack" => Some(
+            "Declares a concrete mobile navigation stack pattern for a top-level `.lzx` route.",
+        ),
+        "params" => Some("Declares typed route, API, or query parameters."),
+        "to" => Some("Binds a top-level `.lzx` route to an abstract experience view."),
         "let" => Some("Binds a derived value for later command, job, or event expressions."),
         "policy" => Some("Associates a command with an authorization policy capability."),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
+        "write_window" => Some("Declares the temporal write window checked before a command runs."),
+        "idempotency" => Some("Declares a dedupe key for jobs and webhooks."),
+        "job" => Some("Declares asynchronous or scheduled work."),
+        "webhook" => Some("Declares a verified inbound HTTP integration boundary."),
+        "trigger" => Some("Declares the event or schedule that starts a job."),
+        "retry" => Some("Declares retry attempts and backoff for jobs or webhooks."),
+        "queue" => Some("Declares an async queue lane for event-triggered jobs."),
         "tenant_from" => Some("Pins an event-triggered job tenant context from the event payload."),
+        "fanout" => Some("Declares per-tenant expansion for scheduled jobs."),
         "reason" => Some("Documents why a dangerous declarative override is intentional."),
         "requires" => {
             Some("Declares an additional authority requirement for a workflow transition.")
@@ -5101,6 +6622,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "modifier" => Some("Attaches a query modifier extension to a generated query."),
         "from" => Some("Copies matching input fields into a create assignment."),
         "emits" => Some("Declares a domain event emitted by a command."),
+        "anchor" => Some("Declares the extension anchor for a routed abstract view."),
         "extensible_by" => Some("Whitelists features allowed to extend a view anchor."),
         "tests" => Some(
             "Declares inline IR assertions for a command, transition, rule, or view extension.",
@@ -5127,7 +6649,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "detail" => Some("Declares read-only detail fields for a surface."),
         "columns" => Some("Introduces list columns."),
         "fields" => Some("Introduces form or detail fields."),
-        "validate" => Some("Legacy whole-resource validator syntax; use `validates resource`."),
+        "validate" => Some(
+            "Runs a blocking command validator with `validate @validator.*`; legacy whole-resource validators should use `validates resource`.",
+        ),
         "validates" => Some(
             "Attaches a scoped validator implementation: `validates resource` or `validates field <name>`.",
         ),
@@ -5137,6 +6661,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "validator" => Some("Declares a reusable validator extension contract."),
         "adapter" => Some("Declares a reusable integration adapter extension contract."),
         "query_modifier" => Some("Declares a reusable query modifier extension contract."),
+        "escape_route" => Some("Declares a custom route outside generated UI ownership."),
         "required" => Some("Marks a field as required."),
         "unique" => Some("Marks a field as unique."),
         "default" => Some("Declares a default field value."),
@@ -5146,6 +6671,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
 
 const KEYWORDS: &[&str] = &[
     "app",
+    "env",
     "aggregate",
     "entity",
     "record",
@@ -5154,16 +6680,44 @@ const KEYWORDS: &[&str] = &[
     "query.list",
     "query.lookup",
     "query.sql",
+    "defaults",
+    "domain",
+    "policies",
+    "auth",
     "event_group",
     "event.trace",
+    "tenancy",
+    "timestamps",
+    "soft_delete",
+    "retention",
+    "paginate",
+    "experience",
     "surface",
+    "imports",
+    "uses",
+    "targets",
+    "view",
+    "audience",
+    "extends",
     "input",
     "route",
+    "path",
+    "stack",
+    "params",
+    "to",
     "let",
     "policy",
     "policy_for",
     "rate_limit",
+    "write_window",
+    "idempotency",
+    "job",
+    "webhook",
+    "trigger",
+    "retry",
+    "queue",
     "tenant_from",
+    "fanout",
     "reason",
     "requires",
     "algorithm",
@@ -5172,7 +6726,10 @@ const KEYWORDS: &[&str] = &[
     "modifier",
     "from",
     "emits",
+    "anchor",
     "extensible_by",
+    "slot",
+    "platforms",
     "tests",
     "allows",
     "permits",
@@ -5196,6 +6753,7 @@ const KEYWORDS: &[&str] = &[
     "validator",
     "adapter",
     "query_modifier",
+    "escape_route",
     "required",
     "unique",
     "default",
@@ -5212,6 +6770,9 @@ mod tests {
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
         let source = r#"
+env
+  server INBOUND_WEBHOOK_SECRET: Secret required
+
 feature customer
   purpose "Customers"
 
@@ -5238,12 +6799,14 @@ feature customer
 
   job sync
     trigger schedule "0 2 * * *"
+    fanout tenants org
 
   webhook inbound
     path "/webhooks/inbound"
     verify hmac sha256
       secret env.INBOUND_WEBHOOK_SECRET
       header "X-Signature"
+    tenant_from payload.org_id
     idempotency by payload.id
 
   surface web admin
@@ -5663,6 +7226,32 @@ feature billing
     }
 
     #[test]
+    fn canonical_warns_for_tenant_webhook_without_tenant_from() {
+        let source = r#"
+feature billing
+  purpose "Billing"
+
+  defaults
+    tenancy org
+
+  webhook stripe_invoice_paid
+    path "/webhooks/stripe/invoice-paid"
+    verify hmac sha256
+      secret env.STRIPE_SECRET
+      header "Stripe-Signature"
+    idempotency by payload.org_id, payload.provider_event_id
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("should declare `tenant_from payload.org_id`")
+        }));
+    }
+
+    #[test]
     fn strict_profile_rejects_security_opt_out_without_reason() {
         let source = r#"
 feature billing
@@ -5871,6 +7460,57 @@ feature customer
     }
 
     #[test]
+    fn canonical_warns_for_env_reference_without_schema() {
+        let source = r#"
+feature integration
+  purpose "Integration"
+
+  webhook inbound
+    path "/webhooks/inbound"
+    verify hmac sha256
+      secret env.INBOUND_WEBHOOK_SECRET
+      header "X-Signature"
+    idempotency by payload.id
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("environment reference `env.INBOUND_WEBHOOK_SECRET`")
+        }));
+    }
+
+    #[test]
+    fn canonical_accepts_declared_env_reference() {
+        let source = r#"
+env
+  server INBOUND_WEBHOOK_SECRET: Secret required
+  client PUBLIC_APP_URL: Url required
+  mobile EXPO_PUBLIC_API_URL: Url required
+
+feature integration
+  purpose "Integration"
+
+  webhook inbound
+    path "/webhooks/inbound"
+    verify hmac sha256
+      secret env.INBOUND_WEBHOOK_SECRET
+      header "X-Signature"
+    idempotency by payload.id
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(!diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("environment reference `env.INBOUND_WEBHOOK_SECRET`")
+        }));
+    }
+
+    #[test]
     fn lzx_accepts_experience_and_platform_surface_layers() {
         let experience = r#"
 experience customer
@@ -5892,6 +7532,46 @@ surface customer web
 
         assert!(diagnostics_for(experience).is_empty());
         assert!(diagnostics_for(surface).is_empty());
+    }
+
+    #[test]
+    fn lzx_warns_for_untyped_top_level_route_params() {
+        let source = r#"
+route customer_detail
+  path "/customers/:id"
+  to customer.view.detail(id: path.id)
+  surface customer web
+  audience admin
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("route path parameter `id` should be declared")
+        }));
+    }
+
+    #[test]
+    fn lzx_accepts_typed_top_level_routes() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+  targets
+    backend go
+    web react
+  uses customer
+
+route customer_detail
+  path "/customers/:id"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer web
+  audience admin
+"#;
+
+        assert!(diagnostics_for(source).is_empty());
     }
 
     #[test]
@@ -5924,6 +7604,123 @@ surface web
                 .iter()
                 .any(|message| { message.contains("`.lzx` forbids partial overrides") })
         );
+    }
+
+    #[test]
+    fn lzx_warns_for_implicit_navigation_and_submit_targets() {
+        let source = r#"
+experience customer
+  imports customer
+
+  view list
+    source customer.query.list
+    opens detail
+
+surface customer web
+  uses experience customer
+
+  audience public
+    view capture Form
+      fields name, email
+      submit create
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.iter().any(|message| {
+            message.contains("view navigation should bind route arguments explicitly")
+        }));
+        assert!(messages.iter().any(|message| {
+            message.contains("platform form submits should use an explicit command reference")
+        }));
+    }
+
+    #[test]
+    fn lzx_warns_for_route_references_without_view_route_contract() {
+        let source = r#"
+experience customer
+  imports customer
+
+  view detail
+    source customer.query.by_id(id: route.id)
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("does not declare `route id: ...`")
+        }));
+    }
+
+    #[test]
+    fn lzx_warns_for_routed_actions_without_route_arguments() {
+        let source = r#"
+experience customer
+  imports customer
+
+  view detail
+    route id: Customer.ID
+    source customer.query.by_id(id: route.id)
+    action archive -> customer.workflow.lifecycle.archive
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("actions in routed views should pass route arguments explicitly")
+        }));
+    }
+
+    #[test]
+    fn lzx_warns_for_web_primitives_in_mobile_projection() {
+        let source = r#"
+surface customer mobile
+  uses experience customer
+
+  audience sales
+    view list Table
+      columns name
+
+    view detail SidePanel
+      sections header
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.message.contains("mobile-native primitives"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn lzx_warns_for_legacy_extension_blocks_without_slot() {
+        let source = r#"
+experience customer_tags
+  imports customer_tags, customer
+
+  extends @anchor.customer_detail
+    block @client.tag_editor
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("view extensions should place blocks under an explicit slot")
+        }));
     }
 
     #[test]
@@ -6075,6 +7872,30 @@ feature customer_auth
             diagnostic
                 .message
                 .contains("commands and declarative jobs should use `target`")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_when_required_field_is_checked_against_nil() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      owner: User required
+      tier: CustomerTier = enterprise
+
+    rule "enterprise customers require owner"
+      deny Customer.activate when self.tier = CustomerTier.enterprise AND self.owner = nil
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("`Customer.owner` is declared `required`")
         }));
     }
 
@@ -6446,6 +8267,39 @@ feature customer_tags
     }
 
     #[test]
+    fn canonical_warns_when_validator_result_does_not_block_command() {
+        let source = r#"
+feature customer_auth
+  purpose "Customer auth"
+
+  domain
+    resource CustomerMfaConfig
+
+  policies
+    update: @role.admin
+
+  command enable_mfa
+    input
+      totp_code: Text required
+    let totp_verified = @validator.verify_customer_totp(code: input.totp_code)
+    policy @policy.update
+    rate_limit "10 per minute per user"
+    creates CustomerMfaConfig
+
+  extensions
+    validator verify_customer_totp: Validator[TotpVerifyInput]
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.message.contains("is computed but not required") })
+        );
+    }
+
+    #[test]
     fn canonical_warns_for_legacy_ergonomic_syntax() {
         let source = r#"
 feature customer
@@ -6616,6 +8470,242 @@ feature customer
     }
 
     #[test]
+    fn canonical_warns_for_search_encoded_as_filter_equality() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      name: Text required
+
+    query.list list
+      params
+        search: Text optional
+
+      filters
+        name = params.search when params.search
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("text matching should use `search params.search over ...`")
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_pagination_contract() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+
+    query.lookup by_id by id: ID
+      paginate 0
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("`paginate` is a `query.list` contract") })
+        );
+        assert!(
+            messages.iter().any(|message| {
+                message.contains("`paginate` should declare a positive integer")
+            })
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_file_capability_without_contract() {
+        let source = r#"
+feature import_csv
+  purpose "Import CSV"
+
+  domain
+    resource ImportBatch
+      file: @cap.File required
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("`@cap.File` should declare `max_size:<size>` and `accept:<mime>`")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_file_capability_size() {
+        let source = r#"
+feature import_csv
+  purpose "Import CSV"
+
+  domain
+    resource ImportBatch
+      file: @cap.File(max_size:large,accept:text/csv) required
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("`@cap.File` max_size should use a positive size literal")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_pii_resource_without_retention() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      email: @semantic.Email @pii.contact required
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("stores `@pii.*` fields and should declare `retention")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_retention_contract() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+      email: @semantic.Email @pii.contact required
+      retention seven-years then purge
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("retention duration should be `forever`")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_write_window_contract() {
+        let source = r#"
+feature billing
+  purpose "Billing"
+
+  command create
+    write_window input.issued_at billing.open_period
+    policy @role.admin
+    rate_limit "30 per minute per user"
+    creates Invoice
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("write-window guards use `write_window by")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_active_sessions_without_temporal_scope() {
+        let source = r#"
+feature user_auth
+  purpose "User auth"
+
+  domain
+    query.list active_sessions
+      params
+        user_id: ID
+
+      filters
+        user.id = params.user_id
+        expires_at != nil
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.message.contains("can include expired sessions") })
+        );
+    }
+
+    #[test]
+    fn canonical_warns_when_active_session_modifier_has_no_temporal_contract() {
+        let source = r#"
+feature user_auth
+  purpose "User auth"
+
+  domain
+    query.list active_sessions
+      modifier @query_modifier.active_session_scope
+
+      params
+        user_id: ID
+
+      filters
+        user.id = params.user_id
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("should declare temporal validity")
+        }));
+    }
+
+    #[test]
+    fn canonical_warns_for_tenant_scheduled_job_without_fanout() {
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  defaults
+    tenancy org
+
+  job recompute_scores
+    trigger schedule "0 2 * * *"
+    handler "./jobs/recompute_scores.go"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("should declare `fanout tenants org`")
+        }));
+    }
+
+    #[test]
     fn canonical_formatter_removes_blank_before_transition_children() {
         let source = r#"
 feature customer
@@ -6663,6 +8753,9 @@ feature customer
     #[test]
     fn canonical_order_reports_late_webhook_after_surface() {
         let source = r#"
+env
+  server STRIPE_WEBHOOK_SECRET: Secret required
+
 feature billing
   purpose "Billing"
 
@@ -6693,6 +8786,9 @@ feature billing
     #[test]
     fn canonical_formatter_reorders_feature_blocks() {
         let source = r#"
+env
+  server INBOUND_WEBHOOK_SECRET: Secret required
+
 feature customer
   purpose "Customers"
 

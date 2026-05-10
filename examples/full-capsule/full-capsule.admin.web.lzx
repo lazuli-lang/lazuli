@@ -38,7 +38,7 @@ surface customer_import web
   audience admin
     view upload Form
       fields file
-      submit upload
+      submit customer_import.command.upload
 
     view detail SidePanel
       sections header, import_progress

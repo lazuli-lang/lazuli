@@ -8,6 +8,8 @@ use lazuli_lsp::SecurityProfile;
 use serde::Serialize;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
+mod doctor;
+
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 
 #[derive(Debug, Parser)]
@@ -24,6 +26,11 @@ enum Commands {
         input: PathBuf,
     },
     Check {
+        input: PathBuf,
+        #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
+        security_profile: CheckSecurityProfile,
+    },
+    Doctor {
         input: PathBuf,
         #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
         security_profile: CheckSecurityProfile,
@@ -157,6 +164,10 @@ fn main() -> Result<()> {
             input,
             security_profile,
         } => check_command(&input, security_profile),
+        Commands::Doctor {
+            input,
+            security_profile,
+        } => doctor::doctor_command(&input, security_profile.into()),
         Commands::Compile { input, out } => compile_command(&input, &out),
         Commands::Inspect {
             input,

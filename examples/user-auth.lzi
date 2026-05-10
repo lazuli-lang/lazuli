@@ -31,6 +31,7 @@ feature user
 
       soft_delete
       timestamps
+      retention 7y then anonymize
 
     resource Session
       user: User required
@@ -40,18 +41,21 @@ feature user
       expires_at: DateTime required
 
       timestamps
+      retention 30d then delete
 
     query.lookup by_id by id: ID
 
     query.lookup by_email by email: @semantic.Email
 
     query.list active_sessions
+      modifier @query_modifier.active_session_scope
+
       params
         user_id: ID
 
       filters
         user.id = params.user_id
-        expires_at != nil
+        expires_at > ctx.now
 
     event user_registered
       user_id: ID
@@ -164,3 +168,4 @@ feature user
     adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
     fn enroll_totp: Function[User, TotpEnrollment] at "./auth/enroll_totp.go"
     validator verify_totp: Validator[TotpVerifyInput] at "./auth/verify_totp.go"
+    query_modifier active_session_scope: QueryModifier[UserSession] at "./queries/active_session_scope.go"

@@ -36,6 +36,33 @@ features, and a platform surface may use an abstract experience. Cascades are
 not controlled exceptions because the final state exists only after mentally
 merging layers.
 
+## Operational Systems First
+
+Lazuli is optimized for traditional business software where correctness,
+auditability, permissions, workflow, and long-lived evolution matter more than
+bespoke interaction mechanics.
+
+Strong fits include SaaS back offices, CRMs, heavy ERPs, inventory, billing,
+procurement, approvals, compliance surfaces, and mobile companion apps for
+operational workflows. These products are full of repeated contracts that
+benefit from static vocabulary: tenant axes, company/branch scope, command
+policies, document lifecycles, approval transitions, audit trails, jobs,
+webhooks, reports, and integration boundaries.
+
+ERP is a pressure test, not a namespace. When ERP exposes a reusable
+operational invariant, name the generic contract (`retention`, `write_window`,
+policy/rule separation) instead of adding vertical syntax such as
+`fiscal_period` or `chart_of_accounts` to the core language.
+
+Lazuli should not try to own the singular mechanics of games, media engines,
+visual editors, realtime canvases, or highly custom creative tools. Those can
+still use Lazuli for the operational shell around them: auth, billing, orgs,
+admin, jobs, events, and integration contracts.
+
+Use `docs/capability-layering.md` for the standing boundary between Lazuli
+language primitives, the Lazuli compiler, Drusa framework packs, runtime, and
+adapters.
+
 ## Total Override Only
 
 Overrides are whole-block replacements, never partial diffs.

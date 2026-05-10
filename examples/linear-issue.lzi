@@ -195,4 +195,4 @@ feature issue
 
     hook before_create: Hook[CreateIssue]
     hook after_assign: Hook[AssignIssue]
-    fn rank_score: Function[Issue, IssueRankScore]
+    fn rank_score: Function[Issue, Integer]

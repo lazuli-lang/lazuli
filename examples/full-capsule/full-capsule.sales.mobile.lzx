@@ -4,8 +4,8 @@ surface customer mobile
   uses experience customer
 
   audience sales
-    view list Table
-      columns name, lifecycle_stage, tier
+    view list List
+      fields name, lifecycle_stage, tier
 
-    view detail SidePanel
+    view detail Screen
       sections header, timeline

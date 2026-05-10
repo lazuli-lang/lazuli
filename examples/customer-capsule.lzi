@@ -88,4 +88,4 @@ feature customer
   extensions
     client status_cell: CellRenderer[Customer]
     hook before_create: Hook[CreateCustomer]
-    fn risk_score: Function[Customer, RiskScore]
+    fn risk_score: Function[Customer, Integer]

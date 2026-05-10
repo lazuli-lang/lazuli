@@ -30,6 +30,7 @@ feature billing
       number: Text required
       amount_cents: Integer required
       currency: Text required
+      issued_at: Date required
       status: InvoiceStatus = draft
       stripe_invoice_id: Text optional
 
@@ -85,13 +86,15 @@ feature billing
     delete: @role.billing_admin
 
   command create
-    input customer, amount_cents, currency
+    input customer, amount_cents, currency, issued_at
+    write_window by input.issued_at within billing.open_period
     policy @policy.create
     rate_limit "30 per minute per user"
     creates Invoice
       customer = input.customer
       amount_cents = input.amount_cents
       currency = input.currency
+      issued_at = input.issued_at
       number = @fn.next_invoice_number(ctx.user.org)
     emits invoice_created
 
@@ -107,13 +110,17 @@ feature billing
 
   job retry_failed_webhooks
     trigger schedule "*/5 * * * *"
+    fanout tenants org
+    idempotency by tenant.org_id, schedule.minute
+    retry 3 backoff exponential
     handler "./jobs/retry_failed_webhooks.go"
     emits billing_webhook_failed
 
   webhook stripe_invoice_paid
     path "/webhooks/stripe/invoice-paid"
     verify "./integrations/stripe.go"
-    idempotency by payload.provider_event_id
+    tenant_from payload.org_id
+    idempotency by payload.org_id, payload.provider_event_id
     handler "./integrations/record_stripe_invoice_paid.go" returns BillingWebhook
     emits invoice_paid
 

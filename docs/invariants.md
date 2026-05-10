@@ -13,12 +13,20 @@ source that only fails later.
   source present.
 - Abstract `.lzx` owns the experience/view model and imports `.lzi`
   capabilities.
+- Top-level `.lzx app` owns app/runtime defaults and generated targets. It is
+  not a product feature and should not hide domain behavior.
+- Top-level `.lzx route` owns concrete web paths/mobile stack paths. Dynamic
+  path segments such as `:id` or `[id]` declare typed `params` and bind those
+  params into an abstract view through `to ...`.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as
   `audience` and `tenant` are source syntax, not magic filename suffixes.
 - `.lzx` forbids cascade and partial override operators such as `+=` and `-=`.
   Product variants redeclare the whole view they change.
+- `lazuli check` is file-local. `lazuli doctor` loads the package set and
+  checks invariants that require both `.lzi` and `.lzx`, including surface
+  audience reachability against command policy atoms.
 - `summary` is never authored in `.lzi`; use
   `lazuli inspect --expand=summary`.
 - `refs` is optional and documentary. When present, it must match namespaces
@@ -84,9 +92,16 @@ source that only fails later.
   `ctx.*`, `target`, and `self` are distinct locator spaces.
 - Query `params` are read arguments, command `route` slots are path/context
   locators, and command `input` slots are submitted body fields.
+- Command routes may bind from context with `route <name>: <Type> from ctx.*`;
+  otherwise callers must supply required route slots explicitly.
 - Short-list `input name, email` is allowed only as a resource-field shorthand
   for the single local `creates` or `updates` resource. All other caller shapes
   use typed input blocks.
+- `validate @validator.*` is a blocking command validator. A validator result
+  bound with `let` must be used by `requires <binding>`.
+- Cross-feature view extensions target explicit anchor slots. Legacy direct
+  `block` children under `extends @anchor.*` are accepted for authoring
+  compatibility but should warn because placement and ordering are implicit.
 
 ## Events
 
@@ -119,18 +134,29 @@ source that only fails later.
   context.
 - Use `idempotency by envelope.id` for per-delivery processing and
   `idempotency by payload.<business_key>` for business-key dedupe.
+- Use comma-separated idempotency keys when uniqueness depends on more than
+  one payload value, such as `payload.org_id, payload.external_id`.
+- Webhooks in tenant-scoped features declare `tenant_from payload.<axis>_id` or
+  explicit `scope global` with a reason.
+- Scheduled jobs in tenant-scoped features declare `fanout tenants <axis>` or
+  explicit `scope global` with a reason.
 - `retry <count>` means retry attempts after the initial failed attempt.
 
 ## Queries And Relations
 
 - `paginate <n>` is the generated default page size for list queries, not a
   hard product maximum.
+- `paginate` is valid only under `query.list` and must be a positive integer.
 - `query.list` defaults to `order created_at desc`; explicit `order` is used
   only when a query intentionally differs.
 - Simple `query.list` equality filters derive language-managed indexes,
   tenant-prefixed when the feature has a single tenant axis.
-- Search filters, collection `has`, inequality, nil checks, `scope override`,
-  `query.sql`, and modifiers do not derive indexes.
+- Declarative `search`, collection `has`, inequality, nil checks,
+  `scope override`, `query.sql`, and modifiers do not derive indexes.
+- Text matching uses `search params.<name> over <fields...>`; do not encode a
+  contains search as `field = params.search`.
+- `active_sessions` queries prove temporal validity with `expires_at > ctx.now`
+  or a modifier guarantee; a modifier name alone is not enough.
 - `scope override` is an absolute replacement of inherited safety scope. Use it
   only for explicitly cross-tenant or admin queries.
 - Queries that use `scope override` must declare explicit `policy @policy.*`.
@@ -158,6 +184,17 @@ source that only fails later.
   `reason "..."` child.
 - Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
+- A top-level `env` block declares every `env.NAME` reference with scope,
+  type, and requiredness. Client-exposed names use `PUBLIC_`; Expo/mobile names
+  use `EXPO_PUBLIC_`.
+- File fields use `@cap.File(max_size:<size>,accept:<mime>)`; upload UI and
+  providers are framework/adapters, but size and MIME acceptance are language
+  contracts.
+- Resources that store `@pii.*` fields declare `retention <duration|forever>
+  then delete|anonymize|archive`, or inherit a default retention contract.
+- Commands may declare `write_window by <date-expression> within
+  <window-reference>` for closed-period style protection. The construct is
+  temporal and generic; fiscal/accounting periods are packs or adapters.
 - Every webhook declares verification and idempotency. `verify none` is an
   explicit opt-out and must carry a `reason "..."` child.
 - `escape_route` declares `policy` and `tenant` because it is outside generated
@@ -192,6 +229,8 @@ source that only fails later.
   `validates field <name> "./path.go"`.
 - Legacy `validate "./path.go"` and `validates <field> "./path.go"` are
   compatibility forms only.
+- Reusable validators used inside commands are called through
+  `validate @validator.*` or through `let` plus `requires`.
 
 ## Tests
 

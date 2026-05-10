@@ -73,8 +73,38 @@ pub struct Surface {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LzxDocument {
+    pub app: Option<LzxApp>,
+    pub routes: Vec<LzxRoute>,
     pub experiences: Vec<LzxExperience>,
     pub surfaces: Vec<LzxSurface>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxApp {
+    pub name: String,
+    pub title: Option<String>,
+    pub version: Option<String>,
+    pub targets: Vec<String>,
+    pub default_locale: Option<String>,
+    pub default_timezone: Option<String>,
+    pub auth_failed_redirect: Option<String>,
+    pub not_found: Option<String>,
+    pub uses: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxRoute {
+    pub name: String,
+    pub path: Option<String>,
+    pub stack: Option<String>,
+    pub params: Vec<String>,
+    pub to: Option<String>,
+    pub surface: Option<String>,
+    pub audience: Option<String>,
+    pub lazy: Option<bool>,
+    pub prerender: Option<String>,
     pub span: Span,
 }
 
@@ -91,6 +121,7 @@ pub struct LzxExperience {
 pub struct LzxExperienceView {
     pub name: String,
     pub anchor: Option<String>,
+    pub routes: Vec<String>,
     pub extensible_by: Vec<String>,
     pub source: Option<String>,
     pub submit: Option<String>,
@@ -112,7 +143,24 @@ pub struct LzxAction {
 pub struct LzxViewExtension {
     pub anchor: String,
     pub blocks: Vec<String>,
+    pub slots: Vec<LzxExtensionSlot>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxExtensionSlot {
+    pub name: String,
+    pub order: Option<LzxExtensionOrder>,
+    pub blocks: Vec<String>,
+    pub platforms: Vec<String>,
+    pub audiences: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxExtensionOrder {
+    pub relation: String,
+    pub target: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

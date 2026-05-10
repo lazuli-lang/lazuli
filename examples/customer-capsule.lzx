@@ -7,7 +7,8 @@ experience customer
   view list
     source customer.query.list
     action create -> customer.command.create
-    opens detail
+    opens detail(id: row.id)
 
   view detail
+    route id: Customer.ID
     source customer.query.by_id(id: route.id)

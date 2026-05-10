@@ -84,6 +84,9 @@ feature notification
 
   job send_queued
     trigger schedule "*/2 * * * *"
+    fanout tenants org
+    idempotency by tenant.org_id, schedule.minute
+    retry 3 backoff exponential
     handler "./jobs/send_queued.go"
     emits notification_sent
 

@@ -709,10 +709,60 @@ pub struct BlockBinding {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperienceModule {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<AppManifest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub routes: Vec<AppRoute>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub experiences: Vec<Experience>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<PlatformSurface>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppManifest {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_timezone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_failed_redirect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_found: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppRoute {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lazy: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerender: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -733,6 +783,8 @@ pub struct ExperienceView {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub routes: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensible_by: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -764,8 +816,31 @@ pub struct ViewExtension {
     pub anchor: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<ViewExtensionSlot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewExtensionSlot {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<ViewExtensionOrder>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub platforms: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audiences: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewExtensionOrder {
+    pub relation: String,
+    pub target: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

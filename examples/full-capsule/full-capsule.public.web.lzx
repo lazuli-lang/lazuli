@@ -6,7 +6,7 @@ surface customer web
   audience public
     view lead_capture Form
       fields name, email
-      submit create
+      submit customer.command.capture_lead
 
 surface customer_auth web
   uses experience customer_auth
@@ -14,4 +14,4 @@ surface customer_auth web
   audience public
     view login Form
       fields email, password
-      submit login
+      submit customer_auth.command.login

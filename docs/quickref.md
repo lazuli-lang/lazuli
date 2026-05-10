@@ -3,7 +3,9 @@
 This is the context pack to load first when an agent or a human needs to
 author, review, or patch canonical `.lzi`/`.lzx` files. It is intentionally short.
 Use `docs/canonical-semantics.md` for the full normative reference and
-`docs/invariants.md` for the checker/codegen contract.
+`docs/invariants.md` for the checker/codegen contract. Use
+`docs/capability-layering.md` when deciding whether a capability belongs in the
+Lazuli language, Lazuli compiler, Drusa framework pack, runtime, or adapter.
 
 ## Status Legend
 
@@ -34,6 +36,8 @@ feature ping
     query.list list
       paginate 50
 
+    query.lookup by_id by id: ID
+
     event ping_created
       ping_id: ID
 
@@ -49,12 +53,31 @@ feature ping
 ```
 
 ```lazuli
+app PingApp
+  title "Ping"
+  targets
+    backend go
+    web react
+  uses ping
+
+route ping_detail
+  path "/pings/:id"
+  params id: Ping.ID
+  to ping.view.detail(id: path.id)
+  surface ping web
+  audience admin
+
 experience ping
   imports ping
 
   view list
     source ping.query.list
     action create -> ping.command.create
+    opens detail(id: row.id)
+
+  view detail
+    route id: Ping.ID
+    source ping.query.by_id(id: route.id)
 ```
 
 ```lazuli
@@ -95,6 +118,11 @@ Extra physical split segments go before the protected platform suffix:
 `.lzi` does not know `.lzx` exists. Abstract `.lzx` imports `.lzi`
 capabilities. Platform `.lzx` files use an abstract experience and group
 product variants under `audience`/`tenant` blocks.
+
+`lazuli check <file>` is file-local. Use `lazuli doctor <file-or-dir>` when a
+capsule spans `.lzi` plus sibling `.lzx` files. Doctor loads the package set and
+checks cross-file contracts such as surface audience reachability against
+command policies (`LZX-POL-001`).
 
 [v0] `.lzx` has no cascade or partial override. Do not write
 `columns += score`; redeclare the whole view for that audience/tenant.
@@ -221,12 +249,24 @@ The JSON summary includes a derived `provides` object:
 Anchor declarations are intentionally local to the view:
 
 ```lazuli
-view detail SidePanel id @anchor.customer_detail
+view detail
+  route id: Customer.ID
+  anchor @anchor.customer_detail
   extensible_by customer_tags, customer_import
 ```
 
 Use `inspect --expand=summary` to list provided anchors and
 `inspect --expand=dependencies` to list features that extend them.
+
+View extensions should target explicit slots:
+
+```lazuli
+extends @anchor.customer_detail
+  slot aside after activity_timeline
+    block @client.tag_editor
+    platforms web, mobile
+    audience admin, sales
+```
 
 ## Canonical Sugar Table
 
@@ -253,12 +293,23 @@ it is a macro, not v0 sugar.
 
 `params` belongs to queries. `input` and `route` belong to commands.
 `paginate <n>` is the generated default page size, not a hard maximum.
+`paginate` is valid only on `query.list` and must be a positive integer.
 `query.list` defaults to `order created_at desc`; declare `order` only when a
 query intentionally differs from newest-first listing.
 Simple equality filters derive language-managed indexes. With `tenancy org`,
 `status when params.status` derives `org, status`, and
 `customer.id = params.customer_id` derives `org, customer`. Search, `has`,
 `!=`, `nil`, `scope override`, and SQL queries do not derive indexes.
+
+Use `search` for text matching instead of an equality-looking filter:
+
+```lazuli
+params
+  search: Text optional
+
+search params.search over name, email
+  mode contains
+```
 
 `query.sql` return types such as `CustomerLtv[]` must resolve through local
 `record` declarations, resources, extension contracts, or adapter-provided
@@ -308,12 +359,30 @@ opt-outs such as `verify none` without a deployment allowlist.
 - Every `command` requires explicit `policy`.
 - Commands that mutate state or whose effective policy includes `@scope.public`
   require `rate_limit` or `rate_limit none` with a `reason "..."` child.
+- Command validators should be blocking: use `validate @validator.*`, or use
+  `let result = @validator.*` plus `requires result`.
 - Sensitive fields with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` require field-level `read` and `write` policy.
+- Top-level `env` declares every `env.NAME` reference with scope, type, and
+  requiredness; client values use `PUBLIC_`, mobile values use `EXPO_PUBLIC_`.
+- File fields use `@cap.File(max_size:<size>,accept:<mime>)`; the framework
+  may generate upload UI later, but the language owns the storage contract.
+- PII resources declare retention, e.g. `retention 7y then anonymize`.
+- Closed-period protection is generic: use
+  `write_window by input.issued_at within billing.open_period` on a command.
 - `scope override` requires `policy @policy.*` and `reason "..."`.
-- Every `webhook` requires `verify` and `idempotency by payload.*`.
+- Every `webhook` requires `verify` and `idempotency by payload.*`; use a
+  comma-separated payload key when uniqueness is tenant-scoped, e.g.
+  `idempotency by payload.org_id, payload.external_id`.
+- Webhooks in tenant-scoped features should declare `tenant_from payload.<axis>_id`
+  or explicit `scope global` with a reason.
 - Event-triggered jobs whose producer event declares `org_id` should declare
   `tenant_from payload.org_id`.
+- Scheduled jobs in tenant-scoped features should declare `fanout tenants <axis>`
+  or explicit `scope global` with a reason.
+- Queries named `active_sessions` should prove temporal validity with
+  `expires_at > ctx.now` or a modifier guarantee; a modifier name alone is not
+  enough evidence.
 - Event consumers may only read fields declared by the producer event contract,
   including inherited `event_group` payload fields.
 - `escape_route` requires `policy` and `tenant`.
@@ -331,6 +400,8 @@ webhook crm_customer_upsert
   verify hmac sha256
     secret env.CRM_WEBHOOK_SECRET
     header "X-CRM-Signature"
+  tenant_from payload.org_id
+  idempotency by payload.org_id, payload.external_id
 ```
 
 Crypto in Lazuli is a contract. Runtime adapters implement the primitives.

@@ -1,20 +1,80 @@
 # Full capsule abstract experience/view model.
 # Platform projections live in sibling .web.lzx and .mobile.lzx files.
 
+app AcmeCRM
+  title "Acme CRM"
+  version "0.1.0"
+  targets
+    backend go
+    web react
+    mobile expo
+  default_locale "pt-BR"
+  default_timezone "America/Sao_Paulo"
+  auth_failed_redirect public.login
+  not_found public.not_found
+  uses customer, customer_auth, customer_tags, customer_import
+
+route public_lead_capture
+  path "/"
+  to customer.view.lead_capture
+  surface customer web
+  audience public
+
+route public_login
+  path "/login"
+  to customer_auth.view.login
+  surface customer_auth web
+  audience public
+
+route account_enable_mfa
+  path "/account/mfa"
+  to customer_auth.view.enable_mfa
+  surface customer_auth web
+  audience account
+
+route admin_customer_list
+  path "/admin/customers"
+  to customer.view.list
+  surface customer web
+  audience admin
+
+route admin_customer_detail
+  path "/admin/customers/:id"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer web
+  audience admin
+  lazy true
+
+route sales_customer_list
+  stack "customers"
+  to customer.view.list
+  surface customer mobile
+  audience sales
+
+route sales_customer_detail
+  stack "customers/[id]"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer mobile
+  audience sales
+
 experience customer
   imports customer
 
   view list
     source customer.query.list
     action create -> customer.command.create
-    opens detail
+    opens detail(id: row.id)
 
-  view detail id @anchor.customer_detail
+  view detail
+    route id: Customer.ID
+    anchor @anchor.customer_detail
     source customer.query.by_id(id: route.id)
     block @client.activity_timeline
     extensible_by customer_tags, customer_import
-    action reassign -> customer.command.reassign
-    action archive -> customer.workflow.lifecycle.archive
+    action reassign -> customer.command.reassign(id: route.id)
+    action archive -> customer.workflow.lifecycle.archive(id: route.id)
 
     tests
       accepted by customer_tags
@@ -25,10 +85,11 @@ experience customer
     source customer.query.lifetime_value
 
   view churn_risk
+    route min_score: Integer optional
     source customer.query.churn_risk(min_score: route.min_score)
 
   view lead_capture
-    submit customer.command.create
+    submit customer.command.capture_lead
 
 experience customer_auth
   imports customer_auth, customer
@@ -46,13 +107,18 @@ experience customer_tags
     source customer_tags.query.list_tags
 
   view tag_detail
+    route tag_id: CustomerTag.ID
     source customer_tags.query.tag_by_id(id: route.tag_id)
 
   view assignments
+    route customer_id: Customer.ID
     source customer_tags.query.assignments_for_customer(customer_id: route.customer_id)
 
   extends @anchor.customer_detail
-    block @client.tag_editor
+    slot aside
+      block @client.tag_editor
+      platforms web, mobile
+      audience admin, sales
 
 experience customer_import
   imports customer_import, customer
@@ -61,11 +127,16 @@ experience customer_import
     submit customer_import.command.upload
 
   view detail
+    route id: CustomerImportBatch.ID
     source customer_import.query.by_id(id: route.id)
-    block import_progress: ViewBlock[CustomerImportBatch] at "./ui/import_progress.tsx"
+    block @client.import_progress
 
   view rows
+    route id: CustomerImportBatch.ID
     source customer_import.query.rows(batch_id: route.id)
 
   extends @anchor.customer_detail
-    block @client.import_history
+    slot timeline after activity_timeline
+      block @client.import_history
+      platforms web
+      audience admin

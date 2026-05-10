@@ -24,7 +24,7 @@ Example:
 
 ```txt
 extension customer.risk_score
-expected Function[Customer, RiskScore]
+expected Function[Customer, Integer]
 test harness generated under .lazuli/generated/tests/customer/risk_score_test.go
 ```
 
@@ -44,10 +44,14 @@ Recommended CI steps:
 
 ```bash
 lazuli check --security-profile strict
+lazuli doctor .
 lazuli plan --check
 lazuli generate
 go test ./...
 npm test
 ```
 
-The check step should fail before target-language tests when the semantic contract is broken.
+The check and doctor steps should fail before target-language tests when the
+semantic contract is broken. `check` is file-local; `doctor` loads a capsule
+package and verifies cross-file contracts such as `.lzx` audience reachability
+against `.lzi` command policies.

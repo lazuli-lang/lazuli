@@ -28,6 +28,7 @@ This document tracks design pressure that is not yet part of the core canonical 
 - `scope` is reserved for safety boundaries; ordinary caller predicates belong in `filters`.
 - Read views use `source query.*`; write forms use `submit command.*`.
 - Cross-feature view composition uses `extends @anchor.<view_id>` and requires the target view to whitelist extension features with `extensible_by`.
+- Extension blocks should be placed under explicit `slot` children, with optional `before`/`after`, `platforms`, and `audience` qualifiers.
 - `tenancy` and `soft_delete` inject default declarative query scope.
 - SQL queries must declare their safety scope explicitly.
 - Idempotency declarations use `idempotency by <source>` so the key source is statically visible.

@@ -5,9 +5,9 @@ use pest_derive::Parser;
 use thiserror::Error;
 
 use crate::ast::{
-    Aggregate, Command, Document, Field, FieldModifier, LzxAction, LzxAudience, LzxDocument,
-    LzxExperience, LzxExperienceView, LzxPlatform, LzxPlatformView, LzxSurface, LzxViewExtension,
-    Query, Span, Surface,
+    Aggregate, Command, Document, Field, FieldModifier, LzxAction, LzxApp, LzxAudience,
+    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
+    LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query, Span, Surface,
 };
 
 #[derive(Parser)]
@@ -64,6 +64,8 @@ pub fn parse_document(source: &str) -> Result<Document, ParseError> {
 
 pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
     let lines = source_lines(source);
+    let mut app = None;
+    let mut routes = Vec::new();
     let mut experiences = Vec::new();
     let mut surfaces = Vec::new();
     let mut index = 0;
@@ -84,7 +86,21 @@ pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
             ));
         }
 
-        if trimmed.starts_with("experience ") {
+        if trimmed.starts_with("app ") {
+            if app.is_some() {
+                return Err(line_error(
+                    line,
+                    "`.lzx` files can declare only one `app` manifest",
+                ));
+            }
+            let (parsed_app, next) = parse_lzx_app(&lines, index)?;
+            app = Some(parsed_app);
+            index = next;
+        } else if trimmed.starts_with("route ") {
+            let (route, next) = parse_lzx_route(&lines, index)?;
+            routes.push(route);
+            index = next;
+        } else if trimmed.starts_with("experience ") {
             let (experience, next) = parse_lzx_experience(&lines, index)?;
             experiences.push(experience);
             index = next;
@@ -95,16 +111,203 @@ pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
         } else {
             return Err(line_error(
                 line,
-                "expected `experience <name>` or `surface <experience> <platform>`",
+                "expected `app <name>`, `route <name>`, `experience <name>`, or `surface <experience> <platform>`",
             ));
         }
     }
 
     Ok(LzxDocument {
+        app,
+        routes,
         experiences,
         surfaces,
         span: Span::new(0, source.len()),
     })
+}
+
+fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usize), ParseError> {
+    let header = &lines[start];
+    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    if parts.len() != 2 {
+        return Err(line_error(header, "app manifests use `app <name>`"));
+    }
+
+    let mut title = None;
+    let mut version = None;
+    let mut targets = Vec::new();
+    let mut default_locale = None;
+    let mut default_timezone = None;
+    let mut auth_failed_redirect = None;
+    let mut not_found = None;
+    let mut uses = Vec::new();
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            index += 1;
+            continue;
+        }
+
+        if line.indent == 0 {
+            break;
+        }
+
+        if line.indent != 2 {
+            return Err(line_error(
+                line,
+                "app manifest children use two-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("title ") {
+            title = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("version ") {
+            version = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if trimmed == "targets" {
+            index += 1;
+            while index < lines.len() {
+                let target_line = &lines[index];
+                let target_trimmed = target_line.text.trim_start();
+                if is_trivia(target_trimmed) {
+                    index += 1;
+                    continue;
+                }
+                if target_line.indent <= 2 {
+                    break;
+                }
+                if target_line.indent != 4 {
+                    return Err(line_error(
+                        target_line,
+                        "app targets use four-space indentation",
+                    ));
+                }
+                targets.push(target_trimmed.to_owned());
+                index += 1;
+            }
+            continue;
+        } else if let Some(rest) = trimmed.strip_prefix("targets ") {
+            targets.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("default_locale ") {
+            default_locale = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("default_timezone ") {
+            default_timezone = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("auth_failed_redirect ") {
+            auth_failed_redirect = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("not_found ") {
+            not_found = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("uses ") {
+            uses = split_lzx_list(rest);
+        } else {
+            return Err(line_error(
+                line,
+                "app manifest children are `title`, `version`, `targets`, `default_locale`, `default_timezone`, `auth_failed_redirect`, `not_found`, or `uses` declarations",
+            ));
+        }
+
+        index += 1;
+    }
+
+    Ok((
+        LzxApp {
+            name: parts[1].to_owned(),
+            title,
+            version,
+            targets,
+            default_locale,
+            default_timezone,
+            auth_failed_redirect,
+            not_found,
+            uses,
+            span: Span::new(header.start, lines[index.saturating_sub(1)].end),
+        },
+        index,
+    ))
+}
+
+fn parse_lzx_route(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LzxRoute, usize), ParseError> {
+    let header = &lines[start];
+    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    if parts.len() != 2 {
+        return Err(line_error(header, "routes use `route <name>`"));
+    }
+
+    let mut path = None;
+    let mut stack = None;
+    let mut params = Vec::new();
+    let mut to = None;
+    let mut surface = None;
+    let mut audience = None;
+    let mut lazy = None;
+    let mut prerender = None;
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            index += 1;
+            continue;
+        }
+
+        if line.indent == 0 {
+            break;
+        }
+
+        if line.indent != 2 {
+            return Err(line_error(line, "route children use two-space indentation"));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("path ") {
+            path = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("stack ") {
+            stack = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("params ") {
+            params.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("to ") {
+            to = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("surface ") {
+            surface = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("audience ") {
+            audience = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("lazy ") {
+            lazy =
+                Some(parse_lzx_bool(rest.trim()).ok_or_else(|| {
+                    line_error(line, "route lazy uses `lazy true` or `lazy false`")
+                })?);
+        } else if let Some(rest) = trimmed.strip_prefix("prerender ") {
+            prerender = Some(rest.trim().to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "route children are `path`, `stack`, `params`, `to`, `surface`, `audience`, `lazy`, or `prerender` declarations",
+            ));
+        }
+
+        index += 1;
+    }
+
+    Ok((
+        LzxRoute {
+            name: parts[1].to_owned(),
+            path,
+            stack,
+            params,
+            to,
+            surface,
+            audience,
+            lazy,
+            prerender,
+            span: Span::new(header.start, lines[index.saturating_sub(1)].end),
+        },
+        index,
+    ))
 }
 
 fn parse_lzx_experience(
@@ -186,8 +389,10 @@ fn parse_lzx_experience_view(
         ));
     }
 
+    let mut anchor = (parts.len() == 4).then(|| parts[3].to_owned());
     let mut source = None;
     let mut submit = None;
+    let mut routes = Vec::new();
     let mut extensible_by = Vec::new();
     let mut blocks = Vec::new();
     let mut actions = Vec::new();
@@ -212,7 +417,11 @@ fn parse_lzx_experience_view(
             return Err(line_error(line, "view children use four-space indentation"));
         }
 
-        if let Some(rest) = trimmed.strip_prefix("source ") {
+        if let Some(rest) = trimmed.strip_prefix("route ") {
+            routes.push(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("anchor ") {
+            anchor = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("source ") {
             source = Some(rest.trim().to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("submit ") {
             submit = Some(rest.trim().to_owned());
@@ -256,7 +465,7 @@ fn parse_lzx_experience_view(
         } else {
             return Err(line_error(
                 line,
-                "view children are `source`, `submit`, `extensible_by`, `block`, `action`, `opens`, or `tests`",
+                "view children are `route`, `anchor`, `source`, `submit`, `extensible_by`, `block`, `action`, `opens`, or `tests`",
             ));
         }
 
@@ -266,7 +475,8 @@ fn parse_lzx_experience_view(
     Ok((
         LzxExperienceView {
             name: parts[1].to_owned(),
-            anchor: (parts.len() == 4).then(|| parts[3].to_owned()),
+            anchor,
+            routes,
             extensible_by,
             source,
             submit,
@@ -293,6 +503,7 @@ fn parse_lzx_view_extension(
         .trim()
         .to_owned();
     let mut blocks = Vec::new();
+    let mut slots = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -317,10 +528,15 @@ fn parse_lzx_view_extension(
 
         if let Some(rest) = trimmed.strip_prefix("block ") {
             blocks.push(rest.trim().to_owned());
+        } else if trimmed.starts_with("slot ") {
+            let (slot, next) = parse_lzx_extension_slot(lines, index)?;
+            slots.push(slot);
+            index = next;
+            continue;
         } else {
             return Err(line_error(
                 line,
-                "view extension children are `block` declarations",
+                "view extension children are `slot` declarations or legacy `block` declarations",
             ));
         }
 
@@ -331,6 +547,98 @@ fn parse_lzx_view_extension(
         LzxViewExtension {
             anchor,
             blocks,
+            slots,
+            span: Span::new(header.start, lines[index.saturating_sub(1)].end),
+        },
+        index,
+    ))
+}
+
+fn parse_lzx_extension_slot(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LzxExtensionSlot, usize), ParseError> {
+    let header = &lines[start];
+    let trimmed = header.text.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+
+    if parts.len() != 2 && parts.len() != 4 {
+        return Err(line_error(
+            header,
+            "extension slots use `slot <name>` or `slot <name> before|after <block>`",
+        ));
+    }
+
+    let order = if parts.len() == 4 {
+        if !matches!(parts[2], "before" | "after") {
+            return Err(line_error(
+                header,
+                "extension slot ordering uses `before` or `after`",
+            ));
+        }
+        Some(LzxExtensionOrder {
+            relation: parts[2].to_owned(),
+            target: parts[3].to_owned(),
+        })
+    } else {
+        None
+    };
+
+    let mut blocks = Vec::new();
+    let mut platforms = Vec::new();
+    let mut audiences = Vec::new();
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let child = line.text.trim_start();
+
+        if is_trivia(child) {
+            index += 1;
+            continue;
+        }
+
+        if line.indent <= 4 {
+            break;
+        }
+
+        if line.indent != 6 {
+            return Err(line_error(
+                line,
+                "extension slot children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = child.strip_prefix("block ") {
+            blocks.push(rest.trim().to_owned());
+        } else if let Some(rest) = child.strip_prefix("platforms ") {
+            platforms = split_lzx_list(rest);
+        } else if let Some(rest) = child.strip_prefix("audience ") {
+            audiences = split_lzx_list(rest);
+        } else {
+            return Err(line_error(
+                line,
+                "extension slot children are `block`, `platforms`, or `audience` declarations",
+            ));
+        }
+
+        index += 1;
+    }
+
+    if blocks.is_empty() {
+        return Err(line_error(
+            header,
+            "extension slots must declare at least one `block`",
+        ));
+    }
+
+    Ok((
+        LzxExtensionSlot {
+            name: parts[1].to_owned(),
+            order,
+            blocks,
+            platforms,
+            audiences,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
@@ -801,6 +1109,21 @@ fn split_lzx_list(value: &str) -> Vec<String> {
         .collect()
 }
 
+fn unquote_lzx_value(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
+}
+
+fn parse_lzx_bool(value: &str) -> Option<bool> {
+    match value {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
 fn line_error(line: &SourceLine<'_>, message: &'static str) -> ParseError {
     ParseError::Pest {
         message: message.to_owned(),
@@ -899,6 +1222,48 @@ mod tests {
     }
 
     #[test]
+    fn parses_lzx_app_manifest_and_routes() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+  version "0.1.0"
+  targets
+    backend go
+    web react
+    mobile expo
+  default_locale "pt-BR"
+  default_timezone "America/Sao_Paulo"
+  auth_failed_redirect public.login
+  not_found public.not_found
+  uses customer, customer_auth
+
+route customer_detail
+  path "/customers/:id"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer web
+  audience admin
+  lazy true
+"#;
+
+        let document = parse_lzx_document(source).unwrap();
+        let app = document.app.as_ref().unwrap();
+
+        assert_eq!(app.name, "AcmeCRM");
+        assert_eq!(app.title.as_deref(), Some("Acme CRM"));
+        assert_eq!(app.targets, vec!["backend go", "web react", "mobile expo"]);
+        assert_eq!(app.uses, vec!["customer", "customer_auth"]);
+        assert_eq!(document.routes.len(), 1);
+        assert_eq!(document.routes[0].path.as_deref(), Some("/customers/:id"));
+        assert_eq!(document.routes[0].params, vec!["id: Customer.ID"]);
+        assert_eq!(
+            document.routes[0].to.as_deref(),
+            Some("customer.view.detail(id: path.id)")
+        );
+        assert_eq!(document.routes[0].lazy, Some(true));
+    }
+
+    #[test]
     fn rejects_lzx_partial_overrides() {
         let source = r#"
 surface customer web
@@ -915,6 +1280,61 @@ surface customer web
             error
                 .to_string()
                 .contains("partial overrides are not valid in `.lzx`")
+        );
+    }
+
+    #[test]
+    fn parses_lzx_view_anchor_child() {
+        let source = r#"
+experience customer
+  imports customer
+
+  view detail
+    route id: Customer.ID
+    anchor @anchor.customer_detail
+    source customer.query.by_id(id: route.id)
+"#;
+
+        let document = parse_lzx_document(source).unwrap();
+
+        assert_eq!(
+            document.experiences[0].views[0].anchor.as_deref(),
+            Some("@anchor.customer_detail")
+        );
+    }
+
+    #[test]
+    fn parses_lzx_extension_slots_with_order() {
+        let source = r#"
+experience customer_tags
+  imports customer_tags, customer
+
+  extends @anchor.customer_detail
+    slot aside
+      block @client.tag_editor
+      platforms web, mobile
+      audience admin, sales
+    slot timeline after activity_timeline
+      block @client.import_history
+"#;
+
+        let document = parse_lzx_document(source).unwrap();
+        let extension = &document.experiences[0].extensions[0];
+
+        assert_eq!(extension.anchor, "@anchor.customer_detail");
+        assert!(extension.blocks.is_empty());
+        assert_eq!(extension.slots.len(), 2);
+        assert_eq!(extension.slots[0].name, "aside");
+        assert_eq!(extension.slots[0].blocks, vec!["@client.tag_editor"]);
+        assert_eq!(extension.slots[0].platforms, vec!["web", "mobile"]);
+        assert_eq!(extension.slots[0].audiences, vec!["admin", "sales"]);
+        assert_eq!(extension.slots[1].name, "timeline");
+        assert_eq!(
+            extension.slots[1]
+                .order
+                .as_ref()
+                .map(|order| (order.relation.as_str(), order.target.as_str())),
+            Some(("after", "activity_timeline"))
         );
     }
 }

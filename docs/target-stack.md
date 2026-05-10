@@ -87,11 +87,15 @@ source uses three layers:
   platform segment stays immediately before `.lzx`, even when a file adds
   organizational segments such as `customer.public.web.lzx`.
 
-A web `Table` may become a mobile `FlatList`; a web `SidePanel` may become a
-navigation stack. Product axes such as `audience admin` and `tenant acme` live
-in the `.lzx` body, not in invented platform suffixes. Platform projections use
-whole-view redeclarations for variants; they do not use cascade-style partial
-overrides.
+Mobile projections should use mobile-native primitives (`List`, `Screen`,
+`Sheet`) instead of relying on web primitives to adapt later. Prefer `fields`
+for mobile `List` summaries; reserve `columns` for tabular web projections. A
+shared abstract experience may still describe the same product flow, but
+concrete `.mobile.lzx` surfaces should name the mobile representation directly.
+Product axes such as
+`audience admin` and `tenant acme` live in the `.lzx` body, not in invented
+platform suffixes. Platform projections use whole-view redeclarations for
+variants; they do not use cascade-style partial overrides.
 
 Flutter is the second choice because it has consistent cross-platform UI and a
 codegen-friendly language, but it loses the shared React model, the React web

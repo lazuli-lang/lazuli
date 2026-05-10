@@ -98,12 +98,44 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
 
 pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
     ir::ExperienceModule {
+        app: document.app.as_ref().map(lower_lzx_app),
+        routes: document.routes.iter().map(lower_lzx_route).collect(),
         experiences: document.experiences.iter().map(lower_experience).collect(),
         surfaces: document
             .surfaces
             .iter()
             .map(lower_platform_surface)
             .collect(),
+    }
+}
+
+fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
+    ir::AppManifest {
+        name: app.name.clone(),
+        title: app.title.clone(),
+        version: app.version.clone(),
+        targets: app.targets.clone(),
+        default_locale: app.default_locale.clone(),
+        default_timezone: app.default_timezone.clone(),
+        auth_failed_redirect: app.auth_failed_redirect.clone(),
+        not_found: app.not_found.clone(),
+        uses: app.uses.clone(),
+        span_ref: Some(span_of(app.span)),
+    }
+}
+
+fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
+    ir::AppRoute {
+        name: route.name.clone(),
+        path: route.path.clone(),
+        stack: route.stack.clone(),
+        params: route.params.clone(),
+        to: route.to.clone(),
+        surface: route.surface.clone(),
+        audience: route.audience.clone(),
+        lazy: route.lazy,
+        prerender: route.prerender.clone(),
+        span_ref: Some(span_of(route.span)),
     }
 }
 
@@ -125,6 +157,7 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
     ir::ExperienceView {
         name: view.name.clone(),
         anchor: view.anchor.clone(),
+        routes: view.routes.clone(),
         extensible_by: view.extensible_by.clone(),
         source: view.source.clone(),
         submit: view.submit.clone(),
@@ -148,7 +181,26 @@ fn lower_view_extension(extension: &syntax::LzxViewExtension) -> ir::ViewExtensi
     ir::ViewExtension {
         anchor: extension.anchor.clone(),
         blocks: extension.blocks.clone(),
+        slots: extension
+            .slots
+            .iter()
+            .map(lower_view_extension_slot)
+            .collect(),
         span_ref: Some(span_of(extension.span)),
+    }
+}
+
+fn lower_view_extension_slot(slot: &syntax::LzxExtensionSlot) -> ir::ViewExtensionSlot {
+    ir::ViewExtensionSlot {
+        name: slot.name.clone(),
+        order: slot.order.as_ref().map(|order| ir::ViewExtensionOrder {
+            relation: order.relation.clone(),
+            target: order.target.clone(),
+        }),
+        blocks: slot.blocks.clone(),
+        platforms: slot.platforms.clone(),
+        audiences: slot.audiences.clone(),
+        span_ref: Some(span_of(slot.span)),
     }
 }
 
@@ -556,6 +608,71 @@ mod tests {
         assert_eq!(
             surface_ir.surfaces[0].audiences[0].views[0].cells,
             vec!["status @client.status_cell"]
+        );
+    }
+
+    #[test]
+    fn lowers_lzx_extension_slots_to_ir() {
+        let source = r#"
+experience customer_tags
+  imports customer_tags, customer
+
+  extends @anchor.customer_detail
+    slot aside after activity_timeline
+      block @client.tag_editor
+      platforms web
+      audience admin
+"#;
+        let document = parse_lzx_document(source).unwrap();
+        let module = lower_lzx_document(&document);
+        let extension = &module.experiences[0].extensions[0];
+
+        assert_eq!(extension.anchor, "@anchor.customer_detail");
+        assert_eq!(extension.slots.len(), 1);
+        assert_eq!(extension.slots[0].name, "aside");
+        assert_eq!(extension.slots[0].blocks, vec!["@client.tag_editor"]);
+        assert_eq!(extension.slots[0].platforms, vec!["web"]);
+        assert_eq!(extension.slots[0].audiences, vec!["admin"]);
+        assert_eq!(
+            extension.slots[0]
+                .order
+                .as_ref()
+                .map(|order| (order.relation.as_str(), order.target.as_str())),
+            Some(("after", "activity_timeline"))
+        );
+    }
+
+    #[test]
+    fn lowers_lzx_app_manifest_and_routes_to_ir() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+  targets
+    backend go
+    web react
+  uses customer, billing
+
+route customer_detail
+  path "/customers/:id"
+  params id: Customer.ID
+  to customer.view.detail(id: path.id)
+  surface customer web
+  audience admin
+"#;
+
+        let document = parse_lzx_document(source).unwrap();
+        let module = lower_lzx_document(&document);
+
+        assert_eq!(module.app.as_ref().unwrap().name, "AcmeCRM");
+        assert_eq!(
+            module.app.as_ref().unwrap().targets,
+            vec!["backend go", "web react"]
+        );
+        assert_eq!(module.routes[0].name, "customer_detail");
+        assert_eq!(module.routes[0].params, vec!["id: Customer.ID"]);
+        assert_eq!(
+            module.routes[0].to.as_deref(),
+            Some("customer.view.detail(id: path.id)")
         );
     }
 }
