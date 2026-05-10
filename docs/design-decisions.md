@@ -187,7 +187,93 @@ clarity.
 `query_mode_diagnostics` enforces the three-kind closed set and rejects
 bare `query <name>`.
 
-### 7. Validators reference scope via type, not call-site keyword
+### 7. `route` is intentionally one keyword across three locator contexts
+
+**Looks like friction**: `route` appears in three places with different
+semantics — top-level `.lzx route admin_customer_detail` declares a URL,
+`route id: ID` inside a command declares a path/context locator, and
+`route id: Customer.ID` inside a view declares a path/context locator
+for the experience layer.
+
+**Why it isn't**: all three are *route locators* — the slot space the
+generated runtime fills from the request URL or a parent context.
+They're the same concept at three layers:
+
+- `.lzx route` — *outer* route, owns the URL/mobile path.
+- view `route id: ...` — *experience layer* route slot, derived from
+  the surrounding `.lzx route`'s `path` segments.
+- command `route id: ...` — *backend* route slot, derived from the
+  caller's URL/context.
+
+References use the same form (`route.id`) at all three layers; the only
+difference is which scope owns the declaration. Renaming any of them
+(`url`, `param`, `slot`) would lose the through-line that lets a single
+named locator flow URL → view → command without per-layer translation.
+
+The polysemy is *coherent across layers*, not at-a-point. Merging or
+renaming would force authors to remap names at every layer boundary.
+
+**Where**: `docs/invariants.md` "Targets And Bindings" — lists `route.*`
+explicitly as a locator space. LSP `lzx_app_route_diagnostics` enforces
+the URL form; LSP `command_route_binding_diagnostics` enforces the
+backend form; the experience-layer form is checked by the route-slot
+binding diagnostics in `crates/lazuli_lsp/src/lib.rs`.
+
+### 8. Mobile `[id]` and web `:id` path syntaxes are intentional
+
+**Looks like friction**: `.lzx route` blocks declare mobile paths as
+`"customers/[id]"` (Expo bracket convention) and web paths as
+`"/admin/customers/:id"` (Express colon convention).
+
+**Why it isn't**: each platform has an established route-syntax
+contract that downstream consumers depend on. Forcing one canonical
+form would either:
+
+- Generate Expo routes from `:id` paths and silently break Expo's
+  file-system routing convention, or
+- Generate Express paths from `[id]` and break the typed router
+  expectations that Express/Next.js Pages tooling relies on.
+
+The platform is selected by `surface ... web|mobile` in the route
+header; the path syntax follows from that platform's idiom. LSP/doctor
+do not normalize across platforms — they accept the platform-native
+form on each side.
+
+**Where**: `docs/invariants.md` line 84 — "Dynamic path segments such
+as `:id` or `[id]` declare typed `route <name>: <Type>` slots".
+`crates/lazuli_lsp/src/lib.rs` `lzx_declared_path_params` extracts both
+forms.
+
+### 9. Profile `bindings` reaffirm app `bindings` only when overriding
+
+**Looks like friction**: `profile local.bindings.customer_import.crm =
+integrations.crm` repeats the same binding already declared in
+`app.lzi`'s `bindings` block.
+
+**Why it isn't (with caveat)**: profile bindings are *override slots*.
+When a profile redeclares a binding with the same value as the app
+default, it's a documentation-of-intent — the author saying "I
+considered this binding for `local` and confirmed the app default is
+correct." When the binding differs (e.g., a different
+`integrations.<name>` per environment), the profile redeclaration is
+load-bearing.
+
+The fixture's `profile local` redeclaration is the documented case
+where the profile reaffirms the app default. It's harmless. The
+production profile, by contrast, omits the binding entirely (relying
+on the app default), which is also fine.
+
+If a future cleanup wants to remove redundant reaffirmations as a
+linting rule, that's a separate cut. Until then, both shapes are
+canonical: redeclaration-with-same-value is intent documentation,
+omission is implicit-default. Doctor does not flag either.
+
+**Where**: `docs/invariants.md` — `profile <environment>` section.
+Doctor `profile_contract_diagnostics` validates that bindings reference
+declared integrations; it does not require nor forbid redundant
+reaffirmation.
+
+### 10. Validators reference scope via type, not call-site keyword
 
 **Looks like friction**: previously, `validates field <name>
 @validator.<name>` and `validates resource @validator.<name>` were two
@@ -235,6 +321,9 @@ in `crates/lazuli_lsp/src/lib.rs`**. If found, the construct exists.
 | `escape_route "<path>"` | preexisting | admin/debug pages |
 | `event_group` | preexisting | shared payload templates |
 | `extensible_by` / `extends @anchor` | preexisting | anchor extensions |
+| `policy_for <kinds>: <policy>` | preexisting | feature `defaults` block (covered by LSP, hover, inspect) |
+| `defaults` block (`tenancy`, `timestamps`, `policy_for`, `policy`) | preexisting | feature defaults |
+| `previously migrated\|alias <old>` (as block child) | shipped (cuts 8 + 15) | uniform across fields/resources/commands/transitions |
 
 If a primitive is on this list, it is **not** an audit finding. Suggest
 new primitives only after greping the fixture and confirming the

@@ -163,6 +163,9 @@ Grep "has_many"                path=examples
 Grep "derived from"            path=examples
 Grep "^    audit"              path=examples
 Grep "validates @validator"    path=examples
+Grep "policy_for"              path=examples
+Grep "event_group"             path=examples
+Grep "extensible_by"           path=examples
 ```
 
 The full list of already-shipped primitives is in

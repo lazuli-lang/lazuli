@@ -41,10 +41,15 @@ grep -rn 'has_many'          examples/        # already shipped (cut 4)
 grep -rn 'derived from'      examples/        # already shipped (cut 2)
 grep -rn '^    audit'        examples/        # already shipped (cut 3)
 grep -rn 'validates @validator' examples/     # already shipped (cuts 7+14)
+grep -rn 'policy_for'        examples/        # preexisting; LSP+inspect covered
+grep -rn 'event_group'       examples/        # preexisting; payload template
+grep -rn 'extensible_by'     examples/        # preexisting; bilateral with extends
 ```
 
 If any of those returns a hit, **do not** propose the primitive as
-missing.
+missing. The full canonical list is in `docs/design-decisions.md`
+"Already-shipped primitives the audit pipeline keeps hallucinating as
+missing".
 
 ## Anchor: cold-read the full-capsule fixture
 

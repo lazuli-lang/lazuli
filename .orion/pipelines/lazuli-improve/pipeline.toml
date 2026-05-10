@@ -162,7 +162,14 @@ Grep "^    audit"         path=examples
 Grep "validates @validator" path=examples
 Grep "^  query\\.list"    path=examples
 Grep "^  query\\.lookup"  path=examples
+Grep "policy_for"         path=examples
+Grep "event_group"        path=examples
+Grep "extensible_by"      path=examples
 ```
+
+The full canonical list is in `docs/design-decisions.md`
+"Already-shipped primitives the audit pipeline keeps hallucinating as
+missing".
 
 After the gate, walk the fixture for *real* handler escape hatches:
 `handler "./..."`, `verify "./..."`, raw Go file references that the
