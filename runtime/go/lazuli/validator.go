@@ -1,12 +1,15 @@
 package lazuli
 
+import "reflect"
+
 // ValidatorFunc is the runtime contract a registered validator implementation
-// must satisfy. The author writes the function in `<package>/extensions.go`
-// (or wherever the extension lives) and registers it with the runtime via
-// `lazuli.RegisterValidator("@validator.<name>", fn)`.
+// must satisfy. The author writes the function in `<feature>/extensions.go`
+// (next to the generated `<feature>.gen.go`) and registers it with the
+// runtime via `lazuli.RegisterValidator("@validator.<name>", fn)`.
 //
-// Returning an error aborts the surrounding command. The error envelope
-// flows back to the client.
+// Returning an error aborts the surrounding command. A `*lazuli.Error`
+// flows back to the client unchanged; any other error is wrapped in a
+// `validation_failed` envelope with status 400.
 type ValidatorFunc func(ctx *Ctx, input any) error
 
 // validatorRegistry holds all registered validator implementations keyed by
@@ -26,4 +29,33 @@ func RegisterValidator(ref string, fn ValidatorFunc) {
 // LookupValidator returns the registered implementation or nil.
 func LookupValidator(ref string) ValidatorFunc {
 	return validatorRegistry[ref]
+}
+
+// Field extracts a typed field value from a generic `input any` by exact
+// PascalCase name. Use it inside validator implementations to read input
+// fields without writing per-command type assertions:
+//
+//	email, ok := lazuli.Field[string](input, "Email")
+//	if !ok { return errors.New("input missing Email") }
+//
+// Returns the zero value of T and false when the field is missing or the
+// type does not match.
+func Field[T any](input any, name string) (T, bool) {
+	var zero T
+	rv := reflect.ValueOf(input)
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return zero, false
+	}
+	f := rv.FieldByName(name)
+	if !f.IsValid() {
+		return zero, false
+	}
+	v, ok := f.Interface().(T)
+	if !ok {
+		return zero, false
+	}
+	return v, true
 }

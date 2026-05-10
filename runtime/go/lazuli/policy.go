@@ -32,5 +32,14 @@ type PolicyAtom struct {
 // `extensions.validator <name>` block.
 type ValidatorRef struct {
 	Name    string // identifier under @validator.<name>
-	Feature string // owning feature
+	Feature string // owning feature (informational; not part of the registry key)
 }
+
+// Canonical returns the registry key for this validator: `@validator.<name>`.
+// Author code uses this when calling `RegisterValidator(ref.Canonical(), fn)`.
+func (r ValidatorRef) Canonical() string { return "@validator." + r.Name }
+
+// V is shorthand for declaring a ValidatorRef from generated code:
+//
+//	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")}
+func V(name string) ValidatorRef { return ValidatorRef{Name: name} }

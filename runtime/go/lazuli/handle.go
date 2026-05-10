@@ -32,8 +32,23 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		return zero, err
 	}
 
-	// 2. validators (TODO Phase F: invoke c.Validators in declaration order)
-	_ = c.Validators
+	// 2. validators — run in declaration order, abort on first failure.
+	for _, ref := range c.Validators {
+		fn := LookupValidator(ref.Canonical())
+		if fn == nil {
+			return zero, &Error{Status: 500, Code: CodeInternal,
+				Message: "validator not registered: " + ref.Canonical()}
+		}
+		if err := fn(ctx, input); err != nil {
+			// Wrap non-Lazuli errors so the response carries a typed
+			// validation_failed envelope.
+			if _, ok := err.(*Error); ok {
+				return zero, err
+			}
+			return zero, &Error{Status: 400, Code: CodeValidationFailed,
+				Message: err.Error()}
+		}
+	}
 
 	// 3-4. effect inside a transaction
 	var output O

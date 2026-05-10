@@ -73,8 +73,9 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 	Name:      "customer.create",
 	Resource:  &customerResource,
 	Policy:    lazuli.Policy{Name: "@policy.create", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
-	RateLimit: "30 per hour per ip",
-	Audit:     lazuli.AuditDefault,
+	RateLimit:  "30 per hour per ip",
+	Audit:      lazuli.AuditDefault,
+	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")},
 	Effect: lazuli.Creates(&customerResource, lazuli.Bindings{
 		"name":  lazuli.FromInput("name"),
 		"email": lazuli.FromInput("email"),
@@ -106,11 +107,12 @@ type UpdateCustomerEmailInput struct {
 }
 
 var updateCustomerEmail = lazuli.Command[UpdateCustomerEmailInput, Customer]{
-	Name:      "customer.update_email",
-	Resource:  &customerResource,
-	Policy:    lazuli.Policy{Name: "@policy.update", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
-	RateLimit: "10 per hour per user",
-	Audit:     lazuli.AuditDefault,
+	Name:       "customer.update_email",
+	Resource:   &customerResource,
+	Policy:     lazuli.Policy{Name: "@policy.update", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
+	RateLimit:  "10 per hour per user",
+	Audit:      lazuli.AuditDefault,
+	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")},
 	Effect: lazuli.Updates(&customerResource,
 		lazuli.Bindings{"id": lazuli.FromInput("ID")},
 		lazuli.Bindings{"email": lazuli.FromInput("Email")},
