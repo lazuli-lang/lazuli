@@ -26,9 +26,9 @@ get lost in chat history.
 | Order | Cut | Status | Notes |
 |-------|-----|--------|-------|
 | 1 | Feature-level integration requirements | done | Add `requires integration gateway: PaymentGateway` so reusable features depend on abstract capabilities, not concrete providers. |
-| 2 | App bindings | pending | Bind `payments.gateway = integrations.mercadopago` or equivalent without making every feature import provider details. |
+| 2 | App bindings | done | Bind `payments.gateway = integrations.mercadopago` or equivalent without making every feature import provider details. |
 | 3 | External calls | pending | Add `calls gateway.operation` in commands/jobs with timeout/retry/idempotency/audit checks. |
-| 4 | Integration doctor rules | pending | Detect missing app binding, type mismatch, undeclared integration, undeclared env refs, PII sent externally without legal basis/audit, missing timeout/retry. |
+| 4 | Integration doctor rules | partial | Missing app binding, undeclared integration, and type mismatch now exist for requirements. PII/legal basis/timeout/retry waits for `calls`. |
 | 5 | Registry layout decision | done | Use native `registry.lzi` package convention with explicit import reserved for future non-standard layouts. |
 | 6 | Profiles | pending | Model environment overrides such as local/staging/production URLs, sandbox provider mode, fake adapters, and deploy topology without becoming Terraform. |
 | 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |

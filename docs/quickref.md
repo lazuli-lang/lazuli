@@ -137,6 +137,14 @@ feature payments
   requires integration gateway: PaymentGateway
 ```
 
+The app binds each abstract slot to a registry integration:
+
+```lazuli
+app PingApp
+  bindings
+    payments.gateway = integrations.crm
+```
+
 Use a block when a feature needs more than one slot:
 
 ```lazuli

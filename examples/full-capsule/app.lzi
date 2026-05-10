@@ -16,6 +16,9 @@ app AcmeCRM
     customer_import
     customer_outreach
 
+  bindings
+    customer_import.crm = integrations.crm
+
   targets
     backend go
     web react

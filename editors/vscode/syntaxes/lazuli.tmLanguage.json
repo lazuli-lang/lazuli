@@ -197,7 +197,7 @@
         },
         {
           "name": "keyword.section.lazuli",
-          "match": "\\b(defaults|non_goals|delegated_to|out_of_scope|constraints|policies|errors|params|route|key|scope|filters|cells|payload|targets|environments|urls|env|group|integrations|capabilities|architecture|services|communication|runtime|deploy)\\b"
+          "match": "\\b(defaults|non_goals|delegated_to|out_of_scope|constraints|policies|errors|params|route|key|scope|filters|cells|payload|targets|environments|urls|env|group|integrations|bindings|capabilities|architecture|services|communication|runtime|deploy)\\b"
         }
       ]
     },

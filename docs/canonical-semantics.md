@@ -1637,6 +1637,9 @@ app AcmeCRM
     customer_tags
     customer_import
 
+  bindings
+    customer_import.crm = integrations.crm
+
   targets
     backend go
     web react
@@ -1781,10 +1784,23 @@ feature credit_check
 
 `requires integration <name>: <CapabilityType>` means the feature depends on an
 abstract capability slot. It does not choose MercadoPago, Stripe, Serasa,
-ReceitaWS, or any other provider. App/registry bindings choose the concrete
-registry entry in a later cut, and adapters implement the call mechanics.
-`lazuli inspect` exposes feature requirements under each inspected feature so
-Drusa and future doctor rules can prove that every abstract slot is bound.
+ReceitaWS, or any other provider. `app.lzi` binds that feature slot to a
+concrete registry entry:
+
+```lazuli
+app AcmeCRM
+  uses
+    customer_import
+
+  bindings
+    customer_import.crm = integrations.crm
+```
+
+Binding sources use `integrations.<name>` or `registry.integrations.<name>`.
+They reference entries from `app.lzi` or the package-level `registry.lzi`.
+Adapters implement the call mechanics. `lazuli inspect` exposes both app
+bindings and feature requirements, and `lazuli doctor` rejects missing,
+unknown, or type-mismatched integration bindings.
 
 `lazuli inspect app.lzi --format=json` exposes the entrypoint manifest under
 `app`; `lazuli inspect registry.lzi --format=json` exposes the package catalog

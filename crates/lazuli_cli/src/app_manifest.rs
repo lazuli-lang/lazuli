@@ -1,7 +1,7 @@
 use lazuli_ir::{
-    AppArchitecture, AppCapability, AppCommunication, AppDeploy, AppEnvVar, AppIntegration,
-    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest, AppRegistry,
-    AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
+    AppArchitecture, AppBinding, AppCapability, AppCommunication, AppDeploy, AppEnvVar,
+    AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest,
+    AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
 };
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
@@ -22,6 +22,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         auth_failed_redirect: None,
         not_found: None,
         uses: Vec::new(),
+        bindings: Vec::new(),
         architecture: None,
         services: Vec::new(),
         communication: None,
@@ -90,6 +91,11 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 Some("uses") => {
                     if let Some(name) = used_feature_name(trimmed) {
                         app.uses.push(name.to_owned());
+                    }
+                }
+                Some("bindings") => {
+                    if let Some(binding) = parse_app_binding(trimmed) {
+                        app.bindings.push(binding);
                     }
                 }
                 Some("targets") => app.targets.push(trimmed.to_owned()),
@@ -460,6 +466,7 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
 fn app_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "uses" => Some("uses"),
+        "bindings" => Some("bindings"),
         "targets" => Some("targets"),
         "environments" => Some("environments"),
         "urls" => Some("urls"),
@@ -581,6 +588,39 @@ fn parse_credential_binding(trimmed: &str) -> Option<(String, String)> {
     }
 }
 
+fn parse_app_binding(trimmed: &str) -> Option<AppBinding> {
+    let (target, source) = trimmed.split_once('=')?;
+    let target = target.trim();
+    let source = source.trim();
+    let (target_feature, target_slot) = target.split_once('.')?;
+
+    if !is_identifier(target_feature)
+        || !is_identifier(target_slot)
+        || !is_integration_source(source)
+    {
+        return None;
+    }
+
+    Some(AppBinding {
+        target_feature: target_feature.to_owned(),
+        target_slot: target_slot.to_owned(),
+        source: source.to_owned(),
+    })
+}
+
+fn is_integration_source(source: &str) -> bool {
+    let Some(name) = integration_source_name(source) else {
+        return false;
+    };
+    is_identifier(name)
+}
+
+fn integration_source_name(source: &str) -> Option<&str> {
+    source
+        .strip_prefix("integrations.")
+        .or_else(|| source.strip_prefix("registry.integrations."))
+}
+
 fn unquote(value: &str) -> &str {
     value
         .strip_prefix('"')
@@ -615,6 +655,8 @@ app AcmeCRM
   title "Acme CRM"
   uses
     customer
+  bindings
+    customer.gateway = integrations.crm
   targets
     backend go
   environments
@@ -663,6 +705,9 @@ app AcmeCRM
 
         assert_eq!(manifest.name, "AcmeCRM");
         assert_eq!(manifest.uses, ["customer"]);
+        assert_eq!(manifest.bindings[0].target_feature, "customer");
+        assert_eq!(manifest.bindings[0].target_slot, "gateway");
+        assert_eq!(manifest.bindings[0].source, "integrations.crm");
         assert_eq!(manifest.targets, ["backend go"]);
         assert_eq!(manifest.environments, ["production"]);
         assert_eq!(manifest.urls[0].url, "https://api.acme.example");

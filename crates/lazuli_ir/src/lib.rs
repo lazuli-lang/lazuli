@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.3.0";
+pub const LZIR_SCHEMA: &str = "0.3.1";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -750,6 +750,8 @@ pub struct AppManifest {
     pub not_found: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<AppBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architecture: Option<AppArchitecture>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -772,6 +774,13 @@ pub struct AppManifest {
     pub deploy: Option<AppDeploy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppBinding {
+    pub target_feature: String,
+    pub target_slot: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

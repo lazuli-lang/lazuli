@@ -169,6 +169,9 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   inspect, doctor, and LSP diagnostics.
 - [x] Add feature-level abstract integration requirements such as
   `requires integration gateway: PaymentGateway`.
+- [x] Add app-level integration bindings such as
+  `payments.gateway = integrations.mercadopago` and doctor checks for missing,
+  unknown, or type-mismatched bindings.
 - [ ] Decide adapter provenance for Drusa adapters, third-party plugin
   adapters, and local inline adapters in `registry.lzi`.
 - [ ] Decide whether `workspace.lzi` should become the semantic distributed

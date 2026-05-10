@@ -30,6 +30,10 @@ source that only fails later.
 - Feature `requires integration <slot>: <CapabilityType>` declares dependency
   inversion at the feature boundary. It names an abstract slot the feature can
   call later; it must not import or select a concrete provider directly.
+- App `bindings` resolve abstract feature slots to concrete integration
+  registry entries with `<feature>.<slot> = integrations.<name>` or
+  `<feature>.<slot> = registry.integrations.<name>`. The integration kind must
+  match the required capability type.
 - App `services` declare logical ownership boundaries. They do not by
   themselves require separate processes; Drusa decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.

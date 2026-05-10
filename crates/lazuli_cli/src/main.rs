@@ -3295,6 +3295,9 @@ app AcmeCRM
   uses
     customer
 
+  bindings
+    customer.gateway = integrations.crm
+
   targets
     backend go
     web react
@@ -3350,6 +3353,9 @@ app AcmeCRM
 
         assert!(json.contains("\"app\""));
         assert!(json.contains("\"name\":\"AcmeCRM\""));
+        assert!(json.contains("\"bindings\""));
+        assert!(json.contains("\"target_feature\":\"customer\""));
+        assert!(json.contains("\"source\":\"integrations.crm\""));
         assert!(json.contains("\"environments\":[\"local\",\"production\"]"));
         assert!(json.contains("\"url\":\"https://api.acme.example\""));
         assert!(json.contains("\"DATABASE_URL\""));

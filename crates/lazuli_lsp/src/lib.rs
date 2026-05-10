@@ -4893,7 +4893,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "app manifests own app/runtime contracts: use `uses`, `targets`, `environments`, `urls`, `env`, `integrations`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
+                        "app manifests own app/runtime contracts: use `uses`, `bindings`, `targets`, `environments`, `urls`, `env`, `integrations`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
                     ));
                 }
             }
@@ -4915,6 +4915,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         }
                     }
                 }
+                Some("bindings") => validate_app_binding_line(&mut diagnostics, line_index, line),
                 Some("targets") => validate_app_target_line(&mut diagnostics, line_index, line),
                 Some("environments") => {
                     if !is_identifier(trimmed) {
@@ -5122,6 +5123,7 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
     let first = trimmed.split_whitespace().next()?;
     match first {
         "uses" => Some("uses"),
+        "bindings" => Some("bindings"),
         "targets" => Some("targets"),
         "environments" => Some("environments"),
         "urls" => Some("urls"),
@@ -5379,6 +5381,7 @@ fn validate_app_child_header(
     if matches!(
         first,
         "targets"
+            | "bindings"
             | "environments"
             | "urls"
             | "env"
@@ -5592,6 +5595,35 @@ fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
             "app-url-contract",
             "non-local app URLs should use HTTPS.",
         ));
+    }
+}
+
+fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    if parse_app_binding_line(trimmed).is_none() {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-binding-contract",
+            "app bindings use `<feature>.<slot> = integrations.<name>` or `<feature>.<slot> = registry.integrations.<name>`.",
+        ));
+    }
+}
+
+fn parse_app_binding_line(trimmed: &str) -> Option<(&str, &str, &str)> {
+    let (target, source) = trimmed.split_once('=')?;
+    let target = target.trim();
+    let source = source.trim();
+    let (feature, slot) = target.split_once('.')?;
+    let source_name = source
+        .strip_prefix("integrations.")
+        .or_else(|| source.strip_prefix("registry.integrations."))?;
+
+    if is_identifier(feature) && is_identifier(slot) && is_identifier(source_name) {
+        Some((feature, slot, source_name))
+    } else {
+        None
     }
 }
 
@@ -8450,6 +8482,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "urls" => {
             Some("Declares public app URLs used by clients, CORS, emails, callbacks, and webhooks.")
         }
+        "bindings" => Some(
+            "Binds abstract feature requirements to concrete app or registry integration entries.",
+        ),
         "capabilities" => Some(
             "Declares required runtime capabilities without choosing concrete infrastructure providers.",
         ),
@@ -8655,6 +8690,7 @@ const KEYWORDS: &[&str] = &[
     "surface",
     "imports",
     "uses",
+    "bindings",
     "targets",
     "environments",
     "urls",
@@ -8898,6 +8934,26 @@ feature payments
     }
 
     #[test]
+    fn canonical_warns_for_invalid_app_bindings() {
+        let source = r#"
+app AcmeCRM
+  uses
+    payments
+
+  bindings
+    payments.gateway -> mercadopago
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("app bindings use `<feature>.<slot> = integrations.<name>`")
+        }));
+    }
+
+    #[test]
     fn canonical_examples_satisfy_lsp_contracts() {
         let examples = [
             (
@@ -8970,6 +9026,9 @@ app AcmeCRM
 
   uses
     customer
+
+  bindings
+    customer.gateway = integrations.crm
 
   targets
     backend go

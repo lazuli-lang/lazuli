@@ -72,6 +72,7 @@ Backends and tooling never read IR of an incompatible major version. The compati
 | 0.1.0      | 0.1.0         | initial domain/capability IR |
 | 0.2.0      | 0.2.0         | adds `.lzx` `ExperienceModule` IR |
 | 0.3.0      | 0.3.0         | adds optional app operational manifest shape |
+| 0.3.1      | 0.3.1         | adds app integration bindings and feature requirements |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -169,7 +170,13 @@ store details. Those belong to Drusa packs and adapter configuration.
 `FeatureRequirement` entries preserve abstract feature dependencies such as
 `integration gateway: PaymentGateway`. A requirement names a local slot and a
 capability contract. It does not bind MercadoPago, Serasa, Stripe, or any other
-provider; app/registry binding IR will resolve that in a later cut.
+provider.
+
+`AppBinding` entries preserve app-level dependency inversion choices such as
+`payments.gateway = integrations.mercadopago`. A binding targets a feature slot
+and points to an app/registry integration entry. Doctor verifies that every
+feature requirement has a binding and that the integration kind matches the
+required capability contract.
 
 ## Experience IR
 

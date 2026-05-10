@@ -225,6 +225,7 @@ struct SourceFact {
 #[derive(Debug, Default)]
 struct OperationalFacts {
     features: BTreeMap<String, SourceFact>,
+    integration_requirements: Vec<IntegrationRequirementFact>,
     env_references: Vec<SourceFact>,
     file_capabilities: Vec<SourceFact>,
     jobs: Vec<SourceFact>,
@@ -235,6 +236,16 @@ struct OperationalFacts {
     mobile_surfaces: Vec<SourceFact>,
     web_routes: Vec<SourceFact>,
     mobile_routes: Vec<SourceFact>,
+}
+
+#[derive(Debug, Clone)]
+struct IntegrationRequirementFact {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    feature: String,
+    slot: String,
+    contract: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -399,6 +410,71 @@ fn collect_canonical_facts(
         }
 
         collect_feature_commands(&feature, &lines[start..index], commands);
+        collect_feature_integration_requirements(
+            file,
+            &feature,
+            start,
+            &lines[start..index],
+            operational,
+        );
+    }
+}
+
+fn collect_feature_integration_requirements(
+    file: &DoctorFile,
+    feature: &str,
+    feature_start: usize,
+    lines: &[&str],
+    operational: &mut OperationalFacts,
+) {
+    let mut in_requires_block = false;
+
+    for (offset, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading == 2 {
+            in_requires_block = trimmed == "requires";
+            if let Some(requirement) = trimmed.strip_prefix("requires ") {
+                if let Some((slot, contract)) = parse_integration_requirement(requirement) {
+                    operational
+                        .integration_requirements
+                        .push(IntegrationRequirementFact {
+                            path: file.path.clone(),
+                            line: feature_start + offset + 1,
+                            column: leading + 1,
+                            feature: feature.to_owned(),
+                            slot: slot.to_owned(),
+                            contract: contract.to_owned(),
+                        });
+                }
+            }
+            continue;
+        }
+
+        if leading <= 2 {
+            in_requires_block = false;
+        }
+
+        if in_requires_block
+            && leading == 4
+            && let Some((slot, contract)) = parse_integration_requirement(trimmed)
+        {
+            operational
+                .integration_requirements
+                .push(IntegrationRequirementFact {
+                    path: file.path.clone(),
+                    line: feature_start + offset + 1,
+                    column: leading + 1,
+                    feature: feature.to_owned(),
+                    slot: slot.to_owned(),
+                    contract: contract.to_owned(),
+                });
+        }
     }
 }
 
@@ -818,6 +894,8 @@ fn app_contract_diagnostics(
         diagnostics.extend(app_service_contract_diagnostics(app, operational));
     }
 
+    diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
+
     for env_ref in &operational.env_references {
         if !env_names.contains(env_ref.name.as_str()) {
             diagnostics.push(DoctorDiagnostic {
@@ -930,6 +1008,135 @@ fn app_missing_contract_diagnostic(
         code: code.to_owned(),
         message: message.to_owned(),
     }
+}
+
+fn app_binding_contract_diagnostics(
+    app: &DoctorAppManifest,
+    registry: Option<&DoctorAppRegistry>,
+    operational: &OperationalFacts,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut requirement_index = BTreeMap::new();
+
+    for requirement in &operational.integration_requirements {
+        requirement_index.insert(
+            (requirement.feature.as_str(), requirement.slot.as_str()),
+            requirement.contract.as_str(),
+        );
+
+        let matching_binding = app.manifest.bindings.iter().find(|binding| {
+            binding.target_feature == requirement.feature && binding.target_slot == requirement.slot
+        });
+
+        if matching_binding.is_none() {
+            diagnostics.push(DoctorDiagnostic {
+                path: requirement.path.clone(),
+                line: requirement.line,
+                column: requirement.column,
+                severity: DoctorSeverity::Error,
+                code: "APP-BIND-001".to_owned(),
+                message: format!(
+                    "feature `{}` requires integration slot `{}`: `{}`, but app manifest does not bind `{}.{}`.",
+                    requirement.feature,
+                    requirement.slot,
+                    requirement.contract,
+                    requirement.feature,
+                    requirement.slot
+                ),
+            });
+        }
+    }
+
+    let integrations = operational_integrations(&app.manifest, registry);
+
+    for binding in &app.manifest.bindings {
+        let target = (
+            binding.target_feature.as_str(),
+            binding.target_slot.as_str(),
+        );
+        let Some(expected_contract) = requirement_index.get(&target).copied() else {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "APP-BIND-005".to_owned(),
+                message: format!(
+                    "app binding `{}.{}` has no matching feature requirement.",
+                    binding.target_feature, binding.target_slot
+                ),
+            });
+            continue;
+        };
+
+        let Some(integration_name) = integration_source_name(&binding.source) else {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-BIND-002".to_owned(),
+                message: format!(
+                    "app binding `{}.{}` points to `{}`, but bindings must use `integrations.<name>` or `registry.integrations.<name>`.",
+                    binding.target_feature, binding.target_slot, binding.source
+                ),
+            });
+            continue;
+        };
+
+        let Some(actual_contract) = integrations.get(integration_name) else {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-BIND-003".to_owned(),
+                message: format!(
+                    "app binding `{}.{}` references integration `{integration_name}`, but no app/registry integration with that name exists.",
+                    binding.target_feature, binding.target_slot
+                ),
+            });
+            continue;
+        };
+
+        if *actual_contract != expected_contract {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-BIND-004".to_owned(),
+                message: format!(
+                    "app binding `{}.{}` expects `{expected_contract}`, but integration `{integration_name}` is `{actual_contract}`.",
+                    binding.target_feature, binding.target_slot
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+fn operational_integrations<'a>(
+    app: &'a AppManifest,
+    registry: Option<&'a DoctorAppRegistry>,
+) -> BTreeMap<&'a str, &'a str> {
+    let mut integrations = BTreeMap::new();
+    for integration in &app.integrations {
+        integrations.insert(integration.name.as_str(), integration.kind.as_str());
+    }
+    if let Some(registry) = registry {
+        for integration in &registry.manifest.integrations {
+            integrations.insert(integration.name.as_str(), integration.kind.as_str());
+        }
+    }
+    integrations
+}
+
+fn integration_source_name(source: &str) -> Option<&str> {
+    source
+        .strip_prefix("integrations.")
+        .or_else(|| source.strip_prefix("registry.integrations."))
 }
 
 fn app_service_contract_diagnostics(
@@ -1235,6 +1442,19 @@ fn command_route_slot(trimmed_line: &str) -> Option<ParsedCommandRouteSlot> {
     })
 }
 
+fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
+    let rest = trimmed.trim().strip_prefix("integration ")?;
+    let (slot, contract) = rest.split_once(':')?;
+    let slot = slot.trim();
+    let contract = contract.trim();
+
+    if is_identifier(slot) && is_type_name(contract) {
+        Some((slot, contract))
+    } else {
+        None
+    }
+}
+
 #[derive(Debug)]
 struct ParsedCommandRouteSlot {
     name: String,
@@ -1313,6 +1533,12 @@ fn leading_spaces(line: &str) -> usize {
 fn is_identifier(source: &str) -> bool {
     let mut chars = source.chars();
     matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn is_type_name(source: &str) -> bool {
+    let mut chars = source.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
@@ -1779,6 +2005,134 @@ feature customer
         assert!(
             diagnostics.is_empty(),
             "expected registry to satisfy app contract, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn doctor_validates_feature_integration_bindings() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    payments
+  bindings
+    payments.gateway = integrations.mercadopago
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit api
+      serves commands
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    mercadopago: PaymentGateway
+      adapter @adapter.mercadopago
+"#,
+            ),
+            (
+                "payments.lzi",
+                r#"
+feature payments
+  requires integration gateway: PaymentGateway
+"#,
+            ),
+        ]);
+
+        assert!(package.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn doctor_reports_missing_and_mismatched_feature_integration_bindings() {
+        let missing = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    payments
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit api
+      serves commands
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "payments.lzi",
+                r#"
+feature payments
+  requires integration gateway: PaymentGateway
+"#,
+            ),
+        ]);
+
+        assert!(
+            missing
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.code == "APP-BIND-001")
+        );
+
+        let mismatched = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    payments
+  bindings
+    payments.gateway = integrations.serasa
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit api
+      serves commands
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    serasa: CreditBureau
+      adapter @adapter.serasa
+"#,
+            ),
+            (
+                "payments.lzi",
+                r#"
+feature payments
+  requires integration gateway: PaymentGateway
+"#,
+            ),
+        ]);
+
+        assert!(
+            mismatched
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.code == "APP-BIND-004")
         );
     }
 
