@@ -99,12 +99,10 @@ source that only fails later.
   `has_many <name>: <Type> [inverse <field>]`. The optional `inverse` names the
   field on the target resource that owns the foreign key. Drusa generates the
   inverse query and FK contract; Lazuli only owns the relationship contract.
-- Queries can be authored as either explicit `query.list <name>`,
-  `query.lookup <name>`, `query.sql <name>` or as the short form `query <name>`
-  whose kind is inferred from the shape: `by <field>: <Type>` in the header
-  produces a lookup, a direct `sql ...` child produces an sql query, and
-  everything else is a list. Inspect locators report the inferred kind as
-  `query.<list|lookup|sql>`.
+- Queries declare their kind in the header: `query.list <name>`,
+  `query.lookup <name>`, or `query.sql <name>`. The bare `query <name>` form
+  is rejected so cold-readers see the kind before processing the body.
+  Inspect locators report the kind as `query.<list|lookup|sql>`.
 - `agent <name>` declares an LLM-powered capability with typed input, context,
   policy, rate limit, output, model reference, prompt template, optional tool
   list, and optional safety classifier. Required children: `policy

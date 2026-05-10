@@ -1284,10 +1284,13 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
         };
 
         if first == "query" && leading_spaces(line) <= 4 {
-            // Shape-driven `query <name>` short form is allowed: the kind
-            // (list/lookup/sql) is inferred from `by ...` in the header or
-            // a direct `sql ...` child.
-            continue;
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "query-mode",
+                "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, or `query.sql <name>`. The kind belongs in the header so cold-readers see it before the body.",
+            ));
         } else if let Some(mode) = first.strip_prefix("query.") {
             if !matches!(mode, "list" | "lookup" | "sql") {
                 diagnostics.push(simple_canonical_diagnostic(
@@ -1295,7 +1298,7 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "query-mode",
-                    "unknown query mode. Use `query.list`, `query.lookup`, or `query.sql`, or the short form `query <name>` whose kind is inferred from the shape.",
+                    "unknown query mode. Use `query.list`, `query.lookup`, or `query.sql`.",
                 ));
             }
         }
@@ -10023,9 +10026,6 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
             "On an `agent` `output`, marks the response as a streamed value: `output stream <Type>`.",
         ),
         "command" => Some("Declares a write operation for an aggregate."),
-        "query" => Some(
-            "Declares a read operation. The short form `query <name>` infers the kind from the shape: `by <field>: <Type>` in the header → lookup; a direct `sql ...` child → sql; otherwise → list.",
-        ),
         "query.list" => Some("Declares a generated collection query."),
         "query.lookup" => Some("Declares a generated single-record lookup query."),
         "query.sql" => Some("Declares a query backed by an external SQL file."),
@@ -10179,7 +10179,6 @@ const KEYWORDS: &[&str] = &[
     "entity",
     "record",
     "command",
-    "query",
     "query.list",
     "query.lookup",
     "query.sql",
@@ -12829,8 +12828,11 @@ feature customer
             .map(|diagnostic| diagnostic.message.as_str())
             .collect();
 
-        // `query list` short form is now accepted; the kind is inferred from
-        // the body shape. Other legacy ergonomics still warn.
+        assert!(
+            messages.iter().any(|message| {
+                message.contains("query declarations should use an explicit mode")
+            })
+        );
         assert!(
             messages
                 .iter()

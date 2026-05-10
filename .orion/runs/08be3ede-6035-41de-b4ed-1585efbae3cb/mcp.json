@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "orion": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\lucas\\dev\\orion-next\\app\\src-tauri\\..\\..\\packages\\orion-mcp\\dist\\main.js"
+      ],
+      "env": {
+        "ORION_MCP_WORKSPACE": "C:\\Users\\lucas\\lazuli"
+      }
+    }
+  }
+}

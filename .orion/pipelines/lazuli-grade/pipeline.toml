@@ -1,0 +1,186 @@
+id = "lazuli-grade"
+name = "Lazuli Quality Gate"
+description = "Grade Lazuli against the AI-first DSL rubric and emit a pass / pass-with-notes / block decision."
+
+[command]
+slug = "lazuli-grade"
+description = "Roda o quality gate da linguagem: pontua a linguagem na rubrica e emite decisão pass / pass-with-notes / block."
+
+[defaults]
+agent = "lazuli-language-architect"
+
+# `fixture-only` is the cheap pass: cold-read full-capsule and grade.
+# `full-repo` adds cross-checks against `crates/`, `editors/`, and
+# every other example. `panel` runs a second-opinion consult through
+# orion-mcp before finalizing the grade — useful for high-stakes
+# decisions before public release.
+[[args]]
+name = "scope"
+description = "Quanto da auditoria entra na nota — fixture só, repo todo, ou painel multi-perspectiva."
+choices = ["fixture-only", "full-repo", "panel"]
+default = "fixture-only"
+
+# ---------- DAG ----------
+
+[[stages]]
+id = "orient"
+skills = ["lazuli-quality-rubric"]
+tools = ["Read", "Grep", "Glob"]
+prompt = """
+Cold-orient on the fixture as if you've never seen it.
+
+1. List `examples/full-capsule/` files.
+2. Read top-to-bottom, in order: `app.lzi`, `registry.lzi`,
+   `workspace.lzi`, `profiles.lzi`, `full-capsule.lzi`,
+   `full-capsule.lzx`, then the platform projections and the
+   contract.
+3. Don't load `docs/canonical-semantics.md` first. The rubric measures
+   whether the source explains itself without doc-lookup.
+
+Output: a single paragraph stating whether the cold-read was painful,
+neutral, or pleasant — anchored to one specific moment that surprised
+you (good or bad), with `path:line`.
+
+This is the mental state the rubric will grade. Don't grade yet.
+"""
+
+[[stages]]
+id = "grade-criteria"
+skills = ["lazuli-quality-rubric"]
+tools = ["Read", "Grep"]
+prompt = """
+Grade the language against all 10 rubric criteria.
+
+For each criterion (1 through 10 in `lazuli-quality-rubric` skill):
+- Score 1-10 with a one-sentence justification.
+- Cite ONE `path:line` for the strongest evidence.
+- Cite ONE `path:line` for the weakest spot.
+
+Walk them in order. Don't merge. Don't average yet.
+
+If `scope == full-repo`, additionally cross-check each criterion
+against:
+- `crates/lazuli_lsp/src/lib.rs` (diagnostics breadth and message
+  quality)
+- `crates/lazuli_cli/src/doctor.rs` (cross-checks)
+- `editors/vscode/syntaxes/lazuli.tmLanguage.json` (highlighting
+  coverage)
+
+Output: the 10-row markdown table from the rubric skill's "Output
+shape" section. No final score yet.
+"""
+depends_on = ["orient"]
+
+[[stages]]
+id = "panel-consult"
+type = "checkpoint"
+tools = ["Read"]
+prompt = """
+Optional second-opinion stage. Skip entirely if `scope != panel`.
+
+If `scope == panel`: dispatch one `orion__consult_panel` call with two
+panelists. Both receive the same source extract (a representative
+slice of the fixture, ~300 lines) and the rubric, and they each grade
+independently. Return shape per panelist:
+
+```
+{
+  provider: "claude" | "codex",
+  prompt: "Grade this DSL fixture against the attached rubric. Score
+           each of the 10 criteria 1-10 with one-sentence justification
+           anchored to a line number. Output the table only.",
+  system_prompt: "You are a senior DSL/language architect. Be terse,
+                  push back on weak premises."
+}
+```
+
+Compare the two panelist tables to your own grade-criteria output.
+Where panelists disagree with you by ≥2 points, re-read the cited
+location and decide whether to revise.
+
+Output: a 3-column table (Criterion | Your score | Panelist deltas)
+plus 2-3 sentences on which (if any) of your scores moved.
+"""
+depends_on = ["grade-criteria"]
+
+[[stages]]
+id = "identify-friction"
+skills = ["lazuli-quality-rubric"]
+tools = ["Read", "Grep"]
+prompt = """
+List the top 3-5 concrete atritos (friction points) you found while
+grading. Each one is a place a senior dev or LLM would stumble.
+
+Format per finding:
+- `path:line` anchor.
+- 1-sentence description.
+- Which rubric criterion it pulled down.
+- Cost class: cosmetic | mechanical | structural.
+
+These are the candidates for immediate cuts if the gate verdict is
+"PASS with notes."
+"""
+depends_on = ["grade-criteria"]
+
+[[stages]]
+id = "identify-missing"
+skills = ["lazuli-quality-rubric", "lazuli-language-audit"]
+tools = ["Read", "Grep"]
+prompt = """
+List the top 3-5 missing constructs / primitives the fixture would
+benefit from.
+
+Cross-reference with `docs/next-checklist.md` — anything already
+tracked or done is excluded.
+
+Format per finding:
+- Where in the fixture it would be used (`path:line`).
+- The 1-line contract you'd give it.
+- Whether it's Lazuli-shaped or actually Drusa/adapter (per the
+  `lazuli-language-boundaries` rule).
+
+If a candidate is Drusa/adapter-shaped, drop it from the list — it
+doesn't belong in Lazuli core.
+"""
+depends_on = ["grade-criteria"]
+
+[[stages]]
+id = "quality-gate-decision"
+skills = ["lazuli-quality-rubric"]
+tools = ["Read"]
+prompt = """
+Compute the weighted average from `grade-criteria` (use the weights
+in the rubric skill — they sum to 100%).
+
+Apply the gate rule from the rubric skill:
+- Score ≥ 8.5 AND no criterion below 7 → **PASS**
+- Score ≥ 8.5 AND at least one criterion below 7 → **PASS with notes**
+- Score < 8.5 OR any criterion below 6 → **BLOCK**
+
+Boundary violations always block, regardless of score.
+
+Output the full report from the rubric skill's "Output shape" section:
+
+```markdown
+## Score: <weighted average>/10 — <PASS | PASS with notes | BLOCK>
+
+| # | Criterion | Score | Best evidence | Weakest spot |
+|---|---|---|---|---|
+...
+
+### Top atritos
+- ... (from identify-friction)
+
+### Top faltas
+- ... (from identify-missing)
+
+### Tracked cuts (if PASS with notes)
+- ... (suggested rows for docs/next-checklist.md)
+```
+
+Stop. The user decides what to do with the verdict.
+
+Do NOT edit `docs/next-checklist.md` yourself. Paste the suggested
+rows in chat for human review.
+"""
+depends_on = ["grade-criteria", "identify-friction", "identify-missing"]

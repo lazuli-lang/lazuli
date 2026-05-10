@@ -1077,7 +1077,7 @@ fn inspect_locators(lines: &[String]) -> Vec<InspectLocators> {
 
     for block in query_blocks(lines) {
         let name = query_name(block[0].trim_start()).unwrap_or("unknown");
-        let inferred = query_inferred_kind(block);
+        let inferred = query_kind(block);
         let mut bindings = vec![inspect_binding(
             "ctx.*",
             "runtime",
@@ -2299,7 +2299,7 @@ fn query_blocks(lines: &[String]) -> Vec<&[String]> {
     let mut index = 0;
 
     while index < lines.len() {
-        if leading_spaces(&lines[index]) == 4 && is_query_block_header(lines[index].trim_start()) {
+        if leading_spaces(&lines[index]) == 4 && lines[index].trim_start().starts_with("query.") {
             let start = index;
             index += 1;
 
@@ -2318,22 +2318,6 @@ fn query_blocks(lines: &[String]) -> Vec<&[String]> {
     }
 
     blocks
-}
-
-fn is_query_block_header(trimmed: &str) -> bool {
-    if trimmed.starts_with("query.") {
-        return true;
-    }
-    if let Some(rest) = trimmed.strip_prefix("query ") {
-        let next = rest.trim().split_whitespace().next();
-        return next.is_some_and(|first| {
-            first
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        });
-    }
-    false
 }
 
 fn command_blocks(lines: &[String]) -> Vec<&[String]> {
@@ -2364,48 +2348,21 @@ fn command_blocks(lines: &[String]) -> Vec<&[String]> {
 
 fn query_name(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
-    let head = parts.next()?;
-    if head.starts_with("query.") || head == "query" {
+    if parts.next()?.starts_with("query.") {
         parts.next()
     } else {
         None
     }
 }
 
-fn query_inferred_kind(block: &[String]) -> &'static str {
+fn query_kind(block: &[String]) -> &'static str {
     let header = block[0].trim_start();
-    if let Some(qualifier) = header.strip_prefix("query.") {
-        let kind = qualifier.split_whitespace().next().unwrap_or("");
-        return match kind {
-            "lookup" => "lookup",
-            "sql" => "sql",
-            "list" => "list",
-            _ => "list",
-        };
+    let qualifier = header.strip_prefix("query.").unwrap_or("");
+    match qualifier.split_whitespace().next().unwrap_or("") {
+        "lookup" => "lookup",
+        "sql" => "sql",
+        _ => "list",
     }
-
-    let header_after = header.strip_prefix("query ").unwrap_or(header);
-    if header_after
-        .split_whitespace()
-        .skip(1)
-        .any(|tok| tok == "by")
-    {
-        return "lookup";
-    }
-
-    let header_indent = leading_spaces(&block[0]);
-    let child_indent = header_indent + 2;
-    for line in block.iter().skip(1) {
-        if leading_spaces(line) != child_indent {
-            continue;
-        }
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("sql ") || trimmed == "sql" {
-            return "sql";
-        }
-    }
-
-    "list"
 }
 
 fn named_top_block_name(trimmed_line: &str) -> Option<&str> {
