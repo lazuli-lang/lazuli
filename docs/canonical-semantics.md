@@ -1690,8 +1690,8 @@ feature `uses`, `env.*` references, `@cap.File` storage needs, custom APIs,
 webhooks, jobs, scheduled jobs, web/mobile targets, and public URLs must be
 represented in the app contract.
 
-Concrete routes stay in `.lzx` because they bind URLs and mobile stack paths to
-experience views and platform surfaces:
+Concrete routes stay in `.lzx` because they bind web URLs and mobile route
+patterns to experience views and platform surfaces:
 
 ```lazuli
 route admin_customer_detail
@@ -1703,7 +1703,7 @@ route admin_customer_detail
   lazy true
 
 route sales_customer_detail
-  stack "customers/[id]"
+  path "customers/[id]"
   params id: Customer.ID
   to customer.view.detail(id: path.id)
   surface customer mobile
@@ -1711,10 +1711,12 @@ route sales_customer_detail
 ```
 
 Top-level `route` declarations are the source of truth for generated web paths,
-mobile stack paths, and type-safe route builders. A dynamic segment such as
+mobile route patterns, and type-safe route builders. A dynamic segment such as
 `:id` or `[id]` must be declared with `params id: <Type>`. The `to` binding maps
 path parameters into an abstract experience view. `surface` and `audience`
-make platform routing and authorization context explicit.
+make platform routing and authorization context explicit. `path` is canonical
+for both web and mobile; legacy `stack` route declarations are accepted only as
+compatibility syntax.
 
 ## Surfaces
 

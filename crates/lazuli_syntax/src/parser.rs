@@ -286,7 +286,7 @@ fn parse_lzx_route(
         } else {
             return Err(line_error(
                 line,
-                "route children are `path`, `stack`, `params`, `to`, `surface`, `audience`, `lazy`, or `prerender` declarations",
+                "route children are `path`, legacy `stack`, `params`, `to`, `surface`, `audience`, `lazy`, or `prerender` declarations",
             ));
         }
 

@@ -631,11 +631,17 @@ fn collect_lzx_operational_facts(
             column,
             name: route.name.clone(),
         };
-        if route.path.is_some() {
-            operational.web_routes.push(fact.clone());
-        }
-        if route.stack.is_some() {
-            operational.mobile_routes.push(fact);
+        match lzx_route_surface_platform(route.surface.as_deref()) {
+            Some(LzxPlatform::Web) => operational.web_routes.push(fact),
+            Some(LzxPlatform::Mobile) => operational.mobile_routes.push(fact),
+            None => {
+                if route.path.is_some() {
+                    operational.web_routes.push(fact.clone());
+                }
+                if route.stack.is_some() {
+                    operational.mobile_routes.push(fact);
+                }
+            }
         }
     }
 
@@ -651,6 +657,14 @@ fn collect_lzx_operational_facts(
             LzxPlatform::Web => operational.web_surfaces.push(fact),
             LzxPlatform::Mobile => operational.mobile_surfaces.push(fact),
         }
+    }
+}
+
+fn lzx_route_surface_platform(surface: Option<&str>) -> Option<LzxPlatform> {
+    match surface?.split_whitespace().last()? {
+        "web" => Some(LzxPlatform::Web),
+        "mobile" => Some(LzxPlatform::Mobile),
+        _ => None,
     }
 }
 

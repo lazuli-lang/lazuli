@@ -34,13 +34,13 @@ route admin_customer_detail
   lazy true
 
 route sales_customer_list
-  stack "customers"
+  path "customers"
   to customer.view.list
   surface customer mobile
   audience sales
 
 route sales_customer_detail
-  stack "customers/[id]"
+  path "customers/[id]"
   params id: Customer.ID
   to customer.view.detail(id: path.id)
   surface customer mobile
