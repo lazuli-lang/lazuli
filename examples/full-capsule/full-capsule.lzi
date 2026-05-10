@@ -645,6 +645,8 @@ feature customer_import
 
   uses org, user, customer
 
+  requires integration crm: CRMProvider
+
   domain
     enum ImportStatus
       uploaded

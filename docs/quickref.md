@@ -127,6 +127,24 @@ registry
         webhook_secret env.CRM_WEBHOOK_SECRET
 ```
 
+Reusable features require abstract integration slots instead of concrete
+providers:
+
+```lazuli
+feature payments
+  purpose "Payment intents and checkout sessions."
+
+  requires integration gateway: PaymentGateway
+```
+
+Use a block when a feature needs more than one slot:
+
+```lazuli
+  requires
+    integration bureau: CreditBureau
+    integration gateway: PaymentGateway
+```
+
 Routes and experiences live in `.lzx`:
 
 ```lazuli

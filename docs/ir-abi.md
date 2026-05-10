@@ -102,6 +102,9 @@ Two layers, kept distinct by type, never merged for convenience:
 
 - **Authored:** what the DSL says. Direct projection. No inference.
 - **Derived:** what the lowering pass computes. Effective scope per query, operation table, resolved policy bindings, resolved extension paths, resource graph, required-input checklist per command.
+- **Authored requirement:** feature-level slots such as
+  `requires integration gateway: PaymentGateway` are author intent. They record
+  dependency inversion boundaries and do not name a concrete provider.
 
 Consumers that reason about author intent read the authored layer. Consumers that generate code or check invariants read the derived layer. A derived value never overwrites an authored one.
 
@@ -162,6 +165,11 @@ name, capability kind, adapter reference, allowed environments, credential
 scope, and credential bindings. They intentionally exclude provider operation
 schemas, SDK-specific methods, concrete base URLs, and infrastructure secret
 store details. Those belong to Drusa packs and adapter configuration.
+
+`FeatureRequirement` entries preserve abstract feature dependencies such as
+`integration gateway: PaymentGateway`. A requirement names a local slot and a
+capability contract. It does not bind MercadoPago, Serasa, Stripe, or any other
+provider; app/registry binding IR will resolve that in a later cut.
 
 ## Experience IR
 

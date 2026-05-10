@@ -47,6 +47,8 @@ pub struct Feature {
     pub context_path: Option<String>,
     pub defaults: Defaults,
     pub uses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requirements: Vec<FeatureRequirement>,
     pub enums: Vec<EnumDecl>,
     pub resources: Vec<Resource>,
     pub events: Vec<Event>,
@@ -66,6 +68,13 @@ pub struct Feature {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeatureRequirement {
+    pub kind: String,
+    pub name: String,
+    pub contract: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

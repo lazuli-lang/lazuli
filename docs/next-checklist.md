@@ -25,7 +25,7 @@ get lost in chat history.
 
 | Order | Cut | Status | Notes |
 |-------|-----|--------|-------|
-| 1 | Feature-level integration requirements | pending | Add `requires integration gateway: PaymentGateway` so reusable features depend on abstract capabilities, not concrete providers. |
+| 1 | Feature-level integration requirements | done | Add `requires integration gateway: PaymentGateway` so reusable features depend on abstract capabilities, not concrete providers. |
 | 2 | App bindings | pending | Bind `payments.gateway = integrations.mercadopago` or equivalent without making every feature import provider details. |
 | 3 | External calls | pending | Add `calls gateway.operation` in commands/jobs with timeout/retry/idempotency/audit checks. |
 | 4 | Integration doctor rules | pending | Detect missing app binding, type mismatch, undeclared integration, undeclared env refs, PII sent externally without legal basis/audit, missing timeout/retry. |
@@ -34,10 +34,11 @@ get lost in chat history.
 | 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |
 | 8 | Adapter binding provenance | pending | Decide how registry entries reference Drusa adapters, third-party plugin adapters, and local inline adapters without becoming a provider operation schema. |
 | 9 | Workspace contract | pending | Decide the exact `workspace.lzi` shape for distributed apps spanning monorepos, multiple repos, external services, and sidecars. |
-| 10 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
-| 11 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
-| 12 | IR/inspect coverage audit | pending | Confirm every accepted new construct appears in inspect JSON and doctor diagnostics with stable shape. |
-| 13 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
+| 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and generated SDKs represent non-Lazuli services. |
+| 11 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
+| 12 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
+| 13 | IR/inspect coverage audit | pending | Confirm every accepted new construct appears in inspect JSON and doctor diagnostics with stable shape. |
+| 14 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
 
 ## Registry Decision Pressure
 
@@ -120,9 +121,9 @@ Intended split:
 - `workspace.lzi`: semantic contract for a distributed system or monorepo,
   including apps, external contracts, shared registry, app graph, event edges,
   and gateway contracts.
-- `drusa-workspace.toml`: operational Drusa config such as remote repo URLs,
-  branches, provider ids, CI wiring, deploy providers, and other concrete
-  mechanics.
+- `drusa.toml`: operational Drusa config such as remote repo URLs, branches,
+  provider ids, CI wiring, deploy providers, local ports, adapter provider
+  choices, and other concrete mechanics.
 
 Do not implement `workspace.lzi` before app/registry/profile contracts settle.
 When it lands, it should model distributed contract shape, not repository
@@ -136,11 +137,47 @@ Expected ownership model:
 - A distributed system spanning multiple repos may add a root `workspace.lzi`
   that references apps, external services, sidecars, shared registries, event
   edges, and public ingress/gateway contracts.
-- `drusa-workspace.toml` remains operational glue: repo URLs, branches,
+- `drusa.toml` remains operational glue: repo URLs, branches,
   provider ids, CI/deploy wiring, and concrete mechanics.
 
 Do not make `workspace.lzi` mandatory for normal apps. It is a semantic
 coordination artifact for distributed systems, not a replacement for `app.lzi`.
+
+Naming decision:
+
+- Use `workspace.lzi` for the semantic distributed-system contract.
+- Use `drusa.toml` for Drusa's operational/tooling configuration.
+- Avoid `drusa-workspace.toml` as the default name because it competes with
+  `workspace.lzi` and makes the source of truth less obvious.
+
+Polyglot contract rule:
+
+Lazuli does not require every service to be implemented with Lazuli or Drusa.
+It requires every service participating in the workspace graph to have a
+contract.
+
+Examples:
+
+```lazuli
+workspace AcmeERP
+  apps
+    crm at "./apps/crm/app.lzi"
+    ai external contract "acme.ai.v1"
+```
+
+The `ai` service might be Python/FastAPI, Java, Node, Rust, or another stack.
+Lazuli owns the API/event/schema contract and context propagation guarantees;
+Drusa may generate clients, mocks, gateway config, SDKs, and contract tests.
+Adapters own HTTP, gRPC/Connect, Kafka, NATS, RabbitMQ, SQS, Pub/Sub, Envoy,
+Kubernetes ingress, and other concrete transports.
+
+Future contract inputs may include:
+
+- Lazuli-authored `contract.lzi`.
+- OpenAPI for HTTP APIs.
+- AsyncAPI for broker/event contracts.
+- Proto/Buf for RPC contracts.
+- JSON Schema or Avro when an enterprise broker/schema registry requires it.
 
 ## Adapter And Container Decision Pressure
 

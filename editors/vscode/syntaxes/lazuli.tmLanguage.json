@@ -312,7 +312,7 @@
         },
         {
           "name": "entity.name.function.statement.command.lazuli",
-          "match": "\\b(creates|updates|deletes|input|route|let|target|policy|policy_for|requires|emits|invalidates|returns|on|from|permits|forbids|allows|deny|denies|accepted|rejected|as|error|status|expose|write_window)\\b"
+          "match": "\\b(creates|updates|deletes|input|route|let|target|policy|policy_for|requires|integration|emits|invalidates|returns|on|from|permits|forbids|allows|deny|denies|accepted|rejected|as|error|status|expose|write_window)\\b"
         },
         {
           "name": "entity.name.function.statement.view.lazuli",

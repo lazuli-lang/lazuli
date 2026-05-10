@@ -302,6 +302,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));
         diagnostics.extend(registry_contract_diagnostics(source));
+        diagnostics.extend(feature_requirements_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
         diagnostics.extend(non_goals_shape_diagnostics(source));
         diagnostics.extend(defaults_policy_syntax_diagnostics(source));
@@ -5271,6 +5272,89 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn feature_requirements_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_feature = false;
+    let mut in_requires_block = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            in_feature = trimmed.starts_with("feature ");
+            in_requires_block = false;
+            continue;
+        }
+
+        if !in_feature {
+            continue;
+        }
+
+        if leading == 2 {
+            in_requires_block = trimmed == "requires";
+            if let Some(requirement) = trimmed.strip_prefix("requires ") {
+                validate_feature_requirement_line(&mut diagnostics, line_index, line, requirement);
+            }
+            continue;
+        }
+
+        if leading <= 2 {
+            in_requires_block = false;
+        }
+
+        if in_requires_block && leading == 4 {
+            validate_feature_requirement_line(&mut diagnostics, line_index, line, trimmed);
+        } else if in_requires_block && leading > 4 {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "feature-requirement-contract",
+                "feature requirements use four-space children such as `integration gateway: PaymentGateway`.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn validate_feature_requirement_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    if parse_feature_integration_requirement(trimmed).is_some() {
+        return;
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "feature-requirement-contract",
+        "feature requirements currently use `integration <name>: <CapabilityType>`; bind concrete providers from app/registry.",
+    ));
+}
+
+fn parse_feature_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
+    let rest = trimmed.trim().strip_prefix("integration ")?;
+    let (name, contract) = rest.split_once(':')?;
+    let name = name.trim();
+    let contract = contract.trim();
+
+    if is_identifier(name) && is_type_name(contract) {
+        Some((name, contract))
+    } else {
+        None
+    }
+}
+
 fn is_app_scalar_child(trimmed: &str) -> bool {
     matches!(
         trimmed.split_whitespace().next(),
@@ -8482,8 +8566,11 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "tenant_from" => Some("Pins an event-triggered job tenant context from the event payload."),
         "fanout" => Some("Declares per-tenant expansion for scheduled jobs."),
         "reason" => Some("Documents why a dangerous declarative override is intentional."),
-        "requires" => {
-            Some("Declares an additional authority requirement for a workflow transition.")
+        "requires" => Some(
+            "Declares a feature requirement or an additional authority requirement for a workflow transition.",
+        ),
+        "integration" => {
+            Some("Declares an abstract external integration requirement or registry capability.")
         }
         "algorithm" => Some("Declares the current password/hash algorithm contract."),
         "secret" => Some("Declares the secret source for declarative webhook verification."),
@@ -8574,6 +8661,7 @@ const KEYWORDS: &[&str] = &[
     "group",
     "in",
     "integrations",
+    "integration",
     "credentials",
     "data_classification",
     "capabilities",
@@ -8765,6 +8853,48 @@ feature customer
             diagnostics.is_empty(),
             "expected no canonical ordering diagnostics, got: {diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn canonical_accepts_feature_integration_requirements() {
+        let source = r#"
+feature payments
+  purpose "Payments"
+
+  requires integration gateway: PaymentGateway
+
+feature credit_check
+  purpose "Credit checks"
+
+  requires
+    integration bureau: CreditBureau
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected no diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_feature_requirements() {
+        let source = r#"
+feature payments
+  purpose "Payments"
+
+  requires
+    provider mercadopago: PaymentGateway
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.message.contains(
+                "feature requirements currently use `integration <name>: <CapabilityType>`",
+            )
+        }));
     }
 
     #[test]

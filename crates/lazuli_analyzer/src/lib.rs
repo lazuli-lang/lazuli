@@ -70,6 +70,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         context_path: None,
         defaults: ir::Defaults::default(),
         uses: Vec::new(),
+        requirements: Vec::new(),
         enums: Vec::new(),
         resources,
         events: Vec::new(),

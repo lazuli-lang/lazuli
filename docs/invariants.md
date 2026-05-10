@@ -27,6 +27,9 @@ source that only fails later.
   entries: name, capability kind, adapter reference, environments, and
   credential scope. They do not declare provider HTTP operations, SDK methods,
   or cloud secret storage.
+- Feature `requires integration <slot>: <CapabilityType>` declares dependency
+  inversion at the feature boundary. It names an abstract slot the feature can
+  call later; it must not import or select a concrete provider directly.
 - App `services` declare logical ownership boundaries. They do not by
   themselves require separate processes; Drusa decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.

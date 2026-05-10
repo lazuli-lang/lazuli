@@ -1758,6 +1758,34 @@ Credential scopes are `platform`, `tenant`, or `actor`. Credential bindings may
 reference declared `env.NAME` values or later credential resources, but
 provider-specific storage stays outside core Lazuli.
 
+Reusable features declare abstract integration requirements instead of importing
+provider entries directly:
+
+```lazuli
+feature payments
+  purpose "Payment intents and checkout sessions."
+
+  requires integration gateway: PaymentGateway
+```
+
+When a feature needs multiple external contracts, use the block form:
+
+```lazuli
+feature credit_check
+  purpose "Credit bureau consultation."
+
+  requires
+    integration bureau: CreditBureau
+    integration document_validator: TaxIdValidator
+```
+
+`requires integration <name>: <CapabilityType>` means the feature depends on an
+abstract capability slot. It does not choose MercadoPago, Stripe, Serasa,
+ReceitaWS, or any other provider. App/registry bindings choose the concrete
+registry entry in a later cut, and adapters implement the call mechanics.
+`lazuli inspect` exposes feature requirements under each inspected feature so
+Drusa and future doctor rules can prove that every abstract slot is bound.
+
 `lazuli inspect app.lzi --format=json` exposes the entrypoint manifest under
 `app`; `lazuli inspect registry.lzi --format=json` exposes the package catalog
 under `registry`. `lazuli doctor` loads both and checks the combined operational

@@ -367,6 +367,8 @@ struct InspectReport {
 #[derive(Debug, Serialize)]
 struct InspectFeature {
     name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    requirements: Vec<InspectRequirement>,
     #[serde(skip_serializing_if = "Option::is_none")]
     refs: Option<InspectRefs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -387,6 +389,14 @@ struct InspectFeature {
     policies: Option<Vec<InspectPolicy>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tests: Option<Vec<InspectTests>>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectRequirement {
+    kind: String,
+    name: String,
+    contract: String,
+    origin: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -618,6 +628,7 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
 
     InspectFeature {
         name,
+        requirements: inspect_requirements(lines),
         refs: expansions.refs.then(|| inspect_refs(lines)),
         summary: expansions.summary.then(|| inspect_summary(lines)),
         locators: expansions.locators.then(|| inspect_locators(lines)),
@@ -631,6 +642,60 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
             .then(|| inspect_policies(lines, &policies)),
         tests: expansions.tests.then(|| inspect_tests(lines, &policies)),
     }
+}
+
+fn inspect_requirements(lines: &[String]) -> Vec<InspectRequirement> {
+    let mut requirements = Vec::new();
+    let mut in_requires_block = false;
+
+    for line in lines {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading == 2 {
+            in_requires_block = trimmed == "requires";
+            if let Some(requirement) = trimmed.strip_prefix("requires ") {
+                if let Some(parsed) = parse_inspect_requirement(requirement, "requires inline") {
+                    requirements.push(parsed);
+                }
+            }
+            continue;
+        }
+
+        if leading <= 2 {
+            in_requires_block = false;
+        }
+
+        if in_requires_block && leading == 4 {
+            if let Some(parsed) = parse_inspect_requirement(trimmed, "requires block") {
+                requirements.push(parsed);
+            }
+        }
+    }
+
+    requirements
+}
+
+fn parse_inspect_requirement(source: &str, origin: &'static str) -> Option<InspectRequirement> {
+    let rest = source.trim().strip_prefix("integration ")?;
+    let (name, contract) = rest.split_once(':')?;
+    let name = name.trim();
+    let contract = contract.trim();
+
+    if !is_identifier(name) || !is_type_name(contract) {
+        return None;
+    }
+
+    Some(InspectRequirement {
+        kind: "integration".to_owned(),
+        name: name.to_owned(),
+        contract: contract.to_owned(),
+        origin,
+    })
 }
 
 fn inspect_refs(lines: &[String]) -> InspectRefs {
@@ -3004,6 +3069,12 @@ fn is_identifier(source: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
+fn is_type_name(source: &str) -> bool {
+    let mut chars = source.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 fn namespace_references(line: &str) -> Vec<&str> {
     let mut namespaces = Vec::new();
     let mut rest = line;
@@ -3118,6 +3189,8 @@ feature customer
 feature customer
   purpose "Customers"
 
+  requires integration gateway: PaymentGateway
+
   refs
     core: @role, @policy, @semantic, @cap, @pii, @key
 
@@ -3179,6 +3252,10 @@ feature customer
         let json = serde_json::to_string(&report).unwrap();
 
         assert!(json.contains("\"schema\":\"lazuli.inspect.v0\""));
+        assert!(json.contains("\"requirements\""));
+        assert!(json.contains("\"kind\":\"integration\""));
+        assert!(json.contains("\"name\":\"gateway\""));
+        assert!(json.contains("\"contract\":\"PaymentGateway\""));
         assert!(json.contains("\"origin\":\"event_group:customer_*\""));
         assert!(json.contains("\"refs\""));
         assert!(json.contains("\"summary\""));

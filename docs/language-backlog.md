@@ -58,6 +58,14 @@ The active implementation queue and open registry/import decisions live in
 - No `container.lzi` exists in v0. Lazuli handles dependency inversion through
   abstract requirements plus registry/app bindings; Drusa handles dependency
   injection mechanics and runtime construction.
+- `workspace.lzi` is reserved for semantic distributed-system contracts.
+  `drusa.toml`, not `drusa-workspace.toml`, is the preferred operational Drusa
+  config name for repo loading, local ports, deploy providers, adapter choices,
+  CI wiring, and other concrete mechanics.
+- Lazuli workspaces are polyglot contract graphs. A service may be implemented
+  in Python, Java, Node, Rust, Go, or another stack as long as it exposes a
+  contract Lazuli can inspect through `contract.lzi`, OpenAPI, AsyncAPI,
+  Proto/Buf, JSON Schema, Avro, or a generated contract artifact.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
 - Observability-only events use `event.trace <name>` rather than an `observability_only` modifier.
@@ -159,11 +167,16 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   concrete providers or provider HTTP operations into core syntax.
 - [x] Promote `registry.lzi` to a native package convention consumed by
   inspect, doctor, and LSP diagnostics.
+- [x] Add feature-level abstract integration requirements such as
+  `requires integration gateway: PaymentGateway`.
 - [ ] Decide adapter provenance for Drusa adapters, third-party plugin
   adapters, and local inline adapters in `registry.lzi`.
 - [ ] Decide whether `workspace.lzi` should become the semantic distributed
-  system contract for multi-repo/monorepo apps while `drusa-workspace.toml`
-  remains operational repo/deploy glue.
+  system contract for multi-repo/monorepo apps while `drusa.toml` remains
+  operational repo/deploy/tooling glue.
+- [ ] Decide external contract import/export shape for non-Lazuli services
+  using `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, Avro, and
+  generated SDK/contract-test artifacts.
 - [ ] Decide whether distributed ingress should use `gateway`, `proxy`, or both
   after service boundaries, profiles, and app bindings stabilize.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
