@@ -328,6 +328,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(sql_return_type_diagnostics(source));
         diagnostics.extend(type_namespace_diagnostics(source));
         diagnostics.extend(validation_syntax_diagnostics(source));
+        diagnostics.extend(derived_field_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
         diagnostics.extend(event_payload_reference_diagnostics(source));
         diagnostics.extend(event_kind_diagnostics(source));
@@ -3115,6 +3116,106 @@ fn typed_line_type(trimmed_line: &str) -> Option<&str> {
     } else {
         Some(ty)
     }
+}
+
+fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some(rest) = field_typed_rhs(trimmed) else {
+            continue;
+        };
+
+        let (before_derived, after_derived) = match split_derived_from(rest) {
+            Some(parts) => parts,
+            None => continue,
+        };
+
+        if after_derived.trim().is_empty() {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "derived-field-contract",
+                "`derived from` requires an expression: `<name>: <Type> derived from <expression>`.",
+            ));
+            continue;
+        }
+
+        let mut emitted_requiredness = false;
+        for forbidden in ["required", "optional"] {
+            if before_derived
+                .split_whitespace()
+                .any(|token| token == forbidden)
+            {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "derived-field-contract",
+                    "`derived from` fields are computed at read time and must not declare `required` or `optional`.",
+                ));
+                emitted_requiredness = true;
+                break;
+            }
+        }
+
+        if !emitted_requiredness && contains_top_level_eq(after_derived) {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "derived-field-contract",
+                "`derived from` fields are computed at read time and must not declare `default` (no trailing `= <value>`).",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn split_derived_from(rhs: &str) -> Option<(&str, &str)> {
+    if let Some(pos) = rhs.find(" derived from ") {
+        return Some((&rhs[..pos], &rhs[pos + " derived from ".len()..]));
+    }
+    if let Some(stripped) = rhs.strip_suffix(" derived from") {
+        return Some((stripped, ""));
+    }
+    None
+}
+
+fn contains_top_level_eq(expr: &str) -> bool {
+    let mut depth_paren: i32 = 0;
+    let mut in_string = false;
+    let mut prev = ' ';
+    for ch in expr.chars() {
+        match ch {
+            '"' if prev != '\\' => in_string = !in_string,
+            '(' if !in_string => depth_paren += 1,
+            ')' if !in_string => depth_paren -= 1,
+            '=' if !in_string && depth_paren == 0 && prev == ' ' => return true,
+            _ => {}
+        }
+        prev = ch;
+    }
+    false
+}
+
+fn field_typed_rhs(trimmed: &str) -> Option<&str> {
+    let (lhs, rhs) = trimmed.split_once(':')?;
+    if lhs.contains(' ') || lhs.is_empty() {
+        return None;
+    }
+    let rhs = rhs.trim_start();
+    if rhs.is_empty() || rhs.starts_with('"') {
+        return None;
+    }
+    Some(rhs)
 }
 
 fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -9766,6 +9867,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "params" => Some("Declares typed query or API parameters."),
         "to" => Some("Binds a top-level `.lzx` route to an abstract experience view."),
         "let" => Some("Binds a derived value for later command, job, or event expressions."),
+        "derived" => Some(
+            "Marks a resource field as computed at read time: `<name>: <Type> derived from <expression>`. Not persisted; cannot have `default`, `required`, or `optional`.",
+        ),
         "policy" => Some("Associates a command with an authorization policy capability."),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
@@ -9942,6 +10046,7 @@ const KEYWORDS: &[&str] = &[
     "params",
     "to",
     "let",
+    "derived",
     "policy",
     "policy_for",
     "rate_limit",
@@ -11541,6 +11646,63 @@ route customer_detail
 "#;
 
         assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn derived_field_accepts_expression() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      score: Integer = 0
+      is_high_value: Boolean derived from score > 80
+"#;
+        assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn derived_field_rejects_default_or_requiredness() {
+        let bad_default = r#"
+feature customer
+  domain
+    resource Customer
+      tier: Text derived from compute_tier(score) = "bronze"
+"#;
+        let diagnostics = diagnostics_for(bad_default);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("must not declare `default`"))
+        );
+
+        let bad_required = r#"
+feature customer
+  domain
+    resource Customer
+      tier: Text required derived from compute_tier(score)
+"#;
+        let diagnostics = diagnostics_for(bad_required);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("must not declare `required`"))
+        );
+    }
+
+    #[test]
+    fn derived_field_requires_expression() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      tier: Text derived from
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("requires an expression"))
+        );
     }
 
     #[test]

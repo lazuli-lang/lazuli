@@ -56,6 +56,7 @@ feature customer
       source: CustomerSource = manual
       score: Integer @pii.derived = 0
       external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
+      is_high_value: Boolean derived from score > 80
 
       soft_delete
       retention 7y then anonymize
