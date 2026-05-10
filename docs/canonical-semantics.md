@@ -1609,23 +1609,91 @@ policies
 
 ## App Runtime and Routes
 
-`.lzx` may declare an app manifest and concrete route table before or beside
-experiences and surfaces:
+`app.lzi` is the project entrypoint. It declares the provider-neutral
+operational contract that Drusa materializes into generated app wiring,
+runtime units, deploy gates, and adapter requirements. It is not a product
+feature and should not hide domain behavior.
 
 ```lazuli
 app AcmeCRM
   title "Acme CRM"
   version "0.1.0"
-  targets
-    backend go
-    web react
-    mobile expo
   default_locale "pt-BR"
   default_timezone "America/Sao_Paulo"
   auth_failed_redirect public.login
   not_found public.not_found
-  uses customer, customer_auth
 
+  uses
+    customer
+    customer_auth
+
+  targets
+    backend go
+    web react
+    mobile expo
+
+  environments
+    local
+    staging
+    production
+
+  urls
+    web local "http://localhost:3000"
+    api local "http://localhost:8080"
+    web production "https://app.acme.example"
+    api production "https://api.acme.example"
+
+  env
+    server CRM_WEBHOOK_SECRET: Secret required
+    client PUBLIC_APP_URL: Url required
+    mobile EXPO_PUBLIC_API_URL: Url required
+
+  capabilities
+    database postgres
+    queue background_jobs
+    object_storage files
+    mailer transactional
+    event_bus internal
+    tracing optional
+
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      healthcheck "/healthz"
+      readiness "/readyz"
+
+    unit web
+      serves surfaces web
+
+    unit worker
+      runs jobs *
+
+    unit scheduler
+      runs schedules *
+
+  deploy
+    migrations before_deploy
+    migration_lock required
+    destructive_migrations require_approval
+    rollback on_failed_healthcheck
+```
+
+`app.lzi` declares what the app needs, not how a specific cloud provider is
+configured. Concrete provider choices such as Fly, AWS, Kubernetes, Neon, R2,
+Redis, SendGrid, or OpenTelemetry exporters belong in Drusa adapter
+configuration.
+
+`lazuli inspect app.lzi --format=json` exposes this manifest under the `app`
+key using the same operational shape consumed by Drusa. `lazuli doctor` loads
+the package manifest and checks it against local features and projections:
+feature `uses`, `env.*` references, `@cap.File` storage needs, custom APIs,
+webhooks, jobs, scheduled jobs, web/mobile targets, and public URLs must be
+represented in the app contract.
+
+Concrete routes stay in `.lzx` because they bind URLs and mobile stack paths to
+experience views and platform surfaces:
+
+```lazuli
 route admin_customer_detail
   path "/admin/customers/:id"
   params id: Customer.ID
@@ -1641,10 +1709,6 @@ route sales_customer_detail
   surface customer mobile
   audience sales
 ```
-
-The app manifest is not a product feature. It is the runtime contract that
-connects generated targets, fallback routes, locale/timezone defaults, and the
-feature set consumed by the app shell.
 
 Top-level `route` declarations are the source of truth for generated web paths,
 mobile stack paths, and type-safe route builders. A dynamic segment such as

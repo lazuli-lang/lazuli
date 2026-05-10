@@ -1,8 +1,9 @@
 # Lazuli VS Code Extension
 
-Adds Lazuli `.lzi` language support:
+Adds Lazuli `.lzi` and `.lzx` language support:
 
 - Syntax highlighting for canonical feature capsules
+- Syntax highlighting for app manifests, routes, experiences, and projections
 - Bracket configuration
 
 ## Development
@@ -14,6 +15,20 @@ No Lazuli language server is started by this extension yet.
 The sample syntax follows the canonical indentation-based capsule sketch:
 
 ```txt
+app ExampleApp
+  uses
+    thing
+  targets
+    backend go
+    web react
+  environments
+    local
+  runtime
+    unit api
+      serves queries, commands
+  deploy
+    migrations before_deploy
+
 feature name
   purpose "short product reason"
 
@@ -68,9 +83,17 @@ feature name
 
     archive: active -> archived
 
-  surface web admin
+experience thing
+  imports thing
+
+  view list
+    source thing.query.list
+
+surface thing web
+  uses experience thing
+
+  audience admin
     view list Table
-      source query.list
       columns name, status
 
   extensions
@@ -91,9 +114,10 @@ Current consistency rules:
 - `<feature>.ctx.md` sits next to the capsule by convention. `context` is only an override for non-standard locations.
 - Context files are source, not generated frontend/backend output.
 
-Highlighting groups:
+Highlighting groups use standard TextMate scopes so IDE themes can style them
+without Lazuli-specific colors:
 
-- Structural constructors: `feature`, `resource`, `record`, `enum`, `query`, `command`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
+- Structural constructors: `app`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
 - Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `defaults`, `constraints`, `policies`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`.
-- Internal statements: `observability_only`, `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `emits`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `previously`, and similar verbs.
+- Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `targets`, `environments`, `urls`, `env`, `capabilities`, `runtime`, `deploy`.
+- Internal statements: `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `emits`, `invalidates`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `sections`, `slot`, `platforms`, `previously`, and app/runtime verbs such as `serves`, `runs`, `healthcheck`, `migrations`, and `rollback`.

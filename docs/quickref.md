@@ -52,14 +52,48 @@ feature ping
     emits ping_created
 ```
 
+`app.lzi` is the project entrypoint and operational contract:
+
 ```lazuli
 app PingApp
   title "Ping"
+
+  uses
+    ping
+
   targets
     backend go
     web react
-  uses ping
 
+  environments
+    local
+
+  urls
+    web local "http://localhost:3000"
+    api local "http://localhost:8080"
+
+  env
+    client PUBLIC_API_URL: Url required
+
+  capabilities
+    database postgres
+
+  runtime
+    unit api
+      serves queries, commands
+      healthcheck "/healthz"
+
+    unit web
+      serves surfaces web
+
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+```
+
+Routes and experiences live in `.lzx`:
+
+```lazuli
 route ping_detail
   path "/pings/:id"
   params id: Ping.ID
@@ -462,6 +496,8 @@ Default agent context for editing a feature:
 
 ```bash
 lazuli inspect examples/full-capsule/full-capsule.lzi --expand=summary,refs,locators,dependencies,security --format=json
+lazuli inspect examples/full-capsule/app.lzi --format=json
+lazuli doctor examples/full-capsule
 ```
 
 Use `--expand=events,policies,targets,tests` only when the task touches those

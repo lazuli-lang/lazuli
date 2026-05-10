@@ -18,7 +18,7 @@ This repository currently contains a small MVP:
 - Go backend code generator
 - TypeScript/React frontend code generator
 - CLI commands for `parse`, `compile`, `init`, and `lsp`
-- VS Code syntax highlighting for `.lzi`
+- VS Code syntax highlighting for `.lzi` and `.lzx`
 
 ## Example
 
@@ -106,7 +106,7 @@ Press `F5` to run it as an Extension Development Host. It opens `examples/custom
 
 If you have the repository root open instead, `F5` also works; the root launch config points at `editors/vscode`.
 
-The highlighter currently follows the canonical indentation-based Lazuli sketch: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, and explicit semantic groups (`domain`, `policies`, `command`, `workflow`, `surface`, `extensions`). The semantic graph is intentionally not authored in `.lzi`; it should be derived later by the compiler. This extension does not start the Lazuli LSP yet.
+The highlighter currently follows the canonical indentation-based Lazuli sketch: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, app/runtime contracts in `app.lzi`, typed routes and projections in `.lzx`, and explicit semantic groups (`domain`, `policies`, `command`, `workflow`, `surface`, `extensions`). The semantic graph is derived by the compiler. This extension does not start the Lazuli LSP yet.
 
 The fuller syntax fixtures are:
 

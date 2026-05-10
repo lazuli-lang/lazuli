@@ -1,8 +1,9 @@
 # Lazuli IR ABI
 
-The IR is the canonical machine representation of Lazuli source. `.lzi`
-lowers to domain/capability `Module` IR, and `.lzx` lowers to
-experience/surface `ExperienceModule` IR. Both are derived from DSL, never
+The IR is the canonical machine representation of Lazuli source. `app.lzi`
+lowers to an optional operational `AppManifest` on `Module`, feature `.lzi`
+source lowers to domain/capability `Module` IR, and `.lzx` lowers to
+experience/surface `ExperienceModule` IR. All are derived from DSL, never
 authored, and exposed to consumers as stable, versioned data shapes.
 
 ## Audience
@@ -16,6 +17,7 @@ DSL is the source of truth. IR is `lower(parse(source))`. The IR has no edit API
 The lifecycle is:
 
 ```txt
+authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / Drusa
 authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
 authored .lzx experience source -> AST -> ExperienceModule IR -> inspect JSON / UI codegen / MCP
 ```
@@ -68,6 +70,7 @@ Backends and tooling never read IR of an incompatible major version. The compati
 |------------|---------------|---------|
 | 0.1.0      | 0.1.0         | initial domain/capability IR |
 | 0.2.0      | 0.2.0         | adds `.lzx` `ExperienceModule` IR |
+| 0.3.0      | 0.3.0         | adds optional app operational manifest shape |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -133,6 +136,14 @@ Renames break the ID by design. Rename is a semantic event, not a layout detail.
 
 If a field's only justification is "an editor needs it later," reject the field.
 
+## App Manifest IR
+
+`app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
+by inspect/doctor. The manifest is provider-neutral: targets, environments,
+URLs, env schema, capabilities, runtime units, and deploy gates enter IR;
+provider-specific details such as AWS accounts, Kubernetes namespaces, Fly app
+ids, bucket names, or Terraform settings stay in Drusa adapter configuration.
+
 ## Experience IR
 
 `.lzx` lowers into `ExperienceModule`, separate from `.lzi` `Module`. The
@@ -150,12 +161,15 @@ but neither IR writes back into the other.
 
 ## Producers
 
-The only producers of IR are analyzer lowering functions:
+IR producers are owned by the compiler/tooling pipeline:
 
 - `lazuli_analyzer::lower_document(&Document) -> Result<Module, AnalyzeError>`
 - `lazuli_analyzer::lower_lzx_document(&LzxDocument) -> ExperienceModule`
+- `lazuli_cli` app-manifest lowering for `app.lzi` until the canonical `.lzi`
+  parser owns the manifest AST
 
-There is no public IR producer outside `lazuli_analyzer`. Tempting cases that must be refused:
+There is no public IR producer outside the Lazuli compiler/tooling crates.
+Tempting cases that must be refused:
 
 - Builder fluent API for tests. Tests parse `.lzi` strings through the real pipeline.
 - Migration tool that rewrites IR. Migration rewrites `.lzi`.

@@ -1,19 +1,6 @@
 # Full capsule abstract experience/view model.
 # Platform projections live in sibling .web.lzx and .mobile.lzx files.
 
-app AcmeCRM
-  title "Acme CRM"
-  version "0.1.0"
-  targets
-    backend go
-    web react
-    mobile expo
-  default_locale "pt-BR"
-  default_timezone "America/Sao_Paulo"
-  auth_failed_redirect public.login
-  not_found public.not_found
-  uses customer, customer_auth, customer_tags, customer_import
-
 route public_lead_capture
   path "/"
   to customer.view.lead_capture

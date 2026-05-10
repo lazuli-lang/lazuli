@@ -1,0 +1,67 @@
+# Full capsule application manifest.
+# Declares the provider-neutral operational contract for Drusa.
+
+app AcmeCRM
+  title "Acme CRM"
+  version "0.1.0"
+  default_locale "pt-BR"
+  default_timezone "America/Sao_Paulo"
+  auth_failed_redirect public.login
+  not_found public.not_found
+
+  uses
+    customer
+    customer_auth
+    customer_tags
+    customer_import
+    customer_outreach
+
+  targets
+    backend go
+    web react
+    mobile expo
+
+  environments
+    local
+    staging
+    production
+
+  urls
+    web local "http://localhost:3000"
+    api local "http://localhost:8080"
+    web production "https://app.acme.example"
+    api production "https://api.acme.example"
+
+  env
+    server CRM_WEBHOOK_SECRET: Secret required
+    client PUBLIC_APP_URL: Url required
+    mobile EXPO_PUBLIC_API_URL: Url required
+
+  capabilities
+    database postgres
+    queue background_jobs
+    object_storage files
+    mailer transactional
+    event_bus internal
+    tracing optional
+
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      healthcheck "/healthz"
+      readiness "/readyz"
+
+    unit web
+      serves surfaces web
+
+    unit worker
+      runs jobs *
+
+    unit scheduler
+      runs schedules *
+
+  deploy
+    migrations before_deploy
+    migration_lock required
+    destructive_migrations require_approval
+    rollback on_failed_healthcheck

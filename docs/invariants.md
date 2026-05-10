@@ -11,10 +11,12 @@ source that only fails later.
   manifests, and generated code are derived.
 - `.lzi` owns the domain/capability contract. It must compile without any UI
   source present.
+- Top-level `.lzi app` owns the app entrypoint, generated targets,
+  environments, URLs, env schema, runtime units, capabilities, and
+  provider-neutral deploy gates. It is not a product feature and should not
+  hide domain behavior.
 - Abstract `.lzx` owns the experience/view model and imports `.lzi`
   capabilities.
-- Top-level `.lzx app` owns app/runtime defaults and generated targets. It is
-  not a product feature and should not hide domain behavior.
 - Top-level `.lzx route` owns concrete web paths/mobile stack paths. Dynamic
   path segments such as `:id` or `[id]` declare typed `params` and bind those
   params into an abstract view through `to ...`.

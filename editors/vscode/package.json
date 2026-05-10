@@ -1,7 +1,7 @@
 {
   "name": "lazuli-vscode",
   "displayName": "Lazuli",
-  "description": "Language support for Lazuli .lzi files.",
+  "description": "Language support for Lazuli .lzi and .lzx files.",
   "version": "0.1.0",
   "publisher": "lazuli",
   "license": "MIT",
@@ -19,7 +19,8 @@
   "contributes": {
     "configurationDefaults": {
       "files.associations": {
-        "*.lzi": "lazuli"
+        "*.lzi": "lazuli",
+        "*.lzx": "lazuli"
       }
     },
     "languages": [
@@ -30,7 +31,8 @@
           "lazuli"
         ],
         "extensions": [
-          ".lzi"
+          ".lzi",
+          ".lzx"
         ],
         "configuration": "./language-configuration.json"
       }

@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.2.0";
+pub const LZIR_SCHEMA: &str = "0.3.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -25,11 +25,12 @@ pub struct SpanRef {
     pub end: usize,
 }
 
-/// A module is the IR root. It groups one or more features that flowed
-/// through the same compilation. There is no `app` concept in canonical
-/// Lazuli; the legacy `app NAME` header is lowered into a synthetic feature.
+/// A module is the IR root. It groups the optional app operational manifest
+/// and one or more features that flowed through the same compilation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Module {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<AppManifest>,
     pub features: Vec<Feature>,
 }
 
@@ -738,8 +739,66 @@ pub struct AppManifest {
     pub not_found: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<AppUrl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<AppEnvVar>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<AppCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime: Vec<AppRuntimeUnit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<AppDeploy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppUrl {
+    pub target: String,
+    pub environment: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppEnvVar {
+    pub scope: String,
+    pub name: String,
+    pub type_name: String,
+    pub requiredness: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppCapability {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppRuntimeUnit {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub serves: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub healthcheck: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AppDeploy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migrations: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_lock: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive_migrations: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollback: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

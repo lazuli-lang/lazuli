@@ -299,6 +299,7 @@ fn diagnostics_for_with_profile(
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
         diagnostics.extend(query_mode_diagnostics(source));
+        diagnostics.extend(app_operational_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
         diagnostics.extend(non_goals_shape_diagnostics(source));
         diagnostics.extend(defaults_policy_syntax_diagnostics(source));
@@ -391,17 +392,47 @@ fn diagnostics_for_with_profile(
 }
 
 fn is_canonical_source(source: &str) -> bool {
-    source
-        .lines()
-        .any(|line| line.trim_start().starts_with("feature "))
+    if has_lzx_top_level_contract(source) {
+        return false;
+    }
+
+    source.lines().any(|line| {
+        leading_spaces(line) == 0
+            && (line.trim_start().starts_with("feature ") || line.trim_start() == "env")
+    }) || has_canonical_app_block(source)
+}
+
+fn has_canonical_app_block(source: &str) -> bool {
+    let lines: Vec<_> = source.lines().collect();
+
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if leading_spaces(line) != 0 || !trimmed.starts_with("app ") {
+            continue;
+        }
+
+        for next in lines.iter().skip(index + 1) {
+            let next_trimmed = next.trim_start();
+            if next_trimmed.is_empty() || next_trimmed.starts_with('#') {
+                continue;
+            }
+            return leading_spaces(next) > 0;
+        }
+    }
+
+    false
 }
 
 fn is_lzx_source(source: &str) -> bool {
+    has_lzx_top_level_contract(source)
+}
+
+fn has_lzx_top_level_contract(source: &str) -> bool {
     source.lines().any(|line| {
         leading_spaces(line) == 0
             && matches!(
                 line.trim_start().split_whitespace().next(),
-                Some("app" | "route" | "experience" | "surface")
+                Some("route" | "experience" | "surface")
             )
     })
 }
@@ -2803,6 +2834,8 @@ fn is_key_scope(value: &str) -> bool {
 fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_env = false;
+    let mut in_app = false;
+    let mut app_child: Option<&str> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -2813,11 +2846,22 @@ fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
 
         if leading_spaces(line) == 0 {
             in_env = trimmed == "env";
+            in_app = trimmed.starts_with("app ");
+            app_child = None;
             continue;
         }
 
         if in_env {
             continue;
+        }
+
+        if in_app {
+            if leading_spaces(line) == 2 {
+                app_child = trimmed.split_whitespace().next();
+            }
+            if app_child == Some("env") {
+                continue;
+            }
         }
 
         let Some(ty) = typed_line_type(trimmed) else {
@@ -4592,6 +4636,600 @@ fn write_window_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+#[derive(Debug)]
+struct AppOperationalFacts {
+    line_index: usize,
+    line: String,
+    has_uses: bool,
+    has_targets: bool,
+    has_environments: bool,
+    has_runtime: bool,
+    has_deploy: bool,
+    deploy_has_migrations: bool,
+    deploy_has_rollback: bool,
+    runtime_units: Vec<AppRuntimeUnitFacts>,
+}
+
+impl AppOperationalFacts {
+    fn new(line_index: usize, line: &str) -> Self {
+        Self {
+            line_index,
+            line: line.to_owned(),
+            has_uses: false,
+            has_targets: false,
+            has_environments: false,
+            has_runtime: false,
+            has_deploy: false,
+            deploy_has_migrations: false,
+            deploy_has_rollback: false,
+            runtime_units: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AppRuntimeUnitFacts {
+    line_index: usize,
+    line: String,
+    name: String,
+    has_serves_or_runs: bool,
+    has_healthcheck_or_readiness: bool,
+}
+
+impl AppRuntimeUnitFacts {
+    fn new(line_index: usize, line: &str, name: &str) -> Self {
+        Self {
+            line_index,
+            line: line.to_owned(),
+            name: name.to_owned(),
+            has_serves_or_runs: false,
+            has_healthcheck_or_readiness: false,
+        }
+    }
+}
+
+fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_app: Option<AppOperationalFacts> = None;
+    let mut current_app_child: Option<&'static str> = None;
+    let mut current_runtime_unit: Option<usize> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading_spaces(line) == 0 {
+            if let Some(app) = current_app.take() {
+                diagnostics.extend(app_operational_block_diagnostics(app));
+            }
+            current_app_child = None;
+            current_runtime_unit = None;
+
+            if trimmed.starts_with("app ") {
+                let parts: Vec<_> = trimmed.split_whitespace().collect();
+                if parts.len() != 2 {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "app-operational-contract",
+                        "app manifests use `app <Name>` as the entrypoint header.",
+                    ));
+                }
+                current_app = Some(AppOperationalFacts::new(line_index, line));
+            }
+            continue;
+        }
+
+        let Some(app) = current_app.as_mut() else {
+            continue;
+        };
+
+        match leading_spaces(line) {
+            2 => {
+                current_runtime_unit = None;
+                if let Some(child) = app_child_block(trimmed) {
+                    current_app_child = Some(child);
+                    match child {
+                        "uses" => app.has_uses = true,
+                        "targets" => app.has_targets = true,
+                        "environments" => app.has_environments = true,
+                        "runtime" => app.has_runtime = true,
+                        "deploy" => app.has_deploy = true,
+                        _ => {}
+                    }
+                    validate_app_child_header(&mut diagnostics, line_index, line, trimmed);
+                } else if is_app_scalar_child(trimmed) {
+                    current_app_child = None;
+                    validate_app_scalar_child(&mut diagnostics, line_index, line, trimmed);
+                } else {
+                    current_app_child = None;
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "app-operational-contract",
+                        "app manifests own app/runtime contracts: use `uses`, `targets`, `environments`, `urls`, `env`, `capabilities`, `runtime`, or `deploy` blocks.",
+                    ));
+                }
+            }
+            4 => match current_app_child {
+                Some("uses") => {
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if trimmed.starts_with("feature ") {
+                        let parts: Vec<_> = trimmed.split_whitespace().collect();
+                        if parts.len() < 2 {
+                            diagnostics.push(simple_canonical_diagnostic(
+                                line_index,
+                                line,
+                                DiagnosticSeverity::WARNING,
+                                "app-operational-contract",
+                                "`uses` feature entries use `feature <name> [at \"./path.lzi\"]` or a feature name.",
+                            ));
+                        }
+                    }
+                }
+                Some("targets") => validate_app_target_line(&mut diagnostics, line_index, line),
+                Some("environments") => {
+                    if !is_identifier(trimmed) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "app-operational-contract",
+                            "environment names should be identifiers such as `local`, `staging`, or `production`.",
+                        ));
+                    }
+                }
+                Some("urls") => validate_app_url_line(&mut diagnostics, line_index, line),
+                Some("env") => validate_app_env_line(&mut diagnostics, line_index, line),
+                Some("capabilities") => {
+                    validate_app_capability_line(&mut diagnostics, line_index, line)
+                }
+                Some("runtime") => {
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    if parts.len() != 2 || parts[0] != "unit" || !is_identifier(parts[1]) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::ERROR,
+                            "app-runtime-contract",
+                            "runtime units use `unit <name>` under `runtime`.",
+                        ));
+                        current_runtime_unit = None;
+                    } else {
+                        app.runtime_units
+                            .push(AppRuntimeUnitFacts::new(line_index, line, parts[1]));
+                        current_runtime_unit = app.runtime_units.len().checked_sub(1);
+                    }
+                }
+                Some("deploy") => {
+                    validate_app_deploy_line(&mut diagnostics, app, line_index, line, trimmed)
+                }
+                Some(_) | None => diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "app-operational-contract",
+                    "nested app manifest declarations must live under a known app block.",
+                )),
+            },
+            6 => {
+                if current_app_child != Some("runtime") {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "app-operational-contract",
+                        "six-space app manifest declarations are only valid inside `runtime unit` blocks.",
+                    ));
+                    continue;
+                }
+
+                let Some(unit_index) = current_runtime_unit else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "app-runtime-contract",
+                        "runtime unit children must follow a `unit <name>` declaration.",
+                    ));
+                    continue;
+                };
+
+                validate_app_runtime_unit_child(
+                    &mut diagnostics,
+                    &mut app.runtime_units[unit_index],
+                    line_index,
+                    line,
+                    trimmed,
+                );
+            }
+            _ => diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "app-operational-contract",
+                "app manifest declarations use two, four, or six spaces of indentation.",
+            )),
+        }
+    }
+
+    if let Some(app) = current_app.take() {
+        diagnostics.extend(app_operational_block_diagnostics(app));
+    }
+
+    diagnostics
+}
+
+fn app_child_block(trimmed: &str) -> Option<&'static str> {
+    let first = trimmed.split_whitespace().next()?;
+    match first {
+        "uses" => Some("uses"),
+        "targets" => Some("targets"),
+        "environments" => Some("environments"),
+        "urls" => Some("urls"),
+        "env" => Some("env"),
+        "capabilities" => Some("capabilities"),
+        "runtime" => Some("runtime"),
+        "deploy" => Some("deploy"),
+        _ => None,
+    }
+}
+
+fn is_app_scalar_child(trimmed: &str) -> bool {
+    matches!(
+        trimmed.split_whitespace().next(),
+        Some(
+            "title"
+                | "version"
+                | "default_locale"
+                | "default_timezone"
+                | "auth_failed_redirect"
+                | "not_found"
+        )
+    )
+}
+
+fn validate_app_child_header(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let first = trimmed.split_whitespace().next().unwrap_or_default();
+    if matches!(
+        first,
+        "targets" | "environments" | "urls" | "env" | "capabilities" | "runtime" | "deploy"
+    ) && trimmed != first
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-operational-contract",
+            "multi-line app manifest blocks use a bare block header, with entries nested below it.",
+        ));
+    }
+}
+
+fn validate_app_scalar_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() < 2 {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-operational-contract",
+            "app scalar declarations need a value.",
+        ));
+    }
+}
+
+fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() != 2 || !matches!(parts[0], "backend" | "web" | "mobile") {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "app-target-contract",
+            "app targets use `backend <runtime>`, `web <runtime>`, or `mobile <runtime>`.",
+        ));
+    }
+}
+
+fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() != 3 || !matches!(parts[0], "web" | "api" | "mobile") {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-url-contract",
+            "app URLs use `<web|api|mobile> <environment> \"https://...\"`.",
+        ));
+        return;
+    }
+
+    let url = unquote_lzx_literal(parts[2]);
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-url-contract",
+            "app URLs should be absolute HTTP(S) URLs so generated clients, CORS, emails, and callbacks agree.",
+        ));
+    }
+
+    if parts[1] != "local" && url.starts_with("http://") {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-url-contract",
+            "non-local app URLs should use HTTPS.",
+        ));
+    }
+}
+
+fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if !valid_env_declaration_parts(&parts) {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "app-env-contract",
+            "app env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional`.",
+        ));
+        return;
+    }
+
+    let name = parts[1].trim_end_matches(':');
+    if parts[0] == "client" && !name.starts_with("PUBLIC_") {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "env-client-exposure",
+            "client env names should use a `PUBLIC_` prefix so secret/server-only values are not accidentally bundled.",
+        ));
+    }
+
+    if parts[0] == "mobile" && !name.starts_with("EXPO_PUBLIC_") {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "env-mobile-exposure",
+            "mobile env names should use an `EXPO_PUBLIC_` prefix so Expo-visible values are explicit.",
+        ));
+    }
+}
+
+fn valid_env_declaration_parts(parts: &[&str]) -> bool {
+    parts.len() == 4
+        && matches!(parts[0], "server" | "client" | "mobile")
+        && parts[1].ends_with(':')
+        && matches!(parts[2], "Secret" | "Text" | "Url" | "Boolean" | "Integer")
+        && matches!(parts[3], "required" | "optional")
+}
+
+fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() != 2
+        || !matches!(
+            parts[0],
+            "database"
+                | "queue"
+                | "object_storage"
+                | "mailer"
+                | "event_bus"
+                | "tracing"
+                | "search"
+                | "cache"
+                | "storage"
+        )
+    {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-capability-contract",
+            "app capabilities declare intent such as `database postgres`, `queue background_jobs`, or `object_storage files`; providers stay in Drusa adapters.",
+        ));
+    }
+}
+
+fn validate_app_deploy_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    app: &mut AppOperationalFacts,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        ["migrations", value] if matches!(*value, "before_deploy" | "manual" | "disabled") => {
+            app.deploy_has_migrations = true;
+        }
+        ["migration_lock", value] if matches!(*value, "required" | "optional") => {}
+        ["destructive_migrations", value]
+            if matches!(*value, "require_approval" | "forbidden" | "manual") => {}
+        ["rollback", value]
+            if matches!(*value, "on_failed_healthcheck" | "manual" | "disabled") =>
+        {
+            app.deploy_has_rollback = true;
+        }
+        _ => diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-deploy-contract",
+            "deploy contracts use `migrations before_deploy|manual|disabled`, `migration_lock required|optional`, `destructive_migrations require_approval|forbidden`, and `rollback on_failed_healthcheck|manual|disabled`.",
+        )),
+    }
+}
+
+fn validate_app_runtime_unit_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    unit: &mut AppRuntimeUnitFacts,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    if trimmed.starts_with("serves ") || trimmed.starts_with("runs ") {
+        unit.has_serves_or_runs = true;
+        return;
+    }
+
+    if let Some(path) = trimmed
+        .strip_prefix("healthcheck ")
+        .or_else(|| trimmed.strip_prefix("readiness "))
+    {
+        unit.has_healthcheck_or_readiness = true;
+        let path = unquote_lzx_literal(path.trim());
+        if !path.starts_with('/') {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "app-runtime-contract",
+                "runtime healthcheck/readiness paths should be absolute paths such as `\"/healthz\"`.",
+            ));
+        }
+        return;
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "app-runtime-contract",
+        "runtime unit children use `serves ...`, `runs ...`, `healthcheck \"...\"`, or `readiness \"...\"`.",
+    ));
+}
+
+fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if !app.has_uses {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-operational-contract",
+            "app manifests should declare `uses` so the entrypoint owns feature registration explicitly.",
+        ));
+    }
+
+    if !app.has_targets {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::ERROR,
+            "app-target-contract",
+            "app manifests must declare `targets` so Drusa can materialize backend, web, and mobile outputs deterministically.",
+        ));
+    }
+
+    if !app.has_environments {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-operational-contract",
+            "app manifests should declare `environments` so env, URLs, deploy gates, and runtime safety can be checked per environment.",
+        ));
+    }
+
+    if !app.has_runtime {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-runtime-contract",
+            "app manifests should declare `runtime` units such as `api`, `web`, `worker`, and `scheduler`.",
+        ));
+    } else if app.runtime_units.is_empty() {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-runtime-contract",
+            "`runtime` should declare at least one `unit <name>`.",
+        ));
+    }
+
+    if !app.has_deploy {
+        diagnostics.push(simple_canonical_diagnostic(
+            app.line_index,
+            &app.line,
+            DiagnosticSeverity::WARNING,
+            "app-deploy-contract",
+            "app manifests should declare `deploy` gates for migrations, rollback, and destructive changes without becoming provider-specific infra.",
+        ));
+    } else {
+        if !app.deploy_has_migrations {
+            diagnostics.push(simple_canonical_diagnostic(
+                app.line_index,
+                &app.line,
+                DiagnosticSeverity::WARNING,
+                "app-deploy-contract",
+                "deploy contracts should declare a migrations policy.",
+            ));
+        }
+        if !app.deploy_has_rollback {
+            diagnostics.push(simple_canonical_diagnostic(
+                app.line_index,
+                &app.line,
+                DiagnosticSeverity::WARNING,
+                "app-deploy-contract",
+                "deploy contracts should declare rollback behavior.",
+            ));
+        }
+    }
+
+    for unit in app.runtime_units {
+        if !unit.has_serves_or_runs {
+            diagnostics.push(simple_canonical_diagnostic(
+                unit.line_index,
+                &unit.line,
+                DiagnosticSeverity::WARNING,
+                "app-runtime-contract",
+                "runtime units should declare what they `serves` or `runs`.",
+            ));
+        }
+        if unit.name == "api" && !unit.has_healthcheck_or_readiness {
+            diagnostics.push(simple_canonical_diagnostic(
+                unit.line_index,
+                &unit.line,
+                DiagnosticSeverity::WARNING,
+                "app-runtime-contract",
+                "the `api` runtime unit should declare `healthcheck` and/or `readiness` paths for deploy safety.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
 fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut declared = HashSet::new();
@@ -4625,12 +5263,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
 
         let parts: Vec<_> = trimmed.split_whitespace().collect();
-        if parts.len() != 4
-            || !matches!(parts[0], "server" | "client" | "mobile")
-            || !parts[1].ends_with(':')
-            || !matches!(parts[2], "Secret" | "Text" | "Url" | "Boolean" | "Integer")
-            || !matches!(parts[3], "required" | "optional")
-        {
+        if !valid_env_declaration_parts(&parts) {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -7037,7 +7670,31 @@ fn is_word_byte(byte: u8) -> bool {
 
 fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
-        "app" => Some("Declares the generated app manifest and runtime targets."),
+        "app" => Some("Declares the `.lzi` application entrypoint and operational contract."),
+        "environments" => {
+            Some("Declares deployment/runtime environments such as local, staging, and production.")
+        }
+        "urls" => {
+            Some("Declares public app URLs used by clients, CORS, emails, callbacks, and webhooks.")
+        }
+        "capabilities" => Some(
+            "Declares required runtime capabilities without choosing concrete infrastructure providers.",
+        ),
+        "runtime" => {
+            Some("Declares generated runtime units such as api, web, worker, and scheduler.")
+        }
+        "unit" => Some("Declares one app runtime unit under the app manifest `runtime` block."),
+        "serves" => Some("Declares which contracts a runtime unit serves."),
+        "runs" => Some("Declares which jobs or schedules a runtime unit runs."),
+        "healthcheck" => Some("Declares a runtime healthcheck path for deploy safety."),
+        "readiness" => Some("Declares a runtime readiness path for deploy safety."),
+        "deploy" => {
+            Some("Declares provider-neutral deploy gates such as migrations and rollback behavior.")
+        }
+        "migrations" => Some("Declares when deploy applies database migrations."),
+        "migration_lock" => Some("Declares whether deploy must hold a migration lock."),
+        "destructive_migrations" => Some("Declares how deploy handles destructive schema changes."),
+        "rollback" => Some("Declares rollback behavior for failed deploy health checks."),
         "env" => Some("Declares typed environment variables and client/server exposure."),
         "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
         "record" => Some("Declares a non-persisted typed result/DTO shape."),
@@ -7181,6 +7838,20 @@ const KEYWORDS: &[&str] = &[
     "imports",
     "uses",
     "targets",
+    "environments",
+    "urls",
+    "capabilities",
+    "runtime",
+    "unit",
+    "serves",
+    "runs",
+    "healthcheck",
+    "readiness",
+    "deploy",
+    "migrations",
+    "migration_lock",
+    "destructive_migrations",
+    "rollback",
     "view",
     "audience",
     "extends",
@@ -7345,6 +8016,10 @@ feature customer
     fn canonical_examples_satisfy_lsp_contracts() {
         let examples = [
             (
+                "full-capsule-app.lzi",
+                include_str!("../../../examples/full-capsule/app.lzi"),
+            ),
+            (
                 "audit-log.lzi",
                 include_str!("../../../examples/audit-log.lzi"),
             ),
@@ -7395,6 +8070,86 @@ feature customer
                 "expected {name} to satisfy canonical LSP diagnostics, got: {diagnostics:#?}"
             );
         }
+    }
+
+    #[test]
+    fn canonical_accepts_app_operational_manifest() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+  version "0.1.0"
+
+  uses
+    customer
+
+  targets
+    backend go
+    web react
+
+  environments
+    local
+    production
+
+  urls
+    web local "http://localhost:3000"
+    api production "https://api.acme.example"
+
+  env
+    server DATABASE_URL: Secret required
+    client PUBLIC_API_URL: Url required
+
+  capabilities
+    database postgres
+    queue background_jobs
+
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      healthcheck "/healthz"
+
+    unit worker
+      runs jobs *
+
+  deploy
+    migrations before_deploy
+    migration_lock required
+    destructive_migrations require_approval
+    rollback on_failed_healthcheck
+"#;
+
+        assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn canonical_warns_for_incomplete_app_operational_manifest() {
+        let source = r#"
+app AcmeCRM
+  targets
+    backend go
+
+  runtime
+    unit api
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("app manifests should declare `uses`") })
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| { message.contains("app manifests should declare `deploy`") })
+        );
+        assert!(messages.iter().any(|message| {
+            message.contains("runtime units should declare what they `serves` or `runs`")
+        }));
     }
 
     #[test]

@@ -80,7 +80,8 @@ or `pack + adapter`.
 The language should keep these cross-cutting contracts first-class:
 
 - actors, auth identity context, route/input/params binding
-- app manifest, typed app routes, route builders, and environment schema
+- app manifest, typed app routes, route builders, environment schema, runtime
+  units, and provider-neutral deploy gates
 - policy, RBAC atoms, scopes, field policy, audience reachability
 - tenancy, tenant binding, tenant fanout, tenant-scoped idempotency
 - soft delete and generated query scope
@@ -105,9 +106,10 @@ new blocks. Drusa packs stay deferred unless a row says "pack later".
 
 | Capability | Language artifact | Status |
 |------------|-------------------|--------|
-| App/runtime manifest | `.lzx app <Name>` with targets, locale/timezone, fallback routes, and used features | implemented as app-shell contract |
+| App/runtime manifest | `app.lzi` with targets, locale/timezone, fallback routes, used features, environments, URLs, env schema, runtime units, capabilities, and deploy gates | implemented as app operational contract in IR/inspect/doctor |
 | Type-safe app routes | top-level `.lzx route <name>` with `path`/`stack`, `params`, `to`, `surface`, and `audience` | implemented as route-builder contract |
-| Env/secrets schema | top-level `.lzi env` with `server|client|mobile NAME: Type required|optional` | implemented as source contract |
+| Env/secrets schema | `app.lzi` `env` or top-level `.lzi env` with `server|client|mobile NAME: Type required|optional` | implemented as source contract |
+| Deploy/runtime contract | `app.lzi` `runtime`, `capabilities`, and `deploy` blocks | implemented as provider-neutral operational contract; doctor cross-checks package usage; Drusa/adapters materialize it |
 | Custom HTTP APIs | `api <name>` with method, path, route/input, output, policy, handler | implemented as language-light endpoint contract |
 | Error exposure | feature `errors` plus command/rule `error <Name> status ... expose ...` | implemented as public/private error contract |
 | Cache/invalidation | query `cache` and command `invalidates` | implemented as client/server cache contract |

@@ -92,6 +92,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
     };
 
     Ok(ir::Module {
+        app: None,
         features: vec![feature],
     })
 }
@@ -120,6 +121,12 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         auth_failed_redirect: app.auth_failed_redirect.clone(),
         not_found: app.not_found.clone(),
         uses: app.uses.clone(),
+        environments: Vec::new(),
+        urls: Vec::new(),
+        env: Vec::new(),
+        capabilities: Vec::new(),
+        runtime: Vec::new(),
+        deploy: None,
         span_ref: Some(span_of(app.span)),
     }
 }

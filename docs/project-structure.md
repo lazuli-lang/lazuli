@@ -3,6 +3,8 @@
 Feature folders are the source of truth. Generated output is disposable.
 
 ```txt
+app.lzi
+
 features/
   customer/
     customer.lzi
@@ -67,6 +69,7 @@ features/
 These are authored and committed:
 
 - `features/**/<feature>.lzi`
+- `app.lzi`
 - `features/**/<feature>.lzx`
 - `features/**/<feature>.web.lzx`
 - `features/**/<feature>.mobile.lzx`
@@ -92,7 +95,7 @@ Canonical output granularity is:
 - one generated package/folder per feature;
 - one file per cohesive category inside that feature, such as `types.go`, `queries.go`, `commands.go`, `workflows.go`, `events.go`, `policies.go`, `rules.go`, `jobs.go`, and `webhooks.go`;
 - one React/TypeScript feature folder with `types.ts`, `api.ts`, and view components such as `List.tsx`, `Detail.tsx`, or named form/panel components;
-- tiny application entrypoints that only wire runtime, routing, and feature registration.
+- tiny application entrypoints that only wire runtime, routing, and feature registration from `app.lzi`.
 
 Avoid both extremes: do not generate one giant `server.go`/`App.tsx` for the whole project, and do not create one file per individual command/query/view unless a target adapter has a concrete reason. The default is feature plus category.
 

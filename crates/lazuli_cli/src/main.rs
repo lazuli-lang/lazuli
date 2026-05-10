@@ -8,6 +8,7 @@ use lazuli_lsp::SecurityProfile;
 use serde::Serialize;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
+mod app_manifest;
 mod doctor;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
@@ -356,6 +357,8 @@ struct InspectReport {
     schema: &'static str,
     source: String,
     expand: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app: Option<lazuli_ir::AppManifest>,
     features: Vec<InspectFeature>,
 }
 
@@ -570,6 +573,7 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         schema: "lazuli.inspect.v0",
         source: input.display().to_string(),
         expand: expansions.labels(),
+        app: app_manifest::parse_app_manifest(source),
         features: inspect_features(&lines, expansions),
     }
 }
@@ -3200,6 +3204,54 @@ feature customer
         assert!(json.contains("\"tests\""));
         assert!(json.contains("\"assertion\":\"permits @role.admin\""));
         assert!(json.contains("\"origin\":\"generated from command policy @policy.update\""));
+    }
+
+    #[test]
+    fn inspect_json_reports_app_manifest() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+
+  uses
+    customer
+
+  targets
+    backend go
+    web react
+
+  environments
+    local
+    production
+
+  urls
+    api production "https://api.acme.example"
+
+  env
+    server DATABASE_URL: Secret required
+
+  capabilities
+    database postgres
+
+  runtime
+    unit api
+      serves queries, commands
+      healthcheck "/healthz"
+
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#;
+
+        let report = inspect_canonical_source(source, Path::new("app.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+
+        assert!(json.contains("\"app\""));
+        assert!(json.contains("\"name\":\"AcmeCRM\""));
+        assert!(json.contains("\"environments\":[\"local\",\"production\"]"));
+        assert!(json.contains("\"url\":\"https://api.acme.example\""));
+        assert!(json.contains("\"DATABASE_URL\""));
+        assert!(json.contains("\"runtime\""));
+        assert!(json.contains("\"migrations\":\"before_deploy\""));
     }
 
     #[test]
