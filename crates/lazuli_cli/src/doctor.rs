@@ -912,10 +912,7 @@ fn collect_lzx_operational_facts(
             Some(LzxPlatform::Mobile) => operational.mobile_routes.push(fact),
             None => {
                 if route.path.is_some() {
-                    operational.web_routes.push(fact.clone());
-                }
-                if route.stack.is_some() {
-                    operational.mobile_routes.push(fact);
+                    operational.web_routes.push(fact);
                 }
             }
         }

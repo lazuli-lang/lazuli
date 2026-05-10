@@ -98,8 +98,7 @@ pub struct LzxApp {
 pub struct LzxRoute {
     pub name: String,
     pub path: Option<String>,
-    pub stack: Option<String>,
-    pub params: Vec<String>,
+    pub routes: Vec<String>,
     pub to: Option<String>,
     pub surface: Option<String>,
     pub audience: Option<String>,

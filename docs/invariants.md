@@ -79,10 +79,10 @@ source that only fails later.
   boundary graph runs as a monolith, modular monolith, or split services.
 - Abstract `.lzx` owns the experience/view model and imports `.lzi`
   capabilities.
-- Top-level `.lzx route` owns concrete web paths/mobile route patterns. Dynamic
-  path segments such as `:id` or `[id]` declare typed `params` and bind those
-  params into an abstract view through `to ...`. `path` is canonical for both
-  web and mobile routes; legacy `stack` is compatibility syntax only.
+- Top-level `.lzx route` owns concrete web paths/mobile route patterns. `path`
+  is canonical for both web and mobile routes. Dynamic path segments such as
+  `:id` or `[id]` declare typed `route <name>: <Type>` slots and bind those
+  slots into an abstract view through `to ...(name: route.<name>)`.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as

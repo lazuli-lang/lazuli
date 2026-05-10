@@ -23,6 +23,12 @@ get lost in chat history.
 - `workspace.lzi` is the optional distributed-system contract for multi-app,
   polyrepo, external-service, and gateway graphs. It is not required for normal
   apps and does not replace per-app `app.lzi`.
+- Top-level `.lzx route` blocks now use `route <name>: <Type>` for path slots
+  and `route.<name>` for references, matching command/view locator syntax.
+  Legacy `stack` is removed. `params` only names query/API read arguments;
+  `path` only names URL strings.
+- `lazuli inspect` on a `.lzx` file reports `routes`, `experiences`, and
+  `surfaces` alongside any `app` manifest.
 
 ## Next Implementation Cuts
 
@@ -38,10 +44,10 @@ get lost in chat history.
 | 8 | Adapter binding provenance | done | Adapter sources now derive `drusa`, `plugin`, or `local` provenance from `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or local paths; doctor rejects unknown source shapes. |
 | 9 | Workspace contract | done | `workspace.lzi` now models local/external apps, shared registry, event boundaries, communication propagation, and provider-neutral gateways with IR/inspect/doctor/LSP coverage. |
 | 10 | External contract imports | done | `contract <name>` now models imported OpenAPI/AsyncAPI/Proto/JSON Schema/Avro plus authored records, operations, and events with IR/inspect/doctor/LSP coverage. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
-| 11 | Gateway/proxy contract | partial | Workspace `gateway` now covers provider-neutral ingress to apps. Raw proxy, sidecar, service mesh, and provider routing mechanics stay in Drusa/adapters. |
-| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile/pack/workspace/contract syntax and adapter package refs; re-audit again after final vocabulary cleanup. |
-| 13 | IR/inspect coverage audit | partial | App, registry, packs, requirements, bindings, external calls, profiles, workspace, and contracts appear in inspect/doctor. |
-| 14 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
+| 11 | Gateway/proxy contract | done | Workspace `gateway` covers provider-neutral ingress to apps. Raw proxy, sidecar, service mesh, and provider routing mechanics stay in Drusa/adapters. |
+| 12 | Syntax highlighting audit | done | TextMate scopes cover current integration/binding/calls/profile/pack/workspace/contract syntax, adapter package refs, top-level `route` declarations, and the realigned `route <name>: <Type>` route slot syntax. Legacy `stack` removed. |
+| 13 | IR/inspect coverage audit | done | App, registry, packs, requirements, bindings, external calls, profiles, workspace, contracts, and `.lzx` routes/experiences/surfaces all appear in inspect/doctor. |
+| 14 | Final vocabulary cleanup | done | Top-level `.lzx route` blocks now declare path slots with `route <name>: <Type>` and reference them as `route.<name>`, matching command/view route locator syntax. Legacy `stack` removed. `params` is reserved for query/API read arguments. `path` only names URL strings. |
 
 ## Registry Decision Pressure
 

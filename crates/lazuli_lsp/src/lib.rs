@@ -679,14 +679,13 @@ struct LzxRouteViewFacts {
 struct LzxAppRouteFacts {
     line_index: usize,
     line: String,
-    has_path_or_stack: bool,
-    legacy_stack: Option<(usize, String)>,
+    has_path: bool,
     has_to: bool,
     has_surface: bool,
     has_audience: bool,
-    declared_params: HashSet<String>,
+    declared_routes: HashSet<String>,
     path_params: Vec<String>,
-    path_references: Vec<(usize, String, String)>,
+    route_references: Vec<(usize, String, String)>,
 }
 
 fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -713,14 +712,13 @@ fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 current_route = Some(LzxAppRouteFacts {
                     line_index,
                     line: line.to_owned(),
-                    has_path_or_stack: false,
-                    legacy_stack: None,
+                    has_path: false,
                     has_to: false,
                     has_surface: false,
                     has_audience: false,
-                    declared_params: HashSet::new(),
+                    declared_routes: HashSet::new(),
                     path_params: Vec::new(),
-                    path_references: Vec::new(),
+                    route_references: Vec::new(),
                 });
             }
             in_experience = trimmed.starts_with("experience ");
@@ -730,27 +728,21 @@ fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
         if let Some(route) = current_route.as_mut() {
             if leading_spaces(line) == 2 {
                 if let Some(path) = trimmed.strip_prefix("path ") {
-                    route.has_path_or_stack = true;
+                    route.has_path = true;
                     route
                         .path_params
                         .extend(lzx_declared_path_params(unquote_lzx_literal(path.trim())));
-                } else if let Some(stack) = trimmed.strip_prefix("stack ") {
-                    route.has_path_or_stack = true;
-                    route.legacy_stack = Some((line_index, line.to_owned()));
-                    route
-                        .path_params
-                        .extend(lzx_declared_path_params(unquote_lzx_literal(stack.trim())));
-                } else if let Some(params) = trimmed.strip_prefix("params ") {
-                    for param in params
+                } else if let Some(routes) = trimmed.strip_prefix("route ") {
+                    for slot in routes
                         .split(',')
                         .filter_map(|part| route_slot_name(part.trim()))
                     {
-                        route.declared_params.insert(param.to_owned());
+                        route.declared_routes.insert(slot.to_owned());
                     }
                 } else if let Some(target) = trimmed.strip_prefix("to ") {
                     route.has_to = true;
-                    for reference in path_references(target, "path.") {
-                        route.path_references.push((
+                    for reference in path_references(target, "route.") {
+                        route.route_references.push((
                             line_index,
                             line.to_owned(),
                             reference.to_owned(),
@@ -829,22 +821,13 @@ fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 fn lzx_app_route_diagnostics(route: LzxAppRouteFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    if !route.has_path_or_stack {
+    if !route.has_path {
         diagnostics.push(simple_canonical_diagnostic(
             route.line_index,
             &route.line,
             DiagnosticSeverity::ERROR,
             "lzx-app-route-contract",
             "top-level routes should declare a concrete `path`; `surface <name> web|mobile` decides whether it is a web URL path or mobile route pattern.",
-        ));
-    }
-    if let Some((line_index, line)) = route.legacy_stack {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            &line,
-            DiagnosticSeverity::WARNING,
-            "lzx-route-stack-legacy",
-            "`stack` is legacy route syntax; use `path` for both web URLs and mobile route patterns, with `surface ... mobile` selecting Expo navigation.",
         ));
     }
     if !route.has_to {
@@ -867,28 +850,28 @@ fn lzx_app_route_diagnostics(route: LzxAppRouteFacts) -> Vec<Diagnostic> {
     }
 
     for path_param in route.path_params {
-        if !route.declared_params.contains(&path_param) {
+        if !route.declared_routes.contains(&path_param) {
             diagnostics.push(simple_canonical_diagnostic(
                 route.line_index,
                 &route.line,
                 DiagnosticSeverity::WARNING,
                 "lzx-route-param-contract",
                 &format!(
-                    "route path parameter `{path_param}` should be declared with `params {path_param}: <Type>` so route builders are type-safe.",
+                    "route path parameter `{path_param}` should be declared with `route {path_param}: <Type>` so route builders are type-safe.",
                 ),
             ));
         }
     }
 
-    for (line_index, line, reference) in route.path_references {
-        if !route.declared_params.contains(&reference) {
+    for (line_index, line, reference) in route.route_references {
+        if !route.declared_routes.contains(&reference) {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 &line,
                 DiagnosticSeverity::WARNING,
                 "lzx-route-param-contract",
                 &format!(
-                    "route target references `path.{reference}` but the route does not declare `params {reference}: ...`.",
+                    "route target references `route.{reference}` but the route does not declare `route {reference}: ...`.",
                 ),
             ));
         }
@@ -9780,10 +9763,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Marks a previous name as a temporary compatibility alias still accepted by generated surfaces.",
         ),
         "path" => Some("Declares a concrete URL path for app routes, APIs, or webhooks."),
-        "stack" => Some(
-            "Legacy top-level `.lzx` mobile route syntax; prefer canonical `path` plus `surface ... mobile`.",
-        ),
-        "params" => Some("Declares typed route, API, or query parameters."),
+        "params" => Some("Declares typed query or API parameters."),
         "to" => Some("Binds a top-level `.lzx` route to an abstract experience view."),
         "let" => Some("Binds a derived value for later command, job, or event expressions."),
         "policy" => Some("Associates a command with an authorization policy capability."),
@@ -9959,7 +9939,6 @@ const KEYWORDS: &[&str] = &[
     "migrated",
     "alias",
     "path",
-    "stack",
     "params",
     "to",
     "let",
@@ -11529,7 +11508,7 @@ surface customer web
         let source = r#"
 route customer_detail
   path "/customers/:id"
-  to customer.view.detail(id: path.id)
+  to customer.view.detail(id: route.id)
   surface customer web
   audience admin
 "#;
@@ -11555,33 +11534,13 @@ app AcmeCRM
 
 route customer_detail
   path "/customers/:id"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer web
   audience admin
 "#;
 
         assert!(diagnostics_for(source).is_empty());
-    }
-
-    #[test]
-    fn lzx_warns_for_legacy_stack_top_level_routes() {
-        let source = r#"
-route customer_detail
-  stack "customers/[id]"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
-  surface customer mobile
-  audience sales
-"#;
-
-        let diagnostics = diagnostics_for(source);
-
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .message
-                .contains("`stack` is legacy route syntax")
-        }));
     }
 
     #[test]

@@ -283,8 +283,8 @@ Routes and experiences live in `.lzx`:
 ```lazuli
 route ping_detail
   path "/pings/:id"
-  params id: Ping.ID
-  to ping.view.detail(id: path.id)
+  route id: Ping.ID
+  to ping.view.detail(id: route.id)
   surface ping web
   audience admin
 

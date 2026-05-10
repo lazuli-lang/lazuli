@@ -2061,27 +2061,27 @@ patterns to experience views and platform surfaces:
 ```lazuli
 route admin_customer_detail
   path "/admin/customers/:id"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer web
   audience admin
   lazy true
 
 route sales_customer_detail
   path "customers/[id]"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer mobile
   audience sales
 ```
 
 Top-level `route` declarations are the source of truth for generated web paths,
 mobile route patterns, and type-safe route builders. A dynamic segment such as
-`:id` or `[id]` must be declared with `params id: <Type>`. The `to` binding maps
-path parameters into an abstract experience view. `surface` and `audience`
-make platform routing and authorization context explicit. `path` is canonical
-for both web and mobile; legacy `stack` route declarations are accepted only as
-compatibility syntax.
+`:id` or `[id]` must be declared with `route id: <Type>` and referenced through
+`route.id` inside the `to` binding, which maps the path slot into an abstract
+experience view. `surface` and `audience` make platform routing and
+authorization context explicit. `path` is canonical for both web URLs and
+mobile route patterns.
 
 ## Surfaces
 

@@ -1136,10 +1136,8 @@ pub struct AppRoute {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub params: Vec<String>,
+    pub routes: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

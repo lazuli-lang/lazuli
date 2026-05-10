@@ -27,8 +27,8 @@ route admin_customer_list
 
 route admin_customer_detail
   path "/admin/customers/:id"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer web
   audience admin
   lazy true
@@ -41,8 +41,8 @@ route sales_customer_list
 
 route sales_customer_detail
   path "customers/[id]"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer mobile
   audience sales
 

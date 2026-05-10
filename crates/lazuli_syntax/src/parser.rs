@@ -238,8 +238,7 @@ fn parse_lzx_route(
     }
 
     let mut path = None;
-    let mut stack = None;
-    let mut params = Vec::new();
+    let mut routes = Vec::new();
     let mut to = None;
     let mut surface = None;
     let mut audience = None;
@@ -266,10 +265,8 @@ fn parse_lzx_route(
 
         if let Some(rest) = trimmed.strip_prefix("path ") {
             path = Some(unquote_lzx_value(rest.trim()).to_owned());
-        } else if let Some(rest) = trimmed.strip_prefix("stack ") {
-            stack = Some(unquote_lzx_value(rest.trim()).to_owned());
-        } else if let Some(rest) = trimmed.strip_prefix("params ") {
-            params.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("route ") {
+            routes.extend(split_lzx_list(rest));
         } else if let Some(rest) = trimmed.strip_prefix("to ") {
             to = Some(rest.trim().to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("surface ") {
@@ -286,7 +283,7 @@ fn parse_lzx_route(
         } else {
             return Err(line_error(
                 line,
-                "route children are `path`, legacy `stack`, `params`, `to`, `surface`, `audience`, `lazy`, or `prerender` declarations",
+                "route children are `path`, `route <name>: <Type>`, `to`, `surface`, `audience`, `lazy`, or `prerender` declarations",
             ));
         }
 
@@ -297,8 +294,7 @@ fn parse_lzx_route(
         LzxRoute {
             name: parts[1].to_owned(),
             path,
-            stack,
-            params,
+            routes,
             to,
             surface,
             audience,
@@ -1239,8 +1235,8 @@ app AcmeCRM
 
 route customer_detail
   path "/customers/:id"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer web
   audience admin
   lazy true
@@ -1255,10 +1251,10 @@ route customer_detail
         assert_eq!(app.uses, vec!["customer", "customer_auth"]);
         assert_eq!(document.routes.len(), 1);
         assert_eq!(document.routes[0].path.as_deref(), Some("/customers/:id"));
-        assert_eq!(document.routes[0].params, vec!["id: Customer.ID"]);
+        assert_eq!(document.routes[0].routes, vec!["id: Customer.ID"]);
         assert_eq!(
             document.routes[0].to.as_deref(),
-            Some("customer.view.detail(id: path.id)")
+            Some("customer.view.detail(id: route.id)")
         );
         assert_eq!(document.routes[0].lazy, Some(true));
     }

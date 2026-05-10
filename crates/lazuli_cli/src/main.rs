@@ -367,6 +367,12 @@ struct InspectReport {
     registry: Option<lazuli_ir::AppRegistry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     profiles: Vec<lazuli_ir::AppProfile>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    routes: Vec<lazuli_ir::AppRoute>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    experiences: Vec<lazuli_ir::Experience>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    surfaces: Vec<lazuli_ir::PlatformSurface>,
     features: Vec<InspectFeature>,
 }
 
@@ -612,15 +618,42 @@ struct InspectTestAssertion {
 fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -> InspectReport {
     let lines: Vec<String> = source.lines().map(str::to_owned).collect();
 
+    let is_lzx = input
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("lzx"))
+        .unwrap_or(false);
+
+    let lzx_module = if is_lzx {
+        lazuli_syntax::parse_lzx_document(source)
+            .ok()
+            .map(|document| lazuli_analyzer::lower_lzx_document(&document))
+    } else {
+        None
+    };
+
+    let (lzx_app, routes, experiences, surfaces) = match lzx_module {
+        Some(module) => (
+            module.app,
+            module.routes,
+            module.experiences,
+            module.surfaces,
+        ),
+        None => (None, Vec::new(), Vec::new(), Vec::new()),
+    };
+
     InspectReport {
         schema: "lazuli.inspect.v0",
         source: input.display().to_string(),
         expand: expansions.labels(),
         workspace: app_manifest::parse_app_workspace(source),
         contracts: app_manifest::parse_app_contracts(source),
-        app: app_manifest::parse_app_manifest(source),
+        app: app_manifest::parse_app_manifest(source).or(lzx_app),
         registry: app_manifest::parse_app_registry(source),
         profiles: app_manifest::parse_app_profiles(source),
+        routes,
+        experiences,
+        surfaces,
         features: inspect_features(&lines, expansions),
     }
 }

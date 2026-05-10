@@ -146,8 +146,7 @@ fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
     ir::AppRoute {
         name: route.name.clone(),
         path: route.path.clone(),
-        stack: route.stack.clone(),
-        params: route.params.clone(),
+        routes: route.routes.clone(),
         to: route.to.clone(),
         surface: route.surface.clone(),
         audience: route.audience.clone(),
@@ -672,8 +671,8 @@ app AcmeCRM
 
 route customer_detail
   path "/customers/:id"
-  params id: Customer.ID
-  to customer.view.detail(id: path.id)
+  route id: Customer.ID
+  to customer.view.detail(id: route.id)
   surface customer web
   audience admin
 "#;
@@ -687,10 +686,10 @@ route customer_detail
             vec!["backend go", "web react"]
         );
         assert_eq!(module.routes[0].name, "customer_detail");
-        assert_eq!(module.routes[0].params, vec!["id: Customer.ID"]);
+        assert_eq!(module.routes[0].routes, vec!["id: Customer.ID"]);
         assert_eq!(
             module.routes[0].to.as_deref(),
-            Some("customer.view.detail(id: path.id)")
+            Some("customer.view.detail(id: route.id)")
         );
     }
 }
