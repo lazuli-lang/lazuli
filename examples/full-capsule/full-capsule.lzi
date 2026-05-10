@@ -546,7 +546,7 @@ feature customer_tags
     query.list list_tags
       order name asc
 
-    query.lookup tag_by_id by id: ID
+    query tag_by_id by id: ID
 
     query.list assignments_for_customer
       params

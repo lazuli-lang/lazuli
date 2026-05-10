@@ -99,6 +99,12 @@ source that only fails later.
   `has_many <name>: <Type> [inverse <field>]`. The optional `inverse` names the
   field on the target resource that owns the foreign key. Drusa generates the
   inverse query and FK contract; Lazuli only owns the relationship contract.
+- Queries can be authored as either explicit `query.list <name>`,
+  `query.lookup <name>`, `query.sql <name>` or as the short form `query <name>`
+  whose kind is inferred from the shape: `by <field>: <Type>` in the header
+  produces a lookup, a direct `sql ...` child produces an sql query, and
+  everything else is a list. Inspect locators report the inferred kind as
+  `query.<list|lookup|sql>`.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as
