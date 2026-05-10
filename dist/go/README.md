@@ -84,13 +84,28 @@ export LAZULI_ADDR=":8088"   # any free port works
 # 3. boot the server
 go run .
 
-# 4. create a customer
+# 4. create a customer (command)
 curl -X POST http://localhost:8088/api/v1/c/customer.create \
   -H 'Content-Type: application/json' \
   -d '{"name":"Acme Co","email":"hello@acme.example"}'
 # expected: {"id":1,"org_id":0,"name":"","email":""}
 
-# 5. verify the row landed
+# 5. list customers (query)
+curl -X POST http://localhost:8088/api/v1/q/customer.query.list \
+  -H 'Content-Type: application/json' -d '{}'
+# expected: [{"id":1,"org_id":0,"name":"Acme Co",...}, ...]
+
+# 6. lookup by id (query)
+curl -X POST http://localhost:8088/api/v1/q/customer.query.by_id \
+  -H 'Content-Type: application/json' -d '{"id":1}'
+# expected: {"id":1,"org_id":0,"name":"Acme Co",...}
+
+# 7. lookup not found
+curl -X POST http://localhost:8088/api/v1/q/customer.query.by_id \
+  -H 'Content-Type: application/json' -d '{"id":999}'
+# expected: {"code":"not_found","message":"no row matches lookup keys"}
+
+# 8. verify rows landed
 docker compose exec postgres psql -U lazuli -d lazuli \
   -c "SELECT id, name, email FROM customer;"
 ```
@@ -101,7 +116,47 @@ takes over. `name` and `email` come back empty because `Handle` only
 populates the returned struct's `ID` field; row materialisation arrives
 with the query layer in Phase B.
 
-## What's missing (Phase A scope)
+## Phase B added
+
+Queries now work end-to-end. The runtime grew `Query[A, R]` with three
+kinds (list / lookup / sql), a SELECT builder that injects `deleted_at IS
+NULL` and tenancy scoping automatically, optional filters, ordering, and
+limit. HTTP routes mount as `POST /api/v1/q/<query-name>`.
+
+The DSL block
+
+```lazuli
+query.list list
+  paginate 50
+
+query.lookup by_id by id: ID
+```
+
+becomes:
+
+```go
+var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
+    Name:     "customer.query.list",
+    Resource: &customerResource,
+    Kind:     lazuli.QueryList,
+    Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{...}},
+    Paginate: 50,
+}
+
+var customerByID = lazuli.Query[CustomerByIDArgs, Customer]{
+    Name:     "customer.query.by_id",
+    Resource: &customerResource,
+    Kind:     lazuli.QueryLookup,
+    Policy:   lazuli.Policy{...},
+    LookupBy: []lazuli.LookupKey{
+        {Column: "id", Source: lazuli.FromInput("ID")},
+    },
+}
+```
+
+Empty registration; the runtime executes the SELECT.
+
+## What's missing (post-Phase-B)
 
 The runtime spike implements the **happy path for `creates`**. These are
 explicit placeholders, not bugs:

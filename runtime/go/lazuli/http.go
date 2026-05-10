@@ -13,8 +13,12 @@ import (
 // query as a typed endpoint. Routes:
 //
 //	POST /api/v1/c/<command-name>      -> command.Handle
-//	GET  /api/v1/q/<query-name>        -> query.Run     (TODO Phase B)
+//	POST /api/v1/q/<query-name>        -> query.Run* (kind dispatched)
 //	GET  /healthz                      -> liveness
+//
+// Queries use POST + JSON body for v0; query strings encode complex args
+// awkwardly and forms/typed clients prefer JSON. A future cut may add
+// GET-with-query-params for cache-friendly URLs once we have caching.
 //
 // Generated code does not configure routes; it only registers commands and
 // queries, and the runtime mounts them.
@@ -33,6 +37,14 @@ func Mux() http.Handler {
 		})
 	}
 
+	for _, q := range Queries() {
+		q := q
+		path := "POST /api/v1/q/" + q.Name
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			handleQueryRequest(w, r, q)
+		})
+	}
+
 	return loggingMiddleware(mux)
 }
 
@@ -44,6 +56,31 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 	if handler == nil {
 		writeError(w, &Error{Status: 500, Code: CodeInternal,
 			Message: "command registered without typed handler: " + cmd.Name})
+		return
+	}
+
+	body, err := readRequestBody(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	ctx := newRequestCtx(r)
+	out, err := handler.dispatch(ctx, body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleQueryRequest is the per-query HTTP handler. It builds the request
+// Ctx, decodes args, dispatches to the typed Query[A, R], and writes JSON.
+func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) {
+	handler := lookupQueryHandler(q.Name)
+	if handler == nil {
+		writeError(w, &Error{Status: 500, Code: CodeInternal,
+			Message: "query registered without typed handler: " + q.Name})
 		return
 	}
 

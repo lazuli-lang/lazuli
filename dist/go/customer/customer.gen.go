@@ -21,16 +21,16 @@ import (
 //     retention 7y then anonymize
 // ----------------------------------------------------------------------------
 
-// Customer is the row materialised from the Customer resource. Fields are
-// the persisted columns; computed (`derived from`) fields are methods.
+// Customer is the row materialised from the Customer resource. Each field
+// carries `db` and `json` tags for pgx scan and HTTP encode respectively.
 type Customer struct {
-	ID    lazuli.ID `json:"id"`
-	OrgID lazuli.ID `json:"org_id"`
-	Name  string    `json:"name"`
-	Email string    `json:"email"`
-	// lifecycle_stage / tier / source / score / external_id are deferred to
-	// later phases of the spike. The current target shape demonstrates the
-	// minimum end-to-end path.
+	ID        lazuli.ID    `db:"id"         json:"id"`
+	OrgID     lazuli.ID    `db:"org_id"     json:"org_id"`
+	Name      string       `db:"name"       json:"name"`
+	Email     string       `db:"email"      json:"email"`
+	CreatedAt lazuli.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt lazuli.Time  `db:"updated_at" json:"updated_at"`
+	DeletedAt *lazuli.Time `db:"deleted_at" json:"deleted_at,omitempty"`
 }
 
 // customerResource is the typed resource declaration registered with the
@@ -85,6 +85,52 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 	Invalidates: []string{"customer.query.list", "customer.query.global_search"},
 }
 
+// ----------------------------------------------------------------------------
+// Query: customer.query.list
+//   query.list list
+//     paginate 50
+//
+// Phase B spike: filters, search, modifier, and cache deferred to later cuts.
+// The current shape covers the core "scan resource with tenancy + soft-delete"
+// path so the web layer can call into a real `useQuery`.
+// ----------------------------------------------------------------------------
+
+// ListCustomersArgs is the request payload. Empty for the spike.
+type ListCustomersArgs struct{}
+
+var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
+	Name:     "customer.query.list",
+	Resource: &customerResource,
+	Kind:     lazuli.QueryList,
+	Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
+	Paginate: 50,
+}
+
+// ----------------------------------------------------------------------------
+// Query: customer.query.by_id
+//   query.lookup by_id by id: ID
+// ----------------------------------------------------------------------------
+
+// CustomerByIDArgs carries the lookup key.
+type CustomerByIDArgs struct {
+	ID lazuli.ID `json:"id"`
+}
+
+var customerByID = lazuli.Query[CustomerByIDArgs, Customer]{
+	Name:     "customer.query.by_id",
+	Resource: &customerResource,
+	Kind:     lazuli.QueryLookup,
+	Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
+	LookupBy: []lazuli.LookupKey{
+		{Column: "id", Source: lazuli.FromInput("ID")},
+	},
+}
+
 func init() {
-	lazuli.Register(&customerResource, &createCustomer)
+	lazuli.Register(
+		&customerResource,
+		&createCustomer,
+		&listCustomers,
+		&customerByID,
+	)
 }
