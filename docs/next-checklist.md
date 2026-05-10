@@ -1,0 +1,113 @@
+# Lazuli Next Checklist
+
+This is the live working checklist for upcoming language cuts. Keep it small,
+practical, and updated after each implementation so design pressure does not
+get lost in chat history.
+
+## Current Position
+
+- `app.lzi` is the app entrypoint and operational contract.
+- `env group` exists to organize app env schema without changing `env.NAME`
+  references.
+- `integrations` exists in `app.lzi` as a provider-neutral registry, not as a
+  provider operation spec.
+- Service boundaries are logical ownership contracts; Drusa may materialize the
+  same graph as a monolith, modular monolith, or split services.
+
+## Next Implementation Cuts
+
+| Order | Cut | Status | Notes |
+|-------|-----|--------|-------|
+| 1 | Feature-level integration requirements | pending | Add `requires integration gateway: PaymentGateway` so reusable features depend on abstract capabilities, not concrete providers. |
+| 2 | App bindings | pending | Bind `payments.gateway = integrations.mercadopago` or equivalent without making every feature import provider details. |
+| 3 | External calls | pending | Add `calls gateway.operation` in commands/jobs with timeout/retry/idempotency/audit checks. |
+| 4 | Integration doctor rules | pending | Detect missing app binding, type mismatch, undeclared integration, undeclared env refs, PII sent externally without legal basis/audit, missing timeout/retry. |
+| 5 | Registry layout decision | pending | Decide whether `registry.lzi` is a native package convention, explicit import target, or both. |
+| 6 | Profiles | pending | Model environment overrides such as local/staging/production URLs, sandbox provider mode, fake adapters, and deploy topology without becoming Terraform. |
+| 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |
+| 8 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
+| 9 | IR/inspect coverage audit | pending | Confirm every accepted new construct appears in inspect JSON and doctor diagnostics with stable shape. |
+| 10 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
+
+## Registry Decision Pressure
+
+The open question is whether a root `registry.lzi` should be a native Lazuli/
+Drusa package artifact or just an arbitrary file imported by `app.lzi`.
+
+### Option A: Native `registry.lzi` Convention
+
+`registry.lzi` lives next to `app.lzi` and is discovered by the package loader.
+
+Pros:
+
+- Keeps `app.lzi` thin without adding import noise.
+- Fits Lazuli's opinionated, token-efficient style.
+- Gives Drusa and `lazuli doctor` a stable place for global env, capabilities,
+  integration registry, adapter bindings, and pack registry.
+- Avoids top-of-file import boilerplate in every `.lzi` and `.lzx`.
+
+Cons:
+
+- Introduces filename convention as semantics.
+- Needs clear package root rules in monorepos.
+- Needs an escape hatch for non-standard layouts.
+
+### Option B: Explicit Imports Everywhere
+
+Every source file imports what it needs.
+
+Pros:
+
+- Fully explicit dependency graph.
+- Easy to understand with no package-level conventions.
+- Flexible for unusual layouts.
+
+Cons:
+
+- Pollutes files with boilerplate and harms token economy.
+- Pushes Lazuli toward a general module language instead of an opinionated
+  contract language.
+- Makes reusable feature files visually noisier and easier for agents to edit
+  inconsistently.
+
+### Option C: Hybrid Package Convention
+
+Use native package discovery for conventional files and allow explicit imports
+only as an override.
+
+Recommended default:
+
+```text
+app.lzi
+registry.lzi
+features/*.lzi
+experiences/*.lzx
+profiles/*.lzi
+```
+
+Rules:
+
+- `app.lzi` is the composition root.
+- `registry.lzi` is a package-level catalog of capabilities, env groups,
+  integrations, packs, adapters, and other global bindings.
+- Feature files do not import provider registries. They declare abstract
+  requirements such as `requires integration gateway: PaymentGateway`.
+- `app.lzi` or `registry.lzi` binds abstract requirements to concrete registry
+  entries.
+- Explicit `import` may exist later for non-standard package layouts, generated
+  libraries, or monorepo cross-package dependencies, but it should not be the
+  default authoring style.
+
+Current leaning: **Option C**. It preserves opinionated defaults and token
+economy while still giving advanced projects a deterministic escape hatch.
+
+## Guardrails
+
+- Do not put concrete providers such as MercadoPago, Serasa, Stripe, AWS, or
+  Kubernetes into core syntax.
+- Do not make every `.lzi` file repeat imports for common package context.
+- Do not let `app.lzi` become an implementation file. It composes the app.
+- Do not let `registry.lzi` become a provider operation schema. It catalogs
+  what exists and how global bindings resolve.
+- Any magic package discovery must be visible in `lazuli inspect`, `doctor`, and
+  LSP diagnostics so it does not become hidden runtime behavior.

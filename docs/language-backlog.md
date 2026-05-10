@@ -1,6 +1,8 @@
 # Lazuli Language Backlog
 
 This document tracks design pressure that is not yet part of the core canonical syntax.
+The active implementation queue and open registry/import decisions live in
+`docs/next-checklist.md`.
 
 ## Closed v0 Decisions
 
