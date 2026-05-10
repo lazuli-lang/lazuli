@@ -4,6 +4,7 @@ Feature folders are the source of truth. Generated output is disposable.
 
 ```txt
 app.lzi
+registry.lzi
 
 features/
   customer/
@@ -70,6 +71,7 @@ These are authored and committed:
 
 - `features/**/<feature>.lzi`
 - `app.lzi`
+- `registry.lzi`
 - `features/**/<feature>.lzx`
 - `features/**/<feature>.web.lzx`
 - `features/**/<feature>.mobile.lzx`

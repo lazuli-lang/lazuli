@@ -1,7 +1,7 @@
 use lazuli_ir::{
     AppArchitecture, AppCapability, AppCommunication, AppDeploy, AppEnvVar, AppIntegration,
-    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest, AppRuntimeUnit,
-    AppService, AppServiceExposure, AppUrl,
+    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest, AppRegistry,
+    AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
 };
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
@@ -330,6 +330,133 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     Some(app)
 }
 
+pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
+    let lines: Vec<_> = source.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")?;
+
+    let mut registry = AppRegistry {
+        env: Vec::new(),
+        integrations: Vec::new(),
+        capabilities: Vec::new(),
+    };
+    let mut current_child: Option<&str> = None;
+    let mut current_env_group: Option<String> = None;
+    let mut current_integration: Option<usize> = None;
+    let mut current_integration_child: Option<&str> = None;
+
+    for line in lines.iter().skip(start + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            break;
+        }
+
+        match leading_spaces(line) {
+            2 => {
+                current_env_group = None;
+                current_integration = None;
+                current_integration_child = None;
+                current_child = registry_child(trimmed);
+            }
+            4 => match current_child {
+                Some("env") => {
+                    if let Some(group) = parse_env_group_name(trimmed) {
+                        current_env_group = Some(group.to_owned());
+                    } else {
+                        current_env_group = None;
+                        if let Some(env_var) = parse_app_env_var(trimmed, None) {
+                            registry.env.push(env_var);
+                        }
+                    }
+                }
+                Some("integrations") => {
+                    if let Some((name, kind)) = parse_integration_header(trimmed) {
+                        registry.integrations.push(AppIntegration {
+                            name,
+                            kind,
+                            adapter: None,
+                            environments: Vec::new(),
+                            credentials: None,
+                            data_classification: None,
+                        });
+                        current_integration = registry.integrations.len().checked_sub(1);
+                        current_integration_child = None;
+                    } else {
+                        current_integration = None;
+                        current_integration_child = None;
+                    }
+                }
+                Some("capabilities") => {
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    if parts.len() == 2 {
+                        registry.capabilities.push(AppCapability {
+                            name: parts[0].to_owned(),
+                            value: parts[1].to_owned(),
+                        });
+                    }
+                }
+                _ => {}
+            },
+            6 => {
+                if current_child == Some("env") {
+                    if let Some(group) = current_env_group.as_deref()
+                        && let Some(env_var) = parse_app_env_var(trimmed, Some(group))
+                    {
+                        registry.env.push(env_var);
+                    }
+                } else if current_child == Some("integrations") {
+                    let Some(integration_index) = current_integration else {
+                        continue;
+                    };
+                    let integration = &mut registry.integrations[integration_index];
+                    if let Some(rest) = trimmed.strip_prefix("adapter ") {
+                        integration.adapter = Some(rest.trim().to_owned());
+                        current_integration_child = None;
+                    } else if let Some(rest) = trimmed.strip_prefix("environments ") {
+                        integration.environments.extend(split_items(rest));
+                        current_integration_child = None;
+                    } else if let Some(rest) = trimmed.strip_prefix("credentials ") {
+                        integration.credentials = Some(AppIntegrationCredentials {
+                            scope: rest.trim().to_owned(),
+                            bindings: Vec::new(),
+                        });
+                        current_integration_child = Some("credentials");
+                    } else if let Some(rest) = trimmed.strip_prefix("data_classification ") {
+                        integration.data_classification = Some(rest.trim().to_owned());
+                        current_integration_child = None;
+                    }
+                }
+            }
+            8 => {
+                if current_child == Some("integrations")
+                    && current_integration_child == Some("credentials")
+                {
+                    let Some(integration_index) = current_integration else {
+                        continue;
+                    };
+                    let Some(credentials) =
+                        &mut registry.integrations[integration_index].credentials
+                    else {
+                        continue;
+                    };
+                    if let Some((name, source)) = parse_credential_binding(trimmed) {
+                        credentials
+                            .bindings
+                            .push(AppIntegrationCredentialBinding { name, source });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Some(registry)
+}
+
 fn app_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "uses" => Some("uses"),
@@ -344,6 +471,15 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         "communication" => Some("communication"),
         "runtime" => Some("runtime"),
         "deploy" => Some("deploy"),
+        _ => None,
+    }
+}
+
+fn registry_child(trimmed: &str) -> Option<&'static str> {
+    match trimmed.split_whitespace().next()? {
+        "env" => Some("env"),
+        "integrations" => Some("integrations"),
+        "capabilities" => Some("capabilities"),
         _ => None,
     }
 }
@@ -470,7 +606,7 @@ fn is_type_name(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_app_manifest;
+    use super::{parse_app_manifest, parse_app_registry};
 
     #[test]
     fn parses_operational_manifest() {
@@ -573,6 +709,39 @@ app AcmeCRM
                 .as_ref()
                 .and_then(|deploy| deploy.rollback.as_deref()),
             Some("on_failed_healthcheck")
+        );
+    }
+
+    #[test]
+    fn parses_package_registry() {
+        let source = r#"
+registry
+  env
+    group mercadopago
+      server MERCADOPAGO_ACCESS_TOKEN: Secret required in production
+  capabilities
+    payment_gateway mercadopago
+  integrations
+    mercadopago: PaymentGateway
+      adapter @adapter.mercadopago
+      environments sandbox, production
+      credentials platform
+        access_token env.MERCADOPAGO_ACCESS_TOKEN
+"#;
+
+        let registry = parse_app_registry(source).unwrap();
+
+        assert_eq!(registry.env[0].group.as_deref(), Some("mercadopago"));
+        assert_eq!(registry.capabilities[0].name, "payment_gateway");
+        assert_eq!(registry.integrations[0].name, "mercadopago");
+        assert_eq!(registry.integrations[0].kind, "PaymentGateway");
+        assert_eq!(
+            registry.integrations[0]
+                .credentials
+                .as_ref()
+                .and_then(|credentials| credentials.bindings.first())
+                .map(|binding| binding.source.as_str()),
+            Some("env.MERCADOPAGO_ACCESS_TOKEN")
         );
     }
 }

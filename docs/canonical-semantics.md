@@ -1173,7 +1173,8 @@ Key scopes use `@key.*`:
 - `@key.user` for per-user isolation.
 - `@key.record` for per-record or per-field data keys.
 
-Environment variables are declared in a top-level app contract:
+Environment variables are declared in `registry.lzi`, `app.lzi`, or a top-level
+`env` block for small/standalone capsules:
 
 ```lazuli
 env
@@ -1187,7 +1188,7 @@ env
 Any `env.NAME` reference should resolve to this schema. `group <name>` is an
 organizational key for humans, agents, inspect output, and Drusa wiring; it is
 not a namespace. Variable names stay explicit and globally unique inside the
-app env schema. `required in production` narrows the requirement to named
+package env schema. `required in production` narrows the requirement to named
 environments declared by the app manifest; plain `required` applies to every
 environment. `server` values are not exposed to client bundles. `client`
 variables use a `PUBLIC_` prefix and `mobile` variables use an
@@ -1652,29 +1653,6 @@ app AcmeCRM
     web production "https://app.acme.example"
     api production "https://api.acme.example"
 
-  env
-    group customer_import
-      server CRM_WEBHOOK_SECRET: Secret required in production
-    group public_clients
-      client PUBLIC_APP_URL: Url required
-      mobile EXPO_PUBLIC_API_URL: Url required
-
-  capabilities
-    database postgres
-    queue background_jobs
-    object_storage files
-    mailer transactional
-    event_bus internal
-    tracing optional
-    integration crm
-
-  integrations
-    crm: CRMProvider
-      adapter @adapter.crm
-      environments production
-      credentials platform
-        webhook_secret env.CRM_WEBHOOK_SECRET
-
   architecture
     mode modular_monolith
     service_ready true
@@ -1725,6 +1703,35 @@ app AcmeCRM
     rollback on_failed_healthcheck
 ```
 
+`registry.lzi` is the package-level catalog consumed by `app.lzi`, Drusa, and
+doctor:
+
+```lazuli
+registry
+  env
+    group customer_import
+      server CRM_WEBHOOK_SECRET: Secret required in production
+    group public_clients
+      client PUBLIC_APP_URL: Url required
+      mobile EXPO_PUBLIC_API_URL: Url required
+
+  capabilities
+    database postgres
+    queue background_jobs
+    object_storage files
+    mailer transactional
+    event_bus internal
+    tracing optional
+    integration crm
+
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
+```
+
 `app.lzi` declares what the app needs, not how a specific cloud provider is
 configured. Concrete provider choices such as Fly, AWS, Kubernetes, Neon, R2,
 Redis, SendGrid, or OpenTelemetry exporters belong in Drusa adapter
@@ -1751,14 +1758,15 @@ Credential scopes are `platform`, `tenant`, or `actor`. Credential bindings may
 reference declared `env.NAME` values or later credential resources, but
 provider-specific storage stays outside core Lazuli.
 
-`lazuli inspect app.lzi --format=json` exposes this manifest under the `app`
-key using the same operational shape consumed by Drusa. `lazuli doctor` loads
-the package manifest and checks it against local features and projections:
-feature `uses`, `env.*` references, `@cap.File` storage needs, custom APIs,
-webhooks, jobs, scheduled jobs, web/mobile targets, and public URLs must be
-represented in the app contract. When `services` are declared, every local
-feature should be owned by exactly one service boundary and a service should not
-expose commands, queries, APIs, or workflows from features it does not own.
+`lazuli inspect app.lzi --format=json` exposes the entrypoint manifest under
+`app`; `lazuli inspect registry.lzi --format=json` exposes the package catalog
+under `registry`. `lazuli doctor` loads both and checks the combined operational
+contract against local features and projections: feature `uses`, `env.*`
+references, `@cap.File` storage needs, custom APIs, webhooks, jobs, scheduled
+jobs, web/mobile targets, and public URLs must be represented in the app or
+registry contract. When `services` are declared, every local feature should be
+owned by exactly one service boundary and a service should not expose commands,
+queries, APIs, or workflows from features it does not own.
 
 Concrete routes stay in `.lzx` because they bind web URLs and mobile route
 patterns to experience views and platform surfaces:

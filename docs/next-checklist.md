@@ -7,10 +7,13 @@ get lost in chat history.
 ## Current Position
 
 - `app.lzi` is the app entrypoint and operational contract.
+- `registry.lzi` is the package-level catalog for env groups, capabilities,
+  integrations, adapters, packs, and other global bindings.
 - `env group` exists to organize app env schema without changing `env.NAME`
   references.
-- `integrations` exists in `app.lzi` as a provider-neutral registry, not as a
-  provider operation spec.
+- `integrations` exists as a provider-neutral registry contract, not as a
+  provider operation spec. It may live in `registry.lzi`, or temporarily in
+  `app.lzi` for small apps.
 - Service boundaries are logical ownership contracts; Drusa may materialize the
   same graph as a monolith, modular monolith, or split services.
 
@@ -22,7 +25,7 @@ get lost in chat history.
 | 2 | App bindings | pending | Bind `payments.gateway = integrations.mercadopago` or equivalent without making every feature import provider details. |
 | 3 | External calls | pending | Add `calls gateway.operation` in commands/jobs with timeout/retry/idempotency/audit checks. |
 | 4 | Integration doctor rules | pending | Detect missing app binding, type mismatch, undeclared integration, undeclared env refs, PII sent externally without legal basis/audit, missing timeout/retry. |
-| 5 | Registry layout decision | pending | Decide whether `registry.lzi` is a native package convention, explicit import target, or both. |
+| 5 | Registry layout decision | done | Use native `registry.lzi` package convention with explicit import reserved for future non-standard layouts. |
 | 6 | Profiles | pending | Model environment overrides such as local/staging/production URLs, sandbox provider mode, fake adapters, and deploy topology without becoming Terraform. |
 | 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |
 | 8 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
@@ -98,8 +101,25 @@ Rules:
   libraries, or monorepo cross-package dependencies, but it should not be the
   default authoring style.
 
-Current leaning: **Option C**. It preserves opinionated defaults and token
-economy while still giving advanced projects a deterministic escape hatch.
+Decision: **Option C**. It preserves opinionated defaults and token economy
+while still leaving room for a deterministic future escape hatch.
+
+## Workspace Decision Pressure
+
+`workspace.lzi` is deferred until there is real multi-app pressure.
+
+Intended split:
+
+- `workspace.lzi`: semantic contract for a distributed system or monorepo,
+  including apps, external contracts, shared registry, app graph, event edges,
+  and gateway contracts.
+- `drusa-workspace.toml`: operational Drusa config such as remote repo URLs,
+  branches, provider ids, CI wiring, deploy providers, and other concrete
+  mechanics.
+
+Do not implement `workspace.lzi` before app/registry/profile contracts settle.
+When it lands, it should model distributed contract shape, not repository
+automation.
 
 ## Guardrails
 

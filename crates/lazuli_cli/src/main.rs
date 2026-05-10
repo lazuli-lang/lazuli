@@ -359,6 +359,8 @@ struct InspectReport {
     expand: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     app: Option<lazuli_ir::AppManifest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    registry: Option<lazuli_ir::AppRegistry>,
     features: Vec<InspectFeature>,
 }
 
@@ -574,6 +576,7 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         source: input.display().to_string(),
         expand: expansions.labels(),
         app: app_manifest::parse_app_manifest(source),
+        registry: app_manifest::parse_app_registry(source),
         features: inspect_features(&lines, expansions),
     }
 }
@@ -3285,6 +3288,32 @@ app AcmeCRM
         assert!(json.contains("\"communication\""));
         assert!(json.contains("\"runtime\""));
         assert!(json.contains("\"migrations\":\"before_deploy\""));
+    }
+
+    #[test]
+    fn inspect_json_reports_registry_manifest() {
+        let source = r#"
+registry
+  env
+    group mercadopago
+      server MERCADOPAGO_ACCESS_TOKEN: Secret required in production
+  capabilities
+    payment_gateway mercadopago
+  integrations
+    mercadopago: PaymentGateway
+      adapter @adapter.mercadopago
+      credentials platform
+        access_token env.MERCADOPAGO_ACCESS_TOKEN
+"#;
+
+        let report =
+            inspect_canonical_source(source, Path::new("registry.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+
+        assert!(json.contains("\"registry\""));
+        assert!(json.contains("\"group\":\"mercadopago\""));
+        assert!(json.contains("\"kind\":\"PaymentGateway\""));
+        assert!(json.contains("\"access_token\""));
     }
 
     #[test]

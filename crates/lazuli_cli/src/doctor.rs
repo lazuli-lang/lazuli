@@ -3,12 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use lazuli_ir::AppManifest;
+use lazuli_ir::{AppManifest, AppRegistry};
 use lazuli_lsp::SecurityProfile;
 use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
-use crate::app_manifest::parse_app_manifest;
+use crate::app_manifest::{parse_app_manifest, parse_app_registry};
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
     let package = DoctorPackage::load(input, security_profile)?;
@@ -33,6 +33,7 @@ pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result
 struct DoctorPackage {
     files: Vec<DoctorFile>,
     app: Option<DoctorAppManifest>,
+    registry: Option<DoctorAppRegistry>,
     commands: BTreeMap<CommandKey, CommandPolicy>,
     experiences: BTreeMap<String, ExperienceFacts>,
     operational: OperationalFacts,
@@ -47,6 +48,7 @@ impl DoctorPackage {
 
         let mut files = Vec::new();
         let mut app = None;
+        let mut registry = None;
         let mut commands = BTreeMap::new();
         let mut experiences = BTreeMap::new();
         let mut operational = OperationalFacts::default();
@@ -87,6 +89,21 @@ impl DoctorPackage {
                         });
                     }
                 }
+                if let Some(manifest) = parse_app_registry(&file.source) {
+                    if registry.is_none() {
+                        registry = Some(DoctorAppRegistry { manifest });
+                    } else {
+                        file.local_diagnostics.push(DoctorDiagnostic {
+                            path: file.path.clone(),
+                            line: 1,
+                            column: 1,
+                            severity: DoctorSeverity::Error,
+                            code: "REG-001".to_owned(),
+                            message: "package should declare at most one registry manifest."
+                                .to_owned(),
+                        });
+                    }
+                }
                 collect_canonical_facts(&file, &mut commands, &mut operational);
             } else if is_lzx_path(&file.path) {
                 match lazuli_syntax::parse_lzx_document(&file.source) {
@@ -112,6 +129,7 @@ impl DoctorPackage {
         Ok(Self {
             files,
             app,
+            registry,
             commands,
             experiences,
             operational,
@@ -132,6 +150,7 @@ impl DoctorPackage {
         ));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
+            self.registry.as_ref(),
             &self.operational,
         ));
 
@@ -150,6 +169,11 @@ impl DoctorPackage {
 struct DoctorAppManifest {
     path: PathBuf,
     manifest: AppManifest,
+}
+
+#[derive(Debug)]
+struct DoctorAppRegistry {
+    manifest: AppRegistry,
 }
 
 #[derive(Debug)]
@@ -747,6 +771,7 @@ fn policy_reachability_diagnostics(
 
 fn app_contract_diagnostics(
     app: Option<&DoctorAppManifest>,
+    registry: Option<&DoctorAppRegistry>,
     operational: &OperationalFacts,
 ) -> Vec<DoctorDiagnostic> {
     let Some(app) = app else {
@@ -755,7 +780,7 @@ fn app_contract_diagnostics(
 
     let mut diagnostics = Vec::new();
     let manifest = &app.manifest;
-    let env_names: BTreeSet<_> = manifest.env.iter().map(|env| env.name.as_str()).collect();
+    let env_names = operational_env_names(manifest, registry);
     let used_features: BTreeSet<_> = manifest.uses.iter().map(String::as_str).collect();
 
     for feature in operational.features.values() {
@@ -802,7 +827,7 @@ fn app_contract_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: "APP-ENV-001".to_owned(),
                 message: format!(
-                    "environment reference `env.{}` is not declared in `app.lzi` env.",
+                    "environment reference `env.{}` is not declared in `app.lzi` or `registry.lzi` env.",
                     env_ref.name
                 ),
             });
@@ -810,12 +835,12 @@ fn app_contract_diagnostics(
     }
 
     if !operational.file_capabilities.is_empty()
-        && !app_has_any_capability(manifest, &["object_storage", "storage"])
+        && !app_has_any_capability(manifest, registry, &["object_storage", "storage"])
     {
         diagnostics.push(app_missing_contract_diagnostic(
             app,
             "APP-CAP-001",
-            "package uses `@cap.File`, but app manifest does not declare `object_storage` or `storage` capability.",
+            "package uses `@cap.File`, but app/registry contract does not declare `object_storage` or `storage` capability.",
         ));
     }
 
@@ -998,10 +1023,32 @@ fn app_has_url(app: &AppManifest, target: &str) -> bool {
     app.urls.iter().any(|url| url.target == target)
 }
 
-fn app_has_any_capability(app: &AppManifest, names: &[&str]) -> bool {
+fn operational_env_names<'a>(
+    app: &'a AppManifest,
+    registry: Option<&'a DoctorAppRegistry>,
+) -> BTreeSet<&'a str> {
+    let mut names: BTreeSet<_> = app.env.iter().map(|env| env.name.as_str()).collect();
+    if let Some(registry) = registry {
+        names.extend(registry.manifest.env.iter().map(|env| env.name.as_str()));
+    }
+    names
+}
+
+fn app_has_any_capability(
+    app: &AppManifest,
+    registry: Option<&DoctorAppRegistry>,
+    names: &[&str],
+) -> bool {
     app.capabilities
         .iter()
         .any(|capability| names.contains(&capability.name.as_str()))
+        || registry.is_some_and(|registry| {
+            registry
+                .manifest
+                .capabilities
+                .iter()
+                .any(|capability| names.contains(&capability.name.as_str()))
+        })
 }
 
 fn app_runtime_serves(app: &AppManifest, service: &str) -> bool {
@@ -1294,6 +1341,7 @@ mod tests {
     fn package_from_sources(sources: Vec<(&str, &str)>) -> DoctorPackage {
         let mut files = Vec::new();
         let mut app = None;
+        let mut registry = None;
         let mut commands = BTreeMap::new();
         let mut experiences = BTreeMap::new();
         let mut operational = OperationalFacts::default();
@@ -1313,6 +1361,9 @@ mod tests {
                         manifest,
                     });
                 }
+                if let Some(manifest) = parse_app_registry(&file.source) {
+                    registry = Some(DoctorAppRegistry { manifest });
+                }
                 collect_canonical_facts(&file, &mut commands, &mut operational);
             } else {
                 let document = lazuli_syntax::parse_lzx_document(&file.source).unwrap();
@@ -1327,6 +1378,7 @@ mod tests {
         DoctorPackage {
             files,
             app,
+            registry,
             commands,
             experiences,
             operational,
@@ -1668,6 +1720,66 @@ route customer_list
         ]);
 
         assert!(package.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn doctor_uses_registry_for_env_and_capabilities() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    customer
+  targets
+    backend go
+  environments
+    production
+  urls
+    api production "https://api.acme.example"
+  runtime
+    unit api
+      serves webhooks
+      healthcheck "/healthz"
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  env
+    group webhooks
+      server INBOUND_SECRET: Secret required in production
+  capabilities
+    object_storage files
+"#,
+            ),
+            (
+                "customer.lzi",
+                r#"
+feature customer
+  domain
+    resource Customer
+      csv: @cap.File(max_size:10mb,accept:text/csv) optional
+
+  webhook inbound
+    path "/webhooks/inbound"
+    verify hmac sha256
+      secret env.INBOUND_SECRET
+    idempotency by payload.id
+"#,
+            ),
+        ]);
+
+        let diagnostics = package.diagnostics();
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected registry to satisfy app contract, got: {diagnostics:#?}"
+        );
     }
 
     #[test]

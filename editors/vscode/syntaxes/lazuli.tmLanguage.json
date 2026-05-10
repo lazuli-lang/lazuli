@@ -89,6 +89,10 @@
           }
         },
         {
+          "name": "keyword.control.declaration.structural.lazuli",
+          "match": "^\\s*\\b(registry)\\b"
+        },
+        {
           "match": "^\\s*\\b(experience)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
           "captures": {
             "1": {

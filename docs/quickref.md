@@ -72,25 +72,6 @@ app PingApp
     web local "http://localhost:3000"
     api local "http://localhost:8080"
 
-  env
-    group crm
-      server CRM_WEBHOOK_SECRET: Secret required in production
-    group public_clients
-      client PUBLIC_API_URL: Url required
-    group mailer
-      server MAILER_API_KEY: Secret required in production
-
-  capabilities
-    database postgres
-    integration crm
-
-  integrations
-    crm: CRMProvider
-      adapter @adapter.crm
-      environments production
-      credentials platform
-        webhook_secret env.CRM_WEBHOOK_SECRET
-
   architecture
     mode modular_monolith
     service_ready true
@@ -120,6 +101,30 @@ app PingApp
   deploy
     migrations before_deploy
     rollback on_failed_healthcheck
+```
+
+`registry.lzi` is the package catalog:
+
+```lazuli
+registry
+  env
+    group crm
+      server CRM_WEBHOOK_SECRET: Secret required in production
+    group public_clients
+      client PUBLIC_API_URL: Url required
+    group mailer
+      server MAILER_API_KEY: Secret required in production
+
+  capabilities
+    database postgres
+    integration crm
+
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
 ```
 
 Routes and experiences live in `.lzx`:

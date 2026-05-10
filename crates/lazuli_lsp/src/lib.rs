@@ -301,6 +301,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(query_mode_diagnostics(source));
         diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));
+        diagnostics.extend(registry_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
         diagnostics.extend(non_goals_shape_diagnostics(source));
         diagnostics.extend(defaults_policy_syntax_diagnostics(source));
@@ -401,6 +402,7 @@ fn is_canonical_source(source: &str) -> bool {
         leading_spaces(line) == 0
             && (line.trim_start().starts_with("feature ") || line.trim_start() == "env")
     }) || has_canonical_app_block(source)
+        || has_canonical_registry_block(source)
 }
 
 fn has_canonical_app_block(source: &str) -> bool {
@@ -422,6 +424,12 @@ fn has_canonical_app_block(source: &str) -> bool {
     }
 
     false
+}
+
+fn has_canonical_registry_block(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")
 }
 
 fn is_lzx_source(source: &str) -> bool {
@@ -2900,7 +2908,9 @@ fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_env = false;
     let mut in_app = false;
+    let mut in_registry = false;
     let mut app_child: Option<&str> = None;
+    let mut registry_child: Option<&str> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -2912,7 +2922,9 @@ fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
         if leading_spaces(line) == 0 {
             in_env = trimmed == "env";
             in_app = trimmed.starts_with("app ");
+            in_registry = trimmed == "registry";
             app_child = None;
+            registry_child = None;
             continue;
         }
 
@@ -2925,6 +2937,15 @@ fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
                 app_child = trimmed.split_whitespace().next();
             }
             if app_child == Some("env") {
+                continue;
+            }
+        }
+
+        if in_registry {
+            if leading_spaces(line) == 2 {
+                registry_child = trimmed.split_whitespace().next();
+            }
+            if registry_child == Some("env") {
                 continue;
             }
         }
@@ -5113,6 +5134,141 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         "deploy" => Some("deploy"),
         _ => None,
     }
+}
+
+fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_registry = false;
+    let mut current_child: Option<&'static str> = None;
+    let mut current_env_group: Option<String> = None;
+    let mut current_integration = false;
+    let mut current_integration_child: Option<&'static str> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            in_registry = trimmed == "registry";
+            current_child = None;
+            current_env_group = None;
+            current_integration = false;
+            current_integration_child = None;
+            continue;
+        }
+
+        if !in_registry {
+            continue;
+        }
+
+        match leading {
+            2 => {
+                current_env_group = None;
+                current_integration = false;
+                current_integration_child = None;
+                current_child = match trimmed {
+                    "env" => Some("env"),
+                    "capabilities" => Some("capabilities"),
+                    "integrations" => Some("integrations"),
+                    _ => {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "registry-contract",
+                            "registry blocks use `env`, `capabilities`, and `integrations`.",
+                        ));
+                        None
+                    }
+                };
+            }
+            4 => match current_child {
+                Some("env") => {
+                    if let Some(group) = parse_env_group_name(trimmed) {
+                        current_env_group = Some(group.to_owned());
+                    } else {
+                        current_env_group = None;
+                        validate_app_env_line(&mut diagnostics, line_index, line);
+                    }
+                }
+                Some("capabilities") => {
+                    validate_app_capability_line(&mut diagnostics, line_index, line)
+                }
+                Some("integrations") => {
+                    validate_app_integration_header(&mut diagnostics, line_index, line, trimmed);
+                    current_integration = true;
+                    current_integration_child = None;
+                }
+                _ => {}
+            },
+            6 => {
+                if current_child == Some("env") {
+                    if current_env_group.is_none() {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "registry-contract",
+                            "six-space registry env declarations must follow `group <name>` inside `env`.",
+                        ));
+                    } else {
+                        validate_app_env_line(&mut diagnostics, line_index, line);
+                    }
+                } else if current_child == Some("integrations") {
+                    if !current_integration {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "registry-contract",
+                            "integration children must follow `<name>: <CapabilityType>` under `integrations`.",
+                        ));
+                    } else {
+                        validate_app_integration_child(
+                            &mut diagnostics,
+                            &mut current_integration_child,
+                            line_index,
+                            line,
+                            trimmed,
+                        );
+                    }
+                }
+            }
+            8 => {
+                if current_child == Some("integrations")
+                    && current_integration_child == Some("credentials")
+                {
+                    validate_app_integration_credential_line(
+                        &mut diagnostics,
+                        line_index,
+                        line,
+                        trimmed,
+                    );
+                } else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "registry-contract",
+                        "eight-space registry declarations are only valid inside `integrations credentials`.",
+                    ));
+                }
+            }
+            _ => diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "registry-contract",
+                "registry declarations use two, four, six, or eight spaces of indentation.",
+            )),
+        }
+    }
+
+    diagnostics
 }
 
 fn is_app_scalar_child(trimmed: &str) -> bool {
@@ -8201,6 +8357,9 @@ fn is_word_byte(byte: u8) -> bool {
 fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
         "app" => Some("Declares the `.lzi` application entrypoint and operational contract."),
+        "registry" => {
+            Some("Declares the package-level catalog for env, capabilities, and integrations.")
+        }
         "environments" => {
             Some("Declares deployment/runtime environments such as local, staging, and production.")
         }
@@ -8382,6 +8541,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
 
 const KEYWORDS: &[&str] = &[
     "app",
+    "registry",
     "env",
     "aggregate",
     "entity",
@@ -8613,6 +8773,10 @@ feature customer
             (
                 "full-capsule-app.lzi",
                 include_str!("../../../examples/full-capsule/app.lzi"),
+            ),
+            (
+                "full-capsule-registry.lzi",
+                include_str!("../../../examples/full-capsule/registry.lzi"),
             ),
             (
                 "audit-log.lzi",

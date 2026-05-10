@@ -18,6 +18,7 @@ The lifecycle is:
 
 ```txt
 authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / Drusa
+authored registry.lzi -> AppRegistry IR -> inspect JSON / doctor / Drusa
 authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
 authored .lzx experience source -> AST -> ExperienceModule IR -> inspect JSON / UI codegen / MCP
 ```
@@ -139,12 +140,15 @@ If a field's only justification is "an editor needs it later," reject the field.
 ## App Manifest IR
 
 `app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
-by inspect/doctor. The manifest is provider-neutral: targets, environments,
-URLs, env schema, capabilities, logical service boundaries, communication
-intent, runtime units, and deploy gates enter IR; provider-specific details
-such as AWS accounts, Kubernetes namespaces, Fly app ids, bucket names, gRPC
-implementations, Kafka/NATS/SQS brokers, or Terraform settings stay in Drusa
-adapter configuration.
+by inspect/doctor. `registry.lzi` lowers into an optional `AppRegistry`. The
+manifest is provider-neutral: targets, environments, URLs, logical service
+boundaries, communication intent, runtime units, and deploy gates enter IR. The
+registry carries package-level env schema, capabilities, and external
+integrations. Small apps may still put those registry-shaped blocks in
+`app.lzi`; doctor reads the combined app + registry contract. Provider-specific
+details such as AWS accounts, Kubernetes namespaces, Fly app ids, bucket names,
+gRPC implementations, Kafka/NATS/SQS brokers, or Terraform settings stay in
+Drusa adapter configuration.
 
 `AppEnvVar` entries are still keyed by explicit env variable name. Optional
 `group` metadata preserves authoring organization such as `customer_import`,

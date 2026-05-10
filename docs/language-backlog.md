@@ -47,8 +47,12 @@ The active implementation queue and open registry/import decisions live in
 - `app.lzi` env groups are organizational labels, not namespaces. Env refs
   still use `env.NAME`, and `required in production` narrows requiredness to a
   named environment without embedding provider config in the manifest.
-- `app.lzi` integrations are registry entries, not provider operation specs.
-  They bind a neutral integration name to a capability type, adapter reference,
+- `registry.lzi` is the native package catalog for env groups, capabilities,
+  integrations, adapters, packs, and future global bindings. Explicit imports
+  are reserved for non-standard layouts instead of becoming the default
+  authoring style.
+- Registry integrations are catalog entries, not provider operation specs. They
+  bind a neutral integration name to a capability type, adapter reference,
   environments, and credential scope; MercadoPago/Serasa/etc. stay packs or
   adapters, not keywords.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
@@ -150,6 +154,8 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   provider config file.
 - [x] Add external integration registry entries to `app.lzi` without promoting
   concrete providers or provider HTTP operations into core syntax.
+- [x] Promote `registry.lzi` to a native package convention consumed by
+  inspect, doctor, and LSP diagnostics.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.

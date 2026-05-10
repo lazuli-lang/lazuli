@@ -12,14 +12,18 @@ source that only fails later.
 - `.lzi` owns the domain/capability contract. It must compile without any UI
   source present.
 - Top-level `.lzi app` owns the app entrypoint, generated targets,
-  environments, URLs, env schema, runtime units, capabilities,
-  provider-neutral deploy gates, and logical service boundaries. It is not a
-  product feature and should not hide domain behavior.
-- App env declarations may use `group <name>` for organization, but env names
+  environments, URLs, runtime units, provider-neutral deploy gates, and logical
+  service boundaries. It is not a product feature and should not hide domain
+  behavior.
+- Top-level `.lzi registry` owns package-level env schema, capabilities,
+  integrations, adapters, packs, and global bindings. Small apps may keep
+  registry-shaped blocks in `app.lzi`, but `registry.lzi` is the preferred
+  package convention once the app root starts getting noisy.
+- Env declarations may use `group <name>` for organization, but env names
   are still explicit global schema entries. `required in <environment>` scopes
   requiredness to named app environments without creating provider-specific
   config inside the manifest.
-- App `integrations` declare provider-neutral external integration registry
+- Registry `integrations` declare provider-neutral external integration registry
   entries: name, capability kind, adapter reference, environments, and
   credential scope. They do not declare provider HTTP operations, SDK methods,
   or cloud secret storage.
@@ -209,9 +213,9 @@ source that only fails later.
   type, and requiredness. Optional `group <name>` children organize related
   variables without changing the reference name. Client-exposed names use
   `PUBLIC_`; Expo/mobile names use `EXPO_PUBLIC_`.
-- App `integrations` entries use `<name>: <CapabilityType>` with
+- Registry `integrations` entries use `<name>: <CapabilityType>` with
   `adapter @adapter.<name>` and `credentials platform|tenant|actor`. Provider
-  operation details belong in features, packs, or adapters, not the app root.
+  operation details belong in features, packs, or adapters, not the registry.
 - File fields use `@cap.File(max_size:<size>,accept:<mime>)`; upload UI and
   providers are framework/adapters, but size and MIME acceptance are language
   contracts.

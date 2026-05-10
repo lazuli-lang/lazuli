@@ -31,6 +31,8 @@ pub struct SpanRef {
 pub struct Module {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<AppManifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<AppRegistry>,
     pub features: Vec<Feature>,
 }
 
@@ -761,6 +763,16 @@ pub struct AppManifest {
     pub deploy: Option<AppDeploy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppRegistry {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<AppEnvVar>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub integrations: Vec<AppIntegration>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<AppCapability>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

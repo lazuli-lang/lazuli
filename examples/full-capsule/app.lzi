@@ -32,29 +32,6 @@ app AcmeCRM
     web production "https://app.acme.example"
     api production "https://api.acme.example"
 
-  env
-    group customer_import
-      server CRM_WEBHOOK_SECRET: Secret required in production
-    group public_clients
-      client PUBLIC_APP_URL: Url required
-      mobile EXPO_PUBLIC_API_URL: Url required
-
-  capabilities
-    database postgres
-    queue background_jobs
-    object_storage files
-    mailer transactional
-    event_bus internal
-    tracing optional
-    integration crm
-
-  integrations
-    crm: CRMProvider
-      adapter @adapter.crm
-      environments production
-      credentials platform
-        webhook_secret env.CRM_WEBHOOK_SECRET
-
   architecture
     mode modular_monolith
     service_ready true

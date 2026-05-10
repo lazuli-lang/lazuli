@@ -117,7 +117,7 @@ Current consistency rules:
 Highlighting groups use standard TextMate scopes so IDE themes can style them
 without Lazuli-specific colors:
 
-- Structural constructors: `app`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
+- Structural constructors: `app`, `registry`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
 - Layer sections: `domain`, `surface`, `extensions`.
 - Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `targets`, `environments`, `urls`, `env`, `group`, `integrations`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, `deploy`.
 - Internal statements: `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `emits`, `invalidates`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `sections`, `slot`, `platforms`, `previously`, `migrated`, `alias`, and app/runtime verbs such as `service`, `owns`, `exposes`, `publishes`, `consumes`, `credentials`, `propagate`, `serves`, `runs`, `healthcheck`, `migrations`, and `rollback`.
