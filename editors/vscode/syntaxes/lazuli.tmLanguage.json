@@ -242,7 +242,7 @@
           }
         },
         {
-          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s+(previously)\\s+([A-Za-z_][A-Za-z0-9_]*)(:)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(->)\\s*([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s+(previously)\\s+(?:(migrated|alias)\\s+)?([A-Za-z_][A-Za-z0-9_]*)(:)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(->)\\s*([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "entity.name.function.transition.lazuli"
@@ -251,18 +251,21 @@
               "name": "storage.modifier.lazuli"
             },
             "3": {
-              "name": "entity.name.function.transition.previous.lazuli"
+              "name": "storage.modifier.lazuli"
             },
             "4": {
-              "name": "punctuation.separator.key-value.lazuli"
+              "name": "entity.name.function.transition.previous.lazuli"
             },
             "5": {
-              "name": "constant.other.symbolic.lazuli"
+              "name": "punctuation.separator.key-value.lazuli"
             },
             "6": {
-              "name": "keyword.operator.transition.lazuli"
+              "name": "constant.other.symbolic.lazuli"
             },
             "7": {
+              "name": "keyword.operator.transition.lazuli"
+            },
+            "8": {
               "name": "constant.other.symbolic.lazuli"
             }
           }
@@ -361,7 +364,7 @@
       "patterns": [
         {
           "name": "storage.modifier.lazuli",
-          "match": "\\b(required|optional|default|readonly|raw|override|previously|per|at|cascade|restrict|nullify|by)\\b"
+          "match": "\\b(required|optional|default|readonly|raw|override|previously|migrated|alias|per|at|cascade|restrict|nullify|by)\\b"
         },
         {
           "name": "keyword.operator.logical.lazuli",

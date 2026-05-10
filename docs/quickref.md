@@ -451,14 +451,16 @@ Crypto in Lazuli is a contract. Runtime adapters implement the primitives.
 `previously` is a migration continuity hint, not permanent design prose:
 
 ```lazuli
-resource Customer previously Account
-  lifecycle_stage previously status: CustomerStatus = lead
+resource Customer previously migrated Account
+  lifecycle_stage previously migrated status: CustomerStatus = lead
 ```
 
 Keep it inline while the compiler, semantic diff, or migration planner still
 needs to connect a deployed/stored old identity to the current one. Remove it
 after all supported environments have migrated and the stored IR baseline no
 longer contains the old name. Do not move rename continuity to comments.
+Use `previously alias <old_name>` only when generated compatibility surfaces
+still accept the old name.
 
 ## Event Kinds
 

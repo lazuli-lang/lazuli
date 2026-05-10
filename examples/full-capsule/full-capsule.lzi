@@ -47,11 +47,11 @@ feature customer
       api
       webhook
 
-    resource Customer previously Account
+    resource Customer previously migrated Account
       owner: User optional
       name: Text required
       email: @semantic.Email @pii.contact required
-      lifecycle_stage previously status: CustomerStatus = lead
+      lifecycle_stage previously migrated status: CustomerStatus = lead
       tier: CustomerTier = free
       source: CustomerSource = manual
       score: Integer @pii.derived = 0
@@ -260,7 +260,7 @@ feature customer
       customer.query.list
       customer.query.global_search
 
-  command reassign previously assign_owner
+  command reassign previously migrated assign_owner
     route id: ID
     input
       owner_id: User.ID required
@@ -337,7 +337,7 @@ feature customer
         denies from active
         denies from lead
 
-    archive previously deactivate: active -> archived requires @policy.delete emits customer_archived
+    archive previously migrated deactivate: active -> archived requires @policy.delete emits customer_archived
       tests
         allows from active as @role.admin
         denies from active as @role.sales

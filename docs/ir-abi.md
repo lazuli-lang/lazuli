@@ -116,14 +116,14 @@ Renames break the ID by design. Rename is a semantic event, not a layout detail.
 2. **Author override.** The DSL has `previously` to declare continuity explicitly:
 
    ```lazuli
-   command register previously create
+   command register previously migrated create
      creates Customer
      ...
    ```
 
    The IR carries `previous_names: Vec<String>` on the renamed node. Planner, MCP, and semantic diff respect it.
 
-`previously` is the only way to claim identity across a rename. It is documented in `canonical-semantics.md` as a migration tool, not a design tool.
+`previously migrated <old_name>` is the canonical way to claim identity across a rename. `previously alias <old_name>` is reserved for temporary compatibility aliases that generated surfaces still accept. Bare `previously <old_name>` is legacy authoring syntax.
 
 ## What Never Enters IR
 

@@ -299,6 +299,7 @@ fn diagnostics_for_with_profile(
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
         diagnostics.extend(query_mode_diagnostics(source));
+        diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
         diagnostics.extend(non_goals_shape_diagnostics(source));
@@ -1268,6 +1269,37 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                 ));
             }
         }
+    }
+
+    diagnostics
+}
+
+fn previously_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some((_, tail)) = trimmed.split_once(" previously ") else {
+            continue;
+        };
+
+        let tail = tail.trim_start();
+        if tail.starts_with("migrated ") || tail.starts_with("alias ") {
+            continue;
+        }
+
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "previously-mode-contract",
+            "`previously` should declare `migrated` or `alias` so migration-only history is distinct from compatibility aliases.",
+        ));
     }
 
     diagnostics
@@ -7739,6 +7771,15 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "route" => Some(
             "Declares route or context values accepted by a command/view, or a top-level typed app route in `.lzx`.",
         ),
+        "previously" => {
+            Some("Declares identity continuity with an explicit `migrated` or `alias` mode.")
+        }
+        "migrated" => Some(
+            "Marks a previous name as migration-only history, not a generated compatibility alias.",
+        ),
+        "alias" => Some(
+            "Marks a previous name as a temporary compatibility alias still accepted by generated surfaces.",
+        ),
         "path" => Some("Declares a concrete URL path for app routes, APIs, or webhooks."),
         "stack" => Some(
             "Legacy top-level `.lzx` mobile route syntax; prefer canonical `path` plus `surface ... mobile`.",
@@ -7871,6 +7912,9 @@ const KEYWORDS: &[&str] = &[
     "extends",
     "input",
     "route",
+    "previously",
+    "migrated",
+    "alias",
     "path",
     "stack",
     "params",
@@ -9681,6 +9725,35 @@ feature customer_auth
                 .iter()
                 .any(|diagnostic| { diagnostic.message.contains("is computed but not required") })
         );
+    }
+
+    #[test]
+    fn canonical_warns_for_previously_without_mode() {
+        let legacy = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer previously Account
+"#;
+        let canonical = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer previously migrated Account
+"#;
+
+        assert!(diagnostics_for(legacy).iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("`previously` should declare `migrated` or `alias`")
+        }));
+        assert!(!diagnostics_for(canonical).iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("`previously` should declare `migrated` or `alias`")
+        }));
     }
 
     #[test]

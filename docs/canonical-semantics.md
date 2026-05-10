@@ -46,7 +46,7 @@ Query modes:
 Workflow transitions may inline scalar clauses:
 
 ```lazuli
-archive previously deactivate: active -> archived requires @policy.delete emits customer_archived
+archive previously migrated deactivate: active -> archived requires @policy.delete emits customer_archived
 ```
 
 `lazuli fmt --expand` rewrites inline transition clauses as child statements; `lazuli fmt --compact` may inline them again where the compact form is legal.
@@ -294,7 +294,7 @@ The compiler may validate that the referenced file exists and `lazuli inspect` m
 Fields are declared in this canonical order:
 
 ```txt
-<name> [previously <old_name>]: <type> [markers...] [required|optional|= default] [relation modifiers...]
+<name> [previously migrated|alias <old_name>]: <type> [markers...] [required|optional|= default] [relation modifiers...]
 ```
 
 `<type>` may itself be a capability type such as `@cap.Encrypted(...)`.
@@ -953,7 +953,7 @@ workflow lifecycle on Customer.lifecycle_stage
   policy @policy.update
 
   pause: active -> paused
-  archive previously deactivate: active -> archived requires @policy.delete
+  archive previously migrated deactivate: active -> archived requires @policy.delete
 ```
 
 `requires @policy.delete` keeps the workflow's normal policy visible while declaring that the transition needs a higher feature-local policy category. Use it for capability upgrades such as archive/delete, publish/admin, or force/manual operations. Do not use transition-level `policy` for this pattern in canonical v0.
@@ -972,10 +972,10 @@ Workflow transitions accept trailing scalar clauses on the header line. The comp
 
 ```lazuli
 # compact
-archive previously deactivate: active -> archived requires @policy.delete emits customer_archived
+archive previously migrated deactivate: active -> archived requires @policy.delete emits customer_archived
 
 # expanded
-archive previously deactivate: active -> archived
+archive previously migrated deactivate: active -> archived
   requires @policy.delete
   emits customer_archived
 ```
@@ -2114,33 +2114,40 @@ The convention is part of the IR ABI (see `ir-abi.md`): changing a default path 
 When a command, transition, query, field, or resource is renamed, downstream artifacts that relied on its identity (event lineage, deploy plans, semantic diffs, persisted job data) lose continuity. `previously` declares continuity explicitly:
 
 ```lazuli
-command register previously create
+command register previously migrated create
   policy @policy.create
   creates Customer
   ...
 
 workflow lifecycle on Customer.status
-  ship previously deliver: ready -> shipped
+  ship previously migrated deliver: ready -> shipped
 
-resource Account previously Customer
+resource Account previously migrated Customer
   ...
 
 resource Customer
-  lifecycle_stage previously status: CustomerStatus = lead
+  lifecycle_stage previously migrated status: CustomerStatus = lead
 ```
 
 `previously` is universal for renameable identifiers: resources, fields, queries, commands, workflows, workflow transitions, views, jobs, webhooks, and extension symbols may all carry it when the compiler needs identity continuity.
 
-The `previously` clause carries one or more prior names. The compiler records them on the IR node as `previous_names`. The planner, MCP, and semantic diff respect the link instead of treating the rename as drop-and-create.
+The `previously` clause must declare a mode before the prior names:
 
-`previously` is a migration tool. Use it when continuity matters. Do not use it as a versioning hint or a design alias for documentation; commentary belongs in `<feature>.ctx.md`.
+- `previously migrated <old_name>` means the old name is historical continuity for migration, diff, and stored IR matching. Generated public APIs do not keep accepting it.
+- `previously alias <old_name>` means the old name is still a compatibility alias. This should be temporary and should usually carry explicit deprecation policy in the owning feature docs.
+
+The clause carries one or more prior names. The compiler records them on the IR node as `previous_names`. The planner, MCP, and semantic diff respect the link instead of treating the rename as drop-and-create.
+
+Bare `previously <old_name>` is legacy authoring syntax and should be rewritten to either `previously migrated <old_name>` or `previously alias <old_name>`.
+
+`previously` is a migration tool. Use it when continuity matters. Do not use it as a versioning hint or design prose; commentary belongs in `<feature>.ctx.md`.
 
 Keep `previously` only while the compiler, semantic diff, or migration planner still needs to connect the current node to a deployed or stored prior identity. Once every supported environment has migrated and the stored IR baseline no longer contains the old name, `previously` may be removed in an ordinary cleanup change. Future tooling may warn about stale `previously` aliases when it can prove the old identity is no longer reachable.
 
 `previously` does not chain implicitly. To preserve identity across multiple renames, list each prior name:
 
 ```lazuli
-command register previously create, signup
+command register previously migrated create, signup
 ```
 
 ## Reserved For Later

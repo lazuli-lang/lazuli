@@ -268,7 +268,8 @@ source that only fails later.
 - Features are product capabilities, not entity buckets.
 - `uses` is strict: every listed feature should be referenced by a semantic
   edge, not just mentioned conceptually.
-- `previously` is a migration continuity marker. Remove it once all supported
-  baselines no longer contain the old identity.
+- `previously` is a migration continuity marker and must say whether the old
+  name is `migrated` history or a temporary compatibility `alias`. Remove it
+  once all supported baselines no longer contain the old identity.
 - `escape_route` is explicit and still declares its route, policy, tenant
   boundary, and source path.
