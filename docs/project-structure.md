@@ -81,6 +81,12 @@ These are authored and committed:
 - extension code under `ui/`, `hooks/`, `domain/`, `queries/`, `jobs/`, `integrations/`, `pages/`
 - adapter configuration
 
+`registry.lzi` is a catalog, not an implementation folder. It may list
+available packs, integrations, env schema, and capabilities. A pack entry such
+as `customer_import from @drusa/customer-import` points to reusable source that
+Drusa can materialize; pack internals, provider payloads, handlers, and adapter
+mechanics remain in the pack/adapters.
+
 ## Generated
 
 These are generated and should be treated as disposable:

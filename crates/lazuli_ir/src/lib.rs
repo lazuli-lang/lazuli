@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.3.2";
+pub const LZIR_SCHEMA: &str = "0.3.3";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -753,6 +753,8 @@ pub struct AppManifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uses: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packs: Vec<AppPackUse>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bindings: Vec<AppBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architecture: Option<AppArchitecture>,
@@ -786,6 +788,12 @@ pub struct AppBinding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppPackUse {
+    pub name: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppRegistry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env: Vec<AppEnvVar>,
@@ -793,6 +801,26 @@ pub struct AppRegistry {
     pub integrations: Vec<AppIntegration>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<AppCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packs: Vec<AppPack>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppPack {
+    pub name: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provides: Vec<AppPackProvide>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requirements: Vec<FeatureRequirement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppPackProvide {
+    pub kind: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

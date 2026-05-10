@@ -1637,6 +1637,9 @@ app AcmeCRM
     customer_tags
     customer_import
 
+  packs
+    customer_import from registry.packs.customer_import
+
   bindings
     customer_import.crm = integrations.crm
 
@@ -1727,6 +1730,12 @@ registry
     tracing optional
     integration crm
 
+  packs
+    customer_import from @drusa/customer-import
+      version "0.1.0"
+      provides feature customer_import
+      requires integration crm: CRMProvider
+
   integrations
     crm: CRMProvider
       adapter @adapter.crm
@@ -1788,6 +1797,41 @@ and context propagation because those facts affect static analysis, generated
 clients, policy/tenant propagation, idempotency, and contract tests. Concrete
 choices such as gRPC, Connect, Kafka, NATS, Kubernetes, Envoy, or service mesh
 providers stay in Drusa adapters.
+
+`packs` in `registry.lzi` declares reusable Lazuli/Drusa packages available to
+the app. A registry pack records its package/path source, optional version,
+what it provides, and the abstract slots it requires. It does not inline the
+pack's domain model, UI, provider payloads, handlers, migrations, or adapter
+implementation:
+
+```lazuli
+registry
+  packs
+    payments from @drusa/payments
+      version "0.1.0"
+      provides feature payments
+      requires integration gateway: PaymentGateway
+```
+
+`packs` in `app.lzi` enables a registry pack for this app:
+
+```lazuli
+app AcmeCRM
+  uses
+    payments
+
+  packs
+    payments from registry.packs.payments
+
+  bindings
+    payments.gateway = registry.integrations.mercadopago
+```
+
+Enabled packs may satisfy app `uses` entries and may introduce abstract
+requirements that must be bound just like local feature requirements. This
+keeps `app.lzi` as a composition root and `registry.lzi` as a catalog; concrete
+pack internals and generated/runtime behavior remain in Drusa packs and
+adapters.
 
 Lazuli itself does not call external systems. It declares the contract that
 Drusa turns into Go runtime wiring. The Go backend performs HTTP/RPC/broker

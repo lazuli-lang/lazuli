@@ -32,6 +32,13 @@ source that only fails later.
   entries: name, capability kind, adapter reference, environments, and
   credential scope. They do not declare provider HTTP operations, provider
   client/SDK methods, or cloud secret storage.
+- Registry `packs` declare reusable package entries: name, source, optional
+  version, provided artifacts, and abstract requirements. They do not inline
+  product implementation, provider payload schemas, generated files, or runtime
+  adapter mechanics.
+- App `packs` enable registry packs with `<alias> from registry.packs.<name>`.
+  Enabled packs may satisfy app `uses` entries and may add abstract integration
+  requirements that app/profile bindings must resolve.
 - Feature `requires integration <slot>: <CapabilityType>` declares dependency
   inversion at the feature boundary. It names an abstract slot the feature can
   call later; it must not import or select a concrete provider directly.

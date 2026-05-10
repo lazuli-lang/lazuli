@@ -180,6 +180,9 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add environment profiles with `profile <environment>` for URL,
   integration environment/adapter, binding, and provider-neutral deploy
   topology overrides.
+- [x] Add pack registry/enablement contracts with `registry.lzi` `packs` and
+  app `packs`, including `provides feature ...` and abstract pack
+  `requires integration ...` slots that doctor can bind.
 - [ ] Decide adapter provenance for Drusa adapters, third-party plugin
   adapters, and local inline adapters in `registry.lzi`.
 - [ ] Decide whether `workspace.lzi` should become the semantic distributed

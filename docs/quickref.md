@@ -119,12 +119,34 @@ registry
     database postgres
     integration crm
 
+  packs
+    customer_import from @drusa/customer-import
+      version "0.1.0"
+      provides feature customer_import
+      requires integration crm: CRMProvider
+
   integrations
     crm: CRMProvider
       adapter @adapter.crm
       environments production
       credentials platform
         webhook_secret env.CRM_WEBHOOK_SECRET
+```
+
+Pack entries belong in `registry.lzi`; `app.lzi` only enables them. A pack may
+provide a feature and require abstract slots, but its implementation details
+stay in Drusa packs/adapters:
+
+```lazuli
+app PingApp
+  uses
+    customer_import
+
+  packs
+    customer_import from registry.packs.customer_import
+
+  bindings
+    customer_import.crm = integrations.crm
 ```
 
 Reusable features require abstract integration slots instead of concrete

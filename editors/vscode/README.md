@@ -118,6 +118,7 @@ Highlighting groups use standard TextMate scopes so IDE themes can style them
 without Lazuli-specific colors:
 
 - Structural constructors: `app`, `registry`, `profile`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
+- App/registry contract sections: `env`, `capabilities`, `integrations`, `packs`, `bindings`, `profiles`, `runtime`, `deploy`, `services`, and `communication`.
 - Layer sections: `domain`, `surface`, `extensions`.
 - Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `requires`, `targets`, `environments`, `urls`, `env`, `group`, `integrations`, `bindings`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, `deploy`.
 - Internal statements: `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `calls`, `emits`, `invalidates`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `sections`, `slot`, `platforms`, `previously`, `migrated`, `alias`, and app/runtime verbs such as `service`, `owns`, `exposes`, `publishes`, `consumes`, `credentials`, `propagate`, `serves`, `runs`, `healthcheck`, `migrations`, `topology`, `environment`, and `rollback`.

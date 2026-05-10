@@ -74,6 +74,8 @@ Backends and tooling never read IR of an incompatible major version. The compati
 | 0.2.0      | 0.2.0         | adds `.lzx` `ExperienceModule` IR |
 | 0.3.0      | 0.3.0         | adds optional app operational manifest shape |
 | 0.3.1      | 0.3.1         | adds app integration bindings and feature requirements |
+| 0.3.2      | 0.3.2         | adds environment profiles to app/registry package contracts |
+| 0.3.3      | 0.3.3         | adds app pack enablement and registry pack catalog entries |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -149,9 +151,9 @@ by inspect/doctor. `registry.lzi` lowers into an optional `AppRegistry`.
 Top-level `profile <environment>` blocks lower into `AppProfile` entries. The
 manifest is provider-neutral: targets, environments, URLs, logical service
 boundaries, communication intent, runtime units, and deploy gates enter IR. The
-registry carries package-level env schema, capabilities, and external
-integrations. Small apps may still put those registry-shaped blocks in
-`app.lzi`; doctor reads the combined app + registry contract. Provider-specific
+registry carries package-level env schema, capabilities, external
+integrations, and pack catalog entries. Small apps may still put registry-shaped
+blocks in `app.lzi`; doctor reads the combined app + registry contract. Provider-specific
 details such as AWS accounts, Kubernetes namespaces, Fly app ids, bucket names,
 gRPC implementations, Kafka/NATS/SQS brokers, or Terraform settings stay in
 Drusa adapter configuration.
@@ -169,6 +171,16 @@ scope, and credential bindings. They intentionally exclude provider operation
 schemas, provider client/SDK-specific methods, concrete base URLs, and
 infrastructure secret store details. Those belong to Drusa packs and adapter
 configuration.
+
+`AppPack` entries preserve the package-level pack catalog. They record a pack
+name, package/path source, optional version, provided artifacts such as
+`provides feature payments`, and abstract requirements such as
+`requires integration gateway: PaymentGateway`. They intentionally do not carry
+provider operations, UI implementation details, generated files, or cloud
+provider configuration. `AppPackUse` entries in `AppManifest` enable a registry
+pack by source, such as `payments from registry.packs.payments`; doctor may use
+enabled packs to satisfy app `uses` and to require matching integration
+bindings for the pack's abstract slots.
 
 `FeatureRequirement` entries preserve abstract feature dependencies such as
 `integration gateway: PaymentGateway`. A requirement names a local slot and a

@@ -197,7 +197,7 @@
         },
         {
           "name": "keyword.section.lazuli",
-          "match": "\\b(defaults|non_goals|delegated_to|out_of_scope|constraints|policies|errors|params|route|key|scope|filters|cells|payload|targets|environments|urls|env|group|integrations|bindings|capabilities|architecture|services|communication|runtime|deploy)\\b"
+          "match": "\\b(defaults|non_goals|delegated_to|out_of_scope|constraints|policies|errors|params|route|key|scope|filters|cells|payload|targets|environments|urls|env|group|integrations|bindings|packs|capabilities|architecture|services|communication|runtime|deploy)\\b"
         }
       ]
     },
@@ -368,7 +368,7 @@
       "patterns": [
         {
           "name": "storage.modifier.lazuli",
-          "match": "\\b(required|optional|default|readonly|raw|override|previously|migrated|alias|per|at|cascade|restrict|nullify|by)\\b"
+          "match": "\\b(required|optional|default|readonly|raw|override|previously|migrated|alias|per|at|from|provides|cascade|restrict|nullify|by)\\b"
         },
         {
           "name": "keyword.operator.logical.lazuli",

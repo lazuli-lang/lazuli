@@ -124,6 +124,7 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         auth_failed_redirect: app.auth_failed_redirect.clone(),
         not_found: app.not_found.clone(),
         uses: app.uses.clone(),
+        packs: Vec::new(),
         bindings: Vec::new(),
         architecture: None,
         services: Vec::new(),

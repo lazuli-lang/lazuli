@@ -18,6 +18,12 @@ registry
     tracing optional
     integration crm
 
+  packs
+    customer_import from @drusa/customer-import
+      version "0.1.0"
+      provides feature customer_import
+      requires integration crm: CRMProvider
+
   integrations
     crm: CRMProvider
       adapter @adapter.crm

@@ -1,8 +1,9 @@
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppDeploy, AppEnvVar,
     AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest,
-    AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
-    AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
+    AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration,
+    AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
+    FeatureRequirement,
 };
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
@@ -23,6 +24,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         auth_failed_redirect: None,
         not_found: None,
         uses: Vec::new(),
+        packs: Vec::new(),
         bindings: Vec::new(),
         architecture: None,
         services: Vec::new(),
@@ -92,6 +94,11 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 Some("uses") => {
                     if let Some(name) = used_feature_name(trimmed) {
                         app.uses.push(name.to_owned());
+                    }
+                }
+                Some("packs") => {
+                    if let Some(pack_use) = parse_app_pack_use(trimmed) {
+                        app.packs.push(pack_use);
                     }
                 }
                 Some("bindings") => {
@@ -347,11 +354,13 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
         env: Vec::new(),
         integrations: Vec::new(),
         capabilities: Vec::new(),
+        packs: Vec::new(),
     };
     let mut current_child: Option<&str> = None;
     let mut current_env_group: Option<String> = None;
     let mut current_integration: Option<usize> = None;
     let mut current_integration_child: Option<&str> = None;
+    let mut current_pack: Option<usize> = None;
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -367,6 +376,7 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                 current_env_group = None;
                 current_integration = None;
                 current_integration_child = None;
+                current_pack = None;
                 current_child = registry_child(trimmed);
             }
             4 => match current_child {
@@ -406,6 +416,20 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                         });
                     }
                 }
+                Some("packs") => {
+                    if let Some((name, source)) = parse_pack_header(trimmed) {
+                        registry.packs.push(AppPack {
+                            name,
+                            source,
+                            version: None,
+                            provides: Vec::new(),
+                            requirements: Vec::new(),
+                        });
+                        current_pack = registry.packs.len().checked_sub(1);
+                    } else {
+                        current_pack = None;
+                    }
+                }
                 _ => {}
             },
             6 => {
@@ -435,6 +459,18 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                     } else if let Some(rest) = trimmed.strip_prefix("data_classification ") {
                         integration.data_classification = Some(rest.trim().to_owned());
                         current_integration_child = None;
+                    }
+                } else if current_child == Some("packs") {
+                    let Some(pack_index) = current_pack else {
+                        continue;
+                    };
+                    let pack = &mut registry.packs[pack_index];
+                    if let Some(rest) = trimmed.strip_prefix("version ") {
+                        pack.version = Some(unquote(rest.trim()).to_owned());
+                    } else if let Some(provide) = parse_pack_provide(trimmed) {
+                        pack.provides.push(provide);
+                    } else if let Some(requirement) = parse_pack_requirement(trimmed) {
+                        pack.requirements.push(requirement);
                     }
                 }
             }
@@ -602,6 +638,7 @@ fn upsert_profile_integration<'a>(
 fn app_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "uses" => Some("uses"),
+        "packs" => Some("packs"),
         "bindings" => Some("bindings"),
         "targets" => Some("targets"),
         "environments" => Some("environments"),
@@ -623,6 +660,7 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
         "env" => Some("env"),
         "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
+        "packs" => Some("packs"),
         _ => None,
     }
 }
@@ -723,6 +761,80 @@ fn parse_integration_header(trimmed: &str) -> Option<(String, String)> {
     }
 }
 
+fn parse_app_pack_use(trimmed: &str) -> Option<AppPackUse> {
+    let (name, source) = trimmed.split_once(" from ")?;
+    let name = name.trim();
+    let source = source.trim();
+    if is_identifier(name) && is_pack_source(source) {
+        Some(AppPackUse {
+            name: name.to_owned(),
+            source: source.to_owned(),
+        })
+    } else {
+        None
+    }
+}
+
+fn parse_pack_header(trimmed: &str) -> Option<(String, String)> {
+    let (name, source) = trimmed.split_once(" from ")?;
+    let name = name.trim();
+    let source = source.trim();
+    if is_identifier(name) && is_pack_package_source(source) {
+        Some((name.to_owned(), source.to_owned()))
+    } else {
+        None
+    }
+}
+
+fn parse_pack_provide(trimmed: &str) -> Option<AppPackProvide> {
+    let rest = trimmed.strip_prefix("provides ")?;
+    let parts: Vec<_> = rest.split_whitespace().collect();
+    if parts.len() == 2 && is_identifier(parts[0]) && is_identifier(parts[1]) {
+        Some(AppPackProvide {
+            kind: parts[0].to_owned(),
+            name: parts[1].to_owned(),
+        })
+    } else {
+        None
+    }
+}
+
+fn parse_pack_requirement(trimmed: &str) -> Option<FeatureRequirement> {
+    let rest = trimmed.strip_prefix("requires ")?;
+    let requirement = rest.strip_prefix("integration ")?;
+    let (name, contract) = requirement.split_once(':')?;
+    let name = name.trim();
+    let contract = contract.trim();
+    if is_identifier(name) && is_type_name(contract) {
+        Some(FeatureRequirement {
+            kind: "integration".to_owned(),
+            name: name.to_owned(),
+            contract: contract.to_owned(),
+        })
+    } else {
+        None
+    }
+}
+
+fn is_pack_source(source: &str) -> bool {
+    pack_source_name(source).is_some_and(is_identifier)
+}
+
+fn pack_source_name(source: &str) -> Option<&str> {
+    source
+        .strip_prefix("packs.")
+        .or_else(|| source.strip_prefix("registry.packs."))
+}
+
+fn is_pack_package_source(source: &str) -> bool {
+    source.starts_with('@')
+        || source.starts_with("./")
+        || source.starts_with("../")
+        || source.starts_with("http://")
+        || source.starts_with("https://")
+        || (source.starts_with('"') && source.ends_with('"'))
+}
+
 fn parse_credential_binding(trimmed: &str) -> Option<(String, String)> {
     let mut parts = trimmed.split_whitespace();
     let name = parts.next()?;
@@ -801,6 +913,8 @@ app AcmeCRM
   title "Acme CRM"
   uses
     customer
+  packs
+    customer_import from registry.packs.customer_import
   bindings
     customer.gateway = integrations.crm
   targets
@@ -851,6 +965,8 @@ app AcmeCRM
 
         assert_eq!(manifest.name, "AcmeCRM");
         assert_eq!(manifest.uses, ["customer"]);
+        assert_eq!(manifest.packs[0].name, "customer_import");
+        assert_eq!(manifest.packs[0].source, "registry.packs.customer_import");
         assert_eq!(manifest.bindings[0].target_feature, "customer");
         assert_eq!(manifest.bindings[0].target_slot, "gateway");
         assert_eq!(manifest.bindings[0].source, "integrations.crm");
@@ -912,6 +1028,11 @@ registry
       server MERCADOPAGO_ACCESS_TOKEN: Secret required in production
   capabilities
     payment_gateway mercadopago
+  packs
+    payments from @drusa/payments
+      version "0.1.0"
+      provides feature payments
+      requires integration gateway: PaymentGateway
   integrations
     mercadopago: PaymentGateway
       adapter @adapter.mercadopago
@@ -924,6 +1045,14 @@ registry
 
         assert_eq!(registry.env[0].group.as_deref(), Some("mercadopago"));
         assert_eq!(registry.capabilities[0].name, "payment_gateway");
+        assert_eq!(registry.packs[0].name, "payments");
+        assert_eq!(registry.packs[0].source, "@drusa/payments");
+        assert_eq!(registry.packs[0].version.as_deref(), Some("0.1.0"));
+        assert_eq!(registry.packs[0].provides[0].kind, "feature");
+        assert_eq!(registry.packs[0].provides[0].name, "payments");
+        assert_eq!(registry.packs[0].requirements[0].kind, "integration");
+        assert_eq!(registry.packs[0].requirements[0].name, "gateway");
+        assert_eq!(registry.packs[0].requirements[0].contract, "PaymentGateway");
         assert_eq!(registry.integrations[0].name, "mercadopago");
         assert_eq!(registry.integrations[0].kind, "PaymentGateway");
         assert_eq!(

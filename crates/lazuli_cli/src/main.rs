@@ -3485,6 +3485,9 @@ app AcmeCRM
   uses
     customer
 
+  packs
+    customer_import from registry.packs.customer_import
+
   bindings
     customer.gateway = integrations.crm
 
@@ -3543,6 +3546,8 @@ app AcmeCRM
 
         assert!(json.contains("\"app\""));
         assert!(json.contains("\"name\":\"AcmeCRM\""));
+        assert!(json.contains("\"packs\""));
+        assert!(json.contains("\"registry.packs.customer_import\""));
         assert!(json.contains("\"bindings\""));
         assert!(json.contains("\"target_feature\":\"customer\""));
         assert!(json.contains("\"source\":\"integrations.crm\""));
@@ -3599,6 +3604,11 @@ registry
       server MERCADOPAGO_ACCESS_TOKEN: Secret required in production
   capabilities
     payment_gateway mercadopago
+  packs
+    payments from @drusa/payments
+      version "0.1.0"
+      provides feature payments
+      requires integration gateway: PaymentGateway
   integrations
     mercadopago: PaymentGateway
       adapter @adapter.mercadopago
@@ -3612,6 +3622,10 @@ registry
 
         assert!(json.contains("\"registry\""));
         assert!(json.contains("\"group\":\"mercadopago\""));
+        assert!(json.contains("\"packs\""));
+        assert!(json.contains("\"@drusa/payments\""));
+        assert!(json.contains("\"provides\""));
+        assert!(json.contains("\"contract\":\"PaymentGateway\""));
         assert!(json.contains("\"kind\":\"PaymentGateway\""));
         assert!(json.contains("\"access_token\""));
     }

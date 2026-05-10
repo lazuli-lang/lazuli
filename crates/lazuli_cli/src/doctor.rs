@@ -995,6 +995,7 @@ fn app_contract_diagnostics(
     let manifest = &app.manifest;
     let env_names = operational_env_names(manifest, registry);
     let used_features: BTreeSet<_> = manifest.uses.iter().map(String::as_str).collect();
+    let pack_features = enabled_pack_provided_features(manifest, registry);
 
     for feature in operational.features.values() {
         if !used_features.contains(feature.name.as_str()) {
@@ -1013,7 +1014,7 @@ fn app_contract_diagnostics(
     }
 
     for used in &manifest.uses {
-        if !operational.features.contains_key(used) {
+        if !operational.features.contains_key(used) && !pack_features.contains(used.as_str()) {
             diagnostics.push(DoctorDiagnostic {
                 path: app.path.clone(),
                 line: 1,
@@ -1028,9 +1029,14 @@ fn app_contract_diagnostics(
     }
 
     if !manifest.services.is_empty() {
-        diagnostics.extend(app_service_contract_diagnostics(app, operational));
+        diagnostics.extend(app_service_contract_diagnostics(
+            app,
+            operational,
+            &pack_features,
+        ));
     }
 
+    diagnostics.extend(app_pack_contract_diagnostics(app, registry));
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
     diagnostics.extend(external_call_contract_diagnostics(operational));
     diagnostics.extend(profile_contract_diagnostics(
@@ -1186,6 +1192,30 @@ fn app_binding_contract_diagnostics(
                     requirement.contract,
                     requirement.feature,
                     requirement.slot
+                ),
+            });
+        }
+    }
+
+    for (feature, slot, contract) in enabled_pack_integration_requirements(&app.manifest, registry)
+    {
+        requirement_index.insert((feature, slot), contract);
+
+        let matching_binding = app
+            .manifest
+            .bindings
+            .iter()
+            .find(|binding| binding.target_feature == feature && binding.target_slot == slot);
+
+        if matching_binding.is_none() {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-BIND-001".to_owned(),
+                message: format!(
+                    "enabled pack `{feature}` requires integration slot `{slot}`: `{contract}`, but app manifest does not bind `{feature}.{slot}`.",
                 ),
             });
         }
@@ -1351,6 +1381,10 @@ fn profile_contract_diagnostics(
             requirement.contract.as_str(),
         );
     }
+    for (feature, slot, contract) in enabled_pack_integration_requirements(&app.manifest, registry)
+    {
+        requirement_index.insert((feature, slot), contract);
+    }
 
     for profile in profiles {
         if !app_environments.contains(profile.profile.name.as_str()) {
@@ -1509,10 +1543,152 @@ fn operational_integrations<'a>(
     integrations
 }
 
+fn app_pack_contract_diagnostics(
+    app: &DoctorAppManifest,
+    registry: Option<&DoctorAppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let integrations = operational_integrations(&app.manifest, registry);
+
+    for pack_use in &app.manifest.packs {
+        let Some(pack_name) = pack_source_name(&pack_use.source) else {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-PACK-001".to_owned(),
+                message: format!(
+                    "app pack `{}` points to `{}`, but packs must use `packs.<name>` or `registry.packs.<name>`.",
+                    pack_use.name, pack_use.source
+                ),
+            });
+            continue;
+        };
+
+        let Some(pack) = registry.and_then(|registry| {
+            registry
+                .manifest
+                .packs
+                .iter()
+                .find(|pack| pack.name == pack_name)
+        }) else {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "APP-PACK-002".to_owned(),
+                message: format!(
+                    "app pack `{}` references registry pack `{pack_name}`, but no such pack exists in `registry.lzi`.",
+                    pack_use.name
+                ),
+            });
+            continue;
+        };
+
+        for requirement in &pack.requirements {
+            if requirement.kind == "integration"
+                && !integrations
+                    .values()
+                    .any(|contract| *contract == requirement.contract)
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "APP-PACK-003".to_owned(),
+                    message: format!(
+                        "enabled pack `{}` requires integration `{}`: `{}`, but app/registry declares no integration with that contract.",
+                        pack_use.name, requirement.name, requirement.contract
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn enabled_pack_provided_features<'a>(
+    app: &'a AppManifest,
+    registry: Option<&'a DoctorAppRegistry>,
+) -> BTreeSet<&'a str> {
+    let mut features = BTreeSet::new();
+    let Some(registry) = registry else {
+        return features;
+    };
+
+    for pack_use in &app.packs {
+        let Some(pack_name) = pack_source_name(&pack_use.source) else {
+            continue;
+        };
+        let Some(pack) = registry
+            .manifest
+            .packs
+            .iter()
+            .find(|pack| pack.name == pack_name)
+        else {
+            continue;
+        };
+
+        for provide in &pack.provides {
+            if provide.kind == "feature" {
+                features.insert(provide.name.as_str());
+            }
+        }
+    }
+
+    features
+}
+
+fn enabled_pack_integration_requirements<'a>(
+    app: &'a AppManifest,
+    registry: Option<&'a DoctorAppRegistry>,
+) -> Vec<(&'a str, &'a str, &'a str)> {
+    let mut requirements = Vec::new();
+    let Some(registry) = registry else {
+        return requirements;
+    };
+
+    for pack_use in &app.packs {
+        let Some(pack_name) = pack_source_name(&pack_use.source) else {
+            continue;
+        };
+        let Some(pack) = registry
+            .manifest
+            .packs
+            .iter()
+            .find(|pack| pack.name == pack_name)
+        else {
+            continue;
+        };
+
+        for requirement in &pack.requirements {
+            if requirement.kind == "integration" {
+                requirements.push((
+                    pack_use.name.as_str(),
+                    requirement.name.as_str(),
+                    requirement.contract.as_str(),
+                ));
+            }
+        }
+    }
+
+    requirements
+}
+
 fn integration_source_name(source: &str) -> Option<&str> {
     source
         .strip_prefix("integrations.")
         .or_else(|| source.strip_prefix("registry.integrations."))
+}
+
+fn pack_source_name(source: &str) -> Option<&str> {
+    source
+        .strip_prefix("packs.")
+        .or_else(|| source.strip_prefix("registry.packs."))
 }
 
 fn integration_environment_allowed(
@@ -1541,6 +1717,7 @@ fn integration_environment_allowed(
 fn app_service_contract_diagnostics(
     app: &DoctorAppManifest,
     operational: &OperationalFacts,
+    pack_features: &BTreeSet<&str>,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut owners: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -1602,7 +1779,7 @@ fn app_service_contract_diagnostics(
     }
 
     for owned in owners.keys() {
-        if !operational.features.contains_key(*owned) {
+        if !operational.features.contains_key(*owned) && !pack_features.contains(*owned) {
             diagnostics.push(DoctorDiagnostic {
                 path: app.path.clone(),
                 line: 1,
@@ -2485,6 +2662,86 @@ feature payments
         ]);
 
         assert!(package.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn doctor_resolves_features_and_requirements_from_enabled_packs() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    payments
+  packs
+    payments from registry.packs.payments
+  bindings
+    payments.gateway = registry.integrations.mercadopago
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit api
+      serves commands
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    mercadopago: PaymentGateway
+      adapter @adapter.mercadopago
+  packs
+    payments from @drusa/payments
+      version "0.1.0"
+      provides feature payments
+      requires integration gateway: PaymentGateway
+"#,
+            ),
+        ]);
+
+        assert!(
+            package.diagnostics().is_empty(),
+            "expected enabled pack to satisfy uses and binding contracts"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_unknown_enabled_pack() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  uses
+    payments
+  packs
+    payments from registry.packs.payments
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit api
+      serves commands
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+        )]);
+
+        let diagnostics = package.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(codes.contains("APP-PACK-002"));
+        assert!(codes.contains("APP-USES-002"));
     }
 
     #[test]

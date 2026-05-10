@@ -4902,7 +4902,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "app manifests own app/runtime contracts: use `uses`, `bindings`, `targets`, `environments`, `urls`, `env`, `integrations`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
+                        "app manifests own app/runtime contracts: use `uses`, `packs`, `bindings`, `targets`, `environments`, `urls`, `env`, `integrations`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, or `deploy` blocks.",
                     ));
                 }
             }
@@ -4924,6 +4924,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         }
                     }
                 }
+                Some("packs") => validate_app_pack_use_line(&mut diagnostics, line_index, line),
                 Some("bindings") => validate_app_binding_line(&mut diagnostics, line_index, line),
                 Some("targets") => validate_app_target_line(&mut diagnostics, line_index, line),
                 Some("environments") => {
@@ -5132,6 +5133,7 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
     let first = trimmed.split_whitespace().next()?;
     match first {
         "uses" => Some("uses"),
+        "packs" => Some("packs"),
         "bindings" => Some("bindings"),
         "targets" => Some("targets"),
         "environments" => Some("environments"),
@@ -5155,6 +5157,7 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut current_env_group: Option<String> = None;
     let mut current_integration = false;
     let mut current_integration_child: Option<&'static str> = None;
+    let mut current_pack = false;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -5170,6 +5173,7 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             current_env_group = None;
             current_integration = false;
             current_integration_child = None;
+            current_pack = false;
             continue;
         }
 
@@ -5182,17 +5186,19 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 current_env_group = None;
                 current_integration = false;
                 current_integration_child = None;
+                current_pack = false;
                 current_child = match trimmed {
                     "env" => Some("env"),
                     "capabilities" => Some("capabilities"),
                     "integrations" => Some("integrations"),
+                    "packs" => Some("packs"),
                     _ => {
                         diagnostics.push(simple_canonical_diagnostic(
                             line_index,
                             line,
                             DiagnosticSeverity::WARNING,
                             "registry-contract",
-                            "registry blocks use `env`, `capabilities`, and `integrations`.",
+                            "registry blocks use `env`, `capabilities`, `integrations`, and `packs`.",
                         ));
                         None
                     }
@@ -5214,6 +5220,10 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     validate_app_integration_header(&mut diagnostics, line_index, line, trimmed);
                     current_integration = true;
                     current_integration_child = None;
+                }
+                Some("packs") => {
+                    validate_registry_pack_header(&mut diagnostics, line_index, line, trimmed);
+                    current_pack = true;
                 }
                 _ => {}
             },
@@ -5247,6 +5257,18 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                             line,
                             trimmed,
                         );
+                    }
+                } else if current_child == Some("packs") {
+                    if !current_pack {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "registry-pack-contract",
+                            "pack children must follow `<name> from <package-or-path>` under `packs`.",
+                        ));
+                    } else {
+                        validate_registry_pack_child(&mut diagnostics, line_index, line, trimmed);
                     }
                 }
             }
@@ -5814,6 +5836,7 @@ fn validate_app_child_header(
         first,
         "targets"
             | "bindings"
+            | "packs"
             | "environments"
             | "urls"
             | "env"
@@ -6041,6 +6064,103 @@ fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usiz
             "app bindings use `<feature>.<slot> = integrations.<name>` or `<feature>.<slot> = registry.integrations.<name>`.",
         ));
     }
+}
+
+fn validate_app_pack_use_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let Some((name, source)) = trimmed.split_once(" from ") else {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-pack-contract",
+            "app pack entries use `<alias> from registry.packs.<name>` or `<alias> from packs.<name>`.",
+        ));
+        return;
+    };
+
+    let source_name = source
+        .trim()
+        .strip_prefix("packs.")
+        .or_else(|| source.trim().strip_prefix("registry.packs."));
+    if !is_identifier(name.trim()) || !source_name.is_some_and(is_identifier) {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "app-pack-contract",
+            "app pack entries use identifier aliases and `packs.<name>` or `registry.packs.<name>` sources.",
+        ));
+    }
+}
+
+fn validate_registry_pack_header(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    let Some((name, source)) = trimmed.split_once(" from ") else {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "registry-pack-contract",
+            "registry packs use `<name> from @scope/package` or a local path.",
+        ));
+        return;
+    };
+
+    let source = source.trim();
+    let valid_source = source.starts_with('@')
+        || source.starts_with("./")
+        || source.starts_with("../")
+        || source.starts_with("http://")
+        || source.starts_with("https://")
+        || is_quoted_lzx_literal(source);
+
+    if !is_identifier(name.trim()) || !valid_source {
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "registry-pack-contract",
+            "registry pack entries use identifier names and package/path sources such as `payments from @drusa/payments`.",
+        ));
+    }
+}
+
+fn validate_registry_pack_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    if let Some(version) = trimmed.strip_prefix("version ") {
+        if is_quoted_lzx_literal(version.trim()) {
+            return;
+        }
+    }
+
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if matches!(parts.as_slice(), ["provides", kind, name] if is_identifier(kind) && is_identifier(name))
+    {
+        return;
+    }
+
+    if let Some(requirement) = trimmed.strip_prefix("requires ")
+        && parse_feature_integration_requirement(requirement).is_some()
+    {
+        return;
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "registry-pack-contract",
+        "pack children use `version \"...\"`, `provides feature <name>`, or `requires integration <slot>: <CapabilityType>`.",
+    ));
 }
 
 fn parse_app_binding_line(trimmed: &str) -> Option<(&str, &str, &str)> {
@@ -8905,9 +9025,9 @@ fn is_word_byte(byte: u8) -> bool {
 fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
         "app" => Some("Declares the `.lzi` application entrypoint and operational contract."),
-        "registry" => {
-            Some("Declares the package-level catalog for env, capabilities, and integrations.")
-        }
+        "registry" => Some(
+            "Declares the package-level catalog for env, capabilities, integrations, and packs.",
+        ),
         "profile" => Some(
             "Declares environment-specific app overrides such as public URLs, sandbox integrations, binding overrides, and deploy topology.",
         ),
@@ -8919,6 +9039,15 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         }
         "bindings" => Some(
             "Binds abstract feature requirements to concrete app or registry integration entries.",
+        ),
+        "packs" => Some(
+            "Declares Drusa/Lazuli pack catalog entries in `registry.lzi` or enabled pack references in `app.lzi`.",
+        ),
+        "provides" => {
+            Some("Declares what a registry pack provides, such as `provides feature payments`.")
+        }
+        "from" => Some(
+            "Declares a source relationship, such as pack enablement or create-from-input sugar.",
         ),
         "capabilities" => Some(
             "Declares required runtime capabilities without choosing concrete infrastructure providers.",
@@ -9051,7 +9180,6 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "secret" => Some("Declares the secret source for declarative webhook verification."),
         "header" => Some("Declares the signature header for declarative webhook verification."),
         "modifier" => Some("Attaches a query modifier extension to a generated query."),
-        "from" => Some("Copies matching input fields into a create assignment."),
         "emits" => Some("Declares a domain event emitted by a command."),
         "anchor" => Some("Declares the extension anchor for a routed abstract view."),
         "extensible_by" => Some("Whitelists features allowed to extend a view anchor."),
@@ -9526,6 +9654,79 @@ profile 123
             messages
                 .iter()
                 .any(|message| message.contains("profile deploy"))
+        );
+    }
+
+    #[test]
+    fn canonical_accepts_app_and_registry_pack_contracts() {
+        let source = r#"
+app AcmeCRM
+  uses
+    payments
+  packs
+    payments from registry.packs.payments
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit api
+      serves commands
+      healthcheck "/healthz"
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+
+registry
+  integrations
+    mercadopago: PaymentGateway
+      adapter @adapter.mercadopago
+  packs
+    payments from @drusa/payments
+      version "0.1.0"
+      provides feature payments
+      requires integration gateway: PaymentGateway
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected app/registry pack contracts to pass LSP diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_pack_contracts() {
+        let source = r#"
+app AcmeCRM
+  packs
+    payments -> registry.packs.payments
+
+registry
+  packs
+    payments @drusa/payments
+      provides
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.iter().any(|message| {
+            message.contains("app pack entries use `<alias> from registry.packs.<name>`")
+        }));
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("registry packs use `<name> from"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("pack children use"))
         );
     }
 
