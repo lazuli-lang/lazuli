@@ -321,6 +321,18 @@ feature customer
     rate_limit "20 per hour per user"
     handler "./api/stream_customer_summary.go"
 
+  agent summarize_customer
+    input
+      customer_id: Customer.ID required
+      prompt: Text required
+    context customer.query.by_id(id: input.customer_id)
+    policy @policy.read
+    rate_limit "20 per hour per user"
+    output stream Text
+    model @llm.default
+    prompt "./prompts/summarize_customer.md"
+    safety @validator.pii_scrub
+
   workflow lifecycle on Customer.lifecycle_stage
     policy @policy.update
     emits customer_status_changed

@@ -383,6 +383,8 @@ struct InspectFeature {
     requirements: Vec<InspectRequirement>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     external_calls: Vec<InspectExternalCall>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    agents: Vec<InspectAgent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     refs: Option<InspectRefs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -555,6 +557,30 @@ struct InspectAudit {
 }
 
 #[derive(Debug, Serialize)]
+struct InspectAgent {
+    name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    inputs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rate_limit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    safety: Option<String>,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
 struct InspectSecurityWebhook {
     webhook: String,
     verify: String,
@@ -702,11 +728,13 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
         .to_owned();
     let policies = collect_policy_atoms(lines);
     let external_calls = inspect_external_calls(&name, lines);
+    let agents = inspect_agents(lines);
 
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
         external_calls,
+        agents,
         refs: expansions.refs.then(|| inspect_refs(lines)),
         summary: expansions.summary.then(|| inspect_summary(lines)),
         locators: expansions.locators.then(|| inspect_locators(lines)),
@@ -2600,6 +2628,54 @@ fn direct_child_value(lines: &[String], prefix: &str) -> Option<String> {
             None
         }
     })
+}
+
+fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
+    let mut agents = Vec::new();
+
+    for block in top_level_blocks(lines, "agent ") {
+        let name = named_top_block_name(block[0].trim_start())
+            .unwrap_or("unknown")
+            .to_owned();
+        let inputs = command_input_names(block);
+        let context = direct_child_value(block, "context ")
+            .as_deref()
+            .map(strip_quotes);
+        let policy = direct_child_value(block, "policy ");
+        let rate_limit = direct_child_value(block, "rate_limit ")
+            .as_deref()
+            .map(strip_quotes);
+        let output = direct_child_value(block, "output ");
+        let model = direct_child_value(block, "model ");
+        let prompt = direct_child_value(block, "prompt ")
+            .as_deref()
+            .map(strip_quotes);
+        let tools = direct_child_value(block, "tools ")
+            .map(|raw| {
+                raw.split(',')
+                    .map(|t| t.trim().to_owned())
+                    .filter(|t| !t.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let safety = direct_child_value(block, "safety ");
+
+        agents.push(InspectAgent {
+            name,
+            inputs,
+            context,
+            policy,
+            rate_limit,
+            output,
+            model,
+            prompt,
+            tools,
+            safety,
+            origin: "agent",
+        });
+    }
+
+    agents
 }
 
 fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {

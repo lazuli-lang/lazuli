@@ -330,6 +330,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(validation_syntax_diagnostics(source));
         diagnostics.extend(derived_field_diagnostics(source));
         diagnostics.extend(has_many_diagnostics(source));
+        diagnostics.extend(agent_contract_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
         diagnostics.extend(event_payload_reference_diagnostics(source));
         diagnostics.extend(event_kind_diagnostics(source));
@@ -1927,7 +1928,7 @@ fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "namespace-catalog",
-                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, and `@anchor`.",
+                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, and `@tool`.",
                 ));
                 break;
             }
@@ -1981,6 +1982,8 @@ fn is_allowed_reference_namespace(namespace: &str) -> bool {
             | "client"
             | "query_modifier"
             | "anchor"
+            | "llm"
+            | "tool"
     )
 }
 
@@ -3170,6 +3173,107 @@ fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
                 DiagnosticSeverity::ERROR,
                 "derived-field-contract",
                 "`derived from` fields are computed at read time and must not declare `default` (no trailing `= <value>`).",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if leading != 2 || !trimmed.starts_with("agent ") {
+            index += 1;
+            continue;
+        }
+
+        let header_index = index;
+        let mut has_policy = false;
+        let mut has_output = false;
+        let mut has_model = false;
+        let mut has_prompt = false;
+        let mut model_value: Option<&str> = None;
+
+        index += 1;
+        while index < lines.len() {
+            let inner = lines[index];
+            let inner_trimmed = inner.trim_start();
+            let inner_leading = leading_spaces(inner);
+
+            if inner_trimmed.is_empty() || inner_trimmed.starts_with('#') {
+                index += 1;
+                continue;
+            }
+            if inner_leading <= 2 {
+                break;
+            }
+            if inner_leading == 4 {
+                if inner_trimmed.starts_with("policy ") {
+                    has_policy = true;
+                } else if inner_trimmed.starts_with("output ") {
+                    has_output = true;
+                } else if let Some(rest) = inner_trimmed.strip_prefix("model ") {
+                    has_model = true;
+                    model_value = Some(rest.trim());
+                } else if inner_trimmed.starts_with("prompt ") {
+                    has_prompt = true;
+                }
+            }
+            index += 1;
+        }
+
+        if !has_policy {
+            diagnostics.push(simple_canonical_diagnostic(
+                header_index,
+                lines[header_index],
+                DiagnosticSeverity::ERROR,
+                "agent-contract",
+                "`agent` declarations must declare an explicit `policy @policy.<name>`.",
+            ));
+        }
+        if !has_output {
+            diagnostics.push(simple_canonical_diagnostic(
+                header_index,
+                lines[header_index],
+                DiagnosticSeverity::ERROR,
+                "agent-contract",
+                "`agent` declarations must declare an `output [stream] <Type>`.",
+            ));
+        }
+        if !has_model {
+            diagnostics.push(simple_canonical_diagnostic(
+                header_index,
+                lines[header_index],
+                DiagnosticSeverity::ERROR,
+                "agent-contract",
+                "`agent` declarations must declare a `model @llm.<name>`.",
+            ));
+        } else if let Some(value) = model_value {
+            if !value.starts_with("@llm.") {
+                diagnostics.push(simple_canonical_diagnostic(
+                    header_index,
+                    lines[header_index],
+                    DiagnosticSeverity::ERROR,
+                    "agent-contract",
+                    "`model` on an `agent` must be a `@llm.<name>` reference.",
+                ));
+            }
+        }
+        if !has_prompt {
+            diagnostics.push(simple_canonical_diagnostic(
+                header_index,
+                lines[header_index],
+                DiagnosticSeverity::ERROR,
+                "agent-contract",
+                "`agent` declarations must declare a `prompt \"./path\"` template.",
             ));
         }
     }
@@ -9902,6 +10006,22 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "env" => Some("Declares typed environment variables and client/server exposure."),
         "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
         "record" => Some("Declares a non-persisted typed result/DTO shape."),
+        "agent" => Some(
+            "Declares an LLM-powered capability with typed input, output, prompt template, model reference, policy, and rate limits. Drusa wires the LLM transport; Lazuli owns the contract.",
+        ),
+        "model" => {
+            Some("On an `agent`, references the LLM model under the `@llm.<name>` namespace.")
+        }
+        "prompt" => Some("On an `agent`, points to the prompt template file at `./path`."),
+        "tools" => Some(
+            "On an `agent`, declares the closed list of `@tool.<name>` references the agent may invoke.",
+        ),
+        "safety" => Some(
+            "On an `agent`, declares safety classifiers or policy checks applied to inputs/outputs.",
+        ),
+        "stream" => Some(
+            "On an `agent` `output`, marks the response as a streamed value: `output stream <Type>`.",
+        ),
         "command" => Some("Declares a write operation for an aggregate."),
         "query" => Some(
             "Declares a read operation. The short form `query <name>` infers the kind from the shape: `by <field>: <Type>` in the header → lookup; a direct `sql ...` child → sql; otherwise → list.",
@@ -10063,6 +10183,12 @@ const KEYWORDS: &[&str] = &[
     "query.list",
     "query.lookup",
     "query.sql",
+    "agent",
+    "model",
+    "prompt",
+    "tools",
+    "safety",
+    "stream",
     "defaults",
     "domain",
     "policies",
@@ -11830,6 +11956,78 @@ feature customer
             diagnostics_for(bad_inverse)
                 .iter()
                 .any(|d| d.message.contains("`inverse` requires a field name"))
+        );
+    }
+
+    #[test]
+    fn agent_accepts_canonical_declaration() {
+        let source = r#"
+feature customer
+  policies
+    read: @scope.same_org
+
+  agent summarize_customer
+    input
+      customer_id: ID required
+    context customer.query.by_id(id: input.customer_id)
+    policy @policy.read
+    rate_limit "20 per hour per user"
+    output stream Text
+    model @llm.default
+    prompt "./prompts/summarize_customer.md"
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostics.is_empty(),
+            "expected no diagnostics, got: {:#?}",
+            diagnostics
+                .iter()
+                .map(|d| (d.message.clone(), d.code.clone()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn agent_rejects_missing_required_children() {
+        let source = r#"
+feature customer
+  agent summarize_customer
+    input
+      prompt: Text required
+"#;
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("`policy @policy.<name>`"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("`output [stream] <Type>`"))
+        );
+        assert!(messages.iter().any(|m| m.contains("`model @llm.<name>`")));
+        assert!(messages.iter().any(|m| m.contains("prompt")));
+    }
+
+    #[test]
+    fn agent_rejects_non_llm_model_reference() {
+        let source = r#"
+feature customer
+  agent summarize_customer
+    input
+      prompt: Text required
+    policy @policy.read
+    output stream Text
+    model gpt-4
+    prompt "./prompts/summarize_customer.md"
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("must be a `@llm.<name>` reference"))
         );
     }
 

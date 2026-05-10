@@ -105,6 +105,12 @@ source that only fails later.
   produces a lookup, a direct `sql ...` child produces an sql query, and
   everything else is a list. Inspect locators report the inferred kind as
   `query.<list|lookup|sql>`.
+- `agent <name>` declares an LLM-powered capability with typed input, context,
+  policy, rate limit, output, model reference, prompt template, optional tool
+  list, and optional safety classifier. Required children: `policy
+  @policy.<name>`, `output [stream] <Type>`, `model @llm.<name>`, `prompt
+  "./path"`. Lazuli owns the contract; Drusa wires the LLM transport,
+  prompt-template loading, and tool dispatch.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as
@@ -132,7 +138,7 @@ source that only fails later.
 
 - `@...` references use the closed namespace catalog: `@role`, `@scope`,
   `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@client`, `@fn`, `@hook`,
-  `@validator`, `@adapter`, `@query_modifier`, and `@anchor`.
+  `@validator`, `@adapter`, `@query_modifier`, `@anchor`, `@llm`, and `@tool`.
 - Registry adapter package refs such as `@drusa/...` and `@plugin/...` are
   adapter source markers, not general `@...` extension namespaces.
 - Unknown `@...` namespaces are errors.
