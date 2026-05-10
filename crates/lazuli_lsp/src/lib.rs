@@ -4781,6 +4781,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut current_runtime_unit: Option<usize> = None;
     let mut current_service: Option<usize> = None;
     let mut current_service_child: Option<&'static str> = None;
+    let mut current_env_group: Option<String> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -4797,6 +4798,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             current_runtime_unit = None;
             current_service = None;
             current_service_child = None;
+            current_env_group = None;
 
             if trimmed.starts_with("app ") {
                 let parts: Vec<_> = trimmed.split_whitespace().collect();
@@ -4823,6 +4825,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 current_runtime_unit = None;
                 current_service = None;
                 current_service_child = None;
+                current_env_group = None;
                 if let Some(child) = app_child_block(trimmed) {
                     current_app_child = Some(child);
                     match child {
@@ -4882,7 +4885,14 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     }
                 }
                 Some("urls") => validate_app_url_line(&mut diagnostics, line_index, line),
-                Some("env") => validate_app_env_line(&mut diagnostics, line_index, line),
+                Some("env") => {
+                    if let Some(group) = parse_env_group_name(trimmed) {
+                        current_env_group = Some(group.to_owned());
+                    } else {
+                        current_env_group = None;
+                        validate_app_env_line(&mut diagnostics, line_index, line);
+                    }
+                }
                 Some("capabilities") => {
                     validate_app_capability_line(&mut diagnostics, line_index, line)
                 }
@@ -4940,7 +4950,19 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 )),
             },
             6 => {
-                if current_app_child == Some("runtime") {
+                if current_app_child == Some("env") {
+                    if current_env_group.is_none() {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "app-env-contract",
+                            "six-space env declarations must follow `group <name>` inside `env`.",
+                        ));
+                    } else {
+                        validate_app_env_line(&mut diagnostics, line_index, line);
+                    }
+                } else if current_app_child == Some("runtime") {
                     let Some(unit_index) = current_runtime_unit else {
                         diagnostics.push(simple_canonical_diagnostic(
                             line_index,
@@ -5285,7 +5307,7 @@ fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
             line,
             DiagnosticSeverity::ERROR,
             "app-env-contract",
-            "app env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional`.",
+            "app env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional [in environment]`.",
         ));
         return;
     }
@@ -5313,11 +5335,26 @@ fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
 }
 
 fn valid_env_declaration_parts(parts: &[&str]) -> bool {
-    parts.len() == 4
+    let has_environment_scope = parts.len() >= 6
+        && parts[4] == "in"
+        && split_items(&parts[5..].join(" "))
+            .iter()
+            .all(|environment| is_identifier(environment));
+
+    (parts.len() == 4 || has_environment_scope)
         && matches!(parts[0], "server" | "client" | "mobile")
         && parts[1].ends_with(':')
         && matches!(parts[2], "Secret" | "Text" | "Url" | "Boolean" | "Integer")
         && matches!(parts[3], "required" | "optional")
+}
+
+fn parse_env_group_name(trimmed: &str) -> Option<&str> {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() == 2 && parts[0] == "group" && is_identifier(parts[1]) {
+        Some(parts[1])
+    } else {
+        None
+    }
 }
 
 fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
@@ -5559,6 +5596,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut declared = HashSet::new();
     let mut in_env = false;
+    let mut current_env_group: Option<String> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -5569,6 +5607,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
 
         if leading_spaces(line) == 0 {
             in_env = trimmed == "env";
+            current_env_group = None;
             continue;
         }
 
@@ -5576,13 +5615,20 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        if leading_spaces(line) != 2 {
+        if leading_spaces(line) == 2 {
+            if let Some(group) = parse_env_group_name(trimmed) {
+                current_env_group = Some(group.to_owned());
+                continue;
+            }
+            current_env_group = None;
+        } else if leading_spaces(line) == 4 && current_env_group.is_some() {
+        } else {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
                 DiagnosticSeverity::ERROR,
                 "env-schema-contract",
-                "env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional`.",
+                "env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional [in environment]`, optionally nested under `group <name>`.",
             ));
             continue;
         }
@@ -5594,7 +5640,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::ERROR,
                 "env-schema-contract",
-                "env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional`.",
+                "env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional [in environment]`, optionally nested under `group <name>`.",
             ));
             continue;
         }
@@ -8160,6 +8206,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "adapter" => Some("Declares a reusable integration adapter extension contract."),
         "query_modifier" => Some("Declares a reusable query modifier extension contract."),
         "escape_route" => Some("Declares a custom route outside generated UI ownership."),
+        "group" => Some("Groups related app env declarations without creating a namespace."),
         "required" => Some("Marks a field as required."),
         "unique" => Some("Marks a field as unique."),
         "default" => Some("Declares a default field value."),
@@ -8198,6 +8245,8 @@ const KEYWORDS: &[&str] = &[
     "targets",
     "environments",
     "urls",
+    "group",
+    "in",
     "capabilities",
     "architecture",
     "services",
@@ -8473,7 +8522,10 @@ app AcmeCRM
 
   env
     server DATABASE_URL: Secret required
-    client PUBLIC_API_URL: Url required
+    group public
+      client PUBLIC_API_URL: Url required
+    group mailer
+      server MAILER_API_KEY: Secret required in production
 
   capabilities
     database postgres
@@ -9144,9 +9196,11 @@ feature integration
     fn canonical_accepts_declared_env_reference() {
         let source = r#"
 env
-  server INBOUND_WEBHOOK_SECRET: Secret required
-  client PUBLIC_APP_URL: Url required
-  mobile EXPO_PUBLIC_API_URL: Url required
+  group webhooks
+    server INBOUND_WEBHOOK_SECRET: Secret required in production
+  group public_clients
+    client PUBLIC_APP_URL: Url required
+    mobile EXPO_PUBLIC_API_URL: Url required
 
 feature integration
   purpose "Integration"

@@ -146,6 +146,13 @@ such as AWS accounts, Kubernetes namespaces, Fly app ids, bucket names, gRPC
 implementations, Kafka/NATS/SQS brokers, or Terraform settings stay in Drusa
 adapter configuration.
 
+`AppEnvVar` entries are still keyed by explicit env variable name. Optional
+`group` metadata preserves authoring organization such as `customer_import`,
+`mercadopago`, or `public_clients`, but it does not create a namespace for
+`env.NAME` references. Optional `environments` metadata carries declarations
+such as `required in production`; values and provider-specific secret storage
+never enter IR.
+
 ## Experience IR
 
 `.lzx` lowers into `ExperienceModule`, separate from `.lzi` `Module`. The

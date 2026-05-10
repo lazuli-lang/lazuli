@@ -1592,7 +1592,8 @@ app AcmeCRM
     web production "https://app.acme.example"
     api production "https://api.acme.example"
   env
-    server INBOUND_SECRET: Secret required
+    group webhooks
+      server INBOUND_SECRET: Secret required in production
   capabilities
     object_storage files
   architecture

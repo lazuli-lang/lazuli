@@ -3228,6 +3228,8 @@ app AcmeCRM
 
   env
     server DATABASE_URL: Secret required
+    group mailer
+      server MAILER_API_KEY: Secret required in production
 
   capabilities
     database postgres
@@ -3264,6 +3266,9 @@ app AcmeCRM
         assert!(json.contains("\"environments\":[\"local\",\"production\"]"));
         assert!(json.contains("\"url\":\"https://api.acme.example\""));
         assert!(json.contains("\"DATABASE_URL\""));
+        assert!(json.contains("\"group\":\"mailer\""));
+        assert!(json.contains("\"MAILER_API_KEY\""));
+        assert!(json.contains("\"environments\":[\"production\"]"));
         assert!(json.contains("\"architecture\""));
         assert!(json.contains("\"mode\":\"modular_monolith\""));
         assert!(json.contains("\"services\""));

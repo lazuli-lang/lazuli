@@ -36,6 +36,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let mut current_runtime_unit: Option<usize> = None;
     let mut current_service: Option<usize> = None;
     let mut current_service_child: Option<&str> = None;
+    let mut current_env_group: Option<String> = None;
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -51,6 +52,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 current_runtime_unit = None;
                 current_service = None;
                 current_service_child = None;
+                current_env_group = None;
                 if let Some(rest) = trimmed.strip_prefix("title ") {
                     app.title = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
@@ -97,14 +99,13 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     }
                 }
                 Some("env") => {
-                    let parts: Vec<_> = trimmed.split_whitespace().collect();
-                    if parts.len() == 4 && parts[1].ends_with(':') {
-                        app.env.push(AppEnvVar {
-                            scope: parts[0].to_owned(),
-                            name: parts[1].trim_end_matches(':').to_owned(),
-                            type_name: parts[2].to_owned(),
-                            requiredness: parts[3].to_owned(),
-                        });
+                    if let Some(group) = parse_env_group_name(trimmed) {
+                        current_env_group = Some(group.to_owned());
+                    } else {
+                        current_env_group = None;
+                        if let Some(env_var) = parse_app_env_var(trimmed, None) {
+                            app.env.push(env_var);
+                        }
                     }
                 }
                 Some("capabilities") => {
@@ -206,7 +207,13 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 _ => {}
             },
             6 => {
-                if current_child == Some("runtime") {
+                if current_child == Some("env") {
+                    if let Some(group) = current_env_group.as_deref() {
+                        if let Some(env_var) = parse_app_env_var(trimmed, Some(group)) {
+                            app.env.push(env_var);
+                        }
+                    }
+                } else if current_child == Some("runtime") {
                     let Some(unit_index) = current_runtime_unit else {
                         continue;
                     };
@@ -307,6 +314,53 @@ fn split_items(value: &str) -> Vec<String> {
         .collect()
 }
 
+fn parse_env_group_name(trimmed: &str) -> Option<&str> {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() == 2 && parts[0] == "group" && is_identifier(parts[1]) {
+        Some(parts[1])
+    } else {
+        None
+    }
+}
+
+fn parse_app_env_var(trimmed: &str, group: Option<&str>) -> Option<AppEnvVar> {
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    let has_environment_scope = parts.len() >= 6 && parts.get(4) == Some(&"in");
+    if !(parts.len() == 4 || has_environment_scope) {
+        return None;
+    }
+
+    if !matches!(parts[0], "server" | "client" | "mobile")
+        || !parts[1].ends_with(':')
+        || !matches!(parts[2], "Secret" | "Text" | "Url" | "Boolean" | "Integer")
+        || !matches!(parts[3], "required" | "optional")
+    {
+        return None;
+    }
+
+    let environments = if has_environment_scope {
+        let environments = split_items(&parts[5..].join(" "));
+        if environments
+            .iter()
+            .any(|environment| !is_identifier(environment))
+        {
+            return None;
+        }
+        environments
+    } else {
+        Vec::new()
+    };
+
+    Some(AppEnvVar {
+        group: group.map(str::to_owned),
+        scope: parts[0].to_owned(),
+        name: parts[1].trim_end_matches(':').to_owned(),
+        type_name: parts[2].to_owned(),
+        requiredness: parts[3].to_owned(),
+        environments,
+    })
+}
+
 fn unquote(value: &str) -> &str {
     value
         .strip_prefix('"')
@@ -316,6 +370,12 @@ fn unquote(value: &str) -> &str {
 
 fn leading_spaces(line: &str) -> usize {
     line.bytes().take_while(|byte| *byte == b' ').count()
+}
+
+fn is_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 #[cfg(test)]
@@ -337,6 +397,8 @@ app AcmeCRM
     api production "https://api.acme.example"
   env
     server DATABASE_URL: Secret required
+    group mailer
+      server MAILER_API_KEY: Secret required in production
   capabilities
     database postgres
   architecture
@@ -373,6 +435,9 @@ app AcmeCRM
         assert_eq!(manifest.environments, ["production"]);
         assert_eq!(manifest.urls[0].url, "https://api.acme.example");
         assert_eq!(manifest.env[0].name, "DATABASE_URL");
+        assert_eq!(manifest.env[1].group.as_deref(), Some("mailer"));
+        assert_eq!(manifest.env[1].name, "MAILER_API_KEY");
+        assert_eq!(manifest.env[1].environments, ["production"]);
         assert_eq!(manifest.capabilities[0].name, "database");
         assert_eq!(
             manifest

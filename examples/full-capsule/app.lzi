@@ -33,9 +33,11 @@ app AcmeCRM
     api production "https://api.acme.example"
 
   env
-    server CRM_WEBHOOK_SECRET: Secret required
-    client PUBLIC_APP_URL: Url required
-    mobile EXPO_PUBLIC_API_URL: Url required
+    group customer_import
+      server CRM_WEBHOOK_SECRET: Secret required in production
+    group public_clients
+      client PUBLIC_APP_URL: Url required
+      mobile EXPO_PUBLIC_API_URL: Url required
 
   capabilities
     database postgres

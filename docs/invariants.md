@@ -15,6 +15,10 @@ source that only fails later.
   environments, URLs, env schema, runtime units, capabilities,
   provider-neutral deploy gates, and logical service boundaries. It is not a
   product feature and should not hide domain behavior.
+- App env declarations may use `group <name>` for organization, but env names
+  are still explicit global schema entries. `required in <environment>` scopes
+  requiredness to named app environments without creating provider-specific
+  config inside the manifest.
 - App `services` declare logical ownership boundaries. They do not by
   themselves require separate processes; Drusa decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.
@@ -198,8 +202,9 @@ source that only fails later.
 - Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
 - A top-level `env` block declares every `env.NAME` reference with scope,
-  type, and requiredness. Client-exposed names use `PUBLIC_`; Expo/mobile names
-  use `EXPO_PUBLIC_`.
+  type, and requiredness. Optional `group <name>` children organize related
+  variables without changing the reference name. Client-exposed names use
+  `PUBLIC_`; Expo/mobile names use `EXPO_PUBLIC_`.
 - File fields use `@cap.File(max_size:<size>,accept:<mime>)`; upload UI and
   providers are framework/adapters, but size and MIME acceptance are language
   contracts.

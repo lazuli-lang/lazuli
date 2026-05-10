@@ -73,7 +73,10 @@ app PingApp
     api local "http://localhost:8080"
 
   env
-    client PUBLIC_API_URL: Url required
+    group public_clients
+      client PUBLIC_API_URL: Url required
+    group mailer
+      server MAILER_API_KEY: Secret required in production
 
   capabilities
     database postgres
@@ -422,7 +425,8 @@ opt-outs such as `verify none` without a deployment allowlist.
 - Sensitive fields with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` require field-level `read` and `write` policy.
 - Top-level `env` declares every `env.NAME` reference with scope, type, and
-  requiredness; client values use `PUBLIC_`, mobile values use `EXPO_PUBLIC_`.
+  requiredness. Optional `group <name>` children organize related variables;
+  client values use `PUBLIC_`, mobile values use `EXPO_PUBLIC_`.
 - File fields use `@cap.File(max_size:<size>,accept:<mime>)`; the framework
   may generate upload UI later, but the language owns the storage contract.
 - PII resources declare retention, e.g. `retention 7y then anonymize`.

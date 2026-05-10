@@ -1177,15 +1177,22 @@ Environment variables are declared in a top-level app contract:
 
 ```lazuli
 env
-  server CRM_WEBHOOK_SECRET: Secret required
-  client PUBLIC_APP_URL: Url required
-  mobile EXPO_PUBLIC_API_URL: Url required
+  group customer_import
+    server CRM_WEBHOOK_SECRET: Secret required in production
+  group public_clients
+    client PUBLIC_APP_URL: Url required
+    mobile EXPO_PUBLIC_API_URL: Url required
 ```
 
-Any `env.NAME` reference should resolve to this schema. `server` values are
-not exposed to client bundles. `client` variables use a `PUBLIC_` prefix and
-`mobile` variables use an `EXPO_PUBLIC_` prefix so exposure is visible in
-source instead of being an adapter convention.
+Any `env.NAME` reference should resolve to this schema. `group <name>` is an
+organizational key for humans, agents, inspect output, and Drusa wiring; it is
+not a namespace. Variable names stay explicit and globally unique inside the
+app env schema. `required in production` narrows the requirement to named
+environments declared by the app manifest; plain `required` applies to every
+environment. `server` values are not exposed to client bundles. `client`
+variables use a `PUBLIC_` prefix and `mobile` variables use an
+`EXPO_PUBLIC_` prefix so exposure is visible in source instead of being an
+adapter convention.
 
 Webhook verification may be declarative for common signature schemes:
 
@@ -1646,9 +1653,11 @@ app AcmeCRM
     api production "https://api.acme.example"
 
   env
-    server CRM_WEBHOOK_SECRET: Secret required
-    client PUBLIC_APP_URL: Url required
-    mobile EXPO_PUBLIC_API_URL: Url required
+    group customer_import
+      server CRM_WEBHOOK_SECRET: Secret required in production
+    group public_clients
+      client PUBLIC_APP_URL: Url required
+      mobile EXPO_PUBLIC_API_URL: Url required
 
   capabilities
     database postgres
