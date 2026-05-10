@@ -153,6 +153,20 @@ Use a block when a feature needs more than one slot:
     integration gateway: PaymentGateway
 ```
 
+Commands and jobs call those slots with provider-neutral operation names. Go
+adapters execute the real HTTP/RPC/event work:
+
+```lazuli
+  job process_import
+    trigger event customer_import_uploaded
+    idempotency by payload.batch_id
+    retry 3 backoff exponential
+    calls gateway.normalize_import_batch
+      batch_id = payload.batch_id
+    timeout "30s"
+    handler "./jobs/process_import.go"
+```
+
 Routes and experiences live in `.lzx`:
 
 ```lazuli

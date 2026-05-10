@@ -226,6 +226,7 @@ struct SourceFact {
 struct OperationalFacts {
     features: BTreeMap<String, SourceFact>,
     integration_requirements: Vec<IntegrationRequirementFact>,
+    external_calls: Vec<ExternalCallFact>,
     env_references: Vec<SourceFact>,
     file_capabilities: Vec<SourceFact>,
     jobs: Vec<SourceFact>,
@@ -246,6 +247,21 @@ struct IntegrationRequirementFact {
     feature: String,
     slot: String,
     contract: String,
+}
+
+#[derive(Debug, Clone)]
+struct ExternalCallFact {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    feature: String,
+    subject_kind: String,
+    subject: String,
+    slot: String,
+    operation: String,
+    has_timeout: bool,
+    has_retry: bool,
+    has_idempotency: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,6 +433,7 @@ fn collect_canonical_facts(
             &lines[start..index],
             operational,
         );
+        collect_feature_external_calls(file, &feature, start, &lines[start..index], operational);
     }
 }
 
@@ -475,6 +492,93 @@ fn collect_feature_integration_requirements(
                     contract: contract.to_owned(),
                 });
         }
+    }
+}
+
+fn collect_feature_external_calls(
+    file: &DoctorFile,
+    feature: &str,
+    feature_start: usize,
+    lines: &[&str],
+    operational: &mut OperationalFacts,
+) {
+    let mut index = 0;
+
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+        let leading = leading_spaces(lines[index]);
+
+        if leading == 2 && (trimmed.starts_with("command ") || trimmed.starts_with("job ")) {
+            let (subject_kind, subject_name) =
+                if let Some(name) = named_block_name(trimmed, "command") {
+                    ("command", name)
+                } else if let Some(name) = named_block_name(trimmed, "job") {
+                    ("job", name)
+                } else {
+                    index += 1;
+                    continue;
+                };
+            let block_start = index;
+            index += 1;
+
+            while index < lines.len() && leading_spaces(lines[index]) > 2 {
+                index += 1;
+            }
+
+            collect_external_calls_in_block(
+                file,
+                feature,
+                feature_start,
+                subject_kind,
+                subject_name,
+                block_start,
+                &lines[block_start..index],
+                operational,
+            );
+        } else {
+            index += 1;
+        }
+    }
+}
+
+fn collect_external_calls_in_block(
+    file: &DoctorFile,
+    feature: &str,
+    feature_start: usize,
+    subject_kind: &str,
+    subject_name: &str,
+    block_start: usize,
+    lines: &[&str],
+    operational: &mut OperationalFacts,
+) {
+    let has_timeout = block_has_prefixed_line(lines, "timeout ");
+    let has_retry = block_has_prefixed_line(lines, "retry ");
+    let has_idempotency = block_has_prefixed_line(lines, "idempotency by ");
+    let subject = format!("{feature}.{subject_kind}.{subject_name}");
+
+    for (offset, line) in lines.iter().enumerate().skip(1) {
+        let trimmed = line.trim_start();
+        if leading_spaces(line) != 4 {
+            continue;
+        }
+
+        let Some((slot, operation)) = parse_external_call_header(trimmed) else {
+            continue;
+        };
+
+        operational.external_calls.push(ExternalCallFact {
+            path: file.path.clone(),
+            line: feature_start + block_start + offset + 1,
+            column: leading_spaces(line) + 1,
+            feature: feature.to_owned(),
+            subject_kind: subject_kind.to_owned(),
+            subject: subject.clone(),
+            slot: slot.to_owned(),
+            operation: operation.to_owned(),
+            has_timeout,
+            has_retry,
+            has_idempotency,
+        });
     }
 }
 
@@ -895,6 +999,7 @@ fn app_contract_diagnostics(
     }
 
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
+    diagnostics.extend(external_call_contract_diagnostics(operational));
 
     for env_ref in &operational.env_references {
         if !env_names.contains(env_ref.name.as_str()) {
@@ -1109,6 +1214,75 @@ fn app_binding_contract_diagnostics(
                 message: format!(
                     "app binding `{}.{}` expects `{expected_contract}`, but integration `{integration_name}` is `{actual_contract}`.",
                     binding.target_feature, binding.target_slot
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let declared_slots: BTreeSet<_> = operational
+        .integration_requirements
+        .iter()
+        .map(|requirement| (requirement.feature.as_str(), requirement.slot.as_str()))
+        .collect();
+
+    for call in &operational.external_calls {
+        if !declared_slots.contains(&(call.feature.as_str(), call.slot.as_str())) {
+            diagnostics.push(DoctorDiagnostic {
+                path: call.path.clone(),
+                line: call.line,
+                column: call.column,
+                severity: DoctorSeverity::Error,
+                code: "INT-CALL-001".to_owned(),
+                message: format!(
+                    "`{}` calls `{}.{}`, but feature `{}` does not declare `requires integration {}: <Contract>`.",
+                    call.subject, call.slot, call.operation, call.feature, call.slot
+                ),
+            });
+        }
+
+        if !call.has_timeout {
+            diagnostics.push(DoctorDiagnostic {
+                path: call.path.clone(),
+                line: call.line,
+                column: call.column,
+                severity: DoctorSeverity::Error,
+                code: "INT-CALL-002".to_owned(),
+                message: format!(
+                    "`{}` calls external operation `{}.{}` without an explicit `timeout \"...\"` on the {} block.",
+                    call.subject, call.slot, call.operation, call.subject_kind
+                ),
+            });
+        }
+
+        if !call.has_retry {
+            diagnostics.push(DoctorDiagnostic {
+                path: call.path.clone(),
+                line: call.line,
+                column: call.column,
+                severity: DoctorSeverity::Warning,
+                code: "INT-CALL-003".to_owned(),
+                message: format!(
+                    "`{}` calls external operation `{}.{}` without a visible `retry <count> backoff <strategy>` policy.",
+                    call.subject, call.slot, call.operation
+                ),
+            });
+        }
+
+        if call.subject_kind == "job" && !call.has_idempotency {
+            diagnostics.push(DoctorDiagnostic {
+                path: call.path.clone(),
+                line: call.line,
+                column: call.column,
+                severity: DoctorSeverity::Warning,
+                code: "INT-CALL-004".to_owned(),
+                message: format!(
+                    "`{}` calls external operation `{}.{}` without a visible job `idempotency by ...` key.",
+                    call.subject, call.slot, call.operation
                 ),
             });
         }
@@ -1453,6 +1627,26 @@ fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
     } else {
         None
     }
+}
+
+fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
+    let rest = trimmed.strip_prefix("calls ")?;
+    let (slot, operation) = rest.trim().split_once('.')?;
+    let slot = slot.trim();
+    let operation = operation.trim();
+
+    if is_identifier(slot) && is_identifier(operation) {
+        Some((slot, operation))
+    } else {
+        None
+    }
+}
+
+fn block_has_prefixed_line(lines: &[&str], prefix: &str) -> bool {
+    lines
+        .iter()
+        .skip(1)
+        .any(|line| leading_spaces(line) == 4 && line.trim_start().starts_with(prefix))
 }
 
 #[derive(Debug)]
@@ -2134,6 +2328,105 @@ feature payments
                 .iter()
                 .any(|diagnostic| diagnostic.code == "APP-BIND-004")
         );
+    }
+
+    #[test]
+    fn doctor_validates_external_calls_against_feature_requirements() {
+        let valid = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    imports
+  bindings
+    imports.crm = integrations.crm
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit worker
+      runs jobs *
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+"#,
+            ),
+            (
+                "imports.lzi",
+                r#"
+feature imports
+  requires integration crm: CRMProvider
+
+  job process_import
+    trigger event import_uploaded
+    idempotency by payload.batch_id
+    retry 3 backoff exponential
+    calls crm.normalize_import_batch
+      batch_id = payload.batch_id
+    timeout "30s"
+    handler "./jobs/process_import.go"
+"#,
+            ),
+        ]);
+
+        assert!(
+            valid.diagnostics().is_empty(),
+            "expected external call contract to pass doctor"
+        );
+
+        let invalid = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    imports
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit worker
+      runs jobs *
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "imports.lzi",
+                r#"
+feature imports
+  job process_import
+    trigger event import_uploaded
+    calls crm.normalize_import_batch
+      batch_id = payload.batch_id
+    handler "./jobs/process_import.go"
+"#,
+            ),
+        ]);
+
+        let diagnostics = invalid.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(codes.contains("INT-CALL-001"));
+        assert!(codes.contains("INT-CALL-002"));
+        assert!(codes.contains("INT-CALL-003"));
+        assert!(codes.contains("INT-CALL-004"));
     }
 
     #[test]

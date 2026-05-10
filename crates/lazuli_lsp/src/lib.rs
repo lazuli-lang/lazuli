@@ -303,6 +303,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(app_operational_contract_diagnostics(source));
         diagnostics.extend(registry_contract_diagnostics(source));
         diagnostics.extend(feature_requirements_contract_diagnostics(source));
+        diagnostics.extend(external_call_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
         diagnostics.extend(non_goals_shape_diagnostics(source));
         diagnostics.extend(defaults_policy_syntax_diagnostics(source));
@@ -5357,6 +5358,225 @@ fn parse_feature_integration_requirement(trimmed: &str) -> Option<(&str, &str)> 
     }
 }
 
+fn external_call_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_feature = false;
+    let mut requirement_slots = HashSet::new();
+    let mut current_block: Option<ExternalCallBlockFacts> = None;
+    let mut current_call_child = false;
+    let mut in_requires_block = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading == 0 {
+            if let Some(block) = current_block.take() {
+                diagnostics.extend(external_call_block_diagnostics(block));
+            }
+            in_feature = trimmed.starts_with("feature ");
+            requirement_slots.clear();
+            current_call_child = false;
+            in_requires_block = false;
+            continue;
+        }
+
+        if !in_feature {
+            continue;
+        }
+
+        if leading == 2 {
+            if let Some(block) = current_block.take() {
+                diagnostics.extend(external_call_block_diagnostics(block));
+            }
+
+            in_requires_block = trimmed == "requires";
+            current_call_child = false;
+
+            if let Some(requirement) = trimmed.strip_prefix("requires ")
+                && let Some((slot, _)) = parse_feature_integration_requirement(requirement)
+            {
+                requirement_slots.insert(slot.to_owned());
+            }
+
+            if let Some(name) = command_name_if(trimmed) {
+                current_block = Some(ExternalCallBlockFacts::new("command", name, line_index));
+            } else if let Some(name) = named_block_name(trimmed, "job") {
+                current_block = Some(ExternalCallBlockFacts::new(
+                    "job",
+                    name.to_owned(),
+                    line_index,
+                ));
+            }
+            continue;
+        }
+
+        if in_requires_block && leading == 4 {
+            if let Some((slot, _)) = parse_feature_integration_requirement(trimmed) {
+                requirement_slots.insert(slot.to_owned());
+            }
+            continue;
+        } else if leading <= 2 {
+            in_requires_block = false;
+        }
+
+        let Some(block) = current_block.as_mut() else {
+            continue;
+        };
+
+        if leading == 4 {
+            current_call_child = false;
+            if trimmed.starts_with("timeout ") {
+                block.has_timeout = true;
+            } else if trimmed.starts_with("retry ") {
+                block.has_retry = true;
+            } else if trimmed.starts_with("idempotency by ") {
+                block.has_idempotency = true;
+            } else if let Some((slot, _operation)) = parse_external_call_header(trimmed) {
+                block.calls.push(ExternalCallLine {
+                    line_index,
+                    line: line.to_owned(),
+                });
+                if !requirement_slots.contains(slot) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "external-call-requirement",
+                        "`calls <slot>.<operation>` should use a slot declared by `requires integration <slot>: <Contract>`.",
+                    ));
+                }
+                current_call_child = true;
+            } else if trimmed.starts_with("calls ") {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "external-call-shape",
+                    "external calls use `calls <integration_slot>.<operation>`.",
+                ));
+                current_call_child = true;
+            }
+        } else if leading == 6 && current_call_child && !trimmed.contains('=') {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "external-call-arg",
+                "external call children use `name = expression` argument bindings.",
+            ));
+        }
+    }
+
+    if let Some(block) = current_block {
+        diagnostics.extend(external_call_block_diagnostics(block));
+    }
+
+    diagnostics
+}
+
+#[derive(Debug)]
+struct ExternalCallBlockFacts {
+    kind: &'static str,
+    name: String,
+    line_index: usize,
+    calls: Vec<ExternalCallLine>,
+    has_timeout: bool,
+    has_retry: bool,
+    has_idempotency: bool,
+}
+
+impl ExternalCallBlockFacts {
+    fn new(kind: &'static str, name: String, line_index: usize) -> Self {
+        Self {
+            kind,
+            name,
+            line_index,
+            calls: Vec::new(),
+            has_timeout: false,
+            has_retry: false,
+            has_idempotency: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ExternalCallLine {
+    line_index: usize,
+    line: String,
+}
+
+fn external_call_block_diagnostics(block: ExternalCallBlockFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if block.calls.is_empty() {
+        return diagnostics;
+    }
+
+    if !block.has_timeout {
+        diagnostics.push(simple_canonical_diagnostic(
+            block.line_index,
+            &format!("{} {}", block.kind, block.name),
+            DiagnosticSeverity::WARNING,
+            "external-call-timeout",
+            "`calls <slot>.<operation>` should be paired with an explicit `timeout \"...\"` on the same command/job block.",
+        ));
+    }
+
+    if !block.has_retry {
+        for call in &block.calls {
+            diagnostics.push(simple_canonical_diagnostic(
+                call.line_index,
+                &call.line,
+                DiagnosticSeverity::WARNING,
+                "external-call-retry",
+                "`calls <slot>.<operation>` should have a visible `retry <count> backoff <strategy>` policy or a future explicit no-retry marker.",
+            ));
+        }
+    }
+
+    if block.kind == "job" && !block.has_idempotency {
+        for call in &block.calls {
+            diagnostics.push(simple_canonical_diagnostic(
+                call.line_index,
+                &call.line,
+                DiagnosticSeverity::WARNING,
+                "external-call-idempotency",
+                "jobs with external calls should declare `idempotency by ...` so retries cannot duplicate side effects silently.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
+    let rest = trimmed.strip_prefix("calls ")?;
+    let (slot, operation) = rest.trim().split_once('.')?;
+    let slot = slot.trim();
+    let operation = operation.trim();
+
+    if is_identifier(slot) && is_identifier(operation) {
+        Some((slot, operation))
+    } else {
+        None
+    }
+}
+
+fn command_name_if(trimmed: &str) -> Option<String> {
+    named_block_name(trimmed, "command").map(str::to_owned)
+}
+
+fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = trimmed.strip_prefix(keyword)?.trim_start();
+    let name = rest.split_whitespace().next()?;
+    is_identifier(name).then_some(name)
+}
+
 fn is_app_scalar_child(trimmed: &str) -> bool {
     matches!(
         trimmed.split_whitespace().next(),
@@ -8583,6 +8803,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "policy" => Some("Associates a command with an authorization policy capability."),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
+        "calls" => Some(
+            "Declares that a command or job calls an abstract integration/service operation; Drusa wires this to Go transport bindings.",
+        ),
         "method" => Some("Declares the HTTP method for a custom API endpoint."),
         "output" => Some("Declares the response shape for a custom API endpoint."),
         "cache" => Some("Declares generated query cache identity and stale-time behavior."),
@@ -8744,6 +8967,7 @@ const KEYWORDS: &[&str] = &[
     "policy",
     "policy_for",
     "rate_limit",
+    "calls",
     "method",
     "output",
     "cache",
@@ -8931,6 +9155,66 @@ feature payments
                 "feature requirements currently use `integration <name>: <CapabilityType>`",
             )
         }));
+    }
+
+    #[test]
+    fn canonical_accepts_external_calls_through_required_integration_slot() {
+        let source = r#"
+feature imports
+  requires integration crm: CRMProvider
+
+  job process_import
+    trigger event import_uploaded
+    idempotency by payload.batch_id
+    retry 3 backoff exponential
+    calls crm.normalize_import_batch
+      batch_id = payload.batch_id
+    timeout "30s"
+    handler "./jobs/process_import.go"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected no external call diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_external_calls_without_contract_guards() {
+        let source = r#"
+feature imports
+  job process_import
+    trigger event import_uploaded
+    calls crm.normalize_import_batch
+      payload.batch_id
+    handler "./jobs/process_import.go"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("requires integration"))
+        );
+        assert!(messages.iter().any(|message| message.contains("timeout")));
+        assert!(messages.iter().any(|message| message.contains("retry")));
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("idempotency"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("argument bindings"))
+        );
     }
 
     #[test]

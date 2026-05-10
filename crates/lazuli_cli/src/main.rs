@@ -369,6 +369,8 @@ struct InspectFeature {
     name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     requirements: Vec<InspectRequirement>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    external_calls: Vec<InspectExternalCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     refs: Option<InspectRefs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -397,6 +399,29 @@ struct InspectRequirement {
     name: String,
     contract: String,
     origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectExternalCall {
+    subject: String,
+    slot: String,
+    operation: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    args: Vec<InspectCallArg>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idempotency: Option<String>,
+    audit: bool,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectCallArg {
+    name: String,
+    value: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -625,10 +650,12 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
         .unwrap_or("unknown")
         .to_owned();
     let policies = collect_policy_atoms(lines);
+    let external_calls = inspect_external_calls(&name, lines);
 
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
+        external_calls,
         refs: expansions.refs.then(|| inspect_refs(lines)),
         summary: expansions.summary.then(|| inspect_summary(lines)),
         locators: expansions.locators.then(|| inspect_locators(lines)),
@@ -678,6 +705,153 @@ fn inspect_requirements(lines: &[String]) -> Vec<InspectRequirement> {
     }
 
     requirements
+}
+
+fn inspect_external_calls(feature: &str, lines: &[String]) -> Vec<InspectExternalCall> {
+    let mut calls = Vec::new();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+        let leading = leading_spaces(&lines[index]);
+
+        if leading == 2 && (trimmed.starts_with("command ") || trimmed.starts_with("job ")) {
+            let (kind, name) = if let Some(name) = named_block_name(trimmed, "command") {
+                ("command", name)
+            } else if let Some(name) = named_block_name(trimmed, "job") {
+                ("job", name)
+            } else {
+                index += 1;
+                continue;
+            };
+
+            let start = index;
+            index += 1;
+            while index < lines.len() && leading_spaces(&lines[index]) > 2 {
+                index += 1;
+            }
+
+            calls.extend(inspect_external_calls_in_block(
+                feature,
+                kind,
+                name,
+                &lines[start..index],
+            ));
+        } else {
+            index += 1;
+        }
+    }
+
+    calls
+}
+
+fn inspect_external_calls_in_block(
+    feature: &str,
+    kind: &str,
+    name: &str,
+    lines: &[String],
+) -> Vec<InspectExternalCall> {
+    let timeout = block_scalar_value(lines, "timeout").map(strip_quotes);
+    let retry = block_scalar_value(lines, "retry").map(str::to_owned);
+    let idempotency = block_prefixed_value(lines, "idempotency by ").map(str::to_owned);
+    let audit = block_has_exact_line(lines, "audit required");
+    let subject = format!("{feature}.{kind}.{name}");
+    let mut calls = Vec::new();
+    let mut index = 1;
+
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+
+        if leading_spaces(&lines[index]) == 4
+            && let Some((slot, operation)) = parse_external_call_header(trimmed)
+        {
+            let mut args = Vec::new();
+            index += 1;
+
+            while index < lines.len() && leading_spaces(&lines[index]) > 4 {
+                let child = lines[index].trim_start();
+                if leading_spaces(&lines[index]) == 6
+                    && let Some((name, value)) = child.split_once('=')
+                {
+                    args.push(InspectCallArg {
+                        name: name.trim().to_owned(),
+                        value: value.trim().to_owned(),
+                    });
+                }
+                index += 1;
+            }
+
+            calls.push(InspectExternalCall {
+                subject: subject.clone(),
+                slot: slot.to_owned(),
+                operation: operation.to_owned(),
+                args,
+                timeout: timeout.clone(),
+                retry: retry.clone(),
+                idempotency: idempotency.clone(),
+                audit,
+                origin: "calls",
+            });
+        } else {
+            index += 1;
+        }
+    }
+
+    calls
+}
+
+fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
+    let rest = trimmed.strip_prefix("calls ")?;
+    let (slot, operation) = rest.trim().split_once('.')?;
+    let slot = slot.trim();
+    let operation = operation.trim();
+
+    if is_identifier(slot) && is_identifier(operation) {
+        Some((slot, operation))
+    } else {
+        None
+    }
+}
+
+fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = trimmed.strip_prefix(keyword)?.trim_start();
+    let name = rest.split_whitespace().next()?;
+    is_identifier(name).then_some(name)
+}
+
+fn block_scalar_value<'a>(lines: &'a [String], keyword: &str) -> Option<&'a str> {
+    lines.iter().skip(1).find_map(|line| {
+        (leading_spaces(line) == 4)
+            .then(|| line.trim_start().strip_prefix(keyword))
+            .flatten()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn block_prefixed_value<'a>(lines: &'a [String], prefix: &str) -> Option<&'a str> {
+    lines.iter().skip(1).find_map(|line| {
+        (leading_spaces(line) == 4)
+            .then(|| line.trim_start().strip_prefix(prefix))
+            .flatten()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn block_has_exact_line(lines: &[String], expected: &str) -> bool {
+    lines
+        .iter()
+        .skip(1)
+        .any(|line| leading_spaces(line) == 4 && line.trim_start() == expected)
+}
+
+fn strip_quotes(value: &str) -> String {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
+        .to_owned()
 }
 
 fn parse_inspect_requirement(source: &str, origin: &'static str) -> Option<InspectRequirement> {
@@ -3232,6 +3406,12 @@ feature customer
     route id: ID
     input name
     policy @policy.update
+    idempotency by route.id, input.name
+    retry 2 backoff exponential
+    calls gateway.rename_customer
+      customer_id = route.id
+      name = input.name
+    timeout "5s"
     updates Customer
       name = input.name
     emits customer_created
@@ -3256,6 +3436,13 @@ feature customer
         assert!(json.contains("\"kind\":\"integration\""));
         assert!(json.contains("\"name\":\"gateway\""));
         assert!(json.contains("\"contract\":\"PaymentGateway\""));
+        assert!(json.contains("\"external_calls\""));
+        assert!(json.contains("\"subject\":\"customer.command.rename\""));
+        assert!(json.contains("\"slot\":\"gateway\""));
+        assert!(json.contains("\"operation\":\"rename_customer\""));
+        assert!(json.contains("\"timeout\":\"5s\""));
+        assert!(json.contains("\"retry\":\"2 backoff exponential\""));
+        assert!(json.contains("\"idempotency\":\"route.id, input.name\""));
         assert!(json.contains("\"origin\":\"event_group:customer_*\""));
         assert!(json.contains("\"refs\""));
         assert!(json.contains("\"summary\""));

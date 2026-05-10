@@ -38,6 +38,12 @@ source that only fails later.
   Go runtime wiring, and Go adapters perform real HTTP/RPC/event/webhook work.
   React and Expo clients should consume generated app APIs, not provider
   integrations directly.
+- `calls <slot>.<operation>` is valid inside commands and jobs only when
+  `<slot>` is declared by `requires integration <slot>: <CapabilityType>`.
+  Call children bind named arguments with `name = expression`. The surrounding
+  operation should declare `timeout`, `retry`, and, for job side effects,
+  `idempotency by ...` so generated Go transport bindings have explicit
+  failure behavior.
 - App `services` declare logical ownership boundaries. They do not by
   themselves require separate processes; Drusa decides whether the same
   boundary graph runs as a monolith, modular monolith, or split services.

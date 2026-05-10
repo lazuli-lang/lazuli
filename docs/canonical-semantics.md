@@ -1812,6 +1812,34 @@ implementations. Adapters implement the concrete transport mechanics.
 `lazuli doctor` rejects missing, unknown, or type-mismatched integration
 bindings.
 
+Commands and jobs call those abstract slots with `calls <slot>.<operation>`.
+This is still a Lazuli contract, not provider execution. Drusa lowers it to Go
+interfaces and typed transport bindings; the Go adapter performs the actual
+HTTP/RPC/event call:
+
+```lazuli
+feature customer_import
+  requires integration crm: CRMProvider
+
+  job process_import
+    trigger event customer_import_uploaded
+    idempotency by payload.batch_id
+    retry 3 backoff exponential
+    calls crm.normalize_import_batch
+      batch_id = payload.batch_id
+      org_id = payload.org_id
+    timeout "30s"
+    handler "./jobs/process_import.go"
+```
+
+Every `calls` header names a feature requirement slot and a provider-neutral
+operation. The child lines bind named arguments to existing command/job
+expressions. The same command or job block should also make timeout, retry, and
+idempotency visible when retries could duplicate side effects. `lazuli inspect`
+exposes external calls under `feature.external_calls`; `lazuli doctor` rejects
+calls to undeclared slots and calls without timeout, and warns when retry or job
+idempotency is missing.
+
 `lazuli inspect app.lzi --format=json` exposes the entrypoint manifest under
 `app`; `lazuli inspect registry.lzi --format=json` exposes the package catalog
 under `registry`. `lazuli doctor` loads both and checks the combined operational

@@ -173,6 +173,13 @@ configuration.
 capability contract. It does not bind MercadoPago, Serasa, Stripe, or any other
 provider.
 
+`ExternalCall` inspect entries preserve authored call sites such as
+`calls gateway.create_checkout`. They record the subject command/job, the
+abstract slot, operation name, argument bindings, and visible timeout, retry,
+idempotency, and audit flags. These entries are author intent for doctor and
+Drusa. They do not contain provider HTTP paths, SDK method names, base URLs, or
+broker topics.
+
 `AppBinding` entries preserve app-level dependency inversion choices such as
 `payments.gateway = integrations.mercadopago`. A binding targets a feature slot
 and points to an app/registry integration entry. Doctor verifies that every

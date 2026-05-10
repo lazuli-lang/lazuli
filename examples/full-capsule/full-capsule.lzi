@@ -716,6 +716,10 @@ feature customer_import
     tenant_from payload.org_id
     idempotency by payload.batch_id
     retry 3 backoff exponential
+    calls crm.normalize_import_batch
+      batch_id = payload.batch_id
+      org_id = payload.org_id
+    timeout "30s"
     handler "./jobs/process_import.go"
     emits customer_import_completed
 
