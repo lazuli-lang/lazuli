@@ -9870,6 +9870,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "derived" => Some(
             "Marks a resource field as computed at read time: `<name>: <Type> derived from <expression>`. Not persisted; cannot have `default`, `required`, or `optional`.",
         ),
+        "audit" => Some(
+            "Declares an operation as audited. Use `audit` for default fields, `audit <field>, <field>` for explicit entries, or `audit none` to opt out.",
+        ),
         "policy" => Some("Associates a command with an authorization policy capability."),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
@@ -10047,6 +10050,7 @@ const KEYWORDS: &[&str] = &[
     "to",
     "let",
     "derived",
+    "audit",
     "policy",
     "policy_for",
     "rate_limit",

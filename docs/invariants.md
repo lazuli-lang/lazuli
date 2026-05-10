@@ -90,6 +90,11 @@ source that only fails later.
   read-time computed values. Derived fields are not persisted, must not declare
   `default`, `required`, or `optional`, and must not appear as input/effect
   targets in `creates`/`updates`.
+- Commands, queries, jobs, and webhooks may declare an explicit `audit` child:
+  `audit` for default fields, `audit <field>, <field>` for specific fields, or
+  `audit none` to opt out. Audit declarations surface in
+  `lazuli inspect --expand=security` so audit-log generation has a typed
+  contract instead of relying on event-name conventions.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as

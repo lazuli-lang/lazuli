@@ -542,6 +542,15 @@ struct InspectSecurityOperation {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     rate_limits: Vec<String>,
     scope_override: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audit: Option<InspectAudit>,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAudit {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fields: Vec<String>,
     origin: &'static str,
 }
 
@@ -1344,8 +1353,9 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
             .iter()
             .any(|line| line.trim_start().starts_with("scope override"));
         let rate_limits = direct_child_values(block, "rate_limit ");
+        let audit = parse_audit(block, "query");
 
-        if policy.is_some() || scope_override || !rate_limits.is_empty() {
+        if policy.is_some() || scope_override || !rate_limits.is_empty() || audit.is_some() {
             operations.push(InspectSecurityOperation {
                 subject: format!("query.{name}"),
                 policy,
@@ -1353,6 +1363,7 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
                 scope_reason,
                 rate_limits,
                 scope_override,
+                audit,
                 origin: "query",
             });
         }
@@ -1362,8 +1373,9 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
         let name = command_name(block[0].trim_start()).unwrap_or("unknown");
         let policy = direct_child_value(block, "policy ");
         let rate_limits = direct_child_values(block, "rate_limit ");
+        let audit = parse_audit(block, "command");
 
-        if policy.is_some() || !rate_limits.is_empty() {
+        if policy.is_some() || !rate_limits.is_empty() || audit.is_some() {
             operations.push(InspectSecurityOperation {
                 subject: format!("command.{name}"),
                 policy,
@@ -1371,6 +1383,7 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
                 scope_reason: None,
                 rate_limits,
                 scope_override: false,
+                audit,
                 origin: "command",
             });
         }
@@ -1381,8 +1394,9 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
         let policy = direct_child_value(block, "policy ");
         let tenant_from = direct_child_value(block, "tenant_from ");
         let rate_limits = direct_child_values(block, "rate_limit ");
+        let audit = parse_audit(block, "job");
 
-        if policy.is_some() || tenant_from.is_some() || !rate_limits.is_empty() {
+        if policy.is_some() || tenant_from.is_some() || !rate_limits.is_empty() || audit.is_some() {
             operations.push(InspectSecurityOperation {
                 subject: format!("job.{name}"),
                 policy,
@@ -1390,6 +1404,7 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
                 scope_reason: None,
                 rate_limits,
                 scope_override: false,
+                audit,
                 origin: "job",
             });
         }
@@ -1399,8 +1414,9 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
         let name = named_top_block_name(block[0].trim_start()).unwrap_or("unknown");
         let policy = direct_child_value(block, "policy ");
         let rate_limits = direct_child_values(block, "rate_limit ");
+        let audit = parse_audit(block, "webhook");
 
-        if policy.is_some() || !rate_limits.is_empty() {
+        if policy.is_some() || !rate_limits.is_empty() || audit.is_some() {
             operations.push(InspectSecurityOperation {
                 subject: format!("webhook.{name}"),
                 policy,
@@ -1408,6 +1424,7 @@ fn inspect_security_operations(lines: &[String]) -> Vec<InspectSecurityOperation
                 scope_reason: None,
                 rate_limits,
                 scope_override: false,
+                audit,
                 origin: "webhook",
             });
         }
@@ -2529,6 +2546,36 @@ fn direct_child_value(lines: &[String], prefix: &str) -> Option<String> {
             None
         }
     })
+}
+
+fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {
+    let child_indent = lines.first().map(|line| leading_spaces(line) + 2)?;
+
+    for line in lines.iter().skip(1) {
+        if leading_spaces(line) != child_indent {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        if trimmed == "audit" {
+            return Some(InspectAudit {
+                fields: Vec::new(),
+                origin,
+            });
+        }
+        if let Some(rest) = trimmed.strip_prefix("audit ") {
+            let rest = rest.trim();
+            if rest == "none" {
+                return None;
+            }
+            let fields: Vec<String> = rest
+                .split(',')
+                .map(|part| part.trim().to_owned())
+                .filter(|part| !part.is_empty())
+                .collect();
+            return Some(InspectAudit { fields, origin });
+        }
+    }
+    None
 }
 
 fn direct_child_values(lines: &[String], prefix: &str) -> Vec<String> {

@@ -269,6 +269,7 @@ feature customer
     let resolved_owner = user.query.by_id(id: input.owner_id)
     policy @policy.update
     rate_limit "60 per minute per user"
+    audit actor, target.id, input.owner_id
     updates Customer
       owner = resolved_owner
     emits customer_reassigned
