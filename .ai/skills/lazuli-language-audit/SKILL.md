@@ -98,23 +98,42 @@ The cliff test: in a real product, what would an author write as a
 freeform `handler "./..."` because no language primitive exists? Each
 of those is a candidate primitive.
 
-Already promoted (don't re-propose):
+Already promoted (don't re-propose). Before listing any candidate as
+"missing", grep the fixture for the construct name and verify it's truly
+absent — the audit pipeline has hallucinated already-shipped primitives
+when this list went stale.
 
 - `audit` (commands/queries/jobs/webhooks)
 - `derived from` (computed fields)
 - `has_many` (collections)
-- `agent` (LLM capabilities)
-- `query <name>` short form (kind inferred from shape)
+- `agent` (LLM capabilities, with optional `temperature` / `max_tokens` /
+  `top_p` / `seed` config siblings)
+- `notification` (multi-channel: email, push, sms, in_app — replaces
+  `job` + `handler "./..."` for outreach dispatch)
+- `validates field|resource @validator.<name>` (typed reference; the
+  validator implementation is declared once under
+  `extensions.validator <name> at "./path.go"`)
+- `previously migrated|alias <old>` as a field child (header inline form
+  is reserved for resources / commands / transitions / features)
+- `invalidates query.<name>` / `invalidates query.*` (same-feature short
+  form and wildcard, on top of fully qualified)
+- `event.trace <name>` (audit/observability events outside the
+  feature-to-feature reaction graph)
+- `escape_route "<path>"` (controlled exit route with `at` / `policy` /
+  `tenancy`)
 
-Likely candidates worth exploring (not yet implemented):
+Likely candidates worth exploring (not yet implemented). Each must declare
+at least 2 use sites in the fixture; otherwise drop it.
 
-- `notification <name>` (multi-channel notification contract: email,
-  push, sms, in-app)
 - `feature_flag <name>` / `experiment <name>` (gated rollout contract)
 - `analytics_event` / `metric` (typed product analytics)
 - `import_pipeline` (CSV/external-source ingestion as primitive)
 - `webhook_outbound` (declarative outgoing webhook with retry/dlq
   contract — distinct from `webhook` which is inbound)
+- AI-first dimensions on `contract <name>` `operation` (currently the
+  external contract carries `transport` / `method` / `path` / `auth` /
+  `timeout`; an LLM-shaped operation should also be able to declare
+  `output stream`, `retry`, `idempotency`, and a typed `error` shape).
 
 Each candidate must declare: what feature in the fixture would use it,
 what it removes (handler files? jobs? duplicate state?), and the
