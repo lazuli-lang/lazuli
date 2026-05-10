@@ -326,7 +326,7 @@
         },
         {
           "name": "entity.name.function.statement.resource.lazuli",
-          "match": "\\b(tenancy|soft_delete|timestamps|no_timestamps|validate|validates|unique|index|on_delete|record|derived)\\b"
+          "match": "\\b(tenancy|soft_delete|timestamps|no_timestamps|validate|validates|unique|index|on_delete|record|derived|has_many|inverse)\\b"
         },
         {
           "name": "entity.name.function.statement.query.lazuli",

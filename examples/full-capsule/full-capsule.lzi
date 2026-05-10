@@ -57,11 +57,17 @@ feature customer
       score: Integer @pii.derived = 0
       external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
       is_high_value: Boolean derived from score > 80
+      has_many notes: CustomerNote inverse customer
 
       soft_delete
       retention 7y then anonymize
 
       validates field tier "./hooks/validate_tier.go"
+
+    resource CustomerNote
+      customer: Customer required
+      author: User required
+      body: Text required
 
     constraints
       unique email per org

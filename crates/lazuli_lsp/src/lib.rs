@@ -329,6 +329,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(type_namespace_diagnostics(source));
         diagnostics.extend(validation_syntax_diagnostics(source));
         diagnostics.extend(derived_field_diagnostics(source));
+        diagnostics.extend(has_many_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
         diagnostics.extend(event_payload_reference_diagnostics(source));
         diagnostics.extend(event_kind_diagnostics(source));
@@ -3173,6 +3174,83 @@ fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "derived-field-contract",
                 "`derived from` fields are computed at read time and must not declare `default` (no trailing `= <value>`).",
             ));
+        }
+    }
+
+    diagnostics
+}
+
+fn has_many_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("has_many ") else {
+            continue;
+        };
+
+        let Some((name_part, type_part)) = rest.split_once(':') else {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "has-many-contract",
+                "`has_many` collections use `has_many <name>: <Type> [inverse <field>]`.",
+            ));
+            continue;
+        };
+
+        let name = name_part.trim();
+        if name.is_empty() || name.contains(' ') {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "has-many-contract",
+                "`has_many` requires a single identifier before `:`.",
+            ));
+            continue;
+        }
+
+        let mut tokens = type_part.split_whitespace();
+        let Some(_type_token) = tokens.next() else {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::ERROR,
+                "has-many-contract",
+                "`has_many` requires a target type after `:`.",
+            ));
+            continue;
+        };
+
+        match tokens.next() {
+            None => {}
+            Some("inverse") => {
+                if tokens.next().is_none() {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "has-many-contract",
+                        "`inverse` requires a field name on the target resource.",
+                    ));
+                }
+            }
+            Some(unexpected) => {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "has-many-contract",
+                    &format!(
+                        "unexpected `{unexpected}` after `has_many <name>: <Type>`. Only `inverse <field>` is allowed.",
+                    ),
+                ));
+            }
         }
     }
 
@@ -9873,6 +9951,12 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "audit" => Some(
             "Declares an operation as audited. Use `audit` for default fields, `audit <field>, <field>` for explicit entries, or `audit none` to opt out.",
         ),
+        "has_many" => Some(
+            "Declares a collection on a resource: `has_many <name>: <Type> [inverse <field>]`. Drusa generates the inverse lookup query and foreign-key contract.",
+        ),
+        "inverse" => Some(
+            "Declares the field on the target resource that owns the inverse foreign key for a `has_many` collection.",
+        ),
         "policy" => Some("Associates a command with an authorization policy capability."),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
@@ -10051,6 +10135,8 @@ const KEYWORDS: &[&str] = &[
     "let",
     "derived",
     "audit",
+    "has_many",
+    "inverse",
     "policy",
     "policy_for",
     "rate_limit",
@@ -11706,6 +11792,45 @@ feature customer
             diagnostics
                 .iter()
                 .any(|d| d.message.contains("requires an expression"))
+        );
+    }
+
+    #[test]
+    fn has_many_accepts_canonical_collections() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      has_many notes: CustomerNote inverse customer
+      has_many tags: CustomerTag
+"#;
+        assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    fn has_many_rejects_unexpected_tail_or_missing_inverse_field() {
+        let bad_tail = r#"
+feature customer
+  domain
+    resource Customer
+      has_many notes: CustomerNote required
+"#;
+        assert!(
+            diagnostics_for(bad_tail)
+                .iter()
+                .any(|d| d.message.contains("Only `inverse <field>` is allowed"))
+        );
+
+        let bad_inverse = r#"
+feature customer
+  domain
+    resource Customer
+      has_many notes: CustomerNote inverse
+"#;
+        assert!(
+            diagnostics_for(bad_inverse)
+                .iter()
+                .any(|d| d.message.contains("`inverse` requires a field name"))
         );
     }
 

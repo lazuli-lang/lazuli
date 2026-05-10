@@ -95,6 +95,10 @@ source that only fails later.
   `audit none` to opt out. Audit declarations surface in
   `lazuli inspect --expand=security` so audit-log generation has a typed
   contract instead of relying on event-name conventions.
+- Resources may declare collection edges with
+  `has_many <name>: <Type> [inverse <field>]`. The optional `inverse` names the
+  field on the target resource that owns the foreign key. Drusa generates the
+  inverse query and FK contract; Lazuli only owns the relationship contract.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as
