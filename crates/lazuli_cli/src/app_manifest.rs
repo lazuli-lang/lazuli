@@ -143,6 +143,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                             name,
                             kind,
                             adapter: None,
+                            adapter_provenance: None,
                             environments: Vec::new(),
                             credentials: None,
                             data_classification: None,
@@ -256,7 +257,10 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     };
                     let integration = &mut app.integrations[integration_index];
                     if let Some(rest) = trimmed.strip_prefix("adapter ") {
-                        integration.adapter = Some(rest.trim().to_owned());
+                        let adapter = rest.trim();
+                        integration.adapter = Some(adapter.to_owned());
+                        integration.adapter_provenance =
+                            adapter_source_provenance(adapter).map(str::to_owned);
                         current_integration_child = None;
                     } else if let Some(rest) = trimmed.strip_prefix("environments ") {
                         integration.environments.extend(split_items(rest));
@@ -396,6 +400,7 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                             name,
                             kind,
                             adapter: None,
+                            adapter_provenance: None,
                             environments: Vec::new(),
                             credentials: None,
                             data_classification: None,
@@ -445,7 +450,10 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
                     };
                     let integration = &mut registry.integrations[integration_index];
                     if let Some(rest) = trimmed.strip_prefix("adapter ") {
-                        integration.adapter = Some(rest.trim().to_owned());
+                        let adapter = rest.trim();
+                        integration.adapter = Some(adapter.to_owned());
+                        integration.adapter_provenance =
+                            adapter_source_provenance(adapter).map(str::to_owned);
                         current_integration_child = None;
                     } else if let Some(rest) = trimmed.strip_prefix("environments ") {
                         integration.environments.extend(split_items(rest));
@@ -583,8 +591,10 @@ fn parse_app_profile_block(name: &str, lines: &[&str]) -> AppProfile {
                                 Some((*environment).to_owned());
                         }
                         [name, "adapter", adapter] if is_identifier(name) => {
-                            upsert_profile_integration(&mut profile, name).adapter =
-                                Some((*adapter).to_owned());
+                            let integration = upsert_profile_integration(&mut profile, name);
+                            integration.adapter = Some((*adapter).to_owned());
+                            integration.adapter_provenance =
+                                adapter_source_provenance(adapter).map(str::to_owned);
                         }
                         _ => {}
                     }
@@ -630,6 +640,7 @@ fn upsert_profile_integration<'a>(
         name: name.to_owned(),
         environment: None,
         adapter: None,
+        adapter_provenance: None,
     });
     let index = profile.integrations.len() - 1;
     &mut profile.integrations[index]
@@ -759,6 +770,44 @@ fn parse_integration_header(trimmed: &str) -> Option<(String, String)> {
     } else {
         None
     }
+}
+
+fn adapter_source_provenance(source: &str) -> Option<&'static str> {
+    if source
+        .strip_prefix("@drusa/")
+        .is_some_and(valid_pathish_tail)
+    {
+        Some("drusa")
+    } else if source
+        .strip_prefix("@plugin/")
+        .is_some_and(valid_plugin_tail)
+    {
+        Some("plugin")
+    } else if source.strip_prefix("@adapter.").is_some_and(is_identifier)
+        || source.starts_with("./")
+        || source.starts_with("../")
+        || (source.starts_with('"') && source.ends_with('"'))
+    {
+        Some("local")
+    } else {
+        None
+    }
+}
+
+fn valid_plugin_tail(value: &str) -> bool {
+    value.split('/').filter(|part| !part.is_empty()).count() >= 2
+        && value.split('/').all(valid_path_segment)
+}
+
+fn valid_pathish_tail(value: &str) -> bool {
+    !value.is_empty() && value.split('/').all(valid_path_segment)
+}
+
+fn valid_path_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
 }
 
 fn parse_app_pack_use(trimmed: &str) -> Option<AppPackUse> {
@@ -984,6 +1033,10 @@ app AcmeCRM
             Some("@adapter.crm")
         );
         assert_eq!(
+            manifest.integrations[0].adapter_provenance.as_deref(),
+            Some("local")
+        );
+        assert_eq!(
             manifest.integrations[0]
                 .credentials
                 .as_ref()
@@ -1035,7 +1088,7 @@ registry
       requires integration gateway: PaymentGateway
   integrations
     mercadopago: PaymentGateway
-      adapter @adapter.mercadopago
+      adapter @drusa/mercadopago
       environments sandbox, production
       credentials platform
         access_token env.MERCADOPAGO_ACCESS_TOKEN
@@ -1055,6 +1108,10 @@ registry
         assert_eq!(registry.packs[0].requirements[0].contract, "PaymentGateway");
         assert_eq!(registry.integrations[0].name, "mercadopago");
         assert_eq!(registry.integrations[0].kind, "PaymentGateway");
+        assert_eq!(
+            registry.integrations[0].adapter_provenance.as_deref(),
+            Some("drusa")
+        );
         assert_eq!(
             registry.integrations[0]
                 .credentials
@@ -1104,6 +1161,10 @@ profile production
         assert_eq!(
             profiles[0].integrations[0].adapter.as_deref(),
             Some("@adapter.fake_crm")
+        );
+        assert_eq!(
+            profiles[0].integrations[0].adapter_provenance.as_deref(),
+            Some("local")
         );
         assert_eq!(
             profiles[0]

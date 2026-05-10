@@ -3559,6 +3559,7 @@ app AcmeCRM
         assert!(json.contains("\"environments\":[\"production\"]"));
         assert!(json.contains("\"integrations\""));
         assert!(json.contains("\"kind\":\"CRMProvider\""));
+        assert!(json.contains("\"adapter_provenance\":\"local\""));
         assert!(json.contains("\"webhook_secret\""));
         assert!(json.contains("\"architecture\""));
         assert!(json.contains("\"mode\":\"modular_monolith\""));
@@ -3592,6 +3593,7 @@ profile local
         assert!(json.contains("\"target\":\"web\""));
         assert!(json.contains("\"environment\":\"sandbox\""));
         assert!(json.contains("\"adapter\":\"@adapter.fake_crm\""));
+        assert!(json.contains("\"adapter_provenance\":\"local\""));
         assert!(json.contains("\"topology\":\"monolith\""));
     }
 
@@ -3611,7 +3613,7 @@ registry
       requires integration gateway: PaymentGateway
   integrations
     mercadopago: PaymentGateway
-      adapter @adapter.mercadopago
+      adapter @drusa/mercadopago
       credentials platform
         access_token env.MERCADOPAGO_ACCESS_TOKEN
 "#;
@@ -3627,6 +3629,7 @@ registry
         assert!(json.contains("\"provides\""));
         assert!(json.contains("\"contract\":\"PaymentGateway\""));
         assert!(json.contains("\"kind\":\"PaymentGateway\""));
+        assert!(json.contains("\"adapter_provenance\":\"drusa\""));
         assert!(json.contains("\"access_token\""));
     }
 

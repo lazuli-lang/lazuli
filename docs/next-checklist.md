@@ -32,11 +32,11 @@ get lost in chat history.
 | 5 | Registry layout decision | done | Use native `registry.lzi` package convention with explicit import reserved for future non-standard layouts. |
 | 6 | Profiles | done | `profile <environment>` now models URL, binding, integration environment/adapter, and provider-neutral deploy topology overrides with inspect and doctor coverage. |
 | 7 | Pack registry | done | `registry.lzi` catalogs packs and app `packs` enables them; doctor lets enabled packs satisfy `uses` and requires bindings for pack integration slots. |
-| 8 | Adapter binding provenance | pending | Decide how registry entries reference Drusa adapters, third-party plugin adapters, and local inline adapters without becoming a provider operation schema. |
+| 8 | Adapter binding provenance | done | Adapter sources now derive `drusa`, `plugin`, or `local` provenance from `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or local paths; doctor rejects unknown source shapes. |
 | 9 | Workspace contract | pending | Decide the exact `workspace.lzi` shape for distributed apps spanning monorepos, multiple repos, external services, and sidecars. |
 | 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and optional external SDK exports represent non-Lazuli services. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
 | 11 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
-| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile syntax; re-audit again after workspace/contract syntax lands. |
+| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile/pack syntax and adapter package refs; re-audit again after workspace/contract syntax lands. |
 | 13 | IR/inspect coverage audit | partial | App, registry, packs, requirements, bindings, external calls, and profiles appear in inspect/doctor. Workspace/contract imports still need stable inspect shape. |
 | 14 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
 
@@ -184,25 +184,38 @@ Future contract inputs may include:
 - Proto/Buf for RPC contracts.
 - JSON Schema or Avro when an enterprise broker/schema registry requires it.
 
-## Adapter And Container Decision Pressure
+## Adapter And Container Decision
 
 `registry.lzi` is the native language-level catalog. It may contain bindings to
 adapters supplied by Drusa, third-party plugins, or local app code.
 
-Recommended model:
+Canonical model:
 
 ```lazuli
 registry
   integrations
     crm: CRMProvider
       adapter @adapter.crm
+
+    payments: PaymentGateway
+      adapter @drusa/mercadopago
+
+    bureau: CreditBureau
+      adapter @plugin/acme/serasa
+
+    ai: AiInference
+      adapter "./integrations/ai.go"
 ```
 
-Allowed adapter sources should eventually include:
+Allowed adapter sources:
 
-- Drusa-maintained package adapters.
-- Third-party plugin adapters.
-- Local adapters declared by the app or feature package.
+- `@drusa/<adapter>` for Drusa-maintained adapters.
+- `@plugin/<publisher>/<adapter>` for third-party plugin adapters.
+- `@adapter.<name>` for local adapter extension references.
+- Local paths for app-owned adapters.
+
+`lazuli inspect` exposes `adapter_provenance` as `drusa`, `plugin`, or
+`local`. `lazuli doctor` rejects unknown source shapes.
 
 Do not add a `container.lzi` yet.
 

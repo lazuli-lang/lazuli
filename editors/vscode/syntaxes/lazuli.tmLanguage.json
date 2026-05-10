@@ -335,6 +335,10 @@
     "references": {
       "patterns": [
         {
+          "name": "entity.name.reference.package.lazuli",
+          "match": "@(?:drusa|plugin)/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*"
+        },
+        {
           "name": "entity.name.reference.semantic.lazuli",
           "match": "@?\\b[a-z_][a-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b"
         },

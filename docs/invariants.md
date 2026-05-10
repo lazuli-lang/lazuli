@@ -32,6 +32,10 @@ source that only fails later.
   entries: name, capability kind, adapter reference, environments, and
   credential scope. They do not declare provider HTTP operations, provider
   client/SDK methods, or cloud secret storage.
+- Integration adapter references must declare provenance through their shape:
+  `@drusa/...`, `@plugin/<publisher>/<name>`, `@adapter.<local>`, or a local
+  path. Inspect exposes derived `adapter_provenance`; Drusa owns construction,
+  lifetimes, test doubles, and runtime dependency injection mechanics.
 - Registry `packs` declare reusable package entries: name, source, optional
   version, provided artifacts, and abstract requirements. They do not inline
   product implementation, provider payload schemas, generated files, or runtime
@@ -93,6 +97,8 @@ source that only fails later.
 - `@...` references use the closed namespace catalog: `@role`, `@scope`,
   `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@client`, `@fn`, `@hook`,
   `@validator`, `@adapter`, `@query_modifier`, and `@anchor`.
+- Registry adapter package refs such as `@drusa/...` and `@plugin/...` are
+  adapter source markers, not general `@...` extension namespaces.
 - Unknown `@...` namespaces are errors.
 - Extension declaration keywords match call-site namespaces: `fn risk_score`
   resolves as `@fn.risk_score`, `validator verify_totp` resolves as

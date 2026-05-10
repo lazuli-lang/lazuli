@@ -76,6 +76,7 @@ Backends and tooling never read IR of an incompatible major version. The compati
 | 0.3.1      | 0.3.1         | adds app integration bindings and feature requirements |
 | 0.3.2      | 0.3.2         | adds environment profiles to app/registry package contracts |
 | 0.3.3      | 0.3.3         | adds app pack enablement and registry pack catalog entries |
+| 0.3.4      | 0.3.4         | adds adapter provenance metadata for app, registry, and profile integrations |
 
 New rows are appended as versions ship. Removing a row is a major bump on both sides.
 
@@ -170,7 +171,12 @@ name, capability kind, adapter reference, allowed environments, credential
 scope, and credential bindings. They intentionally exclude provider operation
 schemas, provider client/SDK-specific methods, concrete base URLs, and
 infrastructure secret store details. Those belong to Drusa packs and adapter
-configuration.
+configuration. The authored adapter reference is preserved as `adapter`, while
+`adapter_provenance` records the source class when it is statically
+recognizable: `drusa` for `@drusa/...`, `plugin` for
+`@plugin/publisher/name`, and `local` for `@adapter.<name>` or local paths.
+Profiles use the same adapter provenance metadata for environment-specific
+adapter overrides.
 
 `AppPack` entries preserve the package-level pack catalog. They record a pack
 name, package/path source, optional version, provided artifacts such as

@@ -93,7 +93,10 @@ impl DoctorPackage {
                 }
                 if let Some(manifest) = parse_app_registry(&file.source) {
                     if registry.is_none() {
-                        registry = Some(DoctorAppRegistry { manifest });
+                        registry = Some(DoctorAppRegistry {
+                            path: file.path.clone(),
+                            manifest,
+                        });
                     } else {
                         file.local_diagnostics.push(DoctorDiagnostic {
                             path: file.path.clone(),
@@ -183,6 +186,7 @@ struct DoctorAppManifest {
 
 #[derive(Debug)]
 struct DoctorAppRegistry {
+    path: PathBuf,
     manifest: AppRegistry,
 }
 
@@ -1036,6 +1040,7 @@ fn app_contract_diagnostics(
         ));
     }
 
+    diagnostics.extend(adapter_provenance_diagnostics(app, registry, profiles));
     diagnostics.extend(app_pack_contract_diagnostics(app, registry));
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
     diagnostics.extend(external_call_contract_diagnostics(operational));
@@ -1609,6 +1614,71 @@ fn app_pack_contract_diagnostics(
     }
 
     diagnostics
+}
+
+fn adapter_provenance_diagnostics(
+    app: &DoctorAppManifest,
+    registry: Option<&DoctorAppRegistry>,
+    profiles: &[DoctorAppProfile],
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for integration in &app.manifest.integrations {
+        if integration.adapter.is_some() && integration.adapter_provenance.is_none() {
+            diagnostics.push(adapter_source_diagnostic(
+                app.path.clone(),
+                "APP-ADAPTER-001",
+                &integration.name,
+                integration.adapter.as_deref().unwrap_or_default(),
+            ));
+        }
+    }
+
+    if let Some(registry) = registry {
+        for integration in &registry.manifest.integrations {
+            if integration.adapter.is_some() && integration.adapter_provenance.is_none() {
+                diagnostics.push(adapter_source_diagnostic(
+                    registry.path.clone(),
+                    "REG-ADAPTER-001",
+                    &integration.name,
+                    integration.adapter.as_deref().unwrap_or_default(),
+                ));
+            }
+        }
+    }
+
+    for profile in profiles {
+        for integration in &profile.profile.integrations {
+            if integration.adapter.is_some() && integration.adapter_provenance.is_none() {
+                diagnostics.push(adapter_source_diagnostic(
+                    profile.path.clone(),
+                    "PROFILE-ADAPTER-001",
+                    &integration.name,
+                    integration.adapter.as_deref().unwrap_or_default(),
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn adapter_source_diagnostic(
+    path: PathBuf,
+    code: &str,
+    integration_name: &str,
+    adapter: &str,
+) -> DoctorDiagnostic {
+    DoctorDiagnostic {
+        path,
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: code.to_owned(),
+        message: format!(
+            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path."
+        ),
+    }
 }
 
 fn enabled_pack_provided_features<'a>(
@@ -2193,7 +2263,10 @@ mod tests {
                     });
                 }
                 if let Some(manifest) = parse_app_registry(&file.source) {
-                    registry = Some(DoctorAppRegistry { manifest });
+                    registry = Some(DoctorAppRegistry {
+                        path: file.path.clone(),
+                        manifest,
+                    });
                 }
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
                     DoctorAppProfile {
@@ -2742,6 +2815,61 @@ app AcmeCRM
 
         assert!(codes.contains("APP-PACK-002"));
         assert!(codes.contains("APP-USES-002"));
+    }
+
+    #[test]
+    fn doctor_reports_unknown_adapter_provenance() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    customer
+  targets
+    backend go
+  environments
+    local
+  integrations
+    crm: CRMProvider
+      adapter @unknown.crm
+  runtime
+    unit api
+      serves commands
+      healthcheck "/healthz"
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    serasa: CreditBureau
+      adapter @unknown.serasa
+"#,
+            ),
+            (
+                "profiles.lzi",
+                r#"
+profile local
+  integrations
+    crm adapter @unknown.fake_crm
+"#,
+            ),
+        ]);
+
+        let diagnostics = package.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(codes.contains("APP-ADAPTER-001"));
+        assert!(codes.contains("REG-ADAPTER-001"));
+        assert!(codes.contains("PROFILE-ADAPTER-001"));
     }
 
     #[test]

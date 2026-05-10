@@ -30,9 +30,13 @@ Closed reference namespaces:
 | `@fn.*` | pure server-side functions |
 | `@hook.*` | lifecycle hooks |
 | `@validator.*` | validators |
-| `@adapter.*` | integration adapters |
+| `@adapter.*` | local integration adapter extension references |
 | `@query_modifier.*` | query modifiers |
 | `@anchor.*` | view composition anchors |
+
+Registry adapter package refs such as `@drusa/mercadopago` and
+`@plugin/acme/serasa` are adapter source/provenance markers. They are not
+general extension namespaces.
 
 Query modes:
 
@@ -1848,6 +1852,41 @@ it to say that the app has `crm: CRMProvider`, `mercadopago: PaymentGateway`,
 or `serasa: CreditBureau`; feature `.lzi` files and Drusa packs declare why
 and when those integrations are called, and Go adapters declare how they are
 called.
+
+Adapter references carry provenance without becoming a dependency-injection
+container:
+
+```lazuli
+registry
+  integrations
+    mercadopago: PaymentGateway
+      adapter @drusa/mercadopago
+
+    serasa: CreditBureau
+      adapter @plugin/acme/serasa
+
+    crm: CRMProvider
+      adapter @adapter.crm
+
+    local_ai: AiInference
+      adapter "./integrations/local_ai.go"
+```
+
+Allowed adapter source classes are:
+
+- `@drusa/<adapter>` for Drusa-maintained adapters.
+- `@plugin/<publisher>/<adapter>` for third-party plugin adapters.
+- `@adapter.<name>` for local adapter extension references.
+- local paths such as `"./integrations/local_ai.go"` when the adapter lives in
+  app code.
+
+`lazuli inspect` exposes the authored `adapter` and derived
+`adapter_provenance` (`drusa`, `plugin`, or `local`). `lazuli doctor` rejects
+adapter references whose provenance cannot be determined. Construction order,
+lifetimes, test doubles, logger/database clients, connection pools, provider
+base URLs, and optional provider SDK setup remain Drusa/runtime/adapter
+mechanics, not Lazuli syntax.
+
 Credential scopes are `platform`, `tenant`, or `actor`. Credential bindings may
 reference declared `env.NAME` values or later credential resources, but
 provider-specific storage stays outside core Lazuli.

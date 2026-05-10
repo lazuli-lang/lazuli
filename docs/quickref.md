@@ -133,6 +133,15 @@ registry
         webhook_secret env.CRM_WEBHOOK_SECRET
 ```
 
+Adapter references declare provenance, not provider operations:
+
+```lazuli
+adapter @drusa/mercadopago        # Drusa-maintained adapter
+adapter @plugin/acme/serasa       # third-party plugin adapter
+adapter @adapter.crm              # local adapter extension
+adapter "./integrations/ai.go"    # local app code
+```
+
 Pack entries belong in `registry.lzi`; `app.lzi` only enables them. A pack may
 provide a feature and require abstract slots, but its implementation details
 stay in Drusa packs/adapters:
@@ -318,11 +327,13 @@ authorization.
 | `@fn.*` | pure server-side functions |
 | `@hook.*` | lifecycle hooks |
 | `@validator.*` | validators |
-| `@adapter.*` | integration adapters |
+| `@adapter.*` | local integration adapter extension references |
 | `@query_modifier.*` | query modifiers |
 | `@anchor.*` | view composition anchors |
 
-Unknown namespaces are errors unless the spec adds them.
+Adapter package refs such as `@drusa/mercadopago` and
+`@plugin/acme/serasa` are registry adapter sources, not general extension
+namespaces. Unknown namespaces are errors unless the spec adds them.
 
 ## Binding Namespaces
 

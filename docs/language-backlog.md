@@ -21,6 +21,8 @@ The active implementation queue and open registry/import decisions live in
 - `policies` is a named dictionary; entries use `name: predicate, predicate`.
 - Policy atoms are namespaced by category, e.g. `@role.admin`, `@scope.same_org`, `@actor.system`, and `@scope.public`; feature-local policy categories are referenced through `@policy.*`.
 - Capability references use a closed namespace catalog: `@role.*`, `@scope.*`, `@actor.*`, `@policy.*`, `@semantic.*`, `@cap.*`, `@client.*`, `@fn.*`, `@hook.*`, `@validator.*`, `@adapter.*`, and `@query_modifier.*`; view anchors use `@anchor.*`.
+- Adapter package refs such as `@drusa/...` and `@plugin/...` are registry
+  source markers with provenance, not general extension namespaces.
 - Extension declarations use the same keyword as their call-site namespace, such as `client`, `fn`, `hook`, `validator`, `adapter`, and `query_modifier`.
 - Built-in types with behavior use a closed namespace: `@semantic.*` for validation/formatting and `@cap.*` for platform capabilities.
 - Query declaration modes are explicit: `query.list`, `query.lookup`, and `query.sql`.
@@ -183,8 +185,9 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add pack registry/enablement contracts with `registry.lzi` `packs` and
   app `packs`, including `provides feature ...` and abstract pack
   `requires integration ...` slots that doctor can bind.
-- [ ] Decide adapter provenance for Drusa adapters, third-party plugin
-  adapters, and local inline adapters in `registry.lzi`.
+- [x] Add adapter provenance for Drusa adapters, third-party plugin adapters,
+  and local app adapters with `@drusa/...`, `@plugin/publisher/name`,
+  `@adapter.<local>`, and local path sources.
 - [ ] Decide whether `workspace.lzi` should become the semantic distributed
   system contract for multi-repo/monorepo apps while `drusa.toml` remains
   operational repo/deploy/tooling glue.

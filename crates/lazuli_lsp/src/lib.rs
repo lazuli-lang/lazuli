@@ -5470,7 +5470,7 @@ fn validate_profile_integration_line(
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if matches!(parts.as_slice(), [name, "environment", environment] if is_identifier(name) && is_identifier(environment))
-        || matches!(parts.as_slice(), [name, "adapter", adapter] if is_identifier(name) && adapter.starts_with('@'))
+        || matches!(parts.as_slice(), [name, "adapter", adapter] if is_identifier(name) && adapter_source_provenance(adapter).is_some())
     {
         return;
     }
@@ -5480,7 +5480,7 @@ fn validate_profile_integration_line(
         line,
         DiagnosticSeverity::WARNING,
         "profile-integration-contract",
-        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter @adapter.name`.",
+        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter <source>`, where adapter sources are `@drusa/...`, `@plugin/publisher/name`, `@adapter.local`, or a local path.",
     ));
 }
 
@@ -6275,7 +6275,7 @@ fn validate_app_integration_child(
 ) {
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     match parts.as_slice() {
-        ["adapter", adapter] if adapter.starts_with("@adapter.") => {
+        ["adapter", adapter] if adapter_source_provenance(adapter).is_some() => {
             *current_integration_child = None;
         }
         ["environments", rest @ ..]
@@ -6297,9 +6297,47 @@ fn validate_app_integration_child(
             line,
             DiagnosticSeverity::WARNING,
             "app-integration-contract",
-            "integration children use `adapter @adapter.<name>`, `environments ...`, `credentials platform|tenant|actor`, or `data_classification @pii.<class>`.",
+            "integration children use `adapter @drusa/...`, `adapter @plugin/publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, or `data_classification @pii.<class>`.",
         )),
     }
+}
+
+fn adapter_source_provenance(source: &str) -> Option<&'static str> {
+    if source
+        .strip_prefix("@drusa/")
+        .is_some_and(valid_pathish_tail)
+    {
+        Some("drusa")
+    } else if source
+        .strip_prefix("@plugin/")
+        .is_some_and(valid_plugin_tail)
+    {
+        Some("plugin")
+    } else if source.strip_prefix("@adapter.").is_some_and(is_identifier)
+        || source.starts_with("./")
+        || source.starts_with("../")
+        || is_quoted_lzx_literal(source)
+    {
+        Some("local")
+    } else {
+        None
+    }
+}
+
+fn valid_plugin_tail(value: &str) -> bool {
+    value.split('/').filter(|part| !part.is_empty()).count() >= 2
+        && value.split('/').all(valid_path_segment)
+}
+
+fn valid_pathish_tail(value: &str) -> bool {
+    !value.is_empty() && value.split('/').all(valid_path_segment)
+}
+
+fn valid_path_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
 }
 
 fn validate_app_integration_credential_line(
@@ -9218,7 +9256,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "fn" => Some("Declares a reusable server-side pure function extension contract."),
         "hook" => Some("Declares a reusable lifecycle hook extension contract."),
         "validator" => Some("Declares a reusable validator extension contract."),
-        "adapter" => Some("Declares a reusable integration adapter extension contract."),
+        "adapter" => Some(
+            "Declares an integration adapter source: `@drusa/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path.",
+        ),
         "query_modifier" => Some("Declares a reusable query modifier extension contract."),
         "escape_route" => Some("Declares a custom route outside generated UI ownership."),
         "group" => Some("Groups related app env declarations without creating a namespace."),
@@ -9680,7 +9720,9 @@ app AcmeCRM
 registry
   integrations
     mercadopago: PaymentGateway
-      adapter @adapter.mercadopago
+      adapter @drusa/mercadopago
+    serasa: CreditBureau
+      adapter @plugin/acme/serasa
   packs
     payments from @drusa/payments
       version "0.1.0"
@@ -9728,6 +9770,30 @@ registry
                 .iter()
                 .any(|message| message.contains("pack children use"))
         );
+    }
+
+    #[test]
+    fn canonical_warns_for_unknown_adapter_provenance() {
+        let source = r#"
+registry
+  integrations
+    crm: CRMProvider
+      adapter @unknown.crm
+
+profile local
+  integrations
+    crm adapter @unknown.fake
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.iter().any(|message| {
+            message.contains("adapter @drusa/") || message.contains("adapter <source>")
+        }));
     }
 
     #[test]
