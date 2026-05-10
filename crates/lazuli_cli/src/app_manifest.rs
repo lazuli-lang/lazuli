@@ -1,7 +1,8 @@
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppDeploy, AppEnvVar,
     AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials, AppManifest,
-    AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
+    AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
+    AppRuntimeUnit, AppService, AppServiceExposure, AppUrl,
 };
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
@@ -463,6 +464,141 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
     Some(registry)
 }
 
+pub fn parse_app_profiles(source: &str) -> Vec<AppProfile> {
+    let lines: Vec<_> = source.lines().collect();
+    let mut profiles = Vec::new();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+        if leading_spaces(lines[index]) != 0 || !trimmed.starts_with("profile ") {
+            index += 1;
+            continue;
+        }
+
+        let Some(name) = trimmed.split_whitespace().nth(1) else {
+            index += 1;
+            continue;
+        };
+        if !is_identifier(name) {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        index += 1;
+        while index < lines.len() {
+            let next_trimmed = lines[index].trim_start();
+            if leading_spaces(lines[index]) == 0
+                && !next_trimmed.is_empty()
+                && !next_trimmed.starts_with('#')
+            {
+                break;
+            }
+            index += 1;
+        }
+
+        profiles.push(parse_app_profile_block(name, &lines[start + 1..index]));
+    }
+
+    profiles
+}
+
+fn parse_app_profile_block(name: &str, lines: &[&str]) -> AppProfile {
+    let mut profile = AppProfile {
+        name: name.to_owned(),
+        urls: Vec::new(),
+        bindings: Vec::new(),
+        integrations: Vec::new(),
+        deploy: None,
+    };
+    let mut current_child: Option<&str> = None;
+
+    for line in lines {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        match leading_spaces(line) {
+            2 => current_child = profile_child(trimmed),
+            4 => match current_child {
+                Some("urls") => {
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    if parts.len() == 2 && is_identifier(parts[0]) {
+                        profile.urls.push(AppProfileUrl {
+                            target: parts[0].to_owned(),
+                            url: unquote(parts[1]).to_owned(),
+                        });
+                    }
+                }
+                Some("bindings") => {
+                    if let Some(binding) = parse_app_binding(trimmed) {
+                        profile.bindings.push(binding);
+                    }
+                }
+                Some("integrations") => {
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    match parts.as_slice() {
+                        [name, "environment", environment]
+                            if is_identifier(name) && is_identifier(environment) =>
+                        {
+                            upsert_profile_integration(&mut profile, name).environment =
+                                Some((*environment).to_owned());
+                        }
+                        [name, "adapter", adapter] if is_identifier(name) => {
+                            upsert_profile_integration(&mut profile, name).adapter =
+                                Some((*adapter).to_owned());
+                        }
+                        _ => {}
+                    }
+                }
+                Some("deploy") => {
+                    let deploy = profile.deploy.get_or_insert_with(AppProfileDeploy::default);
+                    let parts: Vec<_> = trimmed.split_whitespace().collect();
+                    match parts.as_slice() {
+                        ["topology", value] => deploy.topology = Some((*value).to_owned()),
+                        ["migrations", value] => deploy.migrations = Some((*value).to_owned()),
+                        ["migration_lock", value] => {
+                            deploy.migration_lock = Some((*value).to_owned());
+                        }
+                        ["destructive_migrations", value] => {
+                            deploy.destructive_migrations = Some((*value).to_owned());
+                        }
+                        ["rollback", value] => deploy.rollback = Some((*value).to_owned()),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    profile
+}
+
+fn upsert_profile_integration<'a>(
+    profile: &'a mut AppProfile,
+    name: &str,
+) -> &'a mut AppProfileIntegration {
+    if let Some(index) = profile
+        .integrations
+        .iter()
+        .position(|integration| integration.name == name)
+    {
+        return &mut profile.integrations[index];
+    }
+
+    profile.integrations.push(AppProfileIntegration {
+        name: name.to_owned(),
+        environment: None,
+        adapter: None,
+    });
+    let index = profile.integrations.len() - 1;
+    &mut profile.integrations[index]
+}
+
 fn app_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "uses" => Some("uses"),
@@ -487,6 +623,16 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
         "env" => Some("env"),
         "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
+        _ => None,
+    }
+}
+
+fn profile_child(trimmed: &str) -> Option<&'static str> {
+    match trimmed.split_whitespace().next()? {
+        "urls" => Some("urls"),
+        "bindings" => Some("bindings"),
+        "integrations" => Some("integrations"),
+        "deploy" => Some("deploy"),
         _ => None,
     }
 }
@@ -646,7 +792,7 @@ fn is_type_name(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_app_manifest, parse_app_registry};
+    use super::{parse_app_manifest, parse_app_profiles, parse_app_registry};
 
     #[test]
     fn parses_operational_manifest() {
@@ -787,6 +933,63 @@ registry
                 .and_then(|credentials| credentials.bindings.first())
                 .map(|binding| binding.source.as_str()),
             Some("env.MERCADOPAGO_ACCESS_TOKEN")
+        );
+    }
+
+    #[test]
+    fn parses_app_profiles() {
+        let source = r#"
+profile local
+  urls
+    web "http://localhost:3000"
+    api "http://localhost:8080"
+  bindings
+    customer_import.crm = integrations.fake_crm
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+    migrations before_deploy
+
+profile production
+  urls
+    web "https://app.acme.example"
+  integrations
+    crm environment production
+  deploy
+    topology split_services
+"#;
+
+        let profiles = parse_app_profiles(source);
+
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles[0].name, "local");
+        assert_eq!(profiles[0].urls[0].target, "web");
+        assert_eq!(profiles[0].bindings[0].target_feature, "customer_import");
+        assert_eq!(profiles[0].integrations[0].name, "crm");
+        assert_eq!(
+            profiles[0].integrations[0].environment.as_deref(),
+            Some("sandbox")
+        );
+        assert_eq!(
+            profiles[0].integrations[0].adapter.as_deref(),
+            Some("@adapter.fake_crm")
+        );
+        assert_eq!(
+            profiles[0]
+                .deploy
+                .as_ref()
+                .and_then(|deploy| deploy.topology.as_deref()),
+            Some("monolith")
+        );
+        assert_eq!(profiles[1].name, "production");
+        assert_eq!(
+            profiles[1]
+                .deploy
+                .as_ref()
+                .and_then(|deploy| deploy.topology.as_deref()),
+            Some("split_services")
         );
     }
 }

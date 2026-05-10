@@ -1,0 +1,27 @@
+# Full capsule environment profiles.
+# Profiles keep environment-specific intent out of app.lzi and out of adapter
+# config. Secret values and cloud provider mechanics still live outside Lazuli.
+
+profile local
+  urls
+    web "http://localhost:3000"
+    api "http://localhost:8080"
+  bindings
+    customer_import.crm = integrations.crm
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+    migrations before_deploy
+
+profile production
+  urls
+    web "https://app.acme.example"
+    api "https://api.acme.example"
+  integrations
+    crm environment production
+  deploy
+    topology split_services
+    migrations before_deploy
+    rollback on_failed_healthcheck

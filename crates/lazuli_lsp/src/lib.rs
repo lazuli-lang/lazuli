@@ -302,6 +302,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));
         diagnostics.extend(registry_contract_diagnostics(source));
+        diagnostics.extend(profile_contract_diagnostics(source));
         diagnostics.extend(feature_requirements_contract_diagnostics(source));
         diagnostics.extend(external_call_contract_diagnostics(source));
         diagnostics.extend(generated_summary_diagnostics(source));
@@ -405,6 +406,7 @@ fn is_canonical_source(source: &str) -> bool {
             && (line.trim_start().starts_with("feature ") || line.trim_start() == "env")
     }) || has_canonical_app_block(source)
         || has_canonical_registry_block(source)
+        || has_canonical_profile_block(source)
 }
 
 fn has_canonical_app_block(source: &str) -> bool {
@@ -432,6 +434,12 @@ fn has_canonical_registry_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")
+}
+
+fn has_canonical_profile_block(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("profile "))
 }
 
 fn is_lzx_source(source: &str) -> bool {
@@ -5275,6 +5283,210 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn profile_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_profile = false;
+    let mut current_child: Option<&str> = None;
+    let mut saw_child = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let leading = leading_spaces(line);
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if leading == 0 {
+            if in_profile && !saw_child {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index.saturating_sub(1),
+                    "profile",
+                    DiagnosticSeverity::WARNING,
+                    "profile-contract",
+                    "profiles should declare at least one `urls`, `bindings`, `integrations`, or `deploy` override.",
+                ));
+            }
+
+            in_profile = trimmed.starts_with("profile ");
+            current_child = None;
+            saw_child = false;
+
+            if in_profile {
+                match trimmed.split_whitespace().collect::<Vec<_>>().as_slice() {
+                    ["profile", name] if is_identifier(name) => {}
+                    _ => diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "profile-contract",
+                        "profile headers use `profile <environment_name>`.",
+                    )),
+                }
+            }
+            continue;
+        }
+
+        if !in_profile {
+            continue;
+        }
+
+        match leading {
+            2 => {
+                current_child = profile_child_kind(trimmed);
+                if current_child.is_some() {
+                    saw_child = true;
+                } else {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "profile-contract",
+                        "profile blocks support `urls`, `bindings`, `integrations`, and `deploy` children.",
+                    ));
+                }
+            }
+            4 => match current_child {
+                Some("urls") => validate_profile_url_line(&mut diagnostics, line_index, line),
+                Some("bindings") => {
+                    if !is_profile_binding_line(trimmed) {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "profile-binding-contract",
+                            "profile bindings use `<feature>.<slot> = integrations.<name>` or `registry.integrations.<name>`.",
+                        ));
+                    }
+                }
+                Some("integrations") => {
+                    validate_profile_integration_line(&mut diagnostics, line_index, line)
+                }
+                Some("deploy") => validate_profile_deploy_line(&mut diagnostics, line_index, line),
+                _ => diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::WARNING,
+                    "profile-contract",
+                    "four-space profile declarations must belong to `urls`, `bindings`, `integrations`, or `deploy`.",
+                )),
+            },
+            _ => diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "profile-contract",
+                "profile declarations use two-space sections and four-space override lines.",
+            )),
+        }
+    }
+
+    if in_profile && !saw_child {
+        diagnostics.push(simple_canonical_diagnostic(
+            source.lines().count().saturating_sub(1),
+            "profile",
+            DiagnosticSeverity::WARNING,
+            "profile-contract",
+            "profiles should declare at least one `urls`, `bindings`, `integrations`, or `deploy` override.",
+        ));
+    }
+
+    diagnostics
+}
+
+fn profile_child_kind(trimmed: &str) -> Option<&'static str> {
+    match trimmed {
+        "urls" => Some("urls"),
+        "bindings" => Some("bindings"),
+        "integrations" => Some("integrations"),
+        "deploy" => Some("deploy"),
+        _ => None,
+    }
+}
+
+fn validate_profile_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if matches!(parts.as_slice(), [target, url] if is_identifier(target) && is_quoted_lzx_literal(url))
+    {
+        return;
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "profile-url-contract",
+        "profile URL overrides use `<target> \"https://...\"`, e.g. `web \"https://app.example\"`.",
+    ));
+}
+
+fn is_profile_binding_line(trimmed: &str) -> bool {
+    let Some((target, source)) = trimmed.split_once('=') else {
+        return false;
+    };
+    let Some((feature, slot)) = target.trim().split_once('.') else {
+        return false;
+    };
+    is_identifier(feature)
+        && is_identifier(slot)
+        && (source
+            .trim()
+            .strip_prefix("integrations.")
+            .is_some_and(is_identifier)
+            || source
+                .trim()
+                .strip_prefix("registry.integrations.")
+                .is_some_and(is_identifier))
+}
+
+fn validate_profile_integration_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if matches!(parts.as_slice(), [name, "environment", environment] if is_identifier(name) && is_identifier(environment))
+        || matches!(parts.as_slice(), [name, "adapter", adapter] if is_identifier(name) && adapter.starts_with('@'))
+    {
+        return;
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "profile-integration-contract",
+        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter @adapter.name`.",
+    ));
+}
+
+fn validate_profile_deploy_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+    let trimmed = line.trim_start();
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    match parts.as_slice() {
+        ["topology", value]
+        | ["migrations", value]
+        | ["migration_lock", value]
+        | ["destructive_migrations", value]
+        | ["rollback", value]
+            if is_identifier(value) =>
+        {
+            return;
+        }
+        _ => {}
+    }
+
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::WARNING,
+        "profile-deploy-contract",
+        "profile deploy overrides use `topology`, `migrations`, `migration_lock`, `destructive_migrations`, or `rollback` with an identifier value.",
+    ));
+}
+
 fn feature_requirements_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_feature = false;
@@ -8696,6 +8908,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "registry" => {
             Some("Declares the package-level catalog for env, capabilities, and integrations.")
         }
+        "profile" => Some(
+            "Declares environment-specific app overrides such as public URLs, sandbox integrations, binding overrides, and deploy topology.",
+        ),
         "environments" => {
             Some("Declares deployment/runtime environments such as local, staging, and production.")
         }
@@ -8754,6 +8969,8 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "migration_lock" => Some("Declares whether deploy must hold a migration lock."),
         "destructive_migrations" => Some("Declares how deploy handles destructive schema changes."),
         "rollback" => Some("Declares rollback behavior for failed deploy health checks."),
+        "topology" => Some("Declares an environment deploy topology override in a profile."),
+        "environment" => Some("Selects a provider environment such as sandbox or production."),
         "env" => Some("Declares typed environment variables and client/server exposure."),
         "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
         "record" => Some("Declares a non-persisted typed result/DTO shape."),
@@ -8887,6 +9104,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
 const KEYWORDS: &[&str] = &[
     "app",
     "registry",
+    "profile",
     "env",
     "aggregate",
     "entity",
@@ -8951,6 +9169,8 @@ const KEYWORDS: &[&str] = &[
     "migration_lock",
     "destructive_migrations",
     "rollback",
+    "topology",
+    "environment",
     "view",
     "audience",
     "extends",
@@ -9238,6 +9458,78 @@ app AcmeCRM
     }
 
     #[test]
+    fn canonical_accepts_app_profiles() {
+        let source = r#"
+profile local
+  urls
+    web "http://localhost:3000"
+    api "http://localhost:8080"
+  bindings
+    customer_import.crm = integrations.crm
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+    migrations before_deploy
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            diagnostics.is_empty(),
+            "expected profile contract to pass LSP diagnostics, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn canonical_warns_for_invalid_app_profiles() {
+        let source = r#"
+profile 123
+  urls
+    web http://localhost:3000
+  bindings
+    customer_import.crm -> integrations.crm
+  integrations
+    crm sandbox
+  deploy
+    topology "split"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("profile headers"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("URL overrides"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("profile bindings"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("integration overrides"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("profile deploy"))
+        );
+    }
+
+    #[test]
     fn canonical_examples_satisfy_lsp_contracts() {
         let examples = [
             (
@@ -9247,6 +9539,10 @@ app AcmeCRM
             (
                 "full-capsule-registry.lzi",
                 include_str!("../../../examples/full-capsule/registry.lzi"),
+            ),
+            (
+                "full-capsule-profiles.lzi",
+                include_str!("../../../examples/full-capsule/profiles.lzi"),
             ),
             (
                 "audit-log.lzi",

@@ -30,14 +30,14 @@ get lost in chat history.
 | 3 | External calls | done | `calls gateway.operation` now works in commands/jobs, appears in inspect, and is checked by LSP/doctor against feature integration slots with timeout/retry/job-idempotency guards. |
 | 4 | Integration doctor rules | partial | Missing app binding, undeclared integration, type mismatch, undeclared call slot, missing timeout, missing retry, and missing job idempotency are covered. PII/legal basis/audit waits for external operation data-classification contracts. |
 | 5 | Registry layout decision | done | Use native `registry.lzi` package convention with explicit import reserved for future non-standard layouts. |
-| 6 | Profiles | pending | Model environment overrides such as local/staging/production URLs, sandbox provider mode, fake adapters, and deploy topology without becoming Terraform. |
+| 6 | Profiles | done | `profile <environment>` now models URL, binding, integration environment/adapter, and provider-neutral deploy topology overrides with inspect and doctor coverage. |
 | 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |
 | 8 | Adapter binding provenance | pending | Decide how registry entries reference Drusa adapters, third-party plugin adapters, and local inline adapters without becoming a provider operation schema. |
 | 9 | Workspace contract | pending | Decide the exact `workspace.lzi` shape for distributed apps spanning monorepos, multiple repos, external services, and sidecars. |
 | 10 | External contract imports | pending | Decide how `contract.lzi`, OpenAPI, AsyncAPI, Proto/Buf, JSON Schema, and optional external SDK exports represent non-Lazuli services. Core Drusa should generate Go transport bindings, not make SDK a language concept. |
 | 11 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
-| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls syntax; re-audit again after profile/workspace syntax lands. |
-| 13 | IR/inspect coverage audit | partial | App, registry, requirements, bindings, and external calls appear in inspect/doctor. Profile/workspace/contract imports still need stable inspect shape. |
+| 12 | Syntax highlighting audit | partial | TextMate scopes include current integration/binding/calls/profile syntax; re-audit again after workspace/contract syntax lands. |
+| 13 | IR/inspect coverage audit | partial | App, registry, requirements, bindings, external calls, and profiles appear in inspect/doctor. Workspace/contract imports still need stable inspect shape. |
 | 14 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
 
 ## Registry Decision Pressure

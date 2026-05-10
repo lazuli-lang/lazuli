@@ -23,6 +23,11 @@ source that only fails later.
   are still explicit global schema entries. `required in <environment>` scopes
   requiredness to named app environments without creating provider-specific
   config inside the manifest.
+- Top-level `.lzi profile <environment>` owns environment-specific overrides:
+  public URLs, binding overrides, integration environment/adapter selection,
+  and provider-neutral deploy topology/gates. Profile names must match app
+  `environments`. Profiles do not contain secret values or cloud/provider
+  infrastructure details.
 - Registry `integrations` declare provider-neutral external integration registry
   entries: name, capability kind, adapter reference, environments, and
   credential scope. They do not declare provider HTTP operations, provider

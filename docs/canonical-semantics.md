@@ -1730,7 +1730,7 @@ registry
   integrations
     crm: CRMProvider
       adapter @adapter.crm
-      environments production
+      environments sandbox, production
       credentials platform
         webhook_secret env.CRM_WEBHOOK_SECRET
 ```
@@ -1739,6 +1739,45 @@ registry
 configured. Concrete provider choices such as Fly, AWS, Kubernetes, Neon, R2,
 Redis, SendGrid, or OpenTelemetry exporters belong in Drusa adapter
 configuration.
+
+`profile <environment>` is the environment-specific override contract. It keeps
+local/staging/production differences out of `app.lzi` without putting secrets,
+cloud resources, or provider operation schemas into Lazuli:
+
+```lazuli
+profile local
+  urls
+    web "http://localhost:3000"
+    api "http://localhost:8080"
+  bindings
+    customer_import.crm = integrations.crm
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+    migrations before_deploy
+
+profile production
+  urls
+    web "https://app.acme.example"
+    api "https://api.acme.example"
+  integrations
+    crm environment production
+  deploy
+    topology split_services
+    migrations before_deploy
+    rollback on_failed_healthcheck
+```
+
+Profiles may override public URLs, feature-to-integration bindings, integration
+environment/adapter selection, and provider-neutral deploy topology/gates. They
+must not contain secret values, cloud account ids, bucket names, Kubernetes
+namespaces, concrete broker URLs, provider HTTP paths, or SDK method schemas.
+Those remain Drusa/adapters. `lazuli inspect` exposes profiles under
+`profiles`; `lazuli doctor` validates profile names against app
+`environments`, integration overrides against app/registry integrations, and
+profile bindings against feature requirements.
 
 `architecture` and `services` describe logical service boundaries, not
 mandatory process boundaries. `mode modular_monolith` lets Drusa generate one

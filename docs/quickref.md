@@ -145,6 +145,21 @@ app PingApp
     payments.gateway = integrations.crm
 ```
 
+Profiles hold environment-specific overrides without turning `app.lzi` into
+provider config:
+
+```lazuli
+profile local
+  urls
+    web "http://localhost:3000"
+    api "http://localhost:8080"
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+```
+
 Use a block when a feature needs more than one slot:
 
 ```lazuli

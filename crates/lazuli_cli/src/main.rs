@@ -361,6 +361,8 @@ struct InspectReport {
     app: Option<lazuli_ir::AppManifest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     registry: Option<lazuli_ir::AppRegistry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    profiles: Vec<lazuli_ir::AppProfile>,
     features: Vec<InspectFeature>,
 }
 
@@ -612,6 +614,7 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         expand: expansions.labels(),
         app: app_manifest::parse_app_manifest(source),
         registry: app_manifest::parse_app_registry(source),
+        profiles: app_manifest::parse_app_profiles(source),
         features: inspect_features(&lines, expansions),
     }
 }
@@ -3558,6 +3561,33 @@ app AcmeCRM
         assert!(json.contains("\"communication\""));
         assert!(json.contains("\"runtime\""));
         assert!(json.contains("\"migrations\":\"before_deploy\""));
+    }
+
+    #[test]
+    fn inspect_json_reports_profiles() {
+        let source = r#"
+profile local
+  urls
+    web "http://localhost:3000"
+  bindings
+    customer_import.crm = integrations.crm
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+"#;
+
+        let report =
+            inspect_canonical_source(source, Path::new("profiles.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+
+        assert!(json.contains("\"profiles\""));
+        assert!(json.contains("\"name\":\"local\""));
+        assert!(json.contains("\"target\":\"web\""));
+        assert!(json.contains("\"environment\":\"sandbox\""));
+        assert!(json.contains("\"adapter\":\"@adapter.fake_crm\""));
+        assert!(json.contains("\"topology\":\"monolith\""));
     }
 
     #[test]

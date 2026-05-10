@@ -3,12 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use lazuli_ir::{AppManifest, AppRegistry};
+use lazuli_ir::{AppManifest, AppProfile, AppRegistry};
 use lazuli_lsp::SecurityProfile;
 use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
-use crate::app_manifest::{parse_app_manifest, parse_app_registry};
+use crate::app_manifest::{parse_app_manifest, parse_app_profiles, parse_app_registry};
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
     let package = DoctorPackage::load(input, security_profile)?;
@@ -34,6 +34,7 @@ struct DoctorPackage {
     files: Vec<DoctorFile>,
     app: Option<DoctorAppManifest>,
     registry: Option<DoctorAppRegistry>,
+    profiles: Vec<DoctorAppProfile>,
     commands: BTreeMap<CommandKey, CommandPolicy>,
     experiences: BTreeMap<String, ExperienceFacts>,
     operational: OperationalFacts,
@@ -49,6 +50,7 @@ impl DoctorPackage {
         let mut files = Vec::new();
         let mut app = None;
         let mut registry = None;
+        let mut profiles = Vec::new();
         let mut commands = BTreeMap::new();
         let mut experiences = BTreeMap::new();
         let mut operational = OperationalFacts::default();
@@ -104,6 +106,12 @@ impl DoctorPackage {
                         });
                     }
                 }
+                profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
+                    DoctorAppProfile {
+                        path: file.path.clone(),
+                        profile,
+                    }
+                }));
                 collect_canonical_facts(&file, &mut commands, &mut operational);
             } else if is_lzx_path(&file.path) {
                 match lazuli_syntax::parse_lzx_document(&file.source) {
@@ -130,6 +138,7 @@ impl DoctorPackage {
             files,
             app,
             registry,
+            profiles,
             commands,
             experiences,
             operational,
@@ -151,6 +160,7 @@ impl DoctorPackage {
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
             self.registry.as_ref(),
+            &self.profiles,
             &self.operational,
         ));
 
@@ -174,6 +184,12 @@ struct DoctorAppManifest {
 #[derive(Debug)]
 struct DoctorAppRegistry {
     manifest: AppRegistry,
+}
+
+#[derive(Debug)]
+struct DoctorAppProfile {
+    path: PathBuf,
+    profile: AppProfile,
 }
 
 #[derive(Debug)]
@@ -952,9 +968,26 @@ fn policy_reachability_diagnostics(
 fn app_contract_diagnostics(
     app: Option<&DoctorAppManifest>,
     registry: Option<&DoctorAppRegistry>,
+    profiles: &[DoctorAppProfile],
     operational: &OperationalFacts,
 ) -> Vec<DoctorDiagnostic> {
     let Some(app) = app else {
+        if !profiles.is_empty() {
+            return profiles
+                .iter()
+                .map(|profile| DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "PROFILE-APP-001".to_owned(),
+                    message: format!(
+                        "profile `{}` is declared, but no package app manifest was found.",
+                        profile.profile.name
+                    ),
+                })
+                .collect();
+        }
         return Vec::new();
     };
 
@@ -1000,6 +1033,12 @@ fn app_contract_diagnostics(
 
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
     diagnostics.extend(external_call_contract_diagnostics(operational));
+    diagnostics.extend(profile_contract_diagnostics(
+        app,
+        registry,
+        profiles,
+        operational,
+    ));
 
     for env_ref in &operational.env_references {
         if !env_names.contains(env_ref.name.as_str()) {
@@ -1079,7 +1118,7 @@ fn app_contract_diagnostics(
         ));
     }
 
-    if !operational.web_routes.is_empty() && !app_has_url(manifest, "web") {
+    if !operational.web_routes.is_empty() && !app_has_url(manifest, profiles, "web") {
         diagnostics.push(app_missing_contract_diagnostic(
             app,
             "APP-URL-001",
@@ -1088,7 +1127,7 @@ fn app_contract_diagnostics(
     }
 
     if (!operational.webhooks.is_empty() || !operational.apis.is_empty())
-        && !app_has_url(manifest, "api")
+        && !app_has_url(manifest, profiles, "api")
     {
         diagnostics.push(app_missing_contract_diagnostic(
             app,
@@ -1291,6 +1330,169 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
     diagnostics
 }
 
+fn profile_contract_diagnostics(
+    app: &DoctorAppManifest,
+    registry: Option<&DoctorAppRegistry>,
+    profiles: &[DoctorAppProfile],
+    operational: &OperationalFacts,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let app_environments: BTreeSet<_> = app
+        .manifest
+        .environments
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let integrations = operational_integrations(&app.manifest, registry);
+    let mut requirement_index = BTreeMap::new();
+    for requirement in &operational.integration_requirements {
+        requirement_index.insert(
+            (requirement.feature.as_str(), requirement.slot.as_str()),
+            requirement.contract.as_str(),
+        );
+    }
+
+    for profile in profiles {
+        if !app_environments.contains(profile.profile.name.as_str()) {
+            diagnostics.push(DoctorDiagnostic {
+                path: profile.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "PROFILE-001".to_owned(),
+                message: format!(
+                    "profile `{}` is not declared in app `environments`.",
+                    profile.profile.name
+                ),
+            });
+        }
+
+        for url in &profile.profile.urls {
+            if !profile_url_target_valid(&app.manifest, &url.target) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "PROFILE-URL-001".to_owned(),
+                    message: format!(
+                        "profile `{}` declares URL target `{}`, but app targets do not expose that target.",
+                        profile.profile.name, url.target
+                    ),
+                });
+            }
+        }
+
+        for integration in &profile.profile.integrations {
+            let Some(kind) = integrations.get(integration.name.as_str()).copied() else {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "PROFILE-INT-001".to_owned(),
+                    message: format!(
+                        "profile `{}` overrides integration `{}`, but no app/registry integration with that name exists.",
+                        profile.profile.name, integration.name
+                    ),
+                });
+                continue;
+            };
+
+            if let Some(environment) = &integration.environment
+                && !integration_environment_allowed(
+                    &app.manifest,
+                    registry,
+                    &integration.name,
+                    environment,
+                )
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "PROFILE-INT-002".to_owned(),
+                    message: format!(
+                        "profile `{}` selects `{}` environment `{environment}`, but `{}` does not list that environment.",
+                        profile.profile.name, kind, integration.name
+                    ),
+                });
+            }
+        }
+
+        for binding in &profile.profile.bindings {
+            let target = (
+                binding.target_feature.as_str(),
+                binding.target_slot.as_str(),
+            );
+            let Some(expected_contract) = requirement_index.get(&target).copied() else {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "PROFILE-BIND-001".to_owned(),
+                    message: format!(
+                        "profile `{}` overrides binding `{}.{}`, but that feature slot has no requirement.",
+                        profile.profile.name, binding.target_feature, binding.target_slot
+                    ),
+                });
+                continue;
+            };
+
+            let Some(integration_name) = integration_source_name(&binding.source) else {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "PROFILE-BIND-002".to_owned(),
+                    message: format!(
+                        "profile `{}` binding `{}.{}` points to `{}`, but profile bindings must use `integrations.<name>` or `registry.integrations.<name>`.",
+                        profile.profile.name,
+                        binding.target_feature,
+                        binding.target_slot,
+                        binding.source
+                    ),
+                });
+                continue;
+            };
+
+            let Some(actual_contract) = integrations.get(integration_name).copied() else {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "PROFILE-BIND-003".to_owned(),
+                    message: format!(
+                        "profile `{}` binding `{}.{}` references integration `{integration_name}`, but no app/registry integration with that name exists.",
+                        profile.profile.name, binding.target_feature, binding.target_slot
+                    ),
+                });
+                continue;
+            };
+
+            if actual_contract != expected_contract {
+                diagnostics.push(DoctorDiagnostic {
+                    path: profile.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "PROFILE-BIND-004".to_owned(),
+                    message: format!(
+                        "profile `{}` binding `{}.{}` expects `{expected_contract}`, but integration `{integration_name}` is `{actual_contract}`.",
+                        profile.profile.name, binding.target_feature, binding.target_slot
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
 fn operational_integrations<'a>(
     app: &'a AppManifest,
     registry: Option<&'a DoctorAppRegistry>,
@@ -1311,6 +1513,29 @@ fn integration_source_name(source: &str) -> Option<&str> {
     source
         .strip_prefix("integrations.")
         .or_else(|| source.strip_prefix("registry.integrations."))
+}
+
+fn integration_environment_allowed(
+    app: &AppManifest,
+    registry: Option<&DoctorAppRegistry>,
+    name: &str,
+    environment: &str,
+) -> bool {
+    app.integrations
+        .iter()
+        .chain(
+            registry
+                .into_iter()
+                .flat_map(|registry| registry.manifest.integrations.iter()),
+        )
+        .find(|integration| integration.name == name)
+        .is_some_and(|integration| {
+            integration.environments.is_empty()
+                || integration
+                    .environments
+                    .iter()
+                    .any(|allowed| allowed == environment)
+        })
 }
 
 fn app_service_contract_diagnostics(
@@ -1400,8 +1625,16 @@ fn app_has_target(app: &AppManifest, target: &str) -> bool {
         .any(|entry| entry.split_whitespace().next() == Some(target))
 }
 
-fn app_has_url(app: &AppManifest, target: &str) -> bool {
+fn profile_url_target_valid(app: &AppManifest, target: &str) -> bool {
+    target == "api" && app_has_target(app, "backend") || app_has_target(app, target)
+}
+
+fn app_has_url(app: &AppManifest, profiles: &[DoctorAppProfile], target: &str) -> bool {
     app.urls.iter().any(|url| url.target == target)
+        || profiles
+            .iter()
+            .flat_map(|profile| profile.profile.urls.iter())
+            .any(|url| url.target == target)
 }
 
 fn operational_env_names<'a>(
@@ -1762,6 +1995,7 @@ mod tests {
         let mut files = Vec::new();
         let mut app = None;
         let mut registry = None;
+        let mut profiles = Vec::new();
         let mut commands = BTreeMap::new();
         let mut experiences = BTreeMap::new();
         let mut operational = OperationalFacts::default();
@@ -1784,6 +2018,12 @@ mod tests {
                 if let Some(manifest) = parse_app_registry(&file.source) {
                     registry = Some(DoctorAppRegistry { manifest });
                 }
+                profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
+                    DoctorAppProfile {
+                        path: file.path.clone(),
+                        profile,
+                    }
+                }));
                 collect_canonical_facts(&file, &mut commands, &mut operational);
             } else {
                 let document = lazuli_syntax::parse_lzx_document(&file.source).unwrap();
@@ -1799,6 +2039,7 @@ mod tests {
             files,
             app,
             registry,
+            profiles,
             commands,
             experiences,
             operational,
@@ -2427,6 +2668,133 @@ feature imports
         assert!(codes.contains("INT-CALL-002"));
         assert!(codes.contains("INT-CALL-003"));
         assert!(codes.contains("INT-CALL-004"));
+    }
+
+    #[test]
+    fn doctor_validates_profiles_against_app_and_registry_contracts() {
+        let valid = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    imports
+  bindings
+    imports.crm = integrations.crm
+  targets
+    backend go
+    web react
+  environments
+    local
+    production
+  runtime
+    unit worker
+      runs jobs *
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments sandbox, production
+"#,
+            ),
+            (
+                "imports.lzi",
+                r#"
+feature imports
+  requires integration crm: CRMProvider
+"#,
+            ),
+            (
+                "profiles.lzi",
+                r#"
+profile local
+  urls
+    web "http://localhost:3000"
+    api "http://localhost:8080"
+  bindings
+    imports.crm = integrations.crm
+  integrations
+    crm environment sandbox
+    crm adapter @adapter.fake_crm
+  deploy
+    topology monolith
+"#,
+            ),
+        ]);
+
+        assert!(
+            valid.diagnostics().is_empty(),
+            "expected profile contract to pass doctor"
+        );
+
+        let invalid = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  uses
+    imports
+  targets
+    backend go
+  environments
+    production
+  runtime
+    unit worker
+      runs jobs *
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  integrations
+    serasa: CreditBureau
+      adapter @adapter.serasa
+      environments production
+"#,
+            ),
+            (
+                "imports.lzi",
+                r#"
+feature imports
+  requires integration crm: CRMProvider
+"#,
+            ),
+            (
+                "profiles.lzi",
+                r#"
+profile local
+  urls
+    web "http://localhost:3000"
+  bindings
+    imports.crm = integrations.serasa
+  integrations
+    crm environment sandbox
+"#,
+            ),
+        ]);
+
+        let diagnostics = invalid.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(codes.contains("APP-BIND-001"));
+        assert!(codes.contains("PROFILE-001"));
+        assert!(codes.contains("PROFILE-INT-001"));
+        assert!(codes.contains("PROFILE-BIND-004"));
     }
 
     #[test]

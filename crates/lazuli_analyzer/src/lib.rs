@@ -95,6 +95,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
     Ok(ir::Module {
         app: None,
         registry: None,
+        profiles: Vec::new(),
         features: vec![feature],
     })
 }

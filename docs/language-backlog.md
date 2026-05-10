@@ -177,6 +177,9 @@ Still open. Need a decision for whether related soft-deleted parents automatical
 - [x] Add external call contracts such as `calls gateway.operation` in
   commands/jobs, with inspect output and doctor checks for undeclared slots,
   missing timeout, retry, and job idempotency.
+- [x] Add environment profiles with `profile <environment>` for URL,
+  integration environment/adapter, binding, and provider-neutral deploy
+  topology overrides.
 - [ ] Decide adapter provenance for Drusa adapters, third-party plugin
   adapters, and local inline adapters in `registry.lzi`.
 - [ ] Decide whether `workspace.lzi` should become the semantic distributed

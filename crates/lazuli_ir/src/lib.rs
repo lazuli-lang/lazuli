@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.3.1";
+pub const LZIR_SCHEMA: &str = "0.3.2";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -33,6 +33,8 @@ pub struct Module {
     pub app: Option<AppManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<AppRegistry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<AppProfile>,
     pub features: Vec<Feature>,
 }
 
@@ -791,6 +793,48 @@ pub struct AppRegistry {
     pub integrations: Vec<AppIntegration>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<AppCapability>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppProfile {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<AppProfileUrl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<AppBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub integrations: Vec<AppProfileIntegration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<AppProfileDeploy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppProfileUrl {
+    pub target: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppProfileIntegration {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AppProfileDeploy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migrations: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_lock: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive_migrations: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollback: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

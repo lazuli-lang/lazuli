@@ -19,6 +19,7 @@ The lifecycle is:
 ```txt
 authored app.lzi manifest -> AppManifest IR -> inspect JSON / doctor / Drusa
 authored registry.lzi -> AppRegistry IR -> inspect JSON / doctor / Drusa
+authored profile.lzi -> AppProfile IR -> inspect JSON / doctor / Drusa
 authored .lzi capsule -> AST -> Module IR -> inspect JSON / codegen / planner / MCP
 authored .lzx experience source -> AST -> ExperienceModule IR -> inspect JSON / UI codegen / MCP
 ```
@@ -144,7 +145,8 @@ If a field's only justification is "an editor needs it later," reject the field.
 ## App Manifest IR
 
 `app.lzi` lowers into an optional `AppManifest` attached to `Module` and reused
-by inspect/doctor. `registry.lzi` lowers into an optional `AppRegistry`. The
+by inspect/doctor. `registry.lzi` lowers into an optional `AppRegistry`.
+Top-level `profile <environment>` blocks lower into `AppProfile` entries. The
 manifest is provider-neutral: targets, environments, URLs, logical service
 boundaries, communication intent, runtime units, and deploy gates enter IR. The
 registry carries package-level env schema, capabilities, and external
@@ -185,6 +187,12 @@ broker topics.
 and points to an app/registry integration entry. Doctor verifies that every
 feature requirement has a binding and that the integration kind matches the
 required capability contract.
+
+`AppProfile` entries preserve environment-specific overrides such as local
+URLs, sandbox integration mode, fake/local adapter override, binding override,
+and provider-neutral deploy topology. Profiles are still contracts, not
+runtime config stores: secret values, cloud resources, broker endpoints, and
+provider-specific operation schemas stay outside IR.
 
 The IR models integration intent only. Lazuli does not execute integrations.
 Drusa consumes this IR to generate/wire Go interfaces, typed HTTP/RPC transport

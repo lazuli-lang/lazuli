@@ -21,6 +21,6 @@ registry
   integrations
     crm: CRMProvider
       adapter @adapter.crm
-      environments production
+      environments sandbox, production
       credentials platform
         webhook_secret env.CRM_WEBHOOK_SECRET
