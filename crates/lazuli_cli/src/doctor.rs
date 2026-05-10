@@ -1093,6 +1093,7 @@ fn app_contract_diagnostics(
     diagnostics.extend(app_pack_contract_diagnostics(app, registry));
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
     diagnostics.extend(external_call_contract_diagnostics(operational));
+    diagnostics.extend(app_route_redirect_diagnostics(app, operational));
     diagnostics.extend(profile_contract_diagnostics(
         app,
         registry,
@@ -1212,6 +1213,54 @@ fn app_missing_contract_diagnostic(
         code: code.to_owned(),
         message: message.to_owned(),
     }
+}
+
+fn app_route_redirect_diagnostics(
+    app: &DoctorAppManifest,
+    operational: &OperationalFacts,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let manifest = &app.manifest;
+
+    let mut declared = BTreeSet::new();
+    for fact in operational
+        .web_routes
+        .iter()
+        .chain(operational.mobile_routes.iter())
+    {
+        declared.insert(fact.name.as_str());
+    }
+
+    for (field, value, code) in [
+        (
+            "auth_failed_redirect",
+            manifest.auth_failed_redirect.as_deref(),
+            "APP-ROUTE-001",
+        ),
+        ("not_found", manifest.not_found.as_deref(), "APP-ROUTE-002"),
+    ] {
+        let Some(target) = value else {
+            continue;
+        };
+        let target = target.trim();
+        if target.is_empty() {
+            continue;
+        }
+        if !declared.contains(target) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: code.to_owned(),
+                message: format!(
+                    "app `{field}` references route `{target}`, but no top-level `.lzx route {target}` was declared in this package."
+                ),
+            });
+        }
+    }
+
+    diagnostics
 }
 
 fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
@@ -3086,6 +3135,65 @@ feature customer
         assert!(
             diagnostics.is_empty(),
             "expected registry to satisfy app contract, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_unknown_auth_failed_redirect_route() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  auth_failed_redirect public_login
+  not_found public_not_found
+  uses
+    customer
+  targets
+    web react
+  environments
+    production
+  urls
+    web production "https://app.acme.example"
+  runtime
+    unit web
+      serves surfaces web
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+"#,
+            ),
+            (
+                "customer.lzi",
+                r#"
+feature customer
+"#,
+            ),
+            (
+                "app.lzx",
+                r#"
+route public_login
+  path "/login"
+  to customer.view.login
+  surface customer web
+  audience public
+"#,
+            ),
+        ]);
+
+        let diagnostics = package.diagnostics();
+        let codes: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect();
+
+        assert!(
+            !codes.contains("APP-ROUTE-001"),
+            "did not expect APP-ROUTE-001 for declared route, got: {diagnostics:#?}",
+        );
+        assert!(
+            codes.contains("APP-ROUTE-002"),
+            "expected APP-ROUTE-002 for missing not_found route, got: {diagnostics:#?}",
         );
     }
 

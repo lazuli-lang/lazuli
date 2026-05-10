@@ -13,6 +13,12 @@ route public_login
   surface customer_auth web
   audience public
 
+route public_not_found
+  path "/not-found"
+  to customer.view.not_found
+  surface customer web
+  audience public
+
 route account_enable_mfa
   path "/account/mfa"
   to customer_auth.view.enable_mfa
@@ -77,6 +83,8 @@ experience customer
 
   view lead_capture
     submit customer.command.capture_lead
+
+  view not_found
 
 experience customer_auth
   imports customer_auth, customer

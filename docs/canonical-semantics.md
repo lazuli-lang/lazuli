@@ -1632,8 +1632,8 @@ app AcmeCRM
   version "0.1.0"
   default_locale "pt-BR"
   default_timezone "America/Sao_Paulo"
-  auth_failed_redirect public.login
-  not_found public.not_found
+  auth_failed_redirect public_login
+  not_found public_not_found
 
   uses
     customer

@@ -83,6 +83,9 @@ source that only fails later.
   is canonical for both web and mobile routes. Dynamic path segments such as
   `:id` or `[id]` declare typed `route <name>: <Type>` slots and bind those
   slots into an abstract view through `to ...(name: route.<name>)`.
+- App `auth_failed_redirect` and `not_found` reference top-level `.lzx route`
+  names declared in this package. `lazuli doctor` rejects references to routes
+  that do not exist.
 - Concrete `.web.lzx` and `.mobile.lzx` own platform projections and use an
   abstract experience. Platform suffixes are protected compound suffixes: the
   platform segment stays immediately before `.lzx`. Product axes such as
