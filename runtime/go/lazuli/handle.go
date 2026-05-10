@@ -448,6 +448,11 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 // readPath looks up `path` (e.g. "name", "owner.id") on the given reflect
 // Value. Tolerates struct field names that differ in case from the DSL by
 // trying PascalCase variants.
+//
+// Single-level pointer fields are auto-dereferenced so downstream logic
+// (filter equality, search pattern building, JSON encoding) sees the
+// underlying value. A nil pointer field returns nil so `isNilOrZero`
+// correctly skips optional filters.
 func readPath(v reflect.Value, path string) (any, error) {
 	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
@@ -466,6 +471,12 @@ func readPath(v reflect.Value, path string) (any, error) {
 				Message: "input field not found: " + path}
 		}
 		v = field
+	}
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil, nil
+		}
+		v = v.Elem()
 	}
 	return v.Interface(), nil
 }

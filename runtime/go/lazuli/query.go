@@ -45,6 +45,11 @@ type Query[A, R any] struct {
 	// `query.list`. Ignored for `query.lookup` and `query.sql`.
 	Order []OrderClause
 
+	// Search applies an optional text-match filter across one or more
+	// columns, mirroring the DSL `search params.<field> over <columns>`.
+	// Nil disables search.
+	Search *SearchSpec
+
 	// Paginate is the default page size for `query.list`. Zero defaults to
 	// 100. Ignored for `query.lookup` and `query.sql`.
 	Paginate int
@@ -87,6 +92,30 @@ type LookupKey struct {
 	Source Source // typically FromInput("FieldName")
 }
 
+// SearchSpec declares a text search filter:
+// `search params.<field> over <col>, <col> [mode contains|starts_with|exact]`.
+type SearchSpec struct {
+	// Source is the args source for the search term (typically
+	// FromInput("Search")). When the resolved value is empty/zero, the
+	// filter is skipped.
+	Source Source
+
+	// Over lists the columns the runtime ORs across with the chosen mode.
+	Over []string
+
+	// Mode controls match shape. Defaults to SearchContains when empty.
+	Mode SearchMode
+}
+
+// SearchMode names the SQL pattern shape for a search term.
+type SearchMode int
+
+const (
+	SearchContains   SearchMode = iota // %term%
+	SearchStartsWith                   // term%
+	SearchExact                        // term
+)
+
 // erased returns the type-erased view used by the dispatcher and registry.
 func (q *Query[A, R]) erased() *queryErased {
 	return &queryErased{
@@ -97,6 +126,7 @@ func (q *Query[A, R]) erased() *queryErased {
 		Audit:    q.Audit,
 		Filters:  q.Filters,
 		Order:    q.Order,
+		Search:   q.Search,
 		Paginate: q.Paginate,
 		LookupBy: q.LookupBy,
 		SQL:      q.SQL,
@@ -113,6 +143,7 @@ type queryErased struct {
 	Audit    *AuditSpec
 	Filters  []FilterRule
 	Order    []OrderClause
+	Search   *SearchSpec
 	Paginate int
 	LookupBy []LookupKey
 	SQL      string

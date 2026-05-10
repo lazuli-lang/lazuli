@@ -168,14 +168,26 @@ var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
 // path so the web layer can call into a real `useQuery`.
 // ----------------------------------------------------------------------------
 
-// ListCustomersArgs is the request payload. Empty for the spike.
-type ListCustomersArgs struct{}
+// ListCustomersArgs mirrors the DSL `params` block. All fields are
+// pointers so omission means "no filter on this column".
+type ListCustomersArgs struct {
+	Email  *string `json:"email,omitempty"`
+	Search *string `json:"search,omitempty"`
+}
 
 var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
 	Name:     "customer.query.list",
 	Resource: &customerResource,
 	Kind:     lazuli.QueryList,
 	Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
+	Filters: []lazuli.FilterRule{
+		{Column: "email", When: lazuli.FromInput("Email")},
+	},
+	Search: &lazuli.SearchSpec{
+		Source: lazuli.FromInput("Search"),
+		Over:   []string{"name", "email"},
+		Mode:   lazuli.SearchContains,
+	},
 	Paginate: 50,
 }
 

@@ -43,6 +43,23 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		values = append(values, val)
 	}
 
+	if q.Search != nil && len(q.Search.Over) > 0 {
+		val, err := resolveSource(ctx, q.Search.Source, args)
+		if err != nil {
+			return nil, err
+		}
+		if !isNilOrZero(val) {
+			pattern := buildSearchPattern(fmt.Sprint(val), q.Search.Mode)
+			values = append(values, pattern)
+			placeholder := fmt.Sprintf("$%d", len(values))
+			ors := make([]string, 0, len(q.Search.Over))
+			for _, col := range q.Search.Over {
+				ors = append(ors, fmt.Sprintf("%s ILIKE %s", quoteIdent(col), placeholder))
+			}
+			conds = append(conds, "("+strings.Join(ors, " OR ")+")")
+		}
+	}
+
 	sql := "SELECT * FROM " + quoteIdent(res.Name)
 	if len(conds) > 0 {
 		sql += " WHERE " + strings.Join(conds, " AND ")
@@ -222,6 +239,20 @@ func quoteIdent(name string) string {
 		}
 	}
 	return `"` + name + `"`
+}
+
+// buildSearchPattern wraps the term according to SearchMode, escaping
+// `%` and `_` so user-provided patterns don't leak SQL wildcards.
+func buildSearchPattern(term string, mode SearchMode) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(term)
+	switch mode {
+	case SearchStartsWith:
+		return escaped + "%"
+	case SearchExact:
+		return escaped
+	default: // SearchContains
+		return "%" + escaped + "%"
+	}
 }
 
 // isNilOrZero reports whether v is a nil pointer/interface or a zero value
