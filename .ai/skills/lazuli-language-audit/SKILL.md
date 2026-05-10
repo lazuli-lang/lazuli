@@ -8,6 +8,44 @@ description: How to audit Lazuli for friction, gaps, and missing primitives. Anc
 Use this skill when you're proposing improvements to Lazuli — vocabulary
 cleanup, doctor/LSP/inspect coverage, ergonomics, or new primitives.
 
+## Mandatory reading order (do this BEFORE any audit stage)
+
+1. **`docs/invariants.md`** — the rules that constrain what's
+   author-able. If a finding contradicts an invariant, the finding is
+   wrong.
+2. **`docs/design-decisions.md`** — the canonical answer to *"why isn't
+   this dual form an atrito?"*. If the pattern you're about to flag
+   appears here, it's an architectural choice, not friction. Re-read
+   before classifying.
+3. **`docs/next-checklist.md`** — what's done, what's tracked, what's
+   open. Don't propose anything from the "done" list.
+4. **`crates/lazuli_lsp/src/lib.rs`** keyword catalog and `is_allowed_*`
+   functions — the closed namespace and keyword sets. Unknown
+   identifiers are rejected by code; you don't need to flag them.
+5. **`examples/full-capsule/`** — the canonical fixture, *after* the
+   docs.
+
+## Pre-grep gate for "missing primitives"
+
+Before listing **any** primitive as missing, grep the fixture for the
+construct keyword. If the keyword appears, the primitive is **not**
+missing — it's already there and the audit pipeline has hallucinated.
+Common false positives the pipeline keeps re-proposing:
+
+```sh
+grep -rn '^  notification ' examples/        # already shipped (cut 11)
+grep -rn '^  agent '         examples/        # already shipped (cut 6)
+grep -rn 'event\.trace'      examples/        # preexisting primitive
+grep -rn 'escape_route'      examples/        # preexisting primitive
+grep -rn 'has_many'          examples/        # already shipped (cut 4)
+grep -rn 'derived from'      examples/        # already shipped (cut 2)
+grep -rn '^    audit'        examples/        # already shipped (cut 3)
+grep -rn 'validates @validator' examples/     # already shipped (cuts 7+14)
+```
+
+If any of those returns a hit, **do not** propose the primitive as
+missing.
+
 ## Anchor: cold-read the full-capsule fixture
 
 Every audit starts here. Read it like an LLM that has never seen the

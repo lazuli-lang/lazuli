@@ -73,16 +73,23 @@ function Convert-FixtureText {
 
     $Updated = $Updated -replace "(?m)^(\s*)query\s+([A-Za-z_][A-Za-z0-9_]*)\s+raw\b", '$1query.sql $2'
     foreach ($Name in @("by_id", "by_email", "tag_by_id", "assignment_by_customer_tag", "by_customer")) {
-        $Updated = $Updated -replace "(?m)^(\s*)query\s+$Name\b", "`$1query.lookup $Name"
+        $Updated = $Updated -replace "(?m)^(\s*)query\s+$Name(?![A-Za-z0-9_\.])", "`$1query.lookup $Name"
     }
-    $Updated = $Updated -replace "(?m)^(\s*)query\s+([A-Za-z_][A-Za-z0-9_]*)\b", '$1query.list $2'
+    # Promote bare `query <name>` declarations to `query.list <name>`. The
+    # negative lookahead skips qualified references (e.g. `query
+    # customer.query.list` in service exposes), which are not declarations.
+    $Updated = $Updated -replace "(?m)^(\s*)query\s+([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_\.])", '$1query.list $2'
     $Updated = $Updated -replace "(?m)^(\s*)query\.lookup\s+([A-Za-z_][A-Za-z0-9_]*)\r?\n\1  params\r?\n\1    ([A-Za-z_][A-Za-z0-9_]*): ([^\r\n]+)\r?\n\r?\n\1  key \3 = params\.\3", '$1query.lookup $2 by $3: $4'
     $Updated = $Updated -replace "(?m)^(\s*)events(\s+[A-Za-z_][A-Za-z0-9_]*_\*\s+on\s+[A-Za-z_][A-Za-z0-9_]*\s*)$", '$1event_group$2'
 
     $Updated = $Updated -replace ": Email\b", ": @semantic.Email"
     $Updated = $Updated -replace ": Money\b", ": @semantic.Money"
     $Updated = $Updated -replace ": File\b", ": @cap.File"
-    $Updated = $Updated -replace ": Secret\b", ": @cap.Hashed(algorithm:argon2id)"
+    # Legacy resource-field migration: `<field>: Secret` -> `: @cap.Hashed(...)`.
+    # Restricted with a negative lookahead to skip env declarations, which
+    # legitimately use `Secret` as a type and carry `required|optional` on the
+    # same line.
+    $Updated = $Updated -replace ": Secret\b(?!\s+(?:required|optional))", ": @cap.Hashed(algorithm:argon2id)"
     $Updated = $Updated -replace "\b@cap\.Secret\b", "@cap.Hashed(algorithm:argon2id)"
     $Updated = $Updated -replace "Function\[Text, Secret\]", "Function[Text, @cap.Hashed(algorithm:argon2id)]"
     $Updated = $Updated -replace "Function\[Email, User\]", "Function[@semantic.Email, User]"
@@ -163,6 +170,25 @@ function Convert-FixtureText {
     return $Updated.TrimEnd() + "`n"
 }
 
+# Top-level `env` blocks in `.lzi` feature/app sources are legacy duplicates
+# of `registry.env`. Strip them when the file is not itself a registry root,
+# so the registry stays the single source of truth for environment schema.
+function Remove-LegacyTopLevelEnv {
+    param([string]$Text)
+
+    # If the file declares `registry` at column 0, env at column 0 is the
+    # canonical registry env block — leave it alone.
+    if ($Text -match '(?m)^registry\b') {
+        return $Text
+    }
+
+    # Strip a top-level `env` block (column 0 + indented children) that
+    # precedes a `feature` or `app` declaration. The trailing blank line
+    # is consumed so we don't leave a stray newline.
+    $Pattern = '(?ms)^env\r?\n(?:[ \t]+[^\r\n]*\r?\n)+(?:\r?\n)?'
+    return [regex]::Replace($Text, $Pattern, '')
+}
+
 $Changed = @()
 $Files = Get-ChildItem $ExamplesDir -Recurse -Filter "*.lzi" | Where-Object { $_.Name -ne "crm.lzi" }
 
@@ -170,6 +196,7 @@ foreach ($File in $Files) {
     $Original = Get-Content -Raw $File.FullName
     $Newline = if ($Original.Contains("`r`n")) { "`r`n" } else { "`n" }
     $Generated = Convert-FixtureText $Original
+    $Generated = Remove-LegacyTopLevelEnv $Generated
     $Generated = [regex]::Replace($Generated, "\r?\n", $Newline)
 
     if ($Generated -ne $Original) {

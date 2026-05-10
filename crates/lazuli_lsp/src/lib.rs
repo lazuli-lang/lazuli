@@ -353,6 +353,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(retention_contract_diagnostics(source));
         diagnostics.extend(write_window_contract_diagnostics(source));
         diagnostics.extend(env_schema_diagnostics(source));
+        diagnostics.extend(env_top_level_legacy_diagnostics(source));
         diagnostics.extend(webhook_security_diagnostics(source));
         diagnostics.extend(webhook_tenant_from_diagnostics(source));
         diagnostics.extend(escape_route_security_diagnostics(source));
@@ -7910,6 +7911,48 @@ fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic
     diagnostics
 }
 
+fn env_top_level_legacy_diagnostics(source: &str) -> Vec<Diagnostic> {
+    // Warn when an `env` block lives at indent 0 in a `.lzi` source that
+    // also declares `feature` or `app`. The canonical home for env schema
+    // is `registry.lzi`; top-level `env` here is a legacy duplicate.
+    let mut diagnostics = Vec::new();
+    let mut env_at_top: Option<(usize, String)> = None;
+    let mut has_feature_or_app = false;
+    let mut has_registry = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) != 0 {
+            continue;
+        }
+
+        if trimmed == "env" {
+            env_at_top.get_or_insert((line_index, line.to_owned()));
+        } else if trimmed.starts_with("feature ") || trimmed.starts_with("app ") {
+            has_feature_or_app = true;
+        } else if trimmed == "registry" || trimmed.starts_with("registry ") {
+            has_registry = true;
+        }
+    }
+
+    if let Some((line_index, line)) = env_at_top {
+        if has_feature_or_app && !has_registry {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                &line,
+                DiagnosticSeverity::WARNING,
+                "env-top-level-legacy",
+                "top-level `env` blocks in `.lzi` feature/app sources are legacy. Move env schema to `registry.lzi` (or `registry.env` inside the same package) so the declaration has a single source of truth.",
+            ));
+        }
+    }
+
+    diagnostics
+}
+
 fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut declared = HashSet::new();
@@ -8014,7 +8057,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
                     DiagnosticSeverity::WARNING,
                     "env-schema-reference",
                     &format!(
-                        "environment reference `env.{reference}` should be declared in an app or top-level `env` block with scope, type, and requiredness.",
+                        "environment reference `env.{reference}` should be declared in `registry.env` with scope, type, and requiredness. Doctor cross-checks against the package registry; this LSP rule only sees the current file.",
                     ),
                 ));
             }
@@ -10815,8 +10858,9 @@ mod tests {
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
         let source = r#"
-env
-  server INBOUND_WEBHOOK_SECRET: Secret required
+registry
+  env
+    server INBOUND_WEBHOOK_SECRET: Secret required
 
 feature customer
   purpose "Customers"
@@ -10887,9 +10931,24 @@ feature customer
             "../../../examples/full-capsule/full-capsule.lzi"
         ));
 
+        // The full-capsule feature file references env vars declared in the
+        // sibling `registry.lzi`. The per-file LSP can't see registry, so it
+        // emits an informational `env-schema-reference` warning that doctor
+        // resolves cross-package. Filter it out for ordering tests.
+        let filtered: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                d.code.as_ref().and_then(|c| match c {
+                    tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                    _ => None,
+                }) != Some("env-schema-reference")
+            })
+            .cloned()
+            .collect();
+
         assert!(
-            diagnostics.is_empty(),
-            "expected no canonical ordering diagnostics, got: {diagnostics:#?}"
+            filtered.is_empty(),
+            "expected no canonical ordering diagnostics, got: {filtered:#?}"
         );
     }
 
@@ -11445,9 +11504,24 @@ contract 123
 
         for (name, source) in examples {
             let diagnostics = diagnostics_for(source);
+            // `env-schema-reference` is a per-file warning that doctor
+            // cross-checks across the package registry. The LSP can't see
+            // sibling files, so feature sources that reference env vars
+            // declared in `registry.lzi` legitimately surface this warning.
+            // Filter it out for the per-file canonical contract.
+            let filtered: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| {
+                    d.code.as_ref().and_then(|c| match c {
+                        tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                        _ => None,
+                    }) != Some("env-schema-reference")
+                })
+                .cloned()
+                .collect();
             assert!(
-                diagnostics.is_empty(),
-                "expected {name} to satisfy canonical LSP diagnostics, got: {diagnostics:#?}"
+                filtered.is_empty(),
+                "expected {name} to satisfy canonical LSP diagnostics, got: {filtered:#?}"
             );
         }
     }
@@ -13763,8 +13837,9 @@ feature customer
     #[test]
     fn canonical_order_reports_late_webhook_after_surface() {
         let source = r#"
-env
-  server STRIPE_WEBHOOK_SECRET: Secret required
+registry
+  env
+    server STRIPE_WEBHOOK_SECRET: Secret required
 
 feature billing
   purpose "Billing"
@@ -13796,8 +13871,9 @@ feature billing
     #[test]
     fn canonical_formatter_reorders_feature_blocks() {
         let source = r#"
-env
-  server INBOUND_WEBHOOK_SECRET: Secret required
+registry
+  env
+    server INBOUND_WEBHOOK_SECRET: Secret required
 
 feature customer
   purpose "Customers"

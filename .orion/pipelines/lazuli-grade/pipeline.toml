@@ -27,21 +27,30 @@ id = "orient"
 skills = ["lazuli-quality-rubric"]
 tools = ["Read", "Grep", "Glob"]
 prompt = """
-Cold-orient on the fixture as if you've never seen it.
+Cold-orient on the fixture as if you've never seen it. The rubric
+measures whether the source explains itself without doc-lookup.
 
-1. List `examples/full-capsule/` files.
-2. Read top-to-bottom, in order: `app.lzi`, `registry.lzi`,
+1. **Read `docs/design-decisions.md` FIRST.** This is non-negotiable
+   for graders. The doc lists patterns that look like dual forms but
+   are architectural choices (event_group vs event vs event.trace,
+   extensible_by vs extends @anchor, services vs feature graph,
+   escape_route vs .lzx route, the @* namespace axis split, query
+   kinds, validates scope). If you flag any of these in
+   `identify-friction` later, your finding is wrong — re-classify.
+2. List `examples/full-capsule/` files.
+3. Read top-to-bottom, in order: `app.lzi`, `registry.lzi`,
    `workspace.lzi`, `profiles.lzi`, `full-capsule.lzi`,
-   `full-capsule.lzx`, then the platform projections and the
-   contract.
-3. Don't load `docs/canonical-semantics.md` first. The rubric measures
-   whether the source explains itself without doc-lookup.
+   `full-capsule.lzx`, then the platform projections and
+   `contracts/ai.lzi`.
+4. Skip `docs/canonical-semantics.md`; the cold-read is the rubric.
 
 Output: a single paragraph stating whether the cold-read was painful,
 neutral, or pleasant — anchored to one specific moment that surprised
-you (good or bad), with `path:line`.
+you (good or bad), with `path:line`. Append a one-sentence list of
+which patterns from `design-decisions.md` you observed in the fixture
+so you remember not to flag them.
 
-This is the mental state the rubric will grade. Don't grade yet.
+Don't grade yet.
 """
 
 [[stages]]
@@ -111,11 +120,22 @@ prompt = """
 List the top 3-5 concrete atritos (friction points) you found while
 grading. Each one is a place a senior dev or LLM would stumble.
 
-Format per finding:
+**Filter against `docs/design-decisions.md` BEFORE outputting.** For
+each candidate friction:
+
+1. Open `docs/design-decisions.md`.
+2. Search for the pattern (e.g., "extensible_by", "event.trace",
+   "escape_route", "@policy", "services", "validates").
+3. If the pattern is documented as an architectural choice with a
+   stated justification, the friction is a misread — drop it.
+4. Only patterns *not* covered by design-decisions reach the output.
+
+Format per surviving finding:
 - `path:line` anchor.
 - 1-sentence description.
 - Which rubric criterion it pulled down.
 - Cost class: cosmetic | mechanical | structural.
+- Confirmation line: "Not covered by design-decisions.md (verified)".
 
 These are the candidates for immediate cuts if the gate verdict is
 "PASS with notes."
@@ -130,12 +150,33 @@ prompt = """
 List the top 3-5 missing constructs / primitives the fixture would
 benefit from.
 
-Cross-reference with `docs/next-checklist.md` — anything already
-tracked or done is excluded.
+**MANDATORY pre-grep gate.** Before adding ANY primitive to your
+output, run these greps. If a keyword has any hit, the construct
+already exists — do NOT propose it as missing:
 
-Format per finding:
+```
+Grep "^  notification "        path=examples
+Grep "^  agent "               path=examples
+Grep "event\\.trace"           path=examples
+Grep "escape_route"            path=examples
+Grep "has_many"                path=examples
+Grep "derived from"            path=examples
+Grep "^    audit"              path=examples
+Grep "validates @validator"    path=examples
+```
+
+The full list of already-shipped primitives is in
+`docs/design-decisions.md` "Already-shipped primitives the audit
+pipeline keeps hallucinating as missing" — read it before this stage.
+
+Cross-reference with `docs/next-checklist.md` — anything tracked or
+done is excluded.
+
+For each candidate that survived the gate:
 - Where in the fixture it would be used (`path:line`).
 - The 1-line contract you'd give it.
+- Confirmation line: "Construct keyword `<keyword>` does not appear in
+  examples/ (grep returned no hits)".
 - Whether it's Lazuli-shaped or actually Drusa/adapter (per the
   `lazuli-language-boundaries` rule).
 

@@ -319,10 +319,12 @@ source that only fails later.
   error cases declare HTTP status and exposed payload fields.
 - Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
-- A top-level `env` block declares every `env.NAME` reference with scope,
-  type, and requiredness. Optional `group <name>` children organize related
-  variables without changing the reference name. Client-exposed names use
-  `PUBLIC_`; Expo/mobile names use `EXPO_PUBLIC_`.
+- `registry.env` is the canonical home for environment schema. Every
+  `env.NAME` reference resolves there. Optional `group <name>` children
+  organize related variables without changing the reference name.
+  Client-exposed names use `PUBLIC_`; Expo/mobile names use `EXPO_PUBLIC_`.
+  Top-level `env` blocks in feature/app `.lzi` sources are legacy and warn;
+  the `tools/generate-fixtures.ps1` migrator strips them.
 - Registry `integrations` entries use `<name>: <CapabilityType>` with
   `adapter @adapter.<name>` and `credentials platform|tenant|actor`. Provider
   operation details belong in features, packs, or adapters, not the registry.

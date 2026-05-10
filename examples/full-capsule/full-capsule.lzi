@@ -4,11 +4,6 @@
 # Granularity: a feature is a product capability, not an entity wrapper.
 # Design fixture only; parser and codegen coverage may lag this surface.
 
-env
-  server CRM_WEBHOOK_SECRET: Secret required
-  client PUBLIC_APP_URL: Url required
-  mobile EXPO_PUBLIC_API_URL: Url required
-
 feature customer
   purpose "CRM customer lifecycle, ownership, tiering, scoring, and customer-facing surfaces."
 
@@ -270,7 +265,6 @@ feature customer
     route id: ID
     input
       owner_id: User.ID required
-    target query.by_id(id: route.id)
     let resolved_owner = user.query.by_id(id: input.owner_id)
     policy @policy.update
     rate_limit "60 per minute per user"
@@ -292,7 +286,6 @@ feature customer
     route id: ID
     input
       tier: CustomerTier required
-    target query.by_id(id: route.id)
     policy @policy.update
     rate_limit "30 per minute per user"
     updates Customer

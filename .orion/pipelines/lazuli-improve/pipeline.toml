@@ -34,21 +34,29 @@ id = "orient"
 skills = ["lazuli-language-audit"]
 tools = ["Read", "Grep", "Glob"]
 prompt = """
-Cold-orient on the language at this point in time:
+Cold-orient on the language at this point in time. Mandatory reading
+order — do not skip:
 
-1. Read `docs/invariants.md` — the load-bearing contract.
-2. Read `docs/next-checklist.md` — what's already shipped vs. what's
-   tracked. Do NOT propose anything already on this list.
-3. List the files under `examples/full-capsule/` and read at minimum
-   `app.lzi`, `registry.lzi`, `full-capsule.lzi`, `full-capsule.lzx`.
-   This is the canonical fixture; the audit is anchored to it.
-4. Skim recent commits: `git log --oneline -20`. The last 6 commits
-   shipped: doctor cross-check, derived fields, audit, has_many,
-   query short form, agent. Do NOT re-propose them.
+1. `docs/invariants.md` — the rules that constrain what's authorable.
+2. `docs/design-decisions.md` — the canonical answer to "why isn't this
+   dual form an atrito?". If a pattern appears here, it's an
+   architectural choice; classifying it as friction is wrong.
+3. `docs/next-checklist.md` — what's shipped, what's tracked. Do NOT
+   propose anything already on the "done" list.
+4. `crates/lazuli_lsp/src/lib.rs` keyword catalog (search for
+   `is_allowed_reference_namespace` and `KEYWORD_HOVER`) — the closed
+   set of keywords/namespaces.
+5. `git log --oneline -25` — recent shipped cuts. Do NOT re-propose
+   anything from the most recent 25 commits.
+6. `examples/full-capsule/` — read in order: `app.lzi`, `registry.lzi`,
+   `workspace.lzi`, `profiles.lzi`, `full-capsule.lzi`,
+   `full-capsule.lzx`, `contracts/ai.lzi`, then platform projections.
 
-Output: 3-4 sentences naming where the language sits today and which
-of the audit dimensions (vocabulary / coverage / ergonomics / primitives)
-look most pressured. No proposals yet.
+Output: 3-4 sentences naming where the language sits today, which of
+the audit dimensions (vocabulary / coverage / ergonomics / primitives)
+look most pressured, AND a one-sentence acknowledgment of which
+patterns from `docs/design-decisions.md` you saw in the fixture (so
+you don't classify them as friction later). No proposals yet.
 """
 
 [[stages]]
@@ -57,6 +65,11 @@ skills = ["lazuli-language-audit"]
 tools = ["Read", "Grep", "Glob"]
 prompt = """
 Audit for polysemy, inconsistency, and unclear naming.
+
+**MANDATORY first step**: re-read `docs/design-decisions.md`. Any
+pattern documented there is an architectural choice. If you cite a
+location that's covered by a design decision, your finding is wrong —
+re-classify or drop it.
 
 Per the audit skill's "Vocabulary & polysemy" section: look for words
 that mean different things in different contexts. Cross-reference the
@@ -68,8 +81,11 @@ Run focused searches:
 - Check `editors/vscode/syntaxes/lazuli.tmLanguage.json` for keywords
   in two scope buckets that should be in one.
 
-Output: a markdown table of findings (Finding | Where | Suggested
-rename or rule). Skip if `focus != all && focus != vocabulary`.
+For each finding, include a column "Covered by design-decisions.md?"
+with yes/no. If yes, drop it before output.
+
+Output: a markdown table of findings (Finding | Where | Covered? |
+Suggested rename or rule). Skip if `focus != all && focus != vocabulary`.
 """
 depends_on = ["orient"]
 
@@ -131,16 +147,29 @@ tools = ["Read", "Grep"]
 prompt = """
 Audit for missing primitives.
 
-Walk the fixture for handler escape hatches: `handler "./..."`,
-`validates resource "./..."`, `verify "./..."`, raw Go file
-references in commands/jobs/webhooks. Each is a candidate primitive
-unless the variation across calls is too high.
+**MANDATORY pre-grep gate.** Before adding ANY primitive to your
+output, run these greps. If the keyword has any hit, the construct
+already exists — do NOT propose it as missing:
 
-Cross-check against the audit skill's "Likely candidates" list. Mark
-already-implemented (audit, derived, has_many, agent, query short
-form) and don't re-propose.
+```
+Grep "^  notification "   path=examples
+Grep "^  agent "          path=examples
+Grep "event\\.trace"      path=examples
+Grep "escape_route"       path=examples
+Grep "has_many"           path=examples
+Grep "derived from"       path=examples
+Grep "^    audit"         path=examples
+Grep "validates @validator" path=examples
+Grep "^  query\\.list"    path=examples
+Grep "^  query\\.lookup"  path=examples
+```
 
-For each candidate, write:
+After the gate, walk the fixture for *real* handler escape hatches:
+`handler "./..."`, `verify "./..."`, raw Go file references that the
+language doesn't yet model. Each is a candidate primitive unless the
+variation across calls is too high.
+
+For each candidate that survived the gate, write:
 - What it would replace in the fixture (cite `path:line`).
 - The minimal contract: required children, validation rules, inspect
   shape.
@@ -148,8 +177,9 @@ For each candidate, write:
   primitive vs. what the primitive declares.
 
 Output: ranked list of candidate primitives. Be ruthless about cost
-vs. value — only propose if the fixture has at least 2 use sites.
-Skip if `focus != all && focus != primitives`.
+vs. value — only propose if the fixture has at least 2 use sites and
+the construct keyword does not appear anywhere in `examples/`. Skip
+the entire stage if `focus != all && focus != primitives`.
 """
 depends_on = ["orient"]
 
