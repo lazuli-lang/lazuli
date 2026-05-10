@@ -55,6 +55,9 @@ The active implementation queue and open registry/import decisions live in
   bind a neutral integration name to a capability type, adapter reference,
   environments, and credential scope; MercadoPago/Serasa/etc. stay packs or
   adapters, not keywords.
+- No `container.lzi` exists in v0. Lazuli handles dependency inversion through
+  abstract requirements plus registry/app bindings; Drusa handles dependency
+  injection mechanics and runtime construction.
 - `assignment`, `reacts to`, and `crud` are not canonical v0 sugar. They expand across constructs or imply project-specific behavior, so they remain explicit until real usage pressure proves otherwise.
 - Event payloads are explicit; shared repeated envelope fields use mandatory inheritance from `event_group <event-pattern> on <Resource>` for matching events in the same feature.
 - Observability-only events use `event.trace <name>` rather than an `observability_only` modifier.
@@ -156,6 +159,13 @@ Still open. Need a decision for whether related soft-deleted parents automatical
   concrete providers or provider HTTP operations into core syntax.
 - [x] Promote `registry.lzi` to a native package convention consumed by
   inspect, doctor, and LSP diagnostics.
+- [ ] Decide adapter provenance for Drusa adapters, third-party plugin
+  adapters, and local inline adapters in `registry.lzi`.
+- [ ] Decide whether `workspace.lzi` should become the semantic distributed
+  system contract for multi-repo/monorepo apps while `drusa-workspace.toml`
+  remains operational repo/deploy glue.
+- [ ] Decide whether distributed ingress should use `gateway`, `proxy`, or both
+  after service boundaries, profiles, and app bindings stabilize.
 - [ ] Lower the new canonical surface into typed IR instead of LSP-only text diagnostics.
 - [ ] Add parser support for canonical indentation syntax beyond the legacy brace MVP.
 - [ ] Lower `lazuli inspect --expand` from text projection to typed IR once the canonical parser covers the new indentation syntax.

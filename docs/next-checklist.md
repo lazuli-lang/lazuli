@@ -16,6 +16,10 @@ get lost in chat history.
   `app.lzi` for small apps.
 - Service boundaries are logical ownership contracts; Drusa may materialize the
   same graph as a monolith, modular monolith, or split services.
+- Adapter and dependency injection mechanics are Drusa/runtime concerns. Lazuli
+  owns the registry contract and typed bindings; it should not grow a
+  `container.lzi` until real plugin/runtime pressure proves that `registry.lzi`
+  cannot express the contract.
 
 ## Next Implementation Cuts
 
@@ -28,9 +32,12 @@ get lost in chat history.
 | 5 | Registry layout decision | done | Use native `registry.lzi` package convention with explicit import reserved for future non-standard layouts. |
 | 6 | Profiles | pending | Model environment overrides such as local/staging/production URLs, sandbox provider mode, fake adapters, and deploy topology without becoming Terraform. |
 | 7 | Pack registry | pending | Decide shape for Drusa packs and provider packs without turning Lazuli into a product-feature catalog. |
-| 8 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
-| 9 | IR/inspect coverage audit | pending | Confirm every accepted new construct appears in inspect JSON and doctor diagnostics with stable shape. |
-| 10 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
+| 8 | Adapter binding provenance | pending | Decide how registry entries reference Drusa adapters, third-party plugin adapters, and local inline adapters without becoming a provider operation schema. |
+| 9 | Workspace contract | pending | Decide the exact `workspace.lzi` shape for distributed apps spanning monorepos, multiple repos, external services, and sidecars. |
+| 10 | Gateway/proxy contract | pending | Decide whether language uses `gateway`, `proxy`, or both for distributed ingress and service-edge routing. Keep provider proxy mechanics in Drusa/adapters. |
+| 11 | Syntax highlighting audit | pending | Re-audit TextMate scopes after integration/binding/calls/profile syntax lands. |
+| 12 | IR/inspect coverage audit | pending | Confirm every accepted new construct appears in inspect JSON and doctor diagnostics with stable shape. |
+| 13 | Final vocabulary cleanup | pending | Revisit `route` vs URL route, `path` vs route param, audience nesting, and other naming friction only after core contracts stabilize. |
 
 ## Registry Decision Pressure
 
@@ -121,6 +128,76 @@ Do not implement `workspace.lzi` before app/registry/profile contracts settle.
 When it lands, it should model distributed contract shape, not repository
 automation.
 
+Expected ownership model:
+
+- A small or medium app has one `app.lzi` and one package-level `registry.lzi`.
+- A monorepo with multiple deployable apps may have one `app.lzi` /
+  `registry.lzi` pair per app package.
+- A distributed system spanning multiple repos may add a root `workspace.lzi`
+  that references apps, external services, sidecars, shared registries, event
+  edges, and public ingress/gateway contracts.
+- `drusa-workspace.toml` remains operational glue: repo URLs, branches,
+  provider ids, CI/deploy wiring, and concrete mechanics.
+
+Do not make `workspace.lzi` mandatory for normal apps. It is a semantic
+coordination artifact for distributed systems, not a replacement for `app.lzi`.
+
+## Adapter And Container Decision Pressure
+
+`registry.lzi` is the native language-level catalog. It may contain bindings to
+adapters supplied by Drusa, third-party plugins, or local app code.
+
+Recommended model:
+
+```lazuli
+registry
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+```
+
+Allowed adapter sources should eventually include:
+
+- Drusa-maintained package adapters.
+- Third-party plugin adapters.
+- Local adapters declared by the app or feature package.
+
+Do not add a `container.lzi` yet.
+
+Reason:
+
+- Dependency inversion belongs in the language contract: features require
+  abstract integrations/capabilities, and app/registry bindings choose concrete
+  implementations.
+- Dependency injection mechanics belong in Drusa: construction order,
+  lifetimes, logger/database/client instances, test doubles, and runtime
+  wiring.
+- Provider details belong in adapters/config: HTTP endpoints, SDK setup,
+  connection pools, logger sinks, database driver settings, and cloud ids.
+
+If real adapters need static checks that cannot be expressed through
+`registry.lzi`, promote the missing part as a small registry primitive before
+creating a broad container language.
+
+## Gateway And Proxy Decision Pressure
+
+Distributed apps will need a way to model ingress and cross-service edges, but
+the language should avoid becoming Envoy/Kubernetes config.
+
+Likely split:
+
+- Lazuli language: `gateway` or `proxy` contract for public ingress, route
+  ownership, auth propagation, tenant propagation, timeout/retry policy, and
+  service exposure.
+- Drusa framework: generated gateways, service clients, local dev routing,
+  request context propagation, and reverse proxy/runtime wiring.
+- Adapters: Envoy, Kubernetes ingress, Cloud Run, Fly proxy, service mesh,
+  gRPC/Connect transport, and provider-specific routing.
+
+Keep the word `proxy` under consideration, but prefer a higher-level language
+term such as `gateway` if the construct represents application ingress rather
+than raw proxy mechanics.
+
 ## Guardrails
 
 - Do not put concrete providers such as MercadoPago, Serasa, Stripe, AWS, or
@@ -129,5 +206,9 @@ automation.
 - Do not let `app.lzi` become an implementation file. It composes the app.
 - Do not let `registry.lzi` become a provider operation schema. It catalogs
   what exists and how global bindings resolve.
+- Do not introduce `container.lzi` as a runtime DI config unless registry
+  contracts fail under real adapter/plugin pressure.
+- Do not implement `workspace.lzi`, `gateway`, or `proxy` before profiles,
+  app bindings, service boundaries, and registry contracts settle.
 - Any magic package discovery must be visible in `lazuli inspect`, `doctor`, and
   LSP diagnostics so it does not become hidden runtime behavior.
