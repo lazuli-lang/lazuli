@@ -642,6 +642,7 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
         integrations: Vec::new(),
         capabilities: Vec::new(),
         packs: Vec::new(),
+        tools: Vec::new(),
     };
     let mut current_child: Option<&str> = None;
     let mut current_env_group: Option<String> = None;

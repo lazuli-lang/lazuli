@@ -15,7 +15,12 @@
 use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-pub const LZIR_SCHEMA: &str = "0.3.6";
+///
+/// Bumped to 0.4.0 for Cut A — additive minor bump. New shapes:
+/// `Feature.agents`, `Agent` (+ tools/evals/output_kind/output_discriminator),
+/// `AppRegistry.tools` (+ `RegistryToolEntry`), and the `Lt`/`Le`/`Gt`/`Ge`
+/// variants on `CompareOp` (scoped to evals per proposal §A3).
+pub const LZIR_SCHEMA: &str = "0.4.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -27,7 +32,10 @@ pub struct SpanRef {
 
 /// A module is the IR root. It groups the optional app operational manifest
 /// and one or more features that flowed through the same compilation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Eq` is omitted because `Feature` no longer implements it (see the note
+/// on `Feature`'s derive).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Module {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<AppWorkspace>,
@@ -194,7 +202,12 @@ pub struct WorkspaceGatewayRoute {
 }
 
 /// A feature is the unit of product capability authored in one `.lzi` file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Eq` is intentionally omitted: Cut A's `Agent.temperature` / `top_p`
+/// fields are `Option<f64>`, and `f64` has no `Eq` impl. Consumers that
+/// need equality use `PartialEq` (`assert_eq!`-style comparisons still
+/// work).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Feature {
     pub name: String,
     pub purpose: Option<String>,
@@ -221,6 +234,11 @@ pub struct Feature {
     pub surfaces: Vec<Surface>,
     pub extensions: Vec<Extension>,
     pub escape_routes: Vec<EscapeRoute>,
+    /// Cut A: `agent <name>` declarations. The legacy lowering path
+    /// produces an empty `Vec`; the canonical-indent slice in
+    /// `lazuli_syntax::parse_feature_skeletons` is the producer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<Agent>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -615,6 +633,14 @@ pub enum Predicate {
 pub enum CompareOp {
     Eq,
     Ne,
+    /// Cut A — ordered operators are admissible only inside an agent's
+    /// `evals` block (proposal §A3). Doctor diagnostic
+    /// `eval_ordered_op_invalid_diagnostics` rejects them outside that
+    /// scope and when either side resolves to a non-numeric type.
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -958,6 +984,26 @@ pub struct AppRegistry {
     pub capabilities: Vec<AppCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub packs: Vec<AppPack>,
+    /// Cut A — `@tool.<name>` adapter declarations. Each entry pins the
+    /// tool's `effect: read | write` (required) and optional
+    /// `pii_classes`. Doctor diagnostic
+    /// `tool_registry_effect_required_diagnostics` rejects entries that
+    /// omit `effect`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<RegistryToolEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryToolEntry {
+    /// Dotted path under `@tool.`, e.g. `web_search`, `calendar.create_event`.
+    pub name: String,
+    pub effect: ToolEffect,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pii_classes: Vec<QualifiedName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<QualifiedName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1619,6 +1665,219 @@ pub struct AuthOAuthProvider {
     pub provider: String,
     /// `@adapter.<provider>_oauth` reference.
     pub adapter: String,
+}
+
+// =============================================================================
+// Cut A — AI primitives: agent + tools + evals + discriminated output.
+//
+// Lowered from `lazuli_syntax::Agent` (the canonical-indent slice). The
+// IR shape mirrors proposal `docs/proposals/ai-primitives-v0.md` and plan
+// `docs/proposals/ai-primitives-v0-implementation.md` §4.1.
+//
+// Doctor cross-feature checks (Phase 3) read `Agent.tools[].resolved_*`
+// fields populated by the expand pass — lowering produces `None` /
+// empty vectors and the workspace resolution happens under
+// `lazuli inspect --expand=tools` or `--expand=security`.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Agent {
+    pub name: String,
+    /// Feature this agent lives in (canonical lower-snake name).
+    pub feature: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input: Vec<TypedSlot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<TargetExpr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
+    pub output_kind: AgentOutputKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<TypeRef>,
+    /// Resolved discriminator target. `None` for `Text` / `Stream` outputs;
+    /// `Some(Enum)` for `output discriminator <Enum>`; `Some(RecordField)`
+    /// for `output <Record>` after lowering disambiguates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_discriminator: Option<DiscriminatorRef>,
+    /// `@llm.<name>` reference. The closed-namespace catalog enforces the
+    /// prefix; doctor checks the name resolves to a known LLM adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<QualifiedName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_path: Option<String>,
+    /// `@validator.*` references. Cut A allows 0 or 1; Cut A.5 widens to
+    /// many (the `Vec` shape is already correct, so A.5 lands by adding
+    /// the coverage diagnostic without an IR shape change).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub safety: Vec<QualifiedName>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evals: Vec<EvalCase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentOutputKind {
+    /// `output <Type>` — bare type reference; the agent returns plain text
+    /// (or, for a record with a `discriminator` field, a discriminated
+    /// record — see `output_discriminator`).
+    Text,
+    /// `output stream <Type>` — streaming response.
+    Stream,
+    /// `output discriminator <Enum>` — single enum-variant response.
+    DiscriminatedEnum,
+    /// `output <Record>` where the record carries a `discriminator` field.
+    DiscriminatedRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DiscriminatorRef {
+    /// `output discriminator <Enum>` — payload is the enum.
+    Enum(QualifiedName),
+    /// `output <Record>` — payload is the record; one of its fields
+    /// carries the `discriminator` marker. The analyzer resolves the
+    /// field + its enum type at lowering.
+    RecordField {
+        record: QualifiedName,
+        field: String,
+        enum_type: QualifiedName,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolBinding {
+    pub reference: QualifiedToolRef,
+    /// Populated by the expand pass when the workspace IR is loaded;
+    /// `None` after pure lowering. Proposal §A1 / plan §4.3 mandate this
+    /// derivation runs only under `--expand=tools` / `--expand=security`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_effect: Option<ToolEffect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_policy: Option<PolicyRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved_pii_classes: Vec<QualifiedName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// JSON shape: `{"target": "Local", "kind": "...", "name": "..."}` for
+/// `Local`/`CrossFeature` variants (the inner `kind` is the tool kind);
+/// `{"target": "Adapter", "dotted": [...]}` for adapter tools.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "target")]
+pub enum QualifiedToolRef {
+    /// `query.by_id`, `command.create`, `api.export` — same-feature
+    /// shorthand. The analyzer rewrites to `CrossFeature` at expand time.
+    Local { kind: ToolKind, name: String },
+    /// `customer.query.by_id` — explicit cross-feature reference.
+    CrossFeature {
+        feature: String,
+        kind: ToolKind,
+        name: String,
+    },
+    /// `@tool.web_search`, `@tool.calendar.create_event` — adapter tool.
+    /// The dotted tail joins the segments under `@tool.`.
+    Adapter { dotted: Vec<String> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolKind {
+    /// `query.list` — collection read.
+    QueryList,
+    /// `query.lookup` — single-record read.
+    QueryLookup,
+    /// `query.sql` — opaque SQL read.
+    QuerySql,
+    /// `command` — write.
+    Command,
+    /// `api` — custom HTTP endpoint; effect derived from `method`.
+    Api,
+    /// `query` — unspecified subkind; the analyzer narrows to
+    /// `QueryList`/`QueryLookup`/`QuerySql` once the target is known.
+    QueryUnspecified,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolEffect {
+    Read,
+    Write,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvalCase {
+    pub name: String,
+    pub assertions: Vec<EvalAssertion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvalAssertion {
+    pub kind: EvalAssertionKind,
+    pub predicate: EvalPredicate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvalAssertionKind {
+    Requires,
+    Forbids,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum EvalPredicate {
+    /// The closed predicate sublanguage. Lowering parses simple `<path>
+    /// <op> <literal>` forms; richer shapes hit `Unparsed` until a future
+    /// cut extends the predicate parser.
+    Closed(Predicate),
+    /// `<ref> contains <token-literal>` / `<ref> contains <@semantic.Type>`.
+    /// Semantic-type validators dispatch at `lazuli test --evals` only —
+    /// `lazuli check` validates predicate shape, never dispatches.
+    Contains { lhs: Path, rhs: EvalContainsRhs },
+    /// `tools.calls includes|excludes <tool-ref>`.
+    ToolsCalls {
+        op: ToolsCallsOp,
+        target: QualifiedToolRef,
+    },
+    /// Source text the lowering could not yet structure. Doctor surfaces
+    /// these as warnings; later predicate-parser extensions promote them
+    /// to `Closed`.
+    Unparsed(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum EvalContainsRhs {
+    /// `"active"` — substring literal.
+    Literal(String),
+    /// `@semantic.Email` — membership matched by the type's auto validator.
+    SemanticType(QualifiedName),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolsCallsOp {
+    Includes,
+    Excludes,
 }
 
 // =============================================================================

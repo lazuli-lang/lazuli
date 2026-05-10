@@ -551,6 +551,7 @@ dependencies = [
  "insta",
  "lazuli_ir",
  "lazuli_syntax",
+ "serde_json",
  "thiserror",
 ]
 
