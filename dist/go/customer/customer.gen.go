@@ -142,6 +142,17 @@ var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
 	Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{
 		"id": lazuli.FromInput("ID"),
 	}),
+	// Explicit emit: payload binds from input + ctx, demonstrating the
+	// non-derived path. Most emits are derived (`from creates|updates|deletes`).
+	Emits: []lazuli.EventEmit{
+		{
+			Name: "customer_archived",
+			Bind: lazuli.Bindings{
+				"customer_id": lazuli.FromInput("ID"),
+				"actor_id":    lazuli.FromCtx("user.id"),
+			},
+		},
+	},
 	Invalidates: []string{"customer.query.list", "customer.query.by_id"},
 }
 

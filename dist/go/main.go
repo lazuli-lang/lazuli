@@ -26,9 +26,27 @@ func main() {
 		slog.Error("lazuli boot failed", "error", err)
 		os.Exit(1)
 	}
+
+	// Demo subscribers — proof that post-commit emits flow through the
+	// in-process bus. In the eventual generated world, cross-feature
+	// reactions (e.g. `customer_outreach.job send_welcome` triggered by
+	// `customer.customer_activated`) would register equivalent
+	// Subscribers from each feature's init().
+	lazuli.Subscribe("customer_created", func(_ context.Context, e lazuli.Event) error {
+		slog.Info("subscriber: customer_created received",
+			"id", e.Payload["id"], "email", e.Payload["email"])
+		return nil
+	})
+	lazuli.Subscribe("customer_archived", func(_ context.Context, e lazuli.Event) error {
+		slog.Info("subscriber: customer_archived received",
+			"customer_id", e.Payload["customer_id"], "actor_id", e.Payload["actor_id"])
+		return nil
+	})
+
 	slog.Info("lazuli runtime booted",
 		"resources", len(lazuli.Resources()),
 		"commands", len(lazuli.Commands()),
+		"queries", len(lazuli.Queries()),
 	)
 
 	addr := os.Getenv("LAZULI_ADDR")

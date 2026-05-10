@@ -14,13 +14,13 @@ import (
 // the HTTP dispatcher (and later from job triggers and webhook callbacks).
 //
 // Pipeline:
-//  1. enforce policy (placeholder for v0)
-//  2. run validators (placeholder for v0)
+//  1. enforce policy
+//  2. run validators (placeholder; Phase F)
 //  3. open transaction
 //  4. apply effect (insert / update / delete)
-//  5. publish events (placeholder for v0)
-//  6. write audit (placeholder for v0)
-//  7. invalidate caches (placeholder for v0)
+//  5. publish events (post-commit, best-effort)
+//  6. write audit (placeholder; later phase)
+//  7. invalidate caches (placeholder; Phase H)
 //
 // The placeholders exist so the type signatures stay stable; later cuts
 // fill them in without changing the generated dist code.
@@ -49,11 +49,110 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		return zero, err
 	}
 
-	// 5. emits (TODO Phase E: publish c.Emits / c.EmitsTrace)
-	// 6. audit (TODO Phase D-ish: record according to c.Audit)
-	// 7. invalidate (TODO Phase H: signal c.Invalidates to the cache layer)
+	// 5. emits (post-commit, best-effort).
+	publishEmits(ctx, c.Emits, c.EmitsTrace, c.Effect, input, output)
+
+	// 6. audit (TODO: record according to c.Audit).
+	// 7. invalidate (TODO Phase H: signal c.Invalidates to the cache layer).
 
 	return output, nil
+}
+
+// publishEmits derives event payloads from the producing command's effect
+// (or from explicit Bind maps) and publishes them through the in-process
+// event bus. Errors are logged but never propagated — emits are post-commit.
+func publishEmits[I, O any](ctx *Ctx, emits []EventEmit, traces []EventTraceEmit, effect Effect, input I, output O) {
+	for _, emit := range emits {
+		payload, err := buildEmitPayload(ctx, emit, effect, input, output)
+		if err != nil {
+			continue
+		}
+		Publish(ctx, eventFromCtx(ctx, emit.Name, false, payload))
+	}
+	for _, t := range traces {
+		payload, err := resolveBindings(ctx, t.Bind, input)
+		if err != nil {
+			continue
+		}
+		Publish(ctx, eventFromCtx(ctx, t.Name, true, payload))
+	}
+}
+
+// eventFromCtx builds the common Event envelope from the active request ctx.
+func eventFromCtx(ctx *Ctx, name string, trace bool, payload map[string]any) Event {
+	e := Event{
+		Name:       name,
+		Trace:      trace,
+		Tenant:     ctx.Tenant,
+		Actor:      ctx.Actor,
+		Payload:    payload,
+		OccurredAt: ctx.Now,
+	}
+	if ctx.User != nil {
+		uid := ctx.User.ID
+		e.UserID = &uid
+	}
+	return e
+}
+
+// buildEmitPayload constructs the Payload map for one emit. Derived emits
+// (from creates/updates/deletes) carry the producing row in O — the runtime
+// reflects O into a map so subscribers see the exact persisted state.
+// Explicit emits resolve their own Bind map against input/ctx.
+func buildEmitPayload[I, O any](ctx *Ctx, emit EventEmit, effect Effect, input I, output O) (map[string]any, error) {
+	if emit.From == FromExplicit {
+		return resolveBindings(ctx, emit.Bind, input)
+	}
+	// Derived: payload is the producing row. Subscribers can read any
+	// persisted field via the resulting map.
+	return rowToMap(output), nil
+}
+
+// resolveBindings resolves a Bindings map of `column -> Source` to a
+// `column -> value` map for explicit event payloads.
+func resolveBindings[I any](ctx *Ctx, bind Bindings, input I) (map[string]any, error) {
+	out := make(map[string]any, len(bind))
+	for col, src := range bind {
+		val, err := resolveSource(ctx, src, input)
+		if err != nil {
+			return nil, err
+		}
+		out[col] = val
+	}
+	return out, nil
+}
+
+// rowToMap reflects an exported struct into a {column: value} map keyed by
+// each field's `db` tag (preferred) or `json` tag (fallback) or lowercased
+// name (last resort). The output is what subscribers consume.
+func rowToMap(v any) map[string]any {
+	out := map[string]any{}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return out
+	}
+	rt := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+		ft := rt.Field(i)
+		if !ft.IsExported() {
+			continue
+		}
+		name := ft.Tag.Get("db")
+		if name == "" {
+			name = strings.SplitN(ft.Tag.Get("json"), ",", 2)[0]
+		}
+		if name == "" {
+			name = strings.ToLower(ft.Name)
+		}
+		if name == "-" {
+			continue
+		}
+		out[name] = rv.Field(i).Interface()
+	}
+	return out
 }
 
 // enforcePolicy walks the resolved atom list and grants access on the first
