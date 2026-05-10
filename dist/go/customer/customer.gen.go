@@ -7,6 +7,8 @@
 package customer
 
 import (
+	"time"
+
 	"lazuli.dev/runtime/lazuli"
 )
 
@@ -189,6 +191,10 @@ var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
 		Mode:   lazuli.SearchContains,
 	},
 	Paginate: 50,
+	Cache: &lazuli.CacheSpec{
+		Key: "customer.list",
+		TTL: 5 * time.Minute,
+	},
 }
 
 // ----------------------------------------------------------------------------

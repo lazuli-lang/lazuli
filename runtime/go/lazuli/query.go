@@ -68,6 +68,11 @@ type Query[A, R any] struct {
 	// for list/lookup (the row type is the Resource[T]'s T).
 	Returns string
 
+	// Cache controls in-memory result caching for this query. Nil disables
+	// caching; a non-nil pointer with TTL <= 0 still caches using the
+	// runtime default window (60s).
+	Cache *CacheSpec
+
 	// untouched generic erasure marker for registry storage.
 	_ struct{}
 }
@@ -131,6 +136,7 @@ func (q *Query[A, R]) erased() *queryErased {
 		LookupBy: q.LookupBy,
 		SQL:      q.SQL,
 		Returns:  q.Returns,
+		Cache:    q.Cache,
 	}
 }
 
@@ -148,4 +154,5 @@ type queryErased struct {
 	LookupBy []LookupKey
 	SQL      string
 	Returns  string
+	Cache    *CacheSpec
 }

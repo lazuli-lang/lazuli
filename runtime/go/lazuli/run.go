@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,8 +14,9 @@ import (
 // builds a SELECT with optional filters, tenancy auto-injection, soft-delete
 // scoping, ORDER BY, and LIMIT.
 //
-// Phase B spike: no search, no cache, no `scope override` semantics. Those
-// arrive with later cuts; the type signature stays stable.
+// When Cache is set, identical (tenant + args) calls are served from the
+// in-memory query cache. Successful commands with matching `Invalidates`
+// entries evict the cache.
 func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 	if q.Kind != QueryList {
 		return nil, &Error{Status: 500, Code: CodeInternal,
@@ -22,6 +24,12 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 	}
 	if err := enforcePolicy(ctx, q.Policy); err != nil {
 		return nil, err
+	}
+
+	if q.Cache != nil {
+		if hit, ok := lookupQueryCache[[]R](ctx, q.Name, args); ok {
+			return hit, nil
+		}
 	}
 
 	res, err := q.resourceErased()
@@ -79,6 +87,9 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: "list scan failed: " + err.Error()}
 	}
+	if q.Cache != nil {
+		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)
+	}
 	return out, nil
 }
 
@@ -92,6 +103,12 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 	}
 	if err := enforcePolicy(ctx, q.Policy); err != nil {
 		return zero, err
+	}
+
+	if q.Cache != nil {
+		if hit, ok := lookupQueryCache[R](ctx, q.Name, args); ok {
+			return hit, nil
+		}
 	}
 
 	res, err := q.resourceErased()
@@ -140,7 +157,49 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "lookup scan failed: " + err.Error()}
 	}
+	if q.Cache != nil {
+		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)
+	}
 	return out, nil
+}
+
+// lookupQueryCache reads a cached value for the given query+args under the
+// active tenant. The result is type-asserted back to T; mismatches indicate
+// a programming error (cache shared across types) and treat as a miss.
+func lookupQueryCache[T any](ctx *Ctx, name string, args any) (T, bool) {
+	var zero T
+	key, err := cacheKeyFor(ctx, name, args)
+	if err != nil {
+		return zero, false
+	}
+	now := time.Now()
+	if ctx != nil && !ctx.Now.IsZero() {
+		now = ctx.Now
+	}
+	v, ok := queryCache.get(key, now)
+	if !ok {
+		return zero, false
+	}
+	typed, ok := v.(T)
+	if !ok {
+		return zero, false
+	}
+	return typed, true
+}
+
+// storeQueryCache writes the given result under the canonical cache key for
+// (query, tenant, args). Failures to compute the key (e.g. unencodable args)
+// silently skip caching — correctness wins over speedup.
+func storeQueryCache(ctx *Ctx, name string, args, value any, ttl time.Duration) {
+	key, err := cacheKeyFor(ctx, name, args)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	if ctx != nil && !ctx.Now.IsZero() {
+		now = ctx.Now
+	}
+	queryCache.put(key, name, value, ttl, now)
 }
 
 // resourceErased recovers the resource view a query reads from. The Query's

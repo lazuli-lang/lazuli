@@ -29,6 +29,10 @@ func Mux() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	mux.HandleFunc("GET /debug/cache", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, Stats())
+	})
+
 	for _, cmd := range Commands() {
 		cmd := cmd
 		path := "POST /api/v1/c/" + cmd.Name

@@ -68,7 +68,11 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	publishEmits(ctx, c.Emits, c.EmitsTrace, c.Effect, input, output)
 
 	// 6. audit (TODO: record according to c.Audit).
-	// 7. invalidate (TODO Phase H: signal c.Invalidates to the cache layer).
+
+	// 7. invalidate caches whose results are now stale.
+	if len(c.Invalidates) > 0 {
+		queryCache.invalidateQueries(c.Invalidates)
+	}
 
 	return output, nil
 }
