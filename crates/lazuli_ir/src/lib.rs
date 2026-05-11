@@ -16,12 +16,11 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.8.0 for Cut A.11 — additive minor bump. New shapes:
-/// `AppManifest.cors`, `AppCors`, `AppCorsOriginRule`.
-///
-/// Previous: 0.7.0 — Cut A.10 added `EvalCase.golden`, `GoldenSpec`.
+/// Bumped to 0.9.0 for Phase L Tier 4 follow-up — additive minor bump.
+/// New shapes: `RouteSlot.from` (`Option<String>`).
 ///
 /// History:
+/// - 0.8.0 — Cut A.11: `AppManifest.cors`, `AppCors`, `AppCorsOriginRule`.
 /// - 0.7.0 — Cut A.10: `EvalCase.golden`, `GoldenSpec`.
 /// - 0.6.0 — Cut A.8: `BuiltInTraceEvent`, `BuiltInTraceRecord`,
 ///   `TraceFiresPer`, registry functions, reserved-name helper.
@@ -30,7 +29,7 @@ use serde::{Deserialize, Serialize};
 /// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
 ///   output_kind/output_discriminator), `AppRegistry.tools` (+
 ///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
-pub const LZIR_SCHEMA: &str = "0.7.0";
+pub const LZIR_SCHEMA: &str = "0.9.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -710,6 +709,13 @@ pub enum CommandKind {
 pub struct RouteSlot {
     pub name: String,
     pub type_ref: TypeRef,
+    /// Phase L Tier 4 follow-up — `route <name>: <Type> from ctx.<expr>`
+    /// captures the optional default-binding expression. `Some(text)`
+    /// means the slot has a context default; `None` means the caller
+    /// must supply it. Doctor's command-route-binding check reads this
+    /// to suppress missing-argument diagnostics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1001,6 +1001,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         .map(|r| ir::RouteSlot {
             name: r.name.clone(),
             type_ref: type_ref_from_text(&r.type_text),
+            from: r.from.clone(),
         })
         .collect();
     let input = match &c.input {
