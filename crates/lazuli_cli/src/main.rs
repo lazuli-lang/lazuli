@@ -1101,6 +1101,18 @@ struct InspectWebhook {
     returns: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     emits: Vec<String>,
+    // Webhooks expanded cycle — typed envelope reference. Atrito #2:
+    // structured ref, not opaque string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_from: Option<InspectWebhookPayloadFrom>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replay: Option<InspectWebhookReplay>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dlq: Option<InspectWebhookDlq>,
+    // Webhooks expanded cycle — Atrito #5: retry shares the jobs IR
+    // `RetryPolicy` shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry: Option<InspectWebhookRetry>,
     origin: &'static str,
 }
 
@@ -1110,6 +1122,38 @@ struct InspectWebhookVerify {
     algorithm: String,
     secret_env: String,
     header: String,
+}
+
+/// Webhooks expanded cycle — typed payload-from projection. The
+/// `path` field is the canonical surface form (`webhook_events.<name>`)
+/// so JSON consumers do not have to reconstruct the catalog prefix.
+#[derive(Debug, Serialize)]
+struct InspectWebhookPayloadFrom {
+    name: String,
+    path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectWebhookReplay {
+    mode: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    within: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dedupe_by: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum InspectWebhookDlq {
+    Emit { event: String },
+    Handler { path: String },
+    Drop { reason: String },
+}
+
+#[derive(Debug, Serialize)]
+struct InspectWebhookRetry {
+    count: u32,
+    backoff: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -1538,6 +1582,42 @@ fn project_webhook(webhook: &lazuli_ir::Webhook) -> InspectWebhook {
             header: String::new(),
         },
     };
+    // Webhooks expanded cycle — typed projections for the four new
+    // children. Each Option<…> is skipped when absent so consumers
+    // that lived through Tier 3 see no churn.
+    let payload_from = webhook
+        .payload_from
+        .as_ref()
+        .map(|r| InspectWebhookPayloadFrom {
+            name: r.name.clone(),
+            path: format!("webhook_events.{}", r.name),
+        });
+    let replay = webhook.replay.as_ref().map(|r| InspectWebhookReplay {
+        mode: match r.mode {
+            lazuli_ir::ReplayMode::Allow => "allow",
+            lazuli_ir::ReplayMode::Deny => "deny",
+        },
+        within: r.within.clone(),
+        dedupe_by: r.dedupe_by.as_ref().map(path_to_string),
+    });
+    let dlq = webhook.dlq.as_ref().map(|d| match d {
+        lazuli_ir::DlqSpec::Emit { event } => InspectWebhookDlq::Emit {
+            event: event.clone(),
+        },
+        lazuli_ir::DlqSpec::Handler { path } => InspectWebhookDlq::Handler {
+            path: path.path.clone(),
+        },
+        lazuli_ir::DlqSpec::Drop { reason } => InspectWebhookDlq::Drop {
+            reason: reason.clone(),
+        },
+    });
+    let retry = webhook.retry.as_ref().map(|r| InspectWebhookRetry {
+        count: r.count,
+        backoff: match r.backoff {
+            lazuli_ir::BackoffStrategy::Fixed => "fixed",
+            lazuli_ir::BackoffStrategy::Exponential => "exponential",
+        },
+    });
     InspectWebhook {
         name: webhook.name.clone(),
         route: webhook.route.clone(),
@@ -1551,6 +1631,10 @@ fn project_webhook(webhook: &lazuli_ir::Webhook) -> InspectWebhook {
         handler: webhook.handler.path.clone(),
         returns: webhook.returns.as_ref().map(type_ref_to_string),
         emits: webhook.emits.clone(),
+        payload_from,
+        replay,
+        dlq,
+        retry,
         origin: "webhook",
     }
 }
