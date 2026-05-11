@@ -235,6 +235,10 @@ pub struct FeatureSkeleton {
     /// feature. Children captured: `tenancy <axis>`, `timestamps`,
     /// `policy_for <kinds>: <atom-list>`.
     pub defaults: Option<FeatureDefaults>,
+    /// Phase L Tier 4b — `command <name>` blocks.
+    pub commands: Vec<CommandDecl>,
+    /// Phase L Tier 4b — `api <name>` blocks.
+    pub apis: Vec<ApiDecl>,
     pub span: Span,
 }
 
@@ -282,6 +286,235 @@ pub struct DefaultsPolicyFor {
     /// so the analyzer can decide between `PolicyRef::Atom` and other
     /// variants without re-parsing surface text.
     pub atom: String,
+    pub span: Span,
+}
+
+// =============================================================================
+// Phase L Tier 4b — `command` / `api` declarations and the shared
+// declarative spine (`target`, `let`, `creates`/`updates`/`deletes`).
+//
+// The AST mirrors the IR shape as closely as practical so lowering is
+// structural. Expressions inside `target.<query>(args)` and
+// assignment RHS are captured as raw text and re-parsed by the analyzer
+// — the parser's job is to determine block boundaries and the indent
+// contract, not to type-check expressions.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandDecl {
+    pub name: String,
+    /// `previously migrated <old>` (one entry per `previously` line).
+    pub previously: Vec<String>,
+    /// `route <name>: <Type>` slots.
+    pub route: Vec<CommandRouteSlot>,
+    /// `input` block — `Empty` when absent, `Short` for `input <ref>`
+    /// shorthand, `Typed` for typed-name lists.
+    pub input: CommandInputDecl,
+    /// `policy @policy.<name>` atom. Captured verbatim.
+    pub policy: Option<String>,
+    /// `rate_limit "<N per period per scope>"` literal (quotes stripped).
+    pub rate_limit: Option<String>,
+    /// `audit <subject>, <subject>, ...` line + optional `emit_to <group>` child.
+    pub audit: Option<CommandAudit>,
+    /// Cut A.9 `approval` block.
+    pub approval: Option<CommandApproval>,
+    /// `target query.<name>(args)` — at most one per command.
+    pub target: Option<TargetExprDecl>,
+    /// `let <name> = <expr>` bindings — order preserved.
+    pub lets: Vec<LetBindingDecl>,
+    /// `validate @validator.<name>(args)` lines. Doctor-only today; the
+    /// surface keeps the verbatim invocation.
+    pub validate: Vec<String>,
+    /// `creates`/`updates`/`deletes` body. `None` for `returns`-only
+    /// commands or commands with `handler` opt-outs (none in the
+    /// fixture today).
+    pub effect: Option<CommandEffectDecl>,
+    /// `returns <TypeRef>` for pure request/response commands. Mutually
+    /// exclusive with `effect`.
+    pub returns: Option<String>,
+    /// `handler "./..."` escape hatch — verbatim path literal. Mutually
+    /// exclusive with the declarative body.
+    pub handler: Option<JobHandler>,
+    /// `emits <event>` lines with optional `from creates`/`from updates`
+    /// suffix or assignment child block.
+    pub emits: Vec<CommandEmit>,
+    /// `invalidates query.<name>(args?)` references.
+    pub invalidates: Vec<InvalidatesDecl>,
+    /// `calls <slot>.<op>` references inside the command body.
+    pub external_calls: Vec<JobExternalCall>,
+    /// `tests` block — captured as raw lines until a typed test grammar
+    /// lands. The body is the indented child list, trimmed.
+    pub tests: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandRouteSlot {
+    pub name: String,
+    pub type_text: String,
+    /// `from ctx.customer.id` default expression — verbatim text.
+    pub from: Option<String>,
+    pub span: Span,
+}
+
+/// `input` block: empty, short reference, or typed slot list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum CommandInputDecl {
+    /// `input` block absent.
+    Empty,
+    /// `input <name>` short form — one inline name. The analyzer resolves
+    /// it against the command's local resource fields.
+    Short(String),
+    /// `input` block with typed children:
+    ///
+    ///   input
+    ///     name: Text required
+    ///     email: @semantic.Email @pii.contact required
+    Typed(Vec<CommandInputSlot>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandInputSlot {
+    pub name: String,
+    /// Raw type text including decorator chain — `@semantic.Email
+    /// @pii.contact required` is parsed by the analyzer into `TypeRef`
+    /// + modifiers.
+    pub type_text: String,
+    pub required: bool,
+    pub optional: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandAudit {
+    /// `actor`, `target.id`, `input.<field>`, etc.
+    pub subjects: Vec<String>,
+    /// `emit_to <event_group>` — optional child.
+    pub emit_to: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandApproval {
+    /// `required_when <predicate>` — verbatim predicate text.
+    pub required_when: Option<String>,
+    /// `by @role.<name>` or `by @actor.<name>` — single approver atom.
+    pub by: String,
+    /// `timeout "24h"` — duration literal (quotes stripped).
+    pub timeout: Option<String>,
+    /// `then deny | allow | escalate`.
+    pub then: ApprovalThenDecl,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalThenDecl {
+    Deny,
+    Allow,
+    Escalate,
+}
+
+/// `target query.<name>(args)` — at most one per command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetExprDecl {
+    /// Qualified query reference. The parser keeps the dotted form
+    /// (`customer.query.by_id` or `query.by_id`); the analyzer splits.
+    pub query: String,
+    /// `name: <expr>` pairs. The right-hand side is captured verbatim.
+    pub args: Vec<TargetArgDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetArgDecl {
+    pub name: String,
+    pub value: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LetBindingDecl {
+    pub name: String,
+    /// Verbatim expression text. The analyzer re-parses against the
+    /// canonical `Expr` AST.
+    pub value: String,
+    pub span: Span,
+}
+
+/// `creates X` / `updates X` / `deletes X` body. Carries the qualified
+/// resource name + child assignments. `from_input` is true when the
+/// command author writes `creates X from input` shorthand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandEffectDecl {
+    pub kind: CommandEffectKindDecl,
+    /// Resource name. May be qualified (`customer.Customer`); the
+    /// analyzer resolves against the local feature first.
+    pub resource: String,
+    pub from_input: bool,
+    pub assignments: Vec<AssignmentDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommandEffectKindDecl {
+    Creates,
+    Updates,
+    Deletes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssignmentDecl {
+    pub field: String,
+    /// Verbatim RHS text. The analyzer re-parses against `Expr`.
+    pub value: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandEmit {
+    /// `customer_created`, `customer_reassigned`, etc.
+    pub name: String,
+    /// `from creates` / `from updates` / `from deletes` suffix.
+    pub from: Option<CommandEffectKindDecl>,
+    /// Optional child `<key> = <expr>` lines (e.g.
+    /// `emits customer_reassigned\n  to_owner_id = input.owner_id`).
+    pub fields: Vec<AssignmentDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvalidatesDecl {
+    /// Qualified query reference, e.g. `query.list` or
+    /// `customer.query.by_id`.
+    pub query: String,
+    /// Named args, e.g. `id: route.id`.
+    pub args: Vec<TargetArgDecl>,
+    pub span: Span,
+}
+
+// -----------------------------------------------------------------------------
+// `api <name>` declaration.
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiDecl {
+    pub name: String,
+    /// `method GET|POST|PUT|PATCH|DELETE`. Captured as a typed enum.
+    pub method: HttpMethod,
+    /// `path "/api/customers/export"` — verbatim path literal.
+    pub path: String,
+    /// `output <TypeRef>` — captured as raw type text. The analyzer
+    /// projects to `TypeRef`.
+    pub output: String,
+    /// `policy @policy.<name>`.
+    pub policy: Option<String>,
+    /// `rate_limit "<N per period per scope>"`.
+    pub rate_limit: Option<String>,
+    /// `handler "./api/<name>.go"`.
+    pub handler: Option<String>,
     pub span: Span,
 }
 
@@ -618,13 +851,14 @@ pub struct JobExternalCallArg {
     pub span: Span,
 }
 
-/// Body of a job. `Handler` is a path reference; `Declarative` is
-/// captured as raw lines until Tier 4 lifts the shared spine.
+/// Body of a job. `Handler` is a path reference; `Declarative` is the
+/// typed spine (Phase L Tier 4b lifted; previously a raw-line carve-out
+/// in `JobDeclarativeRaw`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum JobBody {
     Handler(JobHandler),
-    Declarative(JobDeclarativeRaw),
+    Declarative(JobDeclarativeTyped),
     /// No `handler` and no `target` / `updates` / `creates` / `deletes`
     /// authored. Some fixture jobs ship only `emits` (event reactors
     /// with no declarative body); analyzer treats this as a parse error
@@ -640,15 +874,14 @@ pub struct JobHandler {
     pub returns: Option<String>,
 }
 
+/// Phase L Tier 4b — declarative job body using the typed spine helpers
+/// (`TargetExprDecl`, `LetBindingDecl`, `CommandEffectDecl`). Replaces
+/// the Tier 3 `JobDeclarativeRaw` carve-out.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobDeclarativeRaw {
-    /// `target query.by_id(...)` line, sans the `target ` prefix.
-    pub target: Option<String>,
-    /// `let new_score = ...` lines, sans the `let ` prefix.
-    pub lets: Vec<String>,
-    /// `updates Customer\n  score = new_score` collapsed into a single
-    /// raw block string. Tier 4 will lift the assignments.
-    pub effect: Option<String>,
+pub struct JobDeclarativeTyped {
+    pub target: Option<TargetExprDecl>,
+    pub lets: Vec<LetBindingDecl>,
+    pub effect: Option<CommandEffectDecl>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

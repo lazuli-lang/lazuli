@@ -93,6 +93,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         rules: Vec::new(),
         policies: ir::Policies::default(),
         commands,
+        apis: Vec::new(),
         queries,
         workflows: Vec::new(),
         jobs: Vec::new(),
@@ -443,6 +444,11 @@ fn lower_command(
         effect,
         policy,
         emits: command.emits.clone(),
+        rate_limit: None,
+        audit: None,
+        approval: None,
+        invalidates: Vec::new(),
+        external_calls: Vec::new(),
         tests: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(command.span)),
@@ -710,6 +716,8 @@ pub fn lower_feature_skeleton(
         Some(d) => lower_defaults(d),
         None => ir::Defaults::default(),
     };
+    let commands = skeleton.commands.iter().map(lower_command_decl).collect();
+    let apis = skeleton.apis.iter().map(lower_api_decl).collect();
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -723,7 +731,8 @@ pub fn lower_feature_skeleton(
         events: Vec::new(),
         rules: Vec::new(),
         policies: ir::Policies::default(),
-        commands: Vec::new(),
+        commands,
+        apis,
         queries: Vec::new(),
         workflows: Vec::new(),
         jobs,
@@ -738,6 +747,131 @@ pub fn lower_feature_skeleton(
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     })
+}
+
+/// Phase L Tier 4b — lower a canonical-indent `command` block into
+/// `ir::Command`. The kind is inferred from the body shape: `creates`
+/// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
+/// `handler`-only → Returns (the escape hatch case).
+fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
+    let kind = match c.effect.as_ref().map(|e| e.kind) {
+        Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
+        Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
+        Some(syntax::CommandEffectKindDecl::Deletes) => ir::CommandKind::Delete,
+        None => ir::CommandKind::Returns,
+    };
+    let route = c
+        .route
+        .iter()
+        .map(|r| ir::RouteSlot {
+            name: r.name.clone(),
+            type_ref: type_ref_from_text(&r.type_text),
+        })
+        .collect();
+    let input = match &c.input {
+        syntax::CommandInputDecl::Empty => ir::CommandInput::Empty,
+        syntax::CommandInputDecl::Short(name) => ir::CommandInput::Short(vec![name.clone()]),
+        syntax::CommandInputDecl::Typed(slots) => ir::CommandInput::Typed(
+            slots
+                .iter()
+                .map(|s| ir::TypedSlot {
+                    name: s.name.clone(),
+                    type_ref: type_ref_from_text(&s.type_text),
+                    required: s.required,
+                })
+                .collect(),
+        ),
+    };
+    let target = c.target.as_ref().map(lower_target_expr);
+    let lets = c.lets.iter().map(lower_let_binding).collect();
+    let effect = if let Some(e) = c.effect.as_ref() {
+        lower_command_effect(e)
+    } else if let Some(returns) = c.returns.as_deref() {
+        ir::CommandEffect::Returns(ir::ReturnsEffect {
+            return_type: type_ref_from_text(returns),
+        })
+    } else {
+        ir::CommandEffect::None
+    };
+    let policy = c
+        .policy
+        .as_deref()
+        .map(lower_policy_atom)
+        .unwrap_or(ir::PolicyRef::None);
+    let emits = c.emits.iter().map(|e| e.name.clone()).collect();
+    let audit = c.audit.as_ref().map(|a| ir::AuditSpec {
+        subjects: a.subjects.clone(),
+        emit_to: a.emit_to.clone(),
+    });
+    let approval = c.approval.as_ref().map(|a| ir::ApprovalSpec {
+        required_when: a.required_when.clone(),
+        by: a.by.clone(),
+        timeout: a.timeout.clone(),
+        then: match a.then {
+            syntax::ApprovalThenDecl::Deny => ir::ApprovalThen::Deny,
+            syntax::ApprovalThenDecl::Allow => ir::ApprovalThen::Allow,
+            syntax::ApprovalThenDecl::Escalate => ir::ApprovalThen::Escalate,
+        },
+    });
+    let invalidates = c
+        .invalidates
+        .iter()
+        .map(|inv| ir::InvalidatesSpec {
+            query: lower_qualified_name(&inv.query),
+            args: inv.args.iter().map(lower_named_arg).collect(),
+        })
+        .collect();
+    let external_calls = c.external_calls.iter().map(lower_external_call).collect();
+    ir::Command {
+        name: c.name.clone(),
+        kind,
+        route,
+        input,
+        target,
+        lets,
+        effect,
+        policy,
+        emits,
+        rate_limit: c.rate_limit.clone(),
+        audit,
+        approval,
+        invalidates,
+        external_calls,
+        tests: None,
+        previous_names: c.previously.clone(),
+        span_ref: Some(span_of(c.span)),
+    }
+}
+
+/// Phase L Tier 4b — lower a canonical-indent `api` block into `ir::Api`.
+fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
+    let method = match a.method {
+        syntax::HttpMethod::Get => ir::HttpMethod::Get,
+        syntax::HttpMethod::Post => ir::HttpMethod::Post,
+        syntax::HttpMethod::Put => ir::HttpMethod::Put,
+        syntax::HttpMethod::Patch => ir::HttpMethod::Patch,
+        syntax::HttpMethod::Delete => ir::HttpMethod::Delete,
+    };
+    let policy = a
+        .policy
+        .as_deref()
+        .map(lower_policy_atom)
+        .unwrap_or(ir::PolicyRef::None);
+    let handler = a
+        .handler
+        .as_deref()
+        .map(ir::PathRef::authored)
+        .unwrap_or_else(|| ir::PathRef::convention(format!("./api/{}.go", a.name)));
+    ir::Api {
+        name: a.name.clone(),
+        method,
+        path: a.path.clone(),
+        policy,
+        rate_limit: a.rate_limit.clone(),
+        output: type_ref_from_text(&a.output),
+        handler,
+        span_ref: Some(span_of(a.span)),
+    }
 }
 
 /// Phase L Tier 4a — lower a canonical-indent `defaults` block into
@@ -996,21 +1130,85 @@ fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
             returns: h.returns.as_deref().map(|t| type_ref_from_text(t)),
         }),
         syntax::JobBody::Declarative(d) => ir::JobBody::Declarative(ir::JobDeclarative {
-            target: None,
-            lets: Vec::new(),
-            effect: ir::CommandEffect::None,
-            raw_target: d.target.clone(),
-            raw_lets: d.lets.clone(),
-            raw_effect: d.effect.clone(),
+            target: d.target.as_ref().map(lower_target_expr),
+            lets: d.lets.iter().map(lower_let_binding).collect(),
+            effect: d
+                .effect
+                .as_ref()
+                .map(lower_command_effect)
+                .unwrap_or(ir::CommandEffect::None),
         }),
         syntax::JobBody::None => ir::JobBody::Declarative(ir::JobDeclarative {
             target: None,
             lets: Vec::new(),
             effect: ir::CommandEffect::None,
-            raw_target: None,
-            raw_lets: Vec::new(),
-            raw_effect: None,
         }),
+    }
+}
+
+/// Phase L Tier 4b — shared lowering for `target query.<name>(args)`.
+/// Reused by `lower_job_body` (Tier 3) and `lower_command_skeleton`
+/// (Tier 4b) — closes the Tier 3 raw-spine carve-out.
+fn lower_target_expr(t: &syntax::TargetExprDecl) -> ir::TargetExpr {
+    ir::TargetExpr {
+        query: lower_qualified_name(&t.query),
+        args: t.args.iter().map(lower_named_arg).collect(),
+    }
+}
+
+fn lower_let_binding(l: &syntax::LetBindingDecl) -> ir::LetBinding {
+    ir::LetBinding {
+        name: l.name.clone(),
+        value: lower_raw_expr(&l.value),
+    }
+}
+
+fn lower_named_arg(arg: &syntax::TargetArgDecl) -> ir::NamedArg {
+    ir::NamedArg {
+        name: arg.name.clone(),
+        value: lower_raw_expr(&arg.value),
+    }
+}
+
+fn lower_assignment(a: &syntax::AssignmentDecl) -> ir::Assignment {
+    ir::Assignment {
+        field: a.field.clone(),
+        value: lower_raw_expr(&a.value),
+    }
+}
+
+fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::CommandEffect {
+    let resource = lower_qualified_name(&effect.resource);
+    let assignments: Vec<ir::Assignment> =
+        effect.assignments.iter().map(lower_assignment).collect();
+    match effect.kind {
+        syntax::CommandEffectKindDecl::Creates => ir::CommandEffect::Creates(ir::CreateEffect {
+            resource,
+            from_input: effect.from_input,
+            assignments,
+        }),
+        syntax::CommandEffectKindDecl::Updates => ir::CommandEffect::Updates(ir::UpdateEffect {
+            resource,
+            assignments,
+        }),
+        syntax::CommandEffectKindDecl::Deletes => {
+            ir::CommandEffect::Deletes(ir::DeleteEffect { resource })
+        }
+    }
+}
+
+fn lower_qualified_name(text: &str) -> ir::QualifiedName {
+    let trimmed = text.trim();
+    if let Some((feature, name)) = trimmed.split_once('.') {
+        ir::QualifiedName {
+            feature: Some(feature.to_owned()),
+            name: name.to_owned(),
+        }
+    } else {
+        ir::QualifiedName {
+            feature: None,
+            name: trimmed.to_owned(),
+        }
     }
 }
 
@@ -2220,12 +2418,18 @@ feature customer
         let job = &feature.jobs[0];
         match &job.body {
             ir::JobBody::Declarative(d) => {
-                assert_eq!(
-                    d.raw_target.as_deref(),
-                    Some("query.by_id(id: payload.customer_id)")
-                );
-                assert_eq!(d.raw_lets.len(), 1);
-                assert!(d.raw_effect.is_some());
+                let target = d.target.as_ref().expect("target lifted");
+                assert_eq!(target.query.name, "by_id");
+                assert_eq!(d.lets.len(), 1);
+                assert_eq!(d.lets[0].name, "new_score");
+                match &d.effect {
+                    ir::CommandEffect::Updates(u) => {
+                        assert_eq!(u.resource.name, "Customer");
+                        assert_eq!(u.assignments.len(), 1);
+                        assert_eq!(u.assignments[0].field, "score");
+                    }
+                    other => panic!("expected Updates effect, got {other:?}"),
+                }
             }
             other => panic!("expected Declarative body, got {other:?}"),
         }

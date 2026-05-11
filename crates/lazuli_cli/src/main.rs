@@ -1061,10 +1061,9 @@ struct InspectJobExternalCall {
 enum InspectJobBody {
     /// `handler "./..."` — declarative path with optional return type.
     Handler(InspectJobHandler),
-    /// Declarative body kept as raw strings until Tier 4 lifts the
-    /// shared declarative spine. Consumers can still inspect the
-    /// authored intent before codegen lands.
-    Declarative(InspectJobDeclarativeRaw),
+    /// Declarative body with the typed declarative spine (Phase L Tier
+    /// 4b). Replaces the previous raw-string carve-out.
+    Declarative(InspectJobDeclarative),
     /// Job declares no body — emits-only reactor.
     None,
 }
@@ -1077,7 +1076,7 @@ struct InspectJobHandler {
 }
 
 #[derive(Debug, Serialize)]
-struct InspectJobDeclarativeRaw {
+struct InspectJobDeclarative {
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -1499,13 +1498,20 @@ fn project_job(job: &lazuli_ir::Job) -> InspectJob {
                 returns: h.returns.as_ref().map(type_ref_to_string),
             }),
             lazuli_ir::JobBody::Declarative(d) => {
-                if d.raw_target.is_none() && d.raw_lets.is_empty() && d.raw_effect.is_none() {
+                let target_text = d.target.as_ref().map(inspect_target_expr_to_string);
+                let lets_text: Vec<String> =
+                    d.lets.iter().map(inspect_let_binding_to_string).collect();
+                let effect_text = match &d.effect {
+                    lazuli_ir::CommandEffect::None => None,
+                    other => Some(inspect_command_effect_to_string(other)),
+                };
+                if target_text.is_none() && lets_text.is_empty() && effect_text.is_none() {
                     InspectJobBody::None
                 } else {
-                    InspectJobBody::Declarative(InspectJobDeclarativeRaw {
-                        target: d.raw_target.clone(),
-                        lets: d.raw_lets.clone(),
-                        effect: d.raw_effect.clone(),
+                    InspectJobBody::Declarative(InspectJobDeclarative {
+                        target: target_text,
+                        lets: lets_text,
+                        effect: effect_text,
                     })
                 }
             }
@@ -1589,6 +1595,74 @@ fn type_ref_to_string(t: &lazuli_ir::TypeRef) -> String {
         lazuli_ir::TypeRef::Many(inner) => format!("Many({})", type_ref_to_string(inner)),
         lazuli_ir::TypeRef::Unresolved(s) => s.clone(),
         lazuli_ir::TypeRef::Capability(_) => "@cap.File(...)".to_owned(),
+    }
+}
+
+/// Phase L Tier 4b — pretty-print a typed `Expr` back into source-like
+/// text for inspect projections. Used by both job declarative bodies
+/// and command projections so the inspect output is stable across
+/// Tier 3 and Tier 4 lifts.
+fn inspect_expr_to_string(e: &lazuli_ir::Expr) -> String {
+    match e {
+        lazuli_ir::Expr::Path(p) => p.segments.join("."),
+        lazuli_ir::Expr::String(s) => format!("\"{s}\""),
+        lazuli_ir::Expr::Integer(n) => n.to_string(),
+        lazuli_ir::Expr::Boolean(b) => b.to_string(),
+        lazuli_ir::Expr::Enum(l) => match &l.type_name {
+            Some(q) => format!("{}.{}", format_qname(q), l.variant),
+            None => l.variant.clone(),
+        },
+        lazuli_ir::Expr::Nil => "nil".to_owned(),
+    }
+}
+
+fn inspect_target_expr_to_string(t: &lazuli_ir::TargetExpr) -> String {
+    let args: Vec<String> = t
+        .args
+        .iter()
+        .map(|a| format!("{}: {}", a.name, inspect_expr_to_string(&a.value)))
+        .collect();
+    format!("{}({})", format_qname(&t.query), args.join(", "))
+}
+
+fn inspect_let_binding_to_string(l: &lazuli_ir::LetBinding) -> String {
+    format!("{} = {}", l.name, inspect_expr_to_string(&l.value))
+}
+
+fn inspect_command_effect_to_string(e: &lazuli_ir::CommandEffect) -> String {
+    match e {
+        lazuli_ir::CommandEffect::Creates(c) => {
+            let head = if c.from_input {
+                format!("creates {} from input", format_qname(&c.resource))
+            } else {
+                format!("creates {}", format_qname(&c.resource))
+            };
+            inspect_assignments_to_string(&head, &c.assignments)
+        }
+        lazuli_ir::CommandEffect::Updates(u) => inspect_assignments_to_string(
+            &format!("updates {}", format_qname(&u.resource)),
+            &u.assignments,
+        ),
+        lazuli_ir::CommandEffect::Deletes(d) => format!("deletes {}", format_qname(&d.resource)),
+        lazuli_ir::CommandEffect::Returns(r) => {
+            format!("returns {}", type_ref_to_string(&r.return_type))
+        }
+        lazuli_ir::CommandEffect::None => String::new(),
+    }
+}
+
+fn inspect_assignments_to_string(head: &str, assignments: &[lazuli_ir::Assignment]) -> String {
+    if assignments.is_empty() {
+        head.to_owned()
+    } else {
+        let mut out = head.to_owned();
+        for a in assignments {
+            out.push_str("\n  ");
+            out.push_str(&a.field);
+            out.push_str(" = ");
+            out.push_str(&inspect_expr_to_string(&a.value));
+        }
+        out
     }
 }
 

@@ -6,14 +6,17 @@ use thiserror::Error;
 
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
-    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Auth,
-    AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Command, ContainsRhs,
-    DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup, FeatureDefaults, FeatureSkeleton,
-    Field, FieldModifier, HttpMethod, Job, JobBody, JobDeclarativeRaw, JobExternalCall,
-    JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LzxAction, LzxApp,
-    LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
-    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
-    Notification, Query, Span, Surface, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
+    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, ApiDecl,
+    ApprovalThenDecl, AssignmentDecl, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword,
+    AuthSessions, Command, CommandApproval, CommandAudit, CommandDecl, CommandEffectDecl,
+    CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
+    ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup, FeatureDefaults,
+    FeatureSkeleton, Field, FieldModifier, HttpMethod, InvalidatesDecl, Job, JobBody,
+    JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
+    JobTrigger, LetBindingDecl, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience,
+    LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute,
+    LzxSurface, LzxViewExtension, Notification, Query, Span, Surface, TargetArgDecl,
+    TargetExprDecl, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1150,6 +1153,8 @@ fn parse_feature_skeleton(
     let mut notifications: Vec<Notification> = Vec::new();
     let mut event_groups: Vec<EventGroup> = Vec::new();
     let mut defaults: Option<FeatureDefaults> = None;
+    let mut commands: Vec<CommandDecl> = Vec::new();
+    let mut apis: Vec<ApiDecl> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1244,9 +1249,27 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // Phase L Tier 4b — `command <name>` block.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("command ") {
+            let (parsed, next) = parse_command_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            commands.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Phase L Tier 4b — `api <name>` block.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("api ") {
+            let (parsed, next) = parse_api_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            apis.push(parsed);
+            i = next;
+            continue;
+        }
+
         // Any other feature child is skipped silently — Phase L still
-        // leaves resources/commands/queries/workflows to the
-        // text-pattern doctor pipeline (Tier 4b-4d).
+        // leaves resources/queries/workflows to the text-pattern doctor
+        // pipeline (Tier 4c-4d).
         last_end = line.end;
         i += 1;
     }
@@ -1261,6 +1284,8 @@ fn parse_feature_skeleton(
             notifications,
             event_groups,
             defaults,
+            commands,
+            apis,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -1543,6 +1568,914 @@ fn parse_defaults_policy_for(
         atom,
         span: Span::new(line.start, line.end),
     })
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4b — `command` / `api` block parsers + shared declarative
+// spine helpers (`target`, `let`, `creates`/`updates`/`deletes` body).
+//
+// The `command` and `api` headers sit at AGENT_INDENT_FEATURE_CHILD (2
+// spaces). Their children live at AGENT_INDENT_AGENT_CHILD (4 spaces);
+// grandchildren (input slots, audit `emit_to`, approval modifiers,
+// effect assignments) live at AGENT_INDENT_GRANDCHILD (6 spaces).
+//
+// `parse_target_expr`, `parse_let_binding`, and the assignment helpers
+// are factored so `parse_job` and `parse_command_decl` share the same
+// declarative-spine recogniser — closes the Tier 3 `JobDeclarative.raw_*`
+// carve-out.
+// -----------------------------------------------------------------------------
+
+fn parse_command_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(CommandDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("command ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "command header must be `command <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "command header requires a name"));
+    }
+
+    let mut previously: Vec<String> = Vec::new();
+    let mut route: Vec<CommandRouteSlot> = Vec::new();
+    let mut input = CommandInputDecl::Empty;
+    let mut policy: Option<String> = None;
+    let mut rate_limit: Option<String> = None;
+    let mut audit: Option<CommandAudit> = None;
+    let mut approval: Option<CommandApproval> = None;
+    let mut target: Option<TargetExprDecl> = None;
+    let mut lets: Vec<LetBindingDecl> = Vec::new();
+    let mut validate: Vec<String> = Vec::new();
+    let mut effect: Option<CommandEffectDecl> = None;
+    let mut returns: Option<String> = None;
+    let mut handler: Option<JobHandler> = None;
+    let mut emits: Vec<CommandEmit> = Vec::new();
+    let mut invalidates: Vec<InvalidatesDecl> = Vec::new();
+    let mut external_calls: Vec<JobExternalCall> = Vec::new();
+    let mut tests: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "`command` body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("previously ") {
+            previously.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("route ") {
+            route.push(parse_command_route_slot(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "input" {
+            let (parsed, next) = parse_command_input_block(lines, i)?;
+            input = parsed;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("input ") {
+            // Short form: `input <field>` — single inline name.
+            let value = rest.trim();
+            if value.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`input <name>` short form requires a name",
+                ));
+            }
+            input = CommandInputDecl::Short(value.to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+            rate_limit = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("audit ") {
+            let (parsed, next) = parse_command_audit(lines, i, rest)?;
+            audit = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "approval" {
+            let (parsed, next) = parse_command_approval(lines, i)?;
+            approval = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("target ") {
+            let parsed = parse_target_expr(line, rest)?;
+            target = Some(parsed);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("let ") {
+            lets.push(parse_let_binding(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("validate ") {
+            validate.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("creates ") {
+            let (parsed, next) =
+                parse_command_effect(lines, i, CommandEffectKindDecl::Creates, rest)?;
+            effect = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("updates ") {
+            let (parsed, next) =
+                parse_command_effect(lines, i, CommandEffectKindDecl::Updates, rest)?;
+            effect = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("deletes ") {
+            let (parsed, next) =
+                parse_command_effect(lines, i, CommandEffectKindDecl::Deletes, rest)?;
+            effect = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("returns ") {
+            returns = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("handler ") {
+            handler = Some(parse_handler_line(rest));
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("emits ") {
+            let (parsed, next) = parse_command_emit(lines, i, rest)?;
+            emits.push(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "invalidates" {
+            let (parsed, next) = parse_invalidates_block(lines, i)?;
+            invalidates.extend(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("invalidates ") {
+            // Single-line form: `invalidates query.list`.
+            invalidates.push(parse_invalidates_entry(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("calls ") {
+            let (call, next) = parse_external_call(lines, i, rest)?;
+            external_calls.push(call);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "tests" {
+            let (parsed, next) = parse_command_tests_block(lines, i)?;
+            tests.extend(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, or `tests`",
+            ));
+        }
+    }
+
+    Ok((
+        CommandDecl {
+            name,
+            previously,
+            route,
+            input,
+            policy,
+            rate_limit,
+            audit,
+            approval,
+            target,
+            lets,
+            validate,
+            effect,
+            returns,
+            handler,
+            emits,
+            invalidates,
+            external_calls,
+            tests,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_command_route_slot(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<CommandRouteSlot, ParseError> {
+    let (name, after) = rest.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "`route` requires `<name>: <Type>` (e.g. `route id: ID`)",
+        )
+    })?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(line_error(line, "`route` requires a slot name before `:`"));
+    }
+    let after = after.trim();
+    let (type_text, from) = if let Some(idx) = after.find(" from ") {
+        let from_expr = after[idx + " from ".len()..].trim().to_owned();
+        (after[..idx].trim().to_owned(), Some(from_expr))
+    } else {
+        (after.to_owned(), None)
+    };
+    if type_text.is_empty() {
+        return Err(line_error(
+            line,
+            "`route` requires a type after `:` (e.g. `ID`)",
+        ));
+    }
+    Ok(CommandRouteSlot {
+        name: name.to_owned(),
+        type_text,
+        from,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_command_input_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(CommandInputDecl, usize), ParseError> {
+    let mut slots: Vec<CommandInputSlot> = Vec::new();
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`command input` children use six-space indentation",
+            ));
+        }
+
+        let (name_part, type_part) = trimmed.split_once(':').ok_or_else(|| {
+            line_error(
+                line,
+                "`command input` slots use `<name>: <Type> [required|optional]`",
+            )
+        })?;
+        let name = name_part.trim();
+        if name.is_empty() {
+            return Err(line_error(
+                line,
+                "`command input` slot requires a name before `:`",
+            ));
+        }
+        let rest = type_part.trim();
+        // Walk to find the `required` or `optional` token at the end,
+        // honouring parenthesised type-arg lists.
+        let (type_text, required, optional) = split_command_input_modifiers(rest);
+        if type_text.is_empty() {
+            return Err(line_error(
+                line,
+                "`command input` slot requires a type after `:`",
+            ));
+        }
+        slots.push(CommandInputSlot {
+            name: name.to_owned(),
+            type_text,
+            required,
+            optional,
+            span: Span::new(line.start, line.end),
+        });
+        i += 1;
+    }
+
+    Ok((CommandInputDecl::Typed(slots), i))
+}
+
+fn split_command_input_modifiers(rest: &str) -> (String, bool, bool) {
+    // Find the last whitespace-separated tokens. Walk from the right and
+    // peel `required` / `optional` modifiers; whatever remains is the
+    // type text.
+    let mut type_text = rest.to_owned();
+    let mut required = false;
+    let mut optional = false;
+    loop {
+        let trimmed = type_text.trim_end();
+        if trimmed.ends_with(" required") {
+            required = true;
+            type_text = trimmed[..trimmed.len() - " required".len()].to_owned();
+        } else if trimmed.ends_with(" optional") {
+            optional = true;
+            type_text = trimmed[..trimmed.len() - " optional".len()].to_owned();
+        } else {
+            type_text = trimmed.to_owned();
+            break;
+        }
+    }
+    (type_text, required, optional)
+}
+
+fn parse_command_audit(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+) -> Result<(CommandAudit, usize), ParseError> {
+    let header = &lines[start];
+    let subjects: Vec<String> = rest
+        .split(',')
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if subjects.is_empty() {
+        return Err(line_error(
+            header,
+            "`audit` requires at least one subject (e.g. `audit actor, target.id`)",
+        ));
+    }
+    let mut emit_to: Option<String> = None;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`audit` children use six-space indentation",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("emit_to ") {
+            if emit_to.is_some() {
+                return Err(line_error(
+                    line,
+                    "`audit emit_to` may be declared at most once",
+                ));
+            }
+            emit_to = Some(rest.trim().to_owned());
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`audit` children are `emit_to <event_group>` only",
+            ));
+        }
+    }
+    Ok((
+        CommandAudit {
+            subjects,
+            emit_to,
+            span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+fn parse_command_approval(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(CommandApproval, usize), ParseError> {
+    let header = &lines[start];
+    let mut required_when: Option<String> = None;
+    let mut by: Option<String> = None;
+    let mut timeout: Option<String> = None;
+    let mut then: Option<ApprovalThenDecl> = None;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`approval` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("required_when ") {
+            required_when = Some(rest.trim().to_owned());
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("by ") {
+            by = Some(rest.trim().to_owned());
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
+            timeout = Some(unquote_lzx_value(rest.trim()).to_owned());
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("then ") {
+            then = Some(match rest.trim() {
+                "deny" => ApprovalThenDecl::Deny,
+                "allow" => ApprovalThenDecl::Allow,
+                "escalate" => ApprovalThenDecl::Escalate,
+                other => {
+                    return Err(line_error_owned(
+                        line,
+                        format!(
+                            "`approval then` requires `deny`, `allow`, or `escalate` (got `{other}`)"
+                        ),
+                    ));
+                }
+            });
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`approval` children are `required_when`, `by`, `timeout`, or `then`",
+            ));
+        }
+    }
+    let by = by.ok_or_else(|| {
+        line_error(
+            header,
+            "`approval` requires a `by @role.<name>` or `by @actor.<name>` declaration",
+        )
+    })?;
+    let then = then.ok_or_else(|| {
+        line_error(
+            header,
+            "`approval` requires a `then deny | allow | escalate` declaration",
+        )
+    })?;
+    Ok((
+        CommandApproval {
+            required_when,
+            by,
+            timeout,
+            then,
+            span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+/// `target query.<name>(args)` — single-line; args are name=expr pairs
+/// inside the parens. The parser keeps the dotted query reference
+/// verbatim so the analyzer's namespace resolver decides between
+/// local/cross-feature.
+fn parse_target_expr(line: &SourceLine<'_>, rest: &str) -> Result<TargetExprDecl, ParseError> {
+    let rest = rest.trim();
+    let (query_part, args_part) = split_call_signature(line, rest)?;
+    let args = parse_named_args(line, args_part)?;
+    Ok(TargetExprDecl {
+        query: query_part.to_owned(),
+        args,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_let_binding(line: &SourceLine<'_>, rest: &str) -> Result<LetBindingDecl, ParseError> {
+    let rest = rest.trim();
+    let (name, value) = rest.split_once('=').ok_or_else(|| {
+        line_error(
+            line,
+            "`let` requires `<name> = <expr>` (e.g. `let resolved = user.query.by_id(id: input.id)`)",
+        )
+    })?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(line_error(line, "`let` requires a binding name before `=`"));
+    }
+    Ok(LetBindingDecl {
+        name: name.to_owned(),
+        value: value.trim().to_owned(),
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Parse the `creates X`, `updates X`, `deletes X` family. Children at
+/// AGENT_INDENT_GRANDCHILD (6) are `<field> = <expr>` assignments. The
+/// `from input` shorthand collapses into `from_input: true` with no
+/// assignment block.
+fn parse_command_effect(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    kind: CommandEffectKindDecl,
+    rest: &str,
+) -> Result<(CommandEffectDecl, usize), ParseError> {
+    let header = &lines[start];
+    let rest = rest.trim();
+    let (resource, from_input) = if let Some(res) = rest.strip_suffix(" from input") {
+        (res.trim().to_owned(), true)
+    } else {
+        (rest.to_owned(), false)
+    };
+    if resource.is_empty() {
+        return Err(line_error(
+            header,
+            "`creates`/`updates`/`deletes` requires a resource name",
+        ));
+    }
+    let mut assignments: Vec<AssignmentDecl> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "command effect children use six-space indentation",
+            ));
+        }
+        let (field, value) = trimmed
+            .split_once('=')
+            .ok_or_else(|| line_error(line, "command effect assignments use `<field> = <expr>`"))?;
+        let field = field.trim();
+        if field.is_empty() {
+            return Err(line_error(
+                line,
+                "command effect assignment requires a field name before `=`",
+            ));
+        }
+        assignments.push(AssignmentDecl {
+            field: field.to_owned(),
+            value: value.trim().to_owned(),
+            span: Span::new(line.start, line.end),
+        });
+        i += 1;
+    }
+    Ok((
+        CommandEffectDecl {
+            kind,
+            resource,
+            from_input,
+            assignments,
+            span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+/// `emits <event>` line. Recognises trailing ` from creates` /
+/// ` from updates` / ` from deletes`. Optional child block uses six-
+/// space indent with `<key> = <expr>` lines.
+fn parse_command_emit(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+) -> Result<(CommandEmit, usize), ParseError> {
+    let header = &lines[start];
+    let rest = rest.trim();
+    let (name, from) = if let Some(n) = rest.strip_suffix(" from creates") {
+        (n.trim().to_owned(), Some(CommandEffectKindDecl::Creates))
+    } else if let Some(n) = rest.strip_suffix(" from updates") {
+        (n.trim().to_owned(), Some(CommandEffectKindDecl::Updates))
+    } else if let Some(n) = rest.strip_suffix(" from deletes") {
+        (n.trim().to_owned(), Some(CommandEffectKindDecl::Deletes))
+    } else {
+        (rest.to_owned(), None)
+    };
+    if name.is_empty() {
+        return Err(line_error(header, "`emits` requires an event name"));
+    }
+    let mut fields: Vec<AssignmentDecl> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`emits` children use six-space indentation",
+            ));
+        }
+        let (field, value) = trimmed
+            .split_once('=')
+            .ok_or_else(|| line_error(line, "`emits` field children use `<field> = <expr>`"))?;
+        let field = field.trim();
+        if field.is_empty() {
+            return Err(line_error(
+                line,
+                "`emits` field child requires a field name before `=`",
+            ));
+        }
+        fields.push(AssignmentDecl {
+            field: field.to_owned(),
+            value: value.trim().to_owned(),
+            span: Span::new(line.start, line.end),
+        });
+        i += 1;
+    }
+    Ok((
+        CommandEmit {
+            name,
+            from,
+            fields,
+            span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+fn parse_invalidates_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(Vec<InvalidatesDecl>, usize), ParseError> {
+    let mut out: Vec<InvalidatesDecl> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`invalidates` children use six-space indentation",
+            ));
+        }
+        out.push(parse_invalidates_entry(line, trimmed)?);
+        i += 1;
+    }
+    Ok((out, i))
+}
+
+fn parse_invalidates_entry(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<InvalidatesDecl, ParseError> {
+    let rest = rest.trim();
+    // `query.list` or `query.by_id(id: route.id)`.
+    if rest.contains('(') {
+        let (query, args_part) = split_call_signature(line, rest)?;
+        let args = parse_named_args(line, args_part)?;
+        Ok(InvalidatesDecl {
+            query: query.to_owned(),
+            args,
+            span: Span::new(line.start, line.end),
+        })
+    } else {
+        if rest.is_empty() {
+            return Err(line_error(
+                line,
+                "`invalidates` entry requires a query reference",
+            ));
+        }
+        Ok(InvalidatesDecl {
+            query: rest.to_owned(),
+            args: Vec::new(),
+            span: Span::new(line.start, line.end),
+        })
+    }
+}
+
+fn parse_command_tests_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(Vec<String>, usize), ParseError> {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        out.push(trimmed.to_owned());
+        i += 1;
+    }
+    Ok((out, i))
+}
+
+/// Split `foo.bar(arg: expr, ...)` into `("foo.bar", "arg: expr, ...")`.
+/// Returns the query reference and the **content** between the parens
+/// (or an empty string when no parens are present).
+fn split_call_signature<'a>(
+    line: &SourceLine<'_>,
+    rest: &'a str,
+) -> Result<(&'a str, &'a str), ParseError> {
+    let rest = rest.trim_end();
+    if let Some(open) = rest.find('(') {
+        if !rest.ends_with(')') {
+            return Err(line_error(
+                line,
+                "call expression must end with `)` (e.g. `query.by_id(id: route.id)`)",
+            ));
+        }
+        let query = rest[..open].trim();
+        let args = rest[open + 1..rest.len() - 1].trim();
+        Ok((query, args))
+    } else {
+        Ok((rest.trim(), ""))
+    }
+}
+
+/// Parse `name: expr, name: expr, ...` arg lists. Splits on the
+/// top-level comma (no nested parens in v0 — `derived from` inside
+/// queries is the only nesting today and doesn't appear in call args).
+fn parse_named_args(line: &SourceLine<'_>, text: &str) -> Result<Vec<TargetArgDecl>, ParseError> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out: Vec<TargetArgDecl> = Vec::new();
+    for piece in split_top_level_commas(text) {
+        let piece = piece.trim();
+        if piece.is_empty() {
+            continue;
+        }
+        let (name, value) = piece.split_once(':').ok_or_else(|| {
+            line_error(
+                line,
+                "call arguments use `<name>: <expr>` (e.g. `id: route.id`)",
+            )
+        })?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(line_error(line, "call argument requires a name before `:`"));
+        }
+        out.push(TargetArgDecl {
+            name: name.to_owned(),
+            value: value.trim().to_owned(),
+            span: Span::new(line.start, line.end),
+        });
+    }
+    Ok(out)
+}
+
+fn split_top_level_commas(text: &str) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(&text[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&text[start..]);
+    out
+}
+
+// -----------------------------------------------------------------------------
+// `api <name>` block parser.
+// -----------------------------------------------------------------------------
+
+fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("api ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "api header must be `api <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "api header requires a name"));
+    }
+    let mut method: Option<HttpMethod> = None;
+    let mut path: Option<String> = None;
+    let mut output: Option<String> = None;
+    let mut policy: Option<String> = None;
+    let mut rate_limit: Option<String> = None;
+    let mut handler: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "`api` body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("method ") {
+            let token = rest.trim();
+            method = Some(HttpMethod::from_token(token).ok_or_else(|| {
+                line_error(
+                    line,
+                    "`api method` requires GET, POST, PUT, PATCH, or DELETE",
+                )
+            })?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("path ") {
+            path = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("output ") {
+            output = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+            rate_limit = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("handler ") {
+            handler = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`api` children are `method`, `path`, `output`, `policy`, `rate_limit`, or `handler`",
+            ));
+        }
+    }
+    let method =
+        method.ok_or_else(|| line_error(header, "`api` requires a `method <VERB>` declaration"))?;
+    let path =
+        path.ok_or_else(|| line_error(header, "`api` requires a `path \"<route>\"` declaration"))?;
+    let output = output.ok_or_else(|| {
+        line_error(
+            header,
+            "`api` requires an `output <Type>` declaration (e.g. `output @cap.File(...)`)",
+        )
+    })?;
+    Ok((
+        ApiDecl {
+            name,
+            method,
+            path,
+            output,
+            policy,
+            rate_limit,
+            handler,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
 }
 
 // -----------------------------------------------------------------------------
@@ -2020,9 +2953,11 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
     let mut timeout: Option<String> = None;
     let mut external_calls: Vec<JobExternalCall> = Vec::new();
     let mut handler: Option<JobHandler> = None;
-    let mut declarative_target: Option<String> = None;
-    let mut declarative_lets: Vec<String> = Vec::new();
-    let mut declarative_effect_lines: Vec<String> = Vec::new();
+    let mut declarative_target: Option<TargetExprDecl> = None;
+    let mut declarative_lets: Vec<LetBindingDecl> = Vec::new();
+    let mut declarative_effect: Option<CommandEffectDecl> = None;
+    // `emits <event>` lines (with their optional indented payload child
+    // block silently skipped — Tier 3 IR only carries event names).
     let mut emits: Vec<String> = Vec::new();
     let mut last_end = header.end;
     let mut i = start + 1;
@@ -2041,17 +2976,6 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
         }
 
         if line.indent != AGENT_INDENT_AGENT_CHILD {
-            // Continuation lines (declarative-effect assignment body,
-            // `updates Customer` inner indent) are folded into the
-            // effect bag; the analyzer rejects malformed bodies at
-            // lowering. Anything more shallow falls out via the
-            // indent check above.
-            if !declarative_effect_lines.is_empty() && line.indent > AGENT_INDENT_AGENT_CHILD {
-                declarative_effect_lines.push(trimmed.to_owned());
-                last_end = line.end;
-                i += 1;
-                continue;
-            }
             return Err(line_error(
                 line,
                 "job body children use four-space indentation",
@@ -2100,27 +3024,64 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("target ") {
-            declarative_target = Some(rest.trim().to_owned());
+            declarative_target = Some(parse_target_expr(line, rest)?);
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("let ") {
-            declarative_lets.push(rest.trim().to_owned());
+            declarative_lets.push(parse_let_binding(line, rest)?);
             last_end = line.end;
             i += 1;
-        } else if trimmed.starts_with("updates ")
-            || trimmed.starts_with("creates ")
-            || trimmed.starts_with("deletes ")
-        {
-            // Declarative effect head. Tier 4 will lift this into
-            // typed assignments; for now we capture the entire indented
-            // block as raw lines.
-            declarative_effect_lines.push(trimmed.to_owned());
-            last_end = line.end;
-            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("creates ") {
+            let (parsed, next) =
+                parse_command_effect(lines, i, CommandEffectKindDecl::Creates, rest)?;
+            declarative_effect = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("updates ") {
+            let (parsed, next) =
+                parse_command_effect(lines, i, CommandEffectKindDecl::Updates, rest)?;
+            declarative_effect = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("deletes ") {
+            let (parsed, next) =
+                parse_command_effect(lines, i, CommandEffectKindDecl::Deletes, rest)?;
+            declarative_effect = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
         } else if let Some(rest) = trimmed.strip_prefix("emits ") {
-            emits.push(rest.trim().to_owned());
+            // Strip the optional ` from creates`/`from updates`/`from deletes`
+            // suffix and consume any indented payload child block. The IR
+            // only carries event names today; the child assignments stay
+            // on the surface for Tier 3 doctor diagnostics that walk
+            // source text directly.
+            let raw = rest.trim();
+            let name = if let Some(n) = raw.strip_suffix(" from creates") {
+                n.trim()
+            } else if let Some(n) = raw.strip_suffix(" from updates") {
+                n.trim()
+            } else if let Some(n) = raw.strip_suffix(" from deletes") {
+                n.trim()
+            } else {
+                raw
+            };
+            emits.push(name.to_owned());
             last_end = line.end;
             i += 1;
+            // Skip indented child lines (`<field> = <expr>`).
+            while i < lines.len() {
+                let child = &lines[i];
+                let child_trim = child.text.trim_start();
+                if is_trivia(child_trim) {
+                    i += 1;
+                    continue;
+                }
+                if child.indent <= AGENT_INDENT_AGENT_CHILD {
+                    break;
+                }
+                last_end = child.end;
+                i += 1;
+            }
         } else {
             return Err(line_error(
                 line,
@@ -2138,15 +3099,11 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
 
     let body = if let Some(handler) = handler {
         JobBody::Handler(handler)
-    } else if declarative_target.is_some() || !declarative_effect_lines.is_empty() {
-        JobBody::Declarative(JobDeclarativeRaw {
+    } else if declarative_target.is_some() || declarative_effect.is_some() {
+        JobBody::Declarative(JobDeclarativeTyped {
             target: declarative_target,
             lets: declarative_lets,
-            effect: if declarative_effect_lines.is_empty() {
-                None
-            } else {
-                Some(declarative_effect_lines.join("\n"))
-            },
+            effect: declarative_effect,
         })
     } else {
         JobBody::None
@@ -3341,6 +4298,15 @@ fn parse_lzx_bool(value: &str) -> Option<bool> {
 fn line_error(line: &SourceLine<'_>, message: &'static str) -> ParseError {
     ParseError::Pest {
         message: message.to_owned(),
+        span: Span::new(line.start, line.end.max(line.start + 1)),
+    }
+}
+
+/// Owned-message variant of `line_error`. Used by parsers that need to
+/// interpolate user-supplied tokens into the diagnostic.
+fn line_error_owned(line: &SourceLine<'_>, message: String) -> ParseError {
+    ParseError::Pest {
+        message,
         span: Span::new(line.start, line.end.max(line.start + 1)),
     }
 }

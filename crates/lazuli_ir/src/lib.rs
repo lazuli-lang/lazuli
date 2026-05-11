@@ -235,6 +235,12 @@ pub struct Feature {
     pub rules: Vec<Rule>,
     pub policies: Policies,
     pub commands: Vec<Command>,
+    /// Phase L Tier 4b — `api <name>` declarations lifted from the
+    /// canonical-indent slice. Legacy lowering leaves this empty;
+    /// `lower_feature_skeleton` populates it from
+    /// `FeatureSkeleton.apis`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apis: Vec<Api>,
     pub queries: Vec<Query>,
     pub workflows: Vec<Workflow>,
     pub jobs: Vec<Job>,
@@ -512,12 +518,87 @@ pub struct Command {
     pub policy: PolicyRef,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
+    /// Phase L Tier 4b — `rate_limit "<N per period per scope>"` literal.
+    /// Captured verbatim and parsed by adapters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
+    /// Phase L Tier 4b — `audit <subject>, <subject>, ...` with optional
+    /// `emit_to <event_group>` child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<AuditSpec>,
+    /// Phase L Tier 4b — Cut A.9 `approval` block. Replaces the
+    /// `CommandApprovalFact` text-walker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ApprovalSpec>,
+    /// Phase L Tier 4b — `invalidates query.<name>(...)` references.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invalidates: Vec<InvalidatesSpec>,
+    /// Phase L Tier 4b — `calls <slot>.<op>` inside a command body.
+    /// Mirrors `Job.external_calls`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external_calls: Vec<ExternalCallRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// Phase L Tier 4b — declarative audit spec captured from a command's
+/// `audit <subject>, <subject>, ...` line and optional `emit_to <group>`
+/// child. The subject strings stay verbatim (`actor`, `target.id`,
+/// `input.owner_id`) because the analyzer resolves them against the
+/// command's input slots; doctor cross-checks `emit_to` against the
+/// feature's `event_group` declarations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditSpec {
+    /// `actor`, `target.id`, `input.<field>`, etc. Each entry is a single
+    /// subject reference.
+    pub subjects: Vec<String>,
+    /// `emit_to <event_group>` — optional event-group emission target.
+    /// `None` when the command writes audit without emitting to a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emit_to: Option<String>,
+}
+
+/// Phase L Tier 4b — Cut A.9 `approval` block lifted into IR.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalSpec {
+    /// `required_when <predicate>` — verbatim predicate text. The
+    /// predicate language tracks the command target's resource fields;
+    /// the analyzer keeps the raw form so future Cut A.9 evolutions can
+    /// land without an IR churn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_when: Option<String>,
+    /// `by @role.<name>` or `by @actor.<name>` — single approver atom.
+    pub by: String,
+    /// `timeout "24h"` — duration literal parsed by the adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    /// `then deny | allow | escalate` — closed catalog of resolutions.
+    pub then: ApprovalThen,
+}
+
+/// Phase L Tier 4b — closed catalog of approval timeout resolutions
+/// (Cut A.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalThen {
+    Deny,
+    Allow,
+    Escalate,
+}
+
+/// Phase L Tier 4b — `invalidates query.<name>(args)` reference.
+/// `query` carries the qualified query name and `args` the explicit
+/// named-argument bindings (e.g. `id: route.id`). Doctor uses this for
+/// cache-invalidation cross-checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvalidatesSpec {
+    pub query: QualifiedName,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<NamedArg>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2103,19 +2184,6 @@ pub struct JobDeclarative {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lets: Vec<LetBinding>,
     pub effect: CommandEffect,
-    /// Phase L Tier 3 (Route C carve-out) — when the Tier 3 parser
-    /// recognises a declarative body but the declarative spine
-    /// (`TargetExpr` / `LetBinding` / `CommandEffect`) hasn't been
-    /// lowered yet (Tier 4 territory), the raw source lines are
-    /// preserved here so consumers can still see the body. Filled by
-    /// `parse_job`; cleared by Tier 4 when `parse_command` lowers the
-    /// shared declarative spine.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw_target: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub raw_lets: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw_effect: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2453,6 +2521,28 @@ pub enum HttpMethod {
     Put,
     Patch,
     Delete,
+}
+
+/// Phase L Tier 4b — `api <name>` declaration lifted from the
+/// canonical-indent slice. Sibling of `Command` but with HTTP transport
+/// bound. Replaces the `collect_api_paths` text-pattern.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Api {
+    pub name: String,
+    pub method: HttpMethod,
+    pub path: String,
+    pub policy: PolicyRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
+    /// `output <TypeRef>` — required for canonical APIs today. Captured
+    /// as a `TypeRef` so `@cap.File(...)` outputs project the same way
+    /// as command outputs.
+    pub output: TypeRef,
+    /// `handler "./api/..."` — required for legacy text-pattern APIs;
+    /// canonical APIs may opt out in a future cut. Captured as a path.
+    pub handler: PathRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
