@@ -105,6 +105,11 @@ struct ExpandSet {
     policies: bool,
     tests: bool,
     defaults: bool,
+    /// Cut A — `--expand=tools` produces the per-agent dispatch graph
+    /// keyed by tool reference. Per the proposal's "Pass model" note
+    /// (plan §7.2), this is the first expansion that explicitly opts
+    /// into cross-feature resolution.
+    tools: bool,
 }
 
 impl ExpandSet {
@@ -120,6 +125,7 @@ impl ExpandSet {
             policies: true,
             tests: true,
             defaults: true,
+            tools: true,
         }
     }
 
@@ -134,6 +140,7 @@ impl ExpandSet {
             || self.policies
             || self.tests
             || self.defaults
+            || self.tools
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -167,6 +174,9 @@ impl ExpandSet {
         }
         if self.defaults {
             labels.push("defaults");
+        }
+        if self.tools {
+            labels.push("tools");
         }
         labels
     }
@@ -395,8 +405,9 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "policies" => set.policies = true,
             "tests" => set.tests = true,
             "defaults" => set.defaults = true,
+            "tools" => set.tools = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, or defaults"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, or tools"
             ),
         }
     }
@@ -459,6 +470,39 @@ struct InspectFeature {
     policies: Option<Vec<InspectPolicy>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tests: Option<Vec<InspectTests>>,
+    /// Cut A — populated only when `--expand=tools` is set. The
+    /// dispatch graph keyed by agent + tool reference; doctor-level
+    /// resolution of cross-feature targets is referenced via
+    /// `resolution`, while structural facts come from the file alone
+    /// (preserves the single-pass-base guarantee).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<InspectAgentToolsEntry>>,
+}
+
+/// One per agent in the file. Carries every tool reference the agent
+/// dispatches plus the local categorisation (kind, scope). Cross-feature
+/// resolution lives in doctor; the projection records the symbol shape
+/// so consumers can compose either path.
+#[derive(Debug, Serialize)]
+struct InspectAgentToolsEntry {
+    agent: String,
+    tools: Vec<InspectAgentToolBinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAgentToolBinding {
+    /// Canonical reference exactly as the author wrote it.
+    reference: String,
+    /// Local-categorisation of the reference: `query.list`, `query.lookup`,
+    /// `query.sql`, `query`, `command`, `api`, `adapter`. Cross-feature
+    /// resolution narrows `query` to one of the three subkinds.
+    kind: &'static str,
+    /// `local`, `cross_feature`, or `adapter` — the resolution scope.
+    scope: &'static str,
+    /// `read` / `write` / `unknown`. Adapter references rely on the
+    /// registry; local kinds map directly (`command` is always `write`,
+    /// queries default to `read`).
+    derived_effect: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -647,6 +691,14 @@ struct InspectAgent {
     rate_limit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     output: Option<String>,
+    /// Cut A — `text` / `stream` / `discriminated_enum` /
+    /// `discriminated_record`. Derived from the `output` declaration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_kind: Option<&'static str>,
+    /// Cut A — the enum or record name the discriminator points at,
+    /// when `output_kind` resolves to a discriminated form.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_discriminator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -661,6 +713,14 @@ struct InspectAgent {
     prompt: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<String>,
+    /// Cut A — eval `case <name>` headers under this agent.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    evals: Vec<String>,
+    /// Cut A — `pinned` when both `temperature 0` and `seed <int>` are
+    /// declared (cases gate CI); `nondeterministic` otherwise (cases
+    /// run as informational).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    eval_determinism: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     safety: Option<String>,
     origin: &'static str,
@@ -817,6 +877,10 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
     let agents = inspect_agents(lines);
     let notifications = inspect_notifications(lines);
 
+    let tools = expansions
+        .tools
+        .then(|| inspect_agent_tools_projection(&agents));
+
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
@@ -835,6 +899,68 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
             .policies
             .then(|| inspect_policies(lines, &policies)),
         tests: expansions.tests.then(|| inspect_tests(lines, &policies)),
+        tools,
+    }
+}
+
+/// Materialise the per-agent dispatch graph for `--expand=tools`.
+/// Cross-feature resolution of effects / policies / PII lives in doctor;
+/// this projection records the structural facts visible from the file
+/// alone (kind, scope, derived effect from the local categorisation).
+fn inspect_agent_tools_projection(agents: &[InspectAgent]) -> Vec<InspectAgentToolsEntry> {
+    agents
+        .iter()
+        .filter(|agent| !agent.tools.is_empty())
+        .map(|agent| InspectAgentToolsEntry {
+            agent: agent.name.clone(),
+            tools: agent
+                .tools
+                .iter()
+                .map(|reference| tool_binding_for_reference(reference))
+                .collect(),
+        })
+        .collect()
+}
+
+fn tool_binding_for_reference(reference: &str) -> InspectAgentToolBinding {
+    let trimmed = reference.trim();
+    if trimmed.starts_with("@tool.") {
+        return InspectAgentToolBinding {
+            reference: trimmed.to_owned(),
+            kind: "adapter",
+            scope: "adapter",
+            derived_effect: "unknown",
+        };
+    }
+
+    let segments: Vec<&str> = trimmed.split('.').collect();
+    let (kind, scope) = match segments.as_slice() {
+        ["query", "list", _] => ("query.list", "local"),
+        ["query", "lookup", _] => ("query.lookup", "local"),
+        ["query", "sql", _] => ("query.sql", "local"),
+        ["query", _] => ("query", "local"),
+        ["command", _] => ("command", "local"),
+        ["api", _] => ("api", "local"),
+        [_feature, "query", "list", _] => ("query.list", "cross_feature"),
+        [_feature, "query", "lookup", _] => ("query.lookup", "cross_feature"),
+        [_feature, "query", "sql", _] => ("query.sql", "cross_feature"),
+        [_feature, "query", _] => ("query", "cross_feature"),
+        [_feature, "command", _] => ("command", "cross_feature"),
+        [_feature, "api", _] => ("api", "cross_feature"),
+        _ => ("unknown", "unknown"),
+    };
+
+    let derived_effect = match kind {
+        "command" => "write",
+        "query.list" | "query.lookup" | "query.sql" | "query" => "read",
+        _ => "unknown",
+    };
+
+    InspectAgentToolBinding {
+        reference: trimmed.to_owned(),
+        kind,
+        scope,
+        derived_effect,
     }
 }
 
@@ -2755,19 +2881,19 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
         let rate_limit = direct_child_value(block, "rate_limit ")
             .as_deref()
             .map(strip_quotes);
-        let output = direct_child_value(block, "output ");
+        let output_raw = direct_child_value(block, "output ");
+        let (output_kind, output_discriminator) = classify_agent_output(output_raw.as_deref());
         let model = direct_child_value(block, "model ");
         let prompt = direct_child_value(block, "prompt ")
             .as_deref()
             .map(strip_quotes);
-        let tools = direct_child_value(block, "tools ")
-            .map(|raw| {
-                raw.split(',')
-                    .map(|t| t.trim().to_owned())
-                    .filter(|t| !t.is_empty())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        // Cut A — tool entries live as indent-6 lines under a `tools`
+        // child block. The legacy `tools <comma-list>` shorthand never
+        // existed in the canonical syntax; the previous text extractor
+        // returned `None` for the canonical form. This walker handles
+        // both for safety while older fixtures linger.
+        let tools = collect_agent_block_entries(block, "tools");
+        let evals = collect_agent_eval_case_names(block);
         let safety = direct_child_value(block, "safety ");
 
         let temperature = direct_child_value(block, "temperature ");
@@ -2775,13 +2901,28 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
         let top_p = direct_child_value(block, "top_p ");
         let seed = direct_child_value(block, "seed ");
 
+        let eval_determinism = if evals.is_empty() {
+            None
+        } else {
+            let temp_zero = temperature.as_deref().and_then(|s| s.parse::<f64>().ok())
+                == Some(0.0);
+            let seed_present = seed.is_some();
+            Some(if temp_zero && seed_present {
+                "pinned"
+            } else {
+                "nondeterministic"
+            })
+        };
+
         agents.push(InspectAgent {
             name,
             inputs,
             context,
             policy,
             rate_limit,
-            output,
+            output: output_raw,
+            output_kind,
+            output_discriminator,
             model,
             temperature,
             max_tokens,
@@ -2789,12 +2930,130 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
             seed,
             prompt,
             tools,
+            evals,
+            eval_determinism,
             safety,
             origin: "agent",
         });
     }
 
     agents
+}
+
+/// Derive `(output_kind, output_discriminator)` from the raw text after
+/// `output `. The discriminator name surfaces for the two discriminated
+/// shapes plus the bare-record form (lowering disambiguates record vs
+/// text via the workspace IR; we record the symbol verbatim).
+fn classify_agent_output(raw: Option<&str>) -> (Option<&'static str>, Option<String>) {
+    let Some(raw) = raw else { return (None, None) };
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("stream ") {
+        return (Some("stream"), Some(rest.trim().to_owned()));
+    }
+    if let Some(rest) = trimmed.strip_prefix("discriminator ") {
+        return (
+            Some("discriminated_enum"),
+            Some(rest.trim().to_owned()),
+        );
+    }
+    if trimmed.is_empty() {
+        return (None, None);
+    }
+    // Bare type ref. Text builtins keep `text`; PascalCase identifiers
+    // (likely an author-defined record/enum) carry the symbol forward so
+    // doctor's `agent_discriminator_target_invalid_diagnostics` and the
+    // expand pass can interpret. The `text` label stays — lowering
+    // promotes to `discriminated_record` when records resolve.
+    let first = trimmed.chars().next();
+    let looks_like_symbol = first.is_some_and(|c| c.is_ascii_uppercase());
+    let kind = if matches!(
+        trimmed,
+        "Text" | "Integer" | "Boolean" | "Decimal" | "Date" | "DateTime" | "Json" | "ID"
+    ) {
+        "text"
+    } else if looks_like_symbol {
+        // Could be a record-with-discriminator (DiscriminatedRecord) or
+        // a plain record reference; expand-pass disambiguates. We label
+        // as `text` here to keep the file-local pass single-pass; the
+        // symbol is surfaced via `output_discriminator`.
+        "text"
+    } else {
+        "text"
+    };
+    let discriminator = if looks_like_symbol {
+        Some(trimmed.to_owned())
+    } else {
+        None
+    };
+    (Some(kind), discriminator)
+}
+
+/// Walk the agent body for `<block> NEWLINE\n   <entry>\n   ...` and
+/// return the indent-6 children as their raw trimmed source. Used for
+/// both the `tools` and a future cut's other list-shaped children.
+fn collect_agent_block_entries(block: &[String], parent: &str) -> Vec<String> {
+    let Some(parent_indent) = block.first().map(|line| leading_spaces(line)) else {
+        return Vec::new();
+    };
+    let child_indent = parent_indent + 2;
+    let grandchild_indent = child_indent + 2;
+
+    let mut entries = Vec::new();
+    let mut in_block = false;
+    for line in block.iter().skip(1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading <= parent_indent {
+            break;
+        }
+        if leading == child_indent {
+            in_block = trimmed == parent;
+            continue;
+        }
+        if in_block && leading == grandchild_indent {
+            entries.push(trimmed.to_owned());
+        }
+    }
+    entries
+}
+
+/// Walk the agent body for `evals` and return the list of eval `case`
+/// names declared inside.
+fn collect_agent_eval_case_names(block: &[String]) -> Vec<String> {
+    let Some(parent_indent) = block.first().map(|line| leading_spaces(line)) else {
+        return Vec::new();
+    };
+    let child_indent = parent_indent + 2;
+    let grandchild_indent = child_indent + 2;
+
+    let mut cases = Vec::new();
+    let mut in_block = false;
+    for line in block.iter().skip(1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading <= parent_indent {
+            break;
+        }
+        if leading == child_indent {
+            in_block = trimmed == "evals";
+            continue;
+        }
+        if in_block && leading == grandchild_indent {
+            if let Some(rest) = trimmed.strip_prefix("case ") {
+                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+                if !name.is_empty() {
+                    cases.push(name);
+                }
+            }
+        }
+    }
+    cases
 }
 
 fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {
@@ -3979,5 +4238,172 @@ registry
         assert!(expansions.security);
         assert!(!expansions.tests);
         assert!(parse_expand_set("crud").is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // Cut A — inspect projections (§7.3 snapshot tests)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn inspect_expand_tools_flag_parses() {
+        let expansions = parse_expand_set("tools").unwrap();
+        assert!(expansions.tools);
+        assert!(!expansions.summary);
+    }
+
+    #[test]
+    fn inspect_summary_includes_agent_tools_evals_output_kind() {
+        let source = r#"
+feature customer
+  agent summarize
+    input
+      customer_id: ID required
+    policy @policy.read
+    output discriminator Intent
+    model @llm.classifier
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    tools
+      customer.query.lookup.by_id
+      @tool.web_search
+    evals
+      case mentions_status
+        requires output contains "active"
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+
+        // Agents are emitted regardless of expansion (always-on field).
+        assert!(json.contains("\"name\":\"summarize\""));
+        // tools[] now picks up indent-6 entries (canonical block form).
+        assert!(
+            json.contains("\"tools\":[\"customer.query.lookup.by_id\",\"@tool.web_search\"]"),
+            "expected tools list in agent: {json}"
+        );
+        // evals[] carries the case names.
+        assert!(
+            json.contains("\"evals\":[\"mentions_status\"]"),
+            "expected evals list in agent: {json}"
+        );
+        // output_kind + output_discriminator surface the discriminator
+        // form.
+        assert!(
+            json.contains("\"output_kind\":\"discriminated_enum\""),
+            "expected output_kind discriminated_enum: {json}"
+        );
+        assert!(
+            json.contains("\"output_discriminator\":\"Intent\""),
+            "expected output_discriminator Intent: {json}"
+        );
+        // eval_determinism is `pinned` because temperature 0 + seed 1.
+        assert!(
+            json.contains("\"eval_determinism\":\"pinned\""),
+            "expected eval_determinism pinned: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_summary_marks_nondeterministic_eval_block() {
+        let source = r#"
+feature customer
+  agent flaky
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0.7
+    prompt "./p.md"
+    evals
+      case smoke
+        requires output contains "ok"
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            json.contains("\"eval_determinism\":\"nondeterministic\""),
+            "expected eval_determinism nondeterministic: {json}"
+        );
+        assert!(
+            json.contains("\"output_kind\":\"stream\""),
+            "expected output_kind stream: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_tools_projection_emits_per_agent_dispatch_graph() {
+        let source = r#"
+feature customer
+  agent triage
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      query.lookup.by_id
+      customer.command.archive
+      @tool.web_search
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.tools = true;
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let json = serde_json::to_string(&report).unwrap();
+
+        // The new --expand=tools projection populates `features[].tools`.
+        assert!(
+            json.contains("\"agent\":\"triage\""),
+            "expected agent entry: {json}"
+        );
+        // Local query.lookup categorised correctly.
+        assert!(
+            json.contains("\"reference\":\"query.lookup.by_id\",\"kind\":\"query.lookup\",\"scope\":\"local\",\"derived_effect\":\"read\""),
+            "expected local query.lookup binding: {json}"
+        );
+        // Cross-feature command writes.
+        assert!(
+            json.contains("\"reference\":\"customer.command.archive\",\"kind\":\"command\",\"scope\":\"cross_feature\",\"derived_effect\":\"write\""),
+            "expected cross-feature command binding: {json}"
+        );
+        // Adapter tool with unknown effect (registry resolves in doctor).
+        assert!(
+            json.contains("\"reference\":\"@tool.web_search\",\"kind\":\"adapter\",\"scope\":\"adapter\",\"derived_effect\":\"unknown\""),
+            "expected adapter binding: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_tools_projection_omitted_without_expand() {
+        let source = r#"
+feature customer
+  agent triage
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      query.lookup.by_id
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+
+        // Without --expand=tools the new projection is omitted (skipped
+        // by `Option::is_none`). The agent's plain tools list is still
+        // emitted as part of the always-on agents block.
+        assert!(
+            !json.contains("\"reference\":\"query.lookup.by_id\""),
+            "tools projection should not appear without --expand=tools: {json}"
+        );
+        assert!(
+            json.contains("\"tools\":[\"query.lookup.by_id\"]"),
+            "agent.tools list should still be present: {json}"
+        );
     }
 }

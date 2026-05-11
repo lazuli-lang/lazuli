@@ -12,8 +12,8 @@ use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView, parse_feature_ske
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::app_manifest::{
-    RegistryParseOutput, RegistryToolDefectReason, RegistryToolEntryDefect, parse_app_contracts,
-    parse_app_manifest, parse_app_profiles, parse_app_registry_with_defects, parse_app_workspace,
+    RegistryParseOutput, RegistryToolDefectReason, parse_app_contracts, parse_app_manifest,
+    parse_app_profiles, parse_app_registry_with_defects, parse_app_workspace,
 };
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
