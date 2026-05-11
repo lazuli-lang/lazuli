@@ -1131,6 +1131,43 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         ),
     };
 
+    // Webhooks expanded cycle — typed payload reference (`payload from
+    // webhook_events.<name>`). The parser stripped the catalog prefix
+    // already, so the IR just keeps the suffix.
+    let payload_from = webhook
+        .payload_from
+        .as_deref()
+        .map(|name| ir::WebhookEventRef {
+            name: name.to_owned(),
+        });
+
+    // `replay` short form (`replay allow within "..."`) and long form
+    // (nested children) collapse onto the same `ReplaySpec`.
+    let replay = webhook.replay.as_ref().map(|r| ir::ReplaySpec {
+        mode: match r.mode.as_str() {
+            "deny" => ir::ReplayMode::Deny,
+            _ => ir::ReplayMode::Allow,
+        },
+        within: r.within.clone(),
+        dedupe_by: r.dedupe_by.as_deref().map(lower_path_string),
+    });
+
+    // `dlq` discriminator (mutual exclusion enforced by the parser).
+    let dlq = webhook.dlq.as_ref().map(|d| match d {
+        syntax::WebhookDlq::Emit { event, .. } => ir::DlqSpec::Emit {
+            event: event.clone(),
+        },
+        syntax::WebhookDlq::Handler { path, .. } => ir::DlqSpec::Handler {
+            path: ir::PathRef::authored(path),
+        },
+        syntax::WebhookDlq::Drop { reason, .. } => ir::DlqSpec::Drop {
+            reason: reason.clone(),
+        },
+    });
+
+    // Inbound retry shares the jobs `RetryPolicy` shape (Atrito #5).
+    let retry = webhook.retry.as_ref().map(lower_retry);
+
     Ok(ir::Webhook {
         name: webhook.name.clone(),
         route: webhook.route.clone(),
@@ -1142,12 +1179,10 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         handler,
         returns,
         emits: webhook.emits.clone(),
-        // Webhooks expanded cycle — wired in commit 2 once the parser
-        // surfaces the new children.
-        payload_from: None,
-        replay: None,
-        dlq: None,
-        retry: None,
+        payload_from,
+        replay,
+        dlq,
+        retry,
         previous_names: Vec::new(),
         span_ref: Some(span_of(webhook.span)),
     })
