@@ -4,8 +4,12 @@
 app AcmeCRM
   title "Acme CRM"
   version "0.1.0"
-  default_locale "pt-BR"
   default_timezone "America/Sao_Paulo"
+
+  locale
+    default "pt-BR"
+    supported "pt-BR", "en-US"
+    fallback "en-US" -> "pt-BR"
   auth_failed_redirect public_login
   not_found public_not_found
 

@@ -1580,8 +1580,37 @@ pub struct AppManifest {
     /// Observability bucket cycle row 36 — `app.tracing` block.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracing: Option<AppTracing>,
+    /// i18n bucket cycle — typed `locale` block. Supersedes the bare
+    /// scalar `default_locale` when both are present; the analyzer
+    /// copies `locale.default` into `default_locale` for back-compat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<AppLocale>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// i18n bucket cycle — `app.locale` block. Declares supported BCP-47
+/// tags and the fallback graph the runtime walks when a translation
+/// is missing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppLocale {
+    /// BCP-47 tag, e.g. "pt-BR".
+    pub default: String,
+    /// BCP-47 tags the app is willing to negotiate against. Must
+    /// include `default`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported: Vec<String>,
+    /// Fallback edges: when `from` is requested but no translation
+    /// resolves, the runtime walks the chain to `to` before defaulting
+    /// to `default`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallbacks: Vec<LocaleFallback>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocaleFallback {
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

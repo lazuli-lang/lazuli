@@ -1,13 +1,13 @@
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCors,
     AppCorsOriginRule, AppDeploy, AppEnvVar, AppIntegration, AppIntegrationCredentialBinding,
-    AppIntegrationCredentials, AppLogging, AppManifest, AppPack, AppPackProvide, AppPackUse,
-    AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
+    AppIntegrationCredentials, AppLocale, AppLogging, AppManifest, AppPack, AppPackProvide,
+    AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
     AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
-    ContractRecord, DeployCheckpoint, FeatureRequirement, QualifiedName, RegistryToolEntry,
-    ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp, WorkspaceBoundary,
-    WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
+    ContractRecord, DeployCheckpoint, FeatureRequirement, LocaleFallback, QualifiedName,
+    RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp,
+    WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist
@@ -351,6 +351,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         deploy: None,
         logging: None,
         tracing: None,
+        locale: None,
         span_ref: None,
     };
     let mut current_child: Option<&str> = None;
@@ -627,6 +628,34 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         }
                     } else if let Some(rest) = trimmed.strip_prefix("exporter ") {
                         tracing.exporter = Some(rest.trim().to_owned());
+                    }
+                }
+                // i18n bucket cycle — `app.locale` block. `default`
+                // declares the primary BCP-47 tag; `supported` is a
+                // comma-separated list of tags; `fallback <src> -> <dst>`
+                // declares one fallback edge (repeatable). The bare
+                // scalar `default_locale` still parses for back-compat
+                // when this block is absent; doctor `app_locale_block_
+                // overrides_default_locale` warns when both are present.
+                Some("locale") => {
+                    let locale = app.locale.get_or_insert_with(AppLocale::default);
+                    if let Some(rest) = trimmed.strip_prefix("default ") {
+                        locale.default = unquote(rest.trim()).to_owned();
+                    } else if let Some(rest) = trimmed.strip_prefix("supported ") {
+                        for tag in split_items(rest) {
+                            let unquoted = unquote(tag.trim()).to_owned();
+                            if !locale.supported.contains(&unquoted) {
+                                locale.supported.push(unquoted);
+                            }
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("fallback ") {
+                        if let Some((from_part, to_part)) = rest.split_once("->") {
+                            let from = unquote(from_part.trim()).to_owned();
+                            let to = unquote(to_part.trim()).to_owned();
+                            if !from.is_empty() && !to.is_empty() {
+                                locale.fallbacks.push(LocaleFallback { from, to });
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -1375,6 +1404,8 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         // Observability bucket cycle row 36.
         "logging" => Some("logging"),
         "tracing" => Some("tracing"),
+        // i18n bucket cycle — `locale` block at app indent-2.
+        "locale" => Some("locale"),
         _ => None,
     }
 }

@@ -1,0 +1,4 @@
+{"name":"accept_language_best_match_picks_pt_br","request":{"headers":{"Accept-Language":"pt-BR,pt;q=0.9,en;q=0.5"}},"app_locale":{"default":"pt-BR","supported":["pt-BR","en-US"]},"expect":{"ctx_locale":"pt-BR"}}
+{"name":"accept_language_unknown_falls_back_to_default","request":{"headers":{"Accept-Language":"fr-FR,fr;q=0.9"}},"app_locale":{"default":"pt-BR","supported":["pt-BR","en-US"]},"expect":{"ctx_locale":"pt-BR"}}
+{"name":"explicit_fallback_chain_walks_en_us_to_pt_br","request":{"headers":{"Accept-Language":"en-US"}},"app_locale":{"default":"pt-BR","supported":["pt-BR"],"fallbacks":[{"from":"en-US","to":"pt-BR"}]},"expect":{"ctx_locale":"pt-BR"}}
+{"name":"prefix_match_resolves_pt_to_pt_br","request":{"headers":{"Accept-Language":"pt"}},"app_locale":{"default":"en-US","supported":["pt-BR","en-US"]},"expect":{"ctx_locale":"pt-BR"}}

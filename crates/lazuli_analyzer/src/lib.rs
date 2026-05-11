@@ -163,6 +163,7 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         deploy: None,
         logging: None,
         tracing: None,
+        locale: None,
         span_ref: Some(span_of(app.span)),
     }
 }

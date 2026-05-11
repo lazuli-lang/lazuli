@@ -1,0 +1,2 @@
+{"name":"renders_pt_br_when_ctx_locale_is_pt_br","feature":"customer","key":"archive_archived_blocked","ctx_locale":"pt-BR","expect":{"text":"Não é possível reatribuir um cliente arquivado"}}
+{"name":"falls_back_to_default_when_missing_variant","feature":"customer","key":"archive_archived_blocked","ctx_locale":"es-AR","fallbacks":[{"from":"es-AR","to":"en-US"}],"expect":{"text":"Cannot reassign an archived customer"}}

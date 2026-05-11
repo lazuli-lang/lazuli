@@ -7330,6 +7330,11 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 // `observability_catalog_detail`. Skip the
                 // "unknown app block" warning here.
                 Some("logging") | Some("tracing") => {}
+                // i18n bucket cycle — `locale` children
+                // (`default`/`supported`/`fallback`) are validated by
+                // `parse_app_manifest`; skip the "unknown app block"
+                // warning here.
+                Some("locale") => {}
                 Some(_) | None => diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
@@ -7484,6 +7489,9 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         // closed-catalog-checked by doctor.
         "logging" => Some("logging"),
         "tracing" => Some("tracing"),
+        // i18n bucket cycle — `app.locale` block (default / supported /
+        // fallback). Supersedes bare `default_locale` scalar.
+        "locale" => Some("locale"),
         _ => None,
     }
 }
@@ -11763,6 +11771,15 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "method" => Some("Declares the HTTP method for a custom API endpoint."),
         "output" => Some("Declares the response shape for a custom API endpoint."),
+        "locale" => Some(
+            "App locale contract: `default <tag>`, `supported <tags>` (comma-separated), optional `fallback <src> -> <dst>` edges. Supersedes the bare `default_locale` scalar when present. BCP-47 tags (e.g. `pt-BR`, `en-US`).",
+        ),
+        "supported" => Some(
+            "List of BCP-47 tags the app accepts. The locale-negotiation middleware matches `Accept-Language` against this list.",
+        ),
+        "fallback" => Some(
+            "Locale fallback edge: `fallback <src> -> <dst>`. When a translation is missing in the source tag, the runtime walks fallbacks before defaulting to `app.locale.default`.",
+        ),
         "cache" => Some(
             "Query cache contract: `key <expr>` + `ttl <duration>` (+ optional `tags <label>...` for fan-out invalidation, `namespace <label>` for cross-feature scoping). Requires a `cache <name>` capability in `registry.lzi`.",
         ),
