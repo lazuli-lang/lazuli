@@ -259,6 +259,12 @@ pub struct Feature {
     /// declarations lifted from the canonical-indent slice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub event_groups: Vec<EventGroup>,
+    /// Migrations bucket cycle Route C — `tenant_migration <name>`
+    /// declarations lifted from the canonical-indent slice. Mirrors the
+    /// `jobs` slot exactly: one entry per declared tenant migration.
+    /// Doctor `TM-*` diagnostics consume this slot.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tenant_migrations: Vec<TenantMigration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<Auth>,
     pub surfaces: Vec<Surface>,
@@ -1751,6 +1757,40 @@ pub struct AppDeploy {
     pub destructive_migrations: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollback: Option<String>,
+    /// Migrations bucket cycle Route C — `strategy <rolling|blue_green|canary>`.
+    /// Closed catalog enforced by `DEPLOY-STRATEGY-001`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    /// Migrations bucket cycle Route C — `lock_timeout "<duration>"`.
+    /// Adapter-parsed duration literal; the language keeps the literal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_timeout: Option<String>,
+    /// Migrations bucket cycle Route C — `pre_migration_hook "<path>"`.
+    /// Optional shell hook the runtime invokes before applying migrations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_migration_hook: Option<String>,
+    /// Migrations bucket cycle Route C — `post_migration_hook "<path>"`.
+    /// Optional shell hook the runtime invokes after applying migrations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_migration_hook: Option<String>,
+    /// Migrations bucket cycle Route C — `checkpoint <name> "<path>"`.
+    /// Pins an IR JSON snapshot the runtime can diff against. `lazuli plan
+    /// --check <name>` validates the snapshot's integrity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<DeployCheckpoint>,
+}
+
+/// Migrations bucket cycle Route C — declarative checkpoint pinning under
+/// `app.deploy.checkpoint <name> "<path>"`. The path is captured verbatim;
+/// `DEPLOY-CHECKPOINT-001` verifies the file resolves relative to
+/// `app.lzi`, and `DEPLOY-CHECKPOINT-002` warns when the loaded snapshot's
+/// `lazuli_version` lags the analyzer's expected version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeployCheckpoint {
+    pub name: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 /// Observability bucket cycle row 36 — declarative logging contract.
@@ -2395,6 +2435,50 @@ pub struct EventGroup {
     pub events: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+// =============================================================================
+// Migrations bucket cycle (Route C) — tenant_migration kind
+// =============================================================================
+
+/// Migrations bucket cycle Route C — `tenant_migration <name>` declaration.
+///
+/// Mirrors `Job`'s spine (idempotency / retry / timeout / handler) but is
+/// scoped to per-tenant schema migrations. The closed body shape is:
+/// `target tenants <axis>`, `idempotency by <path>` (mandatory),
+/// `retry <count> backoff <strategy>`, `timeout "<duration>"`, and
+/// `handler "<path>"`. No `emits`, no `target query.*`, no `policy`:
+/// schema migrations are by design free of business effects.
+///
+/// Doctor cross-checks:
+///   - `TM-AXIS-001` — `target` axis matches a `defaults.tenancy` axis
+///     in the same feature.
+///   - `TM-IDEMP-001` — `idempotency by` is mandatory; absence is an
+///     error because schema migrations are not safely re-runnable
+///     without an idempotency key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantMigration {
+    pub name: String,
+    pub target: TenantMigrationTarget,
+    /// Mandatory; absence triggers `TM-IDEMP-001`.
+    pub idempotency: IdempotencyKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    pub handler: PathRef,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Migrations bucket cycle Route C — `target tenants <axis>` fanout
+/// directive for tenant migrations. Captures the axis verbatim; doctor
+/// cross-checks against `defaults.tenancy` declared in the same feature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantMigrationTarget {
+    pub axis: String,
 }
 
 // =============================================================================

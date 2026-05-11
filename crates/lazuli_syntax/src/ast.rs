@@ -231,6 +231,9 @@ pub struct FeatureSkeleton {
     pub notifications: Vec<Notification>,
     /// Phase L Tier 3 — `event_group <pattern> on <Resource>` blocks.
     pub event_groups: Vec<EventGroup>,
+    /// Migrations bucket cycle Route C — `tenant_migration <name>`
+    /// blocks. Mirrors `jobs` exactly: zero or more per feature.
+    pub tenant_migrations: Vec<TenantMigration>,
     /// Phase L Tier 4a — `defaults` block. Optional; at most one per
     /// feature. Children captured: `tenancy <axis>`, `timestamps`,
     /// `policy_for <kinds>: <atom-list>`.
@@ -1160,5 +1163,26 @@ pub struct EventGroup {
     /// name strings. The full event bodies stay in the legacy lowering
     /// pipeline; this slot drives doctor's pattern-prefix rule.
     pub events: Vec<String>,
+    pub span: Span,
+}
+
+/// Migrations bucket cycle Route C — `tenant_migration <name>` AST
+/// surface. Mirrors `Job`'s spine subset (no body styles, no `emits`,
+/// no `policy`): a tenant migration is by design pure schema work.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantMigration {
+    pub name: String,
+    /// `target tenants <axis>` — required.
+    pub target_axis: String,
+    /// `idempotency by <path>` — mandatory per `TM-IDEMP-001`; stored
+    /// as `Option<String>` so the parser surfaces the absence as an
+    /// IR-level diagnostic rather than a parse error (matches `Job`).
+    pub idempotency_by: Option<String>,
+    /// `retry <count> backoff <strategy>` — optional.
+    pub retry: Option<JobRetry>,
+    /// `timeout "<duration>"` — optional adapter-parsed literal.
+    pub timeout: Option<String>,
+    /// `handler "<path>"` — required path to the Go handler.
+    pub handler: String,
     pub span: Span,
 }

@@ -5,8 +5,9 @@ use lazuli_ir::{
     AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
     AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
-    ContractRecord, FeatureRequirement, QualifiedName, RegistryToolEntry, ToolEffect, WorkspaceApp,
-    WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
+    ContractRecord, DeployCheckpoint, FeatureRequirement, QualifiedName, RegistryToolEntry,
+    ToolEffect, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
+    WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist
@@ -567,6 +568,27 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                             deploy.destructive_migrations = Some((*value).to_owned());
                         }
                         ["rollback", value] => deploy.rollback = Some((*value).to_owned()),
+                        // Migrations bucket cycle Route C — closed catalog
+                        // enforced downstream by `DEPLOY-STRATEGY-001`.
+                        ["strategy", value] => deploy.strategy = Some((*value).to_owned()),
+                        // Adapter-parsed duration literal; quotes stripped.
+                        ["lock_timeout", value] => {
+                            deploy.lock_timeout = Some(unquote(value).to_owned());
+                        }
+                        ["pre_migration_hook", value] => {
+                            deploy.pre_migration_hook = Some(unquote(value).to_owned());
+                        }
+                        ["post_migration_hook", value] => {
+                            deploy.post_migration_hook = Some(unquote(value).to_owned());
+                        }
+                        // `checkpoint <name> "<path>"` — three tokens.
+                        ["checkpoint", cp_name, cp_path] => {
+                            deploy.checkpoint = Some(DeployCheckpoint {
+                                name: (*cp_name).to_owned(),
+                                path: unquote(cp_path).to_owned(),
+                                span_ref: None,
+                            });
+                        }
                         _ => {}
                     }
                 }

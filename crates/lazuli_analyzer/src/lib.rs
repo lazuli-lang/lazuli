@@ -101,6 +101,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         webhooks: Vec::new(),
         notifications: Vec::new(),
         event_groups: Vec::new(),
+        tenant_migrations: Vec::new(),
         auth: None,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -715,6 +716,10 @@ pub fn lower_feature_skeleton(
     for group_ast in &skeleton.event_groups {
         event_groups.push(lower_event_group(group_ast));
     }
+    let mut tenant_migrations = Vec::with_capacity(skeleton.tenant_migrations.len());
+    for tm_ast in &skeleton.tenant_migrations {
+        tenant_migrations.push(lower_tenant_migration(tm_ast)?);
+    }
     let defaults = match &skeleton.defaults {
         Some(d) => lower_defaults(d),
         None => ir::Defaults::default(),
@@ -746,6 +751,7 @@ pub fn lower_feature_skeleton(
         webhooks,
         notifications,
         event_groups,
+        tenant_migrations,
         auth,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -864,9 +870,28 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> ir::Resource {
         validate,
         validates: Vec::new(),
         retention,
-        previous_names: r.previously.clone(),
+        previous_names: r
+            .previously
+            .iter()
+            .map(|p| strip_previously_mode(p))
+            .collect(),
         span_ref: Some(span_of(r.span)),
     }
+}
+
+/// Migrations bucket cycle Route C — strip the `migrated`/`alias` mode
+/// prefix from a parsed `previously` line. `previously migrated Foo`
+/// keeps `Foo` in IR; `previously alias Foo` ditto. Doctor compares
+/// against current symbol names, so the mode keyword is noise here.
+fn strip_previously_mode(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("migrated ") {
+        return rest.trim().to_owned();
+    }
+    if let Some(rest) = trimmed.strip_prefix("alias ") {
+        return rest.trim().to_owned();
+    }
+    trimmed.to_owned()
 }
 
 fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
@@ -878,7 +903,11 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
         unique: f.unique,
         default,
         derived_from: f.derived_from.clone(),
-        previous_names: f.previously.clone(),
+        previous_names: f
+            .previously
+            .iter()
+            .map(|p| strip_previously_mode(p))
+            .collect(),
         span_ref: Some(span_of(f.span)),
     }
 }
@@ -1200,6 +1229,38 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
         events: group.events.clone(),
         span_ref: Some(span_of(group.span)),
     }
+}
+
+/// Migrations bucket cycle Route C — lower a canonical-indent
+/// `tenant_migration` block into `ir::TenantMigration`. Mirrors
+/// `lower_job` for the shared spine (idempotency / retry / timeout /
+/// handler) and adds the `target tenants <axis>` slot. The lowering
+/// does **not** enforce that `idempotency` is authored; that is
+/// `TM-IDEMP-001`'s job downstream.
+pub fn lower_tenant_migration(
+    tm: &syntax::TenantMigration,
+) -> Result<ir::TenantMigration, AnalyzeError> {
+    let idempotency = tm
+        .idempotency_by
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::IdempotencyKey { by: path })
+        .unwrap_or_else(|| ir::IdempotencyKey {
+            by: ir::Path::from_segments(Vec::<String>::new()),
+        });
+    let retry = tm.retry.as_ref().map(lower_retry);
+    Ok(ir::TenantMigration {
+        name: tm.name.clone(),
+        target: ir::TenantMigrationTarget {
+            axis: tm.target_axis.clone(),
+        },
+        idempotency,
+        retry,
+        timeout: tm.timeout.clone(),
+        handler: ir::PathRef::authored(&tm.handler),
+        previous_names: Vec::new(),
+        span_ref: Some(span_of(tm.span)),
+    })
 }
 
 fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {

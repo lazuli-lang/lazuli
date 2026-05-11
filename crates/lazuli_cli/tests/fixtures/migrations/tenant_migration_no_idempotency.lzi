@@ -1,0 +1,11 @@
+feature x
+  defaults
+    tenancy org
+
+  domain
+    resource Customer
+      email: Text required
+
+  tenant_migration backfill_x
+    target tenants org
+    handler "./migrations/backfill_x.go"

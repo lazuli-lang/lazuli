@@ -68,6 +68,18 @@ enum Commands {
         #[arg(long)]
         spec: Option<PathBuf>,
     },
+    /// Migrations bucket cycle Route C — schema-migration planning
+    /// surface. The current implementation validates checkpoint
+    /// integrity (`--check <name>`); typed field-level diff lands
+    /// in the Tier 4 follow-up cycle.
+    Plan {
+        /// Path to `app.lzi` (or a directory containing it).
+        input: PathBuf,
+        /// `--check <name>` validates the named `deploy.checkpoint`'s
+        /// path exists and snapshot version matches the analyzer.
+        #[arg(long = "check")]
+        check: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -145,6 +157,10 @@ struct ExpandSet {
     /// Phase L Tier 3 — `--expand=event_groups` projects every
     /// `ir::EventGroup` on the feature (pattern + inheritance).
     event_groups: bool,
+    /// Migrations bucket cycle Route C — `--expand=migrations` projects
+    /// every lifted `ir::TenantMigration` per feature and the
+    /// app-level `deploy.checkpoint` + expansion fields.
+    migrations: bool,
 }
 
 impl ExpandSet {
@@ -169,6 +185,7 @@ impl ExpandSet {
             jobs: true,
             webhooks: true,
             event_groups: true,
+            migrations: true,
         }
     }
 
@@ -192,6 +209,7 @@ impl ExpandSet {
             || self.jobs
             || self.webhooks
             || self.event_groups
+            || self.migrations
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -253,6 +271,9 @@ impl ExpandSet {
         if self.event_groups {
             labels.push("event_groups");
         }
+        if self.migrations {
+            labels.push("migrations");
+        }
         labels
     }
 }
@@ -279,7 +300,101 @@ fn main() -> Result<()> {
         Commands::Init { path } => init_command(&path),
         Commands::Lsp => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
+        Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
     }
+}
+
+/// Migrations bucket cycle Route C — `lazuli plan --check <name>`
+/// validates the named `deploy.checkpoint`. Reads the snapshot path
+/// relative to `app.lzi`, verifies the file is parseable JSON, and
+/// reports a `lazuli_version` mismatch with the analyzer.
+///
+/// Exit codes:
+///   0 — checkpoint resolves + parses + version matches.
+///   non-zero — checkpoint name unknown / path missing / parse error.
+///
+/// Typed field-level diff (`Rename Customer.status -> Customer.lifecycle_status`)
+/// is out of scope for Route C; lands in the Tier-4 follow-up cycle.
+fn plan_command(input: &Path, check: Option<&str>) -> Result<()> {
+    let Some(check_name) = check else {
+        bail!("`lazuli plan` currently requires `--check <snapshot_name>`");
+    };
+
+    // Locate `app.lzi` — accept either a direct path or a directory.
+    let app_path = if input.is_dir() {
+        input.join("app.lzi")
+    } else {
+        input.to_path_buf()
+    };
+    if !app_path.exists() {
+        bail!("app manifest not found at {}", app_path.display());
+    }
+
+    let source = fs::read_to_string(&app_path)
+        .with_context(|| format!("failed to read {}", app_path.display()))?;
+
+    let manifest = app_manifest::parse_app_manifest(&source)
+        .ok_or_else(|| anyhow::anyhow!("{} does not declare an `app` block", app_path.display()))?;
+
+    let Some(deploy) = manifest.deploy.as_ref() else {
+        bail!(
+            "app `{}` declares no `deploy` block — nothing to plan",
+            manifest.name
+        );
+    };
+    let Some(checkpoint) = deploy.checkpoint.as_ref() else {
+        bail!(
+            "app `{}` declares no `deploy.checkpoint` — add `checkpoint <name> \"<path>\"` first",
+            manifest.name
+        );
+    };
+    if checkpoint.name != check_name {
+        bail!(
+            "checkpoint `{}` not declared in app `{}` (found `{}`)",
+            check_name,
+            manifest.name,
+            checkpoint.name
+        );
+    }
+
+    // Resolve checkpoint path relative to app.lzi's directory.
+    let app_dir = app_path.parent().unwrap_or_else(|| Path::new("."));
+    let snapshot_path = app_dir.join(&checkpoint.path);
+    if !snapshot_path.exists() {
+        bail!(
+            "checkpoint `{}` references path `{}` that does not exist relative to {}",
+            check_name,
+            checkpoint.path,
+            app_path.display()
+        );
+    }
+
+    let text = fs::read_to_string(&snapshot_path)
+        .with_context(|| format!("failed to read snapshot {}", snapshot_path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("snapshot {} is not valid JSON", snapshot_path.display()))?;
+
+    let expected_version = env!("CARGO_PKG_VERSION");
+    let snapshot_version = value
+        .get("lazuli_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if snapshot_version.is_empty() {
+        println!(
+            "checkpoint {}: ok (snapshot missing `lazuli_version`; regenerate to enable version drift detection)",
+            check_name
+        );
+        return Ok(());
+    }
+    if snapshot_version != expected_version {
+        println!(
+            "checkpoint {}: ok (snapshot lazuli_version {} lags analyzer {}; consider regenerating)",
+            check_name, snapshot_version, expected_version
+        );
+        return Ok(());
+    }
+    println!("checkpoint {}: ok", check_name);
+    Ok(())
 }
 
 fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
@@ -485,8 +600,12 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "jobs" => set.jobs = true,
             "webhooks" => set.webhooks = true,
             "event_groups" => set.event_groups = true,
+            // Migrations bucket cycle Route C — projects every lifted
+            // `ir::TenantMigration` on the feature + the app deploy
+            // block's checkpoint/strategy/lock_timeout/hook fields.
+            "migrations" => set.migrations = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, or event_groups"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, or migrations"
             ),
         }
     }
@@ -593,6 +712,11 @@ struct InspectFeature {
     /// is set. Every lifted `ir::EventGroup` on the feature.
     #[serde(skip_serializing_if = "Option::is_none")]
     event_groups: Option<Vec<InspectEventGroup>>,
+    /// Migrations bucket cycle Route C — populated only when
+    /// `--expand=migrations` is set. Every lifted
+    /// `ir::TenantMigration` on the feature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant_migrations: Option<Vec<lazuli_ir::TenantMigration>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1280,6 +1404,7 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 jobs: feature_ir.jobs,
                 webhooks: feature_ir.webhooks,
                 event_groups: feature_ir.event_groups,
+                tenant_migrations: feature_ir.tenant_migrations,
             },
         );
     }
@@ -1290,6 +1415,9 @@ struct Tier3FeatureSlice {
     jobs: Vec<lazuli_ir::Job>,
     webhooks: Vec<lazuli_ir::Webhook>,
     event_groups: Vec<lazuli_ir::EventGroup>,
+    /// Migrations bucket cycle Route C — lifted `tenant_migration`
+    /// declarations for `--expand=migrations`.
+    tenant_migrations: Vec<lazuli_ir::TenantMigration>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -1417,6 +1545,13 @@ fn inspect_feature(
             })
             .unwrap_or_default()
     });
+    // Migrations bucket cycle Route C — `--expand=migrations`. Surfaces
+    // every lifted `ir::TenantMigration` on the feature.
+    let tenant_migrations_projection = expansions.migrations.then(|| {
+        tier3
+            .map(|t| t.tenant_migrations.clone())
+            .unwrap_or_default()
+    });
 
     InspectFeature {
         name,
@@ -1444,6 +1579,7 @@ fn inspect_feature(
         jobs: jobs_projection,
         webhooks: webhooks_projection,
         event_groups: event_groups_projection,
+        tenant_migrations: tenant_migrations_projection,
     }
 }
 

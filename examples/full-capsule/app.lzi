@@ -93,6 +93,11 @@ app AcmeCRM
     migration_lock required
     destructive_migrations require_approval
     rollback on_failed_healthcheck
+    strategy rolling
+    lock_timeout "30s"
+    pre_migration_hook "./hooks/migration_pre.sh"
+    post_migration_hook "./hooks/migration_post.sh"
+    checkpoint baseline "./checkpoints/full-capsule.snapshot.json"
 
   logging
     level info

@@ -1,0 +1,16 @@
+app X
+  urls
+    canonical "https://x.example.com"
+
+  environments
+    development
+    production
+
+  runtime
+    unit api
+      serves surfaces web
+
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+    checkpoint baseline "./stale.snapshot.json"
