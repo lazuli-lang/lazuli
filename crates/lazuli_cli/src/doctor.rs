@@ -733,7 +733,11 @@ impl DoctorPackage {
 
         // Row 54 — i18n bucket cycle: 15 locale/translation diagnostics.
         // See `docs/proposals/bucket-i18n-cycle.md` §Doctor/LSP.
-        diagnostics.extend(i18n_diagnostics(&self.tier3_facts, self.app.as_ref()));
+        diagnostics.extend(i18n_diagnostics(
+            &self.tier3_facts,
+            self.app.as_ref(),
+            &self.files,
+        ));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -7733,6 +7737,7 @@ const CLDR_PLURAL_ARMS: &[&str] = &["zero", "one", "two", "few", "many", "other"
 fn i18n_diagnostics(
     facts: &[Tier3FeatureFacts],
     app: Option<&DoctorAppManifest>,
+    files: &[DoctorFile],
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -7984,8 +7989,15 @@ fn i18n_diagnostics(
         // since `Rule.message_ref` is exposed via the analyzer's lifted
         // Tier 4d resource rules; the legacy rule walker still owns the
         // file-local lift. Doctor uses text-pattern here to bridge the
-        // gap until the rule lift lands.
-        if let Ok(text) = std::fs::read_to_string(&feature.path) {
+        // gap until the rule lift lands. We read from the in-memory
+        // package files first (so tests work without filesystem
+        // round-trips) and fall back to the filesystem.
+        let source = files
+            .iter()
+            .find(|f| f.path == feature.path)
+            .map(|f| f.source.clone())
+            .or_else(|| std::fs::read_to_string(&feature.path).ok());
+        if let Some(text) = source {
             for line in text.lines() {
                 let trimmed = line.trim_start();
                 if let Some(rest) = trimmed.strip_prefix("message @translation.") {
@@ -11304,6 +11316,88 @@ feature customer_auth
         assert!(
             codes(&diagnostics).contains("deprecated_sunset_in_past"),
             "expected deprecated_sunset_in_past in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // =========================================================================
+    // i18n bucket cycle (row 54) — 5 critical doctor diagnostics anchored
+    // on `app.locale` / `Translation` / `LocaleNegotiate` IR. The full
+    // 15-diagnostic catalog (`translation_locale_*`, `rule_message_ref_*`,
+    // `locale_negotiate_*`, `app_locale_*`, `cldr_plural_arm_invalid`)
+    // is covered by the `i18n_diagnostics` walk; this set exercises the
+    // top-5 most-likely authoring mistakes from the proposal.
+    // =========================================================================
+
+    const I18N_DEFAULT_NOT_SUPPORTED_FIXTURE: &str =
+        include_str!("../tests/fixtures/i18n/default_not_supported.lzi");
+    const I18N_TRANSLATION_LOCALE_UNSUPPORTED_FIXTURE: &str =
+        include_str!("../tests/fixtures/i18n/translation_locale_unsupported.lzi");
+    const I18N_TRANSLATION_KEY_UNRESOLVED_FIXTURE: &str =
+        include_str!("../tests/fixtures/i18n/translation_key_unresolved.lzi");
+    const I18N_CLDR_PLURAL_ARM_INVALID_FIXTURE: &str =
+        include_str!("../tests/fixtures/i18n/cldr_plural_arm_invalid.lzi");
+    const I18N_LOCALE_NEGOTIATE_SOURCE_INVALID_FIXTURE: &str =
+        include_str!("../tests/fixtures/i18n/locale_negotiate_source_invalid.lzi");
+
+    #[test]
+    fn app_locale_default_unsupported_fires() {
+        let package = package_from_sources(vec![("app.lzi", I18N_DEFAULT_NOT_SUPPORTED_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_locale_default_unsupported"),
+            "expected app_locale_default_unsupported in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn translation_locale_unsupported_fires() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            I18N_TRANSLATION_LOCALE_UNSUPPORTED_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("translation_locale_unsupported"),
+            "expected translation_locale_unsupported in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn rule_message_ref_unresolved_fires() {
+        let package =
+            package_from_sources(vec![("app.lzi", I18N_TRANSLATION_KEY_UNRESOLVED_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("rule_message_ref_unresolved"),
+            "expected rule_message_ref_unresolved in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cldr_plural_arm_invalid_fires() {
+        let package = package_from_sources(vec![("app.lzi", I18N_CLDR_PLURAL_ARM_INVALID_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cldr_plural_arm_invalid"),
+            "expected cldr_plural_arm_invalid in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn locale_negotiate_source_invalid_fires() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            I18N_LOCALE_NEGOTIATE_SOURCE_INVALID_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("locale_negotiate_source_invalid"),
+            "expected locale_negotiate_source_invalid in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

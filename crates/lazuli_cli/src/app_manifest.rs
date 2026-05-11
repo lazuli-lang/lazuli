@@ -5,8 +5,8 @@ use lazuli_ir::{
     AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
     AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
-    ContractRecord, DeployCheckpoint, FeatureRequirement, LocaleFallback, QualifiedName,
-    RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp,
+    ContractRecord, DeployCheckpoint, FeatureRequirement, LocaleFallback, LocaleNegotiate,
+    QualifiedName, RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp,
     WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
@@ -358,6 +358,10 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let mut current_runtime_unit: Option<usize> = None;
     let mut current_service: Option<usize> = None;
     let mut current_service_child: Option<&str> = None;
+    // i18n bucket cycle — tracks which child of the current `runtime
+    // unit` is open (e.g. `locale_negotiate`). Indent-8 lines branch off
+    // this token rather than the top-level `current_child`.
+    let mut current_runtime_child: Option<&str> = None;
     let mut current_env_group: Option<String> = None;
     let mut current_integration: Option<usize> = None;
     let mut current_integration_child: Option<&str> = None;
@@ -705,6 +709,13 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         unit.healthcheck = Some(unquote(rest.trim()).to_owned());
                     } else if let Some(rest) = trimmed.strip_prefix("readiness ") {
                         unit.readiness = Some(unquote(rest.trim()).to_owned());
+                    } else if trimmed == "locale_negotiate" {
+                        // i18n bucket cycle — open the block; its
+                        // children at indent 8 land below via the
+                        // `current_runtime_child` token.
+                        unit.locale_negotiate
+                            .get_or_insert_with(LocaleNegotiate::default);
+                        current_runtime_child = Some("locale_negotiate");
                     }
                 } else if current_child == Some("services") {
                     let Some(service_index) = current_service else {
@@ -755,6 +766,22 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                                 kind: parts[0].to_owned(),
                                 target: parts[1].to_owned(),
                             });
+                    }
+                } else if current_child == Some("runtime")
+                    && current_runtime_child == Some("locale_negotiate")
+                {
+                    let Some(unit_index) = current_runtime_unit else {
+                        continue;
+                    };
+                    let Some(ln) = app.runtime[unit_index].locale_negotiate.as_mut() else {
+                        continue;
+                    };
+                    if let Some(rest) = trimmed.strip_prefix("source ") {
+                        ln.source = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("strategy ") {
+                        ln.strategy = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("fallback ") {
+                        ln.fallback = Some(unquote(rest.trim()).to_owned());
                     }
                 }
             }

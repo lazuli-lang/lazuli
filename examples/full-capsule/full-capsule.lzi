@@ -146,7 +146,7 @@ feature customer
 
     rule "archived customers cannot be reassigned"
       deny Customer.reassign when self.lifecycle_stage = CustomerStatus.archived
-      message "Cannot reassign an archived customer"
+      message @translation.archive_archived_blocked
 
       tests
         denies when self.lifecycle_stage = archived
@@ -156,7 +156,7 @@ feature customer
 
     rule "deleted customers cannot be archived"
       deny Customer.archive when self.deleted_at != nil
-      message "Cannot archive a deleted customer"
+      message @translation.archive_deleted_blocked
 
       tests
         denies when self.deleted_at != nil
@@ -164,7 +164,7 @@ feature customer
 
     rule "enterprise customers require owner before activation"
       deny Customer.activate when self.tier = CustomerTier.enterprise AND self.owner = nil
-      message "Enterprise customers require an owner before activation"
+      message @translation.enterprise_owner_required
 
       tests
         denies when self.tier = enterprise AND self.owner = nil
@@ -224,6 +224,21 @@ feature customer
     default hide
     expose client 4xx message, code
     expose client 5xx code
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key archive_archived_blocked
+      pt-BR "Não é possível reatribuir um cliente arquivado"
+      en-US "Cannot reassign an archived customer"
+
+    key archive_deleted_blocked
+      pt-BR "Não é possível arquivar um cliente excluído"
+      en-US "Cannot archive a deleted customer"
+
+    key enterprise_owner_required
+      pt-BR "Clientes enterprise exigem um proprietário antes da ativação"
+      en-US "Enterprise customers require an owner before activation"
 
   command capture_lead
     input

@@ -1,0 +1,5 @@
+{
+  "archive_archived_blocked": "Cannot reassign an archived customer",
+  "archive_deleted_blocked": "Cannot archive a deleted customer",
+  "enterprise_owner_required": "Enterprise customers require an owner before activation"
+}

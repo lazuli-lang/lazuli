@@ -1,0 +1,29 @@
+# Doctor fixture — `rule_message_ref_unresolved`.
+# A rule references a translation key that does not exist in the
+# feature's translation block.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+    rule "blocked"
+      deny Customer.archive when self.deleted_at != nil
+      message @translation.nonexistent_key
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key archive_blocked
+      pt-BR "Não é possível arquivar"

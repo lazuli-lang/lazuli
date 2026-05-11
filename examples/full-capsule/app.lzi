@@ -82,6 +82,10 @@ app AcmeCRM
       serves queries, commands, webhooks, apis
       healthcheck "/healthz"
       readiness "/readyz"
+      locale_negotiate
+        source accept_language
+        strategy best_match
+        fallback "pt-BR"
 
     unit web
       serves surfaces web

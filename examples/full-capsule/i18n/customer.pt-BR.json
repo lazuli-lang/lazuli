@@ -1,0 +1,5 @@
+{
+  "archive_archived_blocked": "Não é possível reatribuir um cliente arquivado",
+  "archive_deleted_blocked": "Não é possível arquivar um cliente excluído",
+  "enterprise_owner_required": "Clientes enterprise exigem um proprietário antes da ativação"
+}

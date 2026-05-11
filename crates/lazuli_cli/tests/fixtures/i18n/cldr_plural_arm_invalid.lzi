@@ -1,0 +1,26 @@
+# Doctor fixture — `cldr_plural_arm_invalid`.
+# A translation key uses a plural arm outside the CLDR closed catalog.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key items_left
+      pt-BR "{count} itens"
+      plural bunch
+        pt-BR "{count} itens (montão)"

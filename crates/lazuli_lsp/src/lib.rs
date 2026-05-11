@@ -7442,13 +7442,22 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     && current_service_child == Some("exposes")
                 {
                     validate_app_service_exposure_line(&mut diagnostics, line_index, line, trimmed);
+                } else if current_app_child == Some("runtime")
+                    && (trimmed.starts_with("source ")
+                        || trimmed.starts_with("strategy ")
+                        || trimmed.starts_with("fallback "))
+                {
+                    // i18n bucket cycle — `locale_negotiate` body lines
+                    // sit at indent 8 under `runtime unit api`. The body
+                    // grammar is `source <axis>` / `strategy <name>` /
+                    // `fallback <tag>`; doctor validates the catalog.
                 } else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "eight-space app manifest declarations are only valid inside `integrations credentials` or `services service exposes` blocks.",
+                        "eight-space app manifest declarations are only valid inside `integrations credentials`, `services service exposes`, or `runtime unit locale_negotiate` blocks.",
                     ));
                 }
             }
@@ -8824,12 +8833,21 @@ fn validate_app_runtime_unit_child(
         return;
     }
 
+    // i18n bucket cycle — `locale_negotiate` opens a child block whose
+    // entries land at indent 8. The LSP file-local rule accepts the
+    // header; doctor validates the body via the IR
+    // (`locale_negotiate_source_invalid`, `_strategy_invalid`,
+    // `app_locale_fallback_unknown_dest`).
+    if trimmed == "locale_negotiate" {
+        return;
+    }
+
     diagnostics.push(simple_canonical_diagnostic(
         line_index,
         line,
         DiagnosticSeverity::WARNING,
         "app-runtime-contract",
-        "runtime unit children use `serves ...`, `runs ...`, `healthcheck \"...\"`, or `readiness \"...\"`.",
+        "runtime unit children use `serves ...`, `runs ...`, `healthcheck \"...\"`, `readiness \"...\"`, or `locale_negotiate`.",
     ));
 }
 
@@ -12325,6 +12343,35 @@ pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
 /// Three rollout patterns the language fixes so doctor can pin a
 /// finite ruleset (`DEPLOY-STRATEGY-001`).
 pub const DEPLOY_STRATEGY_VALUES: &[&str] = &["rolling", "blue_green", "canary"];
+
+/// i18n bucket cycle — closed `locale_negotiate.source` catalog.
+/// Five request axes the runtime can read to populate `ctx.locale`.
+/// Doctor `locale_negotiate_source_invalid` enforces this set.
+pub const LOCALE_NEGOTIATE_SOURCE_VALUES: &[&str] = &[
+    "accept_language",
+    "query_param",
+    "cookie",
+    "user_profile",
+    "subdomain",
+];
+
+/// i18n bucket cycle — closed `locale_negotiate.strategy` catalog.
+/// Three matching algorithms. Doctor `locale_negotiate_strategy_invalid`
+/// enforces this set.
+pub const LOCALE_NEGOTIATE_STRATEGY_VALUES: &[&str] =
+    &["best_match", "prefix_match", "exact_match"];
+
+/// i18n bucket cycle — closed CLDR plural-arm catalog. Doctor
+/// `cldr_plural_arm_invalid` enforces this set.
+pub const CLDR_PLURAL_ARM_VALUES: &[&str] = &["zero", "one", "two", "few", "many", "other"];
+
+/// i18n bucket cycle — popular BCP-47 tags surfaced as soft completions.
+/// The set is **not** closed (BCP-47 tags are open); these are
+/// authoring hints only. Doctor never validates against this list.
+pub const BCP47_POPULAR_TAGS: &[&str] = &[
+    "en-US", "en-GB", "pt-BR", "pt-PT", "es-ES", "es-AR", "es-MX", "fr-FR", "de-DE", "it-IT",
+    "ja-JP", "zh-CN", "zh-TW", "ko-KR",
+];
 
 /// Hover/completion description for the deploy.strategy closed-catalog
 /// values. Mirrors `observability_catalog_detail` shape.

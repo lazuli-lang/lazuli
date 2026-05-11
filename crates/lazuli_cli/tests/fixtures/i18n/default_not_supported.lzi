@@ -1,0 +1,14 @@
+# Doctor fixture — `app_locale_default_unsupported`.
+# The locale block declares a default tag that is missing from the
+# supported list. Doctor surfaces an error at app.lzi:1.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "en-US", "es-AR"

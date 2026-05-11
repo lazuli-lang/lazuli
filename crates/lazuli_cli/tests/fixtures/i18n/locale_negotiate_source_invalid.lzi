@@ -1,0 +1,22 @@
+# Doctor fixture — `locale_negotiate_source_invalid`.
+# The `source` slot on `locale_negotiate` uses an identifier outside
+# the closed catalog.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+  runtime
+    unit api
+      serves apis
+      healthcheck "/healthz"
+      readiness "/readyz"
+      locale_negotiate
+        source ip_geo
+        strategy best_match

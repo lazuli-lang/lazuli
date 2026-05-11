@@ -1,0 +1,27 @@
+# Doctor fixture — `translation_locale_unsupported`.
+# A translation key declares a variant for a tag missing from
+# `app.locale.supported`.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR", "en-US"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key blocked
+      pt-BR "Bloqueado"
+      en-US "Blocked"
+      es-AR "Bloqueado"

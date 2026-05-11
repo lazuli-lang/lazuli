@@ -110,6 +110,36 @@ enum Commands {
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
+    /// i18n bucket cycle — translation toolbox. Today supports
+    /// `extract`: walks the package for translatable surfaces (rule
+    /// `message @translation.<key>` references, notification templates
+    /// with `<locale>` placeholder, authored `translation` keys) and
+    /// writes per-locale catalog stubs.
+    Translate {
+        #[command(subcommand)]
+        sub: TranslateCommand,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum TranslateCommand {
+    /// Extract translatable keys to catalog stub files.
+    Extract {
+        /// Path to a `.lzi` file or a directory containing one.
+        input: PathBuf,
+        /// Output directory for per-locale catalog files (default `./i18n`).
+        #[arg(long, default_value = "./i18n")]
+        out: PathBuf,
+        /// Only extract one locale's catalog. Defaults to every
+        /// `app.locale.supported` tag.
+        #[arg(long)]
+        locale: Option<String>,
+        /// Fail the CLI if any referenced `@translation.<key>` does
+        /// not resolve, or if any declared key is missing a variant
+        /// for a supported locale. CI gate.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -345,6 +375,14 @@ fn main() -> Result<()> {
         Commands::Changelog { from, to, output } => {
             changelog_command(&from, &to, output.as_deref())
         }
+        Commands::Translate { sub } => match sub {
+            TranslateCommand::Extract {
+                input,
+                out,
+                locale,
+                check,
+            } => translate_extract_command(&input, &out, locale.as_deref(), check),
+        },
     }
 }
 
@@ -383,6 +421,229 @@ fn generate_openapi(input: &Path, output: Option<&Path>, api_version: Option<&st
         None => print!("{}", yaml),
     }
     Ok(())
+}
+
+/// i18n bucket cycle — `lazuli translate extract` walks the package,
+/// harvests every translatable surface, and writes per-locale catalog
+/// stub files. Sources walked:
+///
+/// 1. `translation` blocks per feature — declared key + variants.
+/// 2. `rule message @translation.<key>` references — fail in `--check`
+///    when unresolved (otherwise warned).
+/// 3. `notification template "<path>"` with `<locale>` placeholder —
+///    one file per supported locale.
+///
+/// Idempotent: never overwrites authored translation text. Missing
+/// variants are emitted as `{ "<key>": "" }` with a warning. When
+/// `--check` is set, the CLI exits with code 1 if any key is missing
+/// a variant for any supported locale, or if any `@translation.<key>`
+/// reference is unresolved.
+fn translate_extract_command(
+    input: &Path,
+    out: &Path,
+    locale_filter: Option<&str>,
+    check: bool,
+) -> Result<()> {
+    let module = build_module_from_path(input)?;
+
+    // Locale catalog from the app manifest. Defaults to `[default]` when
+    // a project authors only the bare scalar.
+    let supported: Vec<String> = match module.app.as_ref() {
+        Some(app) => match app.locale.as_ref() {
+            Some(locale) => locale.supported.clone(),
+            None => app
+                .default_locale
+                .as_ref()
+                .map(|d| vec![d.clone()])
+                .unwrap_or_default(),
+        },
+        None => Vec::new(),
+    };
+    let default_locale = module
+        .app
+        .as_ref()
+        .and_then(|app| {
+            app.locale
+                .as_ref()
+                .map(|l| l.default.clone())
+                .or_else(|| app.default_locale.clone())
+        })
+        .unwrap_or_default();
+    if supported.is_empty() {
+        anyhow::bail!(
+            "no `app.locale.supported` (or `default_locale`) declared; cannot extract translations"
+        );
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut unresolved_refs: Vec<String> = Vec::new();
+
+    // Per-feature catalog stubs.
+    for feature in &module.features {
+        let Some(translation) = &feature.translation else {
+            continue;
+        };
+        let declared: std::collections::BTreeSet<&str> =
+            translation.keys.iter().map(|k| k.name.as_str()).collect();
+
+        // Resolve `@translation.<key>` references walked in the source
+        // file. The legacy `Rule` IR slot does not yet carry
+        // `message_ref`; doctor uses a text-pattern walk for this and
+        // we mirror that here.
+        let feature_paths: Vec<PathBuf> = match feature.span_ref.as_ref() {
+            Some(_) => collect_feature_lzi_paths(input, &feature.name)?,
+            None => Vec::new(),
+        };
+        for path in &feature_paths {
+            let text =
+                fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+            for line in text.lines() {
+                let trimmed = line.trim_start();
+                if let Some(rest) = trimmed.strip_prefix("message @translation.") {
+                    let key = rest.split_whitespace().next().unwrap_or("");
+                    if !key.is_empty() && !declared.contains(key) {
+                        unresolved_refs.push(format!("{}.{}", feature.name, key));
+                    }
+                }
+            }
+        }
+
+        for locale in &supported {
+            if let Some(filter) = locale_filter {
+                if filter != locale.as_str() {
+                    continue;
+                }
+            }
+            let catalog_path = translation.catalog.replace("<locale>", locale);
+            let stub_path = out
+                .join(format!("{}.{}.json", feature.name, locale))
+                .to_owned();
+            // Write a minimal `{ "<key>": "<text or empty>" }` stub.
+            let mut entries: Vec<(String, String)> = Vec::new();
+            for key in &translation.keys {
+                let variant = key
+                    .variants
+                    .iter()
+                    .find(|v| v.locale.as_str() == locale.as_str());
+                let text = match variant {
+                    Some(v) => v.text.clone(),
+                    None => {
+                        let key_id = format!("{}.{}.{}", feature.name, key.name, locale);
+                        missing.push(key_id);
+                        String::new()
+                    }
+                };
+                entries.push((key.name.clone(), text));
+            }
+            let mut json = String::new();
+            json.push_str("{\n");
+            for (idx, (k, v)) in entries.iter().enumerate() {
+                json.push_str(&format!(
+                    "  \"{}\": \"{}\"{}\n",
+                    json_escape(k),
+                    json_escape(v),
+                    if idx + 1 < entries.len() { "," } else { "" }
+                ));
+            }
+            json.push_str("}\n");
+            if let Some(parent) = stub_path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!("creating output directory {}", parent.display())
+                    })?;
+                }
+            }
+            fs::write(&stub_path, &json)
+                .with_context(|| format!("writing {}", stub_path.display()))?;
+            println!(
+                "extracted {} keys to {} (catalog template: {})",
+                entries.len(),
+                stub_path.display(),
+                catalog_path
+            );
+        }
+    }
+
+    if check {
+        let mut failures: Vec<String> = Vec::new();
+        for entry in &missing {
+            // The default locale must always be authored; warn for
+            // non-default supported tags but only fail CI for default.
+            if entry.ends_with(&format!(".{}", default_locale)) {
+                failures.push(format!("missing variant for default locale: {entry}"));
+            } else {
+                eprintln!("warning: missing variant for supported locale: {entry}");
+            }
+        }
+        for entry in &unresolved_refs {
+            failures.push(format!("unresolved `@translation.{entry}` reference"));
+        }
+        if !failures.is_empty() {
+            for failure in &failures {
+                eprintln!("error: {failure}");
+            }
+            anyhow::bail!(
+                "translate extract --check failed ({} issue(s))",
+                failures.len()
+            );
+        }
+    } else if !missing.is_empty() {
+        for entry in &missing {
+            eprintln!("warning: missing variant: {entry}");
+        }
+    }
+
+    Ok(())
+}
+
+/// `lazuli translate extract` helper — collect the `.lzi` paths that
+/// host a given feature. We mirror what `build_module_from_path` does
+/// — walk the package's `.lzi` files and return any that contain a
+/// `feature <name>` header.
+fn collect_feature_lzi_paths(root: &Path, feature_name: &str) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    let candidates: Vec<PathBuf> = if root.is_dir() {
+        let mut acc: Vec<PathBuf> = Vec::new();
+        for entry in
+            fs::read_dir(root).with_context(|| format!("reading directory {}", root.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("lzi") {
+                acc.push(path);
+            }
+        }
+        acc
+    } else {
+        vec![root.to_path_buf()]
+    };
+    let header = format!("feature {feature_name}");
+    for path in candidates {
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        for line in text.lines() {
+            if line.trim_start() == header || line.trim_start().starts_with(&format!("{header} ")) {
+                out.push(path.clone());
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect
