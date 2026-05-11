@@ -156,6 +156,13 @@ struct Tier3FeatureFacts {
     /// i18n bucket cycle — lifted `translation` block (when authored).
     translation: Option<lazuli_ir::Translation>,
     translation_line: usize,
+    /// Phase L Tier 4 follow-up — lifted `record <Name>` declarations
+    /// per feature. Replaces the text-scanned `FeatureSymbols.records`
+    /// for the agent discriminator cross-checks. Enums are NOT lifted
+    /// here because the canonical-indent slice does not yet parse
+    /// `enum <Name>` blocks; `FeatureSymbols.enums` survives for
+    /// `agent_discriminator_target_invalid` lookups.
+    records: Vec<lazuli_ir::Record>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -486,6 +493,7 @@ impl DoctorPackage {
                                             api_lines,
                                             translation: feature.translation.clone(),
                                             translation_line,
+                                            records: feature.records.clone(),
                                         });
                                     }
                                     // Phase L Tier 4 follow-up — populate the
@@ -673,6 +681,7 @@ impl DoctorPackage {
         ));
         diagnostics.extend(agent_discriminator_diagnostics(
             &self.agents,
+            &self.tier3_facts,
             &self.feature_symbols,
         ));
         diagnostics.extend(agent_eval_diagnostics(&self.agents));
@@ -864,16 +873,19 @@ struct AuthFacts {
     oauth_lines: BTreeMap<String, usize>,
 }
 
+/// Phase L Tier 4 follow-up — `records` slot retired (lifted into
+/// `Tier3FeatureFacts.records` from the typed IR). `enums` survives as
+/// a small text-walker because the canonical-indent slice does not yet
+/// lift `enum <Name>` declarations into `FeatureSkeleton.enums`. The
+/// next cycle that lifts `enum` will drop this slot.
 #[derive(Debug, Clone, Default)]
 struct FeatureSymbols {
+    /// Short enum name → header source fact. Used by
+    /// `agent_discriminator_diagnostics` to resolve
+    /// `output discriminator <Enum>` references.
     enums: BTreeMap<String, SymbolFact>,
-    records: BTreeMap<String, RecordFact>,
     /// Maps short command name (e.g. `archive`) to its registered policy
     /// + safety hint. Commands are inherently write-effect for Cut A.
-    /// Phase L Tier 4b — the parallel `queries` map retired; nothing
-    /// reads `symbols.queries` (all query cross-checks consume the
-    /// typed `Tier3FeatureFacts.queries` lifted by Tier 4d's record
-    /// + query spine).
     commands: BTreeMap<String, CommandSymbolFact>,
 }
 
@@ -909,20 +921,6 @@ struct ResourceFieldFact {
     /// diagnostics; reserved for future field-anchored messages.
     #[allow(dead_code)]
     line: usize,
-}
-
-#[derive(Debug, Clone, Default)]
-struct RecordFact {
-    base: SymbolFact,
-    /// Field name -> (field type text, whether the field has a
-    /// `discriminator` marker).
-    fields: BTreeMap<String, RecordFieldFact>,
-}
-
-#[derive(Debug, Clone)]
-struct RecordFieldFact {
-    type_text: String,
-    is_discriminator: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -4333,6 +4331,12 @@ fn scan_feature_range(
             continue;
         }
 
+        // Phase L Tier 4 follow-up — the `record` branch is retired
+        // (lifted into `Tier3FeatureFacts.records` from the typed IR).
+        // The `enum` branch survives because the canonical-indent slice
+        // does not yet lift `enum <Name>` declarations into the IR —
+        // the next cycle that adds an `EnumDecl` AST + skeleton lift
+        // will drop this branch and the `FeatureSymbols.enums` slot.
         if let Some(rest) = trimmed.strip_prefix("enum ") {
             let name = rest.split_whitespace().next().unwrap_or("").to_owned();
             if !name.is_empty() {
@@ -4343,35 +4347,6 @@ fn scan_feature_range(
                         line: feature_start + i + 1,
                     },
                 );
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("record ") {
-            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-            if !name.is_empty() {
-                let record_indent = leading;
-                let mut record = RecordFact {
-                    base: SymbolFact {
-                        path: file.path.clone(),
-                        line: feature_start + i + 1,
-                    },
-                    fields: BTreeMap::new(),
-                };
-                let mut j = i + 1;
-                while j < lines.len() {
-                    let inner = lines[j];
-                    let inner_trim = inner.trim_start();
-                    if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                        j += 1;
-                        continue;
-                    }
-                    if leading_spaces(inner) <= record_indent {
-                        break;
-                    }
-                    if let Some(field) = parse_record_field(inner_trim) {
-                        record.fields.insert(field.0, field.1);
-                    }
-                    j += 1;
-                }
-                symbols.records.insert(name, record);
             }
         } else if let Some(rest) = trimmed.strip_prefix("command ") {
             let name = rest.split_whitespace().next().unwrap_or("").to_owned();
@@ -4391,24 +4366,6 @@ fn scan_feature_range(
         }
         i += 1;
     }
-}
-
-fn parse_record_field(trimmed: &str) -> Option<(String, RecordFieldFact)> {
-    let (name_part, rest) = trimmed.split_once(':')?;
-    let name = name_part.trim();
-    if name.is_empty() {
-        return None;
-    }
-    let mut tokens = rest.split_whitespace();
-    let type_text = tokens.next()?.to_owned();
-    let is_discriminator = tokens.any(|tok| tok == "discriminator");
-    Some((
-        name.to_owned(),
-        RecordFieldFact {
-            type_text,
-            is_discriminator,
-        },
-    ))
 }
 
 fn scan_block_for_policy(body: &[&str], parent_indent: usize) -> Option<String> {
@@ -4740,21 +4697,38 @@ fn policy_atoms_more_restrictive(tool_policy: &str, agent_policy: &str) -> bool 
 // Diagnostic ids: agent_discriminator_target_invalid / field_invalid
 // -----------------------------------------------------------------------------
 
+/// Phase L Tier 4 follow-up — partly IR-driven replacement for the
+/// records/enums branches of `scan_feature_range`. Records read from
+/// `Tier3FeatureFacts.records` (typed `ir::Record` lift). Enums still
+/// read from `FeatureSymbols.enums` (text walker) because the
+/// canonical-indent slice does not yet lift `enum <Name>`
+/// declarations into the IR — the next cycle that adds an `EnumDecl`
+/// surface AST will retire the enum branch and drop the
+/// `FeatureSymbols.enums` slot.
 fn agent_discriminator_diagnostics(
     agents: &[AgentFacts],
+    tier3_facts: &[Tier3FeatureFacts],
     feature_symbols: &BTreeMap<String, FeatureSymbols>,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
+
+    let any_enum = |name: &str| -> bool {
+        feature_symbols
+            .values()
+            .any(|symbols| symbols.enums.contains_key(name))
+    };
+    let any_record = |name: &str| -> bool {
+        tier3_facts
+            .iter()
+            .any(|f| f.records.iter().any(|r| r.name == name))
+    };
 
     for fact in agents {
         let agent = &fact.agent;
         match (&agent.output_kind, agent.output_discriminator.as_ref()) {
             (ir::AgentOutputKind::DiscriminatedEnum, Some(ir::DiscriminatorRef::Enum(qn))) => {
-                let enum_name = &qn.name;
-                let found = feature_symbols
-                    .values()
-                    .any(|symbols| symbols.enums.contains_key(enum_name));
-                if !found {
+                let enum_name = qn.name.as_str();
+                if !any_enum(enum_name) {
                     diagnostics.push(DoctorDiagnostic {
                         path: fact.path.clone(),
                         line: fact.line,
@@ -4782,10 +4756,7 @@ fn agent_discriminator_diagnostics(
                     // which match Builtin earlier).
                     let first = name.chars().next();
                     if first.is_some_and(|c| c.is_ascii_uppercase()) {
-                        let found = feature_symbols.values().any(|symbols| {
-                            symbols.records.contains_key(name) || symbols.enums.contains_key(name)
-                        });
-                        if !found {
+                        if !any_record(name) && !any_enum(name) {
                             diagnostics.push(DoctorDiagnostic {
                                 path: fact.path.clone(),
                                 line: fact.line,
@@ -4803,8 +4774,8 @@ fn agent_discriminator_diagnostics(
                         // records — proposal §A2 requires exactly one
                         // field carrying the marker, and its type must
                         // resolve to an enum.
-                        for symbols in feature_symbols.values() {
-                            if let Some(record) = symbols.records.get(name) {
+                        for facts in tier3_facts {
+                            if let Some(record) = facts.records.iter().find(|r| r.name == *name) {
                                 diagnostics.extend(check_record_discriminator(
                                     fact,
                                     agent,
@@ -4824,52 +4795,43 @@ fn agent_discriminator_diagnostics(
     diagnostics
 }
 
+/// Phase L Tier 4 follow-up — typed `check_record_discriminator` that
+/// consumes `ir::Record` directly. The discriminator-marker count
+/// comes from `Record.discriminator_field` (typed `Option<String>`);
+/// the discriminator field's type is read by name from the record's
+/// typed field list. The enum lookup still routes through
+/// `FeatureSymbols.enums` because the canonical-indent slice does not
+/// yet lift `enum <Name>` declarations into the IR.
 fn check_record_discriminator(
     fact: &AgentFacts,
     agent: &Agent,
     record_name: &str,
-    record: &RecordFact,
+    record: &lazuli_ir::Record,
     feature_symbols: &BTreeMap<String, FeatureSymbols>,
 ) -> Vec<DoctorDiagnostic> {
-    let markers: Vec<&String> = record
-        .fields
-        .iter()
-        .filter(|(_, f)| f.is_discriminator)
-        .map(|(name, _)| name)
-        .collect();
-
-    if markers.is_empty() {
+    let Some(field_name) = record.discriminator_field.as_deref() else {
         // No discriminator: it's a legacy `output <Record>` shape, not a
         // DiscriminatedRecord. Cut A's soft-warn for legacy output is
         // emitted in the LSP file-local layer (Phase 4); nothing to do
         // here.
         return Vec::new();
-    }
+    };
 
     let mut diagnostics = Vec::new();
 
-    if markers.len() > 1 {
-        diagnostics.push(DoctorDiagnostic {
-            path: fact.path.clone(),
-            line: fact.line,
-            column: 1,
-            severity: DoctorSeverity::Error,
-            code: "agent_discriminator_field_invalid_diagnostics".to_owned(),
-            message: format!(
-                "agent `{}` references record `{}` with {} `discriminator` markers; at most one field per record may carry the marker.",
-                agent.name,
-                record_name,
-                markers.len(),
-            ),
-        });
+    // The IR currently captures only one discriminator field per record
+    // (`discriminator_field: Option<String>`), so the "multiple
+    // markers" branch from the legacy walker is structurally
+    // unreachable; the parser would reject the duplicate before
+    // lowering. We preserve the slot for forward compatibility but
+    // skip the check.
+    let Some(field) = record.fields.iter().find(|f| f.name == field_name) else {
         return diagnostics;
-    }
-
-    let field_name = markers[0];
-    let field = &record.fields[field_name];
+    };
+    let type_name = type_ref_name(&field.type_ref);
     let enum_exists = feature_symbols
         .values()
-        .any(|s| s.enums.contains_key(&field.type_text));
+        .any(|symbols| symbols.enums.contains_key(&type_name));
     if !enum_exists {
         diagnostics.push(DoctorDiagnostic {
             path: fact.path.clone(),
@@ -4879,12 +4841,27 @@ fn check_record_discriminator(
             code: "agent_discriminator_field_invalid_diagnostics".to_owned(),
             message: format!(
                 "agent `{}` references record `{}` whose discriminator field `{}` has type `{}`, but no enum by that name exists; the marked field must resolve to an enum.",
-                agent.name, record_name, field_name, field.type_text,
+                agent.name, record_name, field_name, type_name,
             ),
         });
     }
 
     diagnostics
+}
+
+/// Phase L Tier 4 follow-up — project a typed `TypeRef` back to its
+/// short name for cross-type lookups (used by
+/// `check_record_discriminator` to find the matching enum). Many
+/// variants don't yield a usable name; callers fall back to the empty
+/// string and the enum lookup fails as expected.
+fn type_ref_name(t: &lazuli_ir::TypeRef) -> String {
+    use lazuli_ir::TypeRef;
+    match t {
+        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
+        TypeRef::Unresolved(name) => name.clone(),
+        TypeRef::Many(inner) => type_ref_name(inner),
+        _ => String::new(),
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -8243,6 +8220,7 @@ mod tests {
                                     api_lines,
                                     translation: feature.translation.clone(),
                                     translation_line,
+                                    records: feature.records.clone(),
                                 });
                             }
                             // Phase L Tier 4 follow-up — mirror the IR-driven
@@ -8383,6 +8361,7 @@ mod tests {
                                     api_lines: BTreeMap::new(),
                                     translation: feature.translation.clone(),
                                     translation_line: header_line,
+                                    records: feature.records.clone(),
                                 });
                             }
                         }
@@ -11443,6 +11422,7 @@ feature customer_auth
             api_lines: BTreeMap::new(),
             translation: None,
             translation_line: 1,
+            records: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -11491,6 +11471,7 @@ feature customer_auth
             api_lines: BTreeMap::new(),
             translation: None,
             translation_line: 1,
+            records: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
