@@ -8,6 +8,11 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 // ObjectStore is the adapter contract for the `object_storage`
@@ -37,13 +42,6 @@ type ObjectStore interface {
 // Upload validates the body against `contract` and streams it
 // through `store`. Returns an opaque `Key` that the calling
 // command persists as the `@cap.File` field value.
-//
-// Implementation note: the real validation pipeline (multipart
-// frame parsing, MIME sniffing, size accounting) is runtime-team
-// work. This stub does the language-side typing (max-size check
-// when `metadata.Size > 0`, MIME accept check when `metadata.
-// ContentType` is set) and delegates the byte stream to the bound
-// `ObjectStore`. The adapter owns durability and atomicity.
 func Upload(
 	ctx context.Context,
 	contract FileContract,
@@ -193,11 +191,19 @@ func (s *LocalStore) Resolve(token string) (Key, error) {
 	return entry.key, nil
 }
 
-// S3Store is a stub for the `@runtime/s3` adapter. The concrete
-// implementation belongs to the adapter package (it wraps
-// `aws-sdk-go-v2`); this declaration only fixes the type surface
-// so generated code can reference `*storage.S3Store` without
-// compiling against the AWS SDK in core tests.
+// s3API is the narrow surface of `*s3.Client` that S3Store consumes.
+// Tests substitute a mock; production wires the live SDK client via
+// `NewS3Store`.
+type s3API interface {
+	PutObject(ctx context.Context, in *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+	GetObject(ctx context.Context, in *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	DeleteObject(ctx context.Context, in *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
+}
+
+// S3Store wires the `@runtime/s3` adapter to `aws-sdk-go-v2`. The
+// concrete client is built lazily by `NewS3Store` and stored in
+// `client`; tests may swap `client` for a mock that satisfies the
+// `s3API` interface.
 type S3Store struct {
 	// Bucket is the target S3 bucket name. Required.
 	Bucket string
@@ -216,27 +222,159 @@ type S3Store struct {
 	// SigningClock is the time source used for signed URLs.
 	// Defaults to `time.Now`.
 	SigningClock func() time.Time
+
+	// client is the live SDK client. Populated by NewS3Store; tests
+	// can override via WithS3Client to inject a fake.
+	client s3API
+
+	// presigner is the SDK presign client. Populated by NewS3Store
+	// alongside `client`.
+	presigner *s3.PresignClient
 }
 
-// Put is a stub — the real implementation lives in the
-// `@runtime/s3` adapter package.
-func (s *S3Store) Put(_ context.Context, _ Key, _ io.Reader, _ string) error {
-	return errors.New("lazuli/storage: S3Store.Put is implemented by the @runtime/s3 adapter")
+// NewS3Store builds an S3Store wired to a live `*s3.Client` and
+// `*s3.PresignClient`. `cfg` is the SDK config (region, credentials,
+// retries) the adapter resolved at boot from environment / AWS
+// profile / `@plugin/...` secret manager.
+func NewS3Store(cfg aws.Config, bucket, region, prefix, endpoint string) *S3Store {
+	opts := []func(*s3.Options){}
+	if endpoint != "" {
+		ep := endpoint
+		opts = append(opts, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(ep)
+			o.UsePathStyle = true // safer default for non-AWS S3-compatible.
+		})
+	}
+	client := s3.NewFromConfig(cfg, opts...)
+	return &S3Store{
+		Bucket:    bucket,
+		Region:    region,
+		Prefix:    prefix,
+		Endpoint:  endpoint,
+		client:    client,
+		presigner: s3.NewPresignClient(client),
+	}
 }
 
-// Get is a stub.
-func (s *S3Store) Get(_ context.Context, _ Key) (io.ReadCloser, error) {
-	return nil, errors.New("lazuli/storage: S3Store.Get is implemented by the @runtime/s3 adapter")
+// WithS3Client returns a copy of the store with `client` swapped.
+// Test helper — production code uses `NewS3Store` and never touches
+// the SDK client directly.
+func (s *S3Store) WithS3Client(client s3API) *S3Store {
+	cp := *s
+	cp.client = client
+	return &cp
 }
 
-// Sign is a stub.
-func (s *S3Store) Sign(_ context.Context, _ Key, _ time.Duration) (string, error) {
-	return "", errors.New("lazuli/storage: S3Store.Sign is implemented by the @runtime/s3 adapter")
+// fullKey applies the bucket prefix if configured.
+func (s *S3Store) fullKey(key Key) string {
+	if s.Prefix == "" {
+		return string(key)
+	}
+	return s.Prefix + "/" + string(key)
 }
 
-// Delete is a stub.
-func (s *S3Store) Delete(_ context.Context, _ Key) error {
-	return errors.New("lazuli/storage: S3Store.Delete is implemented by the @runtime/s3 adapter")
+// Put uploads the body to S3 under bucket+key, tagging it with the
+// supplied content-type. Wires `s3.PutObject` straight through.
+func (s *S3Store) Put(ctx context.Context, key Key, body io.Reader, contentType string) error {
+	if s.client == nil {
+		return errors.New("lazuli/storage: S3Store has no client (call NewS3Store)")
+	}
+	in := &s3.PutObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(s.fullKey(key)),
+		Body:   body,
+	}
+	if contentType != "" {
+		in.ContentType = aws.String(contentType)
+	}
+	_, err := s.client.PutObject(ctx, in)
+	return err
+}
+
+// Get fetches the object body. Maps the S3 NoSuchKey API error to
+// `ErrFileNotFound` so the rest of the runtime can branch on the
+// typed sentinel.
+func (s *S3Store) Get(ctx context.Context, key Key) (io.ReadCloser, error) {
+	if s.client == nil {
+		return nil, errors.New("lazuli/storage: S3Store has no client (call NewS3Store)")
+	}
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(s.fullKey(key)),
+	})
+	if err != nil {
+		var nsk *s3types.NoSuchKey
+		if errors.As(err, &nsk) {
+			return nil, ErrFileNotFound
+		}
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "NotFound" {
+			return nil, ErrFileNotFound
+		}
+		return nil, err
+	}
+	return out.Body, nil
+}
+
+// Sign generates a presigned GET URL valid for `ttl`. Wires
+// `s3.PresignClient.PresignGetObject`.
+func (s *S3Store) Sign(ctx context.Context, key Key, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		return "", ErrVisibilityMismatch
+	}
+	if s.presigner == nil {
+		return "", errors.New("lazuli/storage: S3Store has no presigner (call NewS3Store)")
+	}
+	signed, err := s.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(s.fullKey(key)),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", err
+	}
+	return signed.URL, nil
+}
+
+// SignPut generates a presigned PUT URL valid for `ttl`. Lets the
+// browser upload directly to S3 without proxying bytes through the
+// app server.
+func (s *S3Store) SignPut(ctx context.Context, key Key, contentType string, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		return "", ErrVisibilityMismatch
+	}
+	if s.presigner == nil {
+		return "", errors.New("lazuli/storage: S3Store has no presigner (call NewS3Store)")
+	}
+	in := &s3.PutObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(s.fullKey(key)),
+	}
+	if contentType != "" {
+		in.ContentType = aws.String(contentType)
+	}
+	signed, err := s.presigner.PresignPutObject(ctx, in, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", err
+	}
+	return signed.URL, nil
+}
+
+// Delete removes the stored object.
+func (s *S3Store) Delete(ctx context.Context, key Key) error {
+	if s.client == nil {
+		return errors.New("lazuli/storage: S3Store has no client (call NewS3Store)")
+	}
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(s.fullKey(key)),
+	})
+	if err != nil {
+		var nsk *s3types.NoSuchKey
+		if errors.As(err, &nsk) {
+			return ErrFileNotFound
+		}
+	}
+	return err
 }
 
 // --- internal helpers -------------------------------------------------------
@@ -297,3 +435,4 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	r.pos += n
 	return n, nil
 }
+
