@@ -842,11 +842,16 @@ pub struct BuiltInTraceEvent {
 pub enum TraceFiresPer {
     /// One emission per `agent <name>` dispatch.
     AgentDispatch,
+    /// One emission per `command <name>` dispatch (observability
+    /// bucket cycle row 35). Bound by `command_run`.
+    CommandDispatch,
     /// One emission per `flow <name>.step <name>` (Cut B; reserved).
     FlowStep,
-    /// Reserved for future `job_run`.
+    /// One emission per `job <name>` invocation (observability
+    /// bucket cycle row 35). Bound by `job_run`.
     JobInvocation,
-    /// Reserved for future `webhook_run`.
+    /// One emission per `webhook <name>` delivery (observability
+    /// bucket cycle row 35). Bound by `webhook_run`.
     WebhookDelivery,
 }
 
@@ -854,12 +859,35 @@ pub enum TraceFiresPer {
 /// these names; authoring `event.trace <name>` for any entry here is
 /// rejected. The list is `const`-shaped (returns a fresh `Vec` per
 /// call) so consumers don't worry about static-lifetime gymnastics.
+///
+/// Observability bucket cycle row 35 extends the registry from one
+/// entry (`agent_run`, Cut A.8) to four. Each new entry follows the
+/// A.8 pattern mechanically: a flat payload, no nested objects beyond
+/// `agent_run.tools[]`, and a stable `fires_per` discriminant. See
+/// `docs/proposals/bucket-observability-cycle.md` §3.5.
 pub fn built_in_trace_events() -> Vec<BuiltInTraceEvent> {
-    vec![BuiltInTraceEvent {
-        name: "agent_run".to_owned(),
-        fires_per: TraceFiresPer::AgentDispatch,
-        payload: agent_run_payload(),
-    }]
+    vec![
+        BuiltInTraceEvent {
+            name: "agent_run".to_owned(),
+            fires_per: TraceFiresPer::AgentDispatch,
+            payload: agent_run_payload(),
+        },
+        BuiltInTraceEvent {
+            name: "command_run".to_owned(),
+            fires_per: TraceFiresPer::CommandDispatch,
+            payload: command_run_payload(),
+        },
+        BuiltInTraceEvent {
+            name: "job_run".to_owned(),
+            fires_per: TraceFiresPer::JobInvocation,
+            payload: job_run_payload(),
+        },
+        BuiltInTraceEvent {
+            name: "webhook_run".to_owned(),
+            fires_per: TraceFiresPer::WebhookDelivery,
+            payload: webhook_run_payload(),
+        },
+    ]
 }
 
 fn agent_run_payload() -> Vec<EventField> {
@@ -901,6 +929,93 @@ fn agent_run_payload() -> Vec<EventField> {
         },
         optional("safety_decision", Text),
         optional("tenant", Text),
+        optional("request_id", Text),
+        optional("trace_id", Text),
+    ]
+}
+
+/// Observability bucket cycle row 35 — canonical payload for
+/// `command_run`. Emitted once per command dispatch (the moment the
+/// runtime invokes the command handler, regardless of HTTP/RPC/event
+/// trigger). Flat shape mirrors `agent_run_payload` discipline.
+fn command_run_payload() -> Vec<EventField> {
+    use BuiltinType::*;
+    let required = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: false,
+    };
+    let optional = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: true,
+    };
+    vec![
+        required("command", Text),
+        required("actor", Text),
+        optional("tenant", Text),
+        required("status", Text),
+        optional("error_code", Text),
+        required("duration_ms", Integer),
+        optional("request_id", Text),
+        optional("trace_id", Text),
+    ]
+}
+
+/// Observability bucket cycle row 35 — canonical payload for
+/// `job_run`. One emission per job invocation: scheduled, manual, or
+/// event-triggered. `attempt` lets billing/retry observers reconstruct
+/// the retry chain without a separate join.
+fn job_run_payload() -> Vec<EventField> {
+    use BuiltinType::*;
+    let required = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: false,
+    };
+    let optional = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: true,
+    };
+    vec![
+        required("job", Text),
+        required("trigger", Text),
+        optional("tenant", Text),
+        required("status", Text),
+        required("attempt", Integer),
+        required("duration_ms", Integer),
+        optional("idempotency_key", Text),
+        optional("error_code", Text),
+        optional("request_id", Text),
+        optional("trace_id", Text),
+    ]
+}
+
+/// Observability bucket cycle row 35 — canonical payload for
+/// `webhook_run`. One emission per webhook delivery (inbound). The
+/// `signature_valid` field surfaces HMAC verification status so
+/// fraud-detection adapters don't reparse the body.
+fn webhook_run_payload() -> Vec<EventField> {
+    use BuiltinType::*;
+    let required = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: false,
+    };
+    let optional = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: true,
+    };
+    vec![
+        required("webhook", Text),
+        optional("tenant", Text),
+        required("status", Text),
+        required("signature_valid", Boolean),
+        required("duration_ms", Integer),
+        optional("idempotency_key", Text),
+        optional("error_code", Text),
         optional("request_id", Text),
         optional("trace_id", Text),
     ]

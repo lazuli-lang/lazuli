@@ -5086,11 +5086,40 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
         .map(|e| e.payload.iter().map(|f| f.name.clone()).collect())
         .unwrap_or_default();
 
+    // Observability bucket cycle row 35 — pre-compute the set of
+    // built-in trace event names once per check so `trigger
+    // @trace.<X>` and `trigger event.trace <X>` resolution both
+    // consult the same registry. Authored `event.trace <name>`
+    // declarations in scope are gathered per file below.
+    let built_in_names: BTreeSet<String> = ir::built_in_trace_events()
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+
     for file in files {
         if !is_lzi_path(&file.path) {
             continue;
         }
         let lines: Vec<&str> = file.source.lines().collect();
+
+        // Observability bucket cycle row 35 — collect authored
+        // `event.trace <name>` declarations *in this file* so
+        // `trigger_trace_unknown` doesn't false-positive on
+        // legitimate subscriber references to authored events.
+        let authored_trace_names: BTreeSet<String> = lines
+            .iter()
+            .filter_map(|line| {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with('#') || trimmed.is_empty() {
+                    return None;
+                }
+                trimmed
+                    .strip_prefix("event.trace ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned)
+            })
+            .collect();
+
         let mut i = 0;
         while i < lines.len() {
             let line = lines[i];
@@ -5137,11 +5166,62 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
                 }
             }
 
+            // Observability bucket cycle row 35 — `trigger_trace_unknown`.
+            // The `@trace.<name>` namespace and the bare-form
+            // `trigger event.trace <name>` both have to resolve to a
+            // built-in trace event or an authored `event.trace <name>`
+            // in the same file. We catch the failure here so a typo
+            // doesn't fall through to runtime as "subscriber wired to
+            // an event that nobody emits."
+            let trace_ref = trimmed
+                .strip_prefix("trigger @trace.")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+                .or_else(|| {
+                    trimmed
+                        .strip_prefix("trigger event.trace ")
+                        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+                });
+            if let Some(name) = trace_ref {
+                if !name.is_empty()
+                    && !built_in_names.contains(&name)
+                    && !authored_trace_names.contains(&name)
+                {
+                    let mut known: Vec<String> = built_in_names.iter().cloned().collect();
+                    known.extend(authored_trace_names.iter().cloned());
+                    diagnostics.push(DoctorDiagnostic {
+                        path: file.path.clone(),
+                        line: i + 1,
+                        column: leading_spaces(line) + 1,
+                        severity: DoctorSeverity::Error,
+                        code: "trigger_trace_unknown_diagnostics".to_owned(),
+                        message: format!(
+                            "`trigger @trace.{name}` does not resolve. Built-in trace events: {}. Authored trace events in scope: {}.",
+                            format_name_list(&built_in_names),
+                            format_name_list(&authored_trace_names),
+                        ),
+                    });
+                }
+            }
+
             i += 1;
         }
     }
 
     diagnostics
+}
+
+/// Render a `{name1, name2, ...}`-style list for diagnostic messages.
+/// Empty sets render as `<none>` so the message stays unambiguous.
+fn format_name_list(names: &BTreeSet<String>) -> String {
+    if names.is_empty() {
+        "<none>".to_owned()
+    } else {
+        names
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
@@ -7347,6 +7427,134 @@ feature customer
         assert!(
             !codes(&diagnostics).contains("agent_run_subscriber_payload_drift_diagnostics"),
             "canonical fields must not drift; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 35 — the 3 new reserved trace
+    // event names (`command_run`, `job_run`, `webhook_run`) must
+    // reuse the same `event_trace_reserved_name_diagnostics` path as
+    // the Cut A.8 `agent_run` case. Authoring any of them is rejected.
+
+    #[test]
+    fn doctor_rejects_authored_event_trace_command_run() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace command_run
+      payload
+        cmd: Text
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_reserved_name_diagnostics"),
+            "expected event_trace_reserved_name_diagnostics for command_run; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_authored_event_trace_job_run() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace job_run
+      payload
+        job_id: ID
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_reserved_name_diagnostics"),
+            "expected event_trace_reserved_name_diagnostics for job_run; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_authored_event_trace_webhook_run() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace webhook_run
+      payload
+        url: Text
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_reserved_name_diagnostics"),
+            "expected event_trace_reserved_name_diagnostics for webhook_run; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 35 — `trigger_trace_unknown`. A
+    // subscriber referencing `@trace.<name>` or
+    // `trigger event.trace <name>` must resolve to a built-in trace
+    // event or an authored `event.trace <name>` in the same file.
+
+    #[test]
+    fn doctor_rejects_trigger_trace_unknown_namespace_form() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  job dangling
+    trigger @trace.fictional_event
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("trigger_trace_unknown_diagnostics"),
+            "expected trigger_trace_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_trigger_trace_namespace_for_built_in() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  job collect
+    trigger @trace.agent_run
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("trigger_trace_unknown_diagnostics"),
+            "built-in @trace.agent_run must resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_trigger_trace_namespace_for_authored_event() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace customer_authored
+      payload
+        id: ID
+  job collect
+    trigger @trace.customer_authored
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("trigger_trace_unknown_diagnostics"),
+            "authored event.trace in same file must satisfy @trace.<name>; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

@@ -241,8 +241,8 @@ fn main() -> Result<()> {
 fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     let feature = match spec {
         Some(path) => {
-            let text = fs::read_to_string(path)
-                .with_context(|| format!("read {}", path.display()))?;
+            let text =
+                fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
             serde_json::from_str(&text)
                 .with_context(|| format!("parse runtime spec JSON {}", path.display()))?
         }
@@ -255,18 +255,14 @@ fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     let ts_source = lazuli_codegen_ts::emit_feature_ts(&feature);
 
     if let Some(parent) = go_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     if let Some(parent) = ts_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
 
-    fs::write(&go_path, go_source)
-        .with_context(|| format!("write {}", go_path.display()))?;
-    fs::write(&ts_path, ts_source)
-        .with_context(|| format!("write {}", ts_path.display()))?;
+    fs::write(&go_path, go_source).with_context(|| format!("write {}", go_path.display()))?;
+    fs::write(&ts_path, ts_source).with_context(|| format!("write {}", ts_path.display()))?;
 
     println!("wrote {}", go_path.display());
     println!("wrote {}", ts_path.display());
@@ -1157,9 +1153,7 @@ fn inspect_feature(
         security: expansions.security.then(|| inspect_security(lines)),
         defaults: expansions.defaults.then(|| inspect_defaults(lines)),
         events: expansions.events.then(|| inspect_events(lines)),
-        built_in_trace_events: expansions
-            .events
-            .then(inspect_built_in_trace_events),
+        built_in_trace_events: expansions.events.then(inspect_built_in_trace_events),
         targets: expansions.targets.then(|| inspect_targets(lines)),
         policies: expansions
             .policies
@@ -1307,7 +1301,10 @@ fn project_file_capability(file: &lazuli_ir::FileCapability) -> InspectFileCapab
 fn project_auth(auth: &lazuli_ir::Auth) -> InspectAuth {
     InspectAuth {
         identity: InspectAuthIdentity {
-            field: format!("{}.{}", auth.identity.field.resource.name, auth.identity.field.field),
+            field: format!(
+                "{}.{}",
+                auth.identity.field.resource.name, auth.identity.field.field
+            ),
             resource: auth.identity.field.resource.name.clone(),
         },
         password: auth.password.as_ref().map(|p| InspectAuthPassword {
@@ -1369,8 +1366,7 @@ fn inspect_expose_projection(
         let name = named_top_block_name(block[0].trim_start())
             .unwrap_or("unknown")
             .to_owned();
-        let method = direct_child_value(block, "method ")
-            .map(|m| m.to_ascii_uppercase());
+        let method = direct_child_value(block, "method ").map(|m| m.to_ascii_uppercase());
         let path = direct_child_value(block, "path ")
             .as_deref()
             .map(strip_quotes);
@@ -2509,6 +2505,7 @@ fn inspect_built_in_trace_events() -> Vec<InspectBuiltInTraceEvent> {
 fn built_in_trace_fires_per_word(kind: lazuli_ir::TraceFiresPer) -> &'static str {
     match kind {
         lazuli_ir::TraceFiresPer::AgentDispatch => "agent_dispatch",
+        lazuli_ir::TraceFiresPer::CommandDispatch => "command_dispatch",
         lazuli_ir::TraceFiresPer::FlowStep => "flow_step",
         lazuli_ir::TraceFiresPer::JobInvocation => "job_invocation",
         lazuli_ir::TraceFiresPer::WebhookDelivery => "webhook_delivery",
@@ -2546,7 +2543,10 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
 /// Used by both `format_type_ref` and the `--expand=storage` projection.
 fn format_file_capability(file: &lazuli_ir::FileCapability) -> String {
     let mut parts: Vec<String> = Vec::new();
-    parts.push(format!("max_size:{}", format_file_size_literal(file.max_size.literal)));
+    parts.push(format!(
+        "max_size:{}",
+        format_file_size_literal(file.max_size.literal)
+    ));
     let accept = file
         .accept
         .iter()
@@ -3509,8 +3509,7 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
         let eval_determinism = if evals.is_empty() {
             None
         } else {
-            let temp_zero = temperature.as_deref().and_then(|s| s.parse::<f64>().ok())
-                == Some(0.0);
+            let temp_zero = temperature.as_deref().and_then(|s| s.parse::<f64>().ok()) == Some(0.0);
             let seed_present = seed.is_some();
             Some(if temp_zero && seed_present {
                 "pinned"
@@ -3559,10 +3558,7 @@ fn classify_agent_output(raw: Option<&str>) -> (Option<&'static str>, Option<Str
         return (Some("stream"), Some(rest.trim().to_owned()));
     }
     if let Some(rest) = trimmed.strip_prefix("discriminator ") {
-        return (
-            Some("discriminated_enum"),
-            Some(rest.trim().to_owned()),
-        );
+        return (Some("discriminated_enum"), Some(rest.trim().to_owned()));
     }
     if trimmed.is_empty() {
         return (None, None);
@@ -5236,11 +5232,7 @@ feature customer_auth
 "#;
         let mut expansions = ExpandSet::default();
         expansions.auth = true;
-        let report = inspect_canonical_source(
-            source,
-            Path::new("customer_auth.lzi"),
-            expansions,
-        );
+        let report = inspect_canonical_source(source, Path::new("customer_auth.lzi"), expansions);
         let json = serde_json::to_value(&report).unwrap();
         let auth = &json["features"][0]["auth"];
         assert!(!auth.is_null(), "auth projection should be present: {json}");
@@ -5263,11 +5255,8 @@ feature customer_auth
   auth
     identity Customer.email
 "#;
-        let report = inspect_canonical_source(
-            source,
-            Path::new("customer_auth.lzi"),
-            ExpandSet::default(),
-        );
+        let report =
+            inspect_canonical_source(source, Path::new("customer_auth.lzi"), ExpandSet::default());
         let json = serde_json::to_string(&report).unwrap();
         assert!(
             !json.contains("\"auth\":{"),
@@ -5290,18 +5279,20 @@ feature customer_import
 "#;
         let mut expansions = ExpandSet::default();
         expansions.storage = true;
-        let report = inspect_canonical_source(
-            source,
-            Path::new("customer_import.lzi"),
-            expansions,
-        );
+        let report = inspect_canonical_source(source, Path::new("customer_import.lzi"), expansions);
         let json = serde_json::to_value(&report).unwrap();
         let storage = &json["features"][0]["storage"];
-        assert!(!storage.is_null(), "storage projection should be present: {json}");
+        assert!(
+            !storage.is_null(),
+            "storage projection should be present: {json}"
+        );
         let field = &storage["fields"][0];
         assert_eq!(field["resource"], "CustomerImportBatch");
         assert_eq!(field["field"], "file");
-        assert_eq!(field["file_capability"]["max_size"]["bytes"], 25 * 1024 * 1024);
+        assert_eq!(
+            field["file_capability"]["max_size"]["bytes"],
+            25 * 1024 * 1024
+        );
         assert_eq!(field["file_capability"]["max_size"]["literal"], "25mb");
         assert_eq!(field["file_capability"]["accept"][0]["family"], "text");
         assert_eq!(field["file_capability"]["accept"][0]["subtype"], "csv");

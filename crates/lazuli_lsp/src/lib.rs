@@ -2060,7 +2060,7 @@ fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "namespace-catalog",
-                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, and `@tool`.",
+                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, and `@trace`.",
                 ));
                 break;
             }
@@ -2149,6 +2149,11 @@ fn is_allowed_reference_namespace(namespace: &str) -> bool {
             | "anchor"
             | "llm"
             | "tool"
+            // Observability bucket cycle row 35 — reference-only namespace
+            // for `trigger @trace.<name>` on subscriber jobs. Reserved
+            // names live in `lazuli_ir::built_in_trace_events()`; LSP
+            // checks resolution in `trigger_trace_unknown_diagnostics`.
+            | "trace"
     )
 }
 
@@ -11456,13 +11461,25 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
     let labels: &[(&str, &str)] = match key {
         "visibility" => &[
             ("public", "Unguessable URL; un-gated fetch (CDN-style)."),
-            ("private", "Policy-gated download handler enforced by the runtime."),
+            (
+                "private",
+                "Policy-gated download handler enforced by the runtime.",
+            ),
             ("signed", "Time-limited signed URL; requires `signed_ttl`."),
         ],
         "max_size" => &[
-            ("kb", "Kilobyte size unit (binary prefix; `n * 1024` bytes)."),
-            ("mb", "Megabyte size unit (binary prefix; `n * 1024^2` bytes)."),
-            ("gb", "Gigabyte size unit (binary prefix; `n * 1024^3` bytes)."),
+            (
+                "kb",
+                "Kilobyte size unit (binary prefix; `n * 1024` bytes).",
+            ),
+            (
+                "mb",
+                "Megabyte size unit (binary prefix; `n * 1024^2` bytes).",
+            ),
+            (
+                "gb",
+                "Gigabyte size unit (binary prefix; `n * 1024^3` bytes).",
+            ),
         ],
         "signed_ttl" => &[
             ("s", "Seconds."),
@@ -11471,9 +11488,15 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
             ("d", "Days."),
         ],
         "accept" => &[
-            ("text", "IANA family `text` (e.g. `text/csv`, `text/plain`)."),
+            (
+                "text",
+                "IANA family `text` (e.g. `text/csv`, `text/plain`).",
+            ),
             ("image", "IANA family `image` (e.g. `image/png`)."),
-            ("application", "IANA family `application` (e.g. `application/json`)."),
+            (
+                "application",
+                "IANA family `application` (e.g. `application/json`).",
+            ),
             ("audio", "IANA family `audio`."),
             ("video", "IANA family `video`."),
             ("font", "IANA family `font`."),
@@ -15647,8 +15670,8 @@ aggregate Customer {
     #[test]
     fn keyword_hover_describes_cap_file_arguments() {
         for kw in ["max_size", "accept", "visibility", "signed_ttl"] {
-            let description = keyword_description(kw)
-                .unwrap_or_else(|| panic!("hover for `{kw}` missing"));
+            let description =
+                keyword_description(kw).unwrap_or_else(|| panic!("hover for `{kw}` missing"));
             assert!(
                 !description.is_empty(),
                 "hover for `{kw}` must be non-empty"
@@ -15710,7 +15733,8 @@ aggregate Customer {
 
     #[test]
     fn cap_file_value_completion_for_signed_ttl_offers_units() {
-        let source = "    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1";
+        let source =
+            "    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1";
         let position = Position {
             line: 0,
             character: source.len() as u32,
@@ -15731,7 +15755,15 @@ aggregate Customer {
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["text", "image", "application", "audio", "video", "font", "*"]
+            vec![
+                "text",
+                "image",
+                "application",
+                "audio",
+                "video",
+                "font",
+                "*"
+            ]
         );
     }
 
