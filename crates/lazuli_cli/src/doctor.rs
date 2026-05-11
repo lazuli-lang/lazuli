@@ -58,6 +58,12 @@ struct DoctorPackage {
     /// Cut A.7: `api <name>` declarations harvested per feature; doctor
     /// cross-checks them against agent `expose_http` paths.
     api_paths: Vec<ApiPathFact>,
+    /// Cut A.9: `command <name>` declarations carrying an `approval`
+    /// block. Doctor validates the block + extends the write-tool
+    /// guard so agents dispatching approval-gated commands satisfy
+    /// `agent_tool_write_unguarded_diagnostics` without their own
+    /// `safety` validator.
+    command_approvals: Vec<CommandApprovalFact>,
 }
 
 impl DoctorPackage {
@@ -80,6 +86,7 @@ impl DoctorPackage {
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
         let mut api_paths: Vec<ApiPathFact> = Vec::new();
+        let mut command_approvals: Vec<CommandApprovalFact> = Vec::new();
 
         for path in paths {
             let source = fs::read_to_string(&path)
@@ -226,6 +233,7 @@ impl DoctorPackage {
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_api_paths(&file, &mut api_paths);
+                collect_command_approvals(&file, &mut command_approvals);
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
                     DoctorAppProfile {
                         path: file.path.clone(),
@@ -268,6 +276,7 @@ impl DoctorPackage {
             feature_symbols,
             registry_tool_defects,
             api_paths,
+            command_approvals,
         })
     }
 
@@ -301,6 +310,7 @@ impl DoctorPackage {
             &self.agents,
             &self.feature_symbols,
             self.registry.as_ref(),
+            &self.command_approvals,
         ));
         diagnostics.extend(agent_discriminator_diagnostics(
             &self.agents,
@@ -319,6 +329,13 @@ impl DoctorPackage {
         // Cut A.8 — built-in trace event reservation + subscriber
         // payload drift checks.
         diagnostics.extend(agent_run_trace_diagnostics(&self.files));
+
+        // Cut A.9 — `approval` primitive contract + role resolution.
+        let known_roles = collect_known_roles(&self.files);
+        diagnostics.extend(approval_diagnostics(
+            &self.command_approvals,
+            &known_roles,
+        ));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -3113,6 +3130,7 @@ fn agent_tool_diagnostics(
     agents: &[AgentFacts],
     feature_symbols: &BTreeMap<String, FeatureSymbols>,
     registry: Option<&DoctorAppRegistry>,
+    command_approvals: &[CommandApprovalFact],
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let registry_tools: BTreeMap<String, &lazuli_ir::RegistryToolEntry> = registry
@@ -3125,10 +3143,20 @@ fn agent_tool_diagnostics(
         })
         .unwrap_or_default();
 
+    // Cut A.9: write-tool guard accepts `approval` on the target
+    // command as an alternative to the agent's `safety` validator.
+    // Build a quick lookup keyed by (feature, command) so the guard
+    // check resolves per-tool in O(1).
+    let approval_index: BTreeSet<(String, String)> = command_approvals
+        .iter()
+        .filter(|f| f.missing_children.is_empty())
+        .map(|f| (f.feature.clone(), f.command.clone()))
+        .collect();
+
     for fact in agents {
         let agent = &fact.agent;
         let agent_safety_empty = agent.safety.is_empty();
-        let mut has_write_tool = false;
+        let mut has_unguarded_write_tool = false;
         let mut has_pii_tool = false;
         let agent_policy_text = format_agent_policy(agent);
 
@@ -3141,7 +3169,26 @@ fn agent_tool_diagnostics(
             );
 
             if resolved.effect == ResolvedToolEffect::Write {
-                has_write_tool = true;
+                // Check whether the target command carries an
+                // `approval` block — that satisfies the write-tool
+                // guard for this binding, regardless of the agent's
+                // own `safety` list.
+                let approved = match &binding.reference {
+                    lazuli_ir::QualifiedToolRef::Local { kind, name }
+                        if matches!(kind, lazuli_ir::ToolKind::Command) =>
+                    {
+                        approval_index.contains(&(fact.feature.clone(), name.clone()))
+                    }
+                    lazuli_ir::QualifiedToolRef::CrossFeature { feature, kind, name }
+                        if matches!(kind, lazuli_ir::ToolKind::Command) =>
+                    {
+                        approval_index.contains(&(feature.clone(), name.clone()))
+                    }
+                    _ => false,
+                };
+                if !approved {
+                    has_unguarded_write_tool = true;
+                }
             }
             if !resolved.pii_classes.is_empty() {
                 has_pii_tool = true;
@@ -3173,10 +3220,13 @@ fn agent_tool_diagnostics(
             }
         }
 
-        // agent_tool_write_unguarded_diagnostics: any write tool requires
-        // a non-empty `safety` list (Cut A; Q-impl-4 deferred
-        // `idempotency by` to Cut B).
-        if has_write_tool && agent_safety_empty {
+        // agent_tool_write_unguarded_diagnostics: every write tool
+        // must be guarded by either the agent's `safety` validator or
+        // the target command's `approval` block (Cut A.9 extension).
+        // `has_unguarded_write_tool` only stays true for write tools
+        // whose command has no approval — agent.safety is the
+        // fallback guard for those.
+        if has_unguarded_write_tool && agent_safety_empty {
             diagnostics.push(DoctorDiagnostic {
                 path: fact.path.clone(),
                 line: fact.line,
@@ -3184,7 +3234,7 @@ fn agent_tool_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: "agent_tool_write_unguarded_diagnostics".to_owned(),
                 message: format!(
-                    "agent `{}` dispatches a `write` tool but declares no `safety @validator.<name>`; Cut A requires at least one safety validator for write-effect tools.",
+                    "agent `{}` dispatches a `write` tool with neither `safety @validator.<name>` on the agent nor `approval` on the target command; Cut A requires at least one guard for write-effect tools.",
                     agent.name
                 ),
             });
@@ -3835,6 +3885,358 @@ fn strip_quotes(text: &str) -> &str {
 }
 
 // -----------------------------------------------------------------------------
+// Cut A.9 — `approval` primitive on commands
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+struct CommandApprovalFact {
+    feature: String,
+    command: String,
+    path: PathBuf,
+    line: usize,
+    by: Vec<String>,
+    timeout: Option<String>,
+    then: Option<String>,
+    required_when_present: bool,
+    missing_children: Vec<&'static str>,
+}
+
+/// Text-walk every `.lzi` for `command <name>` headers at indent 2,
+/// then look for an `approval` indent-4 child and harvest its
+/// children (`by`, `timeout`, `then`, `required_when`). The slice
+/// captures presence + values; doctor + LSP consume them.
+///
+/// Lives next to `collect_api_paths`; same approach for the same
+/// reason — the canonical-indent parser slice does not yet cover
+/// commands, so we use text-pattern with stable column anchors until
+/// the Phase L migration arrives.
+fn collect_command_approvals(file: &DoctorFile, out: &mut Vec<CommandApprovalFact>) {
+    let lines: Vec<&str> = file.source.lines().collect();
+    let mut feature: Option<String> = None;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            feature = trimmed
+                .strip_prefix("feature ")
+                .map(|n| n.trim().to_owned());
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 2 && trimmed.starts_with("command ") {
+            let name = trimmed
+                .strip_prefix("command ")
+                .map(|n| n.split_whitespace().next().unwrap_or("").to_owned())
+                .unwrap_or_default();
+            let feature_name = feature.clone().unwrap_or_default();
+
+            let mut j = i + 1;
+            let mut found_approval_at: Option<usize> = None;
+            while j < lines.len() {
+                let inner = lines[j];
+                let inner_trim = inner.trim_start();
+                if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if leading_spaces(inner) <= 2 {
+                    break;
+                }
+                if leading_spaces(inner) == 4 && inner_trim == "approval" {
+                    found_approval_at = Some(j);
+                    break;
+                }
+                j += 1;
+            }
+
+            if let Some(approval_at) = found_approval_at {
+                let mut fact = CommandApprovalFact {
+                    feature: feature_name,
+                    command: name,
+                    path: file.path.clone(),
+                    line: approval_at + 1,
+                    by: Vec::new(),
+                    timeout: None,
+                    then: None,
+                    required_when_present: false,
+                    missing_children: Vec::new(),
+                };
+
+                let mut k = approval_at + 1;
+                while k < lines.len() {
+                    let body = lines[k];
+                    let body_trim = body.trim_start();
+                    if body_trim.is_empty() || body_trim.starts_with('#') {
+                        k += 1;
+                        continue;
+                    }
+                    if leading_spaces(body) <= 4 {
+                        break;
+                    }
+                    if leading_spaces(body) == 6 {
+                        if let Some(rest) = body_trim.strip_prefix("by ") {
+                            fact.by = rest
+                                .split(',')
+                                .map(|s| s.trim().to_owned())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                        } else if let Some(rest) = body_trim.strip_prefix("timeout ") {
+                            let unquoted = rest
+                                .trim()
+                                .strip_prefix('"')
+                                .and_then(|s| s.strip_suffix('"'))
+                                .unwrap_or(rest.trim());
+                            fact.timeout = Some(unquoted.to_owned());
+                        } else if let Some(rest) = body_trim.strip_prefix("then ") {
+                            fact.then = Some(rest.trim().to_owned());
+                        } else if body_trim.starts_with("required_when ") {
+                            fact.required_when_present = true;
+                        }
+                    }
+                    k += 1;
+                }
+
+                // Capture missing children for `approval_contract_diagnostics`.
+                if fact.by.is_empty() {
+                    fact.missing_children.push("by");
+                }
+                if fact.timeout.is_none() {
+                    fact.missing_children.push("timeout");
+                }
+                if fact.then.is_none() {
+                    fact.missing_children.push("then");
+                }
+
+                out.push(fact);
+                i = k;
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Doctor-side diagnostics for the `approval` primitive. Three
+/// dedicated ids plus the write-tool guard extension; the latter
+/// reaches inside `agent_tool_write_unguarded_diagnostics` so write
+/// tools whose target command carries `approval` no longer require
+/// the agent's `safety` validator.
+fn approval_diagnostics(
+    approvals: &[CommandApprovalFact],
+    known_roles: &BTreeSet<String>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for fact in approvals {
+        // Required-children contract.
+        if !fact.missing_children.is_empty() {
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "approval_contract_diagnostics".to_owned(),
+                message: format!(
+                    "command `{}.{}` declares `approval` but is missing required children: {}.",
+                    fact.feature,
+                    fact.command,
+                    fact.missing_children.join(", "),
+                ),
+            });
+            continue;
+        }
+
+        // Timeout shape.
+        if let Some(timeout) = fact.timeout.as_deref() {
+            if !approval_timeout_well_formed(timeout) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "approval_timeout_invalid_diagnostics".to_owned(),
+                    message: format!(
+                        "command `{}.{}` declares `approval timeout {:?}` which is not a recognised duration shape (e.g. `\"24h\"`, `\"30 minutes\"`, `\"7d\"`).",
+                        fact.feature, fact.command, timeout,
+                    ),
+                });
+            }
+        }
+
+        // Closed catalog for `then`.
+        if let Some(then) = fact.then.as_deref() {
+            if !matches!(then, "deny" | "proceed") {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "approval_contract_diagnostics".to_owned(),
+                    message: format!(
+                        "command `{}.{}` declares `approval then {then}` — the closed catalog is `deny` or `proceed`.",
+                        fact.feature, fact.command,
+                    ),
+                });
+            }
+        }
+
+        // Role resolution. `by` entries are `@role.<name>` only.
+        for role_ref in &fact.by {
+            let Some(suffix) = role_ref.strip_prefix("@role.") else {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "approval_role_unresolved_diagnostics".to_owned(),
+                    message: format!(
+                        "command `{}.{}` approval `by {role_ref}` is not a `@role.<name>` reference; approvers are roles, not scopes.",
+                        fact.feature, fact.command,
+                    ),
+                });
+                continue;
+            };
+            if !known_roles.contains(suffix) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "approval_role_unresolved_diagnostics".to_owned(),
+                    message: format!(
+                        "command `{}.{}` approval `by @role.{suffix}` references a role that no `policies` block or `app.lzi` `policy_for` declares.",
+                        fact.feature, fact.command,
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Shape-check a duration string. Accepts `<digits> <unit>` or
+/// `<digits><unit>` where unit ∈ s, m, h, d, w, second(s),
+/// minute(s), hour(s), day(s), week(s). The runtime adapter parses
+/// the canonical form; this layer rejects obviously malformed input.
+fn approval_timeout_well_formed(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let mut chars = trimmed.chars();
+    let mut saw_digit = false;
+    let mut unit_start = 0;
+    for (i, c) in chars.by_ref().enumerate() {
+        if c.is_ascii_digit() {
+            saw_digit = true;
+            continue;
+        }
+        unit_start = i;
+        break;
+    }
+    if !saw_digit {
+        return false;
+    }
+    let unit = trimmed[unit_start..].trim();
+    matches!(
+        unit,
+        "s" | "m"
+            | "h"
+            | "d"
+            | "w"
+            | "second"
+            | "seconds"
+            | "minute"
+            | "minutes"
+            | "hour"
+            | "hours"
+            | "day"
+            | "days"
+            | "week"
+            | "weeks"
+    )
+}
+
+/// Collect every role name declared by a feature's `policies` block
+/// (children at indent 4 referencing `@role.<name>`) or by an
+/// `app.lzi` `policy_for ...: @role.<name>` default. Used by
+/// `approval_role_unresolved_diagnostics`.
+///
+/// Intentionally scoped: scanning every `@role.X` reference in the
+/// file would self-resolve the very `by @role.X` line we're trying
+/// to validate. Only first-class declarations count.
+fn collect_known_roles(files: &[DoctorFile]) -> BTreeSet<String> {
+    let mut roles = BTreeSet::new();
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let lines: Vec<&str> = file.source.lines().collect();
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
+            let trimmed = line.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                i += 1;
+                continue;
+            }
+            // Feature-level `policies` block at indent 2.
+            if leading_spaces(line) == 2 && trimmed == "policies" {
+                let mut j = i + 1;
+                while j < lines.len() {
+                    let inner = lines[j];
+                    let inner_trim = inner.trim_start();
+                    if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                        j += 1;
+                        continue;
+                    }
+                    if leading_spaces(inner) <= 2 {
+                        break;
+                    }
+                    // `<name>: @role.x, @scope.y, ...` — harvest only
+                    // the @role.<name> entries.
+                    if let Some((_, refs)) = inner_trim.split_once(':') {
+                        extract_role_atoms(refs, &mut roles);
+                    }
+                    j += 1;
+                }
+                i = j;
+                continue;
+            }
+            // Top-level `app.lzi` `policy_for <kinds>: @role.x, ...`
+            // (or feature-level `policy_for` inside `defaults`).
+            if let Some(rest) = trimmed.strip_prefix("policy_for ") {
+                if let Some((_, refs)) = rest.split_once(':') {
+                    extract_role_atoms(refs, &mut roles);
+                }
+            }
+            i += 1;
+        }
+    }
+    roles
+}
+
+fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
+    for token in refs.split(',') {
+        let token = token.trim();
+        if let Some(name) = token.strip_prefix("@role.") {
+            let end = name
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(name.len());
+            if end > 0 {
+                roles.insert(name[..end].to_owned());
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Cut A.8 — built-in trace event diagnostics
 //
 // `agent_run` is registered by the IR as a built-in trace event. The
@@ -4023,6 +4425,7 @@ mod tests {
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
         let mut api_paths: Vec<ApiPathFact> = Vec::new();
+        let mut command_approvals: Vec<CommandApprovalFact> = Vec::new();
 
         for (path, source) in sources {
             let mut file = DoctorFile {
@@ -4103,6 +4506,7 @@ mod tests {
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_api_paths(&file, &mut api_paths);
+                collect_command_approvals(&file, &mut command_approvals);
             } else {
                 let document = lazuli_syntax::parse_lzx_document(&file.source).unwrap();
                 collect_lzx_experience_facts(&document, &mut experiences);
@@ -4127,6 +4531,7 @@ mod tests {
             feature_symbols,
             registry_tool_defects,
             api_paths,
+            command_approvals,
         }
     }
 
@@ -5458,6 +5863,117 @@ feature customer
         assert!(
             codes(&diagnostics).contains("eval_ordered_op_invalid_diagnostics"),
             "expected eval_ordered_op_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_approval_with_unknown_role() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  policies
+    delete: @role.admin
+
+  command archive
+    policy @policy.delete
+    approval
+      required_when target.tier = enterprise
+      by @role.nonexistent
+      timeout "24h"
+      then deny
+    deletes Customer
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("approval_role_unresolved_diagnostics"),
+            "expected approval_role_unresolved_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_approval_with_malformed_timeout() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  policies
+    delete: @role.admin
+
+  command archive
+    approval
+      by @role.admin
+      timeout "soon"
+      then deny
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("approval_timeout_invalid_diagnostics"),
+            "expected approval_timeout_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_approval_satisfies_write_tool_guard_without_agent_safety() {
+        // Agent dispatches a write tool whose target command carries
+        // `approval` — the guard is satisfied even though the agent
+        // has no `safety` declaration.
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  policies
+    delete: @role.admin
+    read: @scope.same_org
+
+  command archive
+    policy @policy.delete
+    approval
+      by @role.admin
+      timeout "24h"
+      then deny
+    deletes Customer
+
+  agent triage
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    tools
+      command.archive
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("agent_tool_write_unguarded_diagnostics"),
+            "approval on target command must satisfy the write-tool guard; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_approval_missing_required_children() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  policies
+    delete: @role.admin
+
+  command archive
+    approval
+      by @role.admin
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("approval_contract_diagnostics"),
+            "expected approval_contract_diagnostics for missing children; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

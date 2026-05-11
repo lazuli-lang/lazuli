@@ -336,6 +336,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(agent_discriminator_diagnostics(source));
         diagnostics.extend(agent_expose_diagnostics(source));
         diagnostics.extend(reserved_trace_event_diagnostics(source));
+        diagnostics.extend(approval_contract_diagnostics(source));
         diagnostics.extend(notification_contract_diagnostics(source));
         diagnostics.extend(emits_derived_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
@@ -4151,6 +4152,99 @@ fn lsp_normalise_path(path: &str) -> String {
         }
     }
     out
+}
+
+/// Cut A.9 — file-local checks on `approval` blocks declared inside
+/// commands. Required children present (`by`, `timeout`, `then`),
+/// `then` value in the closed catalog, `by` non-empty. Cross-feature
+/// role resolution lives in doctor.
+fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if leading_spaces(line) == 4 && trimmed == "approval" {
+            let header_line = i;
+            let mut has_by = false;
+            let mut by_nonempty = false;
+            let mut has_timeout = false;
+            let mut timeout_nonempty = false;
+            let mut has_then = false;
+            let mut then_invalid: Option<String> = None;
+            let mut j = i + 1;
+            while j < lines.len() {
+                let body = lines[j];
+                let body_trim = body.trim_start();
+                if body_trim.is_empty() || body_trim.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if leading_spaces(body) <= 4 {
+                    break;
+                }
+                if leading_spaces(body) == 6 {
+                    if let Some(rest) = body_trim.strip_prefix("by ") {
+                        has_by = true;
+                        by_nonempty = rest
+                            .split(',')
+                            .any(|s| !s.trim().is_empty());
+                    } else if let Some(rest) = body_trim.strip_prefix("timeout ") {
+                        has_timeout = true;
+                        timeout_nonempty = !rest.trim().is_empty();
+                    } else if let Some(rest) = body_trim.strip_prefix("then ") {
+                        has_then = true;
+                        let value = rest.trim().to_owned();
+                        if !matches!(value.as_str(), "deny" | "proceed") {
+                            then_invalid = Some(value);
+                        }
+                    }
+                }
+                j += 1;
+            }
+
+            let mut missing: Vec<&str> = Vec::new();
+            if !has_by || !by_nonempty {
+                missing.push("by");
+            }
+            if !has_timeout || !timeout_nonempty {
+                missing.push("timeout");
+            }
+            if !has_then {
+                missing.push("then");
+            }
+            if !missing.is_empty() {
+                diagnostics.push(simple_canonical_diagnostic(
+                    header_line,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "approval_contract_diagnostics",
+                    &format!(
+                        "`approval` block is missing required children: {}.",
+                        missing.join(", "),
+                    ),
+                ));
+            }
+            if let Some(value) = then_invalid {
+                diagnostics.push(simple_canonical_diagnostic(
+                    header_line,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "approval_contract_diagnostics",
+                    &format!(
+                        "`approval then {value}` is invalid — closed catalog is `deny` or `proceed`."
+                    ),
+                ));
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+
+    diagnostics
 }
 
 /// Cut A.8 — flag authored `event.trace <name>` declarations whose
@@ -13670,6 +13764,67 @@ feature customer
                 "well-formed expose should not produce {code}; got: {codes:?}"
             );
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cut A.9 — `approval` file-local LSP tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn approval_rejects_missing_required_children() {
+        let source = r#"
+feature customer
+  command archive
+    approval
+      by @role.admin
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "approval_contract_diagnostics"),
+            "expected approval_contract_diagnostics for missing timeout/then"
+        );
+    }
+
+    #[test]
+    fn approval_rejects_unknown_then_action() {
+        let source = r#"
+feature customer
+  command archive
+    approval
+      by @role.admin
+      timeout "24h"
+      then escalate
+"#;
+        let diagnostics = diagnostics_for(source);
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("`approval then escalate`")),
+            "expected diagnostic about invalid then value; got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn approval_well_formed_emits_nothing() {
+        let source = r#"
+feature customer
+  command archive
+    approval
+      required_when target.tier = enterprise
+      by @role.admin
+      timeout "24h"
+      then deny
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            !diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "approval_contract_diagnostics"),
+            "well-formed approval must not produce approval_contract_diagnostics"
+        );
     }
 
     // -------------------------------------------------------------------------

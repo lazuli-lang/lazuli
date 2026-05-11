@@ -149,6 +149,18 @@ source that only fails later.
     misuse, and `method GET` paired with `output stream`.
   Lazuli owns the contract; the runtime wires the LLM transport,
   prompt-template loading, and tool dispatch.
+- `command <name>` may declare an optional `approval` block that
+  gates dispatch on conditional human sign-off (Cut A.9). Required
+  children: `by @role.<name>[, @role.<name>]+`, `timeout "<duration>"`,
+  `then deny | proceed`. Optional child: `required_when <predicate>`
+  (omission means "always required"). The closed catalog rejects `by`
+  entries that aren't `@role.<name>` references — approvers are roles,
+  not scopes. Doctor verifies every `@role.<name>` resolves against
+  the workspace policy atom set. Cut A.9 extends
+  `agent_tool_write_unguarded_diagnostics`: write-effect tools whose
+  target command carries `approval` satisfy the guard without the
+  agent's own `safety` validator. The runtime owns the approval UX +
+  persistence; adapters handle transport.
 - `notification <name>` declares a multi-channel outbound notification.
   Required children: `channel <email|push|sms|in_app>[, ...]`,
   `recipient <expression>`, `trigger event <pattern>`, `template "./path"`,

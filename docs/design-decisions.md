@@ -337,6 +337,41 @@ language is unchanged.
 `eval_nondeterministic_warning` and
 `eval_ordered_op_invalid_diagnostics` enforce the boundary.
 
+### `approval` is the third write-tool guard (Cut A.9)
+
+Commands gain an optional `approval` block that gates dispatch on
+conditional human sign-off. The write-tool guard
+(`agent_tool_write_unguarded_diagnostics`) is extended so that an
+agent's write-effect tool is considered guarded when **any** of three
+shapes holds:
+
+1. The agent declares `safety @validator.<name>` (Cut A baseline).
+2. The target command declares an `approval` block (Cut A.9).
+3. The target command declares `idempotency by ...` (Cut B; reserved).
+
+The three are **not** subsets of each other and each addresses a
+different threat shape:
+
+- `safety` is a **pre-flight input scrub** — the validator inspects
+  the input + tool result before the model can act on it.
+- `approval` is a **runtime gating step** — execution pauses until a
+  human in the declared role(s) signs off, with a timeout fallback.
+- `idempotency by` (Cut B) is **replay-safety** — the command's
+  effect deduplicates across retries by the declared key.
+
+A multi-write-tool agent may use a mix: some tools guarded by
+`approval` on the target command, others by the agent's own `safety`
+when the command's nature makes per-dispatch approval inappropriate.
+Doctor reports which guard satisfied each binding.
+
+**Where**: proposal `docs/proposals/ai-primitives-cut-a-9.md`. Doctor
+diagnostics `approval_role_unresolved_diagnostics`,
+`approval_timeout_invalid_diagnostics`, `approval_contract_diagnostics`,
+plus the `agent_tool_write_unguarded_diagnostics` extension. LSP
+file-local `approval_contract_diagnostics`. Captured via text-pattern
+facts (`CommandApprovalFact`) until the canonical-indent slice
+covers commands.
+
 ### Built-in trace events are IR-registered, not authored (Cut A.8)
 
 `agent_run` is the foundational built-in trace event: the runtime

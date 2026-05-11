@@ -642,6 +642,41 @@ several agents). The boundary: "does the handler do work beyond
 translating HTTP to agent dispatch?" If yes, keep `api`. If no,
 `expose http` is the shortcut.
 
+## Approval (Cut A.9)
+
+Commands that need conditional human sign-off declare an `approval`
+block. The runtime gates dispatch on the approval decision; agents
+dispatching the command via `tools` satisfy the write-tool guard
+without their own `safety` validator.
+
+```lazuli
+command reassign
+  route id: ID
+  input
+    owner_id: User.ID required
+  policy @policy.update
+  approval
+    required_when target.tier = enterprise
+    by @role.admin
+    timeout "24h"
+    then deny
+  updates Customer
+    owner = resolved_owner
+```
+
+Required children: `by` (one or more `@role.<name>`), `timeout`
+(duration string), `then` (`deny` or `proceed`). Optional:
+`required_when` (closed predicate; omission means "always required").
+
+Three guards now satisfy `agent_tool_write_unguarded_diagnostics`:
+- agent `safety @validator.<name>` (Cut A baseline)
+- target command `approval` block (Cut A.9 extension)
+- `idempotency by ...` on the command (Cut B; reserved)
+
+The three are not subsets of each other — `safety` is pre-flight
+input scrub, `approval` is runtime gating, `idempotency` is replay-
+safety. Pick by the threat shape, not by which is fewer keystrokes.
+
 ## Tests
 
 Tests are inline IR assertions. They are optional by default and strict in

@@ -269,6 +269,11 @@ feature customer
     policy @policy.update
     rate_limit "60 per minute per user"
     audit actor, target.id, input.owner_id
+    approval
+      required_when target.tier = enterprise
+      by @role.admin
+      timeout "24h"
+      then deny
     updates Customer
       owner = resolved_owner
     emits customer_reassigned

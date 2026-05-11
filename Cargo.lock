@@ -616,6 +616,7 @@ name = "lazuli_lsp"
 version = "0.1.0"
 dependencies = [
  "lazuli_analyzer",
+ "lazuli_ir",
  "lazuli_syntax",
  "tokio",
  "tower-lsp",
