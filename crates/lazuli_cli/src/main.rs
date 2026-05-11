@@ -475,6 +475,12 @@ struct InspectFeature {
     defaults: Option<Vec<InspectDefault>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     events: Option<Vec<InspectEvent>>,
+    /// Cut A.8 — built-in trace events surfaced alongside the authored
+    /// `events` when `--expand=events` is set. Today only `agent_run`;
+    /// the slot exists so a future cut adding `job_run`/`webhook_run`
+    /// surfaces them without an additional flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    built_in_trace_events: Option<Vec<InspectBuiltInTraceEvent>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     targets: Option<Vec<InspectTarget>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -494,6 +500,21 @@ struct InspectFeature {
     /// via doctor; this projection is the per-feature observable.
     #[serde(skip_serializing_if = "Option::is_none")]
     expose: Option<Vec<InspectExposeEntry>>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectBuiltInTraceEvent {
+    name: String,
+    fires_per: String,
+    payload: Vec<InspectBuiltInTraceField>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectBuiltInTraceField {
+    name: String,
+    #[serde(rename = "type")]
+    type_text: String,
+    optional: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -947,6 +968,9 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
         security: expansions.security.then(|| inspect_security(lines)),
         defaults: expansions.defaults.then(|| inspect_defaults(lines)),
         events: expansions.events.then(|| inspect_events(lines)),
+        built_in_trace_events: expansions
+            .events
+            .then(inspect_built_in_trace_events),
         targets: expansions.targets.then(|| inspect_targets(lines)),
         policies: expansions
             .policies
@@ -2104,6 +2128,58 @@ fn collect_policy_for_applies_to(lines: &[String], scopes: &str) -> Vec<String> 
     }
 
     applies_to
+}
+
+fn inspect_built_in_trace_events() -> Vec<InspectBuiltInTraceEvent> {
+    lazuli_ir::built_in_trace_events()
+        .into_iter()
+        .map(|event| InspectBuiltInTraceEvent {
+            name: event.name,
+            fires_per: built_in_trace_fires_per_word(event.fires_per).to_owned(),
+            payload: event
+                .payload
+                .into_iter()
+                .map(|f| InspectBuiltInTraceField {
+                    name: f.name,
+                    type_text: format_type_ref(&f.type_ref),
+                    optional: f.optional,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn built_in_trace_fires_per_word(kind: lazuli_ir::TraceFiresPer) -> &'static str {
+    match kind {
+        lazuli_ir::TraceFiresPer::AgentDispatch => "agent_dispatch",
+        lazuli_ir::TraceFiresPer::FlowStep => "flow_step",
+        lazuli_ir::TraceFiresPer::JobInvocation => "job_invocation",
+        lazuli_ir::TraceFiresPer::WebhookDelivery => "webhook_delivery",
+    }
+}
+
+fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
+    use lazuli_ir::{BuiltinType, TypeRef};
+    match t {
+        TypeRef::Builtin(b) => match b {
+            BuiltinType::Text => "Text",
+            BuiltinType::Integer => "Integer",
+            BuiltinType::Boolean => "Boolean",
+            BuiltinType::Decimal => "Decimal",
+            BuiltinType::Date => "Date",
+            BuiltinType::DateTime => "DateTime",
+            BuiltinType::Id => "ID",
+            BuiltinType::Json => "Json",
+            BuiltinType::SemanticEmail => "@semantic.Email",
+            BuiltinType::SemanticMoney => "@semantic.Money",
+            BuiltinType::CapSecret => "@cap.Secret",
+            BuiltinType::CapFile => "@cap.File",
+        }
+        .to_owned(),
+        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
+        TypeRef::Many(inner) => format!("{}*", format_type_ref(inner)),
+        TypeRef::Unresolved(text) => text.clone(),
+    }
 }
 
 fn inspect_events(lines: &[String]) -> Vec<InspectEvent> {
@@ -4562,6 +4638,53 @@ feature customer
         assert!(
             json.contains("\"reference\":\"@tool.web_search\",\"kind\":\"adapter\",\"scope\":\"adapter\",\"derived_effect\":\"unknown\""),
             "expected adapter binding: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_expand_events_includes_built_in_trace_events() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.events = true;
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            json.contains("\"built_in_trace_events\":[{\"name\":\"agent_run\""),
+            "expected built_in_trace_events with agent_run: {json}"
+        );
+        assert!(
+            json.contains("\"fires_per\":\"agent_dispatch\""),
+            "expected fires_per agent_dispatch: {json}"
+        );
+        assert!(
+            json.contains("\"name\":\"tokens_total\",\"type\":\"Integer\""),
+            "expected canonical payload field tokens_total: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_built_in_trace_events_omitted_without_events_expand() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            !json.contains("built_in_trace_events"),
+            "built_in_trace_events must be omitted without --expand=events: {json}"
         );
     }
 

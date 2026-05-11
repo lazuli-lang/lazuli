@@ -337,6 +337,43 @@ language is unchanged.
 `eval_nondeterministic_warning` and
 `eval_ordered_op_invalid_diagnostics` enforce the boundary.
 
+### Built-in trace events are IR-registered, not authored (Cut A.8)
+
+`agent_run` is the foundational built-in trace event: the runtime
+auto-emits it per agent dispatch with a canonical payload schema
+(`agent`, `model`, `tokens_input/output/total`, `cost_usd`,
+`duration_ms`, `finish_reason`, `tools[]`, etc.). The language reserves
+the name in the IR; authored `event.trace agent_run` declarations are
+rejected with `event_trace_reserved_name_diagnostics`. Subscriber jobs
+that reference fields outside the canonical schema fail at
+`lazuli doctor` time via `agent_run_subscriber_payload_drift_diagnostics`
+rather than at runtime — schema drift is caught before ship.
+
+Three reasons the language owns the contract (rather than the runtime
+emitting any shape it likes):
+1. **Schema drift** — without language registration, every consumer
+   hardcodes the schema; changes become silent breakages.
+2. **Inspect contract** — built-in events must appear in the typed
+   read model (`magic discovery requires visibility`). They surface
+   via `lazuli inspect --expand=events`'s `built_in_trace_events[]`
+   slot alongside authored events.
+3. **Cross-runtime portability** — the wire format can change; the
+   contract stays put.
+
+`agent_run.cost_usd` is `Decimal`, **not** `@semantic.Money`. Trace
+events are denominated in a single canonical currency because
+multi-currency conversion at observation time would force every
+adapter to carry exchange-rate state. Adapters that bill in non-USD
+convert at observation. This is a scoped exception to the project-wide
+`@semantic.Money` discipline; do not generalize.
+
+**Where**: proposal `docs/proposals/ai-primitives-cut-a-8.md`. IR:
+`built_in_trace_events()`, `BuiltInTraceEvent`, `BuiltInTraceRecord`,
+`TraceFiresPer`, `is_reserved_trace_event_name`. Doctor diagnostics
+`event_trace_reserved_name_diagnostics` (also fires file-local in LSP)
+and `agent_run_subscriber_payload_drift_diagnostics`. Inspect
+projection extends `--expand=events` with `built_in_trace_events[]`.
+
 ### `expose http` is the shortcut for trivial agent-dispatch APIs (Cut A.7)
 
 `agent <name>` gains an optional `expose http` block that auto-mounts

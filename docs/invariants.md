@@ -128,6 +128,14 @@ source that only fails later.
     warns `eval_nondeterministic_warning` otherwise.
   - `safety` accepts one or more `@validator.<name>` references (Cut A
     sees the first; Cut A.5 widens to PII coverage union check).
+  - The runtime auto-emits the canonical built-in trace event
+    `agent_run` per dispatch (Cut A.8). The event name + payload
+    schema is reserved by the IR; authored `event.trace agent_run`
+    declarations are rejected, and subscriber jobs referencing
+    payload fields that don't exist in the canonical schema get
+    `agent_run_subscriber_payload_drift_diagnostics`. The runtime
+    instruments dispatch and captures tokens/duration/cost;
+    adapters export to OpenTelemetry/file/stdout.
   - `expose http` (Cut A.7) auto-mounts the agent as an HTTP endpoint
     with the agent's policy / rate_limit / output applied at the
     gateway. Required children: `method <GET|POST|PUT|PATCH|DELETE>`,

@@ -335,6 +335,7 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(agent_evals_diagnostics(source));
         diagnostics.extend(agent_discriminator_diagnostics(source));
         diagnostics.extend(agent_expose_diagnostics(source));
+        diagnostics.extend(reserved_trace_event_diagnostics(source));
         diagnostics.extend(notification_contract_diagnostics(source));
         diagnostics.extend(emits_derived_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
@@ -4150,6 +4151,35 @@ fn lsp_normalise_path(path: &str) -> String {
         }
     }
     out
+}
+
+/// Cut A.8 — flag authored `event.trace <name>` declarations whose
+/// `<name>` is reserved by the IR's built-in trace event registry.
+/// File-local fast feedback that mirrors doctor's
+/// `event_trace_reserved_name_diagnostics`.
+fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("event.trace ") {
+            let name = rest.split_whitespace().next().unwrap_or("");
+            if lazuli_ir::is_reserved_trace_event_name(name) {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "event_trace_reserved_name_diagnostics",
+                    &format!(
+                        "`event.trace {name}` is reserved by the IR as a built-in trace event; the runtime emits it automatically. Authoring this declaration is rejected — subscribe via `job ... trigger event.trace {name}` instead."
+                    ),
+                ));
+            }
+        }
+    }
+    diagnostics
 }
 
 /// `lower_snake` identifier: ASCII letters / digits / underscores, must
@@ -13640,6 +13670,46 @@ feature customer
                 "well-formed expose should not produce {code}; got: {codes:?}"
             );
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cut A.8 — reserved trace event name (LSP file-local)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn event_trace_agent_run_authored_is_rejected() {
+        let source = r#"
+feature customer
+  domain
+    event.trace agent_run
+      payload
+        agent_id: ID
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "event_trace_reserved_name_diagnostics"),
+            "expected reserved-name diagnostic"
+        );
+    }
+
+    #[test]
+    fn event_trace_custom_name_is_allowed() {
+        let source = r#"
+feature customer
+  domain
+    event.trace custom_metric
+      payload
+        value: Integer
+"#;
+        let diagnostics = diagnostics_for(source);
+        assert!(
+            !diagnostic_codes(&diagnostics)
+                .iter()
+                .any(|c| c == "event_trace_reserved_name_diagnostics"),
+            "non-reserved trace events must be allowed"
+        );
     }
 
     #[test]

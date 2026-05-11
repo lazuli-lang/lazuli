@@ -16,14 +16,18 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.5.0 for Cut A.7 — additive minor bump.
-/// New shapes: `Agent.expose_http`, `HttpExposure`, `HttpMethod`.
+/// Bumped to 0.6.0 for Cut A.8 — additive minor bump. New shapes:
+/// `BuiltInTraceEvent`, `BuiltInTraceRecord`, `TraceFiresPer`, the
+/// `built_in_trace_events()` / `built_in_trace_event_records()`
+/// registry functions, and `is_reserved_trace_event_name`.
 ///
 /// History:
+/// - 0.5.0 — Cut A.7: `Agent.expose_http`, `HttpExposure`,
+///   `HttpMethod`.
 /// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
 ///   output_kind/output_discriminator), `AppRegistry.tools` (+
 ///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
-pub const LZIR_SCHEMA: &str = "0.5.0";
+pub const LZIR_SCHEMA: &str = "0.6.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -708,6 +712,149 @@ pub struct EventField {
     pub type_ref: TypeRef,
     #[serde(default, skip_serializing_if = "is_false")]
     pub optional: bool,
+}
+
+// -----------------------------------------------------------------------------
+// Cut A.8 — built-in trace events
+//
+// Trace events emitted by the runtime, not by author source. The
+// language registers the names and the canonical payload schema so
+// subscribers can rely on a stable contract; doctor rejects authored
+// `event.trace <reserved>` redeclarations and validates subscriber
+// payload references against the canonical fields.
+//
+// `agent_run` is the foundational built-in: emitted per agent
+// dispatch (or per `flow` step in Cut B). The runtime instruments;
+// adapters export to OpenTelemetry / file / stdout.
+//
+// See `docs/proposals/ai-primitives-cut-a-8.md`.
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuiltInTraceEvent {
+    pub name: String,
+    pub payload: Vec<EventField>,
+    pub fires_per: TraceFiresPer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceFiresPer {
+    /// One emission per `agent <name>` dispatch.
+    AgentDispatch,
+    /// One emission per `flow <name>.step <name>` (Cut B; reserved).
+    FlowStep,
+    /// Reserved for future `job_run`.
+    JobInvocation,
+    /// Reserved for future `webhook_run`.
+    WebhookDelivery,
+}
+
+/// The canonical list of built-in trace events. The language reserves
+/// these names; authoring `event.trace <name>` for any entry here is
+/// rejected. The list is `const`-shaped (returns a fresh `Vec` per
+/// call) so consumers don't worry about static-lifetime gymnastics.
+pub fn built_in_trace_events() -> Vec<BuiltInTraceEvent> {
+    vec![BuiltInTraceEvent {
+        name: "agent_run".to_owned(),
+        fires_per: TraceFiresPer::AgentDispatch,
+        payload: agent_run_payload(),
+    }]
+}
+
+fn agent_run_payload() -> Vec<EventField> {
+    use BuiltinType::*;
+    let required = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: false,
+    };
+    let optional = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: true,
+    };
+
+    vec![
+        required("agent", Text),
+        optional("flow", Text),
+        optional("flow_step", Text),
+        required("model", Text),
+        required("finish_reason", Text),
+        required("tokens_input", Integer),
+        required("tokens_output", Integer),
+        required("tokens_total", Integer),
+        optional("cost_usd", Decimal),
+        required("duration_ms", Integer),
+        optional("prompt_version", Text),
+        // `tools` is a structured list. We surface it as a
+        // single field with a forward-resolved record type; the
+        // record itself (ToolCall) is registered alongside (see
+        // built_in_trace_event_records).
+        EventField {
+            name: "tools".to_owned(),
+            type_ref: TypeRef::Many(Box::new(TypeRef::UserDefined(QualifiedName {
+                feature: None,
+                name: "ToolCall".to_owned(),
+            }))),
+            optional: true,
+        },
+        optional("safety_decision", Text),
+        optional("tenant", Text),
+        optional("request_id", Text),
+        optional("trace_id", Text),
+    ]
+}
+
+/// Canonical inner records used by built-in trace events. Today only
+/// `ToolCall` exists (referenced by `agent_run.tools[]`). The records
+/// are surfaced via inspect alongside the events themselves so
+/// subscribers know the full schema without spelunking source.
+pub fn built_in_trace_event_records() -> Vec<BuiltInTraceRecord> {
+    use BuiltinType::*;
+    let required = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: false,
+    };
+    let optional = |name: &str, ty: BuiltinType| EventField {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(ty),
+        optional: true,
+    };
+    vec![BuiltInTraceRecord {
+        name: "ToolCall".to_owned(),
+        fields: vec![
+            required("name", Text),
+            required("effect", Text),
+            required("duration_ms", Integer),
+            required("status", Text),
+            optional("error_kind", Text),
+        ],
+    }]
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuiltInTraceRecord {
+    pub name: String,
+    pub fields: Vec<EventField>,
+}
+
+/// Whether `name` is reserved by a built-in trace event. Doctor calls
+/// this when validating author-side `event.trace <name>` and job-side
+/// `trigger event.trace <name>` references.
+pub fn is_reserved_trace_event_name(name: &str) -> bool {
+    built_in_trace_events()
+        .iter()
+        .any(|event| event.name == name)
+}
+
+/// Lookup a built-in trace event by name. Returns `None` for authored
+/// trace events (which live under each feature's `events` instead).
+pub fn built_in_trace_event(name: &str) -> Option<BuiltInTraceEvent> {
+    built_in_trace_events()
+        .into_iter()
+        .find(|event| event.name == name)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
