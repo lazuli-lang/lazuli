@@ -838,12 +838,12 @@ struct AuthFacts {
 struct FeatureSymbols {
     enums: BTreeMap<String, SymbolFact>,
     records: BTreeMap<String, RecordFact>,
-    /// Maps short query name (e.g. `by_id`, `list`) to its registered
-    /// policy reference text and kind. Used for tool-policy compatibility
-    /// checks.
-    queries: BTreeMap<String, QuerySymbolFact>,
     /// Maps short command name (e.g. `archive`) to its registered policy
     /// + safety hint. Commands are inherently write-effect for Cut A.
+    /// Phase L Tier 4b — the parallel `queries` map retired; nothing
+    /// reads `symbols.queries` (all query cross-checks consume the
+    /// typed `Tier3FeatureFacts.queries` lifted by Tier 4d's record
+    /// + query spine).
     commands: BTreeMap<String, CommandSymbolFact>,
 }
 
@@ -890,13 +890,6 @@ struct RecordFact {
 struct RecordFieldFact {
     type_text: String,
     is_discriminator: bool,
-}
-
-#[derive(Debug, Clone)]
-struct QuerySymbolFact {
-    base: SymbolFact,
-    policy: Option<String>,
-    kind: ir::ToolKind,
 }
 
 #[derive(Debug, Clone)]
@@ -4276,36 +4269,6 @@ fn scan_feature_range(
                     },
                 );
             }
-        } else if let Some(rest) = trimmed.strip_prefix("query.list ") {
-            insert_query_symbol(
-                rest,
-                ir::ToolKind::QueryList,
-                file,
-                feature_start + i + 1,
-                raw,
-                &lines[i + 1..],
-                symbols,
-            );
-        } else if let Some(rest) = trimmed.strip_prefix("query.lookup ") {
-            insert_query_symbol(
-                rest,
-                ir::ToolKind::QueryLookup,
-                file,
-                feature_start + i + 1,
-                raw,
-                &lines[i + 1..],
-                symbols,
-            );
-        } else if let Some(rest) = trimmed.strip_prefix("query.sql ") {
-            insert_query_symbol(
-                rest,
-                ir::ToolKind::QuerySql,
-                file,
-                feature_start + i + 1,
-                raw,
-                &lines[i + 1..],
-                symbols,
-            );
         }
         i += 1;
     }
@@ -4327,33 +4290,6 @@ fn parse_record_field(trimmed: &str) -> Option<(String, RecordFieldFact)> {
             is_discriminator,
         },
     ))
-}
-
-fn insert_query_symbol(
-    rest: &str,
-    kind: ir::ToolKind,
-    file: &DoctorFile,
-    line_number: usize,
-    raw_header: &str,
-    body: &[&str],
-    symbols: &mut FeatureSymbols,
-) {
-    let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-    if name.is_empty() {
-        return;
-    }
-    let policy = scan_block_for_policy(body, leading_spaces(raw_header));
-    symbols.queries.insert(
-        name,
-        QuerySymbolFact {
-            base: SymbolFact {
-                path: file.path.clone(),
-                line: line_number,
-            },
-            policy,
-            kind,
-        },
-    );
 }
 
 fn scan_block_for_policy(body: &[&str], parent_indent: usize) -> Option<String> {
@@ -4610,20 +4546,20 @@ fn resolve_tool(
                     | ir::ToolKind::QueryLookup
                     | ir::ToolKind::QuerySql
                     | ir::ToolKind::QueryUnspecified,
-                    Some(syms),
-                ) => syms
-                    .queries
-                    .get(name)
-                    .map(|q| ResolvedTool {
-                        effect: ResolvedToolEffect::Read,
-                        policy: q.policy.clone(),
-                        pii_classes: Vec::new(),
-                    })
-                    .unwrap_or(ResolvedTool {
+                    _,
+                ) => {
+                    // Phase L Tier 4b — the `FeatureSymbols.queries`
+                    // text-walker retired. Queries are always read-effect
+                    // for the tool resolver; query-level `policy`
+                    // declarations are a future extension (today, queries
+                    // inherit feature-level `policies` via the analyzer,
+                    // which the tool resolver does not consume).
+                    ResolvedTool {
                         effect: ResolvedToolEffect::Read,
                         policy: None,
                         pii_classes: Vec::new(),
-                    }),
+                    }
+                }
                 (ir::ToolKind::Command, None) => ResolvedTool {
                     effect: ResolvedToolEffect::Write,
                     policy: None,
