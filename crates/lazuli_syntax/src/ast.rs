@@ -445,9 +445,17 @@ pub enum AgentEvalPredicate {
     /// Source text passed through to lowering, which re-parses against the
     /// canonical predicate AST. The parser captures the raw form here so
     /// any predicate-language extensions land without churn in this crate.
-    Closed { text: String },
-    Contains { lhs: String, rhs: ContainsRhs },
-    ToolsCalls { op: ToolsCallsOp, target: String },
+    Closed {
+        text: String,
+    },
+    Contains {
+        lhs: String,
+        rhs: ContainsRhs,
+    },
+    ToolsCalls {
+        op: ToolsCallsOp,
+        target: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

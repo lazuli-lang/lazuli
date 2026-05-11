@@ -34,9 +34,7 @@ fn cap_file_missing_max_size_still_warns() {
 
     let diagnostics = diagnostics_for_source(source);
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.message.contains("max_size")),
+        diagnostics.iter().any(|d| d.message.contains("max_size")),
         "missing `max_size` should still warn; got {:?}",
         diagnostics
             .iter()

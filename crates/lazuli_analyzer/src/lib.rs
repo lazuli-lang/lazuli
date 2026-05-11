@@ -44,9 +44,7 @@ pub enum AnalyzeError {
     /// into `<Resource>.<field>`. Parser already rejects missing-dot
     /// shapes; this guards downstream lowering against multi-dot or
     /// empty-segment forms slipping through.
-    #[error(
-        "invalid auth identity `{reference}` — expected `<Resource>.<field>`"
-    )]
+    #[error("invalid auth identity `{reference}` — expected `<Resource>.<field>`")]
     InvalidAuthIdentity { reference: String },
 }
 
@@ -93,6 +91,8 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
+        notifications: Vec::new(),
+        event_groups: Vec::new(),
         auth: None,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -702,6 +702,8 @@ pub fn lower_feature_skeleton(
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
+        notifications: Vec::new(),
+        event_groups: Vec::new(),
         auth,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -726,14 +728,14 @@ pub fn lower_auth(auth: &syntax::Auth) -> Result<ir::Auth, AnalyzeError> {
     })
 }
 
-fn lower_auth_identity(
-    identity: &syntax::AuthIdentity,
-) -> Result<ir::AuthIdentity, AnalyzeError> {
-    let (resource, field) = identity.field.split_once('.').ok_or_else(|| {
-        AnalyzeError::InvalidAuthIdentity {
-            reference: identity.field.clone(),
-        }
-    })?;
+fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdentity, AnalyzeError> {
+    let (resource, field) =
+        identity
+            .field
+            .split_once('.')
+            .ok_or_else(|| AnalyzeError::InvalidAuthIdentity {
+                reference: identity.field.clone(),
+            })?;
     if resource.is_empty() || field.is_empty() || field.contains('.') {
         return Err(AnalyzeError::InvalidAuthIdentity {
             reference: identity.field.clone(),
@@ -783,10 +785,7 @@ fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAuthProvider 
 /// Lower a single `agent` AST node into the IR form. The `feature` arg
 /// pins the owning feature name on the IR record so cross-feature doctor
 /// checks can rebuild `<feature>.agent.<name>` references.
-pub fn lower_agent(
-    feature: &str,
-    agent: &syntax::Agent,
-) -> Result<ir::Agent, AnalyzeError> {
+pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, AnalyzeError> {
     let input = agent
         .input
         .iter()
@@ -826,10 +825,7 @@ pub fn lower_agent(
         None => (ir::AgentOutputKind::Text, None, None),
     };
 
-    let model = agent
-        .model
-        .as_ref()
-        .map(|s| qualified_namespace(s));
+    let model = agent.model.as_ref().map(|s| qualified_namespace(s));
 
     let safety = agent
         .safety
@@ -912,10 +908,7 @@ fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
 /// Lower a single tool reference. `feature` is the owning feature so the
 /// short form `query.by_id` rewrites to `Local` and the analyzer
 /// preserves the same-feature locality for the expand pass to resolve.
-fn lower_tool_ref(
-    raw: &str,
-    _feature: &str,
-) -> Result<ir::QualifiedToolRef, AnalyzeError> {
+fn lower_tool_ref(raw: &str, _feature: &str) -> Result<ir::QualifiedToolRef, AnalyzeError> {
     if let Some(rest) = raw.strip_prefix("@tool.") {
         if rest.is_empty() {
             return Err(AnalyzeError::InvalidToolRef {
@@ -1097,10 +1090,7 @@ fn find_top_level_operator(text: &str, op: &str) -> Option<usize> {
 /// `Path` — the analyzer narrows once symbols resolve in expand.
 fn expr_from_text(text: &str) -> ir::Expr {
     let text = text.trim();
-    if let Some(stripped) = text
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-    {
+    if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
         return ir::Expr::String(stripped.to_owned());
     }
     if let Ok(n) = text.parse::<i64>() {
@@ -1112,9 +1102,7 @@ fn expr_from_text(text: &str) -> ir::Expr {
         "nil" => return ir::Expr::Nil,
         _ => {}
     }
-    ir::Expr::Path(ir::Path::from_segments(
-        text.split('.').map(str::to_owned),
-    ))
+    ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)))
 }
 
 /// Build a feature-local `QualifiedName` (no feature prefix).
@@ -1367,7 +1355,11 @@ feature customer
         assert_eq!(agent.tools.len(), 5);
 
         match &agent.tools[0].reference {
-            ir::QualifiedToolRef::CrossFeature { feature, kind, name } => {
+            ir::QualifiedToolRef::CrossFeature {
+                feature,
+                kind,
+                name,
+            } => {
                 assert_eq!(feature, "customer");
                 assert_eq!(*kind, ir::ToolKind::QueryUnspecified);
                 assert_eq!(name, "by_id");
@@ -1821,16 +1813,12 @@ feature customer_auth
 
     #[test]
     fn type_ref_from_syntax_lowers_full_cap_file() {
-        let ty = type_ref_from_syntax(
-            "@cap.File(max_size:25mb,accept:text/csv,visibility:private)",
-        );
+        let ty =
+            type_ref_from_syntax("@cap.File(max_size:25mb,accept:text/csv,visibility:private)");
         match ty {
             ir::TypeRef::Capability(ir::CapabilityRef::File(file)) => {
                 assert_eq!(file.max_size.bytes, 25 * 1024 * 1024);
-                assert!(matches!(
-                    file.max_size.literal,
-                    ir::FileSizeLiteral::Mb(25)
-                ));
+                assert!(matches!(file.max_size.literal, ir::FileSizeLiteral::Mb(25)));
                 assert_eq!(file.accept.len(), 1);
                 assert_eq!(file.accept[0].family, "text");
                 assert_eq!(file.accept[0].subtype, "csv");

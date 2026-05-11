@@ -87,13 +87,7 @@ fn write_resource(s: &mut String, resource: &RuntimeResource) {
     writeln!(s, "  id: ID;").ok();
     writeln!(s, "  org_id: ID;").ok();
     for field in &resource.fields {
-        writeln!(
-            s,
-            "  {}: {};",
-            field.name,
-            field_kind_ts(field.kind)
-        )
-        .ok();
+        writeln!(s, "  {}: {};", field.name, field_kind_ts(field.kind)).ok();
     }
     writeln!(s, "  created_at: Time;").ok();
     writeln!(s, "  updated_at: Time;").ok();
@@ -125,10 +119,7 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
     // because the Go runtime's `lazuli.FromInput("ID")` binds against the
     // Go struct field name. Pure body-input commands lowercase every key
     // (idiomatic JSON, what most external clients expect).
-    let preserve_case = command
-        .inputs
-        .iter()
-        .any(|i| i.field_name == "ID");
+    let preserve_case = command.inputs.iter().any(|i| i.field_name == "ID");
     writeln!(s, "export interface {input_iface} {{").ok();
     for input in &command.inputs {
         let key = if preserve_case {
@@ -220,12 +211,7 @@ fn write_query_arg(s: &mut String, arg: &RuntimeArg) {
         arg.field_name.to_ascii_lowercase()
     };
     let suffix = if arg.optional { "?" } else { "" };
-    writeln!(
-        s,
-        "  {key}{suffix}: {ty};",
-        ty = field_kind_ts(arg.kind)
-    )
-    .ok();
+    writeln!(s, "  {key}{suffix}: {ty};", ty = field_kind_ts(arg.kind)).ok();
 }
 
 // ----------------------------------------------------------------------------

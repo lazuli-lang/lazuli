@@ -239,6 +239,16 @@ pub struct Feature {
     pub workflows: Vec<Workflow>,
     pub jobs: Vec<Job>,
     pub webhooks: Vec<Webhook>,
+    /// Phase L Tier 3 — `notification <name>` declarations lifted from
+    /// the canonical-indent slice. Legacy lowering leaves this empty;
+    /// the inspect projection used to harvest notifications via
+    /// text-pattern and now reads from IR when populated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notifications: Vec<Notification>,
+    /// Phase L Tier 3 — `event_group <pattern> on <Resource>`
+    /// declarations lifted from the canonical-indent slice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_groups: Vec<EventGroup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<Auth>,
     pub surfaces: Vec<Surface>,
@@ -2005,6 +2015,24 @@ pub struct Job {
     pub retry: Option<RetryPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyRef>,
+    /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
+    /// Lowered from the canonical-indent slice; doctor cross-checks
+    /// the path against the resource tenancy axis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_from: Option<TenantFromSpec>,
+    /// Phase L Tier 3 — `fanout tenants <axis>` scheduled-job
+    /// declaration. `None` for non-scheduled or single-tenant jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fanout: Option<FanoutSpec>,
+    /// Phase L Tier 3 — `timeout "<duration>"`. Adapter-parsed string;
+    /// language keeps the literal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    /// Phase L Tier 3 — `calls <slot>.<op>` external-call references
+    /// surfaced from the job body. Doctor uses these for cross-feature
+    /// integration coverage (`INT-CALL-*`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external_calls: Vec<ExternalCallRef>,
     pub body: JobBody,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
@@ -2075,6 +2103,19 @@ pub struct JobDeclarative {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lets: Vec<LetBinding>,
     pub effect: CommandEffect,
+    /// Phase L Tier 3 (Route C carve-out) — when the Tier 3 parser
+    /// recognises a declarative body but the declarative spine
+    /// (`TargetExpr` / `LetBinding` / `CommandEffect`) hasn't been
+    /// lowered yet (Tier 4 territory), the raw source lines are
+    /// preserved here so consumers can still see the body. Filled by
+    /// `parse_job`; cleared by Tier 4 when `parse_command` lowers the
+    /// shared declarative spine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub raw_lets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_effect: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2083,6 +2124,16 @@ pub struct Webhook {
     /// Inbound HTTP path: `"/webhooks/stripe/invoice-paid"`.
     pub route: String,
     pub verify: PathRef,
+    /// Phase L Tier 3 — structured `verify hmac <alg>` declaration.
+    /// `None` for legacy text-pattern webhooks; `Some` when the
+    /// canonical-indent parser lifted the structured form. Coexists
+    /// with `verify: PathRef` because the legacy path uses a file
+    /// reference for verifier bodies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_verify: Option<VerifySpec>,
+    /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_from: Option<TenantFromSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency: Option<IdempotencyKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2094,6 +2145,135 @@ pub struct Webhook {
     pub emits: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor used by
+/// jobs, webhooks, and notifications. Captures the path verbatim;
+/// doctor splits and validates against tenancy axes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantFromSpec {
+    /// `payload.org_id`, `envelope.tenant_id`, etc.
+    pub path: Path,
+}
+
+/// Phase L Tier 3 — `fanout tenants <axis>` scheduled-job fanout
+/// directive. `scope` is closed (`Tenants` today); the `axis` carries
+/// the partition key the doctor cross-checks against the feature's
+/// tenancy axis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FanoutSpec {
+    pub scope: FanoutScope,
+    pub axis: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FanoutScope {
+    /// `fanout tenants <axis>` — one execution per tenant per fire.
+    Tenants,
+}
+
+/// Phase L Tier 3 — structured webhook verification spec. Replaces the
+/// legacy `verify: PathRef` for canonical-indent webhooks: the
+/// algorithm is closed, the secret is an env binding, and the header is
+/// a literal string. Bare `PathRef` `verify` stays in place for the
+/// legacy text-pattern path until Tier 4.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifySpec {
+    pub scheme: VerifyScheme,
+    pub algorithm: String,
+    pub secret_env: String,
+    pub header: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VerifyScheme {
+    /// `verify hmac <alg>` — the canonical inbound verifier today.
+    Hmac,
+}
+
+/// Phase L Tier 3 — `calls <slot>.<op>` reference surfaced from the
+/// job body. The slot is a registry integration name and the op is the
+/// adapter method; doctor pairs these against the feature's
+/// `integrations` block. `args` carries the named-argument bindings
+/// declared on the call site.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalCallRef {
+    pub slot: String,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<NamedArg>,
+}
+
+/// Phase L Tier 3 — `notification <name>` declarative contract.
+///
+/// `channel`, `recipient`, `template`, and `trigger` are the
+/// notification-specific axes; `tenant_from`, `idempotency`, `retry`,
+/// `emits`, and `policy` reuse the same shapes as jobs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notification {
+    pub name: String,
+    /// `trigger event <feature>.<event>` or `trigger schedule "<cron>"`.
+    pub trigger: JobTrigger,
+    /// `channel email, in_app`. Closed catalog enforced by
+    /// `NOTIF-CHANNEL-001`: `email`, `in_app`, `sms`, `push`, `slack`,
+    /// `discord`, `webhook`.
+    pub channels: Vec<String>,
+    /// `recipient target.email` — a path captured verbatim. Lowering
+    /// keeps the literal so the adapter resolves against the live
+    /// payload.
+    pub recipient: String,
+    /// `template "./outreach/welcome.mjml"`.
+    pub template: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_from: Option<TenantFromSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency: Option<IdempotencyKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryPolicy>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Phase L Tier 3 — `event_group <pattern> on <Resource>` declaration.
+///
+/// The pattern is a glob (`customer_*`) the doctor uses to bind
+/// concrete events authored under the group. The lifted IR records the
+/// pattern + the owning resource verbatim; the payload block is
+/// captured as a raw string list (Tier 4 lifts to typed event-field
+/// projection).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventGroup {
+    /// `customer_*` — glob pattern matched against event names.
+    pub pattern: String,
+    /// `on Customer` — owning resource type. `None` for resource-free
+    /// groups (none in the fixture today; the field stays optional for
+    /// forward compatibility).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_resource: Option<String>,
+    /// `payload` child lines captured verbatim. Tier 4 lifts into typed
+    /// `EventField`/`Expr` shapes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub raw_payload: Vec<String>,
+    /// `audit ...` line captured verbatim. None when not authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_audit: Option<String>,
+    /// Concrete events authored directly under this group, identified
+    /// by name only. The actual event records remain attached to
+    /// `Feature.events`; this slot records the inheritance link so
+    /// doctor can run `EVENTGROUP-NESTING-001` and the pattern-prefix
+    /// rule (`event_group_can_own_short_event_declarations`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

@@ -9,8 +9,9 @@ use crate::ast::{
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Auth,
     AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Command, ContainsRhs,
     Document, FeatureSkeleton, Field, FieldModifier, HttpMethod, LzxAction, LzxApp, LzxAudience,
-    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
-    LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query, Span, Surface, ToolsCallsOp,
+    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
+    LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query, Span, Surface,
+    ToolsCallsOp,
 };
 
 #[derive(Parser)]
@@ -1200,10 +1201,7 @@ fn parse_feature_skeleton(
     ))
 }
 
-fn parse_agent(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(Agent, usize), ParseError> {
+fn parse_agent(lines: &[SourceLine<'_>], start: usize) -> Result<(Agent, usize), ParseError> {
     let header = &lines[start];
     let header_trimmed = header.text.trim_start();
     let name = header_trimmed
@@ -1604,9 +1602,10 @@ fn parse_auth_sessions(
         } else if let Some(rest) = trimmed.strip_prefix("ttl ") {
             ttl = Some(unquote_lzx_value(rest.trim()).to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("refresh ") {
-            refresh = Some(parse_lzx_bool(rest.trim()).ok_or_else(|| {
-                line_error(line, "`refresh` must be `true` or `false`")
-            })?);
+            refresh = Some(
+                parse_lzx_bool(rest.trim())
+                    .ok_or_else(|| line_error(line, "`refresh` must be `true` or `false`"))?,
+            );
         } else {
             return Err(line_error(
                 line,
@@ -1847,9 +1846,7 @@ fn parse_agent_expose(
             "`expose http` requires `method <GET|POST|PUT|PATCH|DELETE>`",
         )
     })?;
-    let path = path.ok_or_else(|| {
-        line_error(header, "`expose http` requires `path \"<url>\"`")
-    })?;
+    let path = path.ok_or_else(|| line_error(header, "`expose http` requires `path \"<url>\"`"))?;
 
     Ok((
         AgentExpose {
@@ -1868,12 +1865,9 @@ fn parse_agent_expose_route_slot(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<AgentExposeRouteSlot, ParseError> {
-    let (name_part, type_part) = rest.split_once(':').ok_or_else(|| {
-        line_error(
-            line,
-            "`route` slot must be `route <name>: <Type>`",
-        )
-    })?;
+    let (name_part, type_part) = rest
+        .split_once(':')
+        .ok_or_else(|| line_error(line, "`route` slot must be `route <name>: <Type>`"))?;
     let name = name_part.trim().to_owned();
     if name.is_empty() {
         return Err(line_error(line, "`route` slot is missing a name"));
@@ -1926,7 +1920,10 @@ fn parse_agent_input(
 fn parse_agent_input_slot(line: &SourceLine<'_>) -> Result<AgentInputSlot, ParseError> {
     let trimmed = line.text.trim_start();
     let (name_part, rest) = trimmed.split_once(':').ok_or_else(|| {
-        line_error(line, "input slot must be `<name>: <type> [required|optional]`")
+        line_error(
+            line,
+            "input slot must be `<name>: <type> [required|optional]`",
+        )
     })?;
 
     let name = name_part.trim();
@@ -1966,10 +1963,7 @@ fn parse_agent_input_slot(line: &SourceLine<'_>) -> Result<AgentInputSlot, Parse
 
 /// Parse the value side of an `output ...` declaration. The leading
 /// `output ` prefix has already been consumed by the caller.
-fn parse_agent_output_value(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<AgentOutput, ParseError> {
+fn parse_agent_output_value(line: &SourceLine<'_>, rest: &str) -> Result<AgentOutput, ParseError> {
     let trimmed = rest.trim();
     if let Some(rest) = trimmed.strip_prefix("stream ") {
         let type_ref = rest.trim();
@@ -2084,9 +2078,7 @@ fn parse_agent_evals(
         let case_name = trimmed
             .strip_prefix("case ")
             .map(|rest| rest.trim().to_owned())
-            .ok_or_else(|| {
-                line_error(line, "eval children must be `case <name>` blocks")
-            })?;
+            .ok_or_else(|| line_error(line, "eval children must be `case <name>` blocks"))?;
         if case_name.is_empty() {
             return Err(line_error(line, "`case` requires a name"));
         }
@@ -2154,10 +2146,7 @@ fn parse_agent_evals(
 /// float when present. Adapter convention defaults to 0.85 when
 /// omitted; the parser records `None` so authors can override at
 /// adapter level without language-side ambiguity.
-fn parse_eval_golden(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<AgentEvalGolden, ParseError> {
+fn parse_eval_golden(line: &SourceLine<'_>, rest: &str) -> Result<AgentEvalGolden, ParseError> {
     let trimmed = rest.trim();
     if !trimmed.starts_with('"') {
         return Err(line_error(
@@ -2168,22 +2157,17 @@ fn parse_eval_golden(
     // Find the closing quote without scanning past min_score.
     let body = &trimmed[1..];
     let Some(closing) = body.find('"') else {
-        return Err(line_error(
-            line,
-            "`golden` path is missing a closing quote",
-        ));
+        return Err(line_error(line, "`golden` path is missing a closing quote"));
     };
     let path = body[..closing].to_owned();
     let after = body[closing + 1..].trim();
     let min_score = if after.is_empty() {
         None
     } else if let Some(score_text) = after.strip_prefix("min_score ") {
-        let value: f64 = score_text.trim().parse().map_err(|_| {
-            line_error(
-                line,
-                "`min_score` must be a decimal between 0.0 and 1.0",
-            )
-        })?;
+        let value: f64 = score_text
+            .trim()
+            .parse()
+            .map_err(|_| line_error(line, "`min_score` must be a decimal between 0.0 and 1.0"))?;
         if !(0.0..=1.0).contains(&value) {
             return Err(line_error(
                 line,
@@ -2243,9 +2227,9 @@ fn parse_eval_predicate(
                 "`tools.calls` requires `includes` or `excludes` followed by a tool reference",
             )
         })?;
-        let target = parts.next().ok_or_else(|| {
-            line_error(line, "`tools.calls` requires a tool reference target")
-        })?;
+        let target = parts
+            .next()
+            .ok_or_else(|| line_error(line, "`tools.calls` requires a tool reference target"))?;
         if parts.next().is_some() {
             return Err(line_error(
                 line,
@@ -2272,7 +2256,10 @@ fn parse_eval_predicate(
         let lhs = body[..idx].trim().to_owned();
         let rhs = body[idx + " contains ".len()..].trim();
         if lhs.is_empty() {
-            return Err(line_error(line, "`contains` predicate requires a left-hand reference"));
+            return Err(line_error(
+                line,
+                "`contains` predicate requires a left-hand reference",
+            ));
         }
         let rhs = parse_contains_rhs(line, rhs)?;
         return Ok(AgentEvalPredicate::Contains { lhs, rhs });
@@ -2306,10 +2293,7 @@ fn find_contains_keyword(body: &str) -> Option<usize> {
     None
 }
 
-fn parse_contains_rhs(
-    line: &SourceLine<'_>,
-    rhs: &str,
-) -> Result<ContainsRhs, ParseError> {
+fn parse_contains_rhs(line: &SourceLine<'_>, rhs: &str) -> Result<ContainsRhs, ParseError> {
     let rhs = rhs.trim();
     if rhs.is_empty() {
         return Err(line_error(line, "`contains` requires a right-hand value"));
@@ -2346,9 +2330,9 @@ fn split_policy_atoms(value: &str) -> Vec<String> {
 }
 
 fn parse_float(line: &SourceLine<'_>, rest: &str) -> Result<f64, ParseError> {
-    rest.trim().parse::<f64>().map_err(|_| {
-        line_error(line, "expected a decimal value (e.g. `0`, `0.2`)")
-    })
+    rest.trim()
+        .parse::<f64>()
+        .map_err(|_| line_error(line, "expected a decimal value (e.g. `0`, `0.2`)"))
 }
 
 fn parse_uint32(line: &SourceLine<'_>, rest: &str) -> Result<u32, ParseError> {
@@ -2637,9 +2621,7 @@ experience customer_tags
     // -------------------------------------------------------------------------
 
     use super::parse_feature_skeletons;
-    use crate::{
-        AgentEvalKind, AgentEvalPredicate, AgentOutput, ContainsRhs, ToolsCallsOp,
-    };
+    use crate::{AgentEvalKind, AgentEvalPredicate, AgentOutput, ContainsRhs, ToolsCallsOp};
 
     #[test]
     fn agent_with_tools_block_parses() {
@@ -2669,13 +2651,13 @@ feature customer
         assert_eq!(agent.input[0].name, "message");
         assert_eq!(agent.input[0].type_text, "Text");
         assert!(agent.input[0].required);
-        assert_eq!(agent.policy.as_deref(), Some(&["@policy.read".to_owned()][..]));
+        assert_eq!(
+            agent.policy.as_deref(),
+            Some(&["@policy.read".to_owned()][..])
+        );
         assert_eq!(agent.model.as_deref(), Some("@llm.default"));
         assert_eq!(agent.prompt.as_deref(), Some("./prompts/triage.md"));
-        assert_eq!(
-            agent.output,
-            Some(AgentOutput::Stream("Text".to_owned()))
-        );
+        assert_eq!(agent.output, Some(AgentOutput::Stream("Text".to_owned())));
         assert_eq!(agent.tools.len(), 3);
         assert_eq!(agent.tools[0].reference, "customer.query.by_id");
         assert_eq!(agent.tools[1].reference, "customer.query.list");
@@ -2986,10 +2968,7 @@ feature customer
       rate_limit "5 per minute per user"
 "#;
         let features = parse_feature_skeletons(source).unwrap();
-        let expose = features[0].agents[0]
-            .expose
-            .as_ref()
-            .expect("expose");
+        let expose = features[0].agents[0].expose.as_ref().expect("expose");
         assert_eq!(expose.route_slots.len(), 1);
         assert_eq!(expose.route_slots[0].name, "customer_id");
         assert_eq!(expose.route_slots[0].type_text, "Customer.ID");

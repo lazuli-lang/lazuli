@@ -4,7 +4,7 @@
 //! IDE tooling, LLM authoring) can hand the codegen a JSON manifest and
 //! get the same output as the in-process fixture.
 
-use lazuli_codegen_spec::{customer_spike, RuntimeFeature};
+use lazuli_codegen_spec::{RuntimeFeature, customer_spike};
 
 #[test]
 fn fixture_round_trips_through_json() {

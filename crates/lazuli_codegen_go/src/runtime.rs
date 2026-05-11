@@ -20,11 +20,10 @@ use lazuli_codegen_spec::{
 /// banner, resource declaration, one section per command, one section per
 /// query, and a final `init()` with `lazuli.Register(...)`.
 pub fn emit_feature_go(feature: &RuntimeFeature) -> String {
-    let needs_time = feature.queries.iter().any(|q| {
-        q.cache
-            .as_ref()
-            .is_some_and(|c| c.ttl.contains("time."))
-    });
+    let needs_time = feature
+        .queries
+        .iter()
+        .any(|q| q.cache.as_ref().is_some_and(|c| c.ttl.contains("time.")));
 
     let mut s = String::new();
     write_header(&mut s, feature);
@@ -268,14 +267,14 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
 fn write_effect(s: &mut String, command: &RuntimeCommand, resource_var: &str) {
     match command.effect {
         RuntimeEffect::CreatesFromInput => {
-            writeln!(s, "\tEffect: lazuli.Creates(&{resource_var}, lazuli.Bindings{{").ok();
+            writeln!(
+                s,
+                "\tEffect: lazuli.Creates(&{resource_var}, lazuli.Bindings{{"
+            )
+            .ok();
             for input in &command.inputs {
                 let column = input.field_name.to_ascii_lowercase();
-                writeln!(
-                    s,
-                    "\t\t\"{column}\": lazuli.FromInput(\"{column}\"),"
-                )
-                .ok();
+                writeln!(s, "\t\t\"{column}\": lazuli.FromInput(\"{column}\"),").ok();
             }
             writeln!(s, "\t}}),").ok();
         }
@@ -309,7 +308,11 @@ fn write_effect(s: &mut String, command: &RuntimeCommand, resource_var: &str) {
             writeln!(s, "\t),").ok();
         }
         RuntimeEffect::DeletesByID => {
-            writeln!(s, "\tEffect: lazuli.Deletes(&{resource_var}, lazuli.Bindings{{").ok();
+            writeln!(
+                s,
+                "\tEffect: lazuli.Deletes(&{resource_var}, lazuli.Bindings{{"
+            )
+            .ok();
             writeln!(s, "\t\t\"id\": lazuli.FromInput(\"ID\"),").ok();
             writeln!(s, "\t}}),").ok();
         }
@@ -384,7 +387,11 @@ fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
         s,
         &[
             format!("Query: {qualified_name}"),
-            format!("  query.{} {}", query_kind_word(query.kind), query.short_name),
+            format!(
+                "  query.{} {}",
+                query_kind_word(query.kind),
+                query.short_name
+            ),
         ],
     );
 
@@ -657,7 +664,11 @@ fn command_var_name(short_name: &str, resource_pascal: &str, _resource_name: &st
 fn build_db_json_rows(
     tagged: &[(String, String, String, String)],
 ) -> Vec<(String, String, String)> {
-    let max_db_key = tagged.iter().map(|(_, _, db, _)| db.len()).max().unwrap_or(0);
+    let max_db_key = tagged
+        .iter()
+        .map(|(_, _, db, _)| db.len())
+        .max()
+        .unwrap_or(0);
     tagged
         .iter()
         .map(|(name, ty, db, json)| {

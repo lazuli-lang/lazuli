@@ -290,14 +290,8 @@ pub fn customer_spike() -> RuntimeFeature {
                 emits: vec![RuntimeEmit {
                     name: "customer_archived".to_owned(),
                     kind: RuntimeEmitKind::Bind(vec![
-                        (
-                            "customer_id".to_owned(),
-                            EmitSource::Input("ID".to_owned()),
-                        ),
-                        (
-                            "actor_id".to_owned(),
-                            EmitSource::Ctx("user.id".to_owned()),
-                        ),
+                        ("customer_id".to_owned(), EmitSource::Input("ID".to_owned())),
+                        ("actor_id".to_owned(), EmitSource::Ctx("user.id".to_owned())),
                     ]),
                 }],
                 invalidates: vec![
