@@ -1103,7 +1103,53 @@ pub struct Webhook {
     pub handler: Option<WebhookHandler>,
     /// `emits <event>` lines.
     pub emits: Vec<String>,
+    /// Webhooks expanded cycle — `payload from webhook_events.<name>`
+    /// (verbatim suffix after `webhook_events.`). `None` when the
+    /// inbound webhook does not declare a typed envelope yet.
+    pub payload_from: Option<String>,
+    /// Webhooks expanded cycle — `replay` block (short or long form).
+    pub replay: Option<WebhookReplay>,
+    /// Webhooks expanded cycle — `dlq` block (three closed variants).
+    pub dlq: Option<WebhookDlq>,
+    /// Webhooks expanded cycle — `retry <count> backoff <strategy>`
+    /// inbound retry policy. Reuses the jobs-side `JobRetry` shape so
+    /// codegen and doctor diagnostics stay single-pathed (Atrito #5
+    /// of the canonical proposal).
+    pub retry: Option<JobRetry>,
     pub span: Span,
+}
+
+/// Webhooks expanded cycle — surface form of `replay` on an inbound
+/// webhook.
+///
+/// Short form: `replay allow within "24h"` (single line).
+/// Long form: a `replay` header with nested `allow`/`deny` + `within
+/// "..."` + optional `dedupe by <path>` children.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookReplay {
+    /// `allow` or `deny` — closed catalog enforced by the parser.
+    pub mode: String,
+    /// `within "<duration>"` — quoted duration verbatim.
+    pub within: Option<String>,
+    /// `dedupe by <path>` — path expression captured verbatim. `None`
+    /// reuses the webhook's `idempotency by ...` path.
+    pub dedupe_by: Option<String>,
+    pub span: Span,
+}
+
+/// Webhooks expanded cycle — surface form of `dlq` on an inbound
+/// webhook. The parser fails if more than one variant is authored on
+/// the same webhook.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WebhookDlq {
+    /// `dlq emit <event>` — publish a tombstone event after retry
+    /// exhaustion.
+    Emit { event: String, span: Span },
+    /// `dlq handler "./path.go"` — adapter-side handler.
+    Handler { path: String, span: Span },
+    /// `dlq drop reason "..."` — explicit waiver. Mirrors `verify
+    /// none reason "..."`.
+    Drop { reason: String, span: Span },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

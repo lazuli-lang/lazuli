@@ -18,7 +18,8 @@ use crate::ast::{
     LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
     Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl,
     ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, SqlQueryDecl, Surface,
-    TargetArgDecl, TargetExprDecl, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
+    TargetArgDecl, TargetExprDecl, ToolsCallsOp, Webhook, WebhookDlq, WebhookHandler,
+    WebhookReplay, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -4275,6 +4276,10 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
     let mut policy: Option<String> = None;
     let mut handler: Option<WebhookHandler> = None;
     let mut emits: Vec<String> = Vec::new();
+    let mut payload_from: Option<String> = None;
+    let mut replay: Option<WebhookReplay> = None;
+    let mut dlq: Option<WebhookDlq> = None;
+    let mut retry: Option<JobRetry> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -4331,10 +4336,49 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             emits.push(rest.trim().to_owned());
             last_end = line.end;
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("payload from ") {
+            // `payload from webhook_events.<name>` — the `webhook_events.`
+            // prefix is mandatory at the surface so the catalog is
+            // obvious to a cold-reading author/LLM; only the suffix is
+            // kept in the AST.
+            let raw = rest.trim();
+            let suffix = raw.strip_prefix("webhook_events.").ok_or_else(|| {
+                line_error(
+                    line,
+                    "`payload from` requires `webhook_events.<name>` (catalog prefix is mandatory)",
+                )
+            })?;
+            if suffix.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`payload from webhook_events.` requires an entry name",
+                ));
+            }
+            payload_from = Some(suffix.to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("replay") {
+            // Two surface forms:
+            //   `replay allow within "24h"`  (single-line short form)
+            //   `replay\n  allow\n  within "24h"\n  dedupe by ...`
+            // dispatched by inspecting the remainder of the header.
+            let (parsed, next) = parse_webhook_replay(lines, i, rest)?;
+            replay = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("dlq") {
+            let (parsed, next) = parse_webhook_dlq(lines, i, rest)?;
+            dlq = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("retry ") {
+            retry = Some(parse_job_retry(line, rest)?);
+            last_end = line.end;
+            i += 1;
         } else {
             return Err(line_error(
                 line,
-                "webhook children are `path`, `verify`, `tenant_from`, `idempotency by`, `policy`, `handler`, or `emits`",
+                "webhook children are `path`, `verify`, `tenant_from`, `idempotency by`, `policy`, `handler`, `emits`, `payload from`, `replay`, `retry`, or `dlq`",
             ));
         }
     }
@@ -4358,9 +4402,227 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             policy,
             handler,
             emits,
+            payload_from,
+            replay,
+            dlq,
+            retry,
             span: Span::new(header.start, last_end),
         },
         i,
+    ))
+}
+
+/// Webhooks expanded cycle — parse `replay` in either short form
+/// (`replay allow within "..."`) or long form (header + nested
+/// `allow`/`deny` + `within "..."` + optional `dedupe by <path>`).
+fn parse_webhook_replay(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    head_rest: &str,
+) -> Result<(WebhookReplay, usize), ParseError> {
+    let header = &lines[start];
+    let head = head_rest.trim();
+
+    if !head.is_empty() {
+        // Short form: `replay allow within "24h"` (`deny` has no
+        // `within`, so allow/deny dispatch happens first).
+        let mut tokens = head.split_whitespace();
+        let mode = tokens
+            .next()
+            .ok_or_else(|| line_error(header, "`replay` requires `allow` or `deny`"))?;
+        if mode != "allow" && mode != "deny" {
+            return Err(line_error(
+                header,
+                "`replay` mode must be `allow` or `deny`",
+            ));
+        }
+        let mut within: Option<String> = None;
+        let rest_tail: Vec<&str> = tokens.collect();
+        if !rest_tail.is_empty() {
+            // Expect `within "<duration>"`.
+            if rest_tail[0] != "within" || rest_tail.len() < 2 {
+                return Err(line_error(
+                    header,
+                    "`replay <mode>` short form takes only `within \"<duration>\"`",
+                ));
+            }
+            within = Some(unquote_lzx_value(rest_tail[1..].join(" ").trim()).to_owned());
+        }
+        return Ok((
+            WebhookReplay {
+                mode: mode.to_owned(),
+                within,
+                dedupe_by: None,
+                span: Span::new(header.start, header.end),
+            },
+            start + 1,
+        ));
+    }
+
+    // Long form: nested children at AGENT_INDENT_GRANDCHILD.
+    let mut mode: Option<String> = None;
+    let mut within: Option<String> = None;
+    let mut dedupe_by: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`replay` children use six-space indentation",
+            ));
+        }
+
+        if trimmed == "allow" || trimmed.starts_with("allow ") {
+            if mode.is_some() {
+                return Err(line_error(line, "`replay` declares `allow` or `deny` once"));
+            }
+            mode = Some("allow".to_owned());
+            // Allow `allow within "..."` on the same nested line as a
+            // shorthand inside the long form.
+            if let Some(rest) = trimmed.strip_prefix("allow ") {
+                let rest = rest.trim();
+                if let Some(within_rest) = rest.strip_prefix("within ") {
+                    within = Some(unquote_lzx_value(within_rest.trim()).to_owned());
+                } else {
+                    return Err(line_error(
+                        line,
+                        "`allow` only accepts a trailing `within \"<duration>\"`",
+                    ));
+                }
+            }
+        } else if trimmed == "deny" {
+            if mode.is_some() {
+                return Err(line_error(line, "`replay` declares `allow` or `deny` once"));
+            }
+            mode = Some("deny".to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("within ") {
+            within = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("dedupe by ") {
+            dedupe_by = Some(rest.trim().to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "`replay` children are `allow`, `deny`, `within`, or `dedupe by`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let mode = mode.ok_or_else(|| line_error(header, "`replay` requires `allow` or `deny`"))?;
+
+    Ok((
+        WebhookReplay {
+            mode,
+            within,
+            dedupe_by,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Webhooks expanded cycle — parse `dlq` with three mutually-exclusive
+/// surface forms:
+///
+///   `dlq emit <event>`
+///   `dlq handler "./..."`
+///   `dlq drop` + nested `reason "..."`
+fn parse_webhook_dlq(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    head_rest: &str,
+) -> Result<(WebhookDlq, usize), ParseError> {
+    let header = &lines[start];
+    let head = head_rest.trim();
+    let span = Span::new(header.start, header.end);
+
+    if let Some(rest) = head.strip_prefix("emit ") {
+        let event = rest.trim();
+        if event.is_empty() {
+            return Err(line_error(header, "`dlq emit` requires an event name"));
+        }
+        return Ok((
+            WebhookDlq::Emit {
+                event: event.to_owned(),
+                span,
+            },
+            start + 1,
+        ));
+    }
+
+    if let Some(rest) = head.strip_prefix("handler ") {
+        let path = unquote_lzx_value(rest.trim()).to_owned();
+        if path.is_empty() {
+            return Err(line_error(header, "`dlq handler` requires a quoted path"));
+        }
+        return Ok((WebhookDlq::Handler { path, span }, start + 1));
+    }
+
+    if head == "drop" || head.is_empty() && header.text.trim_start() == "dlq drop" {
+        // Long form only: `dlq drop` + nested `reason "..."`.
+        let mut reason: Option<String> = None;
+        let mut last_end = header.end;
+        let mut i = start + 1;
+
+        while i < lines.len() {
+            let line = &lines[i];
+            let trimmed = line.text.trim_start();
+            if is_trivia(trimmed) {
+                i += 1;
+                continue;
+            }
+            if line.indent <= AGENT_INDENT_AGENT_CHILD {
+                break;
+            }
+            if line.indent != AGENT_INDENT_GRANDCHILD {
+                return Err(line_error(
+                    line,
+                    "`dlq drop` children use six-space indentation",
+                ));
+            }
+            if let Some(rest) = trimmed.strip_prefix("reason ") {
+                reason = Some(unquote_lzx_value(rest.trim()).to_owned());
+            } else {
+                return Err(line_error(line, "`dlq drop` accepts only `reason \"...\"`"));
+            }
+            last_end = line.end;
+            i += 1;
+        }
+
+        let reason = reason.ok_or_else(|| {
+            line_error(
+                header,
+                "`dlq drop` requires `reason \"...\"` — silent drops on dead-letter must be explicit waivers",
+            )
+        })?;
+        return Ok((
+            WebhookDlq::Drop {
+                reason,
+                span: Span::new(header.start, last_end),
+            },
+            i,
+        ));
+    }
+
+    Err(line_error(
+        header,
+        "`dlq` children are `emit <event>`, `handler \"...\"`, or `drop`",
     ))
 }
 
