@@ -527,11 +527,15 @@ impl DoctorPackage {
                                         &mut feature_resources,
                                     );
                                     // Phase L Tier 4 follow-up — emit the
-                                    // typed command `external_calls`
+                                    // typed command + job `external_calls`
                                     // facts (replaces the retired
-                                    // `command` branch of
                                     // `collect_external_calls_in_block`).
                                     populate_command_external_calls_from_ir(
+                                        &file,
+                                        &feature,
+                                        &mut operational,
+                                    );
+                                    populate_job_external_calls_from_ir(
                                         &file,
                                         &feature,
                                         &mut operational,
@@ -1225,7 +1229,12 @@ fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts
             &lines[start..index],
             operational,
         );
-        collect_feature_external_calls(file, &feature, start, &lines[start..index], operational);
+        // Phase L Tier 4 follow-up — the `job` branch of
+        // `collect_external_calls_in_block` is retired alongside the
+        // legacy `command` branch. Jobs now flow through
+        // `populate_job_external_calls_from_ir` which reads
+        // `Job.external_calls[*].span_ref` plus the typed
+        // `Job.timeout` / `Job.retry` / `Job.idempotency` axes.
     }
 }
 
@@ -1287,54 +1296,56 @@ fn collect_feature_integration_requirements(
     }
 }
 
-fn collect_feature_external_calls(
+/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
+/// `job` branch of `collect_external_calls_in_block`. Walks each
+/// `job.external_calls` entry, reads `ExternalCallRef.span_ref` to
+/// anchor the diagnostic at the `calls <slot>.<op>` line, and emits an
+/// `ExternalCallFact` carrying the typed `has_timeout` / `has_retry` /
+/// `has_idempotency` axes lifted from the `Job` IR. The job branch of
+/// the legacy text walker is gone.
+fn populate_job_external_calls_from_ir(
     file: &DoctorFile,
-    feature: &str,
-    feature_start: usize,
-    lines: &[&str],
+    feature: &lazuli_ir::Feature,
     operational: &mut OperationalFacts,
 ) {
-    let mut index = 0;
-
-    while index < lines.len() {
-        let trimmed = lines[index].trim_start();
-        let leading = leading_spaces(lines[index]);
-
-        // Phase L Tier 4 follow-up — the `command` branch is retired.
-        // Commands now flow through `populate_command_external_calls_from_ir`
-        // which reads `Command.external_calls` + `Command.timeout` /
-        // `Command.retry` / `Command.idempotency` directly. The `job`
-        // branch remains text-pattern until a later cycle lifts job
-        // timeout/retry/idempotency consistently via the typed IR pass
-        // it already has (this collector still wins because it knows
-        // the exact `calls ` line offset, which `ExternalCallRef` lacks).
-        if leading == 2 && trimmed.starts_with("job ") {
-            let subject_name = match named_block_name(trimmed, "job") {
-                Some(name) => name,
-                None => {
-                    index += 1;
-                    continue;
+    if feature.jobs.is_empty() {
+        return;
+    }
+    let job_lines = collect_construct_lines(
+        &file.source,
+        "job ",
+        feature.jobs.iter().map(|j| j.name.as_str()).collect(),
+    );
+    for job in &feature.jobs {
+        if job.external_calls.is_empty() {
+            continue;
+        }
+        let header_line = job_lines.get(&job.name).copied().unwrap_or(1);
+        let has_timeout = job.timeout.is_some();
+        let has_retry = job.retry.is_some();
+        let has_idempotency = job.idempotency.is_some();
+        let subject = format!("{}.job.{}", feature.name, job.name);
+        for call in &job.external_calls {
+            let (call_line, call_column) = match call.span_ref.as_ref() {
+                Some(span) => {
+                    let (line, col) = line_col_for_offset(&file.source, span.start);
+                    (line, col)
                 }
+                None => (header_line, 1),
             };
-            let block_start = index;
-            index += 1;
-
-            while index < lines.len() && leading_spaces(lines[index]) > 2 {
-                index += 1;
-            }
-
-            collect_external_calls_in_block(
-                file,
-                feature,
-                feature_start,
-                "job",
-                subject_name,
-                block_start,
-                &lines[block_start..index],
-                operational,
-            );
-        } else {
-            index += 1;
+            operational.external_calls.push(ExternalCallFact {
+                path: file.path.clone(),
+                line: call_line,
+                column: call_column,
+                feature: feature.name.clone(),
+                subject_kind: "job".to_owned(),
+                subject: subject.clone(),
+                slot: call.slot.clone(),
+                operation: call.op.clone(),
+                has_timeout,
+                has_retry,
+                has_idempotency,
+            });
         }
     }
 }
@@ -1404,47 +1415,6 @@ fn populate_command_external_calls_from_ir(
                 has_idempotency,
             });
         }
-    }
-}
-
-fn collect_external_calls_in_block(
-    file: &DoctorFile,
-    feature: &str,
-    feature_start: usize,
-    subject_kind: &str,
-    subject_name: &str,
-    block_start: usize,
-    lines: &[&str],
-    operational: &mut OperationalFacts,
-) {
-    let has_timeout = block_has_prefixed_line(lines, "timeout ");
-    let has_retry = block_has_prefixed_line(lines, "retry ");
-    let has_idempotency = block_has_prefixed_line(lines, "idempotency by ");
-    let subject = format!("{feature}.{subject_kind}.{subject_name}");
-
-    for (offset, line) in lines.iter().enumerate().skip(1) {
-        let trimmed = line.trim_start();
-        if leading_spaces(line) != 4 {
-            continue;
-        }
-
-        let Some((slot, operation)) = parse_external_call_header(trimmed) else {
-            continue;
-        };
-
-        operational.external_calls.push(ExternalCallFact {
-            path: file.path.clone(),
-            line: feature_start + block_start + offset + 1,
-            column: leading_spaces(line) + 1,
-            feature: feature.to_owned(),
-            subject_kind: subject_kind.to_owned(),
-            subject: subject.clone(),
-            slot: slot.to_owned(),
-            operation: operation.to_owned(),
-            has_timeout,
-            has_retry,
-            has_idempotency,
-        });
     }
 }
 
@@ -4362,26 +4332,6 @@ fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
     } else {
         None
     }
-}
-
-fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
-    let rest = trimmed.strip_prefix("calls ")?;
-    let (slot, operation) = rest.trim().split_once('.')?;
-    let slot = slot.trim();
-    let operation = operation.trim();
-
-    if is_identifier(slot) && is_identifier(operation) {
-        Some((slot, operation))
-    } else {
-        None
-    }
-}
-
-fn block_has_prefixed_line(lines: &[&str], prefix: &str) -> bool {
-    lines
-        .iter()
-        .skip(1)
-        .any(|line| leading_spaces(line) == 4 && line.trim_start().starts_with(prefix))
 }
 
 fn route_slot_name(route: &str) -> Option<&str> {
@@ -8454,6 +8404,7 @@ mod tests {
                                 &feature,
                                 &mut operational,
                             );
+                            populate_job_external_calls_from_ir(&file, &feature, &mut operational);
                             for agent in feature.agents.clone() {
                                 let agent_line = agent
                                     .span_ref

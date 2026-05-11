@@ -1748,6 +1748,7 @@ fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
                 value: lower_raw_expr(&arg.value),
             })
             .collect(),
+        span_ref: Some(span_of(call.span)),
     }
 }
 

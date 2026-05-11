@@ -2749,12 +2749,18 @@ pub enum VerifyScheme {
 /// adapter method; doctor pairs these against the feature's
 /// `integrations` block. `args` carries the named-argument bindings
 /// declared on the call site.
+///
+/// Phase L Tier 4 follow-up — `span_ref` carries the call site's AST
+/// span so doctor anchors `INT-CALL-*` diagnostics on the `calls`
+/// line directly instead of text-walking the job body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternalCallRef {
     pub slot: String,
     pub op: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<NamedArg>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 /// Phase L Tier 3 — `notification <name>` declarative contract.
