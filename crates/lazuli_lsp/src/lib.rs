@@ -146,17 +146,22 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        Ok(Some(CompletionResponse::Array(
-            KEYWORDS
-                .iter()
-                .map(|keyword| CompletionItem {
-                    label: (*keyword).to_owned(),
-                    kind: Some(CompletionItemKind::KEYWORD),
-                    detail: keyword_description(keyword).map(str::to_owned),
-                    ..CompletionItem::default()
-                })
-                .collect(),
-        )))
+        let mut items: Vec<CompletionItem> = KEYWORDS
+            .iter()
+            .map(|keyword| CompletionItem {
+                label: (*keyword).to_owned(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: keyword_description(keyword).map(str::to_owned),
+                ..CompletionItem::default()
+            })
+            .collect();
+        items.extend(AUTH_CATALOG_VALUES.iter().map(|value| CompletionItem {
+            label: (*value).to_owned(),
+            kind: Some(CompletionItemKind::VALUE),
+            detail: auth_catalog_detail(value).map(str::to_owned),
+            ..CompletionItem::default()
+        }));
+        Ok(Some(CompletionResponse::Array(items)))
     }
 
     async fn document_symbol(
@@ -3580,9 +3585,7 @@ fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
 ///   - `<feature>.<above>` cross-feature prefix
 fn validate_tool_reference_shape(text: &str) -> Option<String> {
     if text.split_whitespace().count() != 1 {
-        return Some(
-            "each tool entry is a single qualified reference (one per line)".to_owned(),
-        );
+        return Some("each tool entry is a single qualified reference (one per line)".to_owned());
     }
     let token = text.trim();
     if token.contains("..") {
@@ -3814,9 +3817,7 @@ fn validate_eval_predicate_shape(body: &str) -> Option<String> {
             return Some("`tools.calls <op>` requires a tool reference target".to_owned());
         }
         if parts.next().is_some() {
-            return Some(
-                "`tools.calls <op> <ref>` accepts a single tool reference".to_owned(),
-            );
+            return Some("`tools.calls <op> <ref>` accepts a single tool reference".to_owned());
         }
         return None;
     }
@@ -4323,9 +4324,7 @@ fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 if leading_spaces(body) == 6 {
                     if let Some(rest) = body_trim.strip_prefix("by ") {
                         has_by = true;
-                        by_nonempty = rest
-                            .split(',')
-                            .any(|s| !s.trim().is_empty());
+                        by_nonempty = rest.split(',').any(|s| !s.trim().is_empty());
                     } else if let Some(rest) = body_trim.strip_prefix("timeout ") {
                         has_timeout = true;
                         timeout_nonempty = !rest.trim().is_empty();
@@ -4415,7 +4414,9 @@ fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// not start with a digit, must be non-empty.
 fn is_lower_ident(token: &str) -> bool {
     let mut chars = token.chars();
-    let Some(first) = chars.next() else { return false };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     if !(first.is_ascii_lowercase() || first == '_') {
         return false;
     }
@@ -9566,6 +9567,10 @@ fn is_security_enforcement_code(code: &str) -> bool {
             | "auth-password-algorithm"
             | "auth-password-rate-limit"
             | "auth-session-ttl"
+            | "auth_password_algorithm_hash_mismatch"
+            | "auth_sessions_resource_unknown"
+            | "auth_identity_field_unknown"
+            | "auth_oauth_adapter_unbound"
             | "security-opt-out-reason"
     )
 }
@@ -11399,7 +11404,7 @@ fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
 }
 
-fn keyword_description(keyword: &str) -> Option<&'static str> {
+pub fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
         "workspace" => Some(
             "Declares an optional distributed-system contract across local apps and external services.",
@@ -11534,7 +11539,26 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "defaults" => Some("Declares repeated feature defaults such as tenancy and timestamps."),
         "domain" => Some("Groups resources, records, queries, rules, and events."),
         "policies" => Some("Declares feature-local policy categories and field policies."),
-        "auth" => Some("Declares identity, credential, session, OAuth, or MFA contracts."),
+        "auth" => Some(
+            "Authentication block: groups identity, password, sessions, MFA, and OAuth subcontracts for a feature.",
+        ),
+        "identity" => Some(
+            "`identity <Resource>.<field>` — names the resource field used as the canonical login identifier.",
+        ),
+        "oauth" => Some(
+            "OAuth subcontract: `oauth <provider>` with `adapter @adapter.<x>`. v0 providers: `google`, `github`, `microsoft`, `apple`.",
+        ),
+        "mfa" => {
+            Some("MFA subcontract: `mfa <method>` with `enroll` + `verify`. v0 method: `totp`.")
+        }
+        "sessions" => Some("Sessions subcontract: backing resource + ttl + refresh policy."),
+        "refresh" => Some("Whether the session adapter issues refresh tokens. Default `false`."),
+        "enroll" => {
+            Some("Enrolment function reference (`@fn.*`) returning method-specific enrolment data.")
+        }
+        "verify" => {
+            Some("Verification reference (`@fn.*` or `@validator.*`) returning success/failure.")
+        }
         "errors" => Some("Declares public/private client error exposure defaults or cases."),
         "api" => {
             Some("Declares a custom typed HTTP endpoint outside command/query/webhook semantics.")
@@ -11588,7 +11612,9 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "output" => Some("Declares the response shape for a custom API endpoint."),
         "cache" => Some("Declares generated query cache identity and stale-time behavior."),
         "key" => Some("Declares a cache key, lookup key, or dedupe key depending on context."),
-        "ttl" => Some("Declares a time-to-live contract."),
+        "ttl" => Some(
+            "Time-to-live duration string parsed by the adapter (e.g., `\"7 days\"`, `\"30m\"`).",
+        ),
         "invalidates" => Some("Declares queries that become stale after a command succeeds."),
         "error" => Some("Declares a named public error case with status and exposure fields."),
         "expose" => Some("Declares which error fields are visible to generated clients."),
@@ -11608,7 +11634,13 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "integration" => {
             Some("Declares an abstract external integration requirement or registry capability.")
         }
-        "algorithm" => Some("Declares the current password/hash algorithm contract."),
+        "password" => Some("Password subcontract: hash + verify + algorithm (+ rate_limit)."),
+        "hash" => Some(
+            "Hashing function reference (`@fn.*`) returning a `@cap.Hashed(algorithm:<X>)` value.",
+        ),
+        "algorithm" => Some(
+            "Password hash algorithm. v0: `argon2id` (recommended) | `bcrypt` (legacy migration).",
+        ),
         "secret" => Some("Declares the secret source for declarative webhook verification."),
         "header" => Some("Declares the signature header for declarative webhook verification."),
         "modifier" => Some("Attaches a query modifier extension to a generated query."),
@@ -11651,7 +11683,7 @@ fn keyword_description(keyword: &str) -> Option<&'static str> {
         "hook" => Some("Declares a reusable lifecycle hook extension contract."),
         "validator" => Some("Declares a reusable validator extension contract."),
         "adapter" => Some(
-            "Declares an integration adapter source: `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path.",
+            "Adapter slot: `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path. Inside `auth`, resolved against `extensions adapter <name>` or `registry.integrations`.",
         ),
         "query_modifier" => Some("Declares a reusable query modifier extension contract."),
         "escape_route" => Some("Declares a custom route outside generated UI ownership."),
@@ -11703,6 +11735,15 @@ const KEYWORDS: &[&str] = &[
     "policies",
     "errors",
     "auth",
+    "identity",
+    "password",
+    "oauth",
+    "mfa",
+    "sessions",
+    "refresh",
+    "enroll",
+    "verify",
+    "hash",
     "api",
     "event_group",
     "event.trace",
@@ -11832,6 +11873,43 @@ const KEYWORDS: &[&str] = &[
     "unique",
     "default",
 ];
+
+/// Phase L — closed-catalog tokens offered as completion values for
+/// `auth` subblock slots. The slot context is not inferred today; the
+/// LSP simply offers these as `VALUE` completions so authors and LLMs
+/// see the canonical set alongside keyword completions.
+///
+/// - `algorithm` → `argon2id`, `bcrypt`
+/// - `oauth <provider>` → `google`, `github`, `microsoft`, `apple`
+/// - `mfa <method>` → `totp`
+/// - `refresh` → `true`, `false`
+pub const AUTH_CATALOG_VALUES: &[&str] = &[
+    "argon2id",
+    "bcrypt",
+    "google",
+    "github",
+    "microsoft",
+    "apple",
+    "totp",
+    "true",
+    "false",
+];
+
+/// Hover/completion description for a closed-catalog value.
+pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "argon2id" => Some("Password hash algorithm — recommended for v0."),
+        "bcrypt" => Some("Password hash algorithm — legacy migration only."),
+        "google" => Some("OAuth provider — `google`."),
+        "github" => Some("OAuth provider — `github`."),
+        "microsoft" => Some("OAuth provider — `microsoft`."),
+        "apple" => Some("OAuth provider — `apple`."),
+        "totp" => Some("MFA method — Time-based One-Time Password."),
+        "true" => Some("Boolean — `true`."),
+        "false" => Some("Boolean — `false`."),
+        _ => None,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -13848,7 +13926,9 @@ feature customer
         let diagnostics = diagnostics_for(source);
         let codes = diagnostic_codes(&diagnostics);
         assert!(
-            codes.iter().any(|c| c == "agent_expose_slot_must_use_route_diagnostics"),
+            codes
+                .iter()
+                .any(|c| c == "agent_expose_slot_must_use_route_diagnostics"),
             "expected slot_must_use_route; got: {codes:?}"
         );
     }
