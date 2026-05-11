@@ -337,6 +337,10 @@ impl DoctorPackage {
             &known_roles,
         ));
 
+        // Cut A.11 — `cors` block cross-checks against the app's
+        // declared environments + urls.
+        diagnostics.extend(cors_diagnostics(self.app.as_ref()));
+
         diagnostics.sort_by(|left, right| {
             left.path
                 .cmp(&right.path)
@@ -3885,6 +3889,135 @@ fn strip_quotes(text: &str) -> &str {
 }
 
 // -----------------------------------------------------------------------------
+// Cut A.11 — `cors` block cross-feature checks
+//
+// CORS lives in `app.lzi` (language-light tier) alongside `urls`.
+// Doctor validates origins against the declared environments + urls
+// and catches the CORS-spec violation of `allow_origins "*"` with
+// `allow_credentials true`.
+// -----------------------------------------------------------------------------
+
+fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    let Some(cors) = app_manifest.manifest.cors.as_ref() else {
+        return diagnostics;
+    };
+
+    let environments: BTreeSet<&str> = app_manifest
+        .manifest
+        .environments
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let declared_urls: Vec<&lazuli_ir::AppUrl> = app_manifest.manifest.urls.iter().collect();
+
+    let mut has_wildcard = false;
+    for rule in &cors.allow_origins {
+        // Environment must be declared in `app.environments`.
+        if !environments.contains(rule.environment.as_str()) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app_manifest.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "cors_unknown_environment_diagnostics".to_owned(),
+                message: format!(
+                    "`cors allow_origins {} ...` references an environment that is not in `app.environments` ({}).",
+                    rule.environment,
+                    environments_summary(&environments),
+                ),
+            });
+        }
+
+        for origin in &rule.origins {
+            if origin == "*" {
+                has_wildcard = true;
+                continue;
+            }
+            // Wildcards in subdomain (`https://*.example.com`) skip
+            // url-match — they're intentionally broader than any
+            // single URL declaration.
+            if origin.contains("*") {
+                continue;
+            }
+            // Compare against declared urls in the same environment.
+            // The match is prefix-based: a declared URL
+            // `https://app.example.com` allows the origin
+            // `https://app.example.com` (exact) — query string and
+            // path differences are tolerated by the CORS layer, so
+            // we compare scheme+host.
+            let documented = declared_urls
+                .iter()
+                .filter(|u| u.environment == rule.environment)
+                .any(|u| same_origin(&u.url, origin));
+            if !documented {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app_manifest.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "cors_origin_undocumented_diagnostics".to_owned(),
+                    message: format!(
+                        "`cors allow_origins {env} \"{origin}\"` does not match any `url <target> {env} ...` declaration. If the origin is a third-party caller, ignore; otherwise update `urls` so the source-of-truth stays consistent.",
+                        env = rule.environment,
+                    ),
+                });
+            }
+        }
+    }
+
+    // CORS spec forbids `allow_origins "*"` with `allow_credentials true`.
+    if has_wildcard && cors.allow_credentials {
+        diagnostics.push(DoctorDiagnostic {
+            path: app_manifest.path.clone(),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "cors_credentials_wildcard_conflict_diagnostics".to_owned(),
+            message: "`cors allow_origins ... \"*\"` cannot be combined with `allow_credentials true`. Per CORS spec, browsers reject the response. Either narrow the origin list or set `allow_credentials false`.".to_owned(),
+        });
+    }
+
+    diagnostics
+}
+
+fn environments_summary(environments: &BTreeSet<&str>) -> String {
+    if environments.is_empty() {
+        "none declared".to_owned()
+    } else {
+        environments
+            .iter()
+            .map(|e| format!("`{e}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// Compare two URLs by scheme + host (ignoring path, query, port
+/// where absent). A declared `url` is the canonical reference; the
+/// origin must match its scheme + authority for the CORS layer to
+/// recognise it as the same browser origin.
+fn same_origin(declared_url: &str, origin: &str) -> bool {
+    let canon = |raw: &str| {
+        let raw = raw.trim();
+        // Strip path / query — keep scheme + authority only.
+        let cut = raw
+            .find("://")
+            .and_then(|idx| {
+                let after = &raw[idx + 3..];
+                let tail_start = after.find('/').map(|p| idx + 3 + p);
+                tail_start.map(|p| raw[..p].to_owned())
+            })
+            .unwrap_or_else(|| raw.to_owned());
+        cut.trim_end_matches('/').to_owned()
+    };
+    canon(declared_url) == canon(origin)
+}
+
+// -----------------------------------------------------------------------------
 // Cut A.9 — `approval` primitive on commands
 // -----------------------------------------------------------------------------
 
@@ -5865,6 +5998,112 @@ feature customer
             "expected eval_ordered_op_invalid_diagnostics; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn doctor_rejects_cors_origin_in_unknown_environment() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  cors
+    allow_origins staging "https://staging.example.com"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cors_unknown_environment_diagnostics"),
+            "expected cors_unknown_environment_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_cors_wildcard_with_credentials() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  cors
+    allow_origins production "https://app.example.com"
+    allow_origins local "*"
+    allow_credentials true
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics)
+                .contains("cors_credentials_wildcard_conflict_diagnostics"),
+            "expected cors_credentials_wildcard_conflict_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_warns_cors_origin_not_in_urls() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  urls
+    web production "https://app.example.com"
+
+  cors
+    allow_origins production "https://stranger.example.com"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cors_origin_undocumented_diagnostics"),
+            "expected cors_origin_undocumented_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_cors_origin_matching_declared_url() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  urls
+    web production "https://app.example.com"
+
+  cors
+    allow_origins production "https://app.example.com"
+    allow_credentials true
+    max_age "1h"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes_set = codes(&diagnostics);
+        for code in [
+            "cors_unknown_environment_diagnostics",
+            "cors_credentials_wildcard_conflict_diagnostics",
+            "cors_origin_undocumented_diagnostics",
+        ] {
+            assert!(
+                !codes_set.contains(code),
+                "well-formed CORS must not produce {code}; got {:?}",
+                diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

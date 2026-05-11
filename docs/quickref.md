@@ -657,6 +657,40 @@ several agents). The boundary: "does the handler do work beyond
 translating HTTP to agent dispatch?" If yes, keep `api`. If no,
 `expose http` is the shortcut.
 
+## CORS (Cut A.11)
+
+`app.lzi` declares the browser-side CORS allowlist alongside `urls`.
+The runtime materialises middleware from this block; doctor catches
+origin/environment drift and the CORS-spec wildcard+credentials trap.
+
+```lazuli
+app MyApp
+  environments
+    local
+    production
+
+  urls
+    web production "https://app.example.com"
+    api production "https://api.example.com"
+
+  cors
+    allow_origins production "https://app.example.com", "https://*.example.com"
+    allow_origins local "*"
+    allow_credentials true
+    max_age "1h"
+```
+
+Children: `allow_origins <env> "<origin>"[, "<origin>"]+` (required,
+one or more lines), `allow_credentials true|false` (default `false`),
+`max_age "<duration>"` (adapter default `1h`). Methods aren't
+declared — runtime serves whatever `expose http` / `api` declare on
+the matching path.
+
+`allow_origins ... "*"` plus `allow_credentials true` rejects per
+CORS spec (browsers refuse the combination). Per-endpoint CORS
+overrides defer until pilot evidence shows the global allowlist
+fails — the 80% case is one block matching declared URLs.
+
 ## Approval (Cut A.9)
 
 Commands that need conditional human sign-off declare an `approval`

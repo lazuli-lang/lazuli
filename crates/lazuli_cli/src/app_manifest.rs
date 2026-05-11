@@ -1,12 +1,12 @@
 use lazuli_ir::{
-    AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppDeploy,
-    AppEnvVar, AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials,
-    AppManifest, AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy,
-    AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService,
-    AppServiceExposure, AppUrl, AppWorkspace, ContractEvent, ContractField, ContractImport,
-    ContractOperation, ContractOperationError, ContractRecord, FeatureRequirement, QualifiedName,
-    RegistryToolEntry, ToolEffect, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication,
-    WorkspaceGateway, WorkspaceGatewayRoute,
+    AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCors,
+    AppCorsOriginRule, AppDeploy, AppEnvVar, AppIntegration, AppIntegrationCredentialBinding,
+    AppIntegrationCredentials, AppManifest, AppPack, AppPackProvide, AppPackUse, AppProfile,
+    AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit,
+    AppService, AppServiceExposure, AppUrl, AppWorkspace, ContractEvent, ContractField,
+    ContractImport, ContractOperation, ContractOperationError, ContractRecord, FeatureRequirement,
+    QualifiedName, RegistryToolEntry, ToolEffect, WorkspaceApp, WorkspaceBoundary,
+    WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist
@@ -342,6 +342,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         communication: None,
         environments: Vec::new(),
         urls: Vec::new(),
+        cors: None,
         env: Vec::new(),
         integrations: Vec::new(),
         capabilities: Vec::new(),
@@ -427,6 +428,20 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                             environment: parts[1].to_owned(),
                             url: unquote(parts[2]).to_owned(),
                         });
+                    }
+                }
+                Some("cors") => {
+                    let cors = app.cors.get_or_insert_with(AppCors::default);
+                    if let Some(rest) = trimmed.strip_prefix("allow_origins ") {
+                        if let Some(rule) = parse_cors_allow_origins(rest) {
+                            cors.allow_origins.push(rule);
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("allow_credentials ") {
+                        if let Some(value) = parse_bool(rest.trim()) {
+                            cors.allow_credentials = value;
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("max_age ") {
+                        cors.max_age = Some(unquote(rest.trim()).to_owned());
                     }
                 }
                 Some("env") => {
@@ -1256,6 +1271,7 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         "targets" => Some("targets"),
         "environments" => Some("environments"),
         "urls" => Some("urls"),
+        "cors" => Some("cors"),
         "env" => Some("env"),
         "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
@@ -1295,6 +1311,31 @@ fn parse_bool(value: &str) -> Option<bool> {
         "false" => Some(false),
         _ => None,
     }
+}
+
+/// Cut A.11 — parse the tail of `allow_origins <env> "<origin>"[, "<origin>"]+`.
+/// `rest` is the substring after `allow_origins `. The function pulls
+/// the first whitespace-separated token as the environment, then
+/// splits the remainder on commas, unquoting each origin.
+fn parse_cors_allow_origins(rest: &str) -> Option<AppCorsOriginRule> {
+    let trimmed = rest.trim();
+    let (env, body) = trimmed.split_once(char::is_whitespace)?;
+    let environment = env.trim().to_owned();
+    if environment.is_empty() {
+        return None;
+    }
+    let origins: Vec<String> = body
+        .split(',')
+        .map(|raw| unquote(raw.trim()).to_owned())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if origins.is_empty() {
+        return None;
+    }
+    Some(AppCorsOriginRule {
+        environment,
+        origins,
+    })
 }
 
 fn used_feature_name(trimmed: &str) -> Option<&str> {

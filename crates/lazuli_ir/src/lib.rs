@@ -16,10 +16,13 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.7.0 for Cut A.10 — additive minor bump. New shapes:
-/// `EvalCase.golden`, `GoldenSpec`.
+/// Bumped to 0.8.0 for Cut A.11 — additive minor bump. New shapes:
+/// `AppManifest.cors`, `AppCors`, `AppCorsOriginRule`.
+///
+/// Previous: 0.7.0 — Cut A.10 added `EvalCase.golden`, `GoldenSpec`.
 ///
 /// History:
+/// - 0.7.0 — Cut A.10: `EvalCase.golden`, `GoldenSpec`.
 /// - 0.6.0 — Cut A.8: `BuiltInTraceEvent`, `BuiltInTraceRecord`,
 ///   `TraceFiresPer`, registry functions, reserved-name helper.
 /// - 0.5.0 — Cut A.7: `Agent.expose_http`, `HttpExposure`,
@@ -1097,6 +1100,10 @@ pub struct AppManifest {
     pub environments: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<AppUrl>,
+    /// Cut A.11 — CORS allowlist per environment. The runtime
+    /// materialises browser-side middleware from this declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cors: Option<AppCors>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env: Vec<AppEnvVar>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1268,6 +1275,34 @@ pub struct AppUrl {
     pub target: String,
     pub environment: String,
     pub url: String,
+}
+
+/// Cut A.11 — CORS declaration. Lives in `app.lzi` alongside `urls`;
+/// the runtime materialises browser-side CORS middleware from this
+/// shape. Doctor cross-checks origins against `environments` and
+/// declared `urls`; LSP catches shape errors at typing time.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppCors {
+    /// One entry per `allow_origins <env> "<origin>"...` line.
+    /// Multiple entries per environment merge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_origins: Vec<AppCorsOriginRule>,
+    /// `allow_credentials true | false`. Defaults to `false` (CORS
+    /// spec safe default).
+    #[serde(default)]
+    pub allow_credentials: bool,
+    /// Quoted duration string (e.g. `"1h"`, `"10 minutes"`). Adapter
+    /// parses to seconds. `None` lets the adapter pick its default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_age: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppCorsOriginRule {
+    pub environment: String,
+    pub origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

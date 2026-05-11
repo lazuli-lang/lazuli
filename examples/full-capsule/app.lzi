@@ -35,6 +35,12 @@ app AcmeCRM
     web production "https://app.acme.example"
     api production "https://api.acme.example"
 
+  cors
+    allow_origins production "https://app.acme.example"
+    allow_origins local "http://localhost:3000"
+    allow_credentials true
+    max_age "1h"
+
   architecture
     mode modular_monolith
     service_ready true

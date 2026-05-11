@@ -137,6 +137,7 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         communication: None,
         environments: Vec::new(),
         urls: Vec::new(),
+        cors: None,
         env: Vec::new(),
         integrations: Vec::new(),
         capabilities: Vec::new(),

@@ -337,6 +337,43 @@ language is unchanged.
 `eval_nondeterministic_warning` and
 `eval_ordered_op_invalid_diagnostics` enforce the boundary.
 
+### CORS lives in `app.lzi`, not in `expose http` (Cut A.11)
+
+CORS is declared at the `app.lzi` level (language-light tier)
+alongside `urls`, not as a child of `expose http` or `api`. Three
+reasons:
+
+1. **Boundary test:** CORS doesn't change static analysis of the
+   capsule contract — it shapes how the runtime configures HTTP
+   transport. By the existing `capability-layering.md` rules, that
+   makes it runtime/adapter territory. But it crosses into
+   language-light because *observability matters*: an LLM editing
+   the capsule to add `expose http path "/api/v2/foo"` needs to see
+   the allowlist; doctor needs to cross-check origins against
+   declared URLs; the source-of-truth invariant says configuration
+   that affects the generated API surface lives in source.
+2. **Shared shape with `urls`:** CORS is "which web app can call
+   which API per environment" — the same shape `urls per environment
+   per target` already declares. Putting CORS elsewhere duplicates
+   the environment + target dimension.
+3. **Per-endpoint defer:** the 80% case is a global allowlist
+   matching declared URLs. Per-endpoint overrides (`expose http cors
+   origins ...`) wait for pilot evidence — a real product where the
+   global allowlist fails because one endpoint needs wildcard or
+   different `allow_credentials`.
+
+**Methods aren't declared** in the `cors` block. The runtime
+catalogues whatever `expose http method` / `api method` declare and
+serves those on the matching path. Declaring methods in CORS would
+create a contradiction surface that doctor must reconcile.
+
+**Where**: proposal `docs/proposals/ai-primitives-cut-a-11.md`. IR:
+`AppManifest.cors: Option<AppCors>`, `AppCors`, `AppCorsOriginRule`.
+Doctor diagnostics `cors_unknown_environment_diagnostics`,
+`cors_credentials_wildcard_conflict_diagnostics`,
+`cors_origin_undocumented_diagnostics`. LSP file-local
+`cors_contract_diagnostics`.
+
 ### `approval` is the third write-tool guard (Cut A.9)
 
 Commands gain an optional `approval` block that gates dispatch on

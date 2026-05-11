@@ -161,6 +161,16 @@ source that only fails later.
   target command carries `approval` satisfy the guard without the
   agent's own `safety` validator. The runtime owns the approval UX +
   persistence; adapters handle transport.
+- `app.lzi` may declare an optional `cors` block (Cut A.11) carrying
+  per-environment allowlists. Required children: `allow_origins
+  <environment> "<origin>"[, "<origin>"]+` (one or more lines).
+  Optional: `allow_credentials true | false` (defaults `false`),
+  `max_age "<duration>"` (adapter default applies when omitted).
+  Methods aren't declared — the runtime serves whatever `expose http`
+  / `api` declare on the matching path. Doctor cross-checks: every
+  environment must appear in `app.environments`; non-wildcard origins
+  should match a declared `url <target> <env> ...`; `allow_origins
+  ... "*"` paired with `allow_credentials true` rejects (CORS spec).
 - `notification <name>` declares a multi-channel outbound notification.
   Required children: `channel <email|push|sms|in_app>[, ...]`,
   `recipient <expression>`, `trigger event <pattern>`, `template "./path"`,
