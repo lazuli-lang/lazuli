@@ -7530,13 +7530,22 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "capabilities" => Some("capabilities"),
                     "integrations" => Some("integrations"),
                     "packs" => Some("packs"),
+                    "tools" => Some("tools"),
+                    // Webhooks expanded cycle — registry-side catalog
+                    // of expected inbound envelope shapes. Indent-4
+                    // entries open new envelopes; indent-6 children
+                    // declare typed fields. Validation lives in the
+                    // doctor path (`WEBHOOK-PAYLOAD-001` etc.); the
+                    // LSP contract diagnostic only suppresses the
+                    // unknown-block warning.
+                    "webhook_events" => Some("webhook_events"),
                     _ => {
                         diagnostics.push(simple_canonical_diagnostic(
                             line_index,
                             line,
                             DiagnosticSeverity::WARNING,
                             "registry-contract",
-                            "registry blocks use `env`, `capabilities`, `integrations`, and `packs`.",
+                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, and `webhook_events`.",
                         ));
                         None
                     }
@@ -11930,6 +11939,37 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "emit_to" => Some(
             "Audit destination. Resolves to one of the reserved streams (`audit_log`, `audit_stream`) or to an `event_group <name>` declared in the same feature. Without `emit_to`, the runtime falls back to `audit_log`.",
         ),
+        // Webhooks expanded cycle — payload/replay/dlq hover catalog.
+        "webhook_events" => Some(
+            "Registry-side catalog of expected inbound envelope shapes. Each entry under `registry.webhook_events.<name>` is a typed external envelope referenced by `webhook ... payload from webhook_events.<name>`. Treated as external-origin: Lazuli does not assume the source is trustworthy, only that the contract matches what the provider documents.",
+        ),
+        "payload_from" => Some(
+            "Typed reference to a `registry.webhook_events.<name>` envelope. Surface form: `payload from webhook_events.<name>`. Doctor cross-checks the envelope name and validates `tenant_from payload.<axis>` / `idempotency by payload.<axis>` against the declared fields.",
+        ),
+        "replay" => Some(
+            "Declarative replay contract on an inbound webhook. Short form: `replay allow within \"<duration>\"`. Long form: `replay` header + nested `allow|deny` + optional `within \"...\"` + optional `dedupe by <path>`. `dedupe_by` defaults to the webhook's `idempotency by ...` path.",
+        ),
+        "allow" => Some(
+            "On `replay`: re-deliveries within the window are accepted; the runtime returns 200 without re-running the handler. Requires `within \"<duration>\"`.",
+        ),
+        "within" => Some(
+            "Replay window for `replay allow`. Quoted duration verbatim (e.g. `\"24h\"`, `\"7d\"`). The adapter parses; the language keeps the literal.",
+        ),
+        "dedupe" => Some(
+            "On `replay`: `dedupe by <path>` overrides the dedupe key used to detect re-deliveries. Without `dedupe by`, replay reuses the webhook's `idempotency by ...` path.",
+        ),
+        "dlq" => Some(
+            "Dead-letter routing after retry exhaustion. Three closed variants (mutually exclusive): `dlq emit <event>` publishes a tombstone event; `dlq handler \"./...\"` runs an adapter-side handler; `dlq drop` + `reason \"...\"` is an explicit waiver.",
+        ),
+        "emit" => Some(
+            "On `dlq`: `dlq emit <event>` publishes a tombstone event onto the bus after retry exhaustion. The event must be declared in the same feature (via `emits`, `event_group`, or `event.trace`).",
+        ),
+        "drop" => Some(
+            "On `dlq`: `dlq drop` discards re-delivery attempts after retry exhaustion. Must carry an explicit `reason \"...\"` waiver — silent drops on dead-letter are rejected by `WEBHOOK-DLQ-002`.",
+        ),
+        "from" => Some(
+            "Catalog hop. In `payload from webhook_events.<name>`, points at the registry-side envelope shape. The `webhook_events.` prefix is mandatory at the surface so the catalog is obvious to a cold-reading author.",
+        ),
         _ => None,
     }
 }
@@ -12142,6 +12182,16 @@ const KEYWORDS: &[&str] = &[
     "required",
     "unique",
     "default",
+    // Webhooks expanded cycle — payload/replay/dlq vocabulary.
+    "webhook_events",
+    "payload_from",
+    "replay",
+    "allow",
+    "within",
+    "dedupe",
+    "dlq",
+    "emit",
+    "drop",
 ];
 
 /// Phase L — closed-catalog tokens offered as completion values for

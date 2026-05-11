@@ -6,7 +6,8 @@ use lazuli_ir::{
     AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
     ContractRecord, DeployCheckpoint, FeatureRequirement, QualifiedName, RegistryToolEntry,
-    ToolEffect, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
+    ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp, WorkspaceBoundary,
+    WorkspaceCommunication, WorkspaceGateway,
     WorkspaceGatewayRoute,
 };
 
@@ -757,6 +758,7 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
         capabilities: Vec::new(),
         packs: Vec::new(),
         tools: Vec::new(),
+        webhook_events: Vec::new(),
     };
     let mut current_child: Option<&str> = None;
     let mut current_env_group: Option<String> = None;
@@ -770,6 +772,10 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     // commits to `registry.tools` (effect present) or records a defect.
     let mut pending_tool: Option<PendingTool> = None;
     let mut tool_defects: Vec<RegistryToolEntryDefect> = Vec::new();
+    // Webhooks expanded cycle — `webhook_events.<name>` envelope being
+    // built. Each new `<name>` at indent 4 stages a fresh
+    // `current_webhook_event_index` and fields at indent 6 land on it.
+    let mut current_webhook_event_index: Option<usize> = None;
 
     for (offset, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -788,6 +794,7 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                 current_integration = None;
                 current_integration_child = None;
                 current_pack = None;
+                current_webhook_event_index = None;
                 current_child = registry_child(trimmed);
             }
             4 => match current_child {
@@ -858,6 +865,24 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                         }
                     }
                 }
+                Some("webhook_events") => {
+                    // Each indent-4 line under `webhook_events` opens a
+                    // new envelope entry. The bare identifier is the
+                    // catalog key (`crm_customer_upsert`,
+                    // `stripe_invoice_paid`, etc.). Fields land at
+                    // indent 6.
+                    let name = trimmed.trim();
+                    if name.is_empty() || name.contains(' ') {
+                        current_webhook_event_index = None;
+                    } else {
+                        registry.webhook_events.push(WebhookEvent {
+                            name: name.to_owned(),
+                            fields: Vec::new(),
+                            span_ref: None,
+                        });
+                        current_webhook_event_index = registry.webhook_events.len().checked_sub(1);
+                    }
+                }
                 _ => {}
             },
             6 => {
@@ -926,6 +951,13 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                             feature: None,
                             name: rest.trim().to_owned(),
                         });
+                    }
+                } else if current_child == Some("webhook_events") {
+                    let Some(idx) = current_webhook_event_index else {
+                        continue;
+                    };
+                    if let Some(field) = parse_webhook_event_field(trimmed) {
+                        registry.webhook_events[idx].fields.push(field);
                     }
                 }
             }
@@ -1348,6 +1380,48 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
     }
 }
 
+/// Webhooks expanded cycle — parse one indent-6 line of a
+/// `webhook_events.<name>` envelope.
+///
+/// Grammar (positional, mirrors the per-record field shape):
+///
+/// ```text
+/// <field_name>: <Type> [@semantic.X | @pii.Y ...] (required | optional)
+/// ```
+///
+/// The type token is captured verbatim because the envelope is
+/// provider-side. `@semantic.*` / `@pii.*` decorators are collected
+/// into `capabilities` in author order. The trailing `required` or
+/// `optional` keyword toggles `required`.
+fn parse_webhook_event_field(trimmed: &str) -> Option<WebhookEventField> {
+    let (name_raw, rest) = trimmed.split_once(':')?;
+    let name = name_raw.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let tokens: Vec<&str> = rest.split_whitespace().collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    let type_text = tokens[0].to_owned();
+    let mut required = true;
+    let mut capabilities: Vec<String> = Vec::new();
+    for token in &tokens[1..] {
+        match *token {
+            "required" => required = true,
+            "optional" => required = false,
+            other if other.starts_with('@') => capabilities.push(other.to_owned()),
+            _ => {}
+        }
+    }
+    Some(WebhookEventField {
+        name: name.to_owned(),
+        type_text,
+        required,
+        capabilities,
+    })
+}
+
 fn registry_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "env" => Some("env"),
@@ -1355,6 +1429,9 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
         "capabilities" => Some("capabilities"),
         "packs" => Some("packs"),
         "tools" => Some("tools"),
+        // Webhooks expanded cycle — `webhook_events` is the registry-side
+        // catalog of expected inbound envelope shapes.
+        "webhook_events" => Some("webhook_events"),
         _ => None,
     }
 }

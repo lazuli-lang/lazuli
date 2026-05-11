@@ -30,3 +30,11 @@ registry
       environments sandbox, production
       credentials platform
         webhook_secret env.CRM_WEBHOOK_SECRET
+
+  webhook_events
+    crm_customer_upsert
+      external_id: Text required
+      org_id: ID required
+      email: @semantic.Email @pii.contact optional
+      payload_version: Text required
+      received_at: Timestamp required

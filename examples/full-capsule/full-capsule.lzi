@@ -781,13 +781,18 @@ feature customer_import
 
   webhook crm_customer_upsert
     path "/webhooks/crm/customer-upsert"
+    payload from webhook_events.crm_customer_upsert
     verify hmac sha256
       secret env.CRM_WEBHOOK_SECRET
       header "X-CRM-Signature"
     tenant_from payload.org_id
     idempotency by payload.org_id, payload.external_id
+    retry 5 backoff exponential
+    replay allow within "24h"
+    dlq emit customer_webhook_dead_lettered
     handler "./integrations/upsert_customer_from_crm.go" returns Customer
     emits customer_webhook_received
+    emits customer_webhook_dead_lettered
 
   extensions
     client import_history: ViewBlock[Customer]

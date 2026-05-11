@@ -628,7 +628,17 @@ impl DoctorPackage {
         // `JOB-FANOUT-002`, `WEBHOOK-SCOPE-001`, `NOTIF-CHANNEL-001`,
         // `EVENTGROUP-NESTING-001`). See
         // `docs/proposals/bucket-jobs-cycle.md` §Doctor/LSP.
-        diagnostics.extend(tier3_diagnostics(&self.tier3_facts));
+        //
+        // Rows 38–39 — Webhooks expanded cycle: eight additional
+        // IR-driven diagnostics (`WEBHOOK-PAYLOAD-001/002`,
+        // `WEBHOOK-REPLAY-001/002`, `WEBHOOK-DLQ-001/002/003`,
+        // `WEBHOOK-EVENT-001`). Threaded through the same
+        // `tier3_diagnostics` entry-point so the iteration over
+        // feature webhooks stays single-pathed.
+        diagnostics.extend(tier3_diagnostics(
+            &self.tier3_facts,
+            self.registry.as_ref().map(|reg| &reg.manifest),
+        ));
 
         // Row 34 — `event_group` pattern-prefix rule promoted from LSP
         // to doctor now that `EventGroup` IR exists.
@@ -2391,19 +2401,93 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
 /// gate on adapter binding evidence; the catalog stays narrow today.
 const NOTIFICATION_CHANNEL_CATALOG: &[&str] = &["email", "in_app", "slack", "discord", "webhook"];
 
-fn tier3_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+fn tier3_diagnostics(
+    facts: &[Tier3FeatureFacts],
+    registry: Option<&lazuli_ir::AppRegistry>,
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
+    let webhook_events: BTreeMap<&str, &lazuli_ir::WebhookEvent> = registry
+        .map(|r| {
+            r.webhook_events
+                .iter()
+                .map(|e| (e.name.as_str(), e))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    // Webhooks expanded cycle — track which `webhook_events.<name>`
+    // entries are referenced anywhere across the package. Anything
+    // unreferenced at the end fires `WEBHOOK-EVENT-001`.
+    let mut referenced_envelopes: BTreeSet<&str> = BTreeSet::new();
+
     for feature in facts {
+        // Webhooks expanded cycle — single feature event set used by
+        // `WEBHOOK-DLQ-001` (event-name resolution). Pulls from every
+        // construct in the feature that can declare or emit an event.
+        let mut declared_events: BTreeSet<String> = BTreeSet::new();
+        for job in &feature.jobs {
+            for e in &job.emits {
+                declared_events.insert(e.clone());
+            }
+        }
+        for webhook in &feature.webhooks {
+            for e in &webhook.emits {
+                declared_events.insert(e.clone());
+            }
+        }
+        for notification in &feature.notifications {
+            for e in &notification.emits {
+                declared_events.insert(e.clone());
+            }
+        }
+        for group in &feature.event_groups {
+            for e in &group.events {
+                declared_events.insert(e.clone());
+            }
+        }
+
         for job in &feature.jobs {
             tier3_job_diagnostics(feature, job, &mut diagnostics);
         }
         for webhook in &feature.webhooks {
-            tier3_webhook_diagnostics(feature, webhook, &mut diagnostics);
+            tier3_webhook_diagnostics(
+                feature,
+                webhook,
+                &webhook_events,
+                &declared_events,
+                &mut referenced_envelopes,
+                &mut diagnostics,
+            );
         }
         for notification in &feature.notifications {
             tier3_notification_diagnostics(feature, notification, &mut diagnostics);
         }
     }
+
+    // WEBHOOK-EVENT-001 — every declared `webhook_events.<X>` envelope
+    // must be referenced by at least one `webhook ... payload from`.
+    // Dead-letter envelope catalog entries are an authoring smell.
+    if let Some(reg) = registry {
+        for envelope in &reg.webhook_events {
+            if !referenced_envelopes.contains(envelope.name.as_str()) {
+                diagnostics.push(DoctorDiagnostic {
+                    // Without a registry-source line map the diagnostic
+                    // points at the package root. The LSP rule still
+                    // gives the precise underline on the source line.
+                    path: PathBuf::from("registry.lzi"),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "WEBHOOK-EVENT-001".to_owned(),
+                    message: format!(
+                        "`registry.webhook_events.{}` is declared but no `webhook ... payload from` references it.",
+                        envelope.name
+                    ),
+                });
+            }
+        }
+    }
+
     diagnostics
 }
 
@@ -2474,9 +2558,12 @@ fn tier3_job_diagnostics(
     }
 }
 
-fn tier3_webhook_diagnostics(
+fn tier3_webhook_diagnostics<'a>(
     feature: &Tier3FeatureFacts,
-    webhook: &lazuli_ir::Webhook,
+    webhook: &'a lazuli_ir::Webhook,
+    webhook_events: &BTreeMap<&'a str, &'a lazuli_ir::WebhookEvent>,
+    declared_events: &BTreeSet<String>,
+    referenced_envelopes: &mut BTreeSet<&'a str>,
     diagnostics: &mut Vec<DoctorDiagnostic>,
 ) {
     let line = feature
@@ -2498,6 +2585,149 @@ fn tier3_webhook_diagnostics(
             code: "WEBHOOK-SCOPE-001".to_owned(),
             message: format!(
                 "webhook `{}` does not declare `tenant_from payload.<axis>_id` — verify it should be globally scoped.",
+                webhook.name
+            ),
+        });
+    }
+
+    // Webhooks expanded cycle — `payload from webhook_events.<X>` must
+    // resolve to a declared envelope.
+    let envelope: Option<&lazuli_ir::WebhookEvent> = match &webhook.payload_from {
+        Some(reference) => {
+            let resolved = webhook_events.get(reference.name.as_str()).copied();
+            if resolved.is_some() {
+                referenced_envelopes.insert(reference.name.as_str());
+            } else {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "WEBHOOK-PAYLOAD-001".to_owned(),
+                    message: format!(
+                        "webhook `{}` references `webhook_events.{}` but no such envelope is declared in `registry.webhook_events`.",
+                        webhook.name, reference.name
+                    ),
+                });
+            }
+            resolved
+        }
+        None => None,
+    };
+
+    // WEBHOOK-PAYLOAD-002 — when the envelope is declared, every
+    // `tenant_from payload.<axis>_id` must point at a field that
+    // actually exists in the envelope. We only check the first
+    // segment after `payload.` so structured/nested probes are
+    // tolerated until pilot evidence justifies deeper traversal.
+    if let (Some(envelope), Some(tenant_from)) = (envelope, webhook.tenant_from.as_ref())
+        && tenant_from.path.segments.first().map(String::as_str) == Some("payload")
+        && let Some(axis) = tenant_from.path.segments.get(1)
+        && !envelope.fields.iter().any(|f| &f.name == axis)
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "WEBHOOK-PAYLOAD-002".to_owned(),
+            message: format!(
+                "webhook `{}` uses `tenant_from payload.{}` but envelope `webhook_events.{}` declares no `{}` field — the runtime will fail at decode time.",
+                webhook.name, axis, envelope.name, axis
+            ),
+        });
+    }
+
+    // WEBHOOK-REPLAY-001 — `replay allow` must carry `within "..."`.
+    if let Some(replay) = webhook.replay.as_ref()
+        && matches!(replay.mode, lazuli_ir::ReplayMode::Allow)
+        && replay.within.is_none()
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "WEBHOOK-REPLAY-001".to_owned(),
+            message: format!(
+                "webhook `{}` declares `replay allow` but no `within \"<duration>\"` window — the adapter has no SLA to enforce.",
+                webhook.name
+            ),
+        });
+    }
+
+    // WEBHOOK-REPLAY-002 — replay without `idempotency by ...` has no
+    // dedupe key.
+    if webhook.replay.is_some()
+        && webhook.idempotency.is_none()
+        && webhook
+            .replay
+            .as_ref()
+            .and_then(|r| r.dedupe_by.as_ref())
+            .is_none()
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "WEBHOOK-REPLAY-002".to_owned(),
+            message: format!(
+                "webhook `{}` declares `replay` but no `idempotency by ...` nor `dedupe by ...` — replay dedupe has no key.",
+                webhook.name
+            ),
+        });
+    }
+
+    // WEBHOOK-DLQ-001 — `dlq emit <X>` must resolve to a declared
+    // event in the same feature.
+    if let Some(lazuli_ir::DlqSpec::Emit { event }) = webhook.dlq.as_ref()
+        && !declared_events.contains(event)
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "WEBHOOK-DLQ-001".to_owned(),
+            message: format!(
+                "webhook `{}` `dlq emit {}` references event `{}` that is not declared in feature `{}` (no `emits`, `event_group`, or `event.trace` matches).",
+                webhook.name, event, event, feature.feature
+            ),
+        });
+    }
+
+    // WEBHOOK-DLQ-002 — `dlq drop` requires `reason "..."`. The parser
+    // already rejects the empty form; doctor keeps a defensive check
+    // in case a future analyzer path lowers the field without a
+    // reason.
+    if let Some(lazuli_ir::DlqSpec::Drop { reason }) = webhook.dlq.as_ref()
+        && reason.trim().is_empty()
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "WEBHOOK-DLQ-002".to_owned(),
+            message: format!(
+                "webhook `{}` declares `dlq drop` without `reason \"...\"` — silent drops on dead-letter must be explicit waivers.",
+                webhook.name
+            ),
+        });
+    }
+
+    // WEBHOOK-DLQ-003 — `retry` without `dlq` falls through to the
+    // adapter default (silent drop on River etc.).
+    if webhook.retry.is_some() && webhook.dlq.is_none() {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "WEBHOOK-DLQ-003".to_owned(),
+            message: format!(
+                "webhook `{}` declares `retry` but no `dlq` — after exhaustion the runtime falls back to the adapter default (silent drop on River).",
                 webhook.name
             ),
         });
@@ -7014,6 +7244,58 @@ mod tests {
                         if let Ok(feature) = lower_feature_skeleton(skeleton) {
                             let header_line =
                                 line_col_for_offset(&file.source, skeleton.span.start).0;
+                            // Webhooks expanded cycle — populate the
+                            // Tier 3 facts so the new doctor rules
+                            // (`WEBHOOK-PAYLOAD-001/002`, ...) can run
+                            // in unit tests too. The helper mirrors
+                            // the production `load` path.
+                            if !feature.jobs.is_empty()
+                                || !feature.webhooks.is_empty()
+                                || !feature.notifications.is_empty()
+                                || !feature.event_groups.is_empty()
+                            {
+                                let job_lines = collect_construct_lines(
+                                    &file.source,
+                                    "job ",
+                                    feature.jobs.iter().map(|j| j.name.as_str()).collect(),
+                                );
+                                let webhook_lines = collect_construct_lines(
+                                    &file.source,
+                                    "webhook ",
+                                    feature.webhooks.iter().map(|w| w.name.as_str()).collect(),
+                                );
+                                let notification_lines = collect_construct_lines(
+                                    &file.source,
+                                    "notification ",
+                                    feature
+                                        .notifications
+                                        .iter()
+                                        .map(|n| n.name.as_str())
+                                        .collect(),
+                                );
+                                let event_group_lines = collect_event_group_lines(
+                                    &file.source,
+                                    feature
+                                        .event_groups
+                                        .iter()
+                                        .map(|g| g.pattern.as_str())
+                                        .collect(),
+                                );
+                                tier3_facts.push(Tier3FeatureFacts {
+                                    feature: feature.name.clone(),
+                                    path: file.path.clone(),
+                                    feature_line: header_line,
+                                    tenancy_axis: tenancy_axis_for(&feature),
+                                    jobs: feature.jobs.clone(),
+                                    webhooks: feature.webhooks.clone(),
+                                    notifications: feature.notifications.clone(),
+                                    event_groups: feature.event_groups.clone(),
+                                    job_lines,
+                                    webhook_lines,
+                                    notification_lines,
+                                    event_group_lines,
+                                });
+                            }
                             for agent in feature.agents.clone() {
                                 let agent_line = agent
                                     .span_ref
@@ -7381,6 +7663,10 @@ feature customer
     path "/webhooks/inbound"
     verify hmac sha256
       secret env.INBOUND_SECRET
+      header "X-Inbound-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.id
+    handler "./webhooks/inbound.go"
 "#,
             ),
             (
@@ -7490,6 +7776,10 @@ feature customer
     path "/webhooks/inbound"
     verify hmac sha256
       secret env.INBOUND_SECRET
+      header "X-Inbound-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.id
+    handler "./webhooks/inbound.go"
 "#,
             ),
             (
@@ -7554,7 +7844,10 @@ feature customer
     path "/webhooks/inbound"
     verify hmac sha256
       secret env.INBOUND_SECRET
+      header "X-Inbound-Signature"
+    tenant_from payload.org_id
     idempotency by payload.id
+    handler "./webhooks/inbound.go"
 "#,
             ),
         ]);
@@ -9944,6 +10237,178 @@ feature customer_auth
             codes(&diagnostics).contains("DEPLOY-CHECKPOINT-002"),
             "expected DEPLOY-CHECKPOINT-002 in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // =========================================================================
+    // Webhooks expanded cycle — eight new doctor diagnostics.
+    // =========================================================================
+
+    /// `WEBHOOK-PAYLOAD-001` fires when `payload from
+    /// webhook_events.<X>` cannot be resolved against the registry
+    /// catalog.
+    #[test]
+    fn webhook_payload_001_unresolved_envelope() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+registry
+  webhook_events
+    crm_customer_upsert
+      external_id: Text required
+
+feature customer_import
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    payload from webhook_events.unknown_envelope
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.org_id
+    handler "./integrations/upsert_customer_from_crm.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-PAYLOAD-001"),
+            "expected WEBHOOK-PAYLOAD-001, got {codes:?}"
+        );
+    }
+
+    /// `WEBHOOK-PAYLOAD-002` fires when `tenant_from payload.<axis>`
+    /// references a field the envelope does not declare.
+    #[test]
+    fn webhook_payload_002_tenant_field_missing_in_envelope() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+registry
+  webhook_events
+    crm_customer_upsert
+      external_id: Text required
+
+feature customer_import
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    payload from webhook_events.crm_customer_upsert
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.external_id
+    handler "./integrations/upsert.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-PAYLOAD-002"),
+            "expected WEBHOOK-PAYLOAD-002, got {codes:?}"
+        );
+    }
+
+    /// `WEBHOOK-REPLAY-001` fires when `replay allow` is declared
+    /// without `within "<duration>"`.
+    #[test]
+    fn webhook_replay_001_allow_without_window() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+feature customer_import
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.external_id
+    replay
+      allow
+    handler "./integrations/upsert.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-REPLAY-001"),
+            "expected WEBHOOK-REPLAY-001, got {codes:?}"
+        );
+    }
+
+    /// `WEBHOOK-DLQ-001` fires when `dlq emit <event>` references an
+    /// event the feature does not declare anywhere.
+    #[test]
+    fn webhook_dlq_001_unresolved_emit_event() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+feature customer_import
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.external_id
+    retry 3 backoff exponential
+    dlq emit not_declared_anywhere
+    handler "./integrations/upsert.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-DLQ-001"),
+            "expected WEBHOOK-DLQ-001, got {codes:?}"
+        );
+    }
+
+    /// `WEBHOOK-DLQ-003` fires when `retry` is declared without `dlq`.
+    #[test]
+    fn webhook_dlq_003_retry_without_dlq() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+feature customer_import
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.external_id
+    retry 3 backoff exponential
+    handler "./integrations/upsert.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-DLQ-003"),
+            "expected WEBHOOK-DLQ-003, got {codes:?}"
+        );
+    }
+
+    /// `WEBHOOK-EVENT-001` fires when a `webhook_events.<X>` envelope
+    /// is declared in registry but no webhook references it.
+    #[test]
+    fn webhook_event_001_dead_envelope_in_registry() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+registry
+  webhook_events
+    orphan_envelope
+      external_id: Text required
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-EVENT-001"),
+            "expected WEBHOOK-EVENT-001, got {codes:?}"
         );
     }
 }
