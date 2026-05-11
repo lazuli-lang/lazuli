@@ -856,6 +856,16 @@ feature customer_outreach
     template "./outreach/welcome_email.mjml"
     policy @policy.notify
     emits welcome_email_sent
+    digest
+      every "15 minutes"
+      group_by customer_id
+      max_size 50
+      template_strategy merge
+    throttle
+      max_per "1 hour"
+      per_recipient
+      per_channel
+      burst 3
 
   notification archive_survey
     channel email, in_app

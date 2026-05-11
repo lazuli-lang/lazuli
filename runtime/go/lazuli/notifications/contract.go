@@ -60,6 +60,53 @@ type NotificationContract struct {
 	Idempotency  *IdempotencyKeySpec
 	Retry        *RetryPolicy
 	Emits        []string
+	// Notifications expanded bucket cycle — typed shape for the
+	// `digest` sub-block on `notification`. nil when the DSL omits
+	// digesting. Doctor (`NOTIF-DIGEST-001/002/003`) validates the
+	// shape; this struct mirrors the IR one-to-one.
+	Digest *NotificationDigest
+	// Notifications expanded bucket cycle — typed shape for the
+	// `throttle` sub-block. nil when no throttling is declared.
+	// Distinct from any scalar `RateLimit` slot Drusa may add later;
+	// `Throttle` always keys on recipient/channel/burst axes.
+	Throttle *NotificationThrottle
+}
+
+// NotificationDigest mirrors `ir::NotificationDigest`. The
+// dispatcher batches up to `MaxSize` triggers within `Every` per
+// `GroupBy` key and emits a single rendered template with
+// `TemplateStrategy` deciding how per-trigger payloads merge.
+//
+// `MaxSize == 0` means "no cap" at the runtime layer; doctor
+// rejects 0 and `> 10_000` at the DSL layer so the runtime never
+// sees a degenerate value.
+type NotificationDigest struct {
+	Every            string
+	GroupBy          string
+	MaxSize          uint32
+	TemplateStrategy DigestStrategy
+}
+
+// DigestStrategy is the closed-catalog enum mirroring
+// `ir::DigestStrategy`. Defaults to `DigestMerge` when the DSL omits
+// `template_strategy`.
+type DigestStrategy string
+
+const (
+	DigestMerge  DigestStrategy = "merge"
+	DigestAppend DigestStrategy = "append"
+)
+
+// NotificationThrottle mirrors `ir::NotificationThrottle`. The
+// dispatcher consults the throttle store before each dispatch; when
+// the bucket is exhausted it returns `ErrThrottleExceeded` and the
+// notification is skipped (this is intentional, not a delivery
+// failure — same posture as `IdempotencyViolation` on jobs).
+type NotificationThrottle struct {
+	MaxPer       string
+	PerRecipient bool
+	PerChannel   bool
+	Burst        uint32
 }
 
 // Envelope is the runtime payload threaded to a notification
@@ -79,6 +126,21 @@ var (
 	ErrNotificationChannelUnsupported = errors.New("notifications: channel not supported by any bound adapter")
 	ErrNotificationDeliveryFailed     = errors.New("notifications: delivery failed after retries")
 	ErrNotificationTenantUnresolved   = errors.New("notifications: tenant_from unresolved")
+	// ErrDigestFull is returned by `DigestStore.Add` when the
+	// in-window buffer for `<notification, group_by_value>` reaches
+	// `NotificationDigest.MaxSize`. The dispatcher should flush
+	// immediately and start a new window.
+	ErrDigestFull = errors.New("notifications: digest window full, flush required")
+	// ErrThrottleExceeded is returned by `ThrottleStore.Allow` when
+	// the per-recipient/per-channel bucket is exhausted. The
+	// dispatcher swallows the dispatch (intentional skip) and emits
+	// a `slog.Info` event for ops; this is NOT a delivery failure.
+	ErrThrottleExceeded = errors.New("notifications: throttle bucket exhausted")
+	// ErrInvalidDuration surfaces when a digest/throttle duration
+	// literal cannot be parsed at runtime. Doctor
+	// (`NOTIF-DIGEST-002` / `NOTIF-THROTTLE-001`) rejects this at
+	// design time; the runtime error is the defence-in-depth path.
+	ErrInvalidDuration = errors.New("notifications: invalid duration literal")
 )
 
 // ChannelDispatcher is the per-channel adapter surface. Email

@@ -175,8 +175,26 @@ source that only fails later.
   Required children: `channel <email|push|sms|in_app>[, ...]`,
   `recipient <expression>`, `trigger event <pattern>`, `template "./path"`,
   `policy @policy.<name>`. Optional: `tenant_from`, `idempotency by`, `retry`,
-  `rate_limit`, `emits`. Lazuli owns the dispatch contract; the runtime generates
-  wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.
+  `rate_limit`, `emits`, `digest`, `throttle`. Lazuli owns the dispatch
+  contract; the runtime generates wiring; adapters
+  (Sendgrid/SES/Twilio/APNs/FCM) handle transport.
+- `notification.throttle` is a sub-block, distinct from the scalar
+  `rate_limit "N per <window>"` slot reserved across
+  `agent` / `auth password` / `command` / `expose http` for per-call
+  limits. `throttle` keys on the notification's recipient/channel axes
+  (`per_recipient`, `per_channel`, `burst <N>`, `max_per
+  "<duration>"`), not on the caller — two distinct keywords by design
+  so an LLM reading source cold sees the contract axis without
+  cross-referencing docs. Doctor: `NOTIF-THROTTLE-001/002/003`.
+- `notification.digest` is a sub-block declaring window-based
+  aggregation: `every "<duration>"`, `group_by <payload-path>`,
+  `max_size <N>` (1..=10000), `template_strategy merge|append`. The
+  adapter batches per-trigger payloads keyed on `group_by` and emits
+  a single rendered template per window. Doctor:
+  `NOTIF-DIGEST-001/002/003`. `delivery_receipt` / `read_receipt`
+  remain SPECULATIVE pending pilot pressure (per-provider outcome
+  catalogs + cross-channel polysemy block the closed-catalog gate
+  today).
 - Validators are referenced through `validates @validator.<name>`. The
   validator's `Validator[<scope>]` type in `extensions` declares the scope —
   field (`Validator[Resource.field]`) or whole-resource

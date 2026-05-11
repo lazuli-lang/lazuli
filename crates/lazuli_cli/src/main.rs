@@ -226,6 +226,12 @@ struct ExpandSet {
     /// every lifted `ir::TenantMigration` per feature and the
     /// app-level `deploy.checkpoint` + expansion fields.
     migrations: bool,
+    /// Notifications expanded bucket cycle — `--expand=notifications`
+    /// opts into the typed `digest` / `throttle` projection from the
+    /// lifted `ir::Notification` slice. The scalar notification
+    /// fields surface in default inspect regardless; this flag adds
+    /// the structured sub-blocks so they appear without `--expand=all`.
+    notifications: bool,
 }
 
 impl ExpandSet {
@@ -251,6 +257,7 @@ impl ExpandSet {
             webhooks: true,
             event_groups: true,
             migrations: true,
+            notifications: true,
         }
     }
 
@@ -338,6 +345,9 @@ impl ExpandSet {
         }
         if self.migrations {
             labels.push("migrations");
+        }
+        if self.notifications {
+            labels.push("notifications");
         }
         labels
     }
@@ -1042,8 +1052,13 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // `ir::TenantMigration` on the feature + the app deploy
             // block's checkpoint/strategy/lock_timeout/hook fields.
             "migrations" => set.migrations = true,
+            // Notifications expanded bucket cycle — projects every
+            // lifted `ir::Notification` with typed `digest` /
+            // `throttle` sub-blocks. The scalar fields surface in
+            // default inspect; this flag adds the structured shapes.
+            "notifications" => set.notifications = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, or migrations"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, migrations, or notifications"
             ),
         }
     }
@@ -1891,12 +1906,16 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
     // `EventGroup` shapes for every feature in one pass. Reuses the
     // same parse-and-lower the auth lookup runs; degradation rules
     // match (empty map on parse failure).
-    let tier3_by_feature =
-        if (expansions.jobs || expansions.webhooks || expansions.event_groups) && !is_lzx {
-            collect_tier3_by_feature(source)
-        } else {
-            std::collections::BTreeMap::new()
-        };
+    let tier3_by_feature = if (expansions.jobs
+        || expansions.webhooks
+        || expansions.event_groups
+        || expansions.notifications)
+        && !is_lzx
+    {
+        collect_tier3_by_feature(source)
+    } else {
+        std::collections::BTreeMap::new()
+    };
 
     InspectReport {
         schema: "lazuli.inspect.v0",
