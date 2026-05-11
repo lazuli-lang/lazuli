@@ -1,3 +1,25 @@
+//! Go code generation for Lazuli.
+//!
+//! ## Cut A acknowledgment (acknowledged, not yet generated)
+//!
+//! Cut A introduces `Agent` / `ToolBinding` / `EvalCase` to the IR
+//! (see `lazuli_ir::Agent`, schema bump to `0.4.0`). The Go codegen
+//! does not yet materialise agent-dispatch wiring; runtime team (Drusa)
+//! implements `agent dispatch` in a separate phase that follows this
+//! plan. When the agent backend lands here, the generated Go server
+//! scaffolds:
+//!
+//!   - one `lazuli.Agent[I, O]{ ... }` value per agent
+//!   - a tool dispatch table mapping `ToolBinding.reference` to the
+//!     resolved capability handler
+//!   - `output_kind`-aware response shaping (text / stream /
+//!     discriminated_enum / discriminated_record)
+//!   - eval harness scaffolding so `lazuli test --evals` can invoke the
+//!     agent with the determinism pin from `temperature`/`seed`
+//!
+//! Plan reference: `docs/proposals/ai-primitives-v0-implementation.md`
+//! §9.1. Runtime team: `docs/runtime-handoff.md`.
+
 pub mod runtime;
 
 pub use runtime::emit_feature_go;

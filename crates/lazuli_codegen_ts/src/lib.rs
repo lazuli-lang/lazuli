@@ -1,3 +1,23 @@
+//! TypeScript code generation for Lazuli.
+//!
+//! ## Cut A acknowledgment (acknowledged, not yet generated)
+//!
+//! Cut A introduces `Agent` / `ToolBinding` / `EvalCase` to the IR
+//! (see `lazuli_ir::Agent`, schema bump to `0.4.0`). The TS client
+//! codegen does not yet emit agent bindings; a separate runtime phase
+//! lands them. When agent codegen arrives here, the generated TS
+//! surface materialises:
+//!
+//!   - typed client method per agent with input/output narrowed by
+//!     `output_kind` (text vs. stream vs. discriminated_{enum,record})
+//!   - tool-result typing pulled from `RegistryToolEntry` once Cut A.6
+//!     ships `tools.<x>.<field>` references
+//!   - a tagged-union response type for discriminated outputs so
+//!     consumers branch statically
+//!
+//! Plan reference: `docs/proposals/ai-primitives-v0-implementation.md`
+//! §9.1. Runtime team: `docs/runtime-handoff.md`.
+
 pub mod runtime;
 
 pub use runtime::emit_feature_ts;
