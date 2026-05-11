@@ -55,9 +55,6 @@ struct DoctorPackage {
     feature_symbols: BTreeMap<String, FeatureSymbols>,
     /// Cut A: registry `tool <name>` headers that lacked `effect`.
     registry_tool_defects: Vec<RegistryToolDefect>,
-    /// Cut A.7: `api <name>` declarations harvested per feature; doctor
-    /// cross-checks them against agent `expose_http` paths.
-    api_paths: Vec<ApiPathFact>,
     /// Phase L Tier 4b — minimal text-pattern walk of `approval` blocks
     /// inside command bodies. Only used for the `missing children`
     /// variant of `approval_contract_diagnostics`; every other approval
@@ -152,6 +149,10 @@ struct Tier3FeatureFacts {
     /// Doctor reads `Api.locale_negotiate` from here for per-endpoint
     /// override validation.
     apis: Vec<lazuli_ir::Api>,
+    /// Phase L Tier 4b — `api_name -> source line` lookup for the lifted
+    /// `apis` slot. Anchors `agent_expose_*` cross-checks at each api
+    /// header.
+    api_lines: BTreeMap<String, usize>,
     /// i18n bucket cycle — lifted `translation` block (when authored).
     translation: Option<lazuli_ir::Translation>,
     translation_line: usize,
@@ -197,7 +198,6 @@ impl DoctorPackage {
         let mut agents: Vec<AgentFacts> = Vec::new();
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
-        let mut api_paths: Vec<ApiPathFact> = Vec::new();
         let mut approval_presences: Vec<ApprovalBlockPresence> = Vec::new();
         let mut auth_facts: Vec<AuthFacts> = Vec::new();
         let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
@@ -445,6 +445,11 @@ impl DoctorPackage {
                                             collect_query_lines(&file.source, &feature.queries);
                                         let api_names_text_pattern =
                                             collect_text_pattern_api_names(&file.source);
+                                        let api_lines = collect_construct_lines(
+                                            &file.source,
+                                            "api ",
+                                            feature.apis.iter().map(|a| a.name.as_str()).collect(),
+                                        );
                                         let translation_line = feature
                                             .translation
                                             .as_ref()
@@ -478,6 +483,7 @@ impl DoctorPackage {
                                             query_lines,
                                             api_names_text_pattern,
                                             apis: feature.apis.clone(),
+                                            api_lines,
                                             translation: feature.translation.clone(),
                                             translation_line,
                                         });
@@ -547,7 +553,6 @@ impl DoctorPackage {
                     }
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
-                collect_api_paths(&file, &mut api_paths);
                 collect_approval_block_presence(&file, &mut approval_presences);
                 collect_feature_resources(&file, &mut feature_resources);
                 collect_feature_adapters(&file, &mut feature_adapters);
@@ -593,7 +598,6 @@ impl DoctorPackage {
             agents,
             feature_symbols,
             registry_tool_defects,
-            api_paths,
             approval_presences,
             auth_facts,
             feature_resources,
@@ -647,7 +651,7 @@ impl DoctorPackage {
         let known_audiences = collect_known_audiences(&self.files);
         diagnostics.extend(agent_expose_diagnostics(
             &self.agents,
-            &self.api_paths,
+            &self.tier3_facts,
             &known_audiences,
         ));
 
@@ -4917,7 +4921,7 @@ fn operand_resolves_numeric(expr: &ir::Expr) -> bool {
 /// known `.lzx` surface or `app.lzi` audience declaration.
 fn agent_expose_diagnostics(
     agents: &[AgentFacts],
-    api_paths: &[ApiPathFact],
+    tier3_facts: &[Tier3FeatureFacts],
     known_audiences: &BTreeSet<String>,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
@@ -4938,15 +4942,24 @@ fn agent_expose_diagnostics(
             line: fact.line,
         });
     }
-    for api in api_paths {
-        pairs.push(ExposePathFact {
-            path_normalised: normalise_path(&api.path),
-            path_raw: api.path.clone(),
-            method: api.method.clone(),
-            origin: format!("api {}.{}", api.feature, api.name),
-            owner_path: api.source_path.clone(),
-            line: api.line,
-        });
+    // Phase L Tier 4b — read `Api` declarations from `Tier3FeatureFacts`
+    // (IR), retiring the `ApiPathFact` text-walker.
+    for feature in tier3_facts {
+        for api in &feature.apis {
+            let line = feature
+                .api_lines
+                .get(&api.name)
+                .copied()
+                .unwrap_or(feature.feature_line);
+            pairs.push(ExposePathFact {
+                path_normalised: normalise_path(&api.path),
+                path_raw: api.path.clone(),
+                method: http_method_word(api.method).to_owned(),
+                origin: format!("api {}.{}", feature.feature, api.name),
+                owner_path: feature.path.clone(),
+                line,
+            });
+        }
     }
 
     // Cross-feature path collision detection. Two facts collide when
@@ -5004,16 +5017,6 @@ fn agent_expose_diagnostics(
 }
 
 #[derive(Debug, Clone)]
-struct ApiPathFact {
-    feature: String,
-    name: String,
-    method: String,
-    path: String,
-    source_path: PathBuf,
-    line: usize,
-}
-
-#[derive(Debug, Clone)]
 struct ExposePathFact {
     path_normalised: String,
     path_raw: String,
@@ -5058,76 +5061,6 @@ fn http_method_word(method: ir::HttpMethod) -> &'static str {
     }
 }
 
-/// Collect every `api <name>` block in a feature body. Used by Cut A.7
-/// to cross-check paths against `expose http`. Text-pattern matches
-/// the rest of doctor's feature scanning until the canonical-indent
-/// slice covers `api`.
-fn collect_api_paths(file: &DoctorFile, api_paths: &mut Vec<ApiPathFact>) {
-    let lines: Vec<&str> = file.source.lines().collect();
-    let mut feature: Option<String> = None;
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            feature = trimmed
-                .strip_prefix("feature ")
-                .map(|name| name.trim().to_owned());
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 2 && trimmed.starts_with("api ") {
-            let name = trimmed
-                .strip_prefix("api ")
-                .map(|n| n.split_whitespace().next().unwrap_or("").to_owned())
-                .unwrap_or_default();
-            let feature_name = feature.clone().unwrap_or_default();
-            let api_line = i + 1;
-            let mut method: Option<String> = None;
-            let mut path: Option<String> = None;
-            let mut j = i + 1;
-            while j < lines.len() {
-                let inner = lines[j];
-                let inner_trim = inner.trim_start();
-                if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                    j += 1;
-                    continue;
-                }
-                if leading_spaces(inner) <= 2 {
-                    break;
-                }
-                if leading_spaces(inner) == 4 {
-                    if let Some(rest) = inner_trim.strip_prefix("method ") {
-                        method = Some(rest.trim().to_owned());
-                    } else if let Some(rest) = inner_trim.strip_prefix("path ") {
-                        path = Some(strip_quotes(rest.trim()).to_owned());
-                    }
-                }
-                j += 1;
-            }
-            if let (Some(method), Some(path)) = (method, path) {
-                if !name.is_empty() {
-                    api_paths.push(ApiPathFact {
-                        feature: feature_name,
-                        name,
-                        method,
-                        path,
-                        source_path: file.path.clone(),
-                        line: api_line,
-                    });
-                }
-            }
-            i = j;
-            continue;
-        }
-        i += 1;
-    }
-}
-
 /// Collect every audience that's a first-class declaration in the
 /// workspace. Today, surfaces in `.lzx` files are the canonical source
 /// (`surface customer web` ... `audience admin`). A future cut may
@@ -5147,12 +5080,6 @@ fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> {
         }
     }
     audiences
-}
-
-fn strip_quotes(text: &str) -> &str {
-    text.strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or(text)
 }
 
 // -----------------------------------------------------------------------------
@@ -8172,7 +8099,6 @@ mod tests {
         let mut agents: Vec<AgentFacts> = Vec::new();
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
-        let mut api_paths: Vec<ApiPathFact> = Vec::new();
         let mut approval_presences: Vec<ApprovalBlockPresence> = Vec::new();
         let mut auth_facts: Vec<AuthFacts> = Vec::new();
         let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
@@ -8297,6 +8223,11 @@ mod tests {
                                     collect_query_lines(&file.source, &feature.queries);
                                 let api_names_text_pattern =
                                     collect_text_pattern_api_names(&file.source);
+                                let api_lines = collect_construct_lines(
+                                    &file.source,
+                                    "api ",
+                                    feature.apis.iter().map(|a| a.name.as_str()).collect(),
+                                );
                                 let translation_line = feature
                                     .translation
                                     .as_ref()
@@ -8330,6 +8261,7 @@ mod tests {
                                     query_lines,
                                     api_names_text_pattern,
                                     apis: feature.apis.clone(),
+                                    api_lines,
                                     translation: feature.translation.clone(),
                                     translation_line,
                                 });
@@ -8452,6 +8384,7 @@ mod tests {
                                     query_lines: BTreeMap::new(),
                                     api_names_text_pattern: Vec::new(),
                                     apis: feature.apis.clone(),
+                                    api_lines: BTreeMap::new(),
                                     translation: feature.translation.clone(),
                                     translation_line: header_line,
                                 });
@@ -8460,7 +8393,6 @@ mod tests {
                     }
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
-                collect_api_paths(&file, &mut api_paths);
                 collect_approval_block_presence(&file, &mut approval_presences);
                 collect_feature_resources(&file, &mut feature_resources);
                 collect_feature_adapters(&file, &mut feature_adapters);
@@ -8488,7 +8420,6 @@ mod tests {
             agents,
             feature_symbols,
             registry_tool_defects,
-            api_paths,
             approval_presences,
             auth_facts,
             feature_resources,
@@ -10562,6 +10493,8 @@ feature customer_outreach
   api customer_summary_stream
     method POST
     path "/api/customers/:id/summary"
+    output Text
+    policy @scope.public
     handler "./x.go"
 "#,
             ),
@@ -11512,6 +11445,7 @@ feature customer_auth
             query_lines: BTreeMap::new(),
             api_names_text_pattern: Vec::new(),
             apis: Vec::new(),
+            api_lines: BTreeMap::new(),
             translation: None,
             translation_line: 1,
         });
@@ -11559,6 +11493,7 @@ feature customer_auth
             query_lines: BTreeMap::new(),
             api_names_text_pattern: vec!["customer_legacy".to_owned()],
             apis: Vec::new(),
+            api_lines: BTreeMap::new(),
             translation: None,
             translation_line: 1,
         });
