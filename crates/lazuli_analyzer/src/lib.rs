@@ -706,12 +706,16 @@ pub fn lower_feature_skeleton(
     for group_ast in &skeleton.event_groups {
         event_groups.push(lower_event_group(group_ast));
     }
+    let defaults = match &skeleton.defaults {
+        Some(d) => lower_defaults(d),
+        None => ir::Defaults::default(),
+    };
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
-        defaults: ir::Defaults::default(),
+        defaults,
         uses: Vec::new(),
         requirements: Vec::new(),
         enums: Vec::new(),
@@ -734,6 +738,31 @@ pub fn lower_feature_skeleton(
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     })
+}
+
+/// Phase L Tier 4a — lower a canonical-indent `defaults` block into
+/// `ir::Defaults`. `policy_for` entries collapse onto `Defaults.policy`
+/// when a single entry is authored; multi-entry `policy_for` (different
+/// atoms per kind list) is captured by reading the first entry — the
+/// language disallows conflicting defaults by convention. Doctor cross-
+/// checks the surface form independently via `collect_policy_atoms`.
+fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults {
+    let tenancy = defaults.tenancy.as_ref().map(|t| match t {
+        syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
+        syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
+        syntax::DefaultsTenancy::None => ir::Tenancy::None,
+        syntax::DefaultsTenancy::Custom(name) => ir::Tenancy::Custom(name.clone()),
+    });
+    let policy = defaults
+        .policy_for
+        .first()
+        .map(|entry| lower_policy_atom(entry.atom.as_str()))
+        .filter(|p| !matches!(p, ir::PolicyRef::None));
+    ir::Defaults {
+        tenancy,
+        timestamps: defaults.timestamps,
+        policy,
+    }
 }
 
 /// Phase L Tier 3 — lower a canonical-indent `job` block into `ir::Job`.
@@ -2374,6 +2403,61 @@ feature customer
         let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
         let feature = lower_feature_skeleton(&features[0]).expect("lowers");
         assert!(feature.auth.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 4a — `defaults` lowering
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn lower_feature_defaults_full_block() {
+        let source = r#"
+feature customer
+  defaults
+    tenancy org
+    timestamps
+    policy_for jobs, webhooks: @actor.system
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert!(matches!(feature.defaults.tenancy, Some(ir::Tenancy::Org)));
+        assert!(feature.defaults.timestamps);
+        match feature.defaults.policy.as_ref().expect("policy") {
+            ir::PolicyRef::Atom(atom) => assert_eq!(atom, "actor.system"),
+            other => panic!("expected @actor.system atom, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_feature_defaults_absent_keeps_default() {
+        let source = r#"
+feature customer
+  agent simple
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert!(feature.defaults.tenancy.is_none());
+        assert!(!feature.defaults.timestamps);
+        assert!(feature.defaults.policy.is_none());
+    }
+
+    #[test]
+    fn lower_feature_defaults_custom_tenancy() {
+        let source = r#"
+feature pinned
+  defaults
+    tenancy workspace
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        match feature.defaults.tenancy.as_ref().expect("axis") {
+            ir::Tenancy::Custom(axis) => assert_eq!(axis, "workspace"),
+            other => panic!("expected custom axis, got {other:?}"),
+        }
     }
 
     #[test]

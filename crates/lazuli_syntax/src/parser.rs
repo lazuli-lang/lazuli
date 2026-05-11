@@ -8,12 +8,12 @@ use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Auth,
     AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Command, ContainsRhs,
-    Document, EventGroup, FeatureSkeleton, Field, FieldModifier, HttpMethod, Job, JobBody,
-    JobDeclarativeRaw, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
-    JobTrigger, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
-    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
-    LzxViewExtension, Notification, Query, Span, Surface, ToolsCallsOp, Webhook, WebhookHandler,
-    WebhookVerify,
+    DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup, FeatureDefaults, FeatureSkeleton,
+    Field, FieldModifier, HttpMethod, Job, JobBody, JobDeclarativeRaw, JobExternalCall,
+    JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LzxAction, LzxApp,
+    LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
+    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
+    Notification, Query, Span, Surface, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1149,6 +1149,7 @@ fn parse_feature_skeleton(
     let mut webhooks: Vec<Webhook> = Vec::new();
     let mut notifications: Vec<Notification> = Vec::new();
     let mut event_groups: Vec<EventGroup> = Vec::new();
+    let mut defaults: Option<FeatureDefaults> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1228,9 +1229,24 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // Phase L Tier 4a — `defaults` block.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "defaults" {
+            if defaults.is_some() {
+                return Err(line_error(
+                    line,
+                    "feature may declare at most one `defaults` block",
+                ));
+            }
+            let (parsed, next) = parse_defaults(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            defaults = Some(parsed);
+            i = next;
+            continue;
+        }
+
         // Any other feature child is skipped silently — Phase L still
         // leaves resources/commands/queries/workflows to the
-        // text-pattern doctor pipeline (Tier 4).
+        // text-pattern doctor pipeline (Tier 4b-4d).
         last_end = line.end;
         i += 1;
     }
@@ -1244,6 +1260,7 @@ fn parse_feature_skeleton(
             webhooks,
             notifications,
             event_groups,
+            defaults,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -1386,6 +1403,146 @@ fn parse_agent(lines: &[SourceLine<'_>], start: usize) -> Result<(Agent, usize),
         },
         i,
     ))
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4a — `defaults` block parser.
+//
+// The `defaults` header sits at AGENT_INDENT_FEATURE_CHILD (2 spaces).
+// Children live at AGENT_INDENT_AGENT_CHILD (4 spaces):
+//
+//   defaults
+//     tenancy org
+//     timestamps
+//     policy_for jobs, webhooks: @actor.system
+//
+// Unknown children are a parse error so an LLM cannot author silent
+// typos like `timestapms` or `policy-for`.
+// -----------------------------------------------------------------------------
+
+fn parse_defaults(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(FeatureDefaults, usize), ParseError> {
+    let header = &lines[start];
+    let mut tenancy: Option<DefaultsTenancy> = None;
+    let mut timestamps = false;
+    let mut policy_for: Vec<DefaultsPolicyFor> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "`defaults` body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("tenancy ") {
+            if tenancy.is_some() {
+                return Err(line_error(
+                    line,
+                    "`defaults tenancy` may be declared at most once",
+                ));
+            }
+            let axis = rest.trim();
+            if axis.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`defaults tenancy` requires an axis (`org`, `team`, `none`, or a custom name)",
+                ));
+            }
+            tenancy = Some(parse_defaults_tenancy(axis));
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "timestamps" {
+            if timestamps {
+                return Err(line_error(
+                    line,
+                    "`defaults timestamps` may be declared at most once",
+                ));
+            }
+            timestamps = true;
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy_for ") {
+            policy_for.push(parse_defaults_policy_for(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`defaults` children are `tenancy`, `timestamps`, or `policy_for <kinds>: <atom>`",
+            ));
+        }
+    }
+
+    Ok((
+        FeatureDefaults {
+            tenancy,
+            timestamps,
+            policy_for,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_defaults_tenancy(axis: &str) -> DefaultsTenancy {
+    match axis.trim() {
+        "org" => DefaultsTenancy::Org,
+        "team" => DefaultsTenancy::Team,
+        "none" => DefaultsTenancy::None,
+        other => DefaultsTenancy::Custom(other.to_owned()),
+    }
+}
+
+fn parse_defaults_policy_for(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<DefaultsPolicyFor, ParseError> {
+    let (kinds_part, atom_part) = rest.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "`policy_for` requires `<kinds>: <atom>` (e.g. `policy_for jobs, webhooks: @actor.system`)",
+        )
+    })?;
+    let kinds: Vec<String> = kinds_part
+        .split(',')
+        .map(|k| k.trim().to_owned())
+        .filter(|k| !k.is_empty())
+        .collect();
+    if kinds.is_empty() {
+        return Err(line_error(
+            line,
+            "`policy_for` requires at least one construct kind before the `:`",
+        ));
+    }
+    let atom = atom_part.trim().to_owned();
+    if atom.is_empty() {
+        return Err(line_error(
+            line,
+            "`policy_for` requires a policy atom after the `:` (e.g. `@actor.system`)",
+        ));
+    }
+    Ok(DefaultsPolicyFor {
+        kinds,
+        atom,
+        span: Span::new(line.start, line.end),
+    })
 }
 
 // -----------------------------------------------------------------------------
@@ -3400,7 +3557,9 @@ experience customer_tags
     // -------------------------------------------------------------------------
 
     use super::parse_feature_skeletons;
-    use crate::{AgentEvalKind, AgentEvalPredicate, AgentOutput, ContainsRhs, ToolsCallsOp};
+    use crate::{
+        AgentEvalKind, AgentEvalPredicate, AgentOutput, ContainsRhs, DefaultsTenancy, ToolsCallsOp,
+    };
 
     #[test]
     fn agent_with_tools_block_parses() {
@@ -4021,6 +4180,105 @@ feature customer_auth
         assert!(
             message.contains("dot-qualified"),
             "error should require Resource.field: {message}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 4a — `defaults` block parser slice
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn defaults_full_block_parses() {
+        let source = r#"
+feature customer
+  defaults
+    tenancy org
+    timestamps
+    policy_for jobs, webhooks: @actor.system
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let defaults = features[0].defaults.as_ref().expect("defaults block");
+        assert!(matches!(defaults.tenancy, Some(DefaultsTenancy::Org)));
+        assert!(defaults.timestamps);
+        assert_eq!(defaults.policy_for.len(), 1);
+        assert_eq!(defaults.policy_for[0].kinds, vec!["jobs", "webhooks"]);
+        assert_eq!(defaults.policy_for[0].atom, "@actor.system");
+    }
+
+    #[test]
+    fn defaults_tenancy_only_parses() {
+        let source = r#"
+feature customer_auth
+  defaults
+    tenancy team
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let defaults = features[0].defaults.as_ref().expect("defaults block");
+        assert!(matches!(defaults.tenancy, Some(DefaultsTenancy::Team)));
+        assert!(!defaults.timestamps);
+        assert!(defaults.policy_for.is_empty());
+    }
+
+    #[test]
+    fn defaults_custom_tenancy_parses() {
+        let source = r#"
+feature workspace_pinned
+  defaults
+    tenancy workspace
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let defaults = features[0].defaults.as_ref().expect("defaults block");
+        match defaults.tenancy.as_ref().expect("axis") {
+            DefaultsTenancy::Custom(axis) => assert_eq!(axis, "workspace"),
+            other => panic!("expected custom axis, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn defaults_duplicate_block_errors() {
+        let source = r#"
+feature customer
+  defaults
+    tenancy org
+
+  defaults
+    tenancy team
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("at most one"),
+            "error should mention duplicate defaults: {message}"
+        );
+    }
+
+    #[test]
+    fn defaults_unknown_child_errors() {
+        let source = r#"
+feature customer
+  defaults
+    timestaps
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("tenancy"),
+            "error should list valid children: {message}"
+        );
+    }
+
+    #[test]
+    fn defaults_policy_for_without_colon_errors() {
+        let source = r#"
+feature customer
+  defaults
+    policy_for jobs @actor.system
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("<kinds>: <atom>"),
+            "error should require explicit `:` (got {message:?})"
         );
     }
 }

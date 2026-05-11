@@ -5187,15 +5187,20 @@ fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap
 /// Phase L Tier 3 — derive the feature's tenancy axis from the lifted
 /// IR `Defaults` block. Returns the axis name (`org`, `team`, custom)
 /// or `None` when the feature declares `tenancy none` / inherits.
-/// `parse_feature_skeletons` does not yet lift `defaults.tenancy` from
-/// the canonical-indent slice, so we read the underlying source.
+///
+/// Phase L Tier 4a (commit `__TIER_4A__`) — `parse_feature_skeletons`
+/// now lifts `defaults.tenancy`; this is a typed read of
+/// `feature.defaults.tenancy`. The legacy "axis unknown → only check
+/// presence" fallback that tier 3 diagnostics rode on is retired.
 fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
-    let _ = feature;
-    // Until `parse_feature_skeletons` lifts `defaults.tenancy`, doctor's
-    // tenant_from cross-check stays best-effort: when the axis is
-    // unknown, the diagnostic only flags missing `tenant_from` (not the
-    // axis mismatch). Tier 4 fills this in alongside `parse_command`.
-    None
+    match feature.defaults.tenancy.as_ref()? {
+        lazuli_ir::Tenancy::Org => Some("org".to_owned()),
+        lazuli_ir::Tenancy::Team => Some("team".to_owned()),
+        lazuli_ir::Tenancy::Custom(name) => Some(name.clone()),
+        // `tenancy none` is an explicit opt-out — there is no axis to
+        // cross-check against.
+        lazuli_ir::Tenancy::None => None,
+    }
 }
 
 /// Harvest `resource <Name>` declarations under each `feature <name>`
