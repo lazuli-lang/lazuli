@@ -18,7 +18,8 @@ use crate::ast::{
     LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
     Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl,
     ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, SqlQueryDecl, Surface,
-    TargetArgDecl, TargetExprDecl, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
+    TargetArgDecl, TargetExprDecl, TenantMigration, ToolsCallsOp, Webhook, WebhookHandler,
+    WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1154,6 +1155,7 @@ fn parse_feature_skeleton(
     let mut webhooks: Vec<Webhook> = Vec::new();
     let mut notifications: Vec<Notification> = Vec::new();
     let mut event_groups: Vec<EventGroup> = Vec::new();
+    let mut tenant_migrations: Vec<TenantMigration> = Vec::new();
     let mut defaults: Option<FeatureDefaults> = None;
     let mut commands: Vec<CommandDecl> = Vec::new();
     let mut apis: Vec<ApiDecl> = Vec::new();
@@ -1235,6 +1237,16 @@ fn parse_feature_skeleton(
             let (parsed, next) = parse_event_group(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             event_groups.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Migrations bucket cycle Route C — `tenant_migration <name>`
+        // block. Sibling of `job`/`webhook`/`notification`; closed body.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("tenant_migration ") {
+            let (parsed, next) = parse_tenant_migration(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            tenant_migrations.push(parsed);
             i = next;
             continue;
         }
@@ -1324,6 +1336,7 @@ fn parse_feature_skeleton(
             webhooks,
             notifications,
             event_groups,
+            tenant_migrations,
             defaults,
             commands,
             apis,
@@ -4251,6 +4264,111 @@ fn parse_external_call(
             slot: slot.trim().to_owned(),
             op: op.trim().to_owned(),
             args,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Migrations bucket cycle Route C — `tenant_migration <name>` block
+/// parser. Body shape is closed (5 children: `target tenants <axis>`,
+/// `idempotency by <path>`, `retry`, `timeout`, `handler`); any other
+/// child token is a parse error. Mirrors `parse_job`'s structure.
+fn parse_tenant_migration(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(TenantMigration, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("tenant_migration ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| {
+            line_error(
+                header,
+                "tenant_migration header must be `tenant_migration <name>`",
+            )
+        })?;
+    if name.is_empty() {
+        return Err(line_error(
+            header,
+            "tenant_migration header requires a name",
+        ));
+    }
+
+    let mut target_axis: Option<String> = None;
+    let mut idempotency_by: Option<String> = None;
+    let mut retry: Option<JobRetry> = None;
+    let mut timeout: Option<String> = None;
+    let mut handler: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "tenant_migration body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("target tenants ") {
+            target_axis = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
+            idempotency_by = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("retry ") {
+            retry = Some(parse_job_retry(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
+            timeout = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("handler ") {
+            handler = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "tenant_migration children are `target tenants <axis>`, `idempotency by <path>`, `retry`, `timeout`, or `handler`",
+            ));
+        }
+    }
+
+    let target_axis = target_axis.ok_or_else(|| {
+        line_error(
+            header,
+            "`tenant_migration` requires `target tenants <axis>`",
+        )
+    })?;
+    let handler = handler
+        .ok_or_else(|| line_error(header, "`tenant_migration` requires `handler \"<path>\"`"))?;
+
+    Ok((
+        TenantMigration {
+            name,
+            target_axis,
+            idempotency_by,
+            retry,
+            timeout,
+            handler,
             span: Span::new(header.start, last_end),
         },
         i,
