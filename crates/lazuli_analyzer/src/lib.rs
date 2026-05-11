@@ -523,6 +523,14 @@ pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
 }
 
 fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
+    // Phase L Tier 4 follow-up — the canonical-indent parser captures
+    // the whole post-`:` head as `type_text`, including trailing
+    // decorator markers like `@pii.contact` that follow the type but
+    // precede modifiers. The legacy text-walker peeled them as
+    // "modifiers"; here we take the first paren-balanced token as the
+    // actual type and drop the rest. This matches the behaviour of
+    // `parse_resource_field` in the retired doctor walker.
+    let ty = first_paren_balanced_token(ty);
     // Phase L Tier 2 — typed `@cap.File(...)` capability.
     if let Some(file) = parse_cap_file_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::File(file));
@@ -564,6 +572,25 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
             name: other.to_owned(),
         }),
     }
+}
+
+/// Phase L Tier 4 follow-up — return the first whitespace-delimited
+/// token from `text`, respecting paren-balanced segments. The
+/// canonical-indent parser captures decorator markers (`@pii.contact`,
+/// `@cap.Hashed(algorithm:argon2id)`) and trailing markers after the
+/// real type in `type_text`; this helper picks the leading type.
+fn first_paren_balanced_token(text: &str) -> &str {
+    let text = text.trim();
+    let mut depth = 0i32;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            c if c.is_whitespace() && depth == 0 => return text[..idx].trim_end(),
+            _ => {}
+        }
+    }
+    text
 }
 
 /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`. Closed
@@ -1040,7 +1067,12 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
     let default = f.default.as_deref().map(|raw| parse_default(raw.trim()));
     ir::Field {
         name: f.name.clone(),
-        type_ref: type_ref_from_text(&f.type_text),
+        // Phase L Tier 4 follow-up — use `type_ref_from_syntax` so
+        // `@cap.Hashed(algorithm:…)`, `@cap.Encrypted(key:…)`,
+        // `@cap.Token(…)`, and `@semantic.*` lift into typed variants.
+        // The legacy `type_ref_from_text` path is preserved for
+        // call sites that pass cleaned-up identifiers only.
+        type_ref: type_ref_from_syntax(&f.type_text),
         required: f.required,
         unique: f.unique,
         default,
@@ -3056,9 +3088,36 @@ feature customer
     }
 
     #[test]
-    fn type_ref_from_syntax_keeps_other_cap_decorators_as_userdefined() {
-        // `@cap.Hashed`/`@cap.Encrypted`/`@cap.Token` stay text-pattern.
+    fn type_ref_from_syntax_lifts_cap_hashed_argon2id() {
+        // Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:argon2id)`
+        // now lowers into `CapabilityRef::Hashed(...)`.
         let ty = type_ref_from_syntax("@cap.Hashed(algorithm:argon2id)");
+        match ty {
+            ir::TypeRef::Capability(ir::CapabilityRef::Hashed(h)) => {
+                assert_eq!(h.algorithm, ir::HashAlgorithm::Argon2id);
+            }
+            other => panic!("expected Capability::Hashed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_lifts_cap_token_typed() {
+        let ty = type_ref_from_syntax("@cap.Token(ttl:24h,single_use:true,store:hashed)");
+        match ty {
+            ir::TypeRef::Capability(ir::CapabilityRef::Token(t)) => {
+                assert_eq!(t.ttl, "24h");
+                assert!(t.single_use);
+                assert_eq!(t.store, ir::TokenStore::Hashed);
+            }
+            other => panic!("expected Capability::Token, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_falls_through_on_unknown_hash_algorithm() {
+        // Closed catalog: unknown algo falls through to UserDefined so
+        // the LSP can surface a shape diagnostic.
+        let ty = type_ref_from_syntax("@cap.Hashed(algorithm:scrypt)");
         assert!(matches!(ty, ir::TypeRef::UserDefined(_)));
     }
 

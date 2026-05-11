@@ -499,6 +499,16 @@ impl DoctorPackage {
                                         &file.source,
                                         &mut commands,
                                     );
+                                    // Phase L Tier 4 follow-up — populate the
+                                    // resource field map from typed IR.
+                                    // Replaces `collect_feature_resources`
+                                    // for `auth_*` cross-checks.
+                                    populate_feature_resources_from_ir(
+                                        &file.path,
+                                        &file.source,
+                                        &feature,
+                                        &mut feature_resources,
+                                    );
                                     for agent in feature.agents {
                                         let agent_line = agent
                                             .span_ref
@@ -565,7 +575,6 @@ impl DoctorPackage {
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_approval_block_presence(&file, &mut approval_presences);
-                collect_feature_resources(&file, &mut feature_resources);
                 collect_feature_adapters(&file, &mut feature_adapters);
                 collect_feature_uses(&file, &mut feature_uses);
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
@@ -864,9 +873,11 @@ struct SymbolFact {
     line: usize,
 }
 
-/// Phase L — typed shape of a `resource <Name>` declaration for the
-/// `auth_*` cross-checks. Fields carry their verbatim type text so the
-/// `@cap.Hashed(algorithm:…)` axis is readable without re-parsing.
+/// Phase L Tier 4 follow-up — typed shape of a `resource <Name>`
+/// declaration for the `auth_*` cross-checks. Now populated from the
+/// IR `Feature.resources` lift instead of a text walker; the
+/// `type_ref` slot carries `TypeRef::Capability(CapabilityRef::Hashed(...))`
+/// directly so `cap_hashed_algorithm` is a typed match.
 #[derive(Debug, Clone, Default)]
 struct ResourceFact {
     path: PathBuf,
@@ -876,13 +887,14 @@ struct ResourceFact {
 
 #[derive(Debug, Clone)]
 struct ResourceFieldFact {
-    /// Verbatim type text, e.g. `@cap.Hashed(algorithm:argon2id)`,
-    /// `@semantic.Email`, `Text`, `DateTime`.
-    type_text: String,
-    /// `optional`/`required`/etc. modifiers (verbatim trailing tokens
-    /// after the type). Used by `auth_identity_field_unknown` to detect
-    /// non-identity-shaped fields.
-    modifiers: String,
+    /// Typed `TypeRef` lifted from `Field.type_ref`. `cap_hashed_algorithm`
+    /// matches `TypeRef::Capability(CapabilityRef::Hashed(...))`;
+    /// `is_identity_shaped` matches `Builtin::SemanticEmail/SemanticPhone`
+    /// + `Builtin::Id` + the typed `unique` axis.
+    type_ref: lazuli_ir::TypeRef,
+    /// `Field.unique`. Used by `is_identity_shaped` for unique-shaped
+    /// identity detection.
+    unique: bool,
     /// 1-based line where the field is declared. Currently unused by
     /// diagnostics; reserved for future field-anchored messages.
     #[allow(dead_code)]
@@ -5910,123 +5922,50 @@ fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
     }
 }
 
-/// Harvest `resource <Name>` declarations under each `feature <name>`
-/// block, recording field name + verbatim type text + trailing
-/// modifiers. The walk tolerates the canonical fixture's
-/// `domain` (indent 2) and `domain.resource` (indent 4 / fields at 6)
-/// shape; resources declared directly under `feature` are also picked
-/// up.
-fn collect_feature_resources(
-    file: &DoctorFile,
+/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
+/// `collect_feature_resources` text-walker. Reads typed `Feature.resources`
+/// and projects each `Resource` + its fields into the `ResourceFact` /
+/// `ResourceFieldFact` shape consumed by `auth_diagnostics`. The
+/// resource line anchor comes from `collect_construct_lines` on the
+/// file source so cross-feature anchored diagnostics still point at the
+/// `resource <Name>` header.
+fn populate_feature_resources_from_ir(
+    file_path: &Path,
+    file_source: &str,
+    feature: &lazuli_ir::Feature,
     out: &mut BTreeMap<String, BTreeMap<String, ResourceFact>>,
 ) {
-    if !is_lzi_path(&file.path) {
+    if feature.resources.is_empty() {
         return;
     }
-    let lines: Vec<&str> = file.source.lines().collect();
-    let mut feature: Option<String> = None;
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            i += 1;
-            continue;
+    let resource_lines = collect_construct_lines(
+        file_source,
+        "resource ",
+        feature.resources.iter().map(|r| r.name.as_str()).collect(),
+    );
+    let entry = out.entry(feature.name.clone()).or_default();
+    for resource in &feature.resources {
+        let line = resource_lines.get(&resource.name).copied().unwrap_or(0);
+        let mut fields = BTreeMap::new();
+        for field in &resource.fields {
+            fields.insert(
+                field.name.clone(),
+                ResourceFieldFact {
+                    type_ref: field.type_ref.clone(),
+                    unique: field.unique,
+                    line,
+                },
+            );
         }
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            feature = trimmed
-                .strip_prefix("feature ")
-                .map(|n| n.trim().to_owned());
-            i += 1;
-            continue;
-        }
-        // `resource <Name>` only counts under `domain` (indent 4) or
-        // directly under `feature` (indent 2). Other `resource` lines
-        // are slot references — e.g. `auth.sessions.resource Session`
-        // at indent 6 — and must not be treated as declarations.
-        let resource_indent = leading_spaces(line);
-        if let Some(rest) = trimmed.strip_prefix("resource ") {
-            if resource_indent != 2 && resource_indent != 4 {
-                i += 1;
-                continue;
-            }
-            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-            if name.is_empty() {
-                i += 1;
-                continue;
-            }
-            let mut fact = ResourceFact {
-                path: file.path.clone(),
-                line: i + 1,
-                fields: BTreeMap::new(),
-            };
-            let mut j = i + 1;
-            while j < lines.len() {
-                let inner = lines[j];
-                let inner_trim = inner.trim_start();
-                if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                    j += 1;
-                    continue;
-                }
-                if leading_spaces(inner) <= resource_indent {
-                    break;
-                }
-                if let Some((field_name, field_fact)) = parse_resource_field(inner_trim, j + 1) {
-                    fact.fields.insert(field_name, field_fact);
-                }
-                j += 1;
-            }
-            if let Some(feature_name) = feature.as_ref() {
-                out.entry(feature_name.clone())
-                    .or_default()
-                    .insert(name, fact);
-            }
-            i = j;
-            continue;
-        }
-        i += 1;
+        entry.insert(
+            resource.name.clone(),
+            ResourceFact {
+                path: file_path.to_path_buf(),
+                line,
+                fields,
+            },
+        );
     }
-}
-
-/// Parse `<field>: <Type> [modifiers...]`. The type text is whatever
-/// follows the first colon up to the first whitespace (so `@cap.Hashed(
-/// algorithm:argon2id)` round-trips intact because the args are
-/// parenthesised). Modifiers are the remainder, used to detect
-/// `optional` / `required`.
-fn parse_resource_field(trimmed: &str, line: usize) -> Option<(String, ResourceFieldFact)> {
-    let (name_part, rest) = trimmed.split_once(':')?;
-    let name = name_part.trim();
-    if name.is_empty() {
-        return None;
-    }
-    let rest = rest.trim();
-    // Split into type + modifiers honouring parenthesised arg lists.
-    let mut depth = 0i32;
-    let mut split_at = rest.len();
-    for (idx, ch) in rest.char_indices() {
-        match ch {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            c if c.is_whitespace() && depth == 0 => {
-                split_at = idx;
-                break;
-            }
-            _ => {}
-        }
-    }
-    let type_text = rest[..split_at].to_owned();
-    let modifiers = rest[split_at..].trim().to_owned();
-    if type_text.is_empty() {
-        return None;
-    }
-    Some((
-        name.to_owned(),
-        ResourceFieldFact {
-            type_text,
-            modifiers,
-            line,
-        },
-    ))
 }
 
 /// Harvest each feature's `extensions adapter <name>: <Type> at "..."`
@@ -6125,36 +6064,33 @@ fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<S
     }
 }
 
-/// Read the `algorithm:<X>` axis out of a `@cap.Hashed(...)` type text.
-/// Returns `None` when the field is not a `@cap.Hashed(...)` decorator
-/// or omits the axis.
-fn cap_hashed_algorithm(type_text: &str) -> Option<&str> {
-    let rest = type_text.strip_prefix("@cap.Hashed(")?;
-    let args = rest.strip_suffix(')')?;
-    for part in args.split(',') {
-        let part = part.trim();
-        if let Some(value) = part.strip_prefix("algorithm:") {
-            return Some(value.trim());
+/// Phase L Tier 4 follow-up — read the `algorithm:<X>` axis out of a
+/// typed `CapabilityRef::Hashed(...)`. Returns `None` when the field is
+/// not a `@cap.Hashed` decorator. Replaces the text-walking version
+/// that re-parsed `@cap.Hashed(algorithm:…)` from `type_text`.
+fn cap_hashed_algorithm(type_ref: &lazuli_ir::TypeRef) -> Option<&'static str> {
+    match type_ref {
+        lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::Hashed(h)) => {
+            Some(match h.algorithm {
+                lazuli_ir::HashAlgorithm::Argon2id => "argon2id",
+                lazuli_ir::HashAlgorithm::Bcrypt => "bcrypt",
+            })
         }
+        _ => None,
     }
-    None
 }
 
-/// Heuristic: is this field's declared shape a plausible login
-/// identifier? Identity fields are unique-shaped — either tagged with
-/// `@semantic.Email` / `@semantic.Phone`, declared as an `ID`, or
-/// carry a `unique` modifier. The check is conservative; rejected
-/// shapes are obvious authoring errors (e.g. a `Text` free-form note
-/// field used as the login identity).
+/// Phase L Tier 4 follow-up — typed `is_identity_shaped`. Identity
+/// fields are either tagged `@semantic.Email` / `@semantic.Phone`,
+/// declared as `ID`, or carry the typed `unique` axis. Rejects free-
+/// form `Text` fields used as login identities.
 fn is_identity_shaped(field: &ResourceFieldFact) -> bool {
-    let type_text = field.type_text.as_str();
-    if type_text.starts_with("@semantic.Email") || type_text.starts_with("@semantic.Phone") {
-        return true;
+    use lazuli_ir::{BuiltinType, TypeRef};
+    match &field.type_ref {
+        TypeRef::Builtin(BuiltinType::SemanticEmail | BuiltinType::SemanticPhone) => true,
+        TypeRef::Builtin(BuiltinType::Id) => true,
+        _ => field.unique,
     }
-    if type_text == "ID" {
-        return true;
-    }
-    field.modifiers.contains("unique")
 }
 
 /// Resolve `<Resource>` for a feature by searching its own resources
@@ -6305,7 +6241,7 @@ fn auth_diagnostics(
                     // first divergence.
                     let mut found_hash_axis = None;
                     for (field_name, field) in &resource.fields {
-                        if let Some(axis) = cap_hashed_algorithm(&field.type_text) {
+                        if let Some(axis) = cap_hashed_algorithm(&field.type_ref) {
                             found_hash_axis = Some((field_name.clone(), axis.to_owned()));
                             if axis != pw_algo {
                                 diagnostics.push(DoctorDiagnostic {
@@ -8231,6 +8167,12 @@ mod tests {
                             // as `policy_reachability_diagnostics` /
                             // `command_route_binding_diagnostics`.
                             populate_commands_from_ir(&feature, &file.source, &mut commands);
+                            populate_feature_resources_from_ir(
+                                &file.path,
+                                &file.source,
+                                &feature,
+                                &mut feature_resources,
+                            );
                             for agent in feature.agents.clone() {
                                 let agent_line = agent
                                     .span_ref
@@ -8359,7 +8301,6 @@ mod tests {
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_approval_block_presence(&file, &mut approval_presences);
-                collect_feature_resources(&file, &mut feature_resources);
                 collect_feature_adapters(&file, &mut feature_adapters);
                 collect_feature_uses(&file, &mut feature_uses);
             } else {
