@@ -7522,13 +7522,22 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "capabilities" => Some("capabilities"),
                     "integrations" => Some("integrations"),
                     "packs" => Some("packs"),
+                    "tools" => Some("tools"),
+                    // Webhooks expanded cycle — registry-side catalog
+                    // of expected inbound envelope shapes. Indent-4
+                    // entries open new envelopes; indent-6 children
+                    // declare typed fields. Validation lives in the
+                    // doctor path (`WEBHOOK-PAYLOAD-001` etc.); the
+                    // LSP contract diagnostic only suppresses the
+                    // unknown-block warning.
+                    "webhook_events" => Some("webhook_events"),
                     _ => {
                         diagnostics.push(simple_canonical_diagnostic(
                             line_index,
                             line,
                             DiagnosticSeverity::WARNING,
                             "registry-contract",
-                            "registry blocks use `env`, `capabilities`, `integrations`, and `packs`.",
+                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, and `webhook_events`.",
                         ));
                         None
                     }

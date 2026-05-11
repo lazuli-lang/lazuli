@@ -8,6 +8,31 @@
 // when applicable.
 //
 // Phase L Tier 3 / row 33 stubs.
+//
+// Webhooks expanded cycle (rows 38–39, 2026-05-11) extends the language
+// surface with `payload from webhook_events.<name>`, `replay`, `dlq`,
+// and an inbound `retry` decorator that reuses the jobs RetryPolicy
+// shape. The runtime extensions are intentionally NOT in this stub —
+// the runtime team adds:
+//
+//   - `WebhookContract.Retry *Retry`
+//   - `WebhookContract.Replay *ReplaySpec` (Mode = Allow|Deny, Within,
+//     DedupeBy)
+//   - `WebhookContract.DLQ *DlqSpec` (Kind = Emit|Handler|Drop, plus
+//     event/path/reason)
+//   - `WebhookContract.PayloadType PayloadType` for typed envelope
+//     decode against the codegen `<Feature><Name>Payload` struct.
+//   - Lifecycle additions: typed decode after verify, replay-window
+//     check, retry through the shared `jobs.Adapter`, DLQ routing on
+//     exhaustion.
+//   - New typed errors: `ErrWebhookReplayDenied`,
+//     `ErrWebhookReplayWindowExpired`, `ErrWebhookDeadLettered`.
+//
+// All new shapes are mirrored in `lazuli_ir::Webhook` /
+// `lazuli_ir::ReplaySpec` / `lazuli_ir::DlqSpec` / `lazuli_ir::
+// WebhookEventRef`, so codegen can wire `WebhookContract` field-for-
+// field. See `docs/proposals/bucket-webhooks-expanded-cycle.md`
+// §Runtime / §Codegen.
 package webhooks
 
 import (
