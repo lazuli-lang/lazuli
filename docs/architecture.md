@@ -78,6 +78,20 @@ authoring layer". The unique slot Lazuli occupies in that category is
 **LLM-first, fully-declarative, non-editable-generated-code, modern stack
 (Go + React/TanStack)**. None of the listed analogs occupy that slot.
 
+## Lazuli vs Lazurite
+
+Two names, two scopes:
+
+- **Lazuli** — the framework itself. The single product. Includes the language (`.lzi`/`.lzx`), IR, compiler, the Go runtime library, the scaffold conventions, and the CLI. When in doubt, "Lazuli" refers to the whole framework.
+
+- **Lazurite** — a distribution / ecosystem **on top of Lazuli**. A starter project with conventions already applied, default features wired, ready to run. Conceptually one of several possible distros; currently the only one shipped. Authored separately from the framework itself.
+
+The relationship mirrors **Vue → Nuxt** or **React → Next.js**: Vue is the framework; Nuxt is the opinionated distribution that uses Vue and adds project structure, conventions, and defaults. Same shape here.
+
+Operationally, `lazuli new myapp` will instantiate from a distro template (default: Lazurite). Lazurite lives outside the Lazuli repo and may evolve independently.
+
+> Historical note: "Drusa" was an internal name used during early design discussions to refer to the runtime/framework portion of Lazuli. It is **no longer in use** — everything is just "Lazuli" (the framework) and "Lazurite" (the distro). Proposals and commits before 2026-05-11 may still use "Drusa"; treat it as historical vocabulary.
+
 ## Three internal layers
 
 Lazuli is **one framework with three internal layers**. The names are
@@ -276,10 +290,15 @@ codegen automation.
 
 | Term | Meaning |
 |---|---|
+| **Lazuli** | The framework itself (lang + IR + compiler + Go runtime lib + scaffold + CLI). Single product. |
+| **Lazurite** | A distribution/ecosystem on top of Lazuli — starter project with conventions and defaults wired. Analogous to Nuxt for Vue. Currently the only distro. |
 | `.lzi` / `.lzx` | The Lazuli source language. `.lzi` is the domain/operational layer; `.lzx` is the experience/view layer. |
 | IR | Internal representation. The typed canonical semantic graph produced by `lazuli_analyzer` and consumed by codegen, doctor, inspect, and future tools. |
-| Runtime | The Go and TypeScript libraries (`runtime/go/lazuli/`, `runtime/web/lazuli/`) that the generated code imports. The runtime executes the contract declared in the DSL. |
-| `dist/` | Generated code, regen-only, not user-editable. |
+| Runtime | The Go and TypeScript libraries (`runtime/go/lazuli/`, `runtime/web/lazuli/`) that the generated code imports. The runtime executes the contract declared in the DSL. Hand-written and maintained, not generated. |
+| Lazuli Go | Specific qualifier for the Go runtime library when disambiguation is needed (`github.com/lazuli/lazuli/<bucket>`). |
+| Lazuli compiler | The Rust toolchain in `crates/` (lazuli_syntax, lazuli_analyzer, lazuli_ir, lazuli_codegen_go, lazuli_lsp, lazuli_cli, …). |
+| `dist/` | Generated code, regen-only, not user-editable. Imports the runtime library; contains no business logic. |
 | Adapter | A concrete provider implementation (HTTP transport, Postgres, OpenAI, etc.) under `@runtime/<adapter>` or `@plugin/<publisher>/<adapter>`. |
 | Doctor | `lazuli doctor`: cross-package invariant checker. |
 | Inspect | `lazuli inspect`: structured JSON output of IR for LLM context packs. |
+| ~~Drusa~~ | Historical name (pre-2026-05-11) for the runtime/framework portion. **No longer in use**; replaced by "Lazuli" (framework) + "Lazurite" (distro). Old commits/proposals may still reference it. |
