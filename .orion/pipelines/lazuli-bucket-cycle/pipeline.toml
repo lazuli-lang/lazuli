@@ -1,0 +1,335 @@
+id = "lazuli-bucket-cycle"
+name = "Lazuli Bucket Cycle (L0→L2)"
+description = "Audita um bucket-piloto (auth/storage/jobs/observability) e produz um design end-to-end: linguagem → IR → codegen → drusa → evals → doctor → proposta consolidada em docs/proposals/."
+
+[command]
+slug = "lazuli-bucket-cycle"
+description = "Roda o ciclo L0→L2 num bucket (auth/storage/jobs/observability) — desenha surface .lzi + IR + codegen + drusa + evals + doctor."
+
+[defaults]
+agent = "lazuli-language-architect"
+
+# `auth` é o primeiro bucket-piloto da estratégia §0 do roadmap; trocar para
+# rodar outros buckets em sessões paralelas (worktree por bucket — ver wrapper
+# md). Cada bucket é um run independente da mesma pipeline.
+[[args]]
+name = "bucket"
+description = "Qual bucket-piloto auditar/desenhar. Cada um pega um run em sequência ou worktree."
+choices = ["auth", "storage", "jobs", "observability"]
+default = "auth"
+
+# `design` para apenas produzir a proposta + fixture proposto + sketch de IR/Go
+# (não toca código de produção). `implement` adicionaria a fase de edição de
+# crates/runtime — fica reservado para depois que `design` for aprovado.
+[[args]]
+name = "mode"
+description = "design = só proposta + fixture; implement = também edita crates/runtime."
+choices = ["design", "implement"]
+default = "design"
+
+# ---------- DAG ----------
+#
+# Cada stage assume o agent default `lazuli-language-architect` e suas
+# default_skills/rules/tools. Skills/tools listados aqui SOMAM no topo
+# (o resolver une com o agent template). Os prompts são auto-contidos —
+# o lead lê o TOML completo e percorre `depends_on` em ordem.
+
+[[stages]]
+id = "orient"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Grep", "Glob"]
+prompt = """
+Cold-orient no bucket `<bucket>` (vem do arg). Não escrever nada nesta
+etapa — só mapear o ponto de partida.
+
+Leitura mandatória, em ordem:
+
+1. `docs/audit/framework-coverage-1400.md` — seções relevantes ao bucket:
+   - `auth` → §10 Autenticação + §11 Autorização (overlap)
+   - `storage` → §28 Arquivos / storage
+   - `jobs` → §15 Jobs / filas + §16 Eventos
+   - `observability` → §21 Observabilidade + §32 Performance
+2. `docs/roadmap.md` §0 (estratégia do ciclo L0→L2) e a sub-seção §1.x
+   correspondente ao bucket. Anote o que está como DL (gap de linguagem)
+   vs DF (gap de runtime).
+3. `docs/invariants.md` e `docs/design-decisions.md` — qualquer pattern
+   nestes docs é decisão arquitetural; não tratar como friction.
+4. `examples/full-capsule/` filtrado pelo bucket:
+   - `auth` → `policies` blocks, `audience`, `escape_route`, registro de
+     auth no `app.lzi`/`registry.lzi` (procurar)
+   - `storage` → `@cap.File`, `@cap.Encrypted`, references a upload
+   - `jobs` → kinds `job`, `trigger event`, `trigger schedule`,
+     `idempotency by`
+   - `observability` → `event.trace`, `agent_run`, `audit`, `healthcheck`,
+     `readiness` em `app.lzi`
+5. `git log --oneline -30` — não re-propor nada shipado recentemente.
+
+Output: 4-5 sentenças com:
+- O que do bucket já é **L0** (expressível em fixture).
+- O que é **L1** (parser/IR aceita + doctor lints existem).
+- O que é **L2** (codegen + runtime executando — provavelmente quase nada).
+- Quais surfaces do bucket estão em `docs/proposals/` pendentes.
+- Um anchor `path:line` mostrando o ponto mais maduro e o ponto mais lacunoso.
+
+Sem propostas ainda.
+"""
+
+[[stages]]
+id = "inventory-state"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Grep", "Glob", "Bash(cargo *)"]
+prompt = """
+Inventário detalhado do estado do bucket atravessando as 5 camadas de
+verificação que definem L0/L1/L2:
+
+1. **Surface (.lzi/.lzx)** — quais kinds/decoradores do bucket aparecem no
+   fixture? Citar `path:line`.
+2. **Grammar (`docs/grammar.lzi.md` + `crates/lazuli_parser`)** — quais já
+   são reconhecidas pela gramática canônica?
+3. **IR (`crates/lazuli_analyzer/src/ir/*.rs`)** — quais têm struct IR e
+   serialização inspect?
+4. **Doctor/LSP (`crates/lazuli_cli/src/doctor.rs` + `crates/lazuli_lsp`)**
+   — quais têm diagnostics + hovers?
+5. **Codegen (`crates/lazuli_codegen_go` + `runtime/go/lazuli/`)** —
+   quais já produzem Go que compila e Drusa executa?
+
+Probes úteis:
+- `cargo run -q -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi`
+- `cargo run -q -p lazuli_cli -- doctor examples/full-capsule`
+- `Grep "<bucket-keyword>" path=crates`
+
+Use o `Task` tool para dispatchar sub-agentes por camada se ajudar.
+
+Output: tabela markdown
+| Construct | Surface | Grammar | IR | Doctor/LSP | Codegen | Runtime | L-level |
+com row por kind/decorador do bucket. `L-level` ∈ {L0, L1, L2, missing}.
+
+Esta tabela é o "baseline" — todas as stages seguintes propõem _diffs_
+contra ela.
+"""
+depends_on = ["orient"]
+
+[[stages]]
+id = "design-language"
+skills = ["lazuli-language-audit", "lazuli-quality-rubric"]
+tools = ["Read", "Grep", "Edit"]
+prompt = """
+Desenhar a surface `.lzi` que o bucket precisa para ser L0 completo.
+
+Para cada gap identificado em `inventory-state`:
+1. Proponha o kind/decorador/atalho minimal — nome, posição (top-level vs
+   sub-block), required children, validation invariants.
+2. Cite o anchor no fixture canônico onde ele apareceria — ou proponha
+   uma adição ao fixture (sem aplicar nesta stage, só descrever).
+3. Mostre 5-10 linhas de exemplo de como ele apareceria no fixture.
+4. Filtre contra `docs/design-decisions.md` — se o pattern proposto já
+   é coberto por decisão arquitetural, drop.
+5. Filtre contra `docs/next-checklist.md` — se já está tracked, drop.
+
+Restrições:
+- Indent-based, PascalCase em kinds, closed-namespace em `@*`.
+- Não introduzir mecanismo (DI, container, cascade, magic).
+- Cada nova surface tem que ter `inspect` shape claro — não pode ser
+  só "açúcar opaco".
+
+Output: secção markdown `## Linguagem proposta` com sub-headers por kind,
+exemplo inline, e justificativa de 1-2 linhas (cite rubric criterion onde
+aplica).
+"""
+depends_on = ["inventory-state"]
+
+[[stages]]
+id = "design-ir"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Grep"]
+prompt = """
+Para cada surface proposta em `design-language`, esboçar o IR shape:
+
+1. Struct Rust em `crates/lazuli_analyzer/src/ir/` — campos, tipos, defaults.
+2. Como aparece em `lazuli inspect --format=json` (chave + shape JSON).
+3. Quais cross-refs/validators o analyzer precisa rodar.
+4. Que diagnostics o doctor passa a emitir (nome + mensagem).
+
+Reusar tipos IR existentes quando possível — não duplicar shape.
+
+Output: secção markdown `## IR proposto` com sub-headers por struct, snippet
+Rust comentado, shape JSON, e lista de diagnostics novos.
+
+Não editar `crates/` ainda — só especificar.
+"""
+depends_on = ["design-language"]
+
+[[stages]]
+id = "design-codegen"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Grep"]
+prompt = """
+Esboçar o Go que `lazuli_codegen_go` produz para o bucket.
+
+Para cada surface IR proposta:
+1. Que arquivo `dist/go/*.gen.go` recebe o output.
+2. Que tipos Go são gerados (struct, interface, função).
+3. Que adapter wiring é necessário (referência a `runtime/go/lazuli/`).
+4. Onde o handler/dispatcher chama o adapter.
+
+Mostre 10-30 linhas de Go esqueletal por surface — apenas o suficiente
+pra provar que o IR mapeia limpo pra código. Sem implementar adapter.
+
+Output: secção markdown `## Codegen proposto` com sub-headers, snippets
+Go com `// path: dist/go/...gen.go` no topo de cada um.
+
+Restrição: o Go gerado tem que ser self-consistent — sem dependência
+circular, sem refs a símbolos que outro bucket não declara.
+"""
+depends_on = ["design-ir"]
+
+[[stages]]
+id = "design-runtime"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Grep"]
+prompt = """
+Especificar o que **Drusa** (runtime/go/lazuli/) entrega para o bucket
+funcionar end-to-end.
+
+Para cada adapter referenciado em `design-codegen`:
+1. Capability (HTTP middleware? DB query? Job dispatch? OTEL span?)
+2. Que pacote externo é a base (`chi`, `pgx`, `river`, `slog`, `aws-sdk-go-v2`)
+3. Configuração esperada vinda de `app.lzi`/`registry.lzi`
+4. Lifecycle (boot, shutdown, hot-reload)
+5. Erros tipados que o adapter pode levantar (mapear pra `expose client`)
+
+Confira `runtime/go/lazuli/` para reusar abstrações existentes (Ctx,
+withTx, queryCache, Error, etc.) em vez de duplicar.
+
+Output: secção `## Runtime proposto` listando os adapters/funções a
+implementar em Drusa. **Não escrever o código aqui** — só contrato.
+"""
+depends_on = ["design-codegen"]
+
+[[stages]]
+id = "design-evals"
+skills = ["lazuli-language-audit", "lazuli-quality-rubric"]
+tools = ["Read", "Grep"]
+prompt = """
+Como o bucket é testado de ponta a ponta.
+
+Para cada surface proposta:
+1. **Eval/case**: o caso determinístico que prova a semântica
+   (golden JSONL se aplicável; `requires`/`forbids`; substring/semantic).
+2. **Go test** em `runtime/go/lazuli/`: cenário com `testing/synctest`,
+   fake clock, fake HTTP, transações isoladas.
+3. **Doctor test**: input `.lzi` malformado e diagnostic esperado.
+4. **LSP test**: hover/completion esperados nos pontos críticos.
+
+Mostrar 1 exemplo concreto por categoria — não enumerar todos os casos.
+A ideia é provar que o bucket é **observável e testável**.
+
+Output: secção `## Evals/Testes propostos` com 4 sub-secções,
+exemplos concretos.
+"""
+depends_on = ["design-runtime"]
+
+[[stages]]
+id = "design-doctor-lsp"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Grep"]
+prompt = """
+Listar todos os diagnostics novos que Doctor + LSP precisam emitir para
+o bucket. Para cada um:
+
+1. Trigger (qual configuração no `.lzi` dispara).
+2. Severidade (Error / Warning / Hint).
+3. Mensagem proposta (1 frase, imperativa, citando o fix).
+4. Test fixture que dispara (input `.lzi` minimal).
+
+Cross-check com `crates/lazuli_lsp/src/lib.rs` `is_allowed_reference_namespace`
+e `KEYWORD_HOVER` — qualquer novo `@namespace` precisa entrar no closed set.
+
+Output: tabela `| Code | Severity | Message | Trigger |` + lista de
+keywords/namespaces novos a adicionar no LSP.
+"""
+depends_on = ["design-evals"]
+
+[[stages]]
+id = "synthesize"
+skills = ["lazuli-language-audit"]
+tools = ["Read", "Write"]
+prompt = """
+Consolidar todas as secções anteriores num **proposal único** em:
+
+`docs/proposals/bucket-<bucket>-cycle.md`
+
+(substitua `<bucket>` pelo valor do arg).
+
+Estrutura do arquivo:
+
+```markdown
+# Bucket Cycle: <Bucket> (L0→L2)
+
+## Contexto
+(2-3 parágrafos: por que este bucket, qual o estado hoje L0/L1/L2, qual o gate de "ciclo fechado")
+
+## Baseline
+(tabela do inventory-state)
+
+## Linguagem proposta
+## IR proposto
+## Codegen proposto
+## Runtime proposto
+## Evals/Testes propostos
+## Doctor/LSP propostos
+
+## Critério de "ciclo fechado"
+- [ ] Aparece em examples/full-capsule/
+- [ ] lazuli check aceita
+- [ ] lazuli inspect mostra IR completo
+- [ ] lazuli doctor tem ≥1 lint relevante
+- [ ] lazuli generate produz Go válido que compila
+- [ ] Drusa executa cenário ponta-a-ponta
+- [ ] Existe eval/case ou Go test cobrindo
+- [ ] LSP enxerga e dá hover/completion
+
+## Próximo passo
+(1-2 frases sobre o que precisa de aprovação humana antes de implementar)
+```
+
+Não toque `docs/next-checklist.md` — só sugira as rows abaixo do proposal.
+
+Se `mode == implement`, **adicione** uma secção final:
+```markdown
+## Implementação (mode=implement)
+- Patches a aplicar: ...
+- Crates a editar: ...
+- Runtime a estender: ...
+```
+e prepare-se para a próxima stage editar código real. Caso contrário,
+pare aqui e siga só para review.
+"""
+depends_on = ["design-doctor-lsp"]
+
+[[stages]]
+id = "review"
+type = "checkpoint"
+tools = ["Read", "Bash(git status*)", "Bash(git diff*)"]
+prompt = """
+Summary final para o usuário:
+
+- Caminho do proposal: `docs/proposals/bucket-<bucket>-cycle.md`
+- Quantidade de novos kinds/decoradores propostos (linguagem)
+- Quantidade de structs IR novas
+- Quantidade de adapters Drusa novos
+- Quantidade de diagnostics doctor/LSP novos
+- Quantidade de evals/testes propostos
+- 3 sugestões de row para `docs/next-checklist.md` (não editar; só sugerir)
+
+Se `mode == design`: pare aqui. O usuário decide se aprova e roda
+`/lazuli-bucket-cycle bucket=<x> mode=implement` ou se primeiro itera no
+proposal.
+
+Se `mode == implement`: confirmar que código foi escrito, rodar:
+- `cargo fmt --check`
+- `cargo test -q`
+- `cargo run -q -p lazuli_cli -- doctor examples/full-capsule`
+e reportar status. NÃO criar commits sem aprovação humana explícita.
+"""
+depends_on = ["synthesize"]
