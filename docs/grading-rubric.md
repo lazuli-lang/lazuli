@@ -40,7 +40,7 @@ The rubric grades:
 
 It does not grade:
 
-- Runtime correctness (Drusa / generated code).
+- Runtime correctness (Lazuli Go / generated code).
 - Performance.
 - Test coverage of the *implementation*. The implementation
   pipeline is its own concern.
@@ -101,14 +101,14 @@ boundary violation is any of:
 
 - Provider-specific names in core syntax (Stripe, AWS, MercadoPago,
   Kubernetes, OpenAI, Anthropic). Provider names live behind
-  `@drusa/...`, `@plugin/...`, `@adapter.<local>`.
+  `@runtime/...`, `@plugin/...`, `@adapter.<local>`.
 - `container.lzi` being introduced before registry pressure
   justifies it.
 - `workspace.lzi` becoming mandatory for single-app projects.
 - Magic discovery without `lazuli inspect` / `lazuli doctor` /
   LSP visibility.
-- Drusa runtime mechanics (DI, broker plumbing, transport details)
-  pushed into Lazuli core.
+- Lazuli runtime mechanics (DI, broker plumbing, transport details)
+  pushed into the language layer.
 
 A boundary violation is a *deletion*, not a *deferral*. Reject in
 line; do not log as a tracked cut.
@@ -143,9 +143,10 @@ Before asking the architect to grade your proposal, walk these
 eight checks. If you can't answer all of them in the proposal's
 first 100 lines, the proposal is not ready.
 
-1. **What's the boundary?** Lazuli (contracts), Drusa (runtime),
-   adapters (providers). Where does each piece of this proposal
-   live? Cite `docs/capability-layering.md`.
+1. **What's the boundary?** Language (contracts), runtime (the
+   Lazuli Go and TS libraries), adapters (providers). Where does
+   each piece of this proposal live? Cite
+   `docs/capability-layering.md`.
 2. **What does the closed-namespace catalog do here?** If the
    proposal introduces a name, is it under an existing
    `@<namespace>.*`, or is it inventing one? Inventing one is a
@@ -274,9 +275,10 @@ History of changes lives in `git log -- docs/grading-rubric.md`.
 
 ## Reserved
 
-- A separate **runtime grading rubric** for Drusa/codegen lives
-  outside this document. Lazuli's rubric does not measure runtime
-  correctness; that is the runtime team's discipline.
+- A separate **runtime grading rubric** for the Go runtime and
+  codegen lives outside this document. The language rubric does
+  not measure runtime correctness; that is the runtime team's
+  discipline.
 - An **eval-success rate** metric ("X% of LLM-authored fixtures
   parse and pass doctor on first try") would be the most direct
   AI-first measure. Reserved until evals against the LSP

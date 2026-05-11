@@ -22,7 +22,7 @@ catch the canonical mistakes (`event_job_tenant_from_diagnostics`,
 `idempotency_key_diagnostics`).
 
 What is missing is L2: nothing runs. `runtime/go/lazuli/eventbus.go` is the
-sole job-adjacent file in Drusa — an in-process best-effort pub/sub that
+sole job-adjacent file in the Lazuli Go runtime — an in-process best-effort pub/sub that
 ignores tenant scope, has no retry, no DLQ, no schedule entry, no
 queue lane, no webhook receiver, no notification dispatcher. The IR's `Job`
 struct (`crates/lazuli_ir/src/lib.rs:1684`) drops half the fixture's
@@ -50,8 +50,8 @@ Inventario L0/L1/L2 dos constructs já presentes no fixture, parser, IR,
 doctor/LSP, codegen, e runtime. `Surface` é "lê do fixture canônico";
 `Grammar` é "parser reconhece"; `IR` é "struct dedicado em
 `lazuli_ir`"; `Doctor/LSP` é "diagnostic cross-checa"; `Codegen` é
-"`lazuli_codegen_go` produz arquivo Go"; `Runtime` é "Drusa
-executa".
+"`lazuli_codegen_go` produz arquivo Go"; `Runtime` é "o runtime
+Lazuli Go executa".
 
 | Construct | Surface | Grammar | IR | Doctor/LSP | Codegen | Runtime | L-level |
 |---|---|---|---|---|---|---|---|
@@ -132,7 +132,7 @@ Cost: trivial. Value: declarative audit log without ad-hoc handler files.
 
 Sketch only. Today retry exhaustion implicitly drops to whatever the
 adapter does (River dead-letters by default). The fixture doesn't declare
-a dead-letter destination, and Drusa hasn't shipped one. **Do not promote**
+a dead-letter destination, and the Lazuli Go runtime hasn't shipped one. **Do not promote**
 unless a pilot needs custom DLQ routing — most products are fine with the
 adapter default. If pressure shows up, the surface lands as:
 
@@ -215,7 +215,7 @@ pattern matching and payload-inheritance logic moves into the analyzer
 `JobOperationalKind` enum already exists at `lib.rs:1718` (`Scheduled` /
 `Reactor` / `QueuedWorker`). Today it's derived but **not surfaced in
 inspect**. Lift into `InspectJob.operational_kind` so codegen targets the
-right Drusa registration without recomputing.
+right Lazuli Go registration without recomputing.
 
 ### Diagnostics added on top of the scope-out
 
@@ -426,16 +426,16 @@ deterministic — alphabetical by feature, alphabetical by name inside each
 file.
 
 No provider names anywhere in generated code. `JobRegistry`,
-`webhooks.Registry`, `notifications.Registry` are Drusa-side; River/Sendgrid/
+`webhooks.Registry`, `notifications.Registry` are runtime-side; River/Sendgrid/
 any provider wiring happens through the registry adapter binding (see
 `## Runtime proposto`).
 
 ## Runtime proposto
 
-Drusa entrega three new subpackages under `runtime/go/lazuli/`. Each is the
-Lazuli-side typed contract; concrete adapters live in `runtime/go/lazuli/<bucket>/
+The Lazuli Go runtime ships three new subpackages under `runtime/go/lazuli/`. Each is the
+language-side typed contract; concrete adapters live in `runtime/go/lazuli/<bucket>/
 <adapter>` (e.g. `runtime/go/lazuli/jobs/river` for River, `notifications/sendgrid`
-for Sendgrid). Adapters never leak into Drusa's stable surface.
+for Sendgrid). Adapters never leak into the runtime's stable surface.
 
 ### `runtime/go/lazuli/jobs/`
 
@@ -462,8 +462,8 @@ type Adapter interface {
     // Schedule installs a cron entry. Called once at boot for each Scheduled job.
     Schedule(spec ScheduleSpec) error
 
-    // Start launches the worker pool. Drusa's `Boot` calls this with the
-    // app.lzi `unit worker` configuration.
+    // Start launches the worker pool. The Lazuli runtime's `Boot` calls
+    // this with the app.lzi `unit worker` configuration.
     Start(ctx context.Context, cfg WorkerConfig) error
 
     // Shutdown drains in-flight jobs respecting Timeout.
@@ -534,7 +534,7 @@ adapter slot (`@adapter.notification.email`, `@adapter.notification.push`,
 
 Notifications are themselves jobs at the runtime level — they enqueue
 through the same `jobs.Adapter` for retry/dedupe. Codegen exposes them as
-notification specs (cleaner author surface), but Drusa wires them to the
+notification specs (cleaner author surface), but the Lazuli Go runtime wires them to the
 queue lane named `notifications` by default.
 
 ### Extending `runtime/go/lazuli/eventbus.go`
@@ -701,7 +701,7 @@ end-to-end job + one webhook + one notification from the fixture.
       five tenant/idempotency cross-checks against typed IR.
 - [ ] `lazuli generate` emits `dist/go/<feature>/jobs.gen.go`,
       `webhooks.gen.go`, `notifications.gen.go` and the composed boot.
-- [ ] Drusa executes one event-triggered reactor, one scheduled fanout,
+- [ ] Lazuli Go executes one event-triggered reactor, one scheduled fanout,
       one inbound webhook, one outbound notification end-to-end against a
       Postgres + River + Sendgrid test rig.
 - [ ] At least one `synctest`-backed Go test per kind in
@@ -717,7 +717,7 @@ end-to-end job + one webhook + one notification from the fixture.
 2. Author the six new doctor diagnostics from IR (table above). Migrate
    the text-based LSP rules into doctor cross-checks where the table says
    "lift".
-3. Hand off codegen + Drusa to the runtime team with the three subpackage
+3. Hand off codegen + Lazuli Go runtime work to the runtime team with the three subpackage
    contracts under `runtime/go/lazuli/jobs/`, `webhooks/`, `notifications/`.
    The agent in this profile stays in language/IR/doctor territory.
 4. Close the cycle on `recompute_score_after_invoice` first (simplest:
@@ -734,5 +734,5 @@ plus a green `cargo test -q -p lazuli_runtime --features=integration` run.
 | Order | Cut | Status | Notes |
 |-------|-----|--------|-------|
 | 26 | Jobs/Webhooks/Notifications IR lift (scope-out) | proposed | Bring `Job` + `Webhook` IR fields up to fixture surface (`tenant_from`, `fanout`, `timeout`, `external_calls`, `audit`); add `Notification` and `EventGroup` IR structs; wire `InspectFeature.{jobs, webhooks, event_groups}` projections so codegen has typed input. Pre-requisite for the L0→L2 jobs cycle. See `docs/proposals/bucket-jobs-scope.md`. |
-| 27 | Jobs L0→L2 closure (cycle) | proposed | Six new IR-driven diagnostics (`JOB-TIMEOUT-001`, `JOB-FANOUT-001/002`, `WEBHOOK-SCOPE-001`, `NOTIF-CHANNEL-001`, `EVENTGROUP-NESTING-001`) + codegen for `dist/go/<feature>/{jobs,webhooks,notifications}.gen.go` + Drusa subpackages `runtime/go/lazuli/{jobs,webhooks,notifications}` + River as primary queue adapter + Sendgrid as primary email adapter. Closes pilot bucket #3 of roadmap §0. See `docs/proposals/bucket-jobs-cycle.md`. |
+| 27 | Jobs L0→L2 closure (cycle) | proposed | Six new IR-driven diagnostics (`JOB-TIMEOUT-001`, `JOB-FANOUT-001/002`, `WEBHOOK-SCOPE-001`, `NOTIF-CHANNEL-001`, `EVENTGROUP-NESTING-001`) + codegen for `dist/go/<feature>/{jobs,webhooks,notifications}.gen.go` + Lazuli Go subpackages `runtime/go/lazuli/{jobs,webhooks,notifications}` + River as primary queue adapter + Sendgrid as primary email adapter. Closes pilot bucket #3 of roadmap §0. See `docs/proposals/bucket-jobs-cycle.md`. |
 | 28 | `event_group` doctor pattern-prefix rule | proposed | Promote `event_group_can_own_short_event_declarations` LSP rule (`canonical_event_group_can_own_short_event_declarations` at `crates/lazuli_lsp/src/lib.rs:14522`) to a doctor cross-feature rule once `EventGroup` IR struct lands. Catches concrete events under a group whose names don't match the pattern prefix. Cheap lift, high value for cold-readability. |

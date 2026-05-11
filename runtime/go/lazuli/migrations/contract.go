@@ -6,7 +6,7 @@
 // per-tenant fanout + idempotency tracking + advisory locking.
 //
 // Concrete schema-migration adapters (`@runtime/atlas`,
-// `@runtime/golang-migrate`) sit in `@drusa/...` packages and bind via
+// `@runtime/golang-migrate`) sit in `@runtime/...` packages and bind via
 // `@adapter.migrations.*` resolution at boot. This package never names
 // a concrete tool — it declares the contract a `TenantMigrator`
 // implementation must satisfy.

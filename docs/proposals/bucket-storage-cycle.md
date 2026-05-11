@@ -4,7 +4,7 @@
 pipeline. Implementation deferred to a separate run with
 `mode=implement`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-10.
 
@@ -36,7 +36,7 @@ from authored source, and even if it were, it has no slot for
 the contract, doctor cannot cross-check input/output symmetry,
 codegen produces zero file/storage-related Go (confirmed by grepping
 `crates/lazuli_codegen_go` and `dist/go/customer/` for `cap.File`),
-and the Drusa runtime ships no `lazuli.File` / `lazuli.ObjectStore`
+and the Lazuli Go runtime ships no `lazuli.File` / `lazuli.ObjectStore`
 helper at all (`runtime/go/lazuli/` has zero storage references).
 
 The lowering route was decided in
@@ -71,7 +71,7 @@ the implementation run is mechanical.
 | Doctor fact harvesting | text-pattern, plain-name (no args parsed) | `crates/lazuli_cli/src/doctor.rs:902-909` |
 | Inspect projection | none — `lazuli inspect --format=json examples/full-capsule/full-capsule.lzi` emits zero `@cap.File` / file / accept / max_size keys | confirmed via probe |
 | Codegen | none — `crates/lazuli_codegen_go` has zero references to `CapFile`/file/upload | confirmed via grep |
-| Runtime (Drusa) | none — `runtime/go/lazuli/` has zero storage helpers | confirmed via ls + grep |
+| Runtime (Lazuli Go) | none — `runtime/go/lazuli/` has zero storage helpers | confirmed via ls + grep |
 | Highlighting | `@cap.File` colored by the generic capability scope; `max_size`/`accept` not specially highlighted | `editors/vscode/syntaxes/lazuli.tmLanguage.json` |
 | Adapter slot | `object_storage` named in `is_allowed_capability_kind` closed set | `crates/lazuli_lsp/src/lib.rs:8670` |
 
@@ -335,7 +335,7 @@ Normalisation rules:
 ## Codegen (Stage 5)
 
 Two new generated files per feature consuming `@cap.File`. Output is
-skeletal — Drusa supplies the runtime — and follows the existing
+skeletal — the Lazuli Go runtime supplies the body — and follows the existing
 `dist/go/customer/customer.gen.go` style.
 
 ### `dist/go/customer_import/upload.gen.go`
@@ -674,7 +674,7 @@ inside `accept:` follow the string-content scope.
 - [ ] `lazuli generate` produces `dist/go/customer_import/upload.gen.go`
   and `dist/go/customer/export.gen.go` that compile under
   `runtime/go/lazuli/storage`.
-- [ ] Drusa exposes upload (multipart) + signed download
+- [ ] Lazuli Go exposes upload (multipart) + signed download
   (round-trip) end-to-end (runtime-team deliverable).
 - [ ] `runtime/go/lazuli/storage/storage_test.go` synctest test
   passes for round-trip + signed TTL expiry.
@@ -693,7 +693,8 @@ recognise `@cap.File(args)` (reusing the existing
 `capability_args` helper from
 `crates/lazuli_lsp/src/lib.rs:2960`), wire lowering, add
 `ExpandSet.storage` (`crates/lazuli_cli/src/main.rs:98-118`), and
-ship the five doctor diagnostics + LSP entries. Drusa team owns
+ship the five doctor diagnostics + LSP entries. The Lazuli Go
+runtime team owns
 `runtime/go/lazuli/storage/{contract,upload,signed,fetch_private}.go`
 and the local + S3 adapters in parallel.
 
@@ -704,5 +705,5 @@ Three additions, formatted to match the existing table:
 ```
 | 29 | Storage bucket cycle Route B — typed `@cap.File` lowering | planned | Add `FileCapability`/`CapabilityRef`/`FileSize`/`MimeType`/`FileVisibility` to IR. Extend `type_ref_from_syntax` to recognise `@cap.File(args)` via the existing `capability_args` helper. New `--expand=storage` projection. Two new args: `visibility`, `signed_ttl`. See `docs/proposals/bucket-storage-cycle.md` §Linguagem/§IR + `docs/proposals/bucket-storage-scope.md`. |
 | 30 | Storage bucket cycle — 5 doctor diagnostics + LSP coverage | planned | `cap_file_visibility_undeclared_diagnostics`, `cap_file_accept_input_output_mismatch_diagnostics`, `cap_file_visibility_signed_ttl_mismatch_diagnostics`, `cap_file_size_unit_invalid_diagnostics` (typed promotion), `cap_file_mime_family_unknown_diagnostics`. LSP hovers for 5 keywords + closed-catalog completions for `visibility`/`max_size`/`signed_ttl`/`accept`. Depends on row 29. See `docs/proposals/bucket-storage-cycle.md` §Doctor/LSP. |
-| 31 | Storage bucket cycle — Drusa runtime + local/S3 adapters | planned | `runtime/go/lazuli/storage/{contract,upload,signed,fetch_private}.go`. Local adapter (`@runtime/local`) writes to filesystem; S3 adapter (`@runtime/s3`) uses `aws-sdk-go-v2`. Doctor test for round-trip + signed TTL expiry via `testing/synctest`. Drusa-team owns. Depends on row 29. See `docs/proposals/bucket-storage-cycle.md` §Runtime/§Evals. |
+| 31 | Storage bucket cycle — Lazuli Go runtime + local/S3 adapters | planned | `runtime/go/lazuli/storage/{contract,upload,signed,fetch_private}.go`. Local adapter (`@runtime/local`) writes to filesystem; S3 adapter (`@runtime/s3`) uses `aws-sdk-go-v2`. Doctor test for round-trip + signed TTL expiry via `testing/synctest`. The runtime team owns. Depends on row 29. See `docs/proposals/bucket-storage-cycle.md` §Runtime/§Evals. |
 ```

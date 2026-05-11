@@ -227,7 +227,7 @@ The reasoning:
 ## Routes A vs B vs C
 
 Three ways to close the search lowering gap; all honour the
-Lazuli/Drusa boundary:
+language/runtime boundary:
 
 ### Route A — wait for Phase L Tier 4, then lower in the canonical-indent slice
 
@@ -308,7 +308,7 @@ The DL=4 audit list maps as follows:
 | `multilingual` / `language <lang>` on the index | Audit §29 F | Speculative until a product authors multilingual content. |
 | `highlighting` | Audit §29 F | Adapter-side concern; the language declares the contract via mode, not the rendering of matches. |
 | `analytics` (search analytics) | Audit §29 DF | Runtime/adapter concern; the language declares the contract via `event.trace search_run` (Tier-3-style built-in trace event). |
-| `async indexing` job | Audit §29 DF | Drusa concern — declarative job dispatching from event subscribers; no language addition needed. |
+| `async indexing` job | Audit §29 DF | Runtime concern — declarative job dispatching from event subscribers; no language addition needed. |
 | `reindex` CLI | Audit §29 DF | CLI/admin concern. Not language. |
 
 The pilot-needed subset is exactly the clause the fixture already
@@ -349,7 +349,7 @@ runtime is gated on Cut search:
     `grammar.lzi.md:584`.)
 - [ ] **`lazuli generate` produces Go that compiles.** Cut search
   gated — out of scope for this design.
-- [ ] **Drusa executes end-to-end search.** Cut search gated — out
+- [ ] **Lazuli Go executes end-to-end search.** Cut search gated — out
   of scope.
 - [ ] **`eval`/test coverage.** Doctor fixture coverage only at
   this stage. Runtime tests gated on Cut search.
@@ -396,4 +396,4 @@ primitives.
 When Route B is implemented, the search bucket cycle ships:
 typed `SearchSpec` IR on `ListQuery`, `--expand=search`
 projection, 4 doctor diagnostics, 5 LSP hovers, 1 closed-catalog
-completion. Stage 4 (Drusa codegen) waits on Cut search opening.
+completion. Stage 4 (Lazuli Go codegen) waits on Cut search opening.

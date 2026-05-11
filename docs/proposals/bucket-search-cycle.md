@@ -5,8 +5,8 @@ pipeline. **Implementation is Cut search gated** — runtime/codegen
 stages are out of scope; this proposal stops at L1 (parser+IR+
 inspect+doctor+LSP).
 
-**Audience**: language team (Lazuli core). Runtime team
-(Drusa) is informed but not on the hook.
+**Audience**: language team (Lazuli core). Lazuli Go runtime team is
+informed but not on the hook.
 
 **Date**: 2026-05-11.
 
@@ -71,7 +71,7 @@ acceptance gate.
 | Doctor cross-feature | none — zero `search`-aware diagnostics | confirmed via grep |
 | Inspect projection | none — `lazuli inspect --format=json` emits zero `search` keys | confirmed via probe |
 | Codegen | none — `crates/lazuli_codegen_go` references `search` only in views/queries equality-filter paths | confirmed via grep |
-| Runtime (Drusa) | none — Cut search gated | `runtime/go/lazuli/` has zero search helpers |
+| Runtime (Lazuli Go) | none — Cut search gated | `runtime/go/lazuli/` has zero search helpers |
 | Highlighting | `search` keyword colored generically; `over`/`mode`/`ranking`/`facets` not specially highlighted | `editors/vscode/syntaxes/lazuli.tmLanguage.json` |
 | Adapter slot | `search` named in `is_allowed_capability_kind` closed set | `crates/lazuli_lsp/src/lib.rs:8711` |
 | Capability layering | "Language declares `search params.q over ...`; runtime/adapters implement engines" | `docs/capability-layering.md:249` |
@@ -552,7 +552,7 @@ will be extended under Route B, see Stage 4).
   shape has landed (replaces the existing
   `invariants.md:342-345` note that the clause exists but is
   not lowered).
-- [ ] **Cut search gated** — no codegen, no runtime, no Drusa
+- [ ] **Cut search gated** — no codegen, no runtime, no Lazuli Go
   work. Items 5-7 of `docs/roadmap.md:44-53` stay unchecked for
   the search bucket until Cut search opens.
 

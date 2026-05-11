@@ -11918,7 +11918,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Feature-scoped translation block. Declares a catalog path (`./i18n/<feature>.<locale>.json`) and typed keys. Each key declares one variant per `app.locale.supported` tag, plus optional CLDR plural arms (`zero/one/two/few/many/other`).",
         ),
         "catalog" => Some(
-            "Translation catalog path. Carries `<locale>` placeholder; the runtime resolves it per request, e.g. `./i18n/customer.pt-BR.json`. Format (JSON/YAML/ICU MessageFormat) is a Drusa adapter contract.",
+            "Translation catalog path. Carries `<locale>` placeholder; the runtime resolves it per request, e.g. `./i18n/customer.pt-BR.json`. Format (JSON/YAML/ICU MessageFormat) is an adapter contract on the Lazuli runtime side.",
         ),
         "locale_negotiate" => Some(
             "Per-runtime-unit (or per-api) middleware that resolves the request locale into `ctx.locale`. Closed catalog: `source` ∈ {accept_language|query_param|cookie|user_profile|subdomain}, `strategy` ∈ {best_match|prefix_match|exact_match}, optional `fallback <tag>`.",
@@ -11936,7 +11936,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Declares the event or schedule that starts a job or notification. `trigger event <feature>.<event>` for reactors; `trigger schedule \"<cron>\"` for scheduled work.",
         ),
         "retry" => Some(
-            "Declares retry attempts and backoff strategy. `retry <count> backoff <fixed|exponential>`. v0 catalog is closed; adapter-specific jitter is a Drusa concern.",
+            "Declares retry attempts and backoff strategy. `retry <count> backoff <fixed|exponential>`. v0 catalog is closed; adapter-specific jitter is a runtime concern.",
         ),
         "queue" => Some(
             "Declares an async queue lane for event-triggered jobs. Without `queue`, event jobs run inline as reactors; with `queue <lane>`, the runtime adapter dispatches via the queue (River, Asynq).",

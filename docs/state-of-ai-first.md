@@ -56,13 +56,13 @@ Three layered concerns, kept strictly separate:
 
 | Layer | Owns |
 |---|---|
-| **Lazuli** | Verifiable contracts: `.lzi` / `.lzx` source, IR, doctor, inspect, LSP, syntax. |
-| **Drusa** (the runtime, codenamed Lazuli runtime in docs) | Runtime/codegen/wiring: Go scaffolding, DI, generated transport bindings, prompt-template loading. |
+| **Language** | Verifiable contracts: `.lzi` / `.lzx` source, IR, doctor, inspect, LSP, syntax. |
+| **Runtime** (the Lazuli Go and TS libraries the generated code imports) | Runtime/codegen/wiring: Go scaffolding, DI, generated transport bindings, prompt-template loading. |
 | **Adapters** | Concrete providers: OpenAI, Anthropic, Stripe, AWS, K8s, MercadoPago. |
 
-The hard test: a Lazuli project should function if Drusa were
-replaced by a hypothetical second runtime targeting Rust + Yew +
-Flutter. If the language leaks Go-specific or React-specific
+The hard test: a Lazuli project should function if the Go runtime
+were replaced by a hypothetical second runtime targeting Rust + Yew
++ Flutter. If the language leaks Go-specific or React-specific
 assumptions, the proposal is at the wrong layer.
 
 ## What Lazuli is not
@@ -224,7 +224,7 @@ but are deliberately not.
 |---|---|
 | HTTP / RPC transport details (TLS, headers, compression) | Adapters |
 | Service-mesh / proxy / load-balancer config | Adapters / runtime |
-| DI mechanics (construction order, lifetimes) | Drusa runtime |
+| DI mechanics (construction order, lifetimes) | Lazuli runtime |
 | SDK generation for client languages | Publication artifact, not language |
 | Multi-region / replication topology | Runtime decision; language declares contract only |
 | Streaming protocol differentiation (SSE vs WS vs gRPC) | Pack / adapter |
@@ -280,7 +280,7 @@ Honest gaps:
   implementation plan starts the migration to typed AST/IR for
   one construct (`agent`), establishing the pattern.
 - `Agent` does not yet exist in IR. Cut A introduces it.
-- The runtime (Drusa) is in Phase B/C spike — list/lookup queries
+- The Lazuli Go runtime is in Phase B/C spike — list/lookup queries
   and basic CRUD effects work end-to-end against real Postgres;
   agent dispatch is not yet implemented.
 - No pilot products exist beyond the canonical fixture. Most cuts

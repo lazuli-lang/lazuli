@@ -1,5 +1,5 @@
 // Package jobs — retry helpers. Adapter-specific backoff (jitter,
-// cap, dead-letter routing) lives in `@drusa/<queue>`; this file ships
+// cap, dead-letter routing) lives in `@runtime/<queue>`; this file ships
 // the closed-catalog backoff strategy resolution and the helpers
 // generated code uses.
 //

@@ -226,8 +226,9 @@ pub enum ApprovalTimeoutAction {
 
 ## Coordination with the runtime team
 
-The runtime owns the approval UX. Lazuli ships the contract; Drusa
-ships the dispatch + persistence + UX wiring; adapters ship the
+The runtime owns the approval UX. The language ships the contract;
+the Lazuli Go runtime ships the dispatch + persistence + UX wiring;
+adapters ship the
 transport (Slack/email/SMS). The language-side cut is independent.
 
 ## Acceptance criteria

@@ -6,7 +6,7 @@ pipeline. Implementation deferred to a separate run with
 `docs/proposals/bucket-migrations-scope.md` — Route A (the full
 typed resource-decorator lift) waits for Phase L Tier 4.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -80,7 +80,7 @@ acceptance gate for the Route C cycle.
 | Resource parser | text-pattern only (5 LSP walkers + 4 inspect walkers) | `crates/lazuli_lsp/src/lib.rs:5761,6139,6244,6354,10109`; `crates/lazuli_cli/src/main.rs:1625,2460,2466,3325` |
 | `Resource` IR struct | `name`, `tenancy`, `soft_delete`, `timestamps`, `fields`, `constraints`, `validate`, `validates`, `previous_names`, `span_ref` only | `crates/lazuli_ir/src/lib.rs:304-330` |
 | Codegen for migrations | **zero** — no `dist/<feature>/migrations/*.sql` produced | confirmed via `crates/lazuli_codegen_go` grep |
-| Drusa runtime | **zero** — no `runtime/go/lazuli/migrations/` package | confirmed via ls |
+| Lazuli Go runtime | **zero** — no `runtime/go/lazuli/migrations/` package | confirmed via ls |
 | Adapter slots | `atlas` and `golang-migrate` declared as roadmap §3.1 targets, neither wired | `docs/roadmap.md:594` |
 
 **Cross-cutting fact**: every `tenancy org` resource in the fixture
@@ -184,7 +184,7 @@ app FullCapsule
   (Tier 4) to attach to.
 - No `migration <name>` standalone file format. Lazuli re-lowers
   from source; audit §8 N-class is final.
-- No `seed_loader` kind. Drusa concern.
+- No `seed_loader` kind. Runtime concern.
 - No typed field diff inside `lazuli plan`. Tier-4 follow-up.
 
 ## IR (Stage 4)
@@ -409,7 +409,7 @@ without renaming.
 
 ## Codegen + Runtime (Stages 9-10)
 
-**Out of language scope**. Drusa team owns:
+**Out of language scope**. The Lazuli Go runtime team owns:
 
 - `dist/<feature>/migrations/tenant_migration_*.gen.go` — a typed
   `TenantMigrationContract` struct mirroring IR, a `Run(ctx,
@@ -458,7 +458,7 @@ This cycle deliberately does not:
   zero-downtime sequencing. All DF-class per audit §8.
 - Wire `atlas` or `golang-migrate` adapters. Runtime team.
 - Promote `unique` constraints to `index unique` decorators.
-- Add seed loader, db create/drop/reset CLI. Drusa CLI work.
+- Add seed loader, db create/drop/reset CLI. Runtime CLI work.
 
 If a question arises during implementation that touches any of
 the above, the answer is "Tier-4 follow-up cycle, not this one."
@@ -492,7 +492,7 @@ mode=implement`. The implementer should:
 
 When Route C lands, the migrations bucket has typed IR for
 `tenant_migration` + `deploy` policy + `previously` cross-checks +
-checkpoint snapshot integrity. Drusa codegen can consume the
+checkpoint snapshot integrity. Lazuli Go codegen can consume the
 typed IR for the per-tenant atlas/golang-migrate dispatch. The
 roadmap §1.6 resource decorators wait for Tier 4 — which is the
 correct ordering, not a regression.

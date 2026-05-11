@@ -1,7 +1,7 @@
 // Smoke tests for the migration dispatcher shape. The full
-// integration test (atlas/golang-migrate against a real DB) is a Drusa
-// concern; this file pins the contract shape + the in-process
-// dispatcher's tenant fanout behaviour.
+// integration test (atlas/golang-migrate against a real DB) is a
+// runtime adapter concern; this file pins the contract shape + the
+// in-process dispatcher's tenant fanout behaviour.
 package migrations
 
 import (

@@ -12,7 +12,7 @@ Este é o roadmap-vivo de **tudo que vamos implementar** no Lazuli, derivado do 
 Estrutura:
 
 - **§1 Linguagem** (`.lzi`) — ~95 primitivas DL. Muda prova/shape/policy/tenancy/eval.
-- **§2 Runtime/Framework** (Drusa) — ~485 capabilities DF. Mecânica que não muda prova.
+- **§2 Runtime/Framework** (Lazuli Go) — ~485 capabilities DF. Mecânica que não muda prova.
 - **§3 Adapters** — ~70 primários + secundários DA. Provider-specific, registry-driven.
 - **§4 Pilot-gated** — ~115 features F. Aguardam pilot evidence.
 
@@ -22,9 +22,9 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 
 ## §0. Estratégia de execução — provar ciclo L0→L2 em 4 buckets
 
-> **Revisão 2026-05-11 (FECHADO — language side)**: os 4 buckets-piloto + Phase L Tiers 1-4 estão **shipados em `main`**. Tudo language-side fechado: parser canonical-indent cobre `auth`/`@cap.File`/`job`/`webhook`/`notification`/`event_group`/`command`/`api`/`resource`/`query`/`record`/`policies`/`enum`; IR projeta tudo; doctor tem ~50 diagnostics novos; LSP tem ~50 hovers novos; Drusa runtime tem stubs por bucket (`runtime/go/lazuli/{auth,storage,jobs,webhooks,notifications,observability,cache,i18n,migrations}/`). **Tier 4 follow-up segunda onda (2026-05-11)** ampliou o IR + retirou 4 text-pattern collectors do doctor: `collect_feature_commands` (`RouteSlot.from` lifted), `collect_feature_resources` (`CapabilityRef::Hashed/Encrypted/Token` + `BuiltinType::SemanticPhone/Url/Uuid` typed; `Field.unique`/`type_ref` typed read), `collect_external_calls_in_block` command branch (`Command.timeout/retry/idempotency` mirror Job), e a record branch de `scan_feature_range` (`Tier3FeatureFacts.records` consumindo `Feature.records`). **Tier 4 follow-up terceira onda (2026-05-11) fechou os 3 walkers remanescentes**: (W1) `parse_policies_decl` + `lower_policies_decl` retiraram `collect_policy_atoms` (commit `d77eb59`); (W2) `parse_enum_decl` + `lower_enum_decl` retiraram a enum branch de `scan_feature_range` e o slot `FeatureSymbols.enums` (commit `b63ccb9`); (W3) `ExternalCallRef.span_ref` typed retirou `collect_external_calls_in_block` por inteiro (commit `71a4454`). **Doctor agora é 100% IR-driven para os Tier 4 constructs** (commands/resources/queries/records/apis/policies/enums/external_calls) — nenhum text-pattern walker remanescente para Tier 4. Detalhes nas rows 24-54 de `docs/next-checklist.md`. **Pendente**: (1) implementação Drusa real (argon2id, S3 client, River dispatch, OTEL exporter, chi receivers) — stubs prontos, runtime team owns; (2) hardcoded `/healthz` em `runtime/go/lazuli/http.go:28` substituível quando codegen gerar `dist/go/app/observability.gen.go`. **Próximo natural**: segunda onda de §1 (cache evolution, notifications expandidas, webhook DLQ, OpenAPI gen).
+> **Revisão 2026-05-11 (FECHADO — language side)**: os 4 buckets-piloto + Phase L Tiers 1-4 estão **shipados em `main`**. Tudo language-side fechado: parser canonical-indent cobre `auth`/`@cap.File`/`job`/`webhook`/`notification`/`event_group`/`command`/`api`/`resource`/`query`/`record`/`policies`/`enum`; IR projeta tudo; doctor tem ~50 diagnostics novos; LSP tem ~50 hovers novos; Lazuli Go runtime tem stubs por bucket (`runtime/go/lazuli/{auth,storage,jobs,webhooks,notifications,observability,cache,i18n,migrations}/`). **Tier 4 follow-up segunda onda (2026-05-11)** ampliou o IR + retirou 4 text-pattern collectors do doctor: `collect_feature_commands` (`RouteSlot.from` lifted), `collect_feature_resources` (`CapabilityRef::Hashed/Encrypted/Token` + `BuiltinType::SemanticPhone/Url/Uuid` typed; `Field.unique`/`type_ref` typed read), `collect_external_calls_in_block` command branch (`Command.timeout/retry/idempotency` mirror Job), e a record branch de `scan_feature_range` (`Tier3FeatureFacts.records` consumindo `Feature.records`). **Tier 4 follow-up terceira onda (2026-05-11) fechou os 3 walkers remanescentes**: (W1) `parse_policies_decl` + `lower_policies_decl` retiraram `collect_policy_atoms` (commit `d77eb59`); (W2) `parse_enum_decl` + `lower_enum_decl` retiraram a enum branch de `scan_feature_range` e o slot `FeatureSymbols.enums` (commit `b63ccb9`); (W3) `ExternalCallRef.span_ref` typed retirou `collect_external_calls_in_block` por inteiro (commit `71a4454`). **Doctor agora é 100% IR-driven para os Tier 4 constructs** (commands/resources/queries/records/apis/policies/enums/external_calls) — nenhum text-pattern walker remanescente para Tier 4. Detalhes nas rows 24-54 de `docs/next-checklist.md`. **Pendente**: (1) implementação Lazuli Go real (argon2id, S3 client, River dispatch, OTEL exporter, chi receivers) — stubs prontos, runtime team owns; (2) hardcoded `/healthz` em `runtime/go/lazuli/http.go:28` substituível quando codegen gerar `dist/go/app/observability.gen.go`. **Próximo natural**: segunda onda de §1 (cache evolution, notifications expandidas, webhook DLQ, OpenAPI gen).
 
-> **Revisão 2026-05-10**: a recomendação anterior era "completar DL de auth+storage+cache+notification". Substituída por: **provar o pipeline inteiro** (declarado → parseado → IR → codegen Go → Drusa executa → eval/test → doctor/inspect → fixture canônico) em 4 buckets críticos antes de espalhar DL horizontalmente. Razão: hoje muitos kinds existem como **L0** (surface declarativa aceita) mas não como **L2** (runtime executa). Crescer DL solto sem fechar o ciclo gera dívida de execução acumulada.
+> **Revisão 2026-05-10**: a recomendação anterior era "completar DL de auth+storage+cache+notification". Substituída por: **provar o pipeline inteiro** (declarado → parseado → IR → codegen Go → Lazuli Go executa → eval/test → doctor/inspect → fixture canônico) em 4 buckets críticos antes de espalhar DL horizontalmente. Razão: hoje muitos kinds existem como **L0** (surface declarativa aceita) mas não como **L2** (runtime executa). Crescer DL solto sem fechar o ciclo gera dívida de execução acumulada.
 
 > **Revisão 2026-05-10 (atualização pós-design)**: os 4 buckets-piloto foram **desenhados em paralelo** via `/lazuli-bucket-cycle` (pipeline em `.orion/pipelines/lazuli-bucket-cycle/`). 3 dos 4 (auth, storage, jobs) **independentemente descobriram o mesmo blocker estrutural**: surface autorada não chega ao IR porque `parse_feature_skeleton` (`crates/lazuli_syntax/src/parser.rs:1168-1173`) só faz lowering de `agent`. Conclusão: **Phase L** (row 24 do `next-checklist.md`, antes `backlog`/tech-debt) é **pré-requisito real** dos 3 buckets, não trabalho isolado. Foi repriorizada para `prerequisite`. A exceção (observability) é instrutiva: ficou linear porque `event.trace` já é L1 e Cut A.8 estabeleceu padrão (built-in trace event) replicável mecanicamente. Proposals canônicos:
 > - `docs/proposals/auth-lowering-scope.md` + `docs/proposals/bucket-auth-cycle.md`
@@ -36,7 +36,7 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 
 **Buckets-piloto** (executar em sequência, cada um end-to-end antes do próximo):
 
-1. **Auth / session** — kind `auth` (password+session) → parser → IR → codegen Go (handlers, middleware, hash) → Drusa executa login real → eval/test → doctor/inspect cobrem → fixture atualizado.
+1. **Auth / session** — kind `auth` (password+session) → parser → IR → codegen Go (handlers, middleware, hash) → Lazuli Go executa login real → eval/test → doctor/inspect cobrem → fixture atualizado.
 2. **Storage / file upload** — `@cap.File` end-to-end com adapter S3 + local + signed URLs declarados, parseados, gerados, executando.
 3. **Jobs / queue** — `job` kind end-to-end via River + retries + DLQ; trigger por event funcional.
 4. **Observability / health / logging** — slog + OTEL traces + `/healthz` + `/readyz` reais; `agent_run` consumido por exporter.
@@ -48,7 +48,7 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 - [x] `lazuli inspect` mostra IR completo — `--expand=auth`/`storage`/`jobs`/`webhooks`/`event_groups`/`logging`/`tracing` projeta tudo.
 - [x] `lazuli doctor` tem ≥1 lint relevante — ~30 diagnostics novos somados nos 4 buckets.
 - [ ] `lazuli generate` produz Go válido que compila — **stubs em `runtime/go/lazuli/` compilam**, mas codegen para `dist/go/<feature>/*.gen.go` ainda pendente.
-- [ ] Drusa executa um cenário ponta-a-ponta — runtime team owns (argon2id real, S3 client, River dispatch, OTEL exporter).
+- [ ] Lazuli Go executa um cenário ponta-a-ponta — runtime team owns (argon2id real, S3 client, River dispatch, OTEL exporter).
 - [x] Existe `eval`/`case` ou Go test cobrindo o caminho — 3 golden evals em `tests/golden/auth/` + `runtime/go/lazuli/storage/storage_test.go` (synctest TTL expiry funcional).
 - [x] LSP enxerga e dá hover/completion — ~40 hovers novos + closed-catalog completions.
 
@@ -282,9 +282,9 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ---
 
-## §2. Runtime / Framework (Drusa) — ~485 capabilities DF
+## §2. Runtime / Framework (Lazuli Go) — ~485 capabilities DF
 
-A maior parte do trabalho. Hoje Drusa está em **~5%** (spike CRUD + queries). Tudo abaixo precisa ser construído. Ordenado por prioridade de bloqueio de produção.
+A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + queries). Tudo abaixo precisa ser construído. Ordenado por prioridade de bloqueio de produção.
 
 ### 2.1 HTTP / servidor (P1 — bloqueia produção)
 
@@ -585,7 +585,7 @@ A maior parte do trabalho. Hoje Drusa está em **~5%** (spike CRUD + queries). T
 
 Registry-driven, plugados via `registry.lzi`. **Pick-one-primary** por categoria: Rule Zero.
 
-### 3.1 Primários (alvo must-have, ~20 — ainda nenhum wired em Drusa)
+### 3.1 Primários (alvo must-have, ~20 — ainda nenhum wired no runtime Go)
 
 > Todos abaixo são **alvo declarado** em `docs/architecture.md` / `docs/target-stack.md`, **não implementação shipada**. O primeiro adapter realmente wired vai surgir junto com §0 buckets (auth → Redis sessions; storage → S3; jobs → River; observability → slog/OTEL).
 
@@ -716,7 +716,7 @@ Em design ou aprovado mas não shipado até pilot evidence. Gates documentados n
 
 **Ordem sugerida** (revisada — alinhada com §0):
 
-1. ✅ **Ciclo L0→L2 nos 4 buckets-piloto** (§0): auth/session, storage/file upload, jobs/queue, observability/health/logging — **fechado em 2026-05-11 (language side)**. Cada bucket: fixture → parser → IR → doctor → LSP → eval. Drusa stubs prontos; runtime concreto fica para Drusa team.
+1. ✅ **Ciclo L0→L2 nos 4 buckets-piloto** (§0): auth/session, storage/file upload, jobs/queue, observability/health/logging — **fechado em 2026-05-11 (language side)**. Cada bucket: fixture → parser → IR → doctor → LSP → eval. Lazuli Go stubs prontos; runtime concreto fica para o runtime team.
 2. ⏸ **Phase L Tier 4**: `parse_command` / `parse_resource` / `parse_query` / `parse_record` + lift `defaults.tenancy` + retirar `JobDeclarative.raw_*` carve-out. Substitui as text-pattern facts remanescentes. Próxima prioridade natural.
 3. **Segunda onda** depois de Tier 4: cache, notifications expandidas (digest/throttle/receipts), webhook DLQ/replay, migrations runtime, OpenAPI gen, admin básico — cada um seguindo o mesmo ciclo L0→L2.
 4. **DF P1 restante** (§2.1 HTTP avançado, §2.2 observabilidade full, §2.3 DB operacional, §2.4 migrations, §2.5 CLI, §2.6 testes) — preenche os gaps de runtime que os buckets-piloto não cobriram.

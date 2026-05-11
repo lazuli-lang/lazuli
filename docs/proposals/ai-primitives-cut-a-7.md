@@ -297,8 +297,8 @@ feature boundaries.
   gains `expose http` block.
 - The handler file `./api/stream_customer_summary.go` removed
   from the fixture. **Note**: the runtime-side equivalent
-  (auto-mounting the agent's HTTP endpoint) is Drusa/runtime
-  work, tracked separately. Cut A.7 ships the language contract;
+  (auto-mounting the agent's HTTP endpoint) is runtime work,
+  tracked separately. Cut A.7 ships the language contract;
   the runtime team's parallel work materializes the dispatch.
 - `docs/grammar.lzi.md §14 (Agent)` adds `expose http` child.
 - `docs/invariants.md` agent invariant lists `expose http` as

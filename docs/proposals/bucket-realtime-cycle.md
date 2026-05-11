@@ -63,7 +63,7 @@ Inventário L0/L1/L2 dos construct mappings que existem hoje vs. precisam
 existir. `Surface` é "lê do fixture canônico"; `Grammar` é "parser
 reconhece"; `IR` é "struct dedicado em `lazuli_ir`"; `Doctor/LSP` é
 "diagnostic cross-checa"; `Codegen` é "`lazuli_codegen_go` produz arquivo
-Go"; `Runtime` é "Drusa executa".
+Go"; `Runtime` é "o runtime Lazuli Go executa".
 
 | Construct | Surface | Grammar | IR | Doctor/LSP | Codegen | Runtime | L-level |
 |---|---|---|---|---|---|---|---|
@@ -287,7 +287,7 @@ Realtime adds:
 process owns the realtime port. Codegen wires the WebSocket / SSE
 listener; the registry binding selects the adapter (Redis pub/sub
 default, NATS / Kafka secondary). One unit per app — Lazuli does not
-declare multi-realtime-unit topologies (that is runtime/Drusa).
+declare multi-realtime-unit topologies (that is runtime work).
 
 ### 7. Capability `realtime <name>` (registry.lzi)
 
@@ -452,7 +452,7 @@ closed catalog (`database`, `queue`, `object_storage`, `mailer`,
 | `SUBSCRIPTION-CHANNEL-001` | Error | `subscription ... channel <ref>` does not resolve. |
 | `SUBSCRIPTION-POLICY-001` | Error | `subscription ... policy` is weaker than the bound `channel`'s `policy`. |
 | `SUBSCRIPTION-FILTER-001` | Error | `subscription ... filter` references a field not in the channel's `payload` or a `params` entry not declared. |
-| `SUBSCRIPTION-RATE-001` | Warning | `subscription` without `rate_limit` and bound to a channel whose `audit messages_per_minute` is declared — the rate-limit declaration is recommended to give Drusa a typed knob. |
+| `SUBSCRIPTION-RATE-001` | Warning | `subscription` without `rate_limit` and bound to a channel whose `audit messages_per_minute` is declared — the rate-limit declaration is recommended to give the runtime a typed knob. |
 | `APP-REALTIME-001` | Error | `app.lzi` `bindings` include a realtime channel without a `runtime unit realtime` declared, or vice versa. |
 
 Twelve new IR-driven diagnostics. All run cross-feature against typed
@@ -634,7 +634,7 @@ registries. Composed boot is deterministic (alphabetical by feature,
 alphabetical by name).
 
 No provider names anywhere in generated code. `ChannelRegistry`,
-`SubscriptionRegistry`, `PresenceRegistry` are Drusa-side; Redis / NATS
+`SubscriptionRegistry`, `PresenceRegistry` are runtime-side; Redis / NATS
 / Kafka wiring happens through the registry adapter binding.
 
 ### `.lzx` `subscribe` locator codegen
@@ -662,12 +662,12 @@ export function useDetailView({ id }: { id: CustomerID }) {
 }
 ```
 
-`useSubscription` is the Drusa-side React hook. Author writes nothing
+`useSubscription` is the runtime-side React hook. Author writes nothing
 client-side; the locator and the subscription contract drive it.
 
 ## Runtime proposto
 
-Drusa entrega one new subpackage under `runtime/go/lazuli/realtime/`.
+The Lazuli Go runtime ships one new subpackage under `runtime/go/lazuli/realtime/`.
 Concrete adapters live in `runtime/go/lazuli/realtime/<adapter>`
 (e.g. `runtime/go/lazuli/realtime/redis` for Redis pub/sub).
 
@@ -771,7 +771,7 @@ the client why it disconnected.
   `channel`, `tenant_axis`, `tenant_id`, `subscriber_count`,
   `payload_bytes`, `latency_ms`. Subscribed via `@trace.channel_publish`
   the same way the four existing built-in traces are.
-- **Audit**: `channel.audit messages_per_minute` lowers to a Drusa
+- **Audit**: `channel.audit messages_per_minute` lowers to a runtime
   metric emitted to the audit log (resolved through
   `audit emit_to <event_group>` if declared, per row 37).
 - **Jobs**: a job declaring `broadcast <channel>` reuses the
@@ -924,7 +924,7 @@ from the (extended) fixture.
   `subscriptions.gen.go`, `presences.gen.go` and the composed boot;
   view codegen emits `useSubscription` hooks in `dist/web/` and
   `dist/mobile/`.
-- [ ] Drusa executes one broadcast + one subscription receiving the
+- [ ] Lazuli Go executes one broadcast + one subscription receiving the
   message + one presence join/leave end-to-end against a Redis test
   rig, **with tenant isolation verified**.
 - [ ] At least one `synctest`-backed Go test in
@@ -966,7 +966,7 @@ promotion run does not re-derive them.
 |-------|-----|--------|-------|
 | TBD | Realtime bucket cycle — surface locator (Route A) | proposed (Cut realtime gated) | New `subscribe <subscription-ref>` view locator in `.lzx`. Three doctor diagnostics (`subscribe_ref_unknown`, `subscribe_tenant_axis_mismatch`, `subscribe_policy_unreachable`) + LSP hover + completion. Pre-requisite for the cycle's surface side. See `docs/proposals/bucket-realtime-scope.md`. |
 | TBD | Realtime IR lift (parser + IR) | proposed (Cut realtime gated) | Extend `parse_feature_skeleton` with `parse_channel` / `parse_presence` / `parse_subscription`; add `BroadcastSpec` child to `Command` / `Event`; new IR structs `Channel`, `Presence`, `Subscription`; new `AppCapability::Realtime`; new `AppRuntimeUnit serves channels *`. New `--expand=channels` / `--expand=subscriptions` / `--expand=presences` projections. See `docs/proposals/bucket-realtime-cycle.md` §IR. |
-| TBD | Realtime bucket cycle — L0→L2 closure | proposed (Cut realtime gated) | Twelve new IR-driven diagnostics (`CHANNEL-PAYLOAD-001/002`, `CHANNEL-TENANT-001`, `CHANNEL-POLICY-001`, `PRESENCE-HEARTBEAT-001`, `PRESENCE-CHANNEL-001/002`, `SUBSCRIPTION-CHANNEL-001`, `SUBSCRIPTION-POLICY-001`, `SUBSCRIPTION-FILTER-001`, `SUBSCRIPTION-RATE-001`, `APP-REALTIME-001`) + codegen for `dist/go/<feature>/{channels,subscriptions,presences}.gen.go` + view codegen `useSubscription` hook + Drusa subpackage `runtime/go/lazuli/realtime` + Redis pub/sub as primary adapter + WebSocket/SSE edge. **Cross-tenant isolation test gates promotion.** See `docs/proposals/bucket-realtime-cycle.md`. |
+| TBD | Realtime bucket cycle — L0→L2 closure | proposed (Cut realtime gated) | Twelve new IR-driven diagnostics (`CHANNEL-PAYLOAD-001/002`, `CHANNEL-TENANT-001`, `CHANNEL-POLICY-001`, `PRESENCE-HEARTBEAT-001`, `PRESENCE-CHANNEL-001/002`, `SUBSCRIPTION-CHANNEL-001`, `SUBSCRIPTION-POLICY-001`, `SUBSCRIPTION-FILTER-001`, `SUBSCRIPTION-RATE-001`, `APP-REALTIME-001`) + codegen for `dist/go/<feature>/{channels,subscriptions,presences}.gen.go` + view codegen `useSubscription` hook + Lazuli Go subpackage `runtime/go/lazuli/realtime` + Redis pub/sub as primary adapter + WebSocket/SSE edge. **Cross-tenant isolation test gates promotion.** See `docs/proposals/bucket-realtime-cycle.md`. |
 
 ## PT-BR summary (para o time)
 
@@ -993,7 +993,7 @@ serves channels *` + `capabilities realtime <nome>` + binding via
 `BroadcastSpec`, `ChannelAuditSpec`); 12 diagnostics; 3 projections
 novos no `inspect`. Mecânico — segue padrão do bucket jobs.
 
-**Drusa**: subpackage `runtime/go/lazuli/realtime/` com adapter
+**Runtime (Lazuli Go)**: subpackage `runtime/go/lazuli/realtime/` com adapter
 contract; Redis pub/sub primário; WS/SSE edge com fallback
 automático. Cross-tenant isolation é o teste load-bearing — sem ele
 não fecha o ciclo.

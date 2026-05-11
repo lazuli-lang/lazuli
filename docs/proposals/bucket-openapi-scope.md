@@ -101,7 +101,7 @@ typed response schema). Consumers reading the stub get a clear
   etc.) per the boundary discipline in
   `docs/proposals/bucket-openapi-cycle.md` §Runtime.
 - **No OpenAPI validation middleware.** That is **DF** (audit
-  `:228`), owned by Drusa; this bucket is **DL** only.
+  `:228`), owned by the Lazuli Go runtime; this bucket is **DL** only.
 - **No Swagger UI / Redoc / Stoplight hosting.** Those are operational
   artifacts produced by adapters consuming the generated spec.
 - **No `api` block lift.** That is row 24 (Phase L Tier 4); this

@@ -3,7 +3,7 @@
 **Status**: blocker scope-out before running Stages 3-9 of
 `/lazuli-bucket-cycle bucket=cache`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -126,7 +126,7 @@ cross-check against.
 ## Routes A / B / C
 
 Three ways to close the cache lowering gap, all honouring the
-Lazuli/Drusa boundary:
+language/runtime boundary:
 
 ### Route A — defer until Tier 4 closes (status quo)
 
@@ -140,7 +140,7 @@ inherit from their parent's parser.
 
 **Cons**: cache stays at L0+doctor + spike-runtime until Tier 4 lands.
 Tier 4 has no scheduled ETA (`docs/next-checklist.md:60`); blocking
-the cache cycle on it could be months. The Drusa runtime contract for
+the cache cycle on it could be months. The Lazuli Go runtime contract for
 cache (Redis adapter, stale-while-revalidate, coalesce) **does not
 require** Tier 4 to ship — runtime-team can extend `cache.go`
 independently against the existing `CacheSpec { TTL, Key }` shape.
@@ -189,7 +189,7 @@ its `query` / `command` recognisers yet.
 - Cache becomes L1-typed today: inspect projects it, doctor cross-checks
   it against typed targets, codegen consumes typed IR (retiring the
   hand-built `RuntimeCache` spike).
-- Drusa adapter work (Redis, stale-while-revalidate, coalesce) gets a
+- Lazuli Go adapter work (Redis, stale-while-revalidate, coalesce) gets a
   stable IR contract to bind to — no waiting on Tier 4.
 - Tier 4 inherits the `parse_query_cache` / `parse_command_invalidates`
   sub-recognisers verbatim; no rework.
@@ -212,7 +212,7 @@ its `query` / `command` recognisers yet.
 | Doctor cross-checks possible | none (stays LSP file-local) | yes, on text-pattern walks | yes, on typed IR |
 | Inspect projection | none | text-derived (brittle) | typed `--expand=cache` from IR |
 | Codegen impact | spike stays | spike stays | IR-driven; retires spike when Tier 4 lands codegen wiring |
-| Drusa runtime unblocked | yes (existing `CacheSpec`) | yes | yes (stable typed contract to bind Redis adapter to) |
+| Lazuli Go runtime unblocked | yes (existing `CacheSpec`) | yes | yes (stable typed contract to bind Redis adapter to) |
 | Compat with Tier 4 | aligned (Tier 4 does everything) | misaligned (more walkers to migrate) | aligned (sub-recognisers extract cleanly into Tier 4) |
 | Risk of redesign | none | medium — fact shape may diverge from typed IR | low — shape mirrors `Job.tenant_from` precedent (typed today, parser-lifted later) |
 | Unblocks the cycle? | no (must wait for Tier 4) | partial (no inspect / codegen typing) | yes |
@@ -221,7 +221,7 @@ its `query` / `command` recognisers yet.
 
 **Route C.** Same reasoning as jobs Tier 3 (`bucket-jobs-scope.md`
 selected the same route): the IR types lock in the contract, the
-Drusa runtime gets a stable shape to extend against, doctor and
+Lazuli Go runtime gets a stable shape to extend against, doctor and
 inspect both promote uniformly, and Tier 4 inherits the
 sub-recognisers without rework. Route A blocks the cycle for an
 indefinite time; Route B accumulates Phase L debt for the same
@@ -234,7 +234,7 @@ Boundary discipline matches the precedents:
   `Command.invalidates: Vec<InvalidationTarget>` IR; doctor
   cross-checks; LSP closed-catalog hovers; `--expand=cache` inspect
   projection.
-- **Drusa runtime** owns: LRU implementation, Redis adapter, TTL
+- **Lazuli Go runtime** owns: LRU implementation, Redis adapter, TTL
   parsing, stale-while-revalidate execution, coalesce locking,
   per-tenant key derivation, stats counters. The language declares
   the contract; the runtime executes it.
@@ -323,7 +323,7 @@ specific shape of the cache bucket:
   `dist/go/<feature>/<query>.gen.go` carrying typed `CachePolicy`
   values consumed by `runtime/go/lazuli/cache.go`. Runtime-team
   parallel deliverable; the spike `RuntimeCache` retires.
-- [ ] **Drusa executes end-to-end cache + invalidate.** Runtime-team
+- [ ] **Lazuli Go executes end-to-end cache + invalidate.** Runtime-team
   deliverable. Outside language scope, but the runtime contract
   already exists (`cache.go`). Stage 3 design adds the **adapter
   interface** for Redis (and the secondary Memcached/Valkey adapters)
@@ -339,7 +339,7 @@ specific shape of the cache bucket:
   completion for `ttl` units and `invalidates` target shapes.
 
 The first four items are language-team Stage 3 deliverables. Items 5-6
-are Drusa-team. Item 7 is shared. Item 8 is language-team but small
+are runtime-team. Item 7 is shared. Item 8 is language-team but small
 (LSP catalog extension, mirroring the auth/storage hovers).
 
 ---
@@ -382,7 +382,7 @@ shipped substrate and produces a focused proposal covering at most:
   details — those live in `@runtime/redis`).
 - A `testing/synctest` round-trip + invalidate Go integration test.
 
-Stage 4 (Drusa codegen) then has a stable IR JSON to consume.
+Stage 4 (Lazuli Go codegen) then has a stable IR JSON to consume.
 
 ---
 
@@ -394,5 +394,5 @@ scope doc does not modify the checklist itself.
 ```
 | 38 | Cache bucket cycle Route C — preemptive IR for `cache` + `invalidates` | planned | Add `QueryCache { key, ttl, tags, namespace }` to `crates/lazuli_ir/src/lib.rs` next to `ListQuery`/`SqlQuery`. Add `Command.invalidates: Vec<InvalidationTarget>` (typed enum: `Query { feature, name, args? }` / `QueryWildcard { feature }` / `Tag { label }`). Lower from text-pattern facts in legacy `parse_command`/`parse_query` (pest pipeline at `crates/lazuli_syntax/src/parser.rs:965-1100`). Retire `RuntimeCache` from `crates/lazuli_codegen_spec/src/lib.rs:155-156` when codegen consumes typed IR. See `docs/proposals/bucket-cache-cycle.md` §Linguagem/§IR + `docs/proposals/bucket-cache-scope.md`. |
 | 39 | Cache bucket cycle — 4 doctor diagnostics + LSP coverage | planned | `cache_ttl_unit_invalid` (promotion of `cache-contract`), `cache_invalidates_target_unresolved`, `cache_tags_referenced_but_undeclared`, `cache_namespace_collision`. LSP hovers for 5 keywords (`cache`, `key`, `ttl`, `tags`, `namespace`) + closed-catalog completions for TTL units. Depends on row 38. See `docs/proposals/bucket-cache-cycle.md` §Doctor/LSP. |
-| 40 | Cache bucket cycle — Drusa runtime + Redis adapter + integration test | planned | Extend `runtime/go/lazuli/cache.go` to support `tags`/`namespace` axes. New `runtime/go/lazuli/cache/redis.go` stub for Redis adapter contract (real client owned by `@runtime/redis` adapter). `runtime/go/lazuli/cache_test.go` `testing/synctest` round-trip + invalidate + tag-based invalidate + per-tenant isolation + TTL expiry. Drusa-team owns production Redis pack. Depends on row 38. See `docs/proposals/bucket-cache-cycle.md` §Runtime/§Evals. |
+| 40 | Cache bucket cycle — Lazuli Go runtime + Redis adapter + integration test | planned | Extend `runtime/go/lazuli/cache.go` to support `tags`/`namespace` axes. New `runtime/go/lazuli/cache/redis.go` stub for Redis adapter contract (real client owned by `@runtime/redis` adapter). `runtime/go/lazuli/cache_test.go` `testing/synctest` round-trip + invalidate + tag-based invalidate + per-tenant isolation + TTL expiry. The runtime team owns production Redis pack. Depends on row 38. See `docs/proposals/bucket-cache-cycle.md` §Runtime/§Evals. |
 ```

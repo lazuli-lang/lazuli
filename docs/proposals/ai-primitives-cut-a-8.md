@@ -264,9 +264,9 @@ involvement. Three reasons not to:
    create a hidden surface — exactly what `docs/invariants.md`
    "magic discovery requires visibility" rules out.
 3. **Cross-runtime portability**. Lazuli's hard separation of
-   concerns says "could a Lazuli project still function if Drusa
-   was replaced by a hypothetical second runtime targeting Rust +
-   Yew + Flutter?" Yes, only if the language declares the
+   concerns says "could a Lazuli project still function if the
+   Go runtime was replaced by a hypothetical second runtime
+   targeting Rust + Yew + Flutter?" Yes, only if the language declares the
    observability contract and the runtime fulfills it. Today's
    runtime can change the wire format; the contract stays put.
 

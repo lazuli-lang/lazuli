@@ -2,7 +2,7 @@
 // The language declares the job contract (trigger, idempotency, retry,
 // timeout, tenant_from, fanout, external calls, handler/declarative
 // body); this package owns dispatch + retry + error contract. Concrete
-// queue adapters (River, Asynq) sit in `@drusa/...` packages and bind
+// queue adapters (River, Asynq) sit in `@runtime/...` packages and bind
 // via `@adapter.queue.*` resolution at boot.
 //
 // Phase L Tier 3 / row 33 — this file ships the typed contract shape

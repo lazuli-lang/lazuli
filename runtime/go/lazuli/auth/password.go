@@ -1,7 +1,7 @@
 // Package auth implements the runtime side of the Lazuli `auth` block.
 // The language declares identity/password/sessions/MFA/OAuth contracts;
 // this package owns the dispatchers and typed errors. Concrete provider
-// integrations (Google OAuth, Twilio, WebAuthn) sit in `@drusa/...` or
+// integrations (Google OAuth, Twilio, WebAuthn) sit in `@runtime/...` or
 // `@plugin/...` adapter packages and bind via `@adapter.*` resolution
 // at boot.
 //

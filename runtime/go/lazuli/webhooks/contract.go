@@ -4,7 +4,7 @@
 // handler, emits); this package owns the chi-mounted receiver, the
 // HMAC verifier, and the typed error contract. Concrete adapters
 // (Sendgrid inbound parser, Stripe-flavored sigs) sit in
-// `@drusa/...` packages and bind via `@adapter.webhook.*` resolution
+// `@runtime/...` packages and bind via `@adapter.webhook.*` resolution
 // when applicable.
 //
 // Phase L Tier 3 / row 33 stubs.
@@ -50,7 +50,7 @@ const (
 )
 
 // VerifySpec is the lowered `verify hmac <alg>` declaration plus its
-// nested `secret env.<NAME>` and `header "X-..."`. The Drusa
+// nested `secret env.<NAME>` and `header "X-..."`. The Lazuli runtime
 // receiver reads this to instantiate the right HMAC verifier.
 type VerifySpec struct {
 	Scheme    VerifyScheme

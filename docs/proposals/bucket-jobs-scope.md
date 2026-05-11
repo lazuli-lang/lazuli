@@ -73,7 +73,7 @@ That's the shape `jobs` and `webhooks` should have. Today they don't.
    scheduler entry, or webhook receiver if the only thing inspect reports is a
    string name. `dist/go/customer/customer.gen.go` confirms this — it's hand-
    written today and contains zero job/webhook/notification scaffolding.
-2. **Drusa has nothing to register.** `runtime/go/lazuli/eventbus.go` is the
+2. **The Lazuli Go runtime has nothing to register.** `runtime/go/lazuli/eventbus.go` is the
    only job-adjacent file in the runtime, and it's an in-process best-effort
    pub/sub for `EventEmit`. There is no `JobRunner`, `WebhookHandler`,
    `NotificationDispatcher`. Without an IR-driven inspect shape, generators
@@ -283,7 +283,7 @@ This is the **canonical projection** the cycle proposal designs against.
 - Not a new primitive. `job`, `webhook`, `notification`, `event_group`,
   `tenant_from`, `fanout`, `idempotency`, `retry`, `queue`, `timeout`, `calls`
   are already invariant-protected surface (`docs/invariants.md:294-331`).
-- Not a runtime change. Drusa work happens in the cycle proposal, on top of
+- Not a runtime change. Lazuli Go work happens in the cycle proposal, on top of
   this scope.
 - Not a doctor change. Doctor stays text-based for this scope; later cuts can
   migrate it to consume IR (parallel to Phase L for commands).

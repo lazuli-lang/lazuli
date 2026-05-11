@@ -5,7 +5,7 @@ identified by the Phase L agent (commit `f60f6bf` worktree note) so the
 eventual Tier 3 + jobs bucket run (rows 32-34 in
 `docs/next-checklist.md`) can land in scope.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -187,7 +187,7 @@ declared in a `uses`-d feature's `defaults.tenancy`).
 
 ## Rotas A vs B vs C
 
-Three ways to close the Tier 3 gap. All honour the Lazuli/Drusa
+Three ways to close the Tier 3 gap. All honour the language/runtime
 boundary (no provider names, no DI mechanics, no transport).
 
 ### Route A — full lowering in one run
@@ -427,7 +427,7 @@ evidence.
 | `Webhook.scope: WebhookScope` + `scope_reason: Option<String>` | LSP already has the rule (`webhook_security_diagnostics`); bucket-jobs-cycle §Doctor `WEBHOOK-SCOPE-001` would promote it to IR. **Not in fixture today** — the only webhook is `crm_customer_upsert` and it has tenant-scoped `tenant_from`. | Pilot needed: a webhook whose authoring needs to declare cross-tenant exposure explicitly. Today the LSP rule fires on missing `tenant_from` rather than missing `scope` — the latter has no surface authoring evidence. |
 | `Job.approval` (mirror of Cut A.9 `approval` on commands) | bucket-jobs-cycle §"Linguagem proposta" #1 sketched it; explicitly marked `pilot-gated`. Not in fixture. | Pilot needed: a destructive scheduled job whose authoring needs the approval gate. The Cut A.9 sketch (`purge_archived_customers`) is illustrative, not authored. |
 | `Job.expose http` (mirror of Cut A.7 on agents) | Not in fixture; not in any proposal. | Pilot needed: a job authoring needs an HTTP trigger. Webhooks already cover the inbound-HTTP-to-effect contract; jobs exposing HTTP would be duplicative without pilot pressure. |
-| Custom `BackoffStrategy` variants (linear, decorrelated_jitter, etc.) | IR has `Fixed | Exponential` (`:1833-1837`); fixture authors only `exponential`. | Pilot needed: a job whose retry pattern is irreducible to the closed two-variant catalog. Both major queue adapters (River, Asynq) ship sensible exponential defaults; adapter-specific jitter is a Drusa concern, not IR. |
+| Custom `BackoffStrategy` variants (linear, decorrelated_jitter, etc.) | IR has `Fixed | Exponential` (`:1833-1837`); fixture authors only `exponential`. | Pilot needed: a job whose retry pattern is irreducible to the closed two-variant catalog. Both major queue adapters (River, Asynq) ship sensible exponential defaults; adapter-specific jitter is a runtime concern, not IR. |
 | `Job.dlq` / `on_exhausted` | bucket-jobs-cycle §"Linguagem proposta" #3 sketched it explicitly as PILOT-NEEDED. | Pilot needed: a product whose retry-exhausted path needs declarative routing. Today River dead-letters by default; surface is unnecessary. |
 | `NotificationChannel::Push` / `Sms` | Fixture authors `email` and `in_app` only. | Pilot needed: a product authoring push/SMS notification flows. The closed enum can include `Push | Sms` as variants without lowering pressure today, but the supporting registry capability binding (`@adapter.notification.push`) is the gate. |
 | `EventGroup` payload conditional bindings (`when @actor.user`) | Fixture authors `by_id = ctx.user.id when @actor.user` (`:177`). | **Already PILOT-NEEDED.** Move to the table above — this is a closed actor catalog cross-check the IR shape needs to capture. (See "Closed-cycle criterion" below.) |
@@ -500,7 +500,7 @@ Adapted from the auth Tier 1 closed-cycle criterion
       same fixture, Tier 3 produces the initial pinned shape.
 
 The first five items are language-team Tier 3 deliverables. Item 6 is
-Drusa-team (row 33). Items 7-8 are small additive deliverables that
+runtime-team (row 33). Items 7-8 are small additive deliverables that
 land alongside Tier 3.
 
 ## Recomendação
@@ -541,6 +541,6 @@ land alongside Tier 3.
 
 When Tier 3 is implemented, the bucket-jobs cycle
 (`docs/proposals/bucket-jobs-cycle.md`) runs against the shipped IR
-and Drusa codegen has typed input for 3 of 4 fixture end-to-end
+and the Lazuli Go codegen has typed input for 3 of 4 fixture end-to-end
 loops. The last loop (`recompute_score_after_invoice` declarative
 reactor) closes after Tier 4.

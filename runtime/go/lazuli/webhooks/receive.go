@@ -12,9 +12,9 @@ import (
 	"net/http"
 )
 
-// Router is the minimal chi-like router interface Drusa relies on.
-// Concrete implementations live in `@drusa/chi`; the language stays
-// out of routing mechanics.
+// Router is the minimal chi-like router interface the Lazuli runtime
+// relies on. Concrete implementations live in `@runtime/chi`; the
+// language stays out of routing mechanics.
 type Router interface {
 	Method(method, pattern string, handler http.HandlerFunc)
 }

@@ -4,8 +4,8 @@
 //!
 //! Cut A introduces `Agent` / `ToolBinding` / `EvalCase` to the IR
 //! (see `lazuli_ir::Agent`, schema bump to `0.4.0`). The Go codegen
-//! does not yet materialise agent-dispatch wiring; runtime team (Drusa)
-//! implements `agent dispatch` in a separate phase that follows this
+//! does not yet materialise agent-dispatch wiring; the Lazuli runtime
+//! team implements `agent dispatch` in a separate phase that follows this
 //! plan. When the agent backend lands here, the generated Go server
 //! scaffolds:
 //!

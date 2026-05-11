@@ -12,8 +12,8 @@ import (
 )
 
 // Dispatcher is the runtime adapter surface for enqueuing and running
-// jobs. The River adapter (`@drusa/river`) and Asynq adapter
-// (`@drusa/asynq`) bind their River/Asynq client behind this
+// jobs. The River adapter (`@runtime/river`) and Asynq adapter
+// (`@runtime/asynq`) bind their River/Asynq client behind this
 // interface. Codegen depends only on `Dispatcher`; the concrete client
 // is resolved at boot.
 type Dispatcher interface {
@@ -52,8 +52,8 @@ func DispatchJob(
 	return errors.New("jobs: DispatchJob not yet implemented")
 }
 
-// RegisterJobs is the generated entry point Drusa emits. Codegen
-// produces:
+// RegisterJobs is the generated entry point Lazuli codegen emits.
+// Codegen produces:
 //
 //	jobs.RegisterJobs(disp, customerJobContracts, customerJobHandlers)
 //
