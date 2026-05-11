@@ -488,6 +488,17 @@ impl DoctorPackage {
                                             translation_line,
                                         });
                                     }
+                                    // Phase L Tier 4 follow-up — populate the
+                                    // command policy/route map from the lifted
+                                    // IR instead of the text-walker. Mirrors
+                                    // the legacy `collect_feature_commands`
+                                    // contract: only commands with `policy`
+                                    // are inserted.
+                                    populate_commands_from_ir(
+                                        &feature,
+                                        &file.source,
+                                        &mut commands,
+                                    );
                                     for agent in feature.agents {
                                         let agent_line = agent
                                             .span_ref
@@ -563,7 +574,7 @@ impl DoctorPackage {
                         profile,
                     }
                 }));
-                collect_canonical_facts(&file, &mut commands, &mut operational);
+                collect_canonical_facts(&file, &mut operational);
             } else if is_lzx_path(&file.path) {
                 match lazuli_syntax::parse_lzx_document(&file.source) {
                     Ok(document) => {
@@ -1156,11 +1167,7 @@ fn is_lzx_path(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("lzx")
 }
 
-fn collect_canonical_facts(
-    file: &DoctorFile,
-    commands: &mut BTreeMap<CommandKey, CommandPolicy>,
-    operational: &mut OperationalFacts,
-) {
+fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts) {
     let lines: Vec<_> = file.source.lines().collect();
     collect_operational_lzi_facts(file, &lines, operational);
     collect_file_capability_facts(file, &lines, operational);
@@ -1187,7 +1194,6 @@ fn collect_canonical_facts(
             index += 1;
         }
 
-        collect_feature_commands(&feature, &lines[start..index], commands);
         collect_feature_integration_requirements(
             file,
             &feature,
@@ -1449,58 +1455,69 @@ fn job_block_has_schedule(lines: &[&str], start: usize) -> bool {
     false
 }
 
-fn collect_feature_commands(
-    feature: &str,
-    lines: &[&str],
+/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
+/// `collect_feature_commands` text-walker. Reads `feature.commands`
+/// (typed) and populates the `commands: BTreeMap<CommandKey, CommandPolicy>`
+/// map that `policy_reachability_diagnostics` +
+/// `command_route_binding_diagnostics` consume.
+///
+/// Commands without a `policy` clause are skipped (mirroring the old
+/// walker, which only inserted entries when it saw `policy ...`).
+///
+/// The feature-level `policies` block is not yet lifted by
+/// `lower_feature_skeleton` (canonical-indent slice owns it next
+/// cycle), so this helper still consults the source file via the
+/// small `collect_policy_atoms` text-walker to resolve
+/// `@policy.<name>` atom expansion — scoped to the current feature's
+/// line range so multi-feature files do not cross-pollute. Route slot
+/// binding-from-context now reads typed `RouteSlot.from` instead of
+/// re-parsing the line.
+fn populate_commands_from_ir(
+    feature: &lazuli_ir::Feature,
+    file_source: &str,
     commands: &mut BTreeMap<CommandKey, CommandPolicy>,
 ) {
-    let policies = collect_policy_atoms(lines);
-    let mut index = 0;
+    use lazuli_ir::PolicyRef;
 
-    while index < lines.len() {
-        let line = lines[index];
-        let trimmed = line.trim_start();
+    let feature_lines = feature_line_slice(file_source, &feature.name);
+    let local_policies = collect_policy_atoms(&feature_lines);
 
-        if leading_spaces(line) != 2 || !trimmed.starts_with("command ") {
-            index += 1;
-            continue;
-        }
-
-        let command = trimmed
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or("<anonymous>")
-            .to_owned();
-        let mut policy_reference = None;
-        let mut routes = BTreeMap::new();
-        index += 1;
-
-        while index < lines.len() {
-            let child = lines[index];
-            let child_trimmed = child.trim_start();
-            if leading_spaces(child) <= 2 && !child_trimmed.is_empty() {
-                break;
+    for command in &feature.commands {
+        let (reference, atoms) = match &command.policy {
+            PolicyRef::None | PolicyRef::Unresolved(_) => continue,
+            PolicyRef::Atom(atom) => {
+                let reference = format!("@{atom}");
+                let atoms = if let Some(local) = atom.strip_prefix("policy.") {
+                    local_policies.get(local).cloned().unwrap_or_default()
+                } else {
+                    vec![reference.clone()]
+                };
+                (reference, atoms)
             }
-            if leading_spaces(child) == 4
-                && let Some(policy) = child_trimmed.strip_prefix("policy ")
-            {
-                policy_reference = Some(policy.trim().to_owned());
-            } else if leading_spaces(child) == 4
-                && let Some(route) = command_route_slot(child_trimmed)
-            {
-                routes.insert(route.name, route.slot);
+            PolicyRef::Local(name) => (name.clone(), Vec::new()),
+            PolicyRef::External { feature, name } => {
+                let reference = format!("{feature}.policy.{name}");
+                (reference, Vec::new())
             }
-            index += 1;
-        }
-
-        let Some(reference) = policy_reference else {
-            continue;
         };
-        let atoms = resolve_policy_atoms(&reference, &policies);
+
+        let routes = command
+            .route
+            .iter()
+            .map(|slot| {
+                (
+                    slot.name.clone(),
+                    CommandRouteSlot {
+                        bound_from_context: slot.from.is_some(),
+                    },
+                )
+            })
+            .collect();
+
         commands.insert(
             CommandKey {
-                feature: feature.to_owned(),
-                command,
+                feature: feature.name.clone(),
+                command: command.name.clone(),
             },
             CommandPolicy {
                 reference,
@@ -1511,6 +1528,42 @@ fn collect_feature_commands(
     }
 }
 
+/// Phase L Tier 4 follow-up — extract the line slice covering one
+/// feature in a multi-feature source. Returns lines from `feature
+/// <name>` (inclusive) up to (exclusive) the next top-level
+/// declaration, mirroring how the legacy `collect_canonical_facts`
+/// loop carved up the source. Empty result if the feature header is
+/// not found (defensive).
+fn feature_line_slice<'a>(source: &'a str, feature_name: &str) -> Vec<&'a str> {
+    let header_prefix = format!("feature {feature_name}");
+    let lines: Vec<&str> = source.lines().collect();
+    let Some(start) = lines.iter().position(|line| {
+        leading_spaces(line) == 0
+            && line.trim_start().starts_with(&header_prefix)
+            && line
+                .trim_start()
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next() == Some(feature_name))
+                .unwrap_or(false)
+    }) else {
+        return Vec::new();
+    };
+    let mut end = start + 1;
+    while end < lines.len() {
+        let next = lines[end];
+        if leading_spaces(next) == 0 && !next.trim_start().is_empty() {
+            break;
+        }
+        end += 1;
+    }
+    lines[start..end].to_vec()
+}
+
+/// Phase L Tier 4 follow-up — feature-scoped `policies` block walker.
+/// Survives until the canonical-indent slice lifts `policies` into the
+/// IR. `collect_feature_commands` consumed this via the lines-slice
+/// argument; the IR-driven `populate_commands_from_ir` reads the file
+/// source once per feature and recomputes the map here.
 fn collect_policy_atoms(lines: &[&str]) -> BTreeMap<String, Vec<String>> {
     let mut policies = BTreeMap::new();
     let mut in_policies = false;
@@ -1547,19 +1600,6 @@ fn collect_policy_atoms(lines: &[&str]) -> BTreeMap<String, Vec<String>> {
     }
 
     policies
-}
-
-fn resolve_policy_atoms(reference: &str, policies: &BTreeMap<String, Vec<String>>) -> Vec<String> {
-    if let Some(policy_name) = reference.strip_prefix("@policy.") {
-        return policies.get(policy_name).cloned().unwrap_or_default();
-    }
-
-    reference
-        .split(',')
-        .map(str::trim)
-        .filter(|atom| atom.starts_with('@'))
-        .map(str::to_owned)
-        .collect()
 }
 
 fn collect_lzx_experience_facts(
@@ -3989,17 +4029,6 @@ fn split_target_call(target: &str) -> (&str, BTreeSet<String>) {
     (callee.trim(), args)
 }
 
-fn command_route_slot(trimmed_line: &str) -> Option<ParsedCommandRouteSlot> {
-    let rest = trimmed_line.strip_prefix("route ")?;
-    let name = route_slot_name(rest)?.to_owned();
-    Some(ParsedCommandRouteSlot {
-        name,
-        slot: CommandRouteSlot {
-            bound_from_context: rest.contains(" from "),
-        },
-    })
-}
-
 fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
     let rest = trimmed.trim().strip_prefix("integration ")?;
     let (slot, contract) = rest.split_once(':')?;
@@ -4031,12 +4060,6 @@ fn block_has_prefixed_line(lines: &[&str], prefix: &str) -> bool {
         .iter()
         .skip(1)
         .any(|line| leading_spaces(line) == 4 && line.trim_start().starts_with(prefix))
-}
-
-#[derive(Debug)]
-struct ParsedCommandRouteSlot {
-    name: String,
-    slot: CommandRouteSlot,
 }
 
 fn route_slot_name(route: &str) -> Option<&str> {
@@ -8096,7 +8119,7 @@ mod tests {
                         profile,
                     }
                 }));
-                collect_canonical_facts(&file, &mut commands, &mut operational);
+                collect_canonical_facts(&file, &mut operational);
 
                 // Cut A — typed agent + feature-symbol collection.
                 if let Ok(features) = parse_feature_skeletons(&file.source) {
@@ -8202,6 +8225,12 @@ mod tests {
                                     translation_line,
                                 });
                             }
+                            // Phase L Tier 4 follow-up — mirror the IR-driven
+                            // command map population from the live loader so
+                            // the test harness exercises the same code path
+                            // as `policy_reachability_diagnostics` /
+                            // `command_route_binding_diagnostics`.
+                            populate_commands_from_ir(&feature, &file.source, &mut commands);
                             for agent in feature.agents.clone() {
                                 let agent_line = agent
                                     .span_ref
