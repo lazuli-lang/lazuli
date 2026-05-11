@@ -1905,11 +1905,16 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
     // Phase L Tier 3 — collect the lifted `Job`/`Webhook`/
     // `EventGroup` shapes for every feature in one pass. Reuses the
     // same parse-and-lower the auth lookup runs; degradation rules
-    // match (empty map on parse failure).
+    // match (empty map on parse failure). Tier 4 follow-up also
+    // surfaces typed `policies` here so `inspect_policies`/
+    // `inspect_tests` consume the IR instead of a text walker.
     let tier3_by_feature = if (expansions.jobs
         || expansions.webhooks
         || expansions.event_groups
-        || expansions.notifications)
+        || expansions.notifications
+        || expansions.policies
+        || expansions.tests
+        || expansions.migrations)
         && !is_lzx
     {
         collect_tier3_by_feature(source)
@@ -1955,6 +1960,7 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 event_groups: feature_ir.event_groups,
                 tenant_migrations: feature_ir.tenant_migrations,
                 notifications: feature_ir.notifications,
+                policies: feature_ir.policies,
             },
         );
     }
@@ -1973,6 +1979,11 @@ struct Tier3FeatureSlice {
     /// in `inspect_notifications`; the text-walker keeps owning the
     /// scalar fields so the projection stays additive.
     notifications: Vec<lazuli_ir::Notification>,
+    /// Tier 4 follow-up — lifted `policies` block. Powers the typed
+    /// `category -> atoms` lookup that `inspect_policies` and
+    /// `inspect_tests` consume; retires the `collect_policy_atoms`
+    /// text walker.
+    policies: lazuli_ir::Policies,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -2042,10 +2053,23 @@ fn inspect_feature(
         .and_then(|line| line.split_whitespace().nth(1))
         .unwrap_or("unknown")
         .to_owned();
-    let policies = collect_policy_atoms(lines);
     let external_calls = inspect_external_calls(&name, lines);
     let agents = inspect_agents(lines);
     let tier3 = tier3_by_feature.get(&name);
+    // Tier 4 follow-up — `policies` category lookup now reads typed
+    // `Feature.policies.categories` from the Tier 3 slice. Falls back
+    // to an empty map when the slice is absent (either because the
+    // feature has no `policies` block, or because no expand flag
+    // gated the slice collection).
+    let policies: BTreeMap<String, Vec<String>> = tier3
+        .map(|t| {
+            t.policies
+                .categories
+                .iter()
+                .map(|c| (c.name.clone(), c.atoms.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
     let notifications = inspect_notifications(lines, tier3);
 
     let tools = expansions
@@ -4114,42 +4138,6 @@ fn merge_inspect_tests(tests: &mut Vec<InspectTests>, incoming: InspectTests) {
     for (group, assertions) in incoming.groups {
         existing.groups.entry(group).or_default().extend(assertions);
     }
-}
-
-fn collect_policy_atoms(lines: &[String]) -> BTreeMap<String, Vec<String>> {
-    let mut policies = BTreeMap::new();
-    let mut in_policies = false;
-
-    for line in lines {
-        let trimmed = line.trim_start();
-
-        if leading_spaces(line) == 2 {
-            in_policies = trimmed == "policies";
-            continue;
-        }
-
-        if !in_policies || leading_spaces(line) != 4 {
-            continue;
-        }
-
-        let Some((name, atoms)) = trimmed.split_once(':') else {
-            continue;
-        };
-
-        if name == "fields" || name.contains(' ') {
-            continue;
-        }
-
-        policies.insert(
-            name.trim().to_owned(),
-            atoms
-                .split(',')
-                .map(|atom| atom.trim().to_owned())
-                .collect(),
-        );
-    }
-
-    policies
 }
 
 fn collect_resource_names(lines: &[String]) -> Vec<String> {

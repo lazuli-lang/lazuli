@@ -604,7 +604,6 @@ impl DoctorPackage {
                         });
                     }
                 }
-                collect_feature_symbols(&file, &mut feature_symbols);
                 collect_approval_block_presence(&file, &mut approval_presences);
                 collect_feature_adapters(&file, &mut feature_adapters);
                 collect_feature_uses(&file, &mut feature_uses);
@@ -635,6 +634,14 @@ impl DoctorPackage {
 
             files.push(file);
         }
+
+        // Phase L Tier 4 follow-up (final wave) — `feature_symbols.commands`
+        // is now populated from the typed `Tier3FeatureFacts.commands` slot
+        // built earlier in this loop. Replaces the per-file
+        // `collect_feature_symbols` text walker. Runs once after every file
+        // has lifted its IR slice so cross-feature command policy hints are
+        // available to `agent_tool_diagnostics`.
+        populate_feature_symbols_from_ir(&tier3_facts, &mut feature_symbols);
 
         Ok(Self {
             files,
@@ -4443,111 +4450,49 @@ fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
 // owns the workspace-wide work that the LSP cannot perform.
 // =============================================================================
 
-/// Walk a `.lzi` file's text and harvest the names that downstream Cut A
-/// diagnostics need to resolve across features:
-///
-///   - `enum <Name>` headers (for `output discriminator <Enum>` targets)
-///   - `record <Name>` headers + `<field>: <type>` children + the
-///     `discriminator` marker on the disambiguation field
-///   - `command <name>` and `query.{list,lookup,sql} <name>` headers with
-///     their `policy @policy.<rule>` if present
-///
-/// The walker is text-based on purpose: the canonical-indent parser only
-/// covers `agent` blocks today. When later cuts migrate the rest of the
-/// feature body to typed AST, this collector collapses into the IR.
-fn collect_feature_symbols(
-    file: &DoctorFile,
+/// Phase L Tier 4 follow-up (third wave, final) — populate
+/// `feature_symbols.commands` from the typed `Tier3FeatureFacts.commands`
+/// slot. Replaces the retired `collect_feature_symbols` /
+/// `scan_feature_range` / `scan_block_for_policy` text walkers. Only the
+/// `policy: Option<String>` text-hint for `agent_tool_policy_diagnostics`
+/// survives in `CommandSymbolFact`; the `base: SymbolFact` slot is dead
+/// (kept default for shape stability until `FeatureSymbols` itself is
+/// retired by Cut A.5 / Cut B follow-ups). `PolicyRef` is rendered into
+/// the same surface text the walker produced — `@policy.<name>` for
+/// local, `@<atom>` for atom, `<feature>.<name>` for external,
+/// `Unresolved` text verbatim — so `policy_atoms_more_restrictive`
+/// substring matching stays a one-to-one swap.
+fn populate_feature_symbols_from_ir(
+    tier3_facts: &[Tier3FeatureFacts],
     feature_symbols: &mut BTreeMap<String, FeatureSymbols>,
 ) {
-    let lines: Vec<&str> = file.source.lines().collect();
-
-    let mut feature_ranges: Vec<(String, usize, usize)> = Vec::new();
-    let mut current_start: Option<(String, usize)> = None;
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            if let Some((prev_name, prev_start)) = current_start.take() {
-                feature_ranges.push((prev_name, prev_start, index));
-            }
-            if let Some(name) = trimmed.strip_prefix("feature ") {
-                current_start = Some((name.trim().to_owned(), index));
-            }
+    for fact in tier3_facts {
+        let symbols = feature_symbols.entry(fact.feature.clone()).or_default();
+        for command in &fact.commands {
+            symbols.commands.insert(
+                command.name.clone(),
+                CommandSymbolFact {
+                    base: SymbolFact::default(),
+                    policy: policy_ref_surface_text(&command.policy),
+                },
+            );
         }
-    }
-    if let Some((name, start)) = current_start {
-        feature_ranges.push((name, start, lines.len()));
-    }
-
-    for (feature, start, end) in feature_ranges {
-        let symbols = feature_symbols.entry(feature.clone()).or_default();
-        scan_feature_range(file, &lines[start..end], start, symbols);
     }
 }
 
-fn scan_feature_range(
-    file: &DoctorFile,
-    lines: &[&str],
-    feature_start: usize,
-    symbols: &mut FeatureSymbols,
-) {
-    let mut i = 0;
-    while i < lines.len() {
-        let raw = lines[i];
-        let trimmed = raw.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            i += 1;
-            continue;
-        }
-
-        // The fixture's domain block lives at indent 2 with payload at 4.
-        // Most enum / record / command / query declarations appear at
-        // indent 4 inside `domain`, or at indent 2 directly under feature.
-        // Either form is tolerated.
-        let leading = leading_spaces(raw);
-        if leading < 2 {
-            i += 1;
-            continue;
-        }
-
-        // Phase L Tier 4 follow-up — the `record` and `enum` branches
-        // are retired (lifted into `Tier3FeatureFacts.records` /
-        // `Tier3FeatureFacts.enums` from the typed IR). Only `command`
-        // headers survive here for the legacy `agent_tool_diagnostics`
-        // policy-hint lookup.
-        if let Some(rest) = trimmed.strip_prefix("command ") {
-            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-            if !name.is_empty() {
-                let policy = scan_block_for_policy(&lines[i + 1..], leading_spaces(raw));
-                symbols.commands.insert(
-                    name,
-                    CommandSymbolFact {
-                        base: SymbolFact {
-                            path: file.path.clone(),
-                            line: feature_start + i + 1,
-                        },
-                        policy,
-                    },
-                );
-            }
-        }
-        i += 1;
+/// Render a `PolicyRef` into the same surface text the retired
+/// `scan_block_for_policy` walker captured verbatim from `policy <text>`
+/// child lines. `PolicyRef::None` returns `None` so the IR-driven
+/// populator skips empty entries the way the walker skipped missing
+/// `policy` clauses.
+fn policy_ref_surface_text(p: &ir::PolicyRef) -> Option<String> {
+    match p {
+        ir::PolicyRef::Local(name) => Some(format!("@policy.{name}")),
+        ir::PolicyRef::Atom(atom) => Some(atom.clone()),
+        ir::PolicyRef::External { feature, name } => Some(format!("{feature}.{name}")),
+        ir::PolicyRef::Unresolved(text) => Some(text.clone()),
+        ir::PolicyRef::None => None,
     }
-}
-
-fn scan_block_for_policy(body: &[&str], parent_indent: usize) -> Option<String> {
-    for line in body {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if leading_spaces(line) <= parent_indent {
-            break;
-        }
-        if let Some(rest) = trimmed.strip_prefix("policy ") {
-            return Some(rest.trim().to_owned());
-        }
-    }
-    None
 }
 
 // -----------------------------------------------------------------------------
@@ -8534,7 +8479,6 @@ mod tests {
                         }
                     }
                 }
-                collect_feature_symbols(&file, &mut feature_symbols);
                 collect_approval_block_presence(&file, &mut approval_presences);
                 collect_feature_adapters(&file, &mut feature_adapters);
                 collect_feature_uses(&file, &mut feature_uses);
@@ -8547,6 +8491,11 @@ mod tests {
 
             files.push(file);
         }
+
+        // Tier 4 follow-up — matches the live `load()` ordering. IR-driven
+        // command policy hints fill `feature_symbols.commands` after every
+        // file's `tier3_facts` slice has been collected.
+        populate_feature_symbols_from_ir(&tier3_facts, &mut feature_symbols);
 
         DoctorPackage {
             files,

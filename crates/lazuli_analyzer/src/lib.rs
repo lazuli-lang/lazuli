@@ -1390,7 +1390,9 @@ fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir::LocaleNeg
 /// when a single entry is authored; multi-entry `policy_for` (different
 /// atoms per kind list) is captured by reading the first entry — the
 /// language disallows conflicting defaults by convention. Doctor cross-
-/// checks the surface form independently via `collect_policy_atoms`.
+/// checks the surface form by walking the typed
+/// `feature.policies.categories` slot (`populate_commands_from_ir`);
+/// the legacy `collect_policy_atoms` text walker is retired.
 fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults {
     let tenancy = defaults.tenancy.as_ref().map(|t| match t {
         syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
