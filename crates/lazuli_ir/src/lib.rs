@@ -16,10 +16,16 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.9.0 for Phase L Tier 4 follow-up — additive minor bump.
-/// New shapes: `RouteSlot.from` (`Option<String>`).
+/// Bumped to 0.10.0 for Phase L Tier 4 follow-up — additive minor
+/// bump. New shapes:
+/// - `RouteSlot.from` (`Option<String>`).
+/// - `CapabilityRef::Hashed/Encrypted/Token` typed variants +
+///   `HashedCapability`, `HashAlgorithm`, `EncryptedCapability`,
+///   `TokenCapability`, `TokenStore`.
+/// - `BuiltinType::SemanticPhone`, `SemanticUrl`, `SemanticUuid`.
 ///
 /// History:
+/// - 0.9.0 — Phase L Tier 4 follow-up partial (`RouteSlot.from`).
 /// - 0.8.0 — Cut A.11: `AppManifest.cors`, `AppCors`, `AppCorsOriginRule`.
 /// - 0.7.0 — Cut A.10: `EvalCase.golden`, `GoldenSpec`.
 /// - 0.6.0 — Cut A.8: `BuiltInTraceEvent`, `BuiltInTraceRecord`,
@@ -29,7 +35,7 @@ use serde::{Deserialize, Serialize};
 /// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
 ///   output_kind/output_discriminator), `AppRegistry.tools` (+
 ///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
-pub const LZIR_SCHEMA: &str = "0.9.0";
+pub const LZIR_SCHEMA: &str = "0.10.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -443,6 +449,14 @@ pub enum BuiltinType {
     Json,
     SemanticEmail,
     SemanticMoney,
+    /// Phase L Tier 4 follow-up — `@semantic.Phone`. Closed catalog
+    /// addition so auth-identity diagnostics can read the shape
+    /// without text-walking.
+    SemanticPhone,
+    /// Phase L Tier 4 follow-up — `@semantic.Url`.
+    SemanticUrl,
+    /// Phase L Tier 4 follow-up — `@semantic.Uuid`.
+    SemanticUuid,
     CapSecret,
     /// Deprecated: the flat `CapFile` variant never carried arguments.
     /// Phase L Tier 2 introduces `TypeRef::Capability(CapabilityRef::File(...))`
@@ -470,6 +484,59 @@ pub enum BuiltinType {
 #[serde(tag = "kind", content = "value")]
 pub enum CapabilityRef {
     File(FileCapability),
+    /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`.
+    /// Closed catalog: `argon2id` canonical, `bcrypt` for legacy
+    /// migration only.
+    Hashed(HashedCapability),
+    /// Phase L Tier 4 follow-up — `@cap.Encrypted(key:@key.<scope>)`.
+    Encrypted(EncryptedCapability),
+    /// Phase L Tier 4 follow-up — `@cap.Token(ttl:<duration>,
+    /// single_use:<bool>,store:<storage>)`. `store` is `hashed` in v0.
+    Token(TokenCapability),
+}
+
+/// Phase L Tier 4 follow-up — typed `@cap.Hashed(algorithm:<X>)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HashedCapability {
+    pub algorithm: HashAlgorithm,
+}
+
+/// Phase L Tier 4 follow-up — closed catalog of `@cap.Hashed` algorithms.
+/// `Argon2id` is canonical; `Bcrypt` is kept only for legacy migration
+/// (doctor warns on new uses).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HashAlgorithm {
+    Argon2id,
+    Bcrypt,
+}
+
+/// Phase L Tier 4 follow-up — typed `@cap.Encrypted(key:@key.<scope>)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptedCapability {
+    /// `@key.<scope>` reference, stored verbatim with the `@key.`
+    /// prefix preserved so cold-readers see the namespace.
+    pub key: String,
+}
+
+/// Phase L Tier 4 follow-up — typed `@cap.Token(...)`. All three
+/// dimensions (ttl/single_use/store) are mandatory in canonical v0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenCapability {
+    /// `ttl:<integer><s|m|h|d>` — duration literal preserved verbatim
+    /// (adapter parses).
+    pub ttl: String,
+    /// `single_use:true|false`.
+    pub single_use: bool,
+    /// `store:hashed` — closed catalog `{Hashed}` in v0.
+    pub store: TokenStore,
+}
+
+/// Phase L Tier 4 follow-up — closed catalog of token storage modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenStore {
+    Hashed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

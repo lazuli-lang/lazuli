@@ -523,11 +523,31 @@ pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
 }
 
 fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
-    // Phase L Tier 2 — typed `@cap.File(...)` capability. Other
-    // `@cap.*` decorators still fall through to `UserDefined` until the
-    // bucket cycle that types them lands.
+    // Phase L Tier 2 — typed `@cap.File(...)` capability.
     if let Some(file) = parse_cap_file_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::File(file));
+    }
+    // Phase L Tier 4 follow-up — typed `@cap.Hashed/Encrypted/Token`.
+    if let Some(hashed) = parse_cap_hashed_type(ty) {
+        return ir::TypeRef::Capability(ir::CapabilityRef::Hashed(hashed));
+    }
+    if let Some(encrypted) = parse_cap_encrypted_type(ty) {
+        return ir::TypeRef::Capability(ir::CapabilityRef::Encrypted(encrypted));
+    }
+    if let Some(token) = parse_cap_token_type(ty) {
+        return ir::TypeRef::Capability(ir::CapabilityRef::Token(token));
+    }
+    // Phase L Tier 4 follow-up — typed `@semantic.*` shorthand for the
+    // closed catalog (Email/Phone/Url/Uuid). Other `@semantic.<X>`
+    // names still fall through to `UserDefined` so the language can
+    // surface "unknown semantic" diagnostics rather than silently
+    // accepting them.
+    match ty {
+        "@semantic.Email" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail),
+        "@semantic.Phone" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPhone),
+        "@semantic.Url" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUrl),
+        "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
+        _ => {}
     }
     match ty {
         "ID" | "Id" => ir::TypeRef::Builtin(ir::BuiltinType::Id),
@@ -544,6 +564,56 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
             name: other.to_owned(),
         }),
     }
+}
+
+/// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`. Closed
+/// catalog `{argon2id, bcrypt}`. Returns `None` if the algorithm is
+/// missing or unrecognised so callers fall through to `UserDefined`
+/// (LSP surfaces shape errors).
+fn parse_cap_hashed_type(ty: &str) -> Option<ir::HashedCapability> {
+    let inner = ty.strip_prefix("@cap.Hashed(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+    let algorithm = match args.get("algorithm")?.as_str() {
+        "argon2id" => ir::HashAlgorithm::Argon2id,
+        "bcrypt" => ir::HashAlgorithm::Bcrypt,
+        _ => return None,
+    };
+    Some(ir::HashedCapability { algorithm })
+}
+
+/// Phase L Tier 4 follow-up — `@cap.Encrypted(key:@key.<scope>)`. Key
+/// reference is stored verbatim with its `@key.` prefix.
+fn parse_cap_encrypted_type(ty: &str) -> Option<ir::EncryptedCapability> {
+    let inner = ty.strip_prefix("@cap.Encrypted(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+    let key = args.get("key")?.clone();
+    if !key.starts_with("@key.") {
+        return None;
+    }
+    Some(ir::EncryptedCapability { key })
+}
+
+/// Phase L Tier 4 follow-up — `@cap.Token(ttl:<dur>,single_use:<bool>,
+/// store:<storage>)`. All three dimensions are mandatory; closed
+/// catalog `store:{hashed}` and `single_use:{true,false}`.
+fn parse_cap_token_type(ty: &str) -> Option<ir::TokenCapability> {
+    let inner = ty.strip_prefix("@cap.Token(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+    let ttl = args.get("ttl")?.clone();
+    let single_use = match args.get("single_use")?.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return None,
+    };
+    let store = match args.get("store")?.as_str() {
+        "hashed" => ir::TokenStore::Hashed,
+        _ => return None,
+    };
+    Some(ir::TokenCapability {
+        ttl,
+        single_use,
+        store,
+    })
 }
 
 /// Parse `@cap.File(max_size:25mb,accept:text/csv[,visibility:...,signed_ttl:...])`

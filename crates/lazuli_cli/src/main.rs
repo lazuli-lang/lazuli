@@ -3683,6 +3683,9 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::Id => "ID",
             BuiltinType::Json => "Json",
             BuiltinType::SemanticEmail => "@semantic.Email",
+            BuiltinType::SemanticPhone => "@semantic.Phone",
+            BuiltinType::SemanticUrl => "@semantic.Url",
+            BuiltinType::SemanticUuid => "@semantic.Uuid",
             BuiltinType::SemanticMoney => "@semantic.Money",
             BuiltinType::CapSecret => "@cap.Secret",
             BuiltinType::CapFile => "@cap.File",
@@ -3694,7 +3697,33 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
         // Phase L Tier 2 — render the typed capability back into the
         // canonical source form so inspect summary lines stay readable.
         TypeRef::Capability(CapabilityRef::File(file)) => format_file_capability(file),
+        TypeRef::Capability(CapabilityRef::Hashed(h)) => format_hashed_capability(h),
+        TypeRef::Capability(CapabilityRef::Encrypted(e)) => format_encrypted_capability(e),
+        TypeRef::Capability(CapabilityRef::Token(t)) => format_token_capability(t),
     }
+}
+
+/// Phase L Tier 4 follow-up — render `HashedCapability` back to source form.
+fn format_hashed_capability(h: &lazuli_ir::HashedCapability) -> String {
+    let alg = match h.algorithm {
+        lazuli_ir::HashAlgorithm::Argon2id => "argon2id",
+        lazuli_ir::HashAlgorithm::Bcrypt => "bcrypt",
+    };
+    format!("@cap.Hashed(algorithm:{alg})")
+}
+
+fn format_encrypted_capability(e: &lazuli_ir::EncryptedCapability) -> String {
+    format!("@cap.Encrypted(key:{})", e.key)
+}
+
+fn format_token_capability(t: &lazuli_ir::TokenCapability) -> String {
+    let store = match t.store {
+        lazuli_ir::TokenStore::Hashed => "hashed",
+    };
+    format!(
+        "@cap.Token(ttl:{},single_use:{},store:{})",
+        t.ttl, t.single_use, store
+    )
 }
 
 /// Render a `FileCapability` back into the `@cap.File(...)` source form.

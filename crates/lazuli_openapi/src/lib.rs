@@ -432,6 +432,18 @@ fn emit_schema_inline(out: &mut YamlEmitter, ty: &ir::TypeRef) {
                 out.line("format: binary");
                 out.line("x-lazuli-capability: File");
             }
+            ir::CapabilityRef::Hashed(_) => {
+                out.line("type: string");
+                out.line("x-lazuli-capability: Hashed");
+            }
+            ir::CapabilityRef::Encrypted(_) => {
+                out.line("type: string");
+                out.line("x-lazuli-capability: Encrypted");
+            }
+            ir::CapabilityRef::Token(_) => {
+                out.line("type: string");
+                out.line("x-lazuli-capability: Token");
+            }
         },
         ir::TypeRef::Unresolved(s) => {
             out.line("type: string");
@@ -542,6 +554,9 @@ fn builtin_to_openapi(b: ir::BuiltinType) -> (&'static str, Option<&'static str>
         Date => ("string", Some("date")),
         Json => ("object", None),
         SemanticEmail => ("string", Some("email")),
+        SemanticPhone => ("string", None),
+        SemanticUrl => ("string", Some("uri")),
+        SemanticUuid => ("string", Some("uuid")),
         SemanticMoney => ("number", None),
         CapSecret => ("string", None),
         CapFile => ("string", Some("binary")),
