@@ -870,9 +870,28 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> ir::Resource {
         validate,
         validates: Vec::new(),
         retention,
-        previous_names: r.previously.clone(),
+        previous_names: r
+            .previously
+            .iter()
+            .map(|p| strip_previously_mode(p))
+            .collect(),
         span_ref: Some(span_of(r.span)),
     }
+}
+
+/// Migrations bucket cycle Route C — strip the `migrated`/`alias` mode
+/// prefix from a parsed `previously` line. `previously migrated Foo`
+/// keeps `Foo` in IR; `previously alias Foo` ditto. Doctor compares
+/// against current symbol names, so the mode keyword is noise here.
+fn strip_previously_mode(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("migrated ") {
+        return rest.trim().to_owned();
+    }
+    if let Some(rest) = trimmed.strip_prefix("alias ") {
+        return rest.trim().to_owned();
+    }
+    trimmed.to_owned()
 }
 
 fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
@@ -884,7 +903,11 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
         unique: f.unique,
         default,
         derived_from: f.derived_from.clone(),
-        previous_names: f.previously.clone(),
+        previous_names: f
+            .previously
+            .iter()
+            .map(|p| strip_previously_mode(p))
+            .collect(),
         span_ref: Some(span_of(f.span)),
     }
 }

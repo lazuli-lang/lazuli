@@ -1,0 +1,12 @@
+feature x
+  defaults
+    tenancy org
+
+  domain
+    resource Customer
+      previously migrated Account
+      email: Text required
+
+    resource Client
+      previously migrated Account
+      name: Text required

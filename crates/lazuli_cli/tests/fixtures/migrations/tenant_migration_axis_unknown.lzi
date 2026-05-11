@@ -1,0 +1,12 @@
+feature x
+  defaults
+    tenancy org
+
+  domain
+    resource Customer
+      email: Text required
+
+  tenant_migration backfill_x
+    target tenants team
+    idempotency by tenant.org_id
+    handler "./migrations/backfill_x.go"

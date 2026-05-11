@@ -115,6 +115,14 @@ struct Tier3FeatureFacts {
     /// Migrations bucket cycle Route C — `Field.previous_names`
     /// captures (resource + field + previous names + line).
     field_previous_names: Vec<FieldPreviousFact>,
+    /// Migrations bucket cycle Route C — every current resource name
+    /// in this feature (including resources without any `previously`
+    /// declaration) so `PREVIOUSLY-FWD-001` can detect stale rename
+    /// targets pointing at live symbols.
+    all_resource_names_in_feature: BTreeSet<String>,
+    /// Migrations bucket cycle Route C — `resource_name -> {field_names}`
+    /// per feature for `PREVIOUSLY-FWD-001` on field-level rename hints.
+    all_field_names_in_feature: BTreeMap<String, BTreeSet<String>>,
     /// `job_name -> source line` lookup.
     job_lines: BTreeMap<String, usize>,
     webhook_lines: BTreeMap<String, usize>,
@@ -283,6 +291,12 @@ impl DoctorPackage {
                                         Vec::new();
                                     let mut field_previous_names: Vec<FieldPreviousFact> =
                                         Vec::new();
+                                    let mut all_resource_names_in_feature: BTreeSet<String> =
+                                        BTreeSet::new();
+                                    let mut all_field_names_in_feature: BTreeMap<
+                                        String,
+                                        BTreeSet<String>,
+                                    > = BTreeMap::new();
                                     if !feature.resources.is_empty() {
                                         let resource_header_lines = collect_construct_lines(
                                             &file.source,
@@ -294,6 +308,13 @@ impl DoctorPackage {
                                                 .collect(),
                                         );
                                         for res in &feature.resources {
+                                            all_resource_names_in_feature.insert(res.name.clone());
+                                            let field_set = all_field_names_in_feature
+                                                .entry(res.name.clone())
+                                                .or_default();
+                                            for fld in &res.fields {
+                                                field_set.insert(fld.name.clone());
+                                            }
                                             let res_line = resource_header_lines
                                                 .get(&res.name)
                                                 .copied()
@@ -382,6 +403,8 @@ impl DoctorPackage {
                                             tenant_migrations: feature.tenant_migrations.clone(),
                                             resource_previous_names,
                                             field_previous_names,
+                                            all_resource_names_in_feature,
+                                            all_field_names_in_feature,
                                             job_lines,
                                             webhook_lines,
                                             notification_lines,
@@ -2655,31 +2678,8 @@ fn migrations_diagnostics(
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
-    // Build the package-wide name index for PREVIOUSLY-FWD-001.
-    // Includes every current resource name + every current field name
-    // (keyed by resource name → field name set).
-    let mut all_resource_names: BTreeSet<&str> = BTreeSet::new();
-    let mut all_field_names: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for feature in tier3_facts {
-        for fact in &feature.resource_previous_names {
-            all_resource_names.insert(fact.current_name.as_str());
-        }
-        for fact in &feature.field_previous_names {
-            all_resource_names.insert(fact.resource_name.as_str());
-            all_field_names
-                .entry(fact.resource_name.as_str())
-                .or_default()
-                .insert(fact.current_name.as_str());
-        }
-    }
-
-    for feature in tier3_facts {
-        previously_diagnostics(
-            feature,
-            &all_resource_names,
-            &all_field_names,
-            &mut diagnostics,
-        );
+        previously_diagnostics(feature, &mut diagnostics);
         tenant_migration_diagnostics(feature, &mut diagnostics);
     }
 
@@ -2691,12 +2691,9 @@ fn migrations_diagnostics(
     diagnostics
 }
 
-fn previously_diagnostics(
-    feature: &Tier3FeatureFacts,
-    all_resource_names: &BTreeSet<&str>,
-    all_field_names: &BTreeMap<&str, BTreeSet<&str>>,
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
+fn previously_diagnostics(feature: &Tier3FeatureFacts, diagnostics: &mut Vec<DoctorDiagnostic>) {
+    let all_resource_names: &BTreeSet<String> = &feature.all_resource_names_in_feature;
+    let all_field_names: &BTreeMap<String, BTreeSet<String>> = &feature.all_field_names_in_feature;
     // PREVIOUSLY-DUP-001 — two current names claim the same previous
     // source. Build a `previous -> Vec<current>` map per feature.
     let mut resource_previous_claims: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -6954,6 +6951,7 @@ mod tests {
             BTreeMap::new();
         let mut feature_adapters: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut feature_uses: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut tier3_facts: Vec<Tier3FeatureFacts> = Vec::new();
 
         for (path, source) in sources {
             let mut file = DoctorFile {
@@ -7016,7 +7014,7 @@ mod tests {
                         if let Ok(feature) = lower_feature_skeleton(skeleton) {
                             let header_line =
                                 line_col_for_offset(&file.source, skeleton.span.start).0;
-                            for agent in feature.agents {
+                            for agent in feature.agents.clone() {
                                 let agent_line = agent
                                     .span_ref
                                     .as_ref()
@@ -7029,7 +7027,7 @@ mod tests {
                                     line: agent_line,
                                 });
                             }
-                            if let Some(auth) = feature.auth {
+                            if let Some(auth) = feature.auth.clone() {
                                 let auth_line = auth
                                     .span_ref
                                     .as_ref()
@@ -7048,6 +7046,86 @@ mod tests {
                                     sessions_resource_line: anchors.sessions_resource_line,
                                     mfa_line: anchors.mfa_line,
                                     oauth_lines: anchors.oauth_lines,
+                                });
+                            }
+
+                            // Migrations bucket cycle Route C — harvest
+                            // tenant migrations + resource/field rename
+                            // facts so the test helper exercises the
+                            // PREVIOUSLY-*/TM-* rules.
+                            let mut resource_previous_names: Vec<ResourcePreviousFact> = Vec::new();
+                            let mut field_previous_names: Vec<FieldPreviousFact> = Vec::new();
+                            let mut all_resource_names_in_feature: BTreeSet<String> =
+                                BTreeSet::new();
+                            let mut all_field_names_in_feature: BTreeMap<String, BTreeSet<String>> =
+                                BTreeMap::new();
+                            let resource_header_lines = collect_construct_lines(
+                                &file.source,
+                                "resource ",
+                                feature.resources.iter().map(|r| r.name.as_str()).collect(),
+                            );
+                            for res in &feature.resources {
+                                all_resource_names_in_feature.insert(res.name.clone());
+                                let field_set = all_field_names_in_feature
+                                    .entry(res.name.clone())
+                                    .or_default();
+                                for fld in &res.fields {
+                                    field_set.insert(fld.name.clone());
+                                }
+                                let res_line = resource_header_lines
+                                    .get(&res.name)
+                                    .copied()
+                                    .unwrap_or(header_line);
+                                if !res.previous_names.is_empty() {
+                                    resource_previous_names.push(ResourcePreviousFact {
+                                        current_name: res.name.clone(),
+                                        previous_names: res.previous_names.clone(),
+                                        line: res_line,
+                                    });
+                                }
+                                for fld in &res.fields {
+                                    if !fld.previous_names.is_empty() {
+                                        field_previous_names.push(FieldPreviousFact {
+                                            resource_name: res.name.clone(),
+                                            current_name: fld.name.clone(),
+                                            previous_names: fld.previous_names.clone(),
+                                            line: res_line,
+                                        });
+                                    }
+                                }
+                            }
+                            if !feature.tenant_migrations.is_empty()
+                                || !resource_previous_names.is_empty()
+                                || !field_previous_names.is_empty()
+                            {
+                                let tenant_migration_lines = collect_construct_lines(
+                                    &file.source,
+                                    "tenant_migration ",
+                                    feature
+                                        .tenant_migrations
+                                        .iter()
+                                        .map(|t| t.name.as_str())
+                                        .collect(),
+                                );
+                                tier3_facts.push(Tier3FeatureFacts {
+                                    feature: feature.name.clone(),
+                                    path: file.path.clone(),
+                                    feature_line: header_line,
+                                    tenancy_axis: tenancy_axis_for(&feature),
+                                    jobs: feature.jobs.clone(),
+                                    webhooks: feature.webhooks.clone(),
+                                    notifications: feature.notifications.clone(),
+                                    event_groups: feature.event_groups.clone(),
+                                    tenant_migrations: feature.tenant_migrations.clone(),
+                                    resource_previous_names,
+                                    field_previous_names,
+                                    all_resource_names_in_feature,
+                                    all_field_names_in_feature,
+                                    job_lines: BTreeMap::new(),
+                                    webhook_lines: BTreeMap::new(),
+                                    notification_lines: BTreeMap::new(),
+                                    tenant_migration_lines,
+                                    event_group_lines: BTreeMap::new(),
                                 });
                             }
                         }
@@ -7088,7 +7166,7 @@ mod tests {
             feature_resources,
             feature_adapters,
             feature_uses,
-            tier3_facts: Vec::new(),
+            tier3_facts,
         }
     }
 
@@ -9743,6 +9821,128 @@ feature customer_auth
         assert!(
             !codes(&diagnostics).contains("auth_identity_field_unknown"),
             "uses-relative identity resolution failed: {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Migrations bucket cycle Route C — eight diagnostics on tenant_migration,
+    // `previously migrated`, and `deploy` checkpoint/strategy fields.
+    // -------------------------------------------------------------------------
+
+    const MIGRATIONS_PREVIOUSLY_FWD_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/previously_forward_unresolved.lzi");
+    const MIGRATIONS_PREVIOUSLY_CYCLE_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/previously_cycle.lzi");
+    const MIGRATIONS_PREVIOUSLY_DUP_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/previously_duplicate_claim.lzi");
+    const MIGRATIONS_TM_AXIS_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/tenant_migration_axis_unknown.lzi");
+    const MIGRATIONS_TM_IDEMP_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/tenant_migration_no_idempotency.lzi");
+    const MIGRATIONS_CHECKPOINT_INVALID_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/deploy_checkpoint_path_invalid.lzi");
+    const MIGRATIONS_STRATEGY_INVALID_FIXTURE: &str =
+        include_str!("../tests/fixtures/migrations/deploy_strategy_invalid.lzi");
+
+    #[test]
+    fn previously_forward_unresolved_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_PREVIOUSLY_FWD_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("PREVIOUSLY-FWD-001"),
+            "expected PREVIOUSLY-FWD-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn previously_cycle_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_PREVIOUSLY_CYCLE_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("PREVIOUSLY-CYCLE-001"),
+            "expected PREVIOUSLY-CYCLE-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn previously_duplicate_claim_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_PREVIOUSLY_DUP_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("PREVIOUSLY-DUP-001"),
+            "expected PREVIOUSLY-DUP-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn tenant_migration_axis_unknown_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_TM_AXIS_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("TM-AXIS-001"),
+            "expected TM-AXIS-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn tenant_migration_no_idempotency_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_TM_IDEMP_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("TM-IDEMP-001"),
+            "expected TM-IDEMP-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deploy_checkpoint_path_invalid_fires() {
+        let package =
+            package_from_sources(vec![("app.lzi", MIGRATIONS_CHECKPOINT_INVALID_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("DEPLOY-CHECKPOINT-001"),
+            "expected DEPLOY-CHECKPOINT-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deploy_strategy_invalid_fires() {
+        let package = package_from_sources(vec![("app.lzi", MIGRATIONS_STRATEGY_INVALID_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("DEPLOY-STRATEGY-001"),
+            "expected DEPLOY-STRATEGY-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // DEPLOY-CHECKPOINT-002 (stale snapshot) requires an on-disk
+    // snapshot file. The fixture lives in
+    // `tests/fixtures/migrations/snapshot_stale/` so the doctor rule
+    // can resolve the path relative to the manifest's location.
+    #[test]
+    fn deploy_checkpoint_stale_fires() {
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/migrations/snapshot_stale/app.lzi");
+        let source = std::fs::read_to_string(&manifest_path).expect("read app");
+        let mut package = package_from_sources(vec![]);
+        if let Some(manifest) = parse_app_manifest(&source) {
+            package.app = Some(DoctorAppManifest {
+                path: manifest_path,
+                manifest,
+            });
+        }
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("DEPLOY-CHECKPOINT-002"),
+            "expected DEPLOY-CHECKPOINT-002 in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
