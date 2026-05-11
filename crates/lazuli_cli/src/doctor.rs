@@ -58,12 +58,13 @@ struct DoctorPackage {
     /// Cut A.7: `api <name>` declarations harvested per feature; doctor
     /// cross-checks them against agent `expose_http` paths.
     api_paths: Vec<ApiPathFact>,
-    /// Cut A.9: `command <name>` declarations carrying an `approval`
-    /// block. Doctor validates the block + extends the write-tool
-    /// guard so agents dispatching approval-gated commands satisfy
-    /// `agent_tool_write_unguarded_diagnostics` without their own
-    /// `safety` validator.
-    command_approvals: Vec<CommandApprovalFact>,
+    /// Phase L Tier 4b — minimal text-pattern walk of `approval` blocks
+    /// inside command bodies. Only used for the `missing children`
+    /// variant of `approval_contract_diagnostics`; every other approval
+    /// check reads `Command.approval` from `Tier3FeatureFacts` (IR).
+    /// The walker exists because parse-error approval blocks never
+    /// reach the IR — they short-circuit the feature lift.
+    approval_presences: Vec<ApprovalBlockPresence>,
     /// Phase L: lowered `auth` block per feature, paired with source
     /// line anchors for subblock-precise diagnostics.
     auth_facts: Vec<AuthFacts>,
@@ -197,7 +198,7 @@ impl DoctorPackage {
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
         let mut api_paths: Vec<ApiPathFact> = Vec::new();
-        let mut command_approvals: Vec<CommandApprovalFact> = Vec::new();
+        let mut approval_presences: Vec<ApprovalBlockPresence> = Vec::new();
         let mut auth_facts: Vec<AuthFacts> = Vec::new();
         let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
             BTreeMap::new();
@@ -547,7 +548,7 @@ impl DoctorPackage {
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_api_paths(&file, &mut api_paths);
-                collect_command_approvals(&file, &mut command_approvals);
+                collect_approval_block_presence(&file, &mut approval_presences);
                 collect_feature_resources(&file, &mut feature_resources);
                 collect_feature_adapters(&file, &mut feature_adapters);
                 collect_feature_uses(&file, &mut feature_uses);
@@ -593,7 +594,7 @@ impl DoctorPackage {
             feature_symbols,
             registry_tool_defects,
             api_paths,
-            command_approvals,
+            approval_presences,
             auth_facts,
             feature_resources,
             feature_adapters,
@@ -634,7 +635,7 @@ impl DoctorPackage {
             &self.agents,
             &self.feature_symbols,
             self.registry.as_ref(),
-            &self.command_approvals,
+            &self.tier3_facts,
         ));
         diagnostics.extend(agent_discriminator_diagnostics(
             &self.agents,
@@ -664,7 +665,10 @@ impl DoctorPackage {
 
         // Cut A.9 — `approval` primitive contract + role resolution.
         let known_roles = collect_known_roles(&self.files);
-        diagnostics.extend(approval_diagnostics(&self.command_approvals, &known_roles));
+        diagnostics.extend(approval_diagnostics(&self.tier3_facts, &known_roles));
+        diagnostics.extend(approval_missing_children_diagnostics(
+            &self.approval_presences,
+        ));
 
         // Cut A.11 — `cors` block cross-checks against the app's
         // declared environments + urls.
@@ -4399,7 +4403,7 @@ fn agent_tool_diagnostics(
     agents: &[AgentFacts],
     feature_symbols: &BTreeMap<String, FeatureSymbols>,
     registry: Option<&DoctorAppRegistry>,
-    command_approvals: &[CommandApprovalFact],
+    tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let registry_tools: BTreeMap<String, &lazuli_ir::RegistryToolEntry> = registry
@@ -4415,11 +4419,18 @@ fn agent_tool_diagnostics(
     // Cut A.9: write-tool guard accepts `approval` on the target
     // command as an alternative to the agent's `safety` validator.
     // Build a quick lookup keyed by (feature, command) so the guard
-    // check resolves per-tool in O(1).
-    let approval_index: BTreeSet<(String, String)> = command_approvals
+    // check resolves per-tool in O(1). Sourced from IR
+    // `Command.approval` populated by `lower_feature_skeleton`;
+    // Phase L Tier 4b retired the `CommandApprovalFact` text-walker.
+    let approval_index: BTreeSet<(String, String)> = tier3_facts
         .iter()
-        .filter(|f| f.missing_children.is_empty())
-        .map(|f| (f.feature.clone(), f.command.clone()))
+        .flat_map(|f| {
+            let feature = f.feature.clone();
+            f.commands
+                .iter()
+                .filter(|c| c.approval.is_some())
+                .map(move |c| (feature.clone(), c.name.clone()))
+        })
         .collect();
 
     for fact in agents {
@@ -5432,29 +5443,30 @@ fn catalog_list(items: &[&str]) -> String {
 // Cut A.9 — `approval` primitive on commands
 // -----------------------------------------------------------------------------
 
+/// Phase L Tier 4b — minimal text-walker output that captures the
+/// existence of an `approval` block plus its missing children. Other
+/// approval cross-checks (`timeout` shape, `then` catalog, `by` role
+/// resolution) read from IR `Command.approval` via `Tier3FeatureFacts`.
+///
+/// The walker is retained because the parser canonical-indent slice
+/// rejects malformed `approval` blocks with a parse error — which
+/// short-circuits the feature lift, so `Command.approval` never reaches
+/// the IR for those sources. The LSP file-local pass
+/// (`approval_contract_diagnostics` in `crates/lazuli_lsp/src/lib.rs`)
+/// emits the same diagnostic when invoked via `lazuli doctor`; this
+/// walker covers the in-process unit test path
+/// (`package_from_sources`), which does not feed sources through
+/// `lazuli_lsp::diagnostics_for_source`.
 #[derive(Debug, Clone)]
-struct CommandApprovalFact {
+struct ApprovalBlockPresence {
     feature: String,
     command: String,
     path: PathBuf,
     line: usize,
-    by: Vec<String>,
-    timeout: Option<String>,
-    then: Option<String>,
-    required_when_present: bool,
     missing_children: Vec<&'static str>,
 }
 
-/// Text-walk every `.lzi` for `command <name>` headers at indent 2,
-/// then look for an `approval` indent-4 child and harvest its
-/// children (`by`, `timeout`, `then`, `required_when`). The slice
-/// captures presence + values; doctor + LSP consume them.
-///
-/// Lives next to `collect_api_paths`; same approach for the same
-/// reason — the canonical-indent parser slice does not yet cover
-/// commands, so we use text-pattern with stable column anchors until
-/// the Phase L migration arrives.
-fn collect_command_approvals(file: &DoctorFile, out: &mut Vec<CommandApprovalFact>) {
+fn collect_approval_block_presence(file: &DoctorFile, out: &mut Vec<ApprovalBlockPresence>) {
     let lines: Vec<&str> = file.source.lines().collect();
     let mut feature: Option<String> = None;
     let mut i = 0;
@@ -5479,8 +5491,9 @@ fn collect_command_approvals(file: &DoctorFile, out: &mut Vec<CommandApprovalFac
                 .unwrap_or_default();
             let feature_name = feature.clone().unwrap_or_default();
 
+            // Find the `approval` child (indent 4) inside this command body.
             let mut j = i + 1;
-            let mut found_approval_at: Option<usize> = None;
+            let mut approval_at: Option<usize> = None;
             while j < lines.len() {
                 let inner = lines[j];
                 let inner_trim = inner.trim_start();
@@ -5492,25 +5505,16 @@ fn collect_command_approvals(file: &DoctorFile, out: &mut Vec<CommandApprovalFac
                     break;
                 }
                 if leading_spaces(inner) == 4 && inner_trim == "approval" {
-                    found_approval_at = Some(j);
+                    approval_at = Some(j);
                     break;
                 }
                 j += 1;
             }
 
-            if let Some(approval_at) = found_approval_at {
-                let mut fact = CommandApprovalFact {
-                    feature: feature_name,
-                    command: name,
-                    path: file.path.clone(),
-                    line: approval_at + 1,
-                    by: Vec::new(),
-                    timeout: None,
-                    then: None,
-                    required_when_present: false,
-                    missing_children: Vec::new(),
-                };
-
+            if let Some(approval_at) = approval_at {
+                let mut has_by = false;
+                let mut has_timeout = false;
+                let mut has_then = false;
                 let mut k = approval_at + 1;
                 while k < lines.len() {
                     let body = lines[k];
@@ -5523,40 +5527,35 @@ fn collect_command_approvals(file: &DoctorFile, out: &mut Vec<CommandApprovalFac
                         break;
                     }
                     if leading_spaces(body) == 6 {
-                        if let Some(rest) = body_trim.strip_prefix("by ") {
-                            fact.by = rest
-                                .split(',')
-                                .map(|s| s.trim().to_owned())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                        } else if let Some(rest) = body_trim.strip_prefix("timeout ") {
-                            let unquoted = rest
-                                .trim()
-                                .strip_prefix('"')
-                                .and_then(|s| s.strip_suffix('"'))
-                                .unwrap_or(rest.trim());
-                            fact.timeout = Some(unquoted.to_owned());
-                        } else if let Some(rest) = body_trim.strip_prefix("then ") {
-                            fact.then = Some(rest.trim().to_owned());
-                        } else if body_trim.starts_with("required_when ") {
-                            fact.required_when_present = true;
+                        if body_trim.starts_with("by ") {
+                            has_by = true;
+                        } else if body_trim.starts_with("timeout ") {
+                            has_timeout = true;
+                        } else if body_trim.starts_with("then ") {
+                            has_then = true;
                         }
                     }
                     k += 1;
                 }
-
-                // Capture missing children for `approval_contract_diagnostics`.
-                if fact.by.is_empty() {
-                    fact.missing_children.push("by");
+                let mut missing: Vec<&'static str> = Vec::new();
+                if !has_by {
+                    missing.push("by");
                 }
-                if fact.timeout.is_none() {
-                    fact.missing_children.push("timeout");
+                if !has_timeout {
+                    missing.push("timeout");
                 }
-                if fact.then.is_none() {
-                    fact.missing_children.push("then");
+                if !has_then {
+                    missing.push("then");
                 }
-
-                out.push(fact);
+                if !missing.is_empty() {
+                    out.push(ApprovalBlockPresence {
+                        feature: feature_name,
+                        command: name,
+                        path: file.path.clone(),
+                        line: approval_at + 1,
+                        missing_children: missing,
+                    });
+                }
                 i = k;
                 continue;
             }
@@ -5565,96 +5564,110 @@ fn collect_command_approvals(file: &DoctorFile, out: &mut Vec<CommandApprovalFac
     }
 }
 
+/// `approval_contract_diagnostics` (missing-children variant) — emitted
+/// from the text-pattern walker above because parse-error approval
+/// blocks never reach the IR.
+fn approval_missing_children_diagnostics(
+    presences: &[ApprovalBlockPresence],
+) -> Vec<DoctorDiagnostic> {
+    presences
+        .iter()
+        .map(|p| DoctorDiagnostic {
+            path: p.path.clone(),
+            line: p.line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "approval_contract_diagnostics".to_owned(),
+            message: format!(
+                "command `{}.{}` declares `approval` but is missing required children: {}.",
+                p.feature,
+                p.command,
+                p.missing_children.join(", "),
+            ),
+        })
+        .collect()
+}
+
 /// Doctor-side diagnostics for the `approval` primitive. Three
 /// dedicated ids plus the write-tool guard extension; the latter
 /// reaches inside `agent_tool_write_unguarded_diagnostics` so write
 /// tools whose target command carries `approval` no longer require
 /// the agent's `safety` validator.
+///
+/// Phase L Tier 4b — reads `Command.approval` from `Tier3FeatureFacts`
+/// (populated by `lower_feature_skeleton`). The text-walking
+/// `CommandApprovalFact` collector retired; a minimal
+/// `ApprovalBlockPresence` walker survives for the
+/// missing-required-children variant. Two drift facts the retirement
+/// repaired:
+///
+/// 1. The text-walker treated `by` as a `,`-split list. The parser
+///    only accepts a single `by` declaration; the lifted IR carries
+///    `by: String`. The doctor now validates the single role atom.
+/// 2. The text-walker reported a closed catalog of `deny | proceed`
+///    for `then`. The parser already enforces `deny | allow | escalate`
+///    at parse time, lowering to `ApprovalThen` (enum-fechado). The
+///    redundant doctor-side catalog check retired.
 fn approval_diagnostics(
-    approvals: &[CommandApprovalFact],
+    tier3_facts: &[Tier3FeatureFacts],
     known_roles: &BTreeSet<String>,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
-    for fact in approvals {
-        // Required-children contract.
-        if !fact.missing_children.is_empty() {
-            diagnostics.push(DoctorDiagnostic {
-                path: fact.path.clone(),
-                line: fact.line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "approval_contract_diagnostics".to_owned(),
-                message: format!(
-                    "command `{}.{}` declares `approval` but is missing required children: {}.",
-                    fact.feature,
-                    fact.command,
-                    fact.missing_children.join(", "),
-                ),
-            });
-            continue;
-        }
+    for feature in tier3_facts {
+        for command in &feature.commands {
+            let Some(approval) = &command.approval else {
+                continue;
+            };
+            let line = feature
+                .command_lines
+                .get(&command.name)
+                .copied()
+                .unwrap_or(feature.feature_line);
 
-        // Timeout shape.
-        if let Some(timeout) = fact.timeout.as_deref() {
-            if !approval_timeout_well_formed(timeout) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: fact.path.clone(),
-                    line: fact.line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "approval_timeout_invalid_diagnostics".to_owned(),
-                    message: format!(
-                        "command `{}.{}` declares `approval timeout {:?}` which is not a recognised duration shape (e.g. `\"24h\"`, `\"30 minutes\"`, `\"7d\"`).",
-                        fact.feature, fact.command, timeout,
-                    ),
-                });
+            // Timeout shape (when authored).
+            if let Some(timeout) = approval.timeout.as_deref() {
+                if !approval_timeout_well_formed(timeout) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "approval_timeout_invalid_diagnostics".to_owned(),
+                        message: format!(
+                            "command `{}.{}` declares `approval timeout {:?}` which is not a recognised duration shape (e.g. `\"24h\"`, `\"30 minutes\"`, `\"7d\"`).",
+                            feature.feature, command.name, timeout,
+                        ),
+                    });
+                }
             }
-        }
 
-        // Closed catalog for `then`.
-        if let Some(then) = fact.then.as_deref() {
-            if !matches!(then, "deny" | "proceed") {
-                diagnostics.push(DoctorDiagnostic {
-                    path: fact.path.clone(),
-                    line: fact.line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "approval_contract_diagnostics".to_owned(),
-                    message: format!(
-                        "command `{}.{}` declares `approval then {then}` — the closed catalog is `deny` or `proceed`.",
-                        fact.feature, fact.command,
-                    ),
-                });
-            }
-        }
-
-        // Role resolution. `by` entries are `@role.<name>` only.
-        for role_ref in &fact.by {
+            // Role resolution. `by` is a single `@role.<name>` atom.
+            let role_ref = approval.by.as_str();
             let Some(suffix) = role_ref.strip_prefix("@role.") else {
                 diagnostics.push(DoctorDiagnostic {
-                    path: fact.path.clone(),
-                    line: fact.line,
+                    path: feature.path.clone(),
+                    line,
                     column: 1,
                     severity: DoctorSeverity::Error,
                     code: "approval_role_unresolved_diagnostics".to_owned(),
                     message: format!(
                         "command `{}.{}` approval `by {role_ref}` is not a `@role.<name>` reference; approvers are roles, not scopes.",
-                        fact.feature, fact.command,
+                        feature.feature, command.name,
                     ),
                 });
                 continue;
             };
             if !known_roles.contains(suffix) {
                 diagnostics.push(DoctorDiagnostic {
-                    path: fact.path.clone(),
-                    line: fact.line,
+                    path: feature.path.clone(),
+                    line,
                     column: 1,
                     severity: DoctorSeverity::Error,
                     code: "approval_role_unresolved_diagnostics".to_owned(),
                     message: format!(
                         "command `{}.{}` approval `by @role.{suffix}` references a role that no `policies` block or `app.lzi` `policy_for` declares.",
-                        fact.feature, fact.command,
+                        feature.feature, command.name,
                     ),
                 });
             }
@@ -8160,7 +8173,7 @@ mod tests {
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
         let mut api_paths: Vec<ApiPathFact> = Vec::new();
-        let mut command_approvals: Vec<CommandApprovalFact> = Vec::new();
+        let mut approval_presences: Vec<ApprovalBlockPresence> = Vec::new();
         let mut auth_facts: Vec<AuthFacts> = Vec::new();
         let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
             BTreeMap::new();
@@ -8448,7 +8461,7 @@ mod tests {
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_api_paths(&file, &mut api_paths);
-                collect_command_approvals(&file, &mut command_approvals);
+                collect_approval_block_presence(&file, &mut approval_presences);
                 collect_feature_resources(&file, &mut feature_resources);
                 collect_feature_adapters(&file, &mut feature_adapters);
                 collect_feature_uses(&file, &mut feature_uses);
@@ -8476,7 +8489,7 @@ mod tests {
             feature_symbols,
             registry_tool_defects,
             api_paths,
-            command_approvals,
+            approval_presences,
             auth_facts,
             feature_resources,
             feature_adapters,
