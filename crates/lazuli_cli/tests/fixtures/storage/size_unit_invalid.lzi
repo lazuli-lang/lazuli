@@ -1,0 +1,5 @@
+feature x_size
+  domain
+    resource Export
+      id: ID required
+      blob: @cap.File(max_size:large,accept:text/csv) required

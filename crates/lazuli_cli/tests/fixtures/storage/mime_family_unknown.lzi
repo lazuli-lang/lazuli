@@ -1,0 +1,5 @@
+feature x_mime
+  domain
+    resource Export
+      id: ID required
+      blob: @cap.File(max_size:10mb,accept:gibberish/csv,visibility:private) required

@@ -1,0 +1,11 @@
+feature x_signed
+  domain
+    resource Export
+      id: ID required
+
+  api download
+    method GET
+    path "/api/x/download"
+    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed)
+    policy @policy.global_read
+    handler "./api/x/download.go"

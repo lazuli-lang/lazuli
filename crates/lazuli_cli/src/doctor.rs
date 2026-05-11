@@ -399,6 +399,11 @@ impl DoctorPackage {
             self.registry.as_ref(),
         ));
 
+        // Row 30 — Storage bucket cycle: 5 typed `@cap.File`
+        // diagnostics. See `docs/proposals/bucket-storage-cycle.md`
+        // §Doctor/LSP.
+        diagnostics.extend(cap_file_storage_diagnostics(&self.operational));
+
         diagnostics.sort_by(|left, right| {
             left.path
                 .cmp(&right.path)
@@ -619,6 +624,12 @@ struct OperationalFacts {
     external_calls: Vec<ExternalCallFact>,
     env_references: Vec<SourceFact>,
     file_capabilities: Vec<SourceFact>,
+    /// Row 30 — typed `@cap.File(...)` sites carrying the lowered
+    /// `FileCapability` + origin + binding context (`ResourceField` or
+    /// `ApiOutput`). Populated alongside `file_capabilities` so the
+    /// storage diagnostics can run against typed IR shape, while the
+    /// existing text-pattern fact powers the `APP-CAP-001` check.
+    file_capability_facts: Vec<FileCapabilityFact>,
     jobs: Vec<SourceFact>,
     schedules: Vec<SourceFact>,
     webhooks: Vec<SourceFact>,
@@ -652,6 +663,30 @@ struct ExternalCallFact {
     has_timeout: bool,
     has_retry: bool,
     has_idempotency: bool,
+}
+
+/// Row 30 — one typed `@cap.File(...)` site harvested from a `.lzi`
+/// source file. `feature` is the enclosing `feature <name>` block;
+/// `binding` discriminates between a resource field and an api output
+/// so the storage diagnostics can apply context-sensitive rules (e.g.
+/// `visibility` is required on api outputs but defaults to `private`
+/// on resource fields).
+#[derive(Debug, Clone)]
+struct FileCapabilityFact {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    feature: String,
+    binding: FileCapabilityBinding,
+    capability: lazuli_ir::FileCapability,
+}
+
+#[derive(Debug, Clone)]
+enum FileCapabilityBinding {
+    /// `<field>: @cap.File(...)` inside a `resource <Name>` block.
+    ResourceField { resource: String, field: String },
+    /// `output @cap.File(...)` inside an `api <Name>` block.
+    ApiOutput { api: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -792,6 +827,7 @@ fn collect_canonical_facts(
 ) {
     let lines: Vec<_> = file.source.lines().collect();
     collect_operational_lzi_facts(file, &lines, operational);
+    collect_file_capability_facts(file, &lines, operational);
 
     let mut index = 0;
     while index < lines.len() {
@@ -5200,6 +5236,352 @@ fn payload_field_list(canonical: &BTreeSet<String>) -> String {
         .join(", ")
 }
 
+// ============================================================================
+// Row 30 — Storage bucket cycle diagnostics
+//
+// Five typed `@cap.File(...)` checks run against `OperationalFacts.
+// file_capability_facts`, populated by `collect_file_capability_facts`.
+// Codes:
+//   - `cap_file_visibility_undeclared`              error
+//   - `cap_file_accept_input_output_mismatch`       error
+//   - `cap_file_visibility_signed_ttl_mismatch`     error
+//   - `cap_file_size_unit_invalid`                  error
+//   - `cap_file_mime_family_unknown`                warning
+//
+// See `docs/proposals/bucket-storage-cycle.md` §Doctor/LSP.
+// ============================================================================
+
+/// IANA top-level MIME families recognised by Lazuli's `@cap.File(accept:)`
+/// closed catalog. Subtype `*` and family `*` are also accepted at the
+/// shape level, but emitted under the wildcard match.
+const KNOWN_MIME_FAMILIES: &[&str] = &[
+    "text",
+    "image",
+    "application",
+    "audio",
+    "video",
+    "font",
+    "*",
+];
+
+fn collect_file_capability_facts(
+    file: &DoctorFile,
+    lines: &[&str],
+    operational: &mut OperationalFacts,
+) {
+    if !is_lzi_path(&file.path) {
+        return;
+    }
+
+    let mut current_feature: Option<String> = None;
+    let mut current_resource: Option<(String, usize)> = None;
+    let mut current_api: Option<(String, usize)> = None;
+
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        let line_number = index + 1;
+        let column = indent + 1;
+
+        // Top-level feature header anchors all enclosed sites.
+        if indent == 0 && trimmed.starts_with("feature ") {
+            current_feature = trimmed.split_whitespace().nth(1).map(str::to_owned);
+            current_resource = None;
+            current_api = None;
+            continue;
+        }
+
+        // Resource and api headers; close on any line that retreats to
+        // the header indent or shallower (matching `inspect_storage_projection`).
+        if let Some(rest) = trimmed.strip_prefix("resource ") {
+            current_resource = Some((
+                rest.split_whitespace().next().unwrap_or("").to_owned(),
+                indent,
+            ));
+            current_api = None;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("api ") {
+            current_api = Some((
+                rest.split_whitespace().next().unwrap_or("").to_owned(),
+                indent,
+            ));
+            current_resource = None;
+            continue;
+        }
+        if let Some((_, header_indent)) = &current_resource {
+            if indent <= *header_indent {
+                current_resource = None;
+            }
+        }
+        if let Some((_, header_indent)) = &current_api {
+            if indent <= *header_indent {
+                current_api = None;
+            }
+        }
+
+        let Some(feature) = current_feature.as_deref() else {
+            continue;
+        };
+
+        // Resource field shape: `<field>: @cap.File(...)`.
+        if let Some((resource, _)) = &current_resource {
+            if let Some((field_name, cap_text)) = extract_cap_file_field_line(trimmed) {
+                if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file_cap)) =
+                    lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
+                {
+                    operational.file_capability_facts.push(FileCapabilityFact {
+                        path: file.path.clone(),
+                        line: line_number,
+                        column,
+                        feature: feature.to_owned(),
+                        binding: FileCapabilityBinding::ResourceField {
+                            resource: resource.clone(),
+                            field: field_name,
+                        },
+                        capability: file_cap,
+                    });
+                }
+            }
+        }
+
+        // Api output shape: `output @cap.File(...)`.
+        if let Some((api, _)) = &current_api {
+            if let Some(rest) = trimmed.strip_prefix("output ") {
+                let rest = rest.trim();
+                if rest.starts_with("@cap.File(") {
+                    if let Some(close) = rest.find(')') {
+                        let cap_text = &rest[..=close];
+                        if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(
+                            file_cap,
+                        )) = lazuli_analyzer::type_ref_from_syntax_public(cap_text)
+                        {
+                            operational.file_capability_facts.push(FileCapabilityFact {
+                                path: file.path.clone(),
+                                line: line_number,
+                                column,
+                                feature: feature.to_owned(),
+                                binding: FileCapabilityBinding::ApiOutput { api: api.clone() },
+                                capability: file_cap,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Extract `(field_name, "@cap.File(...)")` from a resource-field line.
+/// Mirrors `crates/lazuli_cli/src/main.rs:extract_cap_file_field` but is
+/// re-implemented here to keep the doctor crate's dependency surface
+/// unchanged (no new pub item needed).
+fn extract_cap_file_field_line(trimmed: &str) -> Option<(String, String)> {
+    let (name_part, type_part) = trimmed.split_once(':')?;
+    let name = name_part.trim();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return None;
+    }
+    let type_tokens = type_part.trim();
+    let cap_start = type_tokens.find("@cap.File(")?;
+    let from_cap = &type_tokens[cap_start..];
+    let close = from_cap.find(')')?;
+    let cap_text = &from_cap[..=close];
+    Some((name.to_owned(), cap_text.to_owned()))
+}
+
+fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // (1) cap_file_visibility_undeclared — api output without `visibility:`.
+    // (3) cap_file_visibility_signed_ttl_mismatch — visibility/signed_ttl
+    //     coherence (api outputs and resource fields both).
+    // (5) cap_file_mime_family_unknown — MIME family outside the IANA
+    //     closed catalog.
+    for fact in &operational.file_capability_facts {
+        if matches!(fact.binding, FileCapabilityBinding::ApiOutput { .. })
+            && fact.capability.visibility.is_none()
+        {
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.line,
+                column: fact.column,
+                severity: DoctorSeverity::Error,
+                code: "cap_file_visibility_undeclared".to_owned(),
+                message: format!(
+                    "api `{}` output declares `@cap.File(...)` without `visibility:`; ambiguous visibility on a file URL is a security contract gap. Declare `visibility:` as `public`, `private`, or `signed`.",
+                    match &fact.binding {
+                        FileCapabilityBinding::ApiOutput { api } => api.as_str(),
+                        _ => "<unknown>",
+                    }
+                ),
+            });
+        }
+
+        match (
+            fact.capability.visibility,
+            fact.capability.signed_ttl.as_deref(),
+        ) {
+            (Some(lazuli_ir::FileVisibility::Signed), None) => {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: fact.column,
+                    severity: DoctorSeverity::Error,
+                    code: "cap_file_visibility_signed_ttl_mismatch".to_owned(),
+                    message:
+                        "`@cap.File(visibility:signed)` requires `signed_ttl:<duration>` (e.g. `1h`); signed URLs without a TTL contract leak forever."
+                            .to_owned(),
+                });
+            }
+            (Some(other), Some(_)) if !matches!(other, lazuli_ir::FileVisibility::Signed) => {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: fact.column,
+                    severity: DoctorSeverity::Error,
+                    code: "cap_file_visibility_signed_ttl_mismatch".to_owned(),
+                    message: format!(
+                        "`@cap.File(visibility:{})` forbids `signed_ttl`; `signed_ttl` only applies when `visibility:signed`.",
+                        format_visibility(other),
+                    ),
+                });
+            }
+            _ => {}
+        }
+
+        for mime in &fact.capability.accept {
+            if !KNOWN_MIME_FAMILIES.contains(&mime.family.as_str()) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.line,
+                    column: fact.column,
+                    severity: DoctorSeverity::Warning,
+                    code: "cap_file_mime_family_unknown".to_owned(),
+                    message: format!(
+                        "`@cap.File(accept:{}/{}` uses unknown MIME family `{}`; known families: {}.",
+                        mime.family,
+                        mime.subtype,
+                        mime.family,
+                        KNOWN_MIME_FAMILIES.join(", "),
+                    ),
+                });
+            }
+        }
+    }
+
+    // (4) cap_file_size_unit_invalid — typed promotion. The IR rejects
+    //     unknown units at parse time (the analyzer falls through to
+    //     `UserDefined`), so any line that matched `@cap.File(...)`
+    //     literally but did NOT produce a typed `FileCapability` fact
+    //     is the candidate. We re-walk operational.file_capabilities
+    //     (the text-pattern facts) and cross-reference; sites that
+    //     have NO typed fact for the same path:line are typing
+    //     failures — promote with a typed error.
+    for text_fact in &operational.file_capabilities {
+        let has_typed = operational
+            .file_capability_facts
+            .iter()
+            .any(|tf| tf.path == text_fact.path && tf.line == text_fact.line);
+        if !has_typed {
+            diagnostics.push(DoctorDiagnostic {
+                path: text_fact.path.clone(),
+                line: text_fact.line,
+                column: text_fact.column,
+                severity: DoctorSeverity::Error,
+                code: "cap_file_size_unit_invalid".to_owned(),
+                message:
+                    "`@cap.File(max_size:<literal>)` must use a positive integer with unit `kb`, `mb`, or `gb`; the surrounding `@cap.File(...)` shape did not lower to typed IR."
+                        .to_owned(),
+            });
+        }
+    }
+
+    // (2) cap_file_accept_input_output_mismatch — per-feature, pair
+    //     resource-field `@cap.File` inputs with api-output `@cap.File`
+    //     outputs and require the accept sets to intersect.
+    let mut by_feature: BTreeMap<&str, (Vec<&FileCapabilityFact>, Vec<&FileCapabilityFact>)> =
+        BTreeMap::new();
+    for fact in &operational.file_capability_facts {
+        let entry = by_feature.entry(fact.feature.as_str()).or_default();
+        match fact.binding {
+            FileCapabilityBinding::ResourceField { .. } => entry.0.push(fact),
+            FileCapabilityBinding::ApiOutput { .. } => entry.1.push(fact),
+        }
+    }
+    for (_, (inputs, outputs)) in by_feature {
+        if inputs.is_empty() || outputs.is_empty() {
+            continue;
+        }
+        for output in &outputs {
+            for input in &inputs {
+                if !mime_sets_intersect(&output.capability.accept, &input.capability.accept) {
+                    let api_name = match &output.binding {
+                        FileCapabilityBinding::ApiOutput { api } => api.as_str(),
+                        _ => "<unknown>",
+                    };
+                    let (resource_name, field_name) = match &input.binding {
+                        FileCapabilityBinding::ResourceField { resource, field } => {
+                            (resource.as_str(), field.as_str())
+                        }
+                        _ => ("<unknown>", "<unknown>"),
+                    };
+                    diagnostics.push(DoctorDiagnostic {
+                        path: output.path.clone(),
+                        line: output.line,
+                        column: output.column,
+                        severity: DoctorSeverity::Error,
+                        code: "cap_file_accept_input_output_mismatch".to_owned(),
+                        message: format!(
+                            "api `{api_name}` output declares `@cap.File(accept:{})` but resource `{resource_name}.{field_name}` declares `@cap.File(accept:{})`; accept lists must intersect for the round-trip to be valid.",
+                            format_accept_list(&output.capability.accept),
+                            format_accept_list(&input.capability.accept),
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn mime_sets_intersect(left: &[lazuli_ir::MimeType], right: &[lazuli_ir::MimeType]) -> bool {
+    for l in left {
+        for r in right {
+            if mime_matches(l, r) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
+    let family_ok = left.family == right.family || left.family == "*" || right.family == "*";
+    let subtype_ok = left.subtype == right.subtype || left.subtype == "*" || right.subtype == "*";
+    family_ok && subtype_ok
+}
+
+fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
+    match v {
+        lazuli_ir::FileVisibility::Public => "public",
+        lazuli_ir::FileVisibility::Private => "private",
+        lazuli_ir::FileVisibility::Signed => "signed",
+    }
+}
+
+fn format_accept_list(accept: &[lazuli_ir::MimeType]) -> String {
+    accept
+        .iter()
+        .map(|m| format!("{}/{}", m.family, m.subtype))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5670,7 +6052,7 @@ feature customer
   api export
     method GET
     path "/api/export"
-    output @cap.File(max_size:10mb,accept:text/csv)
+    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1h)
     policy @scope.public
     handler "./api/export.go"
 
@@ -7065,6 +7447,188 @@ surface customer web
         assert!(
             !codes(&diagnostics).contains("agent_expose_audience_unknown_diagnostics"),
             "audience declared in .lzx must be honored; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Row 30 — Storage bucket cycle: 5 typed `@cap.File` diagnostics.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn doctor_emits_cap_file_visibility_undeclared() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_export
+  domain
+    resource Export
+      id: ID required
+
+  api download
+    method GET
+    path "/api/x/download"
+    output @cap.File(max_size:10mb,accept:text/csv)
+    policy @policy.global_read
+    handler "./api/x/download.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cap_file_visibility_undeclared"),
+            "expected cap_file_visibility_undeclared on api output; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_skips_visibility_undeclared_on_resource_field() {
+        // Resource fields default `visibility` to private; the
+        // diagnostic only fires on api outputs.
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_field
+  domain
+    resource Export
+      file: @cap.File(max_size:10mb,accept:text/csv) required
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("cap_file_visibility_undeclared"),
+            "resource fields default to private; should not emit; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_emits_cap_file_accept_input_output_mismatch() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_pipeline
+  domain
+    resource ImportBatch
+      file: @cap.File(max_size:25mb,accept:application/json,visibility:private) required
+
+  api download
+    method GET
+    path "/api/x/download"
+    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1h)
+    policy @policy.global_read
+    handler "./api/x/download.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cap_file_accept_input_output_mismatch"),
+            "expected cap_file_accept_input_output_mismatch; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_overlapping_accept_lists() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_pipeline_ok
+  domain
+    resource ImportBatch
+      file: @cap.File(max_size:25mb,accept:text/csv,visibility:private) required
+
+  api download
+    method GET
+    path "/api/x/download"
+    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1h)
+    policy @policy.global_read
+    handler "./api/x/download.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("cap_file_accept_input_output_mismatch"),
+            "overlapping accept lists should not emit; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_emits_cap_file_visibility_signed_ttl_mismatch_when_ttl_missing() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_signed
+  api download
+    method GET
+    path "/api/x/download"
+    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed)
+    policy @policy.global_read
+    handler "./api/x/download.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cap_file_visibility_signed_ttl_mismatch"),
+            "signed visibility without signed_ttl must emit; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_emits_cap_file_visibility_signed_ttl_mismatch_when_ttl_with_private() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_private_ttl
+  domain
+    resource Export
+      file: @cap.File(max_size:10mb,accept:text/csv,visibility:private,signed_ttl:1h) required
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cap_file_visibility_signed_ttl_mismatch"),
+            "private visibility with signed_ttl must emit; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_emits_cap_file_size_unit_invalid() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_size
+  domain
+    resource Export
+      blob: @cap.File(max_size:large,accept:text/csv) required
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cap_file_size_unit_invalid"),
+            "expected cap_file_size_unit_invalid; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_emits_cap_file_mime_family_unknown() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x_mime
+  domain
+    resource Export
+      blob: @cap.File(max_size:10mb,accept:gibberish/csv,visibility:private) required
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cap_file_mime_family_unknown"),
+            "expected cap_file_mime_family_unknown; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

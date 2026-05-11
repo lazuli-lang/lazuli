@@ -145,7 +145,20 @@ impl LanguageServer for Backend {
         }))
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        // Row 30 — context-aware completions for `@cap.File(...)`
+        // closed-catalog argument values fire first. Outside
+        // `@cap.File(...)` falls back to the keyword list + Row 27
+        // auth catalog values (argon2id/bcrypt/google/etc).
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let documents = self.documents.read().await;
+        if let Some(source) = documents.get(&uri) {
+            if let Some(items) = cap_file_value_completions(source, position) {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
+        }
+        drop(documents);
         let mut items: Vec<CompletionItem> = KEYWORDS
             .iter()
             .map(|keyword| CompletionItem {
@@ -2911,7 +2924,11 @@ fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             line,
             "@cap.File",
             &args,
-            &["max_size", "accept"],
+            // Row 30 — `visibility` + `signed_ttl` are typed arguments
+            // recognised by the analyzer (`type_ref_from_syntax`); add
+            // them to the canonical set so the LSP no longer warns on
+            // the canonical authoring form.
+            &["max_size", "accept", "visibility", "signed_ttl"],
         );
 
         if !args.iter().any(|(key, _)| key == "max_size") {
@@ -11404,6 +11421,80 @@ fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
 }
 
+/// Row 30 — context-aware closed-catalog completions for the four
+/// `@cap.File(...)` argument values. Returns `None` outside of
+/// `@cap.File(...)`; when inside, looks at the most recent keyword
+/// before the cursor to pick the right catalog:
+///
+/// - `visibility:` → `public`, `private`, `signed`
+/// - `max_size:<int>` → `kb`, `mb`, `gb`
+/// - `signed_ttl:<int>` → `s`, `m`, `h`, `d`
+/// - `accept:` → the seven IANA-top families (`text`, `image`, …, `*`)
+fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let cursor = (position.character as usize).min(line.len());
+    let before = &line[..cursor];
+    // Cheap context check — only fire when we are inside an open
+    // `@cap.File(` on the same line. Multi-line capabilities are not
+    // canonical; the LSP only sees the current line for this hint.
+    let open = before.rfind("@cap.File(")?;
+    let after_open = &before[open + "@cap.File(".len()..];
+
+    // Find the most recent argument keyword. We accept either
+    // `<key>:` (cursor right after the colon) or `<key>:<value>`
+    // (cursor mid-value).
+    let trimmed = after_open.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_');
+    let last_colon = trimmed.rfind(':')?;
+    // The argument key is the word ending at last_colon.
+    let prefix_to_colon = &trimmed[..last_colon];
+    let key_start = prefix_to_colon
+        .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let key = &prefix_to_colon[key_start..];
+
+    let labels: &[(&str, &str)] = match key {
+        "visibility" => &[
+            ("public", "Unguessable URL; un-gated fetch (CDN-style)."),
+            ("private", "Policy-gated download handler enforced by the runtime."),
+            ("signed", "Time-limited signed URL; requires `signed_ttl`."),
+        ],
+        "max_size" => &[
+            ("kb", "Kilobyte size unit (binary prefix; `n * 1024` bytes)."),
+            ("mb", "Megabyte size unit (binary prefix; `n * 1024^2` bytes)."),
+            ("gb", "Gigabyte size unit (binary prefix; `n * 1024^3` bytes)."),
+        ],
+        "signed_ttl" => &[
+            ("s", "Seconds."),
+            ("m", "Minutes."),
+            ("h", "Hours."),
+            ("d", "Days."),
+        ],
+        "accept" => &[
+            ("text", "IANA family `text` (e.g. `text/csv`, `text/plain`)."),
+            ("image", "IANA family `image` (e.g. `image/png`)."),
+            ("application", "IANA family `application` (e.g. `application/json`)."),
+            ("audio", "IANA family `audio`."),
+            ("video", "IANA family `video`."),
+            ("font", "IANA family `font`."),
+            ("*", "Wildcard family."),
+        ],
+        _ => return None,
+    };
+
+    Some(
+        labels
+            .iter()
+            .map(|(label, detail)| CompletionItem {
+                label: (*label).to_owned(),
+                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                detail: Some((*detail).to_owned()),
+                ..CompletionItem::default()
+            })
+            .collect(),
+    )
+}
+
 pub fn keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
         "workspace" => Some(
@@ -11691,6 +11782,25 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "required" => Some("Marks a field as required."),
         "unique" => Some("Marks a field as unique."),
         "default" => Some("Declares a default field value."),
+        // Row 30 — `@cap.File(...)` argument keywords. The wider
+        // `@cap.File` decorator itself surfaces via the word-at-position
+        // hover lookup; the parser swallows the `@` so the word is
+        // typically `cap.File` — both are listed here for symmetry.
+        "@cap.File" | "cap.File" => Some(
+            "File capability: `max_size:<size>` + `accept:<mime>` (required) + `visibility:<mode>` (required on api outputs) + `signed_ttl:<duration>` (required when `visibility:signed`). Authored on resource fields and api outputs. Requires the package to declare an `object_storage` or `storage` capability.",
+        ),
+        "max_size" => Some(
+            "Maximum upload size for a `@cap.File`. Closed unit catalog: `kb`, `mb`, `gb` (binary prefixes — `25mb` = 25 * 1024 * 1024 bytes).",
+        ),
+        "accept" => Some(
+            "Accepted MIME types for a `@cap.File`; pipe-separated for alternatives, e.g. `text/csv|application/vnd.ms-excel`. Known families: `text`, `image`, `application`, `audio`, `video`, `font`, `*`. Subtype `*` is also valid.",
+        ),
+        "visibility" => Some(
+            "Visibility of the file URL produced by `@cap.File`. Closed catalog: `public` (unguessable but un-gated, suits CDN-served static assets), `private` (policy-gated download handler), `signed` (time-limited signed URL — requires `signed_ttl`).",
+        ),
+        "signed_ttl" => Some(
+            "Signed-URL TTL for `@cap.File(visibility:signed)`. Closed unit catalog: `s`, `m`, `h`, `d`. Forbidden when `visibility` is `public` or `private`.",
+        ),
         _ => None,
     }
 }
@@ -11730,6 +11840,11 @@ const KEYWORDS: &[&str] = &[
     "channel",
     "recipient",
     "template",
+    // Row 30 — storage bucket cycle `@cap.File(...)` argument keywords.
+    "max_size",
+    "accept",
+    "visibility",
+    "signed_ttl",
     "defaults",
     "domain",
     "policies",
@@ -15519,5 +15634,114 @@ aggregate Customer {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].source.as_deref(), Some("lazuli-analyzer"));
+    }
+
+    // ----------------------------------------------------------------
+    // Row 30 — Storage bucket cycle: hovers + closed-catalog completions
+    // for `@cap.File(...)` argument keywords.
+    // ----------------------------------------------------------------
+
+    use super::{KEYWORDS, cap_file_value_completions, keyword_description};
+    use tower_lsp::lsp_types::Position;
+
+    #[test]
+    fn keyword_hover_describes_cap_file_arguments() {
+        for kw in ["max_size", "accept", "visibility", "signed_ttl"] {
+            let description = keyword_description(kw)
+                .unwrap_or_else(|| panic!("hover for `{kw}` missing"));
+            assert!(
+                !description.is_empty(),
+                "hover for `{kw}` must be non-empty"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_hover_describes_cap_file_decorator() {
+        for kw in ["@cap.File", "cap.File"] {
+            assert!(
+                keyword_description(kw).is_some(),
+                "hover for `{kw}` must be available"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_hover_visibility_lists_closed_catalog() {
+        let description = keyword_description("visibility").unwrap();
+        assert!(description.contains("public"));
+        assert!(description.contains("private"));
+        assert!(description.contains("signed"));
+    }
+
+    #[test]
+    fn keywords_list_contains_storage_arguments() {
+        for kw in ["max_size", "accept", "visibility", "signed_ttl"] {
+            assert!(
+                KEYWORDS.contains(&kw),
+                "`KEYWORDS` should list `{kw}` so completions surface it"
+            );
+        }
+    }
+
+    #[test]
+    fn cap_file_value_completion_for_visibility_offers_closed_catalog() {
+        let source = "    output @cap.File(max_size:10mb,accept:text/csv,visibility:";
+        let position = Position {
+            line: 0,
+            character: source.len() as u32,
+        };
+        let items = cap_file_value_completions(source, position).expect("visibility offers");
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, vec!["public", "private", "signed"]);
+    }
+
+    #[test]
+    fn cap_file_value_completion_for_max_size_offers_units() {
+        let source = "    file: @cap.File(max_size:25";
+        let position = Position {
+            line: 0,
+            character: source.len() as u32,
+        };
+        let items = cap_file_value_completions(source, position).expect("max_size offers");
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, vec!["kb", "mb", "gb"]);
+    }
+
+    #[test]
+    fn cap_file_value_completion_for_signed_ttl_offers_units() {
+        let source = "    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1";
+        let position = Position {
+            line: 0,
+            character: source.len() as u32,
+        };
+        let items = cap_file_value_completions(source, position).expect("signed_ttl offers");
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, vec!["s", "m", "h", "d"]);
+    }
+
+    #[test]
+    fn cap_file_value_completion_for_accept_offers_mime_families() {
+        let source = "    output @cap.File(max_size:10mb,accept:";
+        let position = Position {
+            line: 0,
+            character: source.len() as u32,
+        };
+        let items = cap_file_value_completions(source, position).expect("accept offers");
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["text", "image", "application", "audio", "video", "font", "*"]
+        );
+    }
+
+    #[test]
+    fn cap_file_value_completion_returns_none_outside_capability() {
+        let source = "    file: Text";
+        let position = Position {
+            line: 0,
+            character: source.len() as u32,
+        };
+        assert!(cap_file_value_completions(source, position).is_none());
     }
 }
