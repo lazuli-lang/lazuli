@@ -1,12 +1,12 @@
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCors,
     AppCorsOriginRule, AppDeploy, AppEnvVar, AppIntegration, AppIntegrationCredentialBinding,
-    AppIntegrationCredentials, AppManifest, AppPack, AppPackProvide, AppPackUse, AppProfile,
-    AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit,
-    AppService, AppServiceExposure, AppUrl, AppWorkspace, ContractEvent, ContractField,
-    ContractImport, ContractOperation, ContractOperationError, ContractRecord, FeatureRequirement,
-    QualifiedName, RegistryToolEntry, ToolEffect, WorkspaceApp, WorkspaceBoundary,
-    WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
+    AppIntegrationCredentials, AppLogging, AppManifest, AppPack, AppPackProvide, AppPackUse,
+    AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
+    AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
+    ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
+    ContractRecord, FeatureRequirement, QualifiedName, RegistryToolEntry, ToolEffect, WorkspaceApp,
+    WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist
@@ -348,6 +348,8 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         capabilities: Vec::new(),
         runtime: Vec::new(),
         deploy: None,
+        logging: None,
+        tracing: None,
         span_ref: None,
     };
     let mut current_child: Option<&str> = None;
@@ -566,6 +568,43 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         }
                         ["rollback", value] => deploy.rollback = Some((*value).to_owned()),
                         _ => {}
+                    }
+                }
+                // Observability bucket cycle row 36 — `app.logging`
+                // block. All slots are optional; doctor closes the
+                // catalogs (`level`, `format`, `redact`,
+                // `sample_rate`).
+                Some("logging") => {
+                    let logging = app.logging.get_or_insert_with(AppLogging::default);
+                    if let Some(rest) = trimmed.strip_prefix("level ") {
+                        logging.level = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("format ") {
+                        logging.format = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("redact ") {
+                        logging.redact = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("sample_rate ") {
+                        if let Ok(value) = rest.trim().parse::<f64>() {
+                            logging.sample_rate = Some(value);
+                        }
+                    }
+                }
+                // Observability bucket cycle row 36 — `app.tracing`
+                // block. `propagate` accepts `true | false`;
+                // `sample_rate` ∈ `[0.0, 1.0]` (doctor checks the
+                // range); `exporter` names a `registry.capabilities`
+                // slot.
+                Some("tracing") => {
+                    let tracing = app.tracing.get_or_insert_with(AppTracing::default);
+                    if let Some(rest) = trimmed.strip_prefix("propagate ") {
+                        if let Some(value) = parse_bool(rest.trim()) {
+                            tracing.propagate = Some(value);
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("sample_rate ") {
+                        if let Ok(value) = rest.trim().parse::<f64>() {
+                            tracing.sample_rate = Some(value);
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("exporter ") {
+                        tracing.exporter = Some(rest.trim().to_owned());
                     }
                 }
                 _ => {}
@@ -1280,6 +1319,9 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         "communication" => Some("communication"),
         "runtime" => Some("runtime"),
         "deploy" => Some("deploy"),
+        // Observability bucket cycle row 36.
+        "logging" => Some("logging"),
+        "tracing" => Some("tracing"),
         _ => None,
     }
 }

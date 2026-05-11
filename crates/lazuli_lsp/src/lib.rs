@@ -2060,7 +2060,7 @@ fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "namespace-catalog",
-                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, and `@tool`.",
+                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, and `@trace`.",
                 ));
                 break;
             }
@@ -2149,6 +2149,11 @@ fn is_allowed_reference_namespace(namespace: &str) -> bool {
             | "anchor"
             | "llm"
             | "tool"
+            // Observability bucket cycle row 35 — reference-only namespace
+            // for `trigger @trace.<name>` on subscriber jobs. Reserved
+            // names live in `lazuli_ir::built_in_trace_events()`; LSP
+            // checks resolution in `trigger_trace_unknown_diagnostics`.
+            | "trace"
     )
 }
 
@@ -7310,6 +7315,13 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 // "unknown app block" warning firing on
                 // `allow_origins` / `allow_credentials` / `max_age`.
                 Some("cors") => {}
+                // Observability bucket cycle row 36 — `logging` /
+                // `tracing` children are handled by
+                // `app_logging_tracing_diagnostics` (doctor) and the
+                // closed-catalog completion in
+                // `observability_catalog_detail`. Skip the
+                // "unknown app block" warning here.
+                Some("logging") | Some("tracing") => {}
                 Some(_) | None => diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
@@ -7457,6 +7469,13 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         "communication" => Some("communication"),
         "runtime" => Some("runtime"),
         "deploy" => Some("deploy"),
+        // Observability bucket cycle row 36 — `app.logging` /
+        // `app.tracing` are first-class app blocks. Child slots
+        // (`level`/`format`/`redact`/`sample_rate` for logging;
+        // `propagate`/`sample_rate`/`exporter` for tracing) are
+        // closed-catalog-checked by doctor.
+        "logging" => Some("logging"),
+        "tracing" => Some("tracing"),
         _ => None,
     }
 }
@@ -11456,13 +11475,25 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
     let labels: &[(&str, &str)] = match key {
         "visibility" => &[
             ("public", "Unguessable URL; un-gated fetch (CDN-style)."),
-            ("private", "Policy-gated download handler enforced by the runtime."),
+            (
+                "private",
+                "Policy-gated download handler enforced by the runtime.",
+            ),
             ("signed", "Time-limited signed URL; requires `signed_ttl`."),
         ],
         "max_size" => &[
-            ("kb", "Kilobyte size unit (binary prefix; `n * 1024` bytes)."),
-            ("mb", "Megabyte size unit (binary prefix; `n * 1024^2` bytes)."),
-            ("gb", "Gigabyte size unit (binary prefix; `n * 1024^3` bytes)."),
+            (
+                "kb",
+                "Kilobyte size unit (binary prefix; `n * 1024` bytes).",
+            ),
+            (
+                "mb",
+                "Megabyte size unit (binary prefix; `n * 1024^2` bytes).",
+            ),
+            (
+                "gb",
+                "Gigabyte size unit (binary prefix; `n * 1024^3` bytes).",
+            ),
         ],
         "signed_ttl" => &[
             ("s", "Seconds."),
@@ -11471,9 +11502,15 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
             ("d", "Days."),
         ],
         "accept" => &[
-            ("text", "IANA family `text` (e.g. `text/csv`, `text/plain`)."),
+            (
+                "text",
+                "IANA family `text` (e.g. `text/csv`, `text/plain`).",
+            ),
             ("image", "IANA family `image` (e.g. `image/png`)."),
-            ("application", "IANA family `application` (e.g. `application/json`)."),
+            (
+                "application",
+                "IANA family `application` (e.g. `application/json`).",
+            ),
             ("audio", "IANA family `audio`."),
             ("video", "IANA family `video`."),
             ("font", "IANA family `font`."),
@@ -11801,6 +11838,37 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "signed_ttl" => Some(
             "Signed-URL TTL for `@cap.File(visibility:signed)`. Closed unit catalog: `s`, `m`, `h`, `d`. Forbidden when `visibility` is `public` or `private`.",
         ),
+        // Observability bucket cycle row 36 — `app.logging` /
+        // `app.tracing` keywords. Each closed catalog matches the
+        // doctor diagnostic.
+        "logging" => Some(
+            "App logging contract (`app.logging`). Closed catalogs: `level ∈ {debug, info, warn, error}`, `format ∈ {json, text}`, `redact ∈ {pii, none}`. Optional `sample_rate ∈ [0.0, 1.0]`. Profile-aware overrides.",
+        ),
+        "tracing" => Some(
+            "App tracing contract (`app.tracing`). `propagate <bool>` toggles trace-context propagation. `sample_rate ∈ [0.0, 1.0]` for head sampling. `exporter <name>` resolves to a `registry.capabilities <name>: tracing` entry; runtime picks default when absent.",
+        ),
+        "level" => Some(
+            "Severity level. Closed catalog: `debug`, `info`, `warn`, `error`. Shared by `app.logging.level` and `event.trace <name> level`.",
+        ),
+        "format" => Some(
+            "Log encoding. Closed catalog: `json` (machine-parseable, production-friendly) or `text` (human-readable, dev-friendly).",
+        ),
+        "redact" => Some(
+            "PII redaction policy. Closed catalog: `pii` (auto-strip fields tagged `@pii.*`) or `none` (no auto-redaction; adapter may still redact).",
+        ),
+        "sample_rate" => Some(
+            "Sampling rate, float in `[0.0, 1.0]`. `1.0` captures everything; `0.0` disables capture (tracing still propagates context). Out-of-range values are rejected by doctor.",
+        ),
+        "propagate" => Some(
+            "Trace-context propagation toggle. `true` (default) threads `trace_id` / `request_id` through downstream calls; `false` disables propagation but keeps span capture.",
+        ),
+        "exporter" => Some(
+            "Tracing exporter slot. Must resolve to a `registry.capabilities <name>: tracing` entry. `None` lets the runtime pick a default (no-op or stdout).",
+        ),
+        // Observability bucket cycle row 37.
+        "emit_to" => Some(
+            "Audit destination. Resolves to one of the reserved streams (`audit_log`, `audit_stream`) or to an `event_group <name>` declared in the same feature. Without `emit_to`, the runtime falls back to `audit_log`.",
+        ),
         _ => None,
     }
 }
@@ -11845,6 +11913,19 @@ const KEYWORDS: &[&str] = &[
     "accept",
     "visibility",
     "signed_ttl",
+    // Observability bucket cycle row 36 — `app.logging` /
+    // `app.tracing` slot keywords. Closed catalogs surface through
+    // `keyword_hover` above and the closed-catalog completion below.
+    "logging",
+    "tracing",
+    "level",
+    "format",
+    "redact",
+    "sample_rate",
+    "propagate",
+    "exporter",
+    // Observability bucket cycle row 37 — `audit emit_to` slot.
+    "emit_to",
     "defaults",
     "domain",
     "policies",
@@ -12022,6 +12103,34 @@ pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
         "totp" => Some("MFA method — Time-based One-Time Password."),
         "true" => Some("Boolean — `true`."),
         "false" => Some("Boolean — `false`."),
+        _ => None,
+    }
+}
+
+/// Observability bucket cycle row 36 — closed-catalog values offered
+/// as `VALUE` completions for the new `app.logging` / `app.tracing`
+/// slots. Same shape and dispatch as `AUTH_CATALOG_VALUES`.
+///
+/// - `level` → `debug`, `info`, `warn`, `error`
+/// - `format` → `json`, `text`
+/// - `redact` → `pii`, `none`
+/// - `propagate` (tracing) → `true`, `false`
+pub const OBSERVABILITY_CATALOG_VALUES: &[&str] = &[
+    "debug", "info", "warn", "error", "json", "text", "pii", "none",
+];
+
+/// Hover/completion description for the observability closed-catalog
+/// values. Mirrors `auth_catalog_detail` shape.
+pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "debug" => Some("Log level — verbose tracing for local development."),
+        "info" => Some("Log level — production default."),
+        "warn" => Some("Log level — recoverable errors and degraded conditions."),
+        "error" => Some("Log level — request failures and exceptions."),
+        "json" => Some("Log format — machine-parseable single-line JSON."),
+        "text" => Some("Log format — human-readable for local development."),
+        "pii" => Some("Redaction — auto-strip fields tagged with `@pii.*`."),
+        "none" => Some("Redaction — disabled; adapter may still redact."),
         _ => None,
     }
 }
@@ -15647,8 +15756,8 @@ aggregate Customer {
     #[test]
     fn keyword_hover_describes_cap_file_arguments() {
         for kw in ["max_size", "accept", "visibility", "signed_ttl"] {
-            let description = keyword_description(kw)
-                .unwrap_or_else(|| panic!("hover for `{kw}` missing"));
+            let description =
+                keyword_description(kw).unwrap_or_else(|| panic!("hover for `{kw}` missing"));
             assert!(
                 !description.is_empty(),
                 "hover for `{kw}` must be non-empty"
@@ -15710,7 +15819,8 @@ aggregate Customer {
 
     #[test]
     fn cap_file_value_completion_for_signed_ttl_offers_units() {
-        let source = "    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1";
+        let source =
+            "    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1";
         let position = Position {
             line: 0,
             character: source.len() as u32,
@@ -15731,7 +15841,15 @@ aggregate Customer {
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["text", "image", "application", "audio", "video", "font", "*"]
+            vec![
+                "text",
+                "image",
+                "application",
+                "audio",
+                "video",
+                "font",
+                "*"
+            ]
         );
     }
 

@@ -126,6 +126,14 @@ struct ExpandSet {
     /// feature symmetry checks live in doctor (storage bucket cycle);
     /// this projection is the per-feature observable.
     storage: bool,
+    /// Observability bucket cycle row 36 — `--expand=tracing` /
+    /// `--expand=logging`. The `AppManifest.logging` /
+    /// `AppManifest.tracing` blocks always serialize when populated;
+    /// these labels mark the report as having intentionally surfaced
+    /// the observability axis so consumers (LLM, CLI users, docs)
+    /// know the projection is current.
+    tracing: bool,
+    logging: bool,
 }
 
 impl ExpandSet {
@@ -145,6 +153,8 @@ impl ExpandSet {
             expose: true,
             auth: true,
             storage: true,
+            tracing: true,
+            logging: true,
         }
     }
 
@@ -163,6 +173,8 @@ impl ExpandSet {
             || self.expose
             || self.auth
             || self.storage
+            || self.tracing
+            || self.logging
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -209,6 +221,12 @@ impl ExpandSet {
         if self.storage {
             labels.push("storage");
         }
+        if self.tracing {
+            labels.push("tracing");
+        }
+        if self.logging {
+            labels.push("logging");
+        }
         labels
     }
 }
@@ -241,8 +259,8 @@ fn main() -> Result<()> {
 fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     let feature = match spec {
         Some(path) => {
-            let text = fs::read_to_string(path)
-                .with_context(|| format!("read {}", path.display()))?;
+            let text =
+                fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
             serde_json::from_str(&text)
                 .with_context(|| format!("parse runtime spec JSON {}", path.display()))?
         }
@@ -255,18 +273,14 @@ fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     let ts_source = lazuli_codegen_ts::emit_feature_ts(&feature);
 
     if let Some(parent) = go_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     if let Some(parent) = ts_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
 
-    fs::write(&go_path, go_source)
-        .with_context(|| format!("write {}", go_path.display()))?;
-    fs::write(&ts_path, ts_source)
-        .with_context(|| format!("write {}", ts_path.display()))?;
+    fs::write(&go_path, go_source).with_context(|| format!("write {}", go_path.display()))?;
+    fs::write(&ts_path, ts_source).with_context(|| format!("write {}", ts_path.display()))?;
 
     println!("wrote {}", go_path.display());
     println!("wrote {}", ts_path.display());
@@ -440,8 +454,10 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "expose" => set.expose = true,
             "auth" => set.auth = true,
             "storage" => set.storage = true,
+            "tracing" => set.tracing = true,
+            "logging" => set.logging = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, or storage"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, or logging"
             ),
         }
     }
@@ -834,6 +850,11 @@ struct InspectSecurityOperation {
 struct InspectAudit {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     fields: Vec<String>,
+    /// Observability bucket cycle row 37 — `audit ... emit_to <X>`
+    /// destination. `None` means "runtime falls back to the reserved
+    /// `audit_log` stream".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    emit_to: Option<String>,
     origin: &'static str,
 }
 
@@ -1157,9 +1178,7 @@ fn inspect_feature(
         security: expansions.security.then(|| inspect_security(lines)),
         defaults: expansions.defaults.then(|| inspect_defaults(lines)),
         events: expansions.events.then(|| inspect_events(lines)),
-        built_in_trace_events: expansions
-            .events
-            .then(inspect_built_in_trace_events),
+        built_in_trace_events: expansions.events.then(inspect_built_in_trace_events),
         targets: expansions.targets.then(|| inspect_targets(lines)),
         policies: expansions
             .policies
@@ -1307,7 +1326,10 @@ fn project_file_capability(file: &lazuli_ir::FileCapability) -> InspectFileCapab
 fn project_auth(auth: &lazuli_ir::Auth) -> InspectAuth {
     InspectAuth {
         identity: InspectAuthIdentity {
-            field: format!("{}.{}", auth.identity.field.resource.name, auth.identity.field.field),
+            field: format!(
+                "{}.{}",
+                auth.identity.field.resource.name, auth.identity.field.field
+            ),
             resource: auth.identity.field.resource.name.clone(),
         },
         password: auth.password.as_ref().map(|p| InspectAuthPassword {
@@ -1369,8 +1391,7 @@ fn inspect_expose_projection(
         let name = named_top_block_name(block[0].trim_start())
             .unwrap_or("unknown")
             .to_owned();
-        let method = direct_child_value(block, "method ")
-            .map(|m| m.to_ascii_uppercase());
+        let method = direct_child_value(block, "method ").map(|m| m.to_ascii_uppercase());
         let path = direct_child_value(block, "path ")
             .as_deref()
             .map(strip_quotes);
@@ -2509,6 +2530,7 @@ fn inspect_built_in_trace_events() -> Vec<InspectBuiltInTraceEvent> {
 fn built_in_trace_fires_per_word(kind: lazuli_ir::TraceFiresPer) -> &'static str {
     match kind {
         lazuli_ir::TraceFiresPer::AgentDispatch => "agent_dispatch",
+        lazuli_ir::TraceFiresPer::CommandDispatch => "command_dispatch",
         lazuli_ir::TraceFiresPer::FlowStep => "flow_step",
         lazuli_ir::TraceFiresPer::JobInvocation => "job_invocation",
         lazuli_ir::TraceFiresPer::WebhookDelivery => "webhook_delivery",
@@ -2546,7 +2568,10 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
 /// Used by both `format_type_ref` and the `--expand=storage` projection.
 fn format_file_capability(file: &lazuli_ir::FileCapability) -> String {
     let mut parts: Vec<String> = Vec::new();
-    parts.push(format!("max_size:{}", format_file_size_literal(file.max_size.literal)));
+    parts.push(format!(
+        "max_size:{}",
+        format_file_size_literal(file.max_size.literal)
+    ));
     let accept = file
         .accept
         .iter()
@@ -3509,8 +3534,7 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
         let eval_determinism = if evals.is_empty() {
             None
         } else {
-            let temp_zero = temperature.as_deref().and_then(|s| s.parse::<f64>().ok())
-                == Some(0.0);
+            let temp_zero = temperature.as_deref().and_then(|s| s.parse::<f64>().ok()) == Some(0.0);
             let seed_present = seed.is_some();
             Some(if temp_zero && seed_present {
                 "pinned"
@@ -3559,10 +3583,7 @@ fn classify_agent_output(raw: Option<&str>) -> (Option<&'static str>, Option<Str
         return (Some("stream"), Some(rest.trim().to_owned()));
     }
     if let Some(rest) = trimmed.strip_prefix("discriminator ") {
-        return (
-            Some("discriminated_enum"),
-            Some(rest.trim().to_owned()),
-        );
+        return (Some("discriminated_enum"), Some(rest.trim().to_owned()));
     }
     if trimmed.is_empty() {
         return (None, None);
@@ -3722,17 +3743,23 @@ fn collect_agent_eval_case_names(block: &[String]) -> Vec<String> {
 
 fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {
     let child_indent = lines.first().map(|line| leading_spaces(line) + 2)?;
+    let audit_grandchild_indent = child_indent + 2;
 
-    for line in lines.iter().skip(1) {
+    let mut hit_index: Option<usize> = None;
+    let mut audit: Option<InspectAudit> = None;
+    for (offset, line) in lines.iter().enumerate().skip(1) {
         if leading_spaces(line) != child_indent {
             continue;
         }
         let trimmed = line.trim_start();
         if trimmed == "audit" {
-            return Some(InspectAudit {
+            audit = Some(InspectAudit {
                 fields: Vec::new(),
+                emit_to: None,
                 origin,
             });
+            hit_index = Some(offset);
+            break;
         }
         if let Some(rest) = trimmed.strip_prefix("audit ") {
             let rest = rest.trim();
@@ -3744,10 +3771,38 @@ fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {
                 .map(|part| part.trim().to_owned())
                 .filter(|part| !part.is_empty())
                 .collect();
-            return Some(InspectAudit { fields, origin });
+            audit = Some(InspectAudit {
+                fields,
+                emit_to: None,
+                origin,
+            });
+            hit_index = Some(offset);
+            break;
         }
     }
-    None
+
+    // Observability bucket cycle row 37 — scan grandchildren of the
+    // `audit` line for an `emit_to <target>` slot. The slot lives one
+    // indent step deeper than `audit` and stops at the next
+    // sibling-or-shallower line.
+    if let (Some(start), Some(audit_value)) = (hit_index, audit.as_mut()) {
+        for line in lines.iter().skip(start + 1) {
+            let leading = leading_spaces(line);
+            if leading <= child_indent {
+                break;
+            }
+            if leading != audit_grandchild_indent {
+                continue;
+            }
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("emit_to ") {
+                audit_value.emit_to = Some(rest.trim().to_owned());
+                break;
+            }
+        }
+    }
+
+    audit
 }
 
 fn direct_child_values(lines: &[String], prefix: &str) -> Vec<String> {
@@ -5236,11 +5291,7 @@ feature customer_auth
 "#;
         let mut expansions = ExpandSet::default();
         expansions.auth = true;
-        let report = inspect_canonical_source(
-            source,
-            Path::new("customer_auth.lzi"),
-            expansions,
-        );
+        let report = inspect_canonical_source(source, Path::new("customer_auth.lzi"), expansions);
         let json = serde_json::to_value(&report).unwrap();
         let auth = &json["features"][0]["auth"];
         assert!(!auth.is_null(), "auth projection should be present: {json}");
@@ -5263,11 +5314,8 @@ feature customer_auth
   auth
     identity Customer.email
 "#;
-        let report = inspect_canonical_source(
-            source,
-            Path::new("customer_auth.lzi"),
-            ExpandSet::default(),
-        );
+        let report =
+            inspect_canonical_source(source, Path::new("customer_auth.lzi"), ExpandSet::default());
         let json = serde_json::to_string(&report).unwrap();
         assert!(
             !json.contains("\"auth\":{"),
@@ -5290,18 +5338,20 @@ feature customer_import
 "#;
         let mut expansions = ExpandSet::default();
         expansions.storage = true;
-        let report = inspect_canonical_source(
-            source,
-            Path::new("customer_import.lzi"),
-            expansions,
-        );
+        let report = inspect_canonical_source(source, Path::new("customer_import.lzi"), expansions);
         let json = serde_json::to_value(&report).unwrap();
         let storage = &json["features"][0]["storage"];
-        assert!(!storage.is_null(), "storage projection should be present: {json}");
+        assert!(
+            !storage.is_null(),
+            "storage projection should be present: {json}"
+        );
         let field = &storage["fields"][0];
         assert_eq!(field["resource"], "CustomerImportBatch");
         assert_eq!(field["field"], "file");
-        assert_eq!(field["file_capability"]["max_size"]["bytes"], 25 * 1024 * 1024);
+        assert_eq!(
+            field["file_capability"]["max_size"]["bytes"],
+            25 * 1024 * 1024
+        );
         assert_eq!(field["file_capability"]["max_size"]["literal"], "25mb");
         assert_eq!(field["file_capability"]["accept"][0]["family"], "text");
         assert_eq!(field["file_capability"]["accept"][0]["subtype"], "csv");

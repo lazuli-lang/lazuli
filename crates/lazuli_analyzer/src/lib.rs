@@ -152,6 +152,8 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         capabilities: Vec::new(),
         runtime: Vec::new(),
         deploy: None,
+        logging: None,
+        tracing: None,
         span_ref: Some(span_of(app.span)),
     }
 }

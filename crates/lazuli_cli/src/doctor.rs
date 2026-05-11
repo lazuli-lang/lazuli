@@ -382,6 +382,14 @@ impl DoctorPackage {
         // payload drift checks.
         diagnostics.extend(agent_run_trace_diagnostics(&self.files));
 
+        // Observability bucket cycle row 37 — `audit emit_to`
+        // resolution, `event.trace level` closed catalog, and health
+        // probe path shape.
+        diagnostics.extend(audit_event_health_diagnostics(
+            &self.files,
+            self.app.as_ref(),
+        ));
+
         // Cut A.9 — `approval` primitive contract + role resolution.
         let known_roles = collect_known_roles(&self.files);
         diagnostics.extend(approval_diagnostics(&self.command_approvals, &known_roles));
@@ -389,6 +397,14 @@ impl DoctorPackage {
         // Cut A.11 — `cors` block cross-checks against the app's
         // declared environments + urls.
         diagnostics.extend(cors_diagnostics(self.app.as_ref()));
+
+        // Observability bucket cycle row 36 — `app.logging` and
+        // `app.tracing` closed-catalog + range + exporter binding
+        // checks.
+        diagnostics.extend(app_logging_tracing_diagnostics(
+            self.app.as_ref(),
+            self.registry.as_ref().map(|reg| &reg.manifest),
+        ));
 
         // Phase L — auth block cross-feature diagnostics.
         diagnostics.extend(auth_diagnostics(
@@ -4151,6 +4167,161 @@ fn same_origin(declared_url: &str, origin: &str) -> bool {
     canon(declared_url) == canon(origin)
 }
 
+// =============================================================================
+// Observability bucket cycle row 36 — `app.logging` + `app.tracing`
+//
+// Six diagnostics check the closed catalogs and the sample-rate range:
+//   - `app_logging_level_invalid_diagnostics`        error
+//   - `app_logging_format_invalid_diagnostics`       error
+//   - `app_logging_redact_unknown_diagnostics`       error
+//   - `app_logging_sample_rate_range_diagnostics`    error
+//   - `app_tracing_sample_rate_range_diagnostics`    error
+//   - `app_tracing_exporter_unbound_diagnostics`     error
+//
+// The closed catalogs are deliberately small (4 levels, 2 formats, 2
+// redact strategies). New catalog entries require a language cut.
+//
+// See `docs/proposals/bucket-observability-cycle.md` §3.1 §3.2.
+// =============================================================================
+
+/// Closed catalog shared with `event.trace <name> level <level>` in
+/// row 37. Mirrors `log/slog` level discipline.
+const LOG_LEVEL_CATALOG: &[&str] = &["debug", "info", "warn", "error"];
+
+/// Closed catalog for `app.logging.format`. JSON for production
+/// pipelines, text for local development.
+const LOG_FORMAT_CATALOG: &[&str] = &["json", "text"];
+
+/// Closed catalog for `app.logging.redact`. `pii` consumes `@pii.*`
+/// tags; `none` opts out entirely.
+const LOG_REDACT_CATALOG: &[&str] = &["pii", "none"];
+
+fn app_logging_tracing_diagnostics(
+    app: Option<&DoctorAppManifest>,
+    registry: Option<&ir::AppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    let manifest_path = app_manifest.path.clone();
+
+    if let Some(logging) = app_manifest.manifest.logging.as_ref() {
+        if let Some(level) = logging.level.as_deref() {
+            if !LOG_LEVEL_CATALOG.contains(&level) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_level_invalid_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.level {level}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(LOG_LEVEL_CATALOG),
+                    ),
+                });
+            }
+        }
+        if let Some(format) = logging.format.as_deref() {
+            if !LOG_FORMAT_CATALOG.contains(&format) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_format_invalid_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.format {format}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(LOG_FORMAT_CATALOG),
+                    ),
+                });
+            }
+        }
+        if let Some(redact) = logging.redact.as_deref() {
+            if !LOG_REDACT_CATALOG.contains(&redact) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_redact_unknown_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.redact {redact}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(LOG_REDACT_CATALOG),
+                    ),
+                });
+            }
+        }
+        if let Some(rate) = logging.sample_rate {
+            if !(0.0..=1.0).contains(&rate) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_sample_rate_range_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.sample_rate {rate}` must be a float in `[0.0, 1.0]`. Use `1.0` for full capture and `0.0` to disable."
+                    ),
+                });
+            }
+        }
+    }
+
+    if let Some(tracing) = app_manifest.manifest.tracing.as_ref() {
+        if let Some(rate) = tracing.sample_rate {
+            if !(0.0..=1.0).contains(&rate) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_tracing_sample_rate_range_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.tracing.sample_rate {rate}` must be a float in `[0.0, 1.0]`. Use `1.0` for full capture and `0.0` to disable."
+                    ),
+                });
+            }
+        }
+        if let Some(exporter) = tracing.exporter.as_deref() {
+            // The exporter slot must resolve to a `registry.capabilities
+            // <name> tracing` entry (declared as the `name`, valued as
+            // `tracing`) or to an integration. We accept any
+            // `AppCapability` whose value is `tracing` *or* whose name
+            // matches the exporter literal.
+            let resolved = registry
+                .map(|reg| {
+                    reg.capabilities
+                        .iter()
+                        .any(|cap| cap.name == exporter && cap.value == "tracing")
+                })
+                .unwrap_or(false);
+            if !resolved {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_tracing_exporter_unbound_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.tracing.exporter {exporter}` does not resolve to a `registry.capabilities` entry of kind `tracing`. Declare it in `registry.capabilities`, or remove the line to let the runtime pick a default.",
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn catalog_list(items: &[&str]) -> String {
+    items
+        .iter()
+        .map(|i| format!("`{i}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 // -----------------------------------------------------------------------------
 // Cut A.9 — `approval` primitive on commands
 // -----------------------------------------------------------------------------
@@ -5086,11 +5257,40 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
         .map(|e| e.payload.iter().map(|f| f.name.clone()).collect())
         .unwrap_or_default();
 
+    // Observability bucket cycle row 35 — pre-compute the set of
+    // built-in trace event names once per check so `trigger
+    // @trace.<X>` and `trigger event.trace <X>` resolution both
+    // consult the same registry. Authored `event.trace <name>`
+    // declarations in scope are gathered per file below.
+    let built_in_names: BTreeSet<String> = ir::built_in_trace_events()
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+
     for file in files {
         if !is_lzi_path(&file.path) {
             continue;
         }
         let lines: Vec<&str> = file.source.lines().collect();
+
+        // Observability bucket cycle row 35 — collect authored
+        // `event.trace <name>` declarations *in this file* so
+        // `trigger_trace_unknown` doesn't false-positive on
+        // legitimate subscriber references to authored events.
+        let authored_trace_names: BTreeSet<String> = lines
+            .iter()
+            .filter_map(|line| {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with('#') || trimmed.is_empty() {
+                    return None;
+                }
+                trimmed
+                    .strip_prefix("event.trace ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned)
+            })
+            .collect();
+
         let mut i = 0;
         while i < lines.len() {
             let line = lines[i];
@@ -5137,11 +5337,304 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
                 }
             }
 
+            // Observability bucket cycle row 35 — `trigger_trace_unknown`.
+            // The `@trace.<name>` namespace and the bare-form
+            // `trigger event.trace <name>` both have to resolve to a
+            // built-in trace event or an authored `event.trace <name>`
+            // in the same file. We catch the failure here so a typo
+            // doesn't fall through to runtime as "subscriber wired to
+            // an event that nobody emits."
+            let trace_ref = trimmed
+                .strip_prefix("trigger @trace.")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+                .or_else(|| {
+                    trimmed
+                        .strip_prefix("trigger event.trace ")
+                        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+                });
+            if let Some(name) = trace_ref {
+                if !name.is_empty()
+                    && !built_in_names.contains(&name)
+                    && !authored_trace_names.contains(&name)
+                {
+                    let mut known: Vec<String> = built_in_names.iter().cloned().collect();
+                    known.extend(authored_trace_names.iter().cloned());
+                    diagnostics.push(DoctorDiagnostic {
+                        path: file.path.clone(),
+                        line: i + 1,
+                        column: leading_spaces(line) + 1,
+                        severity: DoctorSeverity::Error,
+                        code: "trigger_trace_unknown_diagnostics".to_owned(),
+                        message: format!(
+                            "`trigger @trace.{name}` does not resolve. Built-in trace events: {}. Authored trace events in scope: {}.",
+                            format_name_list(&built_in_names),
+                            format_name_list(&authored_trace_names),
+                        ),
+                    });
+                }
+            }
+
             i += 1;
         }
     }
 
     diagnostics
+}
+
+// =============================================================================
+// Observability bucket cycle row 37 — audit `emit_to` + `event.trace level`
+//                                   + health probe path checks
+//
+// Four diagnostics:
+//   - `audit_emit_to_unknown_diagnostics`             error
+//   - `event_trace_level_invalid_diagnostics`         error
+//   - `event_trace_level_on_domain_event_diagnostics` error
+//   - `health_probe_path_invalid_diagnostics`         error
+//
+// `audit emit_to` resolution:
+//   - Reserved streams `audit_log` / `audit_stream` always resolve.
+//   - An authored `event_group <name>` in the same feature resolves.
+//   - Otherwise, doctor emits `audit_emit_to_unknown_diagnostics`.
+//
+// `event.trace <name> level <X>`:
+//   - Closed catalog `debug/info/warn/error` (shared with row 36).
+//   - Per the proposal §3.4, `level` is only valid on `event.trace`.
+//     A `level` slot under a domain `event` block is rejected (different
+//     diagnostic code so the author sees the right fix).
+//
+// Health probe paths come from `app.runtime <unit>.{healthcheck,readiness}`.
+// Doctor only validates the *shape* of the path string (`/foo`); the
+// runtime decides which mux to mount onto. Empty or missing-leading-slash
+// paths are rejected.
+//
+// See `docs/proposals/bucket-observability-cycle.md` §3.3 §3.4 §Runtime.
+// =============================================================================
+
+const TRACE_LEVEL_CATALOG: &[&str] = LOG_LEVEL_CATALOG;
+const RESERVED_AUDIT_STREAMS: &[&str] = &["audit_log", "audit_stream"];
+
+fn audit_event_health_diagnostics(
+    files: &[DoctorFile],
+    app: Option<&DoctorAppManifest>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // `event_group` names per feature (text-walk; the canonical-indent
+    // slice does not yet cover commands/event_groups — see Phase L
+    // row 24). Each entry is `(feature_name, event_group_name)`.
+    let mut feature_event_groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let mut current_feature: Option<String> = None;
+        for line in file.source.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            let leading = leading_spaces(line);
+            if leading == 0 {
+                current_feature = trimmed
+                    .strip_prefix("feature ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+                continue;
+            }
+            if let Some(feature) = current_feature.as_ref() {
+                if let Some(rest) = trimmed.strip_prefix("event_group ") {
+                    if let Some(name) = rest.split_whitespace().next() {
+                        feature_event_groups
+                            .entry(feature.clone())
+                            .or_default()
+                            .insert(name.to_owned());
+                    }
+                }
+            }
+        }
+    }
+
+    // `audit ... emit_to <X>` checks. The slot lives at indent +2
+    // below the `audit <fields>` line inside a command/job/webhook
+    // body.
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let lines: Vec<&str> = file.source.lines().collect();
+        let mut current_feature: Option<String> = None;
+        let mut audit_pending: Option<(usize, usize)> = None; // (line_index, indent of audit)
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            let leading = leading_spaces(line);
+            if leading == 0 {
+                current_feature = trimmed
+                    .strip_prefix("feature ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+                audit_pending = None;
+                continue;
+            }
+            // Track audit headers as `audit <fields...>` or bare `audit`
+            // at indent 4 or 6 (command/job/webhook bodies).
+            if trimmed == "audit" || trimmed.starts_with("audit ") {
+                audit_pending = Some((i, leading));
+                continue;
+            }
+            if let Some((_, audit_indent)) = audit_pending {
+                if leading <= audit_indent {
+                    audit_pending = None;
+                } else if leading == audit_indent + 2 {
+                    if let Some(rest) = trimmed.strip_prefix("emit_to ") {
+                        let target = rest.trim();
+                        let resolved = if RESERVED_AUDIT_STREAMS.contains(&target) {
+                            true
+                        } else if let Some(feature) = current_feature.as_ref() {
+                            feature_event_groups
+                                .get(feature)
+                                .is_some_and(|set| set.contains(target))
+                        } else {
+                            false
+                        };
+                        if !resolved {
+                            let mut allowed: Vec<String> = RESERVED_AUDIT_STREAMS
+                                .iter()
+                                .map(|s| (*s).to_owned())
+                                .collect();
+                            if let Some(feature) = current_feature.as_ref() {
+                                if let Some(set) = feature_event_groups.get(feature) {
+                                    allowed.extend(set.iter().cloned());
+                                }
+                            }
+                            diagnostics.push(DoctorDiagnostic {
+                                path: file.path.clone(),
+                                line: i + 1,
+                                column: leading + 1,
+                                severity: DoctorSeverity::Error,
+                                code: "audit_emit_to_unknown_diagnostics".to_owned(),
+                                message: format!(
+                                    "`audit emit_to {target}` does not resolve. Allowed: {}.",
+                                    allowed
+                                        .iter()
+                                        .map(|s| format!("`{s}`"))
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                ),
+                            });
+                        }
+                        audit_pending = None;
+                    }
+                }
+            }
+        }
+    }
+
+    // `event.trace <name> level <X>` + domain-event `level` rejection.
+    // Both are text-walked because the canonical-indent slice does not
+    // yet lower events (Phase L row 24).
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let lines: Vec<&str> = file.source.lines().collect();
+        let mut pending_event: Option<(usize, bool, usize)> = None; // (start_line, is_trace, indent)
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            let leading = leading_spaces(line);
+            if let Some(rest) = trimmed.strip_prefix("event.trace ") {
+                let _ = rest;
+                pending_event = Some((i, true, leading));
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix("event ") {
+                let _ = rest;
+                pending_event = Some((i, false, leading));
+                continue;
+            }
+            if let Some((_, is_trace, event_indent)) = pending_event {
+                if leading <= event_indent {
+                    pending_event = None;
+                } else if let Some(level_rest) = trimmed.strip_prefix("level ") {
+                    let level = level_rest.trim();
+                    if is_trace {
+                        if !TRACE_LEVEL_CATALOG.contains(&level) {
+                            diagnostics.push(DoctorDiagnostic {
+                                path: file.path.clone(),
+                                line: i + 1,
+                                column: leading + 1,
+                                severity: DoctorSeverity::Error,
+                                code: "event_trace_level_invalid_diagnostics".to_owned(),
+                                message: format!(
+                                    "`event.trace ... level {level}` is not in the closed catalog. Allowed values: {}.",
+                                    catalog_list(TRACE_LEVEL_CATALOG),
+                                ),
+                            });
+                        }
+                    } else {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: file.path.clone(),
+                            line: i + 1,
+                            column: leading + 1,
+                            severity: DoctorSeverity::Error,
+                            code: "event_trace_level_on_domain_event_diagnostics".to_owned(),
+                            message: "`level` is only valid on `event.trace`, not on a domain `event`. Move the slot to a `event.trace` block or remove the `level` line.".to_owned(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Health probe paths from `app.runtime <unit>.{healthcheck,readiness}`.
+    // We trust the parser (`parse_app_manifest`) to populate the IR;
+    // doctor only validates shape ("/foo") here.
+    if let Some(manifest) = app {
+        for unit in &manifest.manifest.runtime {
+            for (slot, value) in [
+                ("healthcheck", unit.healthcheck.as_deref()),
+                ("readiness", unit.readiness.as_deref()),
+            ] {
+                let Some(path) = value else {
+                    continue;
+                };
+                if !path.starts_with('/') || path.contains(char::is_whitespace) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: manifest.path.clone(),
+                        line: 1,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "health_probe_path_invalid_diagnostics".to_owned(),
+                        message: format!(
+                            "`app.runtime unit {unit_name} {slot} {path:?}` must be a path starting with `/` and containing no whitespace.",
+                            unit_name = unit.name,
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Render a `{name1, name2, ...}`-style list for diagnostic messages.
+/// Empty sets render as `<none>` so the message stays unambiguous.
+fn format_name_list(names: &BTreeSet<String>) -> String {
+    if names.is_empty() {
+        "<none>".to_owned()
+    } else {
+        names
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
@@ -7094,6 +7587,296 @@ app MyApp
         );
     }
 
+    // Observability bucket cycle row 36 — `app.logging` / `app.tracing`
+    // closed catalogs + sample-rate range + exporter binding.
+
+    #[test]
+    fn doctor_rejects_app_logging_level_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    level verbose
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_level_invalid_diagnostics"),
+            "expected app_logging_level_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_logging_format_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    format yaml
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_format_invalid_diagnostics"),
+            "expected app_logging_format_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_logging_redact_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    redact secrets
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_redact_unknown_diagnostics"),
+            "expected app_logging_redact_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_logging_sample_rate_above_one() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    sample_rate 2.5
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_sample_rate_range_diagnostics"),
+            "expected app_logging_sample_rate_range_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_tracing_sample_rate_below_zero() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  tracing
+    sample_rate -0.1
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_tracing_sample_rate_range_diagnostics"),
+            "expected app_tracing_sample_rate_range_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_tracing_exporter_unbound() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  tracing
+    exporter mystery
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_tracing_exporter_unbound_diagnostics"),
+            "expected app_tracing_exporter_unbound_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 37 — audit emit_to, event.trace
+    // level, and health probe path shape.
+
+    #[test]
+    fn doctor_rejects_audit_emit_to_unknown_stream() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command archive
+    audit actor, target.id
+      emit_to nonexistent_stream
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("audit_emit_to_unknown_diagnostics"),
+            "expected audit_emit_to_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_audit_emit_to_reserved_audit_log() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command archive
+    audit actor, target.id
+      emit_to audit_log
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("audit_emit_to_unknown_diagnostics"),
+            "reserved stream `audit_log` must resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_audit_emit_to_authored_event_group() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  event_group customer_audit *
+  command archive
+    audit actor, target.id
+      emit_to customer_audit
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("audit_emit_to_unknown_diagnostics"),
+            "authored event_group must resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_event_trace_level_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace welcome_email_sent
+      level critical
+      payload
+        email: Text
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_level_invalid_diagnostics"),
+            "expected event_trace_level_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_level_on_domain_event() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event customer_created
+      level warn
+      payload
+        id: ID
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_level_on_domain_event_diagnostics"),
+            "expected event_trace_level_on_domain_event_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_health_probe_path_without_leading_slash() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  runtime
+    unit api
+      healthcheck "healthz"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("health_probe_path_invalid_diagnostics"),
+            "expected health_probe_path_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_canonical_health_probes() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  runtime
+    unit api
+      healthcheck "/healthz"
+      readiness "/readyz"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("health_probe_path_invalid_diagnostics"),
+            "canonical paths must not fire health probe diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_app_logging_with_canonical_values() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    level info
+    format json
+    redact pii
+    sample_rate 1.0
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes_set = codes(&diagnostics);
+        assert!(
+            !codes_set.contains("app_logging_level_invalid_diagnostics"),
+            "canonical logging must not fire level diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            !codes_set.contains("app_logging_format_invalid_diagnostics"),
+            "canonical logging must not fire format diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            !codes_set.contains("app_logging_redact_unknown_diagnostics"),
+            "canonical logging must not fire redact diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            !codes_set.contains("app_logging_sample_rate_range_diagnostics"),
+            "canonical logging must not fire sample_rate diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn doctor_rejects_cors_wildcard_with_credentials() {
         let package = package_from_sources(vec![(
@@ -7347,6 +8130,134 @@ feature customer
         assert!(
             !codes(&diagnostics).contains("agent_run_subscriber_payload_drift_diagnostics"),
             "canonical fields must not drift; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 35 — the 3 new reserved trace
+    // event names (`command_run`, `job_run`, `webhook_run`) must
+    // reuse the same `event_trace_reserved_name_diagnostics` path as
+    // the Cut A.8 `agent_run` case. Authoring any of them is rejected.
+
+    #[test]
+    fn doctor_rejects_authored_event_trace_command_run() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace command_run
+      payload
+        cmd: Text
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_reserved_name_diagnostics"),
+            "expected event_trace_reserved_name_diagnostics for command_run; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_authored_event_trace_job_run() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace job_run
+      payload
+        job_id: ID
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_reserved_name_diagnostics"),
+            "expected event_trace_reserved_name_diagnostics for job_run; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_authored_event_trace_webhook_run() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace webhook_run
+      payload
+        url: Text
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_reserved_name_diagnostics"),
+            "expected event_trace_reserved_name_diagnostics for webhook_run; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 35 — `trigger_trace_unknown`. A
+    // subscriber referencing `@trace.<name>` or
+    // `trigger event.trace <name>` must resolve to a built-in trace
+    // event or an authored `event.trace <name>` in the same file.
+
+    #[test]
+    fn doctor_rejects_trigger_trace_unknown_namespace_form() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  job dangling
+    trigger @trace.fictional_event
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("trigger_trace_unknown_diagnostics"),
+            "expected trigger_trace_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_trigger_trace_namespace_for_built_in() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  job collect
+    trigger @trace.agent_run
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("trigger_trace_unknown_diagnostics"),
+            "built-in @trace.agent_run must resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_trigger_trace_namespace_for_authored_event() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace customer_authored
+      payload
+        id: ID
+  job collect
+    trigger @trace.customer_authored
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("trigger_trace_unknown_diagnostics"),
+            "authored event.trace in same file must satisfy @trace.<name>; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
