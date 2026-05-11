@@ -16,11 +16,14 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.4.0 for Cut A — additive minor bump. New shapes:
-/// `Feature.agents`, `Agent` (+ tools/evals/output_kind/output_discriminator),
-/// `AppRegistry.tools` (+ `RegistryToolEntry`), and the `Lt`/`Le`/`Gt`/`Ge`
-/// variants on `CompareOp` (scoped to evals per proposal §A3).
-pub const LZIR_SCHEMA: &str = "0.4.0";
+/// Bumped to 0.5.0 for Cut A.7 — additive minor bump.
+/// New shapes: `Agent.expose_http`, `HttpExposure`, `HttpMethod`.
+///
+/// History:
+/// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
+///   output_kind/output_discriminator), `AppRegistry.tools` (+
+///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
+pub const LZIR_SCHEMA: &str = "0.5.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -1724,8 +1727,42 @@ pub struct Agent {
     pub tools: Vec<ToolBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evals: Vec<EvalCase>,
+    /// Cut A.7 — `expose http` block. Auto-mounts the agent as an
+    /// HTTP endpoint with the agent's policy / rate_limit / output
+    /// applied at the gateway. Doctor cross-checks path conflicts +
+    /// audience reachability; LSP catches local shape issues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expose_http: Option<HttpExposure>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HttpExposure {
+    pub method: HttpMethod,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route_slots: Vec<TypedSlot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit_override: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of HTTP methods. Mirrors the existing `api.method`
+/// text-pattern catalog (`GET | POST | PUT | PATCH | DELETE`) but now
+/// typed in IR. JSON form is uppercase ASCII for wire-stability with
+/// HTTP standard conventions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

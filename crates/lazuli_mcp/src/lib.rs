@@ -24,11 +24,11 @@ pub fn server_name() -> &'static str {
 }
 
 /// IR schema version this MCP build understands. Tracks
-/// `lazuli_ir::LZIR_SCHEMA`; bumped to `0.4.0` for Cut A.
+/// `lazuli_ir::LZIR_SCHEMA`. Current major.minor: `0.5.x` (Cut A.7).
 ///
 /// Read-tool consumers can compare this against their request's
 /// expected schema to fail fast on a stale binary instead of returning
-/// a payload that silently lacks the Cut A fields.
+/// a payload that silently lacks the new Cut A / Cut A.7 fields.
 pub const SUPPORTED_LZIR_SCHEMA: &str = lazuli_ir::LZIR_SCHEMA;
 
 #[cfg(test)]
@@ -41,10 +41,11 @@ mod tests {
     }
 
     #[test]
-    fn cut_a_schema_bump_is_visible() {
+    fn schema_in_cut_a_series_range() {
         // Pin the version so a future cut that bumps LZIR_SCHEMA past
-        // 0.4.x must also revisit the MCP wiring (read tools that
-        // surface the Cut A fields, optional `tools` projection).
-        assert!(SUPPORTED_LZIR_SCHEMA.starts_with("0.4."));
+        // 0.x.y must also revisit the MCP wiring (read tools that
+        // surface the Cut A / A.7 fields, the optional `tools` and
+        // `expose` projections).
+        assert!(SUPPORTED_LZIR_SCHEMA.starts_with("0."));
     }
 }

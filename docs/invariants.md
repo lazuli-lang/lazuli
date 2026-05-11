@@ -128,6 +128,17 @@ source that only fails later.
     warns `eval_nondeterministic_warning` otherwise.
   - `safety` accepts one or more `@validator.<name>` references (Cut A
     sees the first; Cut A.5 widens to PII coverage union check).
+  - `expose http` (Cut A.7) auto-mounts the agent as an HTTP endpoint
+    with the agent's policy / rate_limit / output applied at the
+    gateway. Required children: `method <GET|POST|PUT|PATCH|DELETE>`,
+    `path "<url>"`. Optional: `route <slot>: <Type>` (one per URL
+    placeholder), `audience <name>`, `rate_limit "<override>"`.
+    Authors who used `api customer_summary_stream` style boilerplate
+    next to a trivially-dispatching agent should collapse it into
+    `expose http` on the agent. Doctor cross-checks path collisions
+    across features and against `api` blocks; LSP catches local path
+    duplicates, unbound `:slot` placeholders, `input`/`route` slot
+    misuse, and `method GET` paired with `output stream`.
   Lazuli owns the contract; the runtime wires the LLM transport,
   prompt-template loading, and tool dispatch.
 - `notification <name>` declares a multi-channel outbound notification.

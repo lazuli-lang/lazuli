@@ -337,6 +337,40 @@ language is unchanged.
 `eval_nondeterministic_warning` and
 `eval_ordered_op_invalid_diagnostics` enforce the boundary.
 
+### `expose http` is the shortcut for trivial agent-dispatch APIs (Cut A.7)
+
+`agent <name>` gains an optional `expose http` block that auto-mounts
+the agent as an HTTP endpoint. The agent's existing `policy`,
+`rate_limit`, and `output` apply to the exposed endpoint without
+restating. `api <name>` blocks remain for handlers whose work goes
+beyond translating an HTTP request into an agent dispatch (multi-step
+orchestration, format transformation, calling several agents,
+validation that the agent's `input` shape cannot express).
+
+The boundary test: *does the handler do work beyond translating HTTP
+to agent dispatch?* If yes, keep `api`. If no, collapse into
+`expose http`. Cut A.7's evidence was the canonical fixture's own
+duplicated `api customer_summary_stream` next to `agent
+summarize_customer` — the api block did no work, and the maintenance
+cost was real.
+
+Doctor enforces `(method, normalised_path)` uniqueness across
+features (both `api` and `expose http` count); LSP catches the same
+within a single file plus slot-binding mistakes (path placeholder
+without a matching `route`, or declared as `input` instead of
+`route`).
+
+**Where**: proposal `docs/proposals/ai-primitives-cut-a-7.md`; plan
+`docs/proposals/ai-primitives-cut-a-7-implementation.md`. IR:
+`Agent.expose_http: Option<HttpExposure>`. Doctor diagnostics
+`agent_expose_path_conflict_cross_feature_diagnostics`,
+`agent_expose_audience_unknown_diagnostics`. LSP diagnostics
+`agent_expose_path_conflict_local_diagnostics`,
+`agent_expose_slot_unbound_diagnostics`,
+`agent_expose_slot_must_use_route_diagnostics`,
+`agent_expose_method_streaming_mismatch_warning`. New inspect
+projection `--expand=expose`.
+
 ### Discriminated `output` lands before `flow` (Cut A)
 
 Discriminated output (`output discriminator <Enum>` or `output

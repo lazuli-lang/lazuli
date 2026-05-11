@@ -55,6 +55,9 @@ struct DoctorPackage {
     feature_symbols: BTreeMap<String, FeatureSymbols>,
     /// Cut A: registry `tool <name>` headers that lacked `effect`.
     registry_tool_defects: Vec<RegistryToolDefect>,
+    /// Cut A.7: `api <name>` declarations harvested per feature; doctor
+    /// cross-checks them against agent `expose_http` paths.
+    api_paths: Vec<ApiPathFact>,
 }
 
 impl DoctorPackage {
@@ -76,6 +79,7 @@ impl DoctorPackage {
         let mut agents: Vec<AgentFacts> = Vec::new();
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
+        let mut api_paths: Vec<ApiPathFact> = Vec::new();
 
         for path in paths {
             let source = fs::read_to_string(&path)
@@ -221,6 +225,7 @@ impl DoctorPackage {
                     }
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
+                collect_api_paths(&file, &mut api_paths);
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
                     DoctorAppProfile {
                         path: file.path.clone(),
@@ -262,6 +267,7 @@ impl DoctorPackage {
             agents,
             feature_symbols,
             registry_tool_defects,
+            api_paths,
         })
     }
 
@@ -301,6 +307,14 @@ impl DoctorPackage {
             &self.feature_symbols,
         ));
         diagnostics.extend(agent_eval_diagnostics(&self.agents));
+
+        // Cut A.7 — `expose http` cross-feature checks.
+        let known_audiences = collect_known_audiences(&self.files);
+        diagnostics.extend(agent_expose_diagnostics(
+            &self.agents,
+            &self.api_paths,
+            &known_audiences,
+        ));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -3568,6 +3582,254 @@ fn operand_resolves_numeric(expr: &ir::Expr) -> bool {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Cut A.7 — `expose http` cross-feature diagnostics
+// -----------------------------------------------------------------------------
+
+/// Walk every agent with `expose_http` plus every `api` path
+/// declared in source. Reject cross-feature collisions on (normalised
+/// path, method) and `audience` references that don't resolve to any
+/// known `.lzx` surface or `app.lzi` audience declaration.
+fn agent_expose_diagnostics(
+    agents: &[AgentFacts],
+    api_paths: &[ApiPathFact],
+    known_audiences: &BTreeSet<String>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // Collect every (method, normalized_path) pair from agent expose
+    // blocks + every api block, anchored to their source location.
+    let mut pairs: Vec<ExposePathFact> = Vec::new();
+    for fact in agents {
+        let Some(expose) = fact.agent.expose_http.as_ref() else {
+            continue;
+        };
+        pairs.push(ExposePathFact {
+            path_normalised: normalise_path(&expose.path),
+            path_raw: expose.path.clone(),
+            method: http_method_word(expose.method).to_owned(),
+            origin: format!("agent {}.{}", fact.feature, fact.agent.name),
+            owner_path: fact.path.clone(),
+            line: fact.line,
+        });
+    }
+    for api in api_paths {
+        pairs.push(ExposePathFact {
+            path_normalised: normalise_path(&api.path),
+            path_raw: api.path.clone(),
+            method: api.method.clone(),
+            origin: format!("api {}.{}", api.feature, api.name),
+            owner_path: api.source_path.clone(),
+            line: api.line,
+        });
+    }
+
+    // Cross-feature path collision detection. Two facts collide when
+    // they share (normalized_path, method) but originate from
+    // different feature/api ids — same feature/agent collisions are
+    // file-local and surface in LSP instead.
+    for (i, a) in pairs.iter().enumerate() {
+        for b in pairs.iter().skip(i + 1) {
+            if a.path_normalised == b.path_normalised
+                && a.method == b.method
+                && a.origin != b.origin
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: a.owner_path.clone(),
+                    line: a.line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "agent_expose_path_conflict_cross_feature_diagnostics".to_owned(),
+                    message: format!(
+                        "{origin_a} declares HTTP path `{path}` ({method}) that conflicts with {origin_b}; same method+path must originate from a single feature.",
+                        origin_a = a.origin,
+                        origin_b = b.origin,
+                        path = a.path_raw,
+                        method = a.method,
+                    ),
+                });
+            }
+        }
+    }
+
+    // Audience reachability check.
+    for fact in agents {
+        let Some(expose) = fact.agent.expose_http.as_ref() else {
+            continue;
+        };
+        let Some(audience) = expose.audience.as_ref() else {
+            continue;
+        };
+        if !known_audiences.contains(audience) {
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "agent_expose_audience_unknown_diagnostics".to_owned(),
+                message: format!(
+                    "agent `{}` declares `expose http audience {audience}`, but no `.lzx` surface or `app.lzi` audience declares it.",
+                    fact.agent.name,
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+#[derive(Debug, Clone)]
+struct ApiPathFact {
+    feature: String,
+    name: String,
+    method: String,
+    path: String,
+    source_path: PathBuf,
+    line: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ExposePathFact {
+    path_normalised: String,
+    path_raw: String,
+    method: String,
+    origin: String,
+    owner_path: PathBuf,
+    line: usize,
+}
+
+/// Normalise a URL path so `:foo` and `:bar` become a single
+/// placeholder. Two paths with the same shape but different slot
+/// names collide at the gateway, so the check should treat them as
+/// equal.
+fn normalise_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for segment in path.split('/') {
+        if !out.is_empty() {
+            out.push('/');
+        } else if path.starts_with('/') {
+            // preserve leading `/`
+        }
+        if let Some(_name) = segment.strip_prefix(':') {
+            out.push_str(":_");
+        } else {
+            out.push_str(segment);
+        }
+    }
+    if path.starts_with('/') && !out.starts_with('/') {
+        format!("/{out}")
+    } else {
+        out
+    }
+}
+
+fn http_method_word(method: ir::HttpMethod) -> &'static str {
+    match method {
+        ir::HttpMethod::Get => "GET",
+        ir::HttpMethod::Post => "POST",
+        ir::HttpMethod::Put => "PUT",
+        ir::HttpMethod::Patch => "PATCH",
+        ir::HttpMethod::Delete => "DELETE",
+    }
+}
+
+/// Collect every `api <name>` block in a feature body. Used by Cut A.7
+/// to cross-check paths against `expose http`. Text-pattern matches
+/// the rest of doctor's feature scanning until the canonical-indent
+/// slice covers `api`.
+fn collect_api_paths(file: &DoctorFile, api_paths: &mut Vec<ApiPathFact>) {
+    let lines: Vec<&str> = file.source.lines().collect();
+    let mut feature: Option<String> = None;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            feature = trimmed
+                .strip_prefix("feature ")
+                .map(|name| name.trim().to_owned());
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 2 && trimmed.starts_with("api ") {
+            let name = trimmed
+                .strip_prefix("api ")
+                .map(|n| n.split_whitespace().next().unwrap_or("").to_owned())
+                .unwrap_or_default();
+            let feature_name = feature.clone().unwrap_or_default();
+            let api_line = i + 1;
+            let mut method: Option<String> = None;
+            let mut path: Option<String> = None;
+            let mut j = i + 1;
+            while j < lines.len() {
+                let inner = lines[j];
+                let inner_trim = inner.trim_start();
+                if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if leading_spaces(inner) <= 2 {
+                    break;
+                }
+                if leading_spaces(inner) == 4 {
+                    if let Some(rest) = inner_trim.strip_prefix("method ") {
+                        method = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = inner_trim.strip_prefix("path ") {
+                        path = Some(strip_quotes(rest.trim()).to_owned());
+                    }
+                }
+                j += 1;
+            }
+            if let (Some(method), Some(path)) = (method, path) {
+                if !name.is_empty() {
+                    api_paths.push(ApiPathFact {
+                        feature: feature_name,
+                        name,
+                        method,
+                        path,
+                        source_path: file.path.clone(),
+                        line: api_line,
+                    });
+                }
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+}
+
+/// Collect every audience that's a first-class declaration in the
+/// workspace. Today, surfaces in `.lzx` files are the canonical source
+/// (`surface customer web` ... `audience admin`). A future cut may
+/// elevate audiences to top-level `app.lzi` declarations; until then,
+/// `.lzi` text scans are intentionally avoided — counting `audience X`
+/// references inside e.g. `expose http audience X` would defeat the
+/// `agent_expose_audience_unknown_diagnostics` check by self-resolving.
+fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> {
+    let mut audiences = BTreeSet::new();
+    for file in files {
+        if let Some(document) = file.lzx.as_ref() {
+            for surface in &document.surfaces {
+                for audience in &surface.audiences {
+                    audiences.insert(audience.name.clone());
+                }
+            }
+        }
+    }
+    audiences
+}
+
+fn strip_quotes(text: &str) -> &str {
+    text.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3585,6 +3847,7 @@ mod tests {
         let mut agents: Vec<AgentFacts> = Vec::new();
         let mut feature_symbols: BTreeMap<String, FeatureSymbols> = BTreeMap::new();
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
+        let mut api_paths: Vec<ApiPathFact> = Vec::new();
 
         for (path, source) in sources {
             let mut file = DoctorFile {
@@ -3664,6 +3927,7 @@ mod tests {
                     }
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
+                collect_api_paths(&file, &mut api_paths);
             } else {
                 let document = lazuli_syntax::parse_lzx_document(&file.source).unwrap();
                 collect_lzx_experience_facts(&document, &mut experiences);
@@ -3687,6 +3951,7 @@ mod tests {
             agents,
             feature_symbols,
             registry_tool_defects,
+            api_paths,
         }
     }
 
@@ -5018,6 +5283,107 @@ feature customer
         assert!(
             codes(&diagnostics).contains("eval_ordered_op_invalid_diagnostics"),
             "expected eval_ordered_op_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_expose_http_path_colliding_cross_feature_with_api() {
+        // Agent in `customer` exposes the same (method, path) as an
+        // `api` block in `customer_outreach`. Cross-feature collision
+        // fires `agent_expose_path_conflict_cross_feature_diagnostics`.
+        let package = package_from_sources(vec![
+            (
+                "customer.lzi",
+                r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/customers/:customer_id/summary"
+"#,
+            ),
+            (
+                "customer_outreach.lzi",
+                r#"
+feature customer_outreach
+  api customer_summary_stream
+    method POST
+    path "/api/customers/:id/summary"
+    handler "./x.go"
+"#,
+            ),
+        ]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics)
+                .contains("agent_expose_path_conflict_cross_feature_diagnostics"),
+            "expected agent_expose_path_conflict_cross_feature_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_unknown_audience_on_expose_http() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  agent restricted
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/x"
+      audience nonexistent_audience
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("agent_expose_audience_unknown_diagnostics"),
+            "expected agent_expose_audience_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_audience_declared_in_surface() {
+        let package = package_from_sources(vec![
+            (
+                "customer.lzi",
+                r#"
+feature customer
+  agent admin_only
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/admin/x"
+      audience admin
+"#,
+            ),
+            (
+                "customer.web.lzx",
+                r#"
+surface customer web
+  uses experience customer
+
+  audience admin
+"#,
+            ),
+        ]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("agent_expose_audience_unknown_diagnostics"),
+            "audience declared in .lzx must be honored; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

@@ -610,6 +610,38 @@ agent summarize_customer
 graph; `--expand=summary` extends with `evals`, `output_kind`,
 `output_discriminator`, `eval_determinism`.
 
+### `expose http` (Cut A.7)
+
+Trivial agent-dispatch endpoints land directly on the agent — no
+need for a sibling `api` block:
+
+```lazuli
+agent summarize_customer
+  input
+    customer_id: Customer.ID required
+  policy @policy.read
+  output stream Text
+  model @llm.default
+  prompt "./prompts/summarize.md"
+  expose http
+    method POST
+    path "/api/customers/:customer_id/summary"
+    route customer_id: Customer.ID
+```
+
+The agent's `policy`, `rate_limit`, and `output` apply to the exposed
+endpoint without restating. `lazuli inspect --expand=expose` projects
+the unified HTTP route table across every `api` block and every agent
+with `expose http`. Doctor rejects cross-feature `(method, path)`
+collisions and unknown audience references; LSP catches local
+duplicates and slot binding mistakes.
+
+`api` blocks remain for handlers that do meaningful work beyond agent
+dispatch (multi-step orchestration, format transformation, calling
+several agents). The boundary: "does the handler do work beyond
+translating HTTP to agent dispatch?" If yes, keep `api`. If no,
+`expose http` is the shortcut.
+
 ## Tests
 
 Tests are inline IR assertions. They are optional by default and strict in

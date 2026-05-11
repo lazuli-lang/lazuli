@@ -302,17 +302,6 @@ feature customer
     rate_limit "10 per hour per user"
     handler "./api/export_customers.go"
 
-  api customer_summary_stream
-    method POST
-    path "/api/customers/:id/summary/stream"
-    route id: Customer.ID
-    input
-      prompt: Text required
-    output stream Text
-    policy @policy.read
-    rate_limit "20 per hour per user"
-    handler "./api/stream_customer_summary.go"
-
   agent summarize_customer
     input
       customer_id: Customer.ID required
@@ -331,6 +320,10 @@ feature customer
     tools
       customer.query.lookup.by_id
       customer.query.list
+    expose http
+      method POST
+      path "/api/customers/:customer_id/summary"
+      route customer_id: Customer.ID
     evals
       case mentions_active_when_active
         requires customer.lifecycle_stage = active

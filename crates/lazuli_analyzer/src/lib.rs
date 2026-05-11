@@ -667,6 +667,8 @@ pub fn lower_agent(
         evals.push(lower_eval_case(case_ast, feature)?);
     }
 
+    let expose_http = agent.expose.as_ref().map(lower_agent_expose);
+
     Ok(ir::Agent {
         name: agent.name.clone(),
         feature: feature.to_owned(),
@@ -686,8 +688,39 @@ pub fn lower_agent(
         safety,
         tools,
         evals,
+        expose_http,
         span_ref: Some(span_of(agent.span)),
     })
+}
+
+/// Cut A.7 — lower an `expose http` AST block. Method enum maps 1:1;
+/// route slots become `TypedSlot`s with `required: true` (path params
+/// are inherently required); audience / rate-limit pass-through as
+/// strings.
+fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
+    let route_slots = expose
+        .route_slots
+        .iter()
+        .map(|slot| ir::TypedSlot {
+            name: slot.name.clone(),
+            type_ref: type_ref_from_text(&slot.type_text),
+            required: true,
+        })
+        .collect();
+    ir::HttpExposure {
+        method: match expose.method {
+            syntax::HttpMethod::Get => ir::HttpMethod::Get,
+            syntax::HttpMethod::Post => ir::HttpMethod::Post,
+            syntax::HttpMethod::Put => ir::HttpMethod::Put,
+            syntax::HttpMethod::Patch => ir::HttpMethod::Patch,
+            syntax::HttpMethod::Delete => ir::HttpMethod::Delete,
+        },
+        path: expose.path.clone(),
+        route_slots,
+        audience: expose.audience.clone(),
+        rate_limit_override: expose.rate_limit_override.clone(),
+        span_ref: Some(span_of(expose.span)),
+    }
 }
 
 /// Lower a single tool reference. `feature` is the owning feature so the
@@ -1439,6 +1472,52 @@ feature customer
                 }
             }
         }
+    }
+
+    #[test]
+    fn lower_agent_with_expose_http_lowers_to_ir() {
+        let source = r#"
+feature customer
+  agent summarize
+    input
+      customer_id: Customer.ID required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/customers/:customer_id/summary"
+      route customer_id: Customer.ID
+      audience admin
+      rate_limit "5 per minute per user"
+"#;
+        let agent = lower_first_agent(source);
+        let expose = agent.expose_http.as_ref().expect("expose_http");
+        assert_eq!(expose.method, ir::HttpMethod::Post);
+        assert_eq!(expose.path, "/api/customers/:customer_id/summary");
+        assert_eq!(expose.route_slots.len(), 1);
+        assert_eq!(expose.route_slots[0].name, "customer_id");
+        assert!(expose.route_slots[0].required);
+        assert_eq!(expose.audience.as_deref(), Some("admin"));
+        assert_eq!(
+            expose.rate_limit_override.as_deref(),
+            Some("5 per minute per user")
+        );
+    }
+
+    #[test]
+    fn lower_agent_without_expose_keeps_field_none() {
+        let source = r#"
+feature customer
+  agent simple
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+"#;
+        let agent = lower_first_agent(source);
+        assert!(agent.expose_http.is_none());
     }
 
     #[test]

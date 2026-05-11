@@ -238,7 +238,53 @@ pub struct Agent {
     pub safety: Vec<String>,
     pub tools: Vec<AgentTool>,
     pub evals: Vec<AgentEvalCase>,
+    /// Cut A.7 — `expose http` block. Auto-mounts the agent as an
+    /// HTTP endpoint; the agent's policy / rate_limit / output apply
+    /// to the exposed surface.
+    pub expose: Option<AgentExpose>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentExpose {
+    pub method: HttpMethod,
+    pub path: String,
+    pub route_slots: Vec<AgentExposeRouteSlot>,
+    pub audience: Option<String>,
+    pub rate_limit_override: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentExposeRouteSlot {
+    pub name: String,
+    pub type_text: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
+}
+
+impl HttpMethod {
+    /// Parse a canonical uppercase method token. Returns `None` on
+    /// unknown tokens — callers turn that into a `ParseError`.
+    pub fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "GET" => Some(Self::Get),
+            "POST" => Some(Self::Post),
+            "PUT" => Some(Self::Put),
+            "PATCH" => Some(Self::Patch),
+            "DELETE" => Some(Self::Delete),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

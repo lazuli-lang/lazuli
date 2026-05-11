@@ -110,6 +110,11 @@ struct ExpandSet {
     /// (plan §7.2), this is the first expansion that explicitly opts
     /// into cross-feature resolution.
     tools: bool,
+    /// Cut A.7 — `--expand=expose` produces a unified HTTP route table
+    /// across every `api` block and every agent declaring
+    /// `expose http`. Cross-feature path collisions surface via doctor;
+    /// this projection is the inspect-side observable.
+    expose: bool,
 }
 
 impl ExpandSet {
@@ -126,6 +131,7 @@ impl ExpandSet {
             tests: true,
             defaults: true,
             tools: true,
+            expose: true,
         }
     }
 
@@ -141,6 +147,7 @@ impl ExpandSet {
             || self.tests
             || self.defaults
             || self.tools
+            || self.expose
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -177,6 +184,9 @@ impl ExpandSet {
         }
         if self.tools {
             labels.push("tools");
+        }
+        if self.expose {
+            labels.push("expose");
         }
         labels
     }
@@ -406,8 +416,9 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "tests" => set.tests = true,
             "defaults" => set.defaults = true,
             "tools" => set.tools = true,
+            "expose" => set.expose = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, or tools"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, or expose"
             ),
         }
     }
@@ -477,6 +488,28 @@ struct InspectFeature {
     /// (preserves the single-pass-base guarantee).
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<InspectAgentToolsEntry>>,
+    /// Cut A.7 — populated only when `--expand=expose` is set. Unified
+    /// HTTP route table for the feature: every `api` block plus every
+    /// agent declaring `expose http`. Cross-feature collisions surface
+    /// via doctor; this projection is the per-feature observable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expose: Option<Vec<InspectExposeEntry>>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectExposeEntry {
+    /// `agent` or `api` — the kind of declaration that produced the route.
+    kind: &'static str,
+    /// `<feature>.<kind>.<name>` for stable cross-references.
+    origin: String,
+    method: String,
+    path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    route_slots: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audience: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rate_limit_override: Option<String>,
 }
 
 /// One per agent in the file. Carries every tool reference the agent
@@ -723,7 +756,23 @@ struct InspectAgent {
     eval_determinism: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     safety: Option<String>,
+    /// Cut A.7 — `expose http` block summary. Always-on field
+    /// (file-local; no cross-feature resolution).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expose_http: Option<InspectAgentExpose>,
     origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAgentExpose {
+    method: String,
+    path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    route_slots: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audience: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rate_limit_override: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -881,6 +930,10 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
         .tools
         .then(|| inspect_agent_tools_projection(&agents));
 
+    let expose = expansions
+        .expose
+        .then(|| inspect_expose_projection(&name, &agents, lines));
+
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
@@ -900,7 +953,84 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
             .then(|| inspect_policies(lines, &policies)),
         tests: expansions.tests.then(|| inspect_tests(lines, &policies)),
         tools,
+        expose,
     }
+}
+
+/// Materialise the per-feature unified HTTP route table for
+/// `--expand=expose`. Walks every agent's `expose_http` and every
+/// `api <name>` block in the feature body, emitting one entry per
+/// declaration with stable `<feature>.<kind>.<name>` origins so
+/// cross-feature collation downstream (doctor or external tools)
+/// composes cleanly.
+fn inspect_expose_projection(
+    feature_name: &str,
+    agents: &[InspectAgent],
+    lines: &[String],
+) -> Vec<InspectExposeEntry> {
+    let mut entries: Vec<InspectExposeEntry> = Vec::new();
+
+    for agent in agents {
+        if let Some(expose) = agent.expose_http.as_ref() {
+            entries.push(InspectExposeEntry {
+                kind: "agent",
+                origin: format!("{feature_name}.agent.{}", agent.name),
+                method: expose.method.clone(),
+                path: expose.path.clone(),
+                route_slots: expose.route_slots.clone(),
+                audience: expose.audience.clone(),
+                rate_limit_override: expose.rate_limit_override.clone(),
+            });
+        }
+    }
+
+    for block in top_level_blocks(lines, "api ") {
+        let name = named_top_block_name(block[0].trim_start())
+            .unwrap_or("unknown")
+            .to_owned();
+        let method = direct_child_value(block, "method ")
+            .map(|m| m.to_ascii_uppercase());
+        let path = direct_child_value(block, "path ")
+            .as_deref()
+            .map(strip_quotes);
+        let audience = direct_child_value(block, "audience ");
+        let rate_limit_override = direct_child_value(block, "rate_limit ")
+            .as_deref()
+            .map(strip_quotes);
+        // Walk `route <name>:` children for slots.
+        let mut route_slots: Vec<String> = Vec::new();
+        let block_indent = block.first().map(|l| leading_spaces(l)).unwrap_or(0);
+        let child_indent = block_indent + 2;
+        for inner in block.iter().skip(1) {
+            let trimmed = inner.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if leading_spaces(inner) != child_indent {
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix("route ") {
+                if let Some((slot, _)) = rest.split_once(':') {
+                    route_slots.push(slot.trim().to_owned());
+                }
+            }
+        }
+
+        let (Some(method), Some(path)) = (method, path) else {
+            continue;
+        };
+        entries.push(InspectExposeEntry {
+            kind: "api",
+            origin: format!("{feature_name}.api.{}", name),
+            method,
+            path,
+            route_slots,
+            audience,
+            rate_limit_override,
+        });
+    }
+
+    entries
 }
 
 /// Materialise the per-agent dispatch graph for `--expand=tools`.
@@ -2914,6 +3044,8 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
             })
         };
 
+        let expose_http = collect_agent_expose(block);
+
         agents.push(InspectAgent {
             name,
             inputs,
@@ -2933,6 +3065,7 @@ fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {
             evals,
             eval_determinism,
             safety,
+            expose_http,
             origin: "agent",
         });
     }
@@ -3018,6 +3151,62 @@ fn collect_agent_block_entries(block: &[String], parent: &str) -> Vec<String> {
         }
     }
     entries
+}
+
+/// Walk the agent body for an `expose http` block and surface the
+/// declared method/path/route/audience/rate_limit. Cut A.7's
+/// inspect-side observable; doctor handles cross-feature resolution.
+fn collect_agent_expose(block: &[String]) -> Option<InspectAgentExpose> {
+    let parent_indent = block.first().map(|line| leading_spaces(line))?;
+    let child_indent = parent_indent + 2;
+    let grandchild_indent = child_indent + 2;
+
+    let mut in_expose = false;
+    let mut method: Option<String> = None;
+    let mut path: Option<String> = None;
+    let mut route_slots: Vec<String> = Vec::new();
+    let mut audience: Option<String> = None;
+    let mut rate_limit_override: Option<String> = None;
+
+    for line in block.iter().skip(1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading <= parent_indent {
+            break;
+        }
+        if leading == child_indent {
+            in_expose = trimmed == "expose http";
+            continue;
+        }
+        if in_expose && leading == grandchild_indent {
+            if let Some(rest) = trimmed.strip_prefix("method ") {
+                method = Some(rest.trim().to_ascii_uppercase());
+            } else if let Some(rest) = trimmed.strip_prefix("path ") {
+                path = Some(strip_quotes(rest.trim()).to_owned());
+            } else if let Some(rest) = trimmed.strip_prefix("route ") {
+                if let Some((name_part, _)) = rest.split_once(':') {
+                    route_slots.push(name_part.trim().to_owned());
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("audience ") {
+                audience = Some(rest.trim().to_owned());
+            } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+                rate_limit_override = Some(strip_quotes(rest.trim()).to_owned());
+            }
+        }
+    }
+
+    let method = method?;
+    let path = path?;
+    Some(InspectAgentExpose {
+        method,
+        path,
+        route_slots,
+        audience,
+        rate_limit_override,
+    })
 }
 
 /// Walk the agent body for `evals` and return the list of eval `case`
@@ -4373,6 +4562,93 @@ feature customer
         assert!(
             json.contains("\"reference\":\"@tool.web_search\",\"kind\":\"adapter\",\"scope\":\"adapter\",\"derived_effect\":\"unknown\""),
             "expected adapter binding: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_expand_expose_flag_parses() {
+        let expansions = parse_expand_set("expose").unwrap();
+        assert!(expansions.expose);
+        assert!(!expansions.summary);
+    }
+
+    #[test]
+    fn inspect_summary_includes_agent_expose_http() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/customers/:id/summary"
+      route id: Customer.ID
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            json.contains("\"expose_http\":{\"method\":\"POST\""),
+            "expected expose_http always-on summary: {json}"
+        );
+        assert!(json.contains("\"path\":\"/api/customers/:id/summary\""));
+    }
+
+    #[test]
+    fn inspect_expose_projection_emits_unified_route_table() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/customers/:id/summary"
+      route id: Customer.ID
+
+  api list_customers
+    method GET
+    path "/api/customers"
+    handler "./api/list.go"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.expose = true;
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let json = serde_json::to_string(&report).unwrap();
+
+        assert!(
+            json.contains("\"kind\":\"agent\",\"origin\":\"customer.agent.summarize\""),
+            "expected agent expose entry: {json}"
+        );
+        assert!(
+            json.contains("\"kind\":\"api\",\"origin\":\"customer.api.list_customers\""),
+            "expected api expose entry: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_expose_projection_omitted_without_expand() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/x"
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            !json.contains("\"origin\":\"customer.agent.summarize\""),
+            "expose projection must be omitted without --expand=expose: {json}"
         );
     }
 
