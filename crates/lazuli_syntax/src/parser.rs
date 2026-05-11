@@ -16,11 +16,11 @@ use crate::ast::{
     JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey,
     LookupQueryDecl, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
     LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
-    LzxViewExtension, Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl,
-    ResourceFieldDecl, ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span,
-    SqlQueryDecl, Surface, TargetArgDecl, TargetExprDecl, TenantMigration, ToolsCallsOp,
-    TranslationDecl, TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, Webhook,
-    WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify,
+    LzxViewExtension, Notification, NotificationDigest, NotificationThrottle, Query, QueryDecl,
+    QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceRetention,
+    ResourceRetentionAction, Span, SqlQueryDecl, Surface, TargetArgDecl, TargetExprDecl,
+    TenantMigration, ToolsCallsOp, TranslationDecl, TranslationKeyDecl, TranslationPluralArmDecl,
+    TranslationVariantDecl, Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -5030,6 +5030,8 @@ fn parse_notification(
     let mut template: Option<String> = None;
     let mut policy: Option<String> = None;
     let mut emits: Vec<String> = Vec::new();
+    let mut digest: Option<NotificationDigest> = None;
+    let mut throttle: Option<NotificationThrottle> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -5089,10 +5091,32 @@ fn parse_notification(
             emits.push(rest.trim().to_owned());
             last_end = line.end;
             i += 1;
+        } else if trimmed == "digest" {
+            if digest.is_some() {
+                return Err(line_error(
+                    line,
+                    "`notification` may declare at most one `digest` sub-block",
+                ));
+            }
+            let (parsed, next) = parse_notification_digest(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            digest = Some(parsed);
+            i = next;
+        } else if trimmed == "throttle" {
+            if throttle.is_some() {
+                return Err(line_error(
+                    line,
+                    "`notification` may declare at most one `throttle` sub-block",
+                ));
+            }
+            let (parsed, next) = parse_notification_throttle(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            throttle = Some(parsed);
+            i = next;
         } else {
             return Err(line_error(
                 line,
-                "notification children are `channel`, `recipient`, `trigger`, `tenant_from`, `idempotency by`, `retry`, `template`, `policy`, or `emits`",
+                "notification children are `channel`, `recipient`, `trigger`, `tenant_from`, `idempotency by`, `retry`, `template`, `policy`, `emits`, `digest`, or `throttle`",
             ));
         }
     }
@@ -5128,6 +5152,175 @@ fn parse_notification(
             template,
             policy,
             emits,
+            digest,
+            throttle,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Notifications expanded bucket cycle — parse the `digest` sub-block
+/// of a `notification`. Header line is bare `digest` at indent 4;
+/// children at indent 6 are `every "<duration>"` (required),
+/// `group_by <path>` (optional), `max_size <N>` (optional), and
+/// `template_strategy <merge|append>` (optional). All other child
+/// keys are rejected to keep the catalog closed.
+fn parse_notification_digest(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(NotificationDigest, usize), ParseError> {
+    let header = &lines[start];
+    let mut every: Option<String> = None;
+    let mut group_by: Option<String> = None;
+    let mut max_size: Option<u32> = None;
+    let mut template_strategy: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`digest` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("every ") {
+            every = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("group_by ") {
+            group_by = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("max_size ") {
+            let raw = rest.trim();
+            match raw.parse::<u32>() {
+                Ok(value) => max_size = Some(value),
+                Err(_) => {
+                    return Err(line_error(
+                        line,
+                        "`max_size` requires an unsigned 32-bit integer",
+                    ));
+                }
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("template_strategy ") {
+            template_strategy = Some(rest.trim().to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "`digest` children are `every \"<duration>\"`, `group_by <path>`, `max_size <N>`, or `template_strategy merge|append`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let every = every.ok_or_else(|| {
+        line_error(
+            header,
+            "`digest` requires an `every \"<duration>\"` declaration",
+        )
+    })?;
+
+    Ok((
+        NotificationDigest {
+            every,
+            group_by,
+            max_size,
+            template_strategy,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Notifications expanded bucket cycle — parse the `throttle`
+/// sub-block of a `notification`. Header line is bare `throttle` at
+/// indent 4; children at indent 6 are `max_per "<duration>"`
+/// (required), `per_recipient` (bare flag), `per_channel` (bare
+/// flag), and `burst <N>` (optional). Distinct keyword from scalar
+/// `rate_limit` — the throttle keys on recipient/channel, not on the
+/// caller.
+fn parse_notification_throttle(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(NotificationThrottle, usize), ParseError> {
+    let header = &lines[start];
+    let mut max_per: Option<String> = None;
+    let mut per_recipient = false;
+    let mut per_channel = false;
+    let mut burst: Option<u32> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`throttle` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("max_per ") {
+            max_per = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if trimmed == "per_recipient" {
+            per_recipient = true;
+        } else if trimmed == "per_channel" {
+            per_channel = true;
+        } else if let Some(rest) = trimmed.strip_prefix("burst ") {
+            let raw = rest.trim();
+            match raw.parse::<u32>() {
+                Ok(value) => burst = Some(value),
+                Err(_) => {
+                    return Err(line_error(
+                        line,
+                        "`burst` requires an unsigned 32-bit integer",
+                    ));
+                }
+            }
+        } else {
+            return Err(line_error(
+                line,
+                "`throttle` children are `max_per \"<duration>\"`, `per_recipient`, `per_channel`, or `burst <N>`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let max_per = max_per.ok_or_else(|| {
+        line_error(
+            header,
+            "`throttle` requires a `max_per \"<duration>\"` declaration",
+        )
+    })?;
+
+    Ok((
+        NotificationThrottle {
+            max_per,
+            per_recipient,
+            per_channel,
+            burst,
             span: Span::new(header.start, last_end),
         },
         i,

@@ -1263,6 +1263,46 @@ pub struct Notification {
     pub template: String,
     pub policy: Option<String>,
     pub emits: Vec<String>,
+    /// Notifications expanded bucket cycle — optional `digest` sub-block.
+    /// Captured verbatim from the canonical-indent slice and lowered to
+    /// `ir::NotificationDigest` in the analyzer.
+    pub digest: Option<NotificationDigest>,
+    /// Notifications expanded bucket cycle — optional `throttle` sub-block.
+    /// Distinct from scalar `rate_limit`; lowered to
+    /// `ir::NotificationThrottle` in the analyzer.
+    pub throttle: Option<NotificationThrottle>,
+    pub span: Span,
+}
+
+/// Notifications expanded bucket cycle — AST sidecar for the `digest`
+/// sub-block. Fields are captured verbatim; closed-catalog validation
+/// for `template_strategy` and the `every`/`max_size` shape lives in
+/// the analyzer/doctor layers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationDigest {
+    /// `every "<duration>"` — required.
+    pub every: String,
+    /// `group_by <path>` — optional.
+    pub group_by: Option<String>,
+    /// `max_size <N>` — optional.
+    pub max_size: Option<u32>,
+    /// `template_strategy <merge|append>` — optional.
+    pub template_strategy: Option<String>,
+    pub span: Span,
+}
+
+/// Notifications expanded bucket cycle — AST sidecar for the
+/// `throttle` sub-block. Distinct keyword from scalar `rate_limit`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationThrottle {
+    /// `max_per "<duration>"` — required.
+    pub max_per: String,
+    /// `per_recipient` flag — bare child line.
+    pub per_recipient: bool,
+    /// `per_channel` flag — bare child line.
+    pub per_channel: bool,
+    /// `burst <N>` — optional.
+    pub burst: Option<u32>,
     pub span: Span,
 }
 

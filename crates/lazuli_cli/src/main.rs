@@ -1482,9 +1482,57 @@ struct InspectNotification {
     idempotency: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     retry: Option<String>,
+    /// Scalar `rate_limit "N per <window>"` captured verbatim. Kept
+    /// for forward-compat: the language reserves `rate_limit` as the
+    /// per-call scalar slot across `agent`/`auth password`/`command`/
+    /// `expose http` and may surface it on `notification` once pilot
+    /// pressure requires it. Distinct from the structured `throttle`
+    /// sub-block below.
     #[serde(skip_serializing_if = "Option::is_none")]
     rate_limit: Option<String>,
+    /// Notifications expanded bucket cycle — typed projection of the
+    /// `digest` sub-block (`every`/`group_by`/`max_size`/
+    /// `template_strategy`). `None` when the notification does not
+    /// declare digesting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    digest: Option<InspectNotificationDigest>,
+    /// Notifications expanded bucket cycle — typed projection of the
+    /// `throttle` sub-block (`max_per`/`per_recipient`/`per_channel`/
+    /// `burst`). `None` when the notification does not declare a
+    /// throttle bucket. Distinct from scalar `rate_limit`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    throttle: Option<InspectNotificationThrottle>,
     origin: &'static str,
+}
+
+/// Notifications expanded bucket cycle — `--expand=notifications`
+/// projection of `ir::NotificationDigest`. Mirrors the IR shape one-
+/// to-one so consumers can read the digest contract cold.
+#[derive(Debug, Serialize)]
+struct InspectNotificationDigest {
+    every: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    template_strategy: Option<String>,
+}
+
+/// Notifications expanded bucket cycle — `--expand=notifications`
+/// projection of `ir::NotificationThrottle`. Distinct shape from
+/// scalar `rate_limit` so the structured per-recipient/per-channel
+/// contract surfaces in JSON without being conflated with the scalar
+/// slot above.
+#[derive(Debug, Serialize)]
+struct InspectNotificationThrottle {
+    max_per: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    per_recipient: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    per_channel: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    burst: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1887,6 +1935,7 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 webhooks: feature_ir.webhooks,
                 event_groups: feature_ir.event_groups,
                 tenant_migrations: feature_ir.tenant_migrations,
+                notifications: feature_ir.notifications,
             },
         );
     }
@@ -1900,6 +1949,11 @@ struct Tier3FeatureSlice {
     /// Migrations bucket cycle Route C — lifted `tenant_migration`
     /// declarations for `--expand=migrations`.
     tenant_migrations: Vec<lazuli_ir::TenantMigration>,
+    /// Notifications expanded bucket cycle — lifted `notification`
+    /// declarations. Powers the typed `digest`/`throttle` projection
+    /// in `inspect_notifications`; the text-walker keeps owning the
+    /// scalar fields so the projection stays additive.
+    notifications: Vec<lazuli_ir::Notification>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -1972,7 +2026,8 @@ fn inspect_feature(
     let policies = collect_policy_atoms(lines);
     let external_calls = inspect_external_calls(&name, lines);
     let agents = inspect_agents(lines);
-    let notifications = inspect_notifications(lines);
+    let tier3 = tier3_by_feature.get(&name);
+    let notifications = inspect_notifications(lines, tier3);
 
     let tools = expansions
         .tools
@@ -2005,8 +2060,8 @@ fn inspect_feature(
     // present only when the matching expand flag is set AND the feature
     // actually declares the construct. Empty arrays still surface so
     // consumers can distinguish "flag not set" from "no constructs
-    // declared".
-    let tier3 = tier3_by_feature.get(&name);
+    // declared". `tier3` is bound earlier in this function so the
+    // notification projection can read typed `digest`/`throttle`.
     let jobs_projection = expansions.jobs.then(|| {
         tier3
             .map(|t| t.jobs.iter().map(project_job).collect::<Vec<_>>())
@@ -4612,7 +4667,10 @@ fn direct_child_value(lines: &[String], prefix: &str) -> Option<String> {
     })
 }
 
-fn inspect_notifications(lines: &[String]) -> Vec<InspectNotification> {
+fn inspect_notifications(
+    lines: &[String],
+    tier3: Option<&Tier3FeatureSlice>,
+) -> Vec<InspectNotification> {
     let mut notifications = Vec::new();
 
     for block in top_level_blocks(lines, "notification ") {
@@ -4640,6 +4698,33 @@ fn inspect_notifications(lines: &[String]) -> Vec<InspectNotification> {
             .as_deref()
             .map(strip_quotes);
 
+        // Notifications expanded bucket cycle — typed `digest` /
+        // `throttle` come from the lifted IR slice. The text-walker
+        // owns the scalar fields above (legacy notation), but the
+        // structured sub-blocks must surface typed so consumers can
+        // read every-window / per-recipient / burst / strategy cold.
+        let (digest, throttle) = tier3
+            .and_then(|slice| slice.notifications.iter().find(|n| n.name == name))
+            .map(|n| {
+                let digest = n.digest.as_ref().map(|d| InspectNotificationDigest {
+                    every: d.every.clone(),
+                    group_by: d.group_by.clone(),
+                    max_size: d.max_size,
+                    template_strategy: d.template_strategy.map(|s| match s {
+                        lazuli_ir::DigestStrategy::Merge => "merge".to_owned(),
+                        lazuli_ir::DigestStrategy::Append => "append".to_owned(),
+                    }),
+                });
+                let throttle = n.throttle.as_ref().map(|t| InspectNotificationThrottle {
+                    max_per: t.max_per.clone(),
+                    per_recipient: t.per_recipient,
+                    per_channel: t.per_channel,
+                    burst: t.burst,
+                });
+                (digest, throttle)
+            })
+            .unwrap_or((None, None));
+
         notifications.push(InspectNotification {
             name,
             channels,
@@ -4651,6 +4736,8 @@ fn inspect_notifications(lines: &[String]) -> Vec<InspectNotification> {
             idempotency,
             retry,
             rate_limit,
+            digest,
+            throttle,
             origin: "notification",
         });
     }

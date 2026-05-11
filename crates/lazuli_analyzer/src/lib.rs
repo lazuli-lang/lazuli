@@ -1521,6 +1521,11 @@ pub fn lower_notification(
         .as_deref()
         .map(lower_policy_atom)
         .filter(|p| !matches!(p, ir::PolicyRef::None));
+    let digest = notification.digest.as_ref().map(lower_notification_digest);
+    let throttle = notification
+        .throttle
+        .as_ref()
+        .map(lower_notification_throttle);
     Ok(ir::Notification {
         name: notification.name.clone(),
         trigger,
@@ -1532,9 +1537,48 @@ pub fn lower_notification(
         idempotency,
         retry,
         emits: notification.emits.clone(),
+        digest,
+        throttle,
         previous_names: Vec::new(),
         span_ref: Some(span_of(notification.span)),
     })
+}
+
+/// Notifications expanded bucket cycle — lower AST `NotificationDigest`
+/// into the typed IR. `template_strategy` falls through `merge` /
+/// `append` into the closed-catalog enum; unknown values become None
+/// so doctor's `NOTIF-DIGEST-003` can flag them with a precise
+/// message rather than the lowering failing silently.
+fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
+    let template_strategy = digest
+        .template_strategy
+        .as_deref()
+        .and_then(|raw| match raw {
+            "merge" => Some(ir::DigestStrategy::Merge),
+            "append" => Some(ir::DigestStrategy::Append),
+            _ => None,
+        });
+    ir::NotificationDigest {
+        every: digest.every.clone(),
+        group_by: digest.group_by.clone(),
+        max_size: digest.max_size,
+        template_strategy,
+    }
+}
+
+/// Notifications expanded bucket cycle — lower AST
+/// `NotificationThrottle` into the typed IR. Pure field-for-field
+/// projection; no validation here (doctor `NOTIF-THROTTLE-*` covers
+/// the closed-catalog and combinatorial rules).
+fn lower_notification_throttle(
+    throttle: &syntax::NotificationThrottle,
+) -> ir::NotificationThrottle {
+    ir::NotificationThrottle {
+        max_per: throttle.max_per.clone(),
+        per_recipient: throttle.per_recipient,
+        per_channel: throttle.per_channel,
+        burst: throttle.burst,
+    }
 }
 
 /// Phase L Tier 3 — lower a canonical-indent `event_group` into
