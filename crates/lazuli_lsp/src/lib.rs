@@ -3720,6 +3720,21 @@ fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
                     ));
                     continue;
                 }
+                // Cut A.10: `golden "./path.jsonl" [min_score N]` is a
+                // valid case child alongside requires/forbids.
+                if trimmed.starts_with("golden ") {
+                    let rest = trimmed.strip_prefix("golden ").unwrap_or("").trim();
+                    if !rest.starts_with('"') {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            raw,
+                            DiagnosticSeverity::ERROR,
+                            "agent_evals_diagnostics",
+                            "`golden` requires a quoted file path: `golden \"./path.jsonl\"`.",
+                        ));
+                    }
+                    continue;
+                }
                 let predicate = trimmed
                     .strip_prefix("requires ")
                     .or_else(|| trimmed.strip_prefix("forbids "));
@@ -3729,7 +3744,7 @@ fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
                         raw,
                         DiagnosticSeverity::ERROR,
                         "agent_evals_diagnostics",
-                        "eval assertions start with `requires` or `forbids`.",
+                        "eval children are `requires <predicate>`, `forbids <predicate>`, or `golden \"./path\"`.",
                     ));
                     continue;
                 };

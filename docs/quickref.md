@@ -610,6 +610,21 @@ agent summarize_customer
 graph; `--expand=summary` extends with `evals`, `output_kind`,
 `output_discriminator`, `eval_determinism`.
 
+A `case` may also reference a golden file (Cut A.10):
+
+```lazuli
+evals
+  case golden_quality
+    requires output contains "active"
+    golden "./evals/summarize_golden.jsonl" min_score 0.85
+```
+
+The runtime adapter loads the file and scores the agent's output;
+`min_score` (0.0–1.0) gates the case. Omitting `min_score` falls
+through to the adapter's default (0.85 by convention). Golden refs
+coexist with `requires`/`forbids` assertions — both run; failing
+either fails the case.
+
 ### `expose http` (Cut A.7)
 
 Trivial agent-dispatch endpoints land directly on the agent — no

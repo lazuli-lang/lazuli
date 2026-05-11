@@ -16,18 +16,18 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.6.0 for Cut A.8 — additive minor bump. New shapes:
-/// `BuiltInTraceEvent`, `BuiltInTraceRecord`, `TraceFiresPer`, the
-/// `built_in_trace_events()` / `built_in_trace_event_records()`
-/// registry functions, and `is_reserved_trace_event_name`.
+/// Bumped to 0.7.0 for Cut A.10 — additive minor bump. New shapes:
+/// `EvalCase.golden`, `GoldenSpec`.
 ///
 /// History:
+/// - 0.6.0 — Cut A.8: `BuiltInTraceEvent`, `BuiltInTraceRecord`,
+///   `TraceFiresPer`, registry functions, reserved-name helper.
 /// - 0.5.0 — Cut A.7: `Agent.expose_http`, `HttpExposure`,
 ///   `HttpMethod`.
 /// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
 ///   output_kind/output_discriminator), `AppRegistry.tools` (+
 ///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
-pub const LZIR_SCHEMA: &str = "0.6.0";
+pub const LZIR_SCHEMA: &str = "0.7.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -2007,6 +2007,24 @@ pub enum ToolEffect {
 pub struct EvalCase {
     pub name: String,
     pub assertions: Vec<EvalAssertion>,
+    /// Cut A.10 — optional `golden "./path.jsonl" min_score N`
+    /// reference. The runtime adapter loads the file and scores the
+    /// agent's output against it; the language stays out of the
+    /// scoring algorithm itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub golden: Option<GoldenSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GoldenSpec {
+    /// File path captured verbatim. The runtime resolves it.
+    pub path: String,
+    /// Optional `min_score N` gate threshold (0.0..=1.0). `None`
+    /// means the adapter's default (0.85 by convention) applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_score: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

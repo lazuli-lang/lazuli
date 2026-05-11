@@ -5,11 +5,12 @@ use pest_derive::Parser;
 use thiserror::Error;
 
 use crate::ast::{
-    Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalKind, AgentEvalPredicate, AgentExpose,
-    AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Command, ContainsRhs,
-    Document, FeatureSkeleton, Field, FieldModifier, HttpMethod, LzxAction, LzxApp, LzxAudience,
-    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
-    LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query, Span, Surface, ToolsCallsOp,
+    Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
+    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Command,
+    ContainsRhs, Document, FeatureSkeleton, Field, FieldModifier, HttpMethod, LzxAction, LzxApp,
+    LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
+    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query,
+    Span, Surface, ToolsCallsOp,
 };
 
 #[derive(Parser)]
@@ -1637,6 +1638,7 @@ fn parse_agent_evals(
         let mut case_end = line.end;
 
         let mut assertions = Vec::new();
+        let mut golden: Option<AgentEvalGolden> = None;
         i += 1;
         while i < lines.len() {
             let inner = &lines[i];
@@ -1654,30 +1656,96 @@ fn parse_agent_evals(
             if inner.indent != AGENT_INDENT_GREAT_GRANDCHILD {
                 return Err(line_error(
                     inner,
-                    "eval assertions use eight-space indentation",
+                    "eval case children use eight-space indentation",
                 ));
             }
 
-            assertions.push(parse_eval_assertion(inner)?);
+            if let Some(rest) = inner_trimmed.strip_prefix("golden ") {
+                if golden.is_some() {
+                    return Err(line_error(
+                        inner,
+                        "`case` may declare at most one `golden` reference",
+                    ));
+                }
+                golden = Some(parse_eval_golden(inner, rest)?);
+            } else {
+                assertions.push(parse_eval_assertion(inner)?);
+            }
             case_end = inner.end;
             i += 1;
         }
 
-        if assertions.is_empty() {
+        if assertions.is_empty() && golden.is_none() {
             return Err(line_error(
                 line,
-                "`case <name>` must declare at least one `requires` or `forbids` assertion",
+                "`case <name>` must declare at least one `requires`/`forbids` assertion or a `golden \"./path\"` reference",
             ));
         }
 
         cases.push(AgentEvalCase {
             name: case_name,
             assertions,
+            golden,
             span: Span::new(case_start, case_end),
         });
     }
 
     Ok((cases, i))
+}
+
+/// Parse `golden "./path.jsonl"` or `golden "./path.jsonl" min_score 0.85`.
+/// The path is required; `min_score` is optional and must parse as a
+/// float when present. Adapter convention defaults to 0.85 when
+/// omitted; the parser records `None` so authors can override at
+/// adapter level without language-side ambiguity.
+fn parse_eval_golden(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<AgentEvalGolden, ParseError> {
+    let trimmed = rest.trim();
+    if !trimmed.starts_with('"') {
+        return Err(line_error(
+            line,
+            "`golden` requires a quoted file path: `golden \"./path.jsonl\"`",
+        ));
+    }
+    // Find the closing quote without scanning past min_score.
+    let body = &trimmed[1..];
+    let Some(closing) = body.find('"') else {
+        return Err(line_error(
+            line,
+            "`golden` path is missing a closing quote",
+        ));
+    };
+    let path = body[..closing].to_owned();
+    let after = body[closing + 1..].trim();
+    let min_score = if after.is_empty() {
+        None
+    } else if let Some(score_text) = after.strip_prefix("min_score ") {
+        let value: f64 = score_text.trim().parse().map_err(|_| {
+            line_error(
+                line,
+                "`min_score` must be a decimal between 0.0 and 1.0",
+            )
+        })?;
+        if !(0.0..=1.0).contains(&value) {
+            return Err(line_error(
+                line,
+                "`min_score` must be in the range 0.0..=1.0",
+            ));
+        }
+        Some(value)
+    } else {
+        return Err(line_error(
+            line,
+            "trailing tokens after `golden \"./path\"` must be `min_score <N>`",
+        ));
+    };
+    Ok(AgentEvalGolden {
+        path,
+        min_score,
+        span: Span::new(line.start, line.end),
+    })
 }
 
 fn parse_eval_assertion(line: &SourceLine<'_>) -> Result<AgentEvalAssertion, ParseError> {
@@ -2289,6 +2357,65 @@ feature customer
         assert!(
             err.to_string().contains("output stream"),
             "error should mention `output stream` mis-shape: {err}"
+        );
+    }
+
+    #[test]
+    fn agent_with_golden_eval_parses() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case golden_quality
+        requires output contains "active"
+        golden "./evals/summarize.jsonl" min_score 0.85
+
+      case golden_only
+        golden "./evals/summarize_minimal.jsonl"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let evals = &features[0].agents[0].evals;
+        assert_eq!(evals.len(), 2);
+
+        let g0 = evals[0].golden.as_ref().expect("golden 0");
+        assert_eq!(g0.path, "./evals/summarize.jsonl");
+        assert_eq!(g0.min_score, Some(0.85));
+
+        let g1 = evals[1].golden.as_ref().expect("golden 1");
+        assert_eq!(g1.path, "./evals/summarize_minimal.jsonl");
+        assert!(g1.min_score.is_none());
+        assert!(
+            evals[1].assertions.is_empty(),
+            "case with only golden has zero assertions"
+        );
+    }
+
+    #[test]
+    fn agent_golden_rejects_out_of_range_score() {
+        let source = r#"
+feature customer
+  agent flaky
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case bad
+        requires output contains "ok"
+        golden "./x.jsonl" min_score 1.5
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("0.0..=1.0"),
+            "error should reject out-of-range min_score: {err}"
         );
     }
 

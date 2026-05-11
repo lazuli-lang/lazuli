@@ -321,6 +321,22 @@ pub struct AgentTool {
 pub struct AgentEvalCase {
     pub name: String,
     pub assertions: Vec<AgentEvalAssertion>,
+    /// Cut A.10 — optional `golden "./path.jsonl" min_score N`
+    /// reference. The runtime adapter loads the file and scores the
+    /// agent's output against it; `min_score` (0.0–1.0) is the gate
+    /// threshold. Language stays out of the scoring algorithm.
+    pub golden: Option<AgentEvalGolden>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentEvalGolden {
+    /// File path captured verbatim. The runtime resolves it.
+    pub path: String,
+    /// Optional `min_score N` threshold (0.0..=1.0). The default
+    /// when omitted is 0.85 by adapter convention; language pins
+    /// only what the author wrote.
+    pub min_score: Option<f64>,
     pub span: Span,
 }
 

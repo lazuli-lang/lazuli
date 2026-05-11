@@ -342,6 +342,9 @@ feature customer
         requires input.customer_id = "cus_123"
         requires tools.calls includes customer.query.lookup.by_id
 
+      case golden_summary_quality
+        golden "./evals/summarize_customer_golden.jsonl" min_score 0.85
+
   agent classify_intent
     input
       message: Text required

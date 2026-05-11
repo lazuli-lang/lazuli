@@ -809,9 +809,15 @@ fn lower_eval_case(
             span_ref: Some(span_of(assertion.span)),
         });
     }
+    let golden = case.golden.as_ref().map(|g| ir::GoldenSpec {
+        path: g.path.clone(),
+        min_score: g.min_score,
+        span_ref: Some(span_of(g.span)),
+    });
     Ok(ir::EvalCase {
         name: case.name.clone(),
         assertions,
+        golden,
         span_ref: Some(span_of(case.span)),
     })
 }
@@ -1472,6 +1478,31 @@ feature customer
                 }
             }
         }
+    }
+
+    #[test]
+    fn lower_agent_golden_eval_lowers_to_ir() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case quality
+        requires output contains "active"
+        golden "./evals/summarize.jsonl" min_score 0.85
+"#;
+        let agent = lower_first_agent(source);
+        let case = &agent.evals[0];
+        let golden = case.golden.as_ref().expect("golden");
+        assert_eq!(golden.path, "./evals/summarize.jsonl");
+        assert_eq!(golden.min_score, Some(0.85));
+        // Assertions still present alongside the golden ref.
+        assert_eq!(case.assertions.len(), 1);
     }
 
     #[test]
