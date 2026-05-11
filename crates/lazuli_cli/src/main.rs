@@ -134,6 +134,17 @@ struct ExpandSet {
     /// know the projection is current.
     tracing: bool,
     logging: bool,
+    /// Phase L Tier 3 — `--expand=jobs` projects every lifted
+    /// `ir::Job` (handler-backed + declarative) on the feature.
+    /// Without the flag the projection is omitted; with the flag the
+    /// feature carries a `jobs` array mirroring `InspectAgent`.
+    jobs: bool,
+    /// Phase L Tier 3 — `--expand=webhooks` projects every lifted
+    /// `ir::Webhook` on the feature.
+    webhooks: bool,
+    /// Phase L Tier 3 — `--expand=event_groups` projects every
+    /// `ir::EventGroup` on the feature (pattern + inheritance).
+    event_groups: bool,
 }
 
 impl ExpandSet {
@@ -155,6 +166,9 @@ impl ExpandSet {
             storage: true,
             tracing: true,
             logging: true,
+            jobs: true,
+            webhooks: true,
+            event_groups: true,
         }
     }
 
@@ -175,6 +189,9 @@ impl ExpandSet {
             || self.storage
             || self.tracing
             || self.logging
+            || self.jobs
+            || self.webhooks
+            || self.event_groups
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -226,6 +243,15 @@ impl ExpandSet {
         }
         if self.logging {
             labels.push("logging");
+        }
+        if self.jobs {
+            labels.push("jobs");
+        }
+        if self.webhooks {
+            labels.push("webhooks");
+        }
+        if self.event_groups {
+            labels.push("event_groups");
         }
         labels
     }
@@ -456,8 +482,11 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "storage" => set.storage = true,
             "tracing" => set.tracing = true,
             "logging" => set.logging = true,
+            "jobs" => set.jobs = true,
+            "webhooks" => set.webhooks = true,
+            "event_groups" => set.event_groups = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, or logging"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, or event_groups"
             ),
         }
     }
@@ -550,6 +579,20 @@ struct InspectFeature {
     /// and api outputs. Omitted entirely when no `@cap.File` is authored.
     #[serde(skip_serializing_if = "Option::is_none")]
     storage: Option<InspectStorage>,
+    /// Phase L Tier 3 — populated only when `--expand=jobs` is set.
+    /// Every lifted `ir::Job` on the feature. Mirrors `InspectAgent`'s
+    /// shape (one struct per job) so an LLM can read it cold without
+    /// joining tables.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jobs: Option<Vec<InspectJob>>,
+    /// Phase L Tier 3 — populated only when `--expand=webhooks` is
+    /// set. Every lifted `ir::Webhook` on the feature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webhooks: Option<Vec<InspectWebhook>>,
+    /// Phase L Tier 3 — populated only when `--expand=event_groups`
+    /// is set. Every lifted `ir::EventGroup` on the feature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event_groups: Option<Vec<InspectEventGroup>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -946,6 +989,144 @@ struct InspectAgentExpose {
     rate_limit_override: Option<String>,
 }
 
+// -----------------------------------------------------------------------------
+// Phase L Tier 3 — inspect projections for jobs / webhooks / event_groups.
+//
+// `--expand=jobs`, `--expand=webhooks`, and `--expand=event_groups` produce
+// these per-feature arrays. The shape mirrors `InspectAgent` /
+// `InspectNotification` so a consumer (LLM or human) can read the full
+// `notification`/`job`/`webhook` triple cold without joining tables.
+// Row 32 of `docs/next-checklist.md`.
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct InspectJob {
+    name: String,
+    /// Derived operational kind: `scheduled` / `reactor` / `queued_worker`.
+    operational_kind: &'static str,
+    trigger: InspectJobTrigger,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    queue: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idempotency_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry: Option<InspectJobRetry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fanout: Option<InspectJobFanout>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    external_calls: Vec<InspectJobExternalCall>,
+    body: InspectJobBody,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    emits: Vec<String>,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "value")]
+enum InspectJobTrigger {
+    /// `trigger event <feature>.<event>`.
+    Event(String),
+    /// `trigger schedule "<cron>"`.
+    Schedule(String),
+}
+
+#[derive(Debug, Serialize)]
+struct InspectJobRetry {
+    count: u32,
+    backoff: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectJobFanout {
+    scope: &'static str,
+    axis: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectJobExternalCall {
+    slot: String,
+    op: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    args: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "value")]
+enum InspectJobBody {
+    /// `handler "./..."` — declarative path with optional return type.
+    Handler(InspectJobHandler),
+    /// Declarative body kept as raw strings until Tier 4 lifts the
+    /// shared declarative spine. Consumers can still inspect the
+    /// authored intent before codegen lands.
+    Declarative(InspectJobDeclarativeRaw),
+    /// Job declares no body — emits-only reactor.
+    None,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectJobHandler {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    returns: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectJobDeclarativeRaw {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    lets: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effect: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectWebhook {
+    name: String,
+    route: String,
+    verify: InspectWebhookVerify,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idempotency_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<String>,
+    handler: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    returns: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    emits: Vec<String>,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectWebhookVerify {
+    scheme: &'static str,
+    algorithm: String,
+    secret_env: String,
+    header: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectEventGroup {
+    pattern: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    on_resource: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    payload: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audit: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    events: Vec<String>,
+    origin: &'static str,
+}
+
 #[derive(Debug, Serialize)]
 struct InspectSecurityWebhook {
     webhook: String,
@@ -1053,6 +1234,17 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         std::collections::BTreeMap::new()
     };
 
+    // Phase L Tier 3 — collect the lifted `Job`/`Webhook`/
+    // `EventGroup` shapes for every feature in one pass. Reuses the
+    // same parse-and-lower the auth lookup runs; degradation rules
+    // match (empty map on parse failure).
+    let tier3_by_feature =
+        if (expansions.jobs || expansions.webhooks || expansions.event_groups) && !is_lzx {
+            collect_tier3_by_feature(source)
+        } else {
+            std::collections::BTreeMap::new()
+        };
+
     InspectReport {
         schema: "lazuli.inspect.v0",
         source: input.display().to_string(),
@@ -1065,8 +1257,40 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         routes,
         experiences,
         surfaces,
-        features: inspect_features(&lines, expansions, &auth_by_feature),
+        features: inspect_features(&lines, expansions, &auth_by_feature, &tier3_by_feature),
     }
+}
+
+/// Phase L Tier 3 — lower the canonical-indent slice once per inspect
+/// call and build a per-feature lookup of `(jobs, webhooks,
+/// event_groups)`. Same degradation rules as `collect_auth_by_feature`:
+/// failures fall through to an empty map so `--expand=jobs` etc. are
+/// projections, not checks.
+fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, Tier3FeatureSlice> {
+    let mut map = std::collections::BTreeMap::new();
+    let Ok(features) = lazuli_syntax::parse_feature_skeletons(source) else {
+        return map;
+    };
+    for feature_ast in features {
+        let Ok(feature_ir) = lazuli_analyzer::lower_feature_skeleton(&feature_ast) else {
+            continue;
+        };
+        map.insert(
+            feature_ir.name.clone(),
+            Tier3FeatureSlice {
+                jobs: feature_ir.jobs,
+                webhooks: feature_ir.webhooks,
+                event_groups: feature_ir.event_groups,
+            },
+        );
+    }
+    map
+}
+
+struct Tier3FeatureSlice {
+    jobs: Vec<lazuli_ir::Job>,
+    webhooks: Vec<lazuli_ir::Webhook>,
+    event_groups: Vec<lazuli_ir::EventGroup>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -1092,6 +1316,7 @@ fn inspect_features(
     lines: &[String],
     expansions: ExpandSet,
     auth_by_feature: &std::collections::BTreeMap<String, lazuli_ir::Auth>,
+    tier3_by_feature: &std::collections::BTreeMap<String, Tier3FeatureSlice>,
 ) -> Vec<InspectFeature> {
     let mut features = Vec::new();
     let mut index = 0;
@@ -1114,6 +1339,7 @@ fn inspect_features(
                 &lines[start..index],
                 expansions,
                 auth_by_feature,
+                tier3_by_feature,
             ));
         } else {
             index += 1;
@@ -1127,6 +1353,7 @@ fn inspect_feature(
     lines: &[String],
     expansions: ExpandSet,
     auth_by_feature: &std::collections::BTreeMap<String, lazuli_ir::Auth>,
+    tier3_by_feature: &std::collections::BTreeMap<String, Tier3FeatureSlice>,
 ) -> InspectFeature {
     let name = lines
         .first()
@@ -1165,6 +1392,33 @@ fn inspect_feature(
         .then(|| inspect_storage_projection(lines))
         .filter(|s| !s.fields.is_empty() || !s.api_outputs.is_empty());
 
+    // Phase L Tier 3 — jobs/webhooks/event_groups projections. Each is
+    // present only when the matching expand flag is set AND the feature
+    // actually declares the construct. Empty arrays still surface so
+    // consumers can distinguish "flag not set" from "no constructs
+    // declared".
+    let tier3 = tier3_by_feature.get(&name);
+    let jobs_projection = expansions.jobs.then(|| {
+        tier3
+            .map(|t| t.jobs.iter().map(project_job).collect::<Vec<_>>())
+            .unwrap_or_default()
+    });
+    let webhooks_projection = expansions.webhooks.then(|| {
+        tier3
+            .map(|t| t.webhooks.iter().map(project_webhook).collect::<Vec<_>>())
+            .unwrap_or_default()
+    });
+    let event_groups_projection = expansions.event_groups.then(|| {
+        tier3
+            .map(|t| {
+                t.event_groups
+                    .iter()
+                    .map(project_event_group)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
+
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
@@ -1188,6 +1442,153 @@ fn inspect_feature(
         expose,
         auth,
         storage,
+        jobs: jobs_projection,
+        webhooks: webhooks_projection,
+        event_groups: event_groups_projection,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 3 — IR -> Inspect projections.
+// -----------------------------------------------------------------------------
+
+fn project_job(job: &lazuli_ir::Job) -> InspectJob {
+    let operational_kind: &'static str = match (&job.trigger, &job.queue) {
+        (lazuli_ir::JobTrigger::Schedule { .. }, _) => "scheduled",
+        (lazuli_ir::JobTrigger::Event { .. }, Some(_)) => "queued_worker",
+        (lazuli_ir::JobTrigger::Event { .. }, None) => "reactor",
+    };
+    let trigger = match &job.trigger {
+        lazuli_ir::JobTrigger::Event { event } => InspectJobTrigger::Event(format_qname(event)),
+        lazuli_ir::JobTrigger::Schedule { cron } => InspectJobTrigger::Schedule(cron.clone()),
+    };
+    InspectJob {
+        name: job.name.clone(),
+        operational_kind,
+        trigger,
+        queue: job.queue.clone(),
+        idempotency_by: job.idempotency.as_ref().map(|i| path_to_string(&i.by)),
+        retry: job.retry.as_ref().map(|r| InspectJobRetry {
+            count: r.count,
+            backoff: match r.backoff {
+                lazuli_ir::BackoffStrategy::Exponential => "exponential",
+                lazuli_ir::BackoffStrategy::Fixed => "fixed",
+            },
+        }),
+        policy: job.policy.as_ref().map(policy_ref_to_string),
+        tenant_from: job.tenant_from.as_ref().map(|t| path_to_string(&t.path)),
+        fanout: job.fanout.as_ref().map(|f| InspectJobFanout {
+            scope: match f.scope {
+                lazuli_ir::FanoutScope::Tenants => "tenants",
+            },
+            axis: f.axis.clone(),
+        }),
+        timeout: job.timeout.clone(),
+        external_calls: job
+            .external_calls
+            .iter()
+            .map(|c| InspectJobExternalCall {
+                slot: c.slot.clone(),
+                op: c.op.clone(),
+                args: c.args.iter().map(|a| a.name.clone()).collect(),
+            })
+            .collect(),
+        body: match &job.body {
+            lazuli_ir::JobBody::Handler(h) => InspectJobBody::Handler(InspectJobHandler {
+                path: h.path.path.clone(),
+                returns: h.returns.as_ref().map(type_ref_to_string),
+            }),
+            lazuli_ir::JobBody::Declarative(d) => {
+                if d.raw_target.is_none() && d.raw_lets.is_empty() && d.raw_effect.is_none() {
+                    InspectJobBody::None
+                } else {
+                    InspectJobBody::Declarative(InspectJobDeclarativeRaw {
+                        target: d.raw_target.clone(),
+                        lets: d.raw_lets.clone(),
+                        effect: d.raw_effect.clone(),
+                    })
+                }
+            }
+        },
+        emits: job.emits.clone(),
+        origin: "job",
+    }
+}
+
+fn project_webhook(webhook: &lazuli_ir::Webhook) -> InspectWebhook {
+    let verify = match &webhook.structured_verify {
+        Some(v) => InspectWebhookVerify {
+            scheme: match v.scheme {
+                lazuli_ir::VerifyScheme::Hmac => "hmac",
+            },
+            algorithm: v.algorithm.clone(),
+            secret_env: v.secret_env.clone(),
+            header: v.header.clone(),
+        },
+        None => InspectWebhookVerify {
+            scheme: "hmac",
+            algorithm: String::new(),
+            secret_env: String::new(),
+            header: String::new(),
+        },
+    };
+    InspectWebhook {
+        name: webhook.name.clone(),
+        route: webhook.route.clone(),
+        verify,
+        tenant_from: webhook
+            .tenant_from
+            .as_ref()
+            .map(|t| path_to_string(&t.path)),
+        idempotency_by: webhook.idempotency.as_ref().map(|i| path_to_string(&i.by)),
+        policy: webhook.policy.as_ref().map(policy_ref_to_string),
+        handler: webhook.handler.path.clone(),
+        returns: webhook.returns.as_ref().map(type_ref_to_string),
+        emits: webhook.emits.clone(),
+        origin: "webhook",
+    }
+}
+
+fn project_event_group(group: &lazuli_ir::EventGroup) -> InspectEventGroup {
+    InspectEventGroup {
+        pattern: group.pattern.clone(),
+        on_resource: group.on_resource.clone(),
+        payload: group.raw_payload.clone(),
+        audit: group.raw_audit.clone(),
+        events: group.events.clone(),
+        origin: "event_group",
+    }
+}
+
+fn format_qname(q: &lazuli_ir::QualifiedName) -> String {
+    match q.feature.as_deref() {
+        Some(f) => format!("{f}.{}", q.name),
+        None => q.name.clone(),
+    }
+}
+
+fn path_to_string(p: &lazuli_ir::Path) -> String {
+    p.segments.join(".")
+}
+
+fn policy_ref_to_string(p: &lazuli_ir::PolicyRef) -> String {
+    match p {
+        lazuli_ir::PolicyRef::Local(name) => format!("@policy.{name}"),
+        lazuli_ir::PolicyRef::Atom(atom) => atom.clone(),
+        lazuli_ir::PolicyRef::External { feature, name } => format!("{feature}.{name}"),
+        lazuli_ir::PolicyRef::Unresolved(text) => text.clone(),
+        lazuli_ir::PolicyRef::None => String::new(),
+    }
+}
+
+fn type_ref_to_string(t: &lazuli_ir::TypeRef) -> String {
+    match t {
+        lazuli_ir::TypeRef::Builtin(b) => format!("{b:?}"),
+        lazuli_ir::TypeRef::UserDefined(q) => format_qname(q),
+        lazuli_ir::TypeRef::EnumRef(q) => format_qname(q),
+        lazuli_ir::TypeRef::Many(inner) => format!("Many({})", type_ref_to_string(inner)),
+        lazuli_ir::TypeRef::Unresolved(s) => s.clone(),
+        lazuli_ir::TypeRef::Capability(_) => "@cap.File(...)".to_owned(),
     }
 }
 
