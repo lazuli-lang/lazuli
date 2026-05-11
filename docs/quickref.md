@@ -552,6 +552,64 @@ query.sql lifetime_value
   sql "./queries/customer_lifetime_value.sql"
 ```
 
+## Agents (Cut A)
+
+`agent <name>` declares an LLM-powered capability. Required children:
+`policy @policy.<name>`, `output <form>`, `model @llm.<name>`,
+`prompt "./path"`. The closed namespace catalog enforces `@llm.*`.
+
+| Form | Meaning |
+|------|---------|
+| `output stream <Type>` | streaming text-shaped response of the type |
+| `output discriminator <Enum>` | LLM returns one enum variant; downstream branches statically |
+| `output <Record>` | record output; record's `discriminator` field disambiguates |
+
+Optional Cut A children:
+
+```lazuli
+agent summarize_customer
+  input
+    customer_id: Customer.ID required
+  policy @policy.read
+  output stream Text
+  model @llm.default
+  temperature 0
+  seed 1
+  prompt "./prompts/summarize.md"
+  safety @validator.pii_scrub
+  tools
+    customer.query.lookup.by_id
+    customer.query.list
+    @tool.web_search
+  evals
+    case redacts_email
+      requires customer.email = "ada@example.com"
+      forbids output contains @semantic.Email
+    case uses_lookup_when_id_known
+      requires input.customer_id = "cus_123"
+      requires tools.calls includes customer.query.lookup.by_id
+```
+
+- `tools` lists every capability the LLM may invoke. Effect (`read |
+  write`) is derived; the underlying capability is the source of truth.
+  Adapter tools (`@tool.*`) pin `effect` in `registry.lzi`.
+- `evals` gates CI only when the agent declares both `temperature 0`
+  and `seed <int>`. Otherwise `eval_nondeterministic_warning` fires and
+  cases run as informational results.
+- Predicate extensions inside `evals`: `<ref> contains "<literal>"`,
+  `<ref> contains @semantic.<Type>`, `tools.calls includes|excludes
+  <tool-ref>`. Outside evals the predicate language is unchanged.
+- `safety` accepts a list of `@validator.<name>` references (Cut A.5
+  promotes the PII-coverage union check; Cut A reads the first).
+- Doctor cross-checks: tool policy lattice, write-tool guards by
+  `safety`, PII propagation from `@tool.*` registry entries,
+  discriminator target/field validity, eval ordered-op operand types,
+  eval determinism pin.
+
+`lazuli inspect <file> --expand=tools` emits the per-agent dispatch
+graph; `--expand=summary` extends with `evals`, `output_kind`,
+`output_discriminator`, `eval_determinism`.
+
 ## Tests
 
 Tests are inline IR assertions. They are optional by default and strict in

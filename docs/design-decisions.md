@@ -296,6 +296,62 @@ shipped in commit `93ac166`.
 **Where**: `docs/invariants.md` validators line. LSP
 `validation_syntax_diagnostics` warns the legacy forms.
 
+### Tool effect is derived, not declared at the binding site (Cut A)
+
+`agent ... tools` lists references only — no per-tool `effect: read |
+write`. The underlying capability (`query.*` → read; `command` → write;
+`api` → its declared `method`; `@tool.*` → its registry-side `effect`)
+is the source of truth. Re-declaring at the binding would create a
+contradiction surface that doctor must reconcile (extra rule, no extra
+invariant).
+
+This mirrors the existing surface convention (`submit
+command.<name>` inherits effect from the command). Authors signal
+intent by *which* tools they list; doctor cross-checks policy
+compatibility and write-tool guarding against `safety`.
+
+**Where**: proposal `docs/proposals/ai-primitives-v0.md` §A1. IR:
+`Agent.tools[].resolved_effect: Option<ToolEffect>` populated only by
+the inspect expand pass.
+
+### `evals` is separate from `tests` (Cut A)
+
+`tests` are pure-IR predicates evaluated by `lazuli check` and `lazuli
+test` against the IR — they never dispatch. `evals` runs a real LLM
+call under `lazuli test --evals` and must be gated by an explicit
+determinism pin (`temperature 0` AND `seed <int>`) for the case to gate
+CI; otherwise `eval_nondeterministic_warning` fires and cases produce
+informational results only.
+
+Conflating the two would make `lazuli check` non-deterministic for
+some constructs and not others. Keeping the determinism boundary
+explicit at the call site preserves `tests` as a pure-pipeline tool
+while giving evals a typed home.
+
+The predicate language extends only inside `evals`: `<ref> contains
+"<literal>"`, `<ref> contains @semantic.<Type>`, and `tools.calls
+includes|excludes <tool-ref>`. Outside evals the closed predicate
+language is unchanged.
+
+**Where**: proposal §A3. Doctor diagnostics
+`eval_nondeterministic_warning` and
+`eval_ordered_op_invalid_diagnostics` enforce the boundary.
+
+### Discriminated `output` lands before `flow` (Cut A)
+
+Discriminated output (`output discriminator <Enum>` or `output
+<Record>` with a `discriminator` field marker) ships in Cut A even
+though flow (the obvious consumer) is deferred to Cut B. The reason:
+flow's `step on <prev>.<branch>` needs a typed branch token from day
+one. Landing the discriminator first means flow is a pure routing-graph
+addition on top of an already-shipped output type system, and the
+branch-checking diagnostic is implementable when flow eventually ships
+without retrofitting the IR.
+
+**Where**: proposal §A2; IR `AgentOutputKind` + `DiscriminatorRef`.
+Doctor diagnostics `agent_discriminator_target_invalid_diagnostics` and
+`agent_discriminator_field_invalid_diagnostics`.
+
 ## Already-shipped primitives the audit pipeline keeps hallucinating as missing
 
 The `audit-primitives` and `identify-missing` stages have repeatedly

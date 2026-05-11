@@ -2049,13 +2049,46 @@ fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 fn namespace_references(line: &str) -> Vec<&str> {
-    let mut namespaces = Vec::new();
-    let mut rest = line;
+    // Mask the spans inside double-quoted string literals so e.g.
+    // `requires customer.email = "ada@example.com"` does not surface
+    // `@example` as a stray namespace. The scan walks the original byte
+    // slice; the mask just decides which `@` positions are eligible.
+    let bytes = line.as_bytes();
+    let mut in_quote = false;
+    let mut quote_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut quote_start = 0;
+    for (i, b) in bytes.iter().enumerate() {
+        if *b == b'"' {
+            if in_quote {
+                quote_ranges.push((quote_start, i + 1));
+                in_quote = false;
+            } else {
+                quote_start = i;
+                in_quote = true;
+            }
+        }
+    }
+    let in_string = |pos: usize| {
+        quote_ranges
+            .iter()
+            .any(|(start, end)| pos >= *start && pos < *end)
+    };
 
-    while let Some(start) = rest.find('@') {
-        let after_at = &rest[start + 1..];
+    let mut namespaces = Vec::new();
+    let mut cursor = 0;
+
+    while cursor < line.len() {
+        let Some(rel) = line[cursor..].find('@') else {
+            break;
+        };
+        let at_pos = cursor + rel;
+        if in_string(at_pos) {
+            cursor = at_pos + 1;
+            continue;
+        }
+        let after_at = &line[at_pos + 1..];
         let Some(dot) = after_at.find('.') else {
-            rest = after_at;
+            cursor = at_pos + 1;
             continue;
         };
 
@@ -2068,7 +2101,7 @@ fn namespace_references(line: &str) -> Vec<&str> {
             namespaces.push(namespace);
         }
 
-        rest = &after_at[dot + 1..];
+        cursor = at_pos + 1 + dot + 1;
     }
 
     namespaces

@@ -105,12 +105,31 @@ source that only fails later.
   Inspect locators report the kind as `query.<list|lookup|sql>`.
 - `agent <name>` declares an LLM-powered capability with typed input, context,
   policy, rate limit, output, model reference, prompt template, optional tool
-  list, and optional safety classifier. Required children: `policy
-  @policy.<name>`, `output [stream] <Type>`, `model @llm.<name>`, `prompt
-  "./path"`. Optional model config siblings: `temperature` (0.0-2.0), `top_p`
-  (0.0-1.0), `max_tokens` (positive integer), `seed` (integer). Lazuli owns
-  the contract; the runtime wires the LLM transport, prompt-template loading, and
-  tool dispatch.
+  list, optional safety classifier list, optional eval cases, and discriminated
+  output forms. Required children: `policy @policy.<name>`, `output <form>`
+  (one of `stream <Type>`, `discriminator <Enum>`, or a bare `<Type>` —
+  the bare form lowers to `text` and is promoted to `discriminated_record`
+  by the analyzer when the type resolves to a record carrying a
+  `discriminator` field), `model @llm.<name>`, `prompt "./path"`. Optional
+  model config siblings: `temperature` (0.0-2.0), `top_p` (0.0-1.0),
+  `max_tokens` (positive integer), `seed` (integer). Optional Cut A
+  children:
+  - `tools` — indent-6 list of `<feature>.<kind>.<name>` /
+    `<kind>.<name>` shorthand / `@tool.<dotted>` references. Effect
+    (`read | write`) is derived from the underlying capability; the
+    proposal forbids re-declaring at the binding. Doctor cross-checks
+    policy compatibility, write-tool guarding by `safety`, and PII
+    propagation from the registry-side `@tool.*` entries.
+  - `evals` — indent-6 `case <name>` blocks with `requires`/`forbids`
+    assertions over the closed predicate language extended (only inside
+    evals) with `<ref> contains <"literal"|@semantic.<Type>>` and
+    `tools.calls includes|excludes <tool-ref>`. Eval cases gate CI only
+    when the agent declares both `temperature 0` and `seed <int>`; doctor
+    warns `eval_nondeterministic_warning` otherwise.
+  - `safety` accepts one or more `@validator.<name>` references (Cut A
+    sees the first; Cut A.5 widens to PII coverage union check).
+  Lazuli owns the contract; the runtime wires the LLM transport,
+  prompt-template loading, and tool dispatch.
 - `notification <name>` declares a multi-channel outbound notification.
   Required children: `channel <email|push|sms|in_app>[, ...]`,
   `recipient <expression>`, `trigger event <pattern>`, `template "./path"`,
