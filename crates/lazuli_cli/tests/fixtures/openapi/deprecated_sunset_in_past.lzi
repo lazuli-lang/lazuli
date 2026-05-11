@@ -1,0 +1,12 @@
+# Doctor fixture — `deprecated_sunset_in_past`.
+# Sunset is well-formed but the date is before the doctor pivot.
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  command reassign
+    policy @policy.create
+    deprecated sunset "2024-01-01"
+    target Customer

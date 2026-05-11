@@ -13,13 +13,14 @@ use crate::ast::{
     CommandRouteSlot, ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup,
     FeatureDefaults, FeatureSkeleton, Field, FieldModifier, HttpMethod, InvalidatesDecl, Job,
     JobBody, JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler,
-    JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl, LookupKey, LookupQueryDecl, LzxAction,
-    LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
-    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
-    Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl,
-    ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, SqlQueryDecl, Surface,
-    TargetArgDecl, TargetExprDecl, TenantMigration, ToolsCallsOp, Webhook, WebhookDlq,
-    WebhookHandler, WebhookReplay, WebhookVerify,
+    JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey,
+    LookupQueryDecl, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
+    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
+    LzxViewExtension, Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl,
+    ResourceFieldDecl, ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span,
+    SqlQueryDecl, Surface, TargetArgDecl, TargetExprDecl, TenantMigration, ToolsCallsOp,
+    TranslationDecl, TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, Webhook,
+    WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1162,6 +1163,7 @@ fn parse_feature_skeleton(
     let mut resources: Vec<ResourceDecl> = Vec::new();
     let mut queries: Vec<QueryDecl> = Vec::new();
     let mut records: Vec<RecordDecl> = Vec::new();
+    let mut translation: Option<TranslationDecl> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1321,6 +1323,22 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // i18n bucket cycle — `translation` block. At most one per
+        // feature; duplicate is a parse error.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "translation" {
+            if translation.is_some() {
+                return Err(line_error(
+                    line,
+                    "feature may declare at most one `translation` block",
+                ));
+            }
+            let (parsed, next) = parse_translation_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            translation = Some(parsed);
+            i = next;
+            continue;
+        }
+
         // Any other feature child is skipped silently — workflows and
         // surfaces remain in the legacy text-pattern doctor pipeline.
         last_end = line.end;
@@ -1343,6 +1361,7 @@ fn parse_feature_skeleton(
             resources,
             queries,
             records,
+            translation,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -2530,6 +2549,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
     let mut policy: Option<String> = None;
     let mut rate_limit: Option<String> = None;
     let mut handler: Option<String> = None;
+    let mut locale_negotiate: Option<LocaleNegotiateDecl> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
     while i < lines.len() {
@@ -2580,10 +2600,21 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             handler = Some(unquote_lzx_value(rest.trim()).to_owned());
             last_end = line.end;
             i += 1;
+        } else if trimmed == "locale_negotiate" {
+            if locale_negotiate.is_some() {
+                return Err(line_error(
+                    line,
+                    "`api` may declare at most one `locale_negotiate` block",
+                ));
+            }
+            let (parsed, next) = parse_locale_negotiate_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            locale_negotiate = Some(parsed);
+            i = next;
         } else {
             return Err(line_error(
                 line,
-                "`api` children are `method`, `path`, `output`, `policy`, `rate_limit`, or `handler`",
+                "`api` children are `method`, `path`, `output`, `policy`, `rate_limit`, `handler`, or `locale_negotiate`",
             ));
         }
     }
@@ -2606,6 +2637,74 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             policy,
             rate_limit,
             handler,
+            locale_negotiate,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// i18n bucket cycle — parse a `locale_negotiate` block. Header at
+/// indent 4 (inside `api`) or higher (inside `app.runtime unit` is
+/// parsed by `app_manifest.rs` separately). Children at indent 6
+/// (six-space): `source <axis>`, `strategy <name>`, `fallback <tag>`.
+/// All slots optional.
+fn parse_locale_negotiate_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LocaleNegotiateDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let mut source: Option<String> = None;
+    let mut strategy: Option<String> = None;
+    let mut fallback: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`locale_negotiate` body children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("source ") {
+            source = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("strategy ") {
+            strategy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("fallback ") {
+            fallback = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`locale_negotiate` children are `source`, `strategy`, or `fallback`",
+            ));
+        }
+    }
+
+    Ok((
+        LocaleNegotiateDecl {
+            source,
+            strategy,
+            fallback,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -5012,6 +5111,193 @@ fn parse_notification(
         },
         i,
     ))
+}
+
+/// i18n bucket cycle — parse a `translation` block. Header is the
+/// bare keyword (no name). Children at indent 4: `catalog "<path>"`
+/// (required, exactly one) and `key <name>` (repeatable). Inside a
+/// `key <name>`, indent 6 carries BCP-47 variants (`pt-BR "..."`) and
+/// optional `plural <arm>` blocks; inside `plural <arm>`, indent 8
+/// carries another set of BCP-47 variants.
+fn parse_translation_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(TranslationDecl, usize), ParseError> {
+    let header = &lines[start];
+    let mut catalog: Option<String> = None;
+    let mut keys: Vec<TranslationKeyDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "translation body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("catalog ") {
+            if catalog.is_some() {
+                return Err(line_error(
+                    line,
+                    "`translation` may declare at most one `catalog` line",
+                ));
+            }
+            catalog = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("key ") {
+            let name = rest.trim().to_owned();
+            if name.is_empty() {
+                return Err(line_error(line, "`key` requires a name"));
+            }
+            let (key, next) = parse_translation_key(lines, i, name)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            keys.push(key);
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "translation children are `catalog \"<path>\"` and `key <name>`",
+            ));
+        }
+    }
+
+    let catalog = catalog.ok_or_else(|| {
+        line_error(
+            header,
+            "`translation` requires a `catalog \"<path>\"` declaration",
+        )
+    })?;
+
+    Ok((
+        TranslationDecl {
+            catalog,
+            keys,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_translation_key(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    name: String,
+) -> Result<(TranslationKeyDecl, usize), ParseError> {
+    let header = &lines[start];
+    let mut variants: Vec<TranslationVariantDecl> = Vec::new();
+    let mut plurals: Vec<TranslationPluralArmDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "translation key children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("plural ") {
+            let arm = rest.trim().to_owned();
+            if arm.is_empty() {
+                return Err(line_error(line, "`plural` requires an arm name"));
+            }
+            let (plural, next) = parse_translation_plural(lines, i, arm)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            plurals.push(plural);
+            i = next;
+        } else if let Some((locale, rest)) = trimmed.split_once(' ') {
+            let text = unquote_lzx_value(rest.trim()).to_owned();
+            variants.push(TranslationVariantDecl {
+                locale: locale.to_owned(),
+                text,
+            });
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "translation key body lines are `<bcp47-tag> \"<text>\"` or `plural <arm>`",
+            ));
+        }
+    }
+
+    Ok((
+        TranslationKeyDecl {
+            name,
+            variants,
+            plurals,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_translation_plural(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    arm: String,
+) -> Result<(TranslationPluralArmDecl, usize), ParseError> {
+    let header = &lines[start];
+    let mut variants: Vec<TranslationVariantDecl> = Vec::new();
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_GRANDCHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GREAT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "plural arm body uses eight-space indentation",
+            ));
+        }
+        if let Some((locale, rest)) = trimmed.split_once(' ') {
+            let text = unquote_lzx_value(rest.trim()).to_owned();
+            variants.push(TranslationVariantDecl {
+                locale: locale.to_owned(),
+                text,
+            });
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "plural arm body lines are `<bcp47-tag> \"<text>\"`",
+            ));
+        }
+    }
+
+    Ok((TranslationPluralArmDecl { arm, variants }, i))
 }
 
 fn parse_event_group(

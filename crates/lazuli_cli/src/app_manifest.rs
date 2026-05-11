@@ -551,6 +551,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                             runs: Vec::new(),
                             healthcheck: None,
                             readiness: None,
+                            locale_negotiate: None,
                         });
                         current_runtime_unit = app.runtime.len().checked_sub(1);
                     } else {

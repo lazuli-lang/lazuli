@@ -1,0 +1,12 @@
+# Doctor fixture — `deprecated_sunset_date_invalid`.
+# Sunset is malformed (`2025/12/01` instead of `2025-12-01`).
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  command reassign
+    policy @policy.create
+    deprecated sunset "2025/12/01"
+    target Customer

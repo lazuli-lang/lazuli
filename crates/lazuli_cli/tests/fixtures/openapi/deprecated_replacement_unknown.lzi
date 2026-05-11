@@ -1,0 +1,15 @@
+# Doctor fixture — `deprecated_replacement_unknown`.
+# `command reassign` deprecates and points at a same-feature command
+# that does not exist. Doctor must surface
+# `deprecated_replacement_unknown` exactly once.
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+      name: Text required
+
+  command reassign
+    policy @policy.create
+    deprecated replacement nonexistent
+    target Customer

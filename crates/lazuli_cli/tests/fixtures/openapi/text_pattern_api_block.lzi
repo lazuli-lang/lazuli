@@ -1,0 +1,21 @@
+# Doctor fixture — `openapi_text_pattern_api_block`.
+# An `api` block authored in legacy text-pattern style (no typed
+# `method`/`path`/`output` children at indent 4). Doctor warns that
+# OpenAPI emission for this api will fall back to a stub. The feature
+# is otherwise valid (carries a typed `command`) so the package
+# survives parsing.
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  command bootstrap
+    policy @policy.create
+    target Customer
+
+  api customer_legacy
+    method GET
+    path "/api/legacy"
+    output Customer
+    handler "./api/legacy.go"

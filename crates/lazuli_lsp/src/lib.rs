@@ -2162,6 +2162,11 @@ fn is_allowed_reference_namespace(namespace: &str) -> bool {
             // names live in `lazuli_ir::built_in_trace_events()`; LSP
             // checks resolution in `trigger_trace_unknown_diagnostics`.
             | "trace"
+            // i18n bucket cycle row 54 — reference-only namespace for
+            // `rule message @translation.<key>` (and post-pilot surface
+            // labels). Keys are declared in feature `translation` blocks;
+            // doctor's `rule_message_ref_unresolved` validates resolution.
+            | "translation"
     )
 }
 
@@ -11825,6 +11830,38 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "checkpoint" => Some(
             "Pinned IR snapshot for migration planning. `checkpoint <name> \"<path>\"` records a baseline; `lazuli plan --check <name>` validates the snapshot's integrity. Doctor: `DEPLOY-CHECKPOINT-001` (path missing) + `DEPLOY-CHECKPOINT-002` (version drift).",
+        ),
+        // OpenAPI bucket cycle — `deprecated` decorator + sub-fields.
+        "deprecated" => Some(
+            "Marks the command (or api, post-Tier-4) as deprecated. Inline form: `deprecated [since \"<version>\"] [replacement <ref>] [sunset \"<YYYY-MM-DD>\"]`. Generates OpenAPI `deprecated: true` + `Sunset` HTTP header. Doctor: `deprecated_replacement_unknown`, `deprecated_sunset_date_invalid`, `deprecated_sunset_in_past`.",
+        ),
+        "since" => Some(
+            "Version string when the deprecation was declared. Free-form (semver, calendar, git-sha); emitted verbatim as OpenAPI `x-lazuli-deprecated-since`.",
+        ),
+        "replacement" => Some(
+            "Replacement reference for a deprecated command. Resolves to a same-feature command name, a `<feature>.command.<name>` qualified ref, or an `https://` URL.",
+        ),
+        "sunset" => Some(
+            "ISO-8601 date (`YYYY-MM-DD`) when consumers must stop using this endpoint. Emitted as OpenAPI `x-lazuli-sunset` and HTTP `Sunset` header.",
+        ),
+        // i18n bucket cycle — locale / translation / locale_negotiate.
+        "translation" => Some(
+            "Feature-scoped translation block. Declares a catalog path (`./i18n/<feature>.<locale>.json`) and typed keys. Each key declares one variant per `app.locale.supported` tag, plus optional CLDR plural arms (`zero/one/two/few/many/other`).",
+        ),
+        "catalog" => Some(
+            "Translation catalog path. Carries `<locale>` placeholder; the runtime resolves it per request, e.g. `./i18n/customer.pt-BR.json`. Format (JSON/YAML/ICU MessageFormat) is a Drusa adapter contract.",
+        ),
+        "locale_negotiate" => Some(
+            "Per-runtime-unit (or per-api) middleware that resolves the request locale into `ctx.locale`. Closed catalog: `source` ∈ {accept_language|query_param|cookie|user_profile|subdomain}, `strategy` ∈ {best_match|prefix_match|exact_match}, optional `fallback <tag>`.",
+        ),
+        "source" => Some(
+            "Inside `locale_negotiate`: the request axis the runtime reads to determine the locale. Closed catalog: `accept_language`, `query_param`, `cookie`, `user_profile`, `subdomain`.",
+        ),
+        "supported" => Some(
+            "List of BCP-47 tags `app` accepts. The negotiation middleware matches `Accept-Language` against this list; `app.locale.default` must appear here.",
+        ),
+        "plural" => Some(
+            "CLDR plural arm. Closed catalog: `zero`, `one`, `two`, `few`, `many`, `other`. The actual rule for which arm fires is locale data from CLDR, not language-declared.",
         ),
         "trigger" => Some(
             "Declares the event or schedule that starts a job or notification. `trigger event <feature>.<event>` for reactors; `trigger schedule \"<cron>\"` for scheduled work.",

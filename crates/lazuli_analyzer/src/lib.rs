@@ -102,6 +102,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         notifications: Vec::new(),
         event_groups: Vec::new(),
         tenant_migrations: Vec::new(),
+        translation: None,
         auth: None,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -755,6 +756,7 @@ pub fn lower_feature_skeleton(
         notifications,
         event_groups,
         tenant_migrations,
+        translation: skeleton.translation.as_ref().map(lower_translation_decl),
         auth,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -1139,7 +1141,60 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         rate_limit: a.rate_limit.clone(),
         output: type_ref_from_text(&a.output),
         handler,
+        locale_negotiate: a.locale_negotiate.as_ref().map(lower_locale_negotiate_decl),
         span_ref: Some(span_of(a.span)),
+    }
+}
+
+/// i18n bucket cycle — lower an authored `translation` block onto
+/// `ir::Translation`. Variant locales and plural arms come through
+/// verbatim; doctor validates them against `app.locale.supported` and
+/// the CLDR plural catalog.
+fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
+    ir::Translation {
+        catalog: t.catalog.clone(),
+        keys: t
+            .keys
+            .iter()
+            .map(|key| ir::TranslationKey {
+                name: key.name.clone(),
+                variants: key
+                    .variants
+                    .iter()
+                    .map(|v| ir::TranslationVariant {
+                        locale: v.locale.clone(),
+                        text: v.text.clone(),
+                    })
+                    .collect(),
+                plurals: key
+                    .plurals
+                    .iter()
+                    .map(|p| ir::TranslationPluralArm {
+                        arm: p.arm.clone(),
+                        variants: p
+                            .variants
+                            .iter()
+                            .map(|v| ir::TranslationVariant {
+                                locale: v.locale.clone(),
+                                text: v.text.clone(),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// i18n bucket cycle — lower a per-api `locale_negotiate` block onto
+/// `ir::LocaleNegotiate`. The runtime-unit form is parsed elsewhere
+/// (`crates/lazuli_cli/src/app_manifest.rs`) since it lives on the
+/// `app.lzi` side rather than feature side.
+fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir::LocaleNegotiate {
+    ir::LocaleNegotiate {
+        source: n.source.clone(),
+        strategy: n.strategy.clone(),
+        fallback: n.fallback.clone(),
     }
 }
 

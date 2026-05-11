@@ -251,6 +251,53 @@ pub struct FeatureSkeleton {
     /// Phase L Tier 4d — `record <Name>` declarations (typed value
     /// records for projection outputs, distinct from resources).
     pub records: Vec<RecordDecl>,
+    /// i18n bucket cycle — `translation` block. At most one per
+    /// feature. Lowered into `ir::Translation` via the analyzer.
+    pub translation: Option<TranslationDecl>,
+    pub span: Span,
+}
+
+/// i18n bucket cycle — surface AST for a `translation` block. The
+/// analyzer copies this into `ir::Translation`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationDecl {
+    /// `catalog "<path>"` — required. Carries `<locale>` placeholder.
+    pub catalog: String,
+    pub keys: Vec<TranslationKeyDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationKeyDecl {
+    pub name: String,
+    pub variants: Vec<TranslationVariantDecl>,
+    pub plurals: Vec<TranslationPluralArmDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationVariantDecl {
+    /// BCP-47 tag, e.g. `pt-BR`.
+    pub locale: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationPluralArmDecl {
+    /// CLDR plural category: `zero`, `one`, `two`, `few`, `many`, `other`.
+    pub arm: String,
+    pub variants: Vec<TranslationVariantDecl>,
+}
+
+/// i18n bucket cycle — surface AST for a `locale_negotiate` block.
+/// Sits inside `api <name>` (per-endpoint override). The `app.runtime
+/// unit api locale_negotiate` form is parsed by `app_manifest.rs` since
+/// it lives on `app.lzi`. Both forms lower to `ir::LocaleNegotiate`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocaleNegotiateDecl {
+    pub source: Option<String>,
+    pub strategy: Option<String>,
+    pub fallback: Option<String>,
     pub span: Span,
 }
 
@@ -734,6 +781,8 @@ pub struct ApiDecl {
     pub rate_limit: Option<String>,
     /// `handler "./api/<name>.go"`.
     pub handler: Option<String>,
+    /// i18n bucket cycle — per-api `locale_negotiate` block override.
+    pub locale_negotiate: Option<LocaleNegotiateDecl>,
     pub span: Span,
 }
 

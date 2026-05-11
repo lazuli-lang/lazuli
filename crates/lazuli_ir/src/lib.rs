@@ -265,6 +265,11 @@ pub struct Feature {
     /// Doctor `TM-*` diagnostics consume this slot.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tenant_migrations: Vec<TenantMigration>,
+    /// i18n bucket cycle — `translation` block lifted from the
+    /// canonical-indent slice. `None` when the feature does not author
+    /// translation keys. Surfaces declared catalog path + typed keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<Translation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<Auth>,
     pub surfaces: Vec<Surface>,
@@ -1318,6 +1323,12 @@ pub struct Rule {
     pub denies: OperationRef,
     pub when: Predicate,
     pub message: String,
+    /// i18n bucket cycle — `message @translation.<key>` form. When set,
+    /// `message` is the empty string; the runtime resolves the typed
+    /// key at render time using `ctx.locale`. Doctor cross-checks the
+    /// reference against the surrounding feature's `Translation.keys`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1613,6 +1624,60 @@ pub struct LocaleFallback {
     pub to: String,
 }
 
+/// i18n bucket cycle — `locale_negotiate` decorator. Sits on
+/// `AppRuntimeUnit` (global default) and `Api` (per-endpoint override).
+/// Declares the request axis the runtime reads to populate
+/// `ctx.locale` and the matching strategy. All slots optional; the
+/// runtime defaults to `accept_language` + `best_match` when omitted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocaleNegotiate {
+    /// `source <axis>` — closed catalog: `accept_language`,
+    /// `query_param`, `cookie`, `user_profile`, `subdomain`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// `strategy <name>` — closed catalog: `best_match`, `prefix_match`,
+    /// `exact_match`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    /// `fallback <tag>` — BCP-47 tag in `app.locale.supported`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// i18n bucket cycle — `translation` block lifted onto `Feature`.
+/// Declares a per-locale catalog path and typed translation keys with
+/// optional CLDR plural arms.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Translation {
+    /// Catalog path with `<locale>` placeholder, e.g.
+    /// `./i18n/customer.<locale>.json`.
+    pub catalog: String,
+    pub keys: Vec<TranslationKey>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationKey {
+    pub name: String,
+    /// One entry per BCP-47 tag; must cover `app.locale.supported`.
+    pub variants: Vec<TranslationVariant>,
+    /// CLDR plural arms (`zero`/`one`/`two`/`few`/`many`/`other`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plurals: Vec<TranslationPluralArm>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationVariant {
+    pub locale: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationPluralArm {
+    /// `zero` | `one` | `two` | `few` | `many` | `other` per CLDR.
+    pub arm: String,
+    pub variants: Vec<TranslationVariant>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppBinding {
     pub target_feature: String,
@@ -1898,6 +1963,11 @@ pub struct AppRuntimeUnit {
     pub healthcheck: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<String>,
+    /// i18n bucket cycle — `locale_negotiate` decorator on the runtime
+    /// unit. Declares the global default request-locale negotiation
+    /// strategy. Per-api overrides live on `Api.locale_negotiate`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale_negotiate: Option<LocaleNegotiate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -2906,6 +2976,10 @@ pub struct Api {
     /// `handler "./api/..."` — required for legacy text-pattern APIs;
     /// canonical APIs may opt out in a future cut. Captured as a path.
     pub handler: PathRef,
+    /// i18n bucket cycle — per-api `locale_negotiate` override. When
+    /// `Some`, supersedes the runtime unit's default for this endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale_negotiate: Option<LocaleNegotiate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

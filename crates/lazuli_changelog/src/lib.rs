@@ -323,6 +323,7 @@ mod tests {
             notifications: Vec::new(),
             event_groups: Vec::new(),
             tenant_migrations: Vec::new(),
+            translation: None,
             auth: None,
             surfaces: Vec::new(),
             extensions: Vec::new(),
