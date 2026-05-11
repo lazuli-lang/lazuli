@@ -1,0 +1,27 @@
+# Doctor fixture — `cache_namespace_collision`.
+# Two distinct features declare the same cache namespace label. The
+# warning surfaces once per owning feature.
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+    query.list list
+      paginate 25
+      cache
+        key "customer-list-{tenant}"
+        ttl 5m
+        namespace shared
+
+feature tag
+  domain
+    resource Tag
+      id: ID required
+
+    query.list list
+      paginate 25
+      cache
+        key "tag-list-{tenant}"
+        ttl 5m
+        namespace shared

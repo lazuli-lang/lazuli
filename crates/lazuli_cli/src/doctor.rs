@@ -11308,6 +11308,114 @@ feature customer_auth
         );
     }
 
+    // =========================================================================
+    // Cache bucket cycle (row 51) — 5 doctor diagnostics on QueryCache /
+    // Command.invalidates / registry capabilities.
+    // =========================================================================
+
+    const CACHE_INVALIDATES_UNRESOLVED_FIXTURE: &str =
+        include_str!("../tests/fixtures/cache/invalidates_target_unresolved.lzi");
+    const CACHE_NAMESPACE_COLLISION_FIXTURE: &str =
+        include_str!("../tests/fixtures/cache/namespace_collision.lzi");
+    const CACHE_CAPABILITY_UNDECLARED_FIXTURE: &str =
+        include_str!("../tests/fixtures/cache/capability_undeclared.lzi");
+
+    #[test]
+    fn cache_invalidates_target_unresolved_fires() {
+        let package = package_from_sources(vec![("x.lzi", CACHE_INVALIDATES_UNRESOLVED_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache_invalidates_target_unresolved"),
+            "expected cache_invalidates_target_unresolved in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cache_namespace_collision_fires() {
+        let package = package_from_sources(vec![("x.lzi", CACHE_NAMESPACE_COLLISION_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache_namespace_collision"),
+            "expected cache_namespace_collision in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cache_capability_undeclared_fires() {
+        let package = package_from_sources(vec![("x.lzi", CACHE_CAPABILITY_UNDECLARED_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache_capability_undeclared"),
+            "expected cache_capability_undeclared in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cache_ttl_unit_invalid_fires_on_empty_quoted_prose() {
+        // Direct fact injection — the parser does not let an empty
+        // quoted ttl through (`parse_cache_ttl` short-circuits on the
+        // empty payload), but the doctor rule still guards the
+        // typed-promotion path so it stays defensive against future
+        // parser changes.
+        let mut package = package_from_sources(vec![]);
+        let cache = lazuli_ir::QueryCache {
+            key: "k".into(),
+            ttl: lazuli_ir::CacheTtl::Quoted("".into()),
+            tags: Vec::new(),
+            namespace: None,
+        };
+        let query = lazuli_ir::Query::List(lazuli_ir::ListQuery {
+            name: "list".into(),
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: Some(cache),
+            previous_names: Vec::new(),
+            span_ref: None,
+        });
+        package.tier3_facts.push(Tier3FeatureFacts {
+            feature: "customer".into(),
+            path: PathBuf::from("x.lzi"),
+            feature_line: 1,
+            tenancy_axis: None,
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            resource_previous_names: Vec::new(),
+            field_previous_names: Vec::new(),
+            all_resource_names_in_feature: BTreeSet::new(),
+            all_field_names_in_feature: BTreeMap::new(),
+            job_lines: BTreeMap::new(),
+            webhook_lines: BTreeMap::new(),
+            notification_lines: BTreeMap::new(),
+            tenant_migration_lines: BTreeMap::new(),
+            event_group_lines: BTreeMap::new(),
+            commands: Vec::new(),
+            command_lines: BTreeMap::new(),
+            queries: vec![query],
+            query_lines: BTreeMap::new(),
+            api_names_text_pattern: Vec::new(),
+            apis: Vec::new(),
+            translation: None,
+            translation_line: 1,
+        });
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache_ttl_unit_invalid"),
+            "expected cache_ttl_unit_invalid in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn openapi_text_pattern_api_block_fires() {
         // The diagnostic fires when the source contains an `api` token

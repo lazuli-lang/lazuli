@@ -1,0 +1,16 @@
+# Doctor fixture — `cache_invalidates_target_unresolved`.
+# `command create` invalidates a query that does not exist in the
+# feature. Doctor surfaces the error.
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+    query.list list
+      paginate 25
+
+  command create
+    policy @policy.create
+    target Customer
+    invalidates query.nonexistent

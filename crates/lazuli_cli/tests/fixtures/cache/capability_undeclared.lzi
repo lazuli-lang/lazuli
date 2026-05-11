@@ -1,0 +1,15 @@
+# Doctor fixture — `cache_capability_undeclared`.
+# A query carries a `cache` block but no `cache` capability is
+# declared in the package's registry. The fixture deliberately omits
+# `registry.lzi` so the absence is unambiguous.
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+    query.list list
+      paginate 25
+      cache
+        key "customer-list-{tenant}"
+        ttl 5m
