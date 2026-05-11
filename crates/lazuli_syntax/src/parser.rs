@@ -1693,6 +1693,9 @@ fn parse_command_decl(
     let mut external_calls: Vec<JobExternalCall> = Vec::new();
     let mut tests: Vec<String> = Vec::new();
     let mut deprecated: Option<CommandDeprecatedDecl> = None;
+    let mut timeout: Option<String> = None;
+    let mut retry: Option<JobRetry> = None;
+    let mut idempotency_by: Option<String> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -1818,6 +1821,21 @@ fn parse_command_decl(
             external_calls.push(call);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
+            // Phase L Tier 4 follow-up — mirror `parse_job` timeout.
+            timeout = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("retry ") {
+            // Phase L Tier 4 follow-up — mirror `parse_job` retry.
+            retry = Some(parse_job_retry(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
+            // Phase L Tier 4 follow-up — mirror `parse_job` idempotency.
+            idempotency_by = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
         } else if trimmed == "tests" {
             let (parsed, next) = parse_command_tests_block(lines, i)?;
             tests.extend(parsed);
@@ -1839,7 +1857,7 @@ fn parse_command_decl(
         } else {
             return Err(line_error(
                 line,
-                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, or `tests`",
+                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, or `tests`",
             ));
         }
     }
@@ -1863,6 +1881,9 @@ fn parse_command_decl(
             emits,
             invalidates,
             external_calls,
+            timeout,
+            retry,
+            idempotency_by,
             tests,
             deprecated,
             span: Span::new(header.start, last_end),

@@ -16,15 +16,19 @@ use serde::{Deserialize, Serialize};
 
 /// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
 ///
-/// Bumped to 0.10.0 for Phase L Tier 4 follow-up — additive minor
+/// Bumped to 0.11.0 for Phase L Tier 4 follow-up — additive minor
 /// bump. New shapes:
 /// - `RouteSlot.from` (`Option<String>`).
 /// - `CapabilityRef::Hashed/Encrypted/Token` typed variants +
 ///   `HashedCapability`, `HashAlgorithm`, `EncryptedCapability`,
 ///   `TokenCapability`, `TokenStore`.
 /// - `BuiltinType::SemanticPhone`, `SemanticUrl`, `SemanticUuid`.
+/// - `Command.timeout`, `Command.retry`, `Command.idempotency`
+///   (mirrors of `Job`'s spine).
 ///
 /// History:
+/// - 0.10.0 — Phase L Tier 4 follow-up partial (capability variants
+///   + semantic types).
 /// - 0.9.0 — Phase L Tier 4 follow-up partial (`RouteSlot.from`).
 /// - 0.8.0 — Cut A.11: `AppManifest.cors`, `AppCors`, `AppCorsOriginRule`.
 /// - 0.7.0 — Cut A.10: `EvalCase.golden`, `GoldenSpec`.
@@ -35,7 +39,7 @@ use serde::{Deserialize, Serialize};
 /// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
 ///   output_kind/output_discriminator), `AppRegistry.tools` (+
 ///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
-pub const LZIR_SCHEMA: &str = "0.10.0";
+pub const LZIR_SCHEMA: &str = "0.11.0";
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -665,6 +669,19 @@ pub struct Command {
     /// Mirrors `Job.external_calls`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub external_calls: Vec<ExternalCallRef>,
+    /// Phase L Tier 4 follow-up — `timeout "<duration>"` literal.
+    /// Mirrors `Job.timeout`. Adapter parses; language keeps verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    /// Phase L Tier 4 follow-up — `retry <count> [backoff <strategy>]`.
+    /// Mirrors `Job.retry`. Doctor cross-checks against `external_calls`
+    /// to enforce `INT-CALL-RETRY-001`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryPolicy>,
+    /// Phase L Tier 4 follow-up — `idempotency by <field>[, ...]`.
+    /// Mirrors `Job.idempotency`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency: Option<IdempotencyKey>,
     /// OpenAPI bucket cycle — `deprecated [since "..." replacement <ref>
     /// sunset "..."]`. `None` for live commands; `Some` for those flagged.
     #[serde(default, skip_serializing_if = "Option::is_none")]

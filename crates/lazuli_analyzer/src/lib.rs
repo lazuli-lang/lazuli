@@ -455,6 +455,9 @@ fn lower_command(
         approval: None,
         invalidates: Vec::new(),
         external_calls: Vec::new(),
+        timeout: None,
+        retry: None,
+        idempotency: None,
         deprecated: None,
         tests: None,
         previous_names: Vec::new(),
@@ -1161,6 +1164,16 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         .collect();
     let external_calls = c.external_calls.iter().map(lower_external_call).collect();
     let deprecated = c.deprecated.as_ref().map(lower_command_deprecated);
+    // Phase L Tier 4 follow-up — lift `timeout`/`retry`/`idempotency by`
+    // mirrors of `parse_job`. Doctor cross-checks against
+    // `external_calls` for the `INT-CALL-*` integration coverage rules.
+    let timeout = c.timeout.clone();
+    let retry = c.retry.as_ref().map(lower_retry);
+    let idempotency = c
+        .idempotency_by
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::IdempotencyKey { by: path });
     ir::Command {
         name: c.name.clone(),
         kind,
@@ -1176,6 +1189,9 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         approval,
         invalidates,
         external_calls,
+        timeout,
+        retry,
+        idempotency,
         deprecated,
         tests: None,
         previous_names: c.previously.clone(),

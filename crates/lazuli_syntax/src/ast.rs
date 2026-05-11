@@ -401,6 +401,15 @@ pub struct CommandDecl {
     pub invalidates: Vec<InvalidatesDecl>,
     /// `calls <slot>.<op>` references inside the command body.
     pub external_calls: Vec<JobExternalCall>,
+    /// Phase L Tier 4 follow-up — `timeout "<duration>"` literal.
+    /// Mirrors `Job.timeout`. Adapter parses; surface keeps verbatim.
+    pub timeout: Option<String>,
+    /// Phase L Tier 4 follow-up — `retry <count> [backoff <strategy>]`.
+    /// Mirrors `Job.retry`.
+    pub retry: Option<JobRetry>,
+    /// Phase L Tier 4 follow-up — `idempotency by <field>[, ...]`.
+    /// Mirrors `Job.idempotency_by`.
+    pub idempotency_by: Option<String>,
     /// `tests` block — captured as raw lines until a typed test grammar
     /// lands. The body is the indented child list, trimmed.
     pub tests: Vec<String>,
