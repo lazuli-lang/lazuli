@@ -223,6 +223,14 @@ pub struct FeatureSkeleton {
     /// shape so the only translation the analyzer performs is field
     /// resolution (`Customer.email` → `FieldRef`).
     pub auth: Option<Auth>,
+    /// Phase L Tier 3 — `job <name>` blocks.
+    pub jobs: Vec<Job>,
+    /// Phase L Tier 3 — `webhook <name>` blocks.
+    pub webhooks: Vec<Webhook>,
+    /// Phase L Tier 3 — `notification <name>` blocks.
+    pub notifications: Vec<Notification>,
+    /// Phase L Tier 3 — `event_group <pattern> on <Resource>` blocks.
+    pub event_groups: Vec<EventGroup>,
     pub span: Span,
 }
 
@@ -473,4 +481,197 @@ pub enum ContainsRhs {
 pub enum ToolsCallsOp {
     Includes,
     Excludes,
+}
+
+// =============================================================================
+// Phase L Tier 3 — job / webhook / notification / event_group skeletons.
+//
+// All four constructs are feature children authored at
+// AGENT_INDENT_FEATURE_CHILD (2 spaces). Their grandchildren mirror the IR
+// shapes (`ir::Job`, `ir::Webhook`, `ir::Notification`, `ir::EventGroup`)
+// so lowering is structural.
+//
+// Route C (`docs/proposals/phase-l-tier-3-job-effect-scope.md:292-348`):
+// declarative-body grammar (`target query.by_id(...)`, `let new_score = ...`,
+// `updates Customer ... emits ...`) is captured as raw strings until Tier 4
+// lifts the shared declarative spine alongside `parse_command`. Handler-backed
+// bodies (`handler "./..."`) lower fully.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Job {
+    pub name: String,
+    pub trigger: JobTrigger,
+    /// `queue customer_imports` — execution lane for queued workers.
+    pub queue: Option<String>,
+    /// `tenant_from payload.<axis>_id` — path captured verbatim.
+    pub tenant_from: Option<String>,
+    /// `fanout tenants <axis>` — scheduled-job fanout directive.
+    pub fanout: Option<JobFanout>,
+    /// `idempotency by <path>` — path captured verbatim.
+    pub idempotency_by: Option<String>,
+    /// `retry <count> backoff <strategy>` — pair captured directly.
+    pub retry: Option<JobRetry>,
+    /// `policy @policy.<...>` — captured verbatim for lowering.
+    pub policy: Option<String>,
+    /// `timeout "30s"` — adapter-parsed duration literal.
+    pub timeout: Option<String>,
+    /// `calls <slot>.<op>` blocks lifted as `ExternalCallRef` shapes.
+    pub external_calls: Vec<JobExternalCall>,
+    /// Body of the job. Handler-backed bodies fully lower; declarative
+    /// bodies stay as raw lines until Tier 4.
+    pub body: JobBody,
+    /// `emits <event>` lines. Each is one event name (qualified or not).
+    pub emits: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum JobTrigger {
+    /// `trigger event customer.activated`.
+    Event(String),
+    /// `trigger schedule "0 2 * * *"`.
+    Schedule(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobFanout {
+    /// `tenants` — closed scope catalog today.
+    pub scope: String,
+    pub axis: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobRetry {
+    pub count: u32,
+    /// `fixed` or `exponential` — closed strategy catalog today.
+    pub backoff: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobExternalCall {
+    pub slot: String,
+    pub op: String,
+    /// `arg_name = path.expr` pairs captured verbatim. Tier 4 lifts
+    /// the right-hand-side expressions.
+    pub args: Vec<JobExternalCallArg>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobExternalCallArg {
+    pub name: String,
+    /// Right-hand side captured verbatim until Tier 4.
+    pub value: String,
+    pub span: Span,
+}
+
+/// Body of a job. `Handler` is a path reference; `Declarative` is
+/// captured as raw lines until Tier 4 lifts the shared spine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum JobBody {
+    Handler(JobHandler),
+    Declarative(JobDeclarativeRaw),
+    /// No `handler` and no `target` / `updates` / `creates` / `deletes`
+    /// authored. Some fixture jobs ship only `emits` (event reactors
+    /// with no declarative body); analyzer treats this as a parse error
+    /// only when neither effect nor emits is declared.
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobHandler {
+    /// `"./jobs/process_import.go"` — quotes stripped.
+    pub path: String,
+    /// Optional `returns <Type>` suffix.
+    pub returns: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobDeclarativeRaw {
+    /// `target query.by_id(...)` line, sans the `target ` prefix.
+    pub target: Option<String>,
+    /// `let new_score = ...` lines, sans the `let ` prefix.
+    pub lets: Vec<String>,
+    /// `updates Customer\n  score = new_score` collapsed into a single
+    /// raw block string. Tier 4 will lift the assignments.
+    pub effect: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Webhook {
+    pub name: String,
+    /// `path "/webhooks/..."` — raw HTTP route literal.
+    pub route: String,
+    /// `verify hmac sha256` + nested `secret`/`header`. Required.
+    pub verify: WebhookVerify,
+    /// `tenant_from payload.<axis>_id` — path captured verbatim.
+    pub tenant_from: Option<String>,
+    /// `idempotency by <path>` — captured verbatim.
+    pub idempotency_by: Option<String>,
+    pub policy: Option<String>,
+    /// `handler "./..."` — required for canonical webhooks today.
+    pub handler: Option<WebhookHandler>,
+    /// `emits <event>` lines.
+    pub emits: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookVerify {
+    /// `hmac` — closed scheme catalog today.
+    pub scheme: String,
+    /// `sha256`, etc. — adapter-parsed algorithm token.
+    pub algorithm: String,
+    /// `secret env.<NAME>` — env binding for the shared secret.
+    pub secret_env: Option<String>,
+    /// `header "X-..."` — quoted header literal.
+    pub header: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookHandler {
+    pub path: String,
+    pub returns: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notification {
+    pub name: String,
+    /// `channel email, in_app` — comma-split list.
+    pub channels: Vec<String>,
+    /// `recipient target.email` — path captured verbatim.
+    pub recipient: String,
+    /// `trigger event ...` or `trigger schedule "..."`.
+    pub trigger: JobTrigger,
+    /// `tenant_from payload.<axis>_id`.
+    pub tenant_from: Option<String>,
+    /// `idempotency by <path>`.
+    pub idempotency_by: Option<String>,
+    pub retry: Option<JobRetry>,
+    /// `template "./outreach/welcome.mjml"`.
+    pub template: String,
+    pub policy: Option<String>,
+    pub emits: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventGroup {
+    /// `customer_*` glob pattern.
+    pub pattern: String,
+    /// `on Customer` — owning resource type.
+    pub on_resource: Option<String>,
+    /// `payload` child lines captured verbatim.
+    pub payload: Vec<String>,
+    /// `audit ...` line captured verbatim.
+    pub audit: Option<String>,
+    /// Concrete `event <name>` headers under this group, recorded as
+    /// name strings. The full event bodies stay in the legacy lowering
+    /// pipeline; this slot drives doctor's pattern-prefix rule.
+    pub events: Vec<String>,
+    pub span: Span,
 }

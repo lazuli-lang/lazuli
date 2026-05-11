@@ -8,10 +8,12 @@ use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Auth,
     AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Command, ContainsRhs,
-    Document, FeatureSkeleton, Field, FieldModifier, HttpMethod, LzxAction, LzxApp, LzxAudience,
-    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
-    LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query, Span, Surface,
-    ToolsCallsOp,
+    Document, EventGroup, FeatureSkeleton, Field, FieldModifier, HttpMethod, Job, JobBody,
+    JobDeclarativeRaw, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
+    JobTrigger, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
+    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
+    LzxViewExtension, Notification, Query, Span, Surface, ToolsCallsOp, Webhook, WebhookHandler,
+    WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1143,6 +1145,10 @@ fn parse_feature_skeleton(
     let header = &lines[start];
     let mut agents = Vec::new();
     let mut auth: Option<Auth> = None;
+    let mut jobs: Vec<Job> = Vec::new();
+    let mut webhooks: Vec<Webhook> = Vec::new();
+    let mut notifications: Vec<Notification> = Vec::new();
+    let mut event_groups: Vec<EventGroup> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1183,9 +1189,48 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // Phase L Tier 3 — `job <name>` block.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("job ") {
+            let (parsed, next) = parse_job(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            jobs.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Phase L Tier 3 — `webhook <name>` block.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("webhook ") {
+            let (parsed, next) = parse_webhook(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            webhooks.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Phase L Tier 3 — `notification <name>` block.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("notification ") {
+            let (parsed, next) = parse_notification(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            notifications.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Phase L Tier 3 — `event_group <pattern> on <Resource>` block.
+        // The fixture authors the group inside `domain` at indent 4, so
+        // we accept any indent > feature-child (the construct keyword is
+        // unambiguous).
+        if trimmed.starts_with("event_group ") {
+            let (parsed, next) = parse_event_group(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            event_groups.push(parsed);
+            i = next;
+            continue;
+        }
+
         // Any other feature child is skipped silently — Phase L still
-        // leaves resources/commands/queries/workflows/jobs/webhooks to
-        // the text-pattern doctor pipeline.
+        // leaves resources/commands/queries/workflows to the
+        // text-pattern doctor pipeline (Tier 4).
         last_end = line.end;
         i += 1;
     }
@@ -1195,6 +1240,10 @@ fn parse_feature_skeleton(
             name,
             agents,
             auth,
+            jobs,
+            webhooks,
+            notifications,
+            event_groups,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -1772,6 +1821,736 @@ fn parse_auth_oauth(
         AuthOAuthProvider {
             provider,
             adapter,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 3 — job / webhook / notification / event_group parsers.
+//
+// All four constructs are feature children authored at
+// AGENT_INDENT_FEATURE_CHILD (2 spaces); their grandchildren live at
+// AGENT_INDENT_AGENT_CHILD (4 spaces). Inner blocks
+// (`verify`, `calls`, `payload`) lift their leaves to
+// AGENT_INDENT_GRANDCHILD (6 spaces) to match the auth-block pattern.
+//
+// Route C (`docs/proposals/phase-l-tier-3-job-effect-scope.md`):
+// declarative job bodies (`target query.by_id(...) / let / updates /
+// creates / deletes / emits`) are captured as raw lines until Tier 4
+// lifts the shared declarative spine alongside `parse_command`.
+// -----------------------------------------------------------------------------
+
+fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("job ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "job header must be `job <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "job header requires a name"));
+    }
+
+    let mut trigger: Option<JobTrigger> = None;
+    let mut queue: Option<String> = None;
+    let mut tenant_from: Option<String> = None;
+    let mut fanout: Option<JobFanout> = None;
+    let mut idempotency_by: Option<String> = None;
+    let mut retry: Option<JobRetry> = None;
+    let mut policy: Option<String> = None;
+    let mut timeout: Option<String> = None;
+    let mut external_calls: Vec<JobExternalCall> = Vec::new();
+    let mut handler: Option<JobHandler> = None;
+    let mut declarative_target: Option<String> = None;
+    let mut declarative_lets: Vec<String> = Vec::new();
+    let mut declarative_effect_lines: Vec<String> = Vec::new();
+    let mut emits: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            // Continuation lines (declarative-effect assignment body,
+            // `updates Customer` inner indent) are folded into the
+            // effect bag; the analyzer rejects malformed bodies at
+            // lowering. Anything more shallow falls out via the
+            // indent check above.
+            if !declarative_effect_lines.is_empty() && line.indent > AGENT_INDENT_AGENT_CHILD {
+                declarative_effect_lines.push(trimmed.to_owned());
+                last_end = line.end;
+                i += 1;
+                continue;
+            }
+            return Err(line_error(
+                line,
+                "job body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("trigger ") {
+            trigger = Some(parse_job_trigger(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("queue ") {
+            queue = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("tenant_from ") {
+            tenant_from = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("fanout ") {
+            fanout = Some(parse_job_fanout(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
+            idempotency_by = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("retry ") {
+            retry = Some(parse_job_retry(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
+            timeout = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("calls ") {
+            let (call, next) = parse_external_call(lines, i, rest)?;
+            external_calls.push(call);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("handler ") {
+            handler = Some(parse_handler_line(rest));
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("target ") {
+            declarative_target = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("let ") {
+            declarative_lets.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed.starts_with("updates ")
+            || trimmed.starts_with("creates ")
+            || trimmed.starts_with("deletes ")
+        {
+            // Declarative effect head. Tier 4 will lift this into
+            // typed assignments; for now we capture the entire indented
+            // block as raw lines.
+            declarative_effect_lines.push(trimmed.to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("emits ") {
+            emits.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "job children are `trigger`, `queue`, `tenant_from`, `fanout`, `idempotency by`, `retry`, `policy`, `timeout`, `calls`, `handler`, `target`, `let`, `updates`/`creates`/`deletes`, or `emits`",
+            ));
+        }
+    }
+
+    let trigger = trigger.ok_or_else(|| {
+        line_error(
+            header,
+            "`job` requires a `trigger event ...` or `trigger schedule ...` declaration",
+        )
+    })?;
+
+    let body = if let Some(handler) = handler {
+        JobBody::Handler(handler)
+    } else if declarative_target.is_some() || !declarative_effect_lines.is_empty() {
+        JobBody::Declarative(JobDeclarativeRaw {
+            target: declarative_target,
+            lets: declarative_lets,
+            effect: if declarative_effect_lines.is_empty() {
+                None
+            } else {
+                Some(declarative_effect_lines.join("\n"))
+            },
+        })
+    } else {
+        JobBody::None
+    };
+
+    Ok((
+        Job {
+            name,
+            trigger,
+            queue,
+            tenant_from,
+            fanout,
+            idempotency_by,
+            retry,
+            policy,
+            timeout,
+            external_calls,
+            body,
+            emits,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_job_trigger(line: &SourceLine<'_>, rest: &str) -> Result<JobTrigger, ParseError> {
+    let rest = rest.trim();
+    if let Some(ev) = rest.strip_prefix("event ") {
+        let ev = ev.trim();
+        if ev.is_empty() {
+            return Err(line_error(line, "`trigger event` requires an event name"));
+        }
+        return Ok(JobTrigger::Event(ev.to_owned()));
+    }
+    if let Some(cron) = rest.strip_prefix("schedule ") {
+        let cron = cron.trim();
+        if cron.is_empty() {
+            return Err(line_error(
+                line,
+                "`trigger schedule` requires a quoted cron expression",
+            ));
+        }
+        return Ok(JobTrigger::Schedule(unquote_lzx_value(cron).to_owned()));
+    }
+    Err(line_error(
+        line,
+        "`trigger` requires `event <name>` or `schedule \"<cron>\"`",
+    ))
+}
+
+fn parse_job_fanout(line: &SourceLine<'_>, rest: &str) -> Result<JobFanout, ParseError> {
+    let rest = rest.trim();
+    let (scope, axis) = rest.split_once(' ').ok_or_else(|| {
+        line_error(
+            line,
+            "`fanout` requires `<scope> <axis>`, e.g. `fanout tenants org`",
+        )
+    })?;
+    Ok(JobFanout {
+        scope: scope.to_owned(),
+        axis: axis.trim().to_owned(),
+    })
+}
+
+fn parse_job_retry(line: &SourceLine<'_>, rest: &str) -> Result<JobRetry, ParseError> {
+    let rest = rest.trim();
+    let (count_str, tail) = rest.split_once(' ').ok_or_else(|| {
+        line_error(
+            line,
+            "`retry` requires `<count> backoff <strategy>` (e.g. `retry 3 backoff exponential`)",
+        )
+    })?;
+    let count = count_str
+        .parse::<u32>()
+        .map_err(|_| line_error(line, "retry count must be a non-negative integer"))?;
+    let tail = tail.trim();
+    let backoff = tail.strip_prefix("backoff ").ok_or_else(|| {
+        line_error(
+            line,
+            "`retry` requires `<count> backoff <strategy>` (e.g. `retry 3 backoff exponential`)",
+        )
+    })?;
+    Ok(JobRetry {
+        count,
+        backoff: backoff.trim().to_owned(),
+    })
+}
+
+fn parse_handler_line(rest: &str) -> JobHandler {
+    let rest = rest.trim();
+    // `"./path.go" returns Type` — split before the unquoted `returns`.
+    let (path_part, returns_part) = if let Some(idx) = rest.find("\" returns ") {
+        let end = idx + 1; // include closing quote
+        (
+            rest[..end].to_owned(),
+            Some(rest[end + " returns ".len()..].trim().to_owned()),
+        )
+    } else {
+        (rest.to_owned(), None)
+    };
+    JobHandler {
+        path: unquote_lzx_value(path_part.trim()).to_owned(),
+        returns: returns_part,
+    }
+}
+
+fn parse_external_call(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    head_rest: &str,
+) -> Result<(JobExternalCall, usize), ParseError> {
+    let header = &lines[start];
+    let head = head_rest.trim();
+    let (slot, op) = head.split_once('.').ok_or_else(|| {
+        line_error(
+            header,
+            "`calls` requires `<slot>.<op>` (e.g. `calls crm.upsert_customer`)",
+        )
+    })?;
+    let mut args: Vec<JobExternalCallArg> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`calls` argument lines use six-space indentation",
+            ));
+        }
+
+        let (name, value) = trimmed
+            .split_once('=')
+            .ok_or_else(|| line_error(line, "`calls` argument lines must use `<name> = <expr>`"))?;
+        args.push(JobExternalCallArg {
+            name: name.trim().to_owned(),
+            value: value.trim().to_owned(),
+            span: Span::new(line.start, line.end),
+        });
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        JobExternalCall {
+            slot: slot.trim().to_owned(),
+            op: op.trim().to_owned(),
+            args,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("webhook ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "webhook header must be `webhook <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "webhook header requires a name"));
+    }
+
+    let mut route: Option<String> = None;
+    let mut verify: Option<WebhookVerify> = None;
+    let mut tenant_from: Option<String> = None;
+    let mut idempotency_by: Option<String> = None;
+    let mut policy: Option<String> = None;
+    let mut handler: Option<WebhookHandler> = None;
+    let mut emits: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "webhook body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("path ") {
+            route = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("verify ") {
+            let (parsed, next) = parse_webhook_verify(lines, i, rest)?;
+            verify = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("tenant_from ") {
+            tenant_from = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
+            idempotency_by = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("handler ") {
+            let handler_job = parse_handler_line(rest);
+            handler = Some(WebhookHandler {
+                path: handler_job.path,
+                returns: handler_job.returns,
+            });
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("emits ") {
+            emits.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "webhook children are `path`, `verify`, `tenant_from`, `idempotency by`, `policy`, `handler`, or `emits`",
+            ));
+        }
+    }
+
+    let route = route
+        .ok_or_else(|| line_error(header, "`webhook` requires a `path \"/...\"` declaration"))?;
+    let verify = verify.ok_or_else(|| {
+        line_error(
+            header,
+            "`webhook` requires a `verify hmac <alg>` declaration",
+        )
+    })?;
+
+    Ok((
+        Webhook {
+            name,
+            route,
+            verify,
+            tenant_from,
+            idempotency_by,
+            policy,
+            handler,
+            emits,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_webhook_verify(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    head_rest: &str,
+) -> Result<(WebhookVerify, usize), ParseError> {
+    let header = &lines[start];
+    let head = head_rest.trim();
+    let (scheme, algorithm) = head.split_once(' ').ok_or_else(|| {
+        line_error(
+            header,
+            "`verify` requires `<scheme> <algorithm>` (e.g. `verify hmac sha256`)",
+        )
+    })?;
+    let mut secret_env: Option<String> = None;
+    let mut header_lit: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`verify` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("secret ") {
+            // `secret env.CRM_WEBHOOK_SECRET` — record the env binding
+            // verbatim (analyzer extracts the env name).
+            secret_env = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("header ") {
+            header_lit = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "`verify` children are `secret` or `header`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        WebhookVerify {
+            scheme: scheme.to_owned(),
+            algorithm: algorithm.trim().to_owned(),
+            secret_env,
+            header: header_lit,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_notification(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(Notification, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("notification ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "notification header must be `notification <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "notification header requires a name"));
+    }
+
+    let mut channels: Vec<String> = Vec::new();
+    let mut recipient: Option<String> = None;
+    let mut trigger: Option<JobTrigger> = None;
+    let mut tenant_from: Option<String> = None;
+    let mut idempotency_by: Option<String> = None;
+    let mut retry: Option<JobRetry> = None;
+    let mut template: Option<String> = None;
+    let mut policy: Option<String> = None;
+    let mut emits: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "notification body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("channel ") {
+            channels = split_lzx_list(rest);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("recipient ") {
+            recipient = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("trigger ") {
+            trigger = Some(parse_job_trigger(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("tenant_from ") {
+            tenant_from = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
+            idempotency_by = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("retry ") {
+            retry = Some(parse_job_retry(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("template ") {
+            template = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("emits ") {
+            emits.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "notification children are `channel`, `recipient`, `trigger`, `tenant_from`, `idempotency by`, `retry`, `template`, `policy`, or `emits`",
+            ));
+        }
+    }
+
+    let recipient = recipient.ok_or_else(|| {
+        line_error(
+            header,
+            "`notification` requires a `recipient <path>` declaration",
+        )
+    })?;
+    let trigger = trigger.ok_or_else(|| {
+        line_error(
+            header,
+            "`notification` requires a `trigger event ...` or `trigger schedule ...` declaration",
+        )
+    })?;
+    let template = template.ok_or_else(|| {
+        line_error(
+            header,
+            "`notification` requires a `template \"./...\"` declaration",
+        )
+    })?;
+
+    Ok((
+        Notification {
+            name,
+            channels,
+            recipient,
+            trigger,
+            tenant_from,
+            idempotency_by,
+            retry,
+            template,
+            policy,
+            emits,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_event_group(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(EventGroup, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let rest = header_trimmed
+        .strip_prefix("event_group ")
+        .ok_or_else(|| line_error(header, "event_group header must be `event_group <pattern>`"))?
+        .trim();
+    if rest.is_empty() {
+        return Err(line_error(header, "event_group header requires a pattern"));
+    }
+    let (pattern, on_resource) = if let Some(idx) = rest.find(" on ") {
+        let (lhs, rhs) = rest.split_at(idx);
+        let resource = rhs[" on ".len()..].trim().to_owned();
+        if resource.is_empty() {
+            return Err(line_error(
+                header,
+                "`event_group ... on <Resource>` requires a resource name",
+            ));
+        }
+        (lhs.trim().to_owned(), Some(resource))
+    } else {
+        (rest.to_owned(), None)
+    };
+
+    // event_group sits inside `domain`, so its children typically live
+    // at `header.indent + 2`. We track that floor here rather than the
+    // global agent indent because the group can appear at any depth
+    // depending on whether `domain` is nested.
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+
+    let mut payload: Vec<String> = Vec::new();
+    let mut audit: Option<String> = None;
+    let mut events: Vec<String> = Vec::new();
+    let mut in_payload = false;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= header_indent {
+            break;
+        }
+
+        if line.indent == child_indent {
+            in_payload = false;
+            if trimmed == "payload" {
+                in_payload = true;
+            } else if let Some(rest) = trimmed.strip_prefix("audit ") {
+                audit = Some(rest.trim().to_owned());
+            } else if let Some(rest) = trimmed.strip_prefix("event ") {
+                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+                if !name.is_empty() {
+                    events.push(name);
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("event.trace ") {
+                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+                if !name.is_empty() {
+                    events.push(name);
+                }
+            } else {
+                // Unknown child — Tier 4 may extend this; skip silently
+                // to match Phase L's existing fall-through behaviour.
+            }
+        } else if line.indent >= grandchild_indent && in_payload {
+            payload.push(trimmed.to_owned());
+        } else {
+            // Continuation of a non-payload child (e.g. event fields).
+            // We do not lift these here — the legacy lowering still
+            // owns event-field typing.
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        EventGroup {
+            pattern,
+            on_resource,
+            payload,
+            audit,
+            events,
             span: Span::new(header.start, last_end),
         },
         i,
