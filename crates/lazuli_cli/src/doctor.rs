@@ -509,6 +509,16 @@ impl DoctorPackage {
                                         &feature,
                                         &mut feature_resources,
                                     );
+                                    // Phase L Tier 4 follow-up — emit the
+                                    // typed command `external_calls`
+                                    // facts (replaces the retired
+                                    // `command` branch of
+                                    // `collect_external_calls_in_block`).
+                                    populate_command_external_calls_from_ir(
+                                        &file,
+                                        &feature,
+                                        &mut operational,
+                                    );
                                     for agent in feature.agents {
                                         let agent_line = agent
                                             .span_ref
@@ -1288,16 +1298,22 @@ fn collect_feature_external_calls(
         let trimmed = lines[index].trim_start();
         let leading = leading_spaces(lines[index]);
 
-        if leading == 2 && (trimmed.starts_with("command ") || trimmed.starts_with("job ")) {
-            let (subject_kind, subject_name) =
-                if let Some(name) = named_block_name(trimmed, "command") {
-                    ("command", name)
-                } else if let Some(name) = named_block_name(trimmed, "job") {
-                    ("job", name)
-                } else {
+        // Phase L Tier 4 follow-up — the `command` branch is retired.
+        // Commands now flow through `populate_command_external_calls_from_ir`
+        // which reads `Command.external_calls` + `Command.timeout` /
+        // `Command.retry` / `Command.idempotency` directly. The `job`
+        // branch remains text-pattern until a later cycle lifts job
+        // timeout/retry/idempotency consistently via the typed IR pass
+        // it already has (this collector still wins because it knows
+        // the exact `calls ` line offset, which `ExternalCallRef` lacks).
+        if leading == 2 && trimmed.starts_with("job ") {
+            let subject_name = match named_block_name(trimmed, "job") {
+                Some(name) => name,
+                None => {
                     index += 1;
                     continue;
-                };
+                }
+            };
             let block_start = index;
             index += 1;
 
@@ -1309,7 +1325,7 @@ fn collect_feature_external_calls(
                 file,
                 feature,
                 feature_start,
-                subject_kind,
+                "job",
                 subject_name,
                 block_start,
                 &lines[block_start..index],
@@ -1317,6 +1333,74 @@ fn collect_feature_external_calls(
             );
         } else {
             index += 1;
+        }
+    }
+}
+
+/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
+/// `command` branch of `collect_external_calls_in_block`. Walks each
+/// `command.external_calls` entry, finds its `calls <slot>.<op>` line
+/// in the source, and emits an `ExternalCallFact` carrying the typed
+/// `has_timeout` / `has_retry` / `has_idempotency` axes lifted from the
+/// `Command` IR. The line lookup is keyed on the verbatim `calls
+/// <slot>.<op>` substring inside the command body's source range, so
+/// the diagnostic anchors stay precise.
+fn populate_command_external_calls_from_ir(
+    file: &DoctorFile,
+    feature: &lazuli_ir::Feature,
+    operational: &mut OperationalFacts,
+) {
+    if feature.commands.is_empty() {
+        return;
+    }
+    let command_lines = collect_construct_lines(
+        &file.source,
+        "command ",
+        feature.commands.iter().map(|c| c.name.as_str()).collect(),
+    );
+    let source_lines: Vec<&str> = file.source.lines().collect();
+    for command in &feature.commands {
+        if command.external_calls.is_empty() {
+            continue;
+        }
+        let header_line = command_lines
+            .get(&command.name)
+            .copied()
+            .unwrap_or(1)
+            .saturating_sub(1);
+        // Block ends at the next top-level construct (indent <= 2).
+        let mut block_end = header_line + 1;
+        while block_end < source_lines.len() && leading_spaces(source_lines[block_end]) > 2 {
+            block_end += 1;
+        }
+        let has_timeout = command.timeout.is_some();
+        let has_retry = command.retry.is_some();
+        let has_idempotency = command.idempotency.is_some();
+        let subject = format!("{}.command.{}", feature.name, command.name);
+        for call in &command.external_calls {
+            let needle = format!("calls {}.{}", call.slot, call.op);
+            let mut call_line = header_line + 1; // fall back to header
+            let mut call_column = 1;
+            for i in (header_line + 1)..block_end {
+                if source_lines[i].trim_start().starts_with(needle.as_str()) {
+                    call_line = i + 1;
+                    call_column = leading_spaces(source_lines[i]) + 1;
+                    break;
+                }
+            }
+            operational.external_calls.push(ExternalCallFact {
+                path: file.path.clone(),
+                line: call_line,
+                column: call_column,
+                feature: feature.name.clone(),
+                subject_kind: "command".to_owned(),
+                subject: subject.clone(),
+                slot: call.slot.clone(),
+                operation: call.op.clone(),
+                has_timeout,
+                has_retry,
+                has_idempotency,
+            });
         }
     }
 }
@@ -8172,6 +8256,11 @@ mod tests {
                                 &file.source,
                                 &feature,
                                 &mut feature_resources,
+                            );
+                            populate_command_external_calls_from_ir(
+                                &file,
+                                &feature,
+                                &mut operational,
                             );
                             for agent in feature.agents.clone() {
                                 let agent_line = agent
