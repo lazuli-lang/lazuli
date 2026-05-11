@@ -269,6 +269,7 @@ feature customer
     policy @policy.update
     rate_limit "60 per minute per user"
     audit actor, target.id, input.owner_id
+      emit_to audit_log
     approval
       required_when target.tier = enterprise
       by @role.admin
@@ -740,6 +741,7 @@ feature customer_import
       failed_rows: Integer
 
     event.trace customer_webhook_received
+      level warn
       external_id: Text
       org_id: ID
 

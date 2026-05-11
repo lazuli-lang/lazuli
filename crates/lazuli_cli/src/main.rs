@@ -850,6 +850,11 @@ struct InspectSecurityOperation {
 struct InspectAudit {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     fields: Vec<String>,
+    /// Observability bucket cycle row 37 — `audit ... emit_to <X>`
+    /// destination. `None` means "runtime falls back to the reserved
+    /// `audit_log` stream".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    emit_to: Option<String>,
     origin: &'static str,
 }
 
@@ -3738,17 +3743,23 @@ fn collect_agent_eval_case_names(block: &[String]) -> Vec<String> {
 
 fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {
     let child_indent = lines.first().map(|line| leading_spaces(line) + 2)?;
+    let audit_grandchild_indent = child_indent + 2;
 
-    for line in lines.iter().skip(1) {
+    let mut hit_index: Option<usize> = None;
+    let mut audit: Option<InspectAudit> = None;
+    for (offset, line) in lines.iter().enumerate().skip(1) {
         if leading_spaces(line) != child_indent {
             continue;
         }
         let trimmed = line.trim_start();
         if trimmed == "audit" {
-            return Some(InspectAudit {
+            audit = Some(InspectAudit {
                 fields: Vec::new(),
+                emit_to: None,
                 origin,
             });
+            hit_index = Some(offset);
+            break;
         }
         if let Some(rest) = trimmed.strip_prefix("audit ") {
             let rest = rest.trim();
@@ -3760,10 +3771,38 @@ fn parse_audit(lines: &[String], origin: &'static str) -> Option<InspectAudit> {
                 .map(|part| part.trim().to_owned())
                 .filter(|part| !part.is_empty())
                 .collect();
-            return Some(InspectAudit { fields, origin });
+            audit = Some(InspectAudit {
+                fields,
+                emit_to: None,
+                origin,
+            });
+            hit_index = Some(offset);
+            break;
         }
     }
-    None
+
+    // Observability bucket cycle row 37 — scan grandchildren of the
+    // `audit` line for an `emit_to <target>` slot. The slot lives one
+    // indent step deeper than `audit` and stops at the next
+    // sibling-or-shallower line.
+    if let (Some(start), Some(audit_value)) = (hit_index, audit.as_mut()) {
+        for line in lines.iter().skip(start + 1) {
+            let leading = leading_spaces(line);
+            if leading <= child_indent {
+                break;
+            }
+            if leading != audit_grandchild_indent {
+                continue;
+            }
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("emit_to ") {
+                audit_value.emit_to = Some(rest.trim().to_owned());
+                break;
+            }
+        }
+    }
+
+    audit
 }
 
 fn direct_child_values(lines: &[String], prefix: &str) -> Vec<String> {

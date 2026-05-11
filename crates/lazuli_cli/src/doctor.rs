@@ -382,6 +382,14 @@ impl DoctorPackage {
         // payload drift checks.
         diagnostics.extend(agent_run_trace_diagnostics(&self.files));
 
+        // Observability bucket cycle row 37 — `audit emit_to`
+        // resolution, `event.trace level` closed catalog, and health
+        // probe path shape.
+        diagnostics.extend(audit_event_health_diagnostics(
+            &self.files,
+            self.app.as_ref(),
+        ));
+
         // Cut A.9 — `approval` primitive contract + role resolution.
         let known_roles = collect_known_roles(&self.files);
         diagnostics.extend(approval_diagnostics(&self.command_approvals, &known_roles));
@@ -5373,6 +5381,248 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
     diagnostics
 }
 
+// =============================================================================
+// Observability bucket cycle row 37 — audit `emit_to` + `event.trace level`
+//                                   + health probe path checks
+//
+// Four diagnostics:
+//   - `audit_emit_to_unknown_diagnostics`             error
+//   - `event_trace_level_invalid_diagnostics`         error
+//   - `event_trace_level_on_domain_event_diagnostics` error
+//   - `health_probe_path_invalid_diagnostics`         error
+//
+// `audit emit_to` resolution:
+//   - Reserved streams `audit_log` / `audit_stream` always resolve.
+//   - An authored `event_group <name>` in the same feature resolves.
+//   - Otherwise, doctor emits `audit_emit_to_unknown_diagnostics`.
+//
+// `event.trace <name> level <X>`:
+//   - Closed catalog `debug/info/warn/error` (shared with row 36).
+//   - Per the proposal §3.4, `level` is only valid on `event.trace`.
+//     A `level` slot under a domain `event` block is rejected (different
+//     diagnostic code so the author sees the right fix).
+//
+// Health probe paths come from `app.runtime <unit>.{healthcheck,readiness}`.
+// Doctor only validates the *shape* of the path string (`/foo`); the
+// runtime decides which mux to mount onto. Empty or missing-leading-slash
+// paths are rejected.
+//
+// See `docs/proposals/bucket-observability-cycle.md` §3.3 §3.4 §Runtime.
+// =============================================================================
+
+const TRACE_LEVEL_CATALOG: &[&str] = LOG_LEVEL_CATALOG;
+const RESERVED_AUDIT_STREAMS: &[&str] = &["audit_log", "audit_stream"];
+
+fn audit_event_health_diagnostics(
+    files: &[DoctorFile],
+    app: Option<&DoctorAppManifest>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // `event_group` names per feature (text-walk; the canonical-indent
+    // slice does not yet cover commands/event_groups — see Phase L
+    // row 24). Each entry is `(feature_name, event_group_name)`.
+    let mut feature_event_groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let mut current_feature: Option<String> = None;
+        for line in file.source.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            let leading = leading_spaces(line);
+            if leading == 0 {
+                current_feature = trimmed
+                    .strip_prefix("feature ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+                continue;
+            }
+            if let Some(feature) = current_feature.as_ref() {
+                if let Some(rest) = trimmed.strip_prefix("event_group ") {
+                    if let Some(name) = rest.split_whitespace().next() {
+                        feature_event_groups
+                            .entry(feature.clone())
+                            .or_default()
+                            .insert(name.to_owned());
+                    }
+                }
+            }
+        }
+    }
+
+    // `audit ... emit_to <X>` checks. The slot lives at indent +2
+    // below the `audit <fields>` line inside a command/job/webhook
+    // body.
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let lines: Vec<&str> = file.source.lines().collect();
+        let mut current_feature: Option<String> = None;
+        let mut audit_pending: Option<(usize, usize)> = None; // (line_index, indent of audit)
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            let leading = leading_spaces(line);
+            if leading == 0 {
+                current_feature = trimmed
+                    .strip_prefix("feature ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(str::to_owned);
+                audit_pending = None;
+                continue;
+            }
+            // Track audit headers as `audit <fields...>` or bare `audit`
+            // at indent 4 or 6 (command/job/webhook bodies).
+            if trimmed == "audit" || trimmed.starts_with("audit ") {
+                audit_pending = Some((i, leading));
+                continue;
+            }
+            if let Some((_, audit_indent)) = audit_pending {
+                if leading <= audit_indent {
+                    audit_pending = None;
+                } else if leading == audit_indent + 2 {
+                    if let Some(rest) = trimmed.strip_prefix("emit_to ") {
+                        let target = rest.trim();
+                        let resolved = if RESERVED_AUDIT_STREAMS.contains(&target) {
+                            true
+                        } else if let Some(feature) = current_feature.as_ref() {
+                            feature_event_groups
+                                .get(feature)
+                                .is_some_and(|set| set.contains(target))
+                        } else {
+                            false
+                        };
+                        if !resolved {
+                            let mut allowed: Vec<String> = RESERVED_AUDIT_STREAMS
+                                .iter()
+                                .map(|s| (*s).to_owned())
+                                .collect();
+                            if let Some(feature) = current_feature.as_ref() {
+                                if let Some(set) = feature_event_groups.get(feature) {
+                                    allowed.extend(set.iter().cloned());
+                                }
+                            }
+                            diagnostics.push(DoctorDiagnostic {
+                                path: file.path.clone(),
+                                line: i + 1,
+                                column: leading + 1,
+                                severity: DoctorSeverity::Error,
+                                code: "audit_emit_to_unknown_diagnostics".to_owned(),
+                                message: format!(
+                                    "`audit emit_to {target}` does not resolve. Allowed: {}.",
+                                    allowed
+                                        .iter()
+                                        .map(|s| format!("`{s}`"))
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                ),
+                            });
+                        }
+                        audit_pending = None;
+                    }
+                }
+            }
+        }
+    }
+
+    // `event.trace <name> level <X>` + domain-event `level` rejection.
+    // Both are text-walked because the canonical-indent slice does not
+    // yet lower events (Phase L row 24).
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let lines: Vec<&str> = file.source.lines().collect();
+        let mut pending_event: Option<(usize, bool, usize)> = None; // (start_line, is_trace, indent)
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            let leading = leading_spaces(line);
+            if let Some(rest) = trimmed.strip_prefix("event.trace ") {
+                let _ = rest;
+                pending_event = Some((i, true, leading));
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix("event ") {
+                let _ = rest;
+                pending_event = Some((i, false, leading));
+                continue;
+            }
+            if let Some((_, is_trace, event_indent)) = pending_event {
+                if leading <= event_indent {
+                    pending_event = None;
+                } else if let Some(level_rest) = trimmed.strip_prefix("level ") {
+                    let level = level_rest.trim();
+                    if is_trace {
+                        if !TRACE_LEVEL_CATALOG.contains(&level) {
+                            diagnostics.push(DoctorDiagnostic {
+                                path: file.path.clone(),
+                                line: i + 1,
+                                column: leading + 1,
+                                severity: DoctorSeverity::Error,
+                                code: "event_trace_level_invalid_diagnostics".to_owned(),
+                                message: format!(
+                                    "`event.trace ... level {level}` is not in the closed catalog. Allowed values: {}.",
+                                    catalog_list(TRACE_LEVEL_CATALOG),
+                                ),
+                            });
+                        }
+                    } else {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: file.path.clone(),
+                            line: i + 1,
+                            column: leading + 1,
+                            severity: DoctorSeverity::Error,
+                            code: "event_trace_level_on_domain_event_diagnostics".to_owned(),
+                            message: "`level` is only valid on `event.trace`, not on a domain `event`. Move the slot to a `event.trace` block or remove the `level` line.".to_owned(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Health probe paths from `app.runtime <unit>.{healthcheck,readiness}`.
+    // We trust the parser (`parse_app_manifest`) to populate the IR;
+    // doctor only validates shape ("/foo") here.
+    if let Some(manifest) = app {
+        for unit in &manifest.manifest.runtime {
+            for (slot, value) in [
+                ("healthcheck", unit.healthcheck.as_deref()),
+                ("readiness", unit.readiness.as_deref()),
+            ] {
+                let Some(path) = value else {
+                    continue;
+                };
+                if !path.starts_with('/') || path.contains(char::is_whitespace) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: manifest.path.clone(),
+                        line: 1,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "health_probe_path_invalid_diagnostics".to_owned(),
+                        message: format!(
+                            "`app.runtime unit {unit_name} {slot} {path:?}` must be a path starting with `/` and containing no whitespace.",
+                            unit_name = unit.name,
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
+
 /// Render a `{name1, name2, ...}`-style list for diagnostic messages.
 /// Empty sets render as `<none>` so the message stays unambiguous.
 fn format_name_list(names: &BTreeSet<String>) -> String {
@@ -7444,6 +7694,148 @@ app MyApp
         assert!(
             codes(&diagnostics).contains("app_tracing_exporter_unbound_diagnostics"),
             "expected app_tracing_exporter_unbound_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 37 — audit emit_to, event.trace
+    // level, and health probe path shape.
+
+    #[test]
+    fn doctor_rejects_audit_emit_to_unknown_stream() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command archive
+    audit actor, target.id
+      emit_to nonexistent_stream
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("audit_emit_to_unknown_diagnostics"),
+            "expected audit_emit_to_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_audit_emit_to_reserved_audit_log() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command archive
+    audit actor, target.id
+      emit_to audit_log
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("audit_emit_to_unknown_diagnostics"),
+            "reserved stream `audit_log` must resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_audit_emit_to_authored_event_group() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  event_group customer_audit *
+  command archive
+    audit actor, target.id
+      emit_to customer_audit
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("audit_emit_to_unknown_diagnostics"),
+            "authored event_group must resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_event_trace_level_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event.trace welcome_email_sent
+      level critical
+      payload
+        email: Text
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_level_invalid_diagnostics"),
+            "expected event_trace_level_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_level_on_domain_event() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    event customer_created
+      level warn
+      payload
+        id: ID
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("event_trace_level_on_domain_event_diagnostics"),
+            "expected event_trace_level_on_domain_event_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_health_probe_path_without_leading_slash() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  runtime
+    unit api
+      healthcheck "healthz"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("health_probe_path_invalid_diagnostics"),
+            "expected health_probe_path_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_canonical_health_probes() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  runtime
+    unit api
+      healthcheck "/healthz"
+      readiness "/readyz"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("health_probe_path_invalid_diagnostics"),
+            "canonical paths must not fire health probe diagnostic; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

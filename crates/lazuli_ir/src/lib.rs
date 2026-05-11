@@ -791,6 +791,13 @@ pub struct Event {
     pub name: String,
     pub kind: EventKind,
     pub payload: Vec<EventField>,
+    /// Observability bucket cycle row 37 — optional severity hint
+    /// authored on `event.trace <name>`. Closed catalog:
+    /// `debug`, `info`, `warn`, `error`. None defaults to `info` at
+    /// the adapter. Rejected on `EventKind::Domain` by doctor
+    /// (`event_trace_level_on_domain_event_diagnostics`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

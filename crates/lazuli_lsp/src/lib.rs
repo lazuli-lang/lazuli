@@ -11865,6 +11865,10 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "exporter" => Some(
             "Tracing exporter slot. Must resolve to a `registry.capabilities <name>: tracing` entry. `None` lets the runtime pick a default (no-op or stdout).",
         ),
+        // Observability bucket cycle row 37.
+        "emit_to" => Some(
+            "Audit destination. Resolves to one of the reserved streams (`audit_log`, `audit_stream`) or to an `event_group <name>` declared in the same feature. Without `emit_to`, the runtime falls back to `audit_log`.",
+        ),
         _ => None,
     }
 }
@@ -11920,6 +11924,8 @@ const KEYWORDS: &[&str] = &[
     "sample_rate",
     "propagate",
     "exporter",
+    // Observability bucket cycle row 37 — `audit emit_to` slot.
+    "emit_to",
     "defaults",
     "domain",
     "policies",
