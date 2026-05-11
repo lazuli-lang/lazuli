@@ -492,7 +492,21 @@ fn validate_known_fields(
     Ok(())
 }
 
+/// Public wrapper around `type_ref_from_syntax` so the inspect CLI can
+/// reuse the analyzer's `@cap.File(...)` typing pass without re-implementing
+/// the parser. The bare function stays private for the rest of the crate so
+/// future internal callers keep their existing access path.
+pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
+    type_ref_from_syntax(ty)
+}
+
 fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
+    // Phase L Tier 2 — typed `@cap.File(...)` capability. Other
+    // `@cap.*` decorators still fall through to `UserDefined` until the
+    // bucket cycle that types them lands.
+    if let Some(file) = parse_cap_file_type(ty) {
+        return ir::TypeRef::Capability(ir::CapabilityRef::File(file));
+    }
     match ty {
         "ID" | "Id" => ir::TypeRef::Builtin(ir::BuiltinType::Id),
         "Text" | "String" => ir::TypeRef::Builtin(ir::BuiltinType::Text),
@@ -507,6 +521,94 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
             feature: None,
             name: other.to_owned(),
         }),
+    }
+}
+
+/// Parse `@cap.File(max_size:25mb,accept:text/csv[,visibility:...,signed_ttl:...])`
+/// into a typed `FileCapability`. Returns `None` for any malformed shape so
+/// the caller falls through to the legacy `UserDefined` fallback — the LSP
+/// already surfaces shape errors for the same patterns.
+fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
+    let inner = ty.strip_prefix("@cap.File(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+
+    let max_size = parse_file_size(args.get("max_size")?)?;
+    let accept = parse_mime_list(args.get("accept")?)?;
+    if accept.is_empty() {
+        return None;
+    }
+    let visibility = args
+        .get("visibility")
+        .map(|s| s.as_str())
+        .and_then(parse_file_visibility);
+    let signed_ttl = args.get("signed_ttl").map(|s| s.clone());
+
+    Some(ir::FileCapability {
+        max_size,
+        accept,
+        visibility,
+        signed_ttl,
+    })
+}
+
+fn parse_capability_args(inner: &str) -> std::collections::BTreeMap<String, String> {
+    inner
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| {
+            part.split_once(':')
+                .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+        })
+        .collect()
+}
+
+fn parse_file_size(raw: &str) -> Option<ir::FileSize> {
+    let digit_count = raw.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digit_count == 0 || digit_count == raw.len() {
+        return None;
+    }
+    let amount: u32 = raw[..digit_count].parse().ok()?;
+    let unit = &raw[digit_count..];
+    let literal = match unit {
+        "kb" => ir::FileSizeLiteral::Kb(amount),
+        "mb" => ir::FileSizeLiteral::Mb(amount),
+        "gb" => ir::FileSizeLiteral::Gb(amount),
+        _ => return None,
+    };
+    Some(ir::FileSize {
+        bytes: literal.bytes(),
+        literal,
+    })
+}
+
+fn parse_mime_list(raw: &str) -> Option<Vec<ir::MimeType>> {
+    let mut out = Vec::new();
+    for token in raw.split('|') {
+        let token = token.trim();
+        if token.is_empty() {
+            return None;
+        }
+        let (family, subtype) = token.split_once('/')?;
+        let family = family.trim();
+        let subtype = subtype.trim();
+        if family.is_empty() || subtype.is_empty() {
+            return None;
+        }
+        out.push(ir::MimeType {
+            family: family.to_owned(),
+            subtype: subtype.to_owned(),
+        });
+    }
+    Some(out)
+}
+
+fn parse_file_visibility(raw: &str) -> Option<ir::FileVisibility> {
+    match raw {
+        "public" => Some(ir::FileVisibility::Public),
+        "private" => Some(ir::FileVisibility::Private),
+        "signed" => Some(ir::FileVisibility::Signed),
+        _ => None,
     }
 }
 
@@ -1065,7 +1167,9 @@ fn type_ref_from_text(text: &str) -> ir::TypeRef {
 mod tests {
     use lazuli_syntax::{parse_document, parse_lzx_document};
 
-    use super::{AnalyzeError, lower_auth_identity, lower_document, lower_lzx_document};
+    use super::{
+        AnalyzeError, lower_auth_identity, lower_document, lower_lzx_document, type_ref_from_syntax,
+    };
 
     #[test]
     fn lowers_valid_document_to_ir() {
@@ -1707,6 +1811,71 @@ feature customer_auth
             }
             other => panic!("expected InvalidAuthIdentity, got {other:?}"),
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 2 — `@cap.File(...)` typing
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn type_ref_from_syntax_lowers_full_cap_file() {
+        let ty = type_ref_from_syntax(
+            "@cap.File(max_size:25mb,accept:text/csv,visibility:private)",
+        );
+        match ty {
+            ir::TypeRef::Capability(ir::CapabilityRef::File(file)) => {
+                assert_eq!(file.max_size.bytes, 25 * 1024 * 1024);
+                assert!(matches!(
+                    file.max_size.literal,
+                    ir::FileSizeLiteral::Mb(25)
+                ));
+                assert_eq!(file.accept.len(), 1);
+                assert_eq!(file.accept[0].family, "text");
+                assert_eq!(file.accept[0].subtype, "csv");
+                assert_eq!(file.visibility, Some(ir::FileVisibility::Private));
+                assert!(file.signed_ttl.is_none());
+            }
+            other => panic!("expected Capability::File, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_lowers_multi_mime_cap_file() {
+        let ty = type_ref_from_syntax(
+            "@cap.File(max_size:100mb,accept:text/csv|application/vnd.ms-excel,visibility:signed,signed_ttl:1h)",
+        );
+        match ty {
+            ir::TypeRef::Capability(ir::CapabilityRef::File(file)) => {
+                assert_eq!(file.accept.len(), 2);
+                assert_eq!(file.accept[1].family, "application");
+                assert_eq!(file.accept[1].subtype, "vnd.ms-excel");
+                assert_eq!(file.visibility, Some(ir::FileVisibility::Signed));
+                assert_eq!(file.signed_ttl.as_deref(), Some("1h"));
+            }
+            other => panic!("expected Capability::File, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_falls_through_when_cap_file_missing_max_size() {
+        // No `max_size` arg → falls through to UserDefined so the LSP
+        // shape diagnostic remains the canonical authority.
+        let ty = type_ref_from_syntax("@cap.File(accept:text/csv)");
+        assert!(matches!(ty, ir::TypeRef::UserDefined(_)));
+    }
+
+    #[test]
+    fn type_ref_from_syntax_falls_through_when_cap_file_malformed_size() {
+        // `25xy` is not a recognised size literal.
+        let ty = type_ref_from_syntax("@cap.File(max_size:25xy,accept:text/csv)");
+        assert!(matches!(ty, ir::TypeRef::UserDefined(_)));
+    }
+
+    #[test]
+    fn type_ref_from_syntax_keeps_other_cap_decorators_as_userdefined() {
+        // `@cap.Hashed`/`@cap.Encrypted`/`@cap.Token` stay text-pattern.
+        let ty = type_ref_from_syntax("@cap.Hashed(algorithm:argon2id)");
+        assert!(matches!(ty, ir::TypeRef::UserDefined(_)));
     }
 
     #[test]

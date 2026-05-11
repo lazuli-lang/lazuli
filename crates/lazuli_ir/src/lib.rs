@@ -345,6 +345,13 @@ pub enum TypeRef {
     EnumRef(QualifiedName),
     Many(Box<TypeRef>),
     Unresolved(String),
+    /// Phase L Tier 2 — capability decorators with structured
+    /// arguments (`@cap.File(max_size:...,accept:...)`). Today only
+    /// `File` is typed; other `@cap.*` decorators (`Hashed`,
+    /// `Encrypted`, `Token`) stay as text-pattern in LSP and project
+    /// through `Unresolved`/`UserDefined` until the cycle that types
+    /// them lands.
+    Capability(CapabilityRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -360,7 +367,97 @@ pub enum BuiltinType {
     SemanticEmail,
     SemanticMoney,
     CapSecret,
+    /// Deprecated: the flat `CapFile` variant never carried arguments.
+    /// Phase L Tier 2 introduces `TypeRef::Capability(CapabilityRef::File(...))`
+    /// which carries the parsed `max_size`/`accept`/`visibility`/`signed_ttl`
+    /// slots. Kept for back-compat with serialized payloads predating the
+    /// typed shape.
     CapFile,
+}
+
+// =============================================================================
+// Phase L Tier 2 — typed `@cap.File` capability
+//
+// `@cap.File(max_size:<size>,accept:<mime>,visibility:<mode>,signed_ttl:<dur>)`
+// becomes a `TypeRef::Capability(CapabilityRef::File(FileCapability { ... }))`.
+//
+// Surface → IR mapping lives in `lazuli_analyzer::type_ref_from_syntax`.
+// Doctor cross-checks against `object_storage` capability + input/output
+// symmetry remain in the existing text-pattern doctor pipeline until the
+// storage bucket cycle migrates them.
+// =============================================================================
+
+/// Discriminated union for typed capability decorators. New variants land
+/// as the bucket cycles type each `@cap.*` family.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum CapabilityRef {
+    File(FileCapability),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileCapability {
+    pub max_size: FileSize,
+    /// At least one MIME entry. The `|`-separated source form is
+    /// normalised into a flat vector; a `*/*` wildcard authoring is
+    /// represented as `family: "*", subtype: "*"`.
+    pub accept: Vec<MimeType>,
+    /// `None` is the parse-time default (`private` on a resource
+    /// field, **required** on an api output — doctor warns on
+    /// omission). The bucket-storage cycle proposal carries the
+    /// closed catalog `{public, private, signed}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<FileVisibility>,
+    /// `Some` only when `visibility == Signed`. Mutually exclusive
+    /// with `visibility == Private` (doctor enforces); language
+    /// records what the author wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_ttl: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileSize {
+    pub bytes: u64,
+    /// Source-text literal preserved for inspect round-trip.
+    pub literal: FileSizeLiteral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "unit", content = "amount")]
+pub enum FileSizeLiteral {
+    Kb(u32),
+    Mb(u32),
+    Gb(u32),
+}
+
+impl FileSizeLiteral {
+    /// Convert the literal into a byte count. `kb` = 1024, `mb` = 1024*1024,
+    /// `gb` = 1024*1024*1024 (binary prefixes, matching the LSP literal
+    /// catalog `is_file_size_literal`).
+    pub fn bytes(self) -> u64 {
+        match self {
+            Self::Kb(n) => n as u64 * 1024,
+            Self::Mb(n) => n as u64 * 1024 * 1024,
+            Self::Gb(n) => n as u64 * 1024 * 1024 * 1024,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MimeType {
+    /// IANA top-level family (`text`, `image`, `application`, `audio`,
+    /// `video`, `font`) or wildcard `*`.
+    pub family: String,
+    /// Subtype, e.g. `csv`, `vnd.ms-excel`, `*`.
+    pub subtype: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileVisibility {
+    Public,
+    Private,
+    Signed,
 }
 
 /// Qualified name for a feature-scoped or local symbol. `feature` is `None`

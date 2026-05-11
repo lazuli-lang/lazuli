@@ -120,6 +120,12 @@ struct ExpandSet {
     /// IR. Without the flag the projection is omitted entirely; this
     /// keeps the default inspect output stable.
     auth: bool,
+    /// Phase L Tier 2 — `--expand=storage` projects every typed
+    /// `@cap.File(...)` site (resource fields + api outputs) with the
+    /// parsed `max_size`/`accept`/`visibility`/`signed_ttl`. Cross-
+    /// feature symmetry checks live in doctor (storage bucket cycle);
+    /// this projection is the per-feature observable.
+    storage: bool,
 }
 
 impl ExpandSet {
@@ -138,6 +144,7 @@ impl ExpandSet {
             tools: true,
             expose: true,
             auth: true,
+            storage: true,
         }
     }
 
@@ -155,6 +162,7 @@ impl ExpandSet {
             || self.tools
             || self.expose
             || self.auth
+            || self.storage
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -197,6 +205,9 @@ impl ExpandSet {
         }
         if self.auth {
             labels.push("auth");
+        }
+        if self.storage {
+            labels.push("storage");
         }
         labels
     }
@@ -428,8 +439,9 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "tools" => set.tools = true,
             "expose" => set.expose = true,
             "auth" => set.auth = true,
+            "storage" => set.storage = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, or auth"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, or storage"
             ),
         }
     }
@@ -517,6 +529,54 @@ struct InspectFeature {
     /// identity per workspace) live in doctor.
     #[serde(skip_serializing_if = "Option::is_none")]
     auth: Option<InspectAuth>,
+    /// Phase L Tier 2 — populated only when `--expand=storage` is set.
+    /// Every typed `@cap.File(...)` site in the feature: resource fields
+    /// and api outputs. Omitted entirely when no `@cap.File` is authored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<InspectStorage>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectStorage {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fields: Vec<InspectStorageField>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    api_outputs: Vec<InspectStorageApiOutput>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectStorageField {
+    resource: String,
+    field: String,
+    file_capability: InspectFileCapability,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectStorageApiOutput {
+    api: String,
+    file_capability: InspectFileCapability,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectFileCapability {
+    max_size: InspectFileSize,
+    accept: Vec<InspectMimeType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    visibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signed_ttl: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectFileSize {
+    bytes: u64,
+    literal: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectMimeType {
+    family: String,
+    subtype: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1074,6 +1134,16 @@ fn inspect_feature(
         .then(|| auth_by_feature.get(&name).map(project_auth))
         .flatten();
 
+    // Phase L Tier 2 — storage projection harvests every `@cap.File(...)`
+    // site from the source text and runs each through the typed
+    // analyzer pass. The projection is omitted when the feature
+    // declares zero file capabilities; that distinguishes "no storage"
+    // from "storage declared but empty" for downstream consumers.
+    let storage = expansions
+        .storage
+        .then(|| inspect_storage_projection(lines))
+        .filter(|s| !s.fields.is_empty() || !s.api_outputs.is_empty());
+
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
@@ -1098,6 +1168,135 @@ fn inspect_feature(
         tools,
         expose,
         auth,
+        storage,
+    }
+}
+
+/// Phase L Tier 2 — walk a feature's source lines, find every
+/// `@cap.File(...)` site, parse it via the analyzer's typed pass, and
+/// project the result. Two site shapes are recognised:
+///
+/// - `<field>: @cap.File(...)` inside a `resource <Name>` block.
+/// - `output @cap.File(...)` inside an `api <name>` block.
+///
+/// Unparseable shapes are skipped silently so the LSP's existing
+/// file-local diagnostics remain the canonical source of shape errors.
+fn inspect_storage_projection(lines: &[String]) -> InspectStorage {
+    let mut fields: Vec<InspectStorageField> = Vec::new();
+    let mut api_outputs: Vec<InspectStorageApiOutput> = Vec::new();
+
+    let mut current_resource: Option<String> = None;
+    let mut current_api: Option<String> = None;
+    let mut resource_indent: usize = 0;
+    let mut api_indent: usize = 0;
+
+    for raw in lines.iter() {
+        let trimmed = raw.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(raw);
+
+        // Detect entering / exiting resource and api blocks. The
+        // existing canonical fixture uses 4-space resource headers
+        // (inside `domain`) and 2-space api headers; we close the
+        // block as soon as the indent retreats to the header level
+        // or shallower.
+        if let Some(rest) = trimmed.strip_prefix("resource ") {
+            current_resource = Some(rest.split_whitespace().next().unwrap_or("").to_owned());
+            current_api = None;
+            resource_indent = indent;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("api ") {
+            current_api = Some(rest.split_whitespace().next().unwrap_or("").to_owned());
+            current_resource = None;
+            api_indent = indent;
+            continue;
+        }
+        if current_resource.is_some() && indent <= resource_indent && !trimmed.is_empty() {
+            current_resource = None;
+        }
+        if current_api.is_some() && indent <= api_indent && !trimmed.is_empty() {
+            current_api = None;
+        }
+
+        // Try a resource-field shape: `<field>: @cap.File(...)`.
+        if let Some(resource) = current_resource.as_deref() {
+            if let Some((field_name, cap_text)) = extract_cap_file_field(trimmed) {
+                if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file)) =
+                    lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
+                {
+                    fields.push(InspectStorageField {
+                        resource: resource.to_owned(),
+                        field: field_name,
+                        file_capability: project_file_capability(&file),
+                    });
+                }
+            }
+        }
+
+        // Try an api-output shape: `output @cap.File(...)`.
+        if let Some(api) = current_api.as_deref() {
+            if let Some(cap_text) = trimmed
+                .strip_prefix("output ")
+                .map(str::trim)
+                .filter(|rest| rest.starts_with("@cap.File("))
+            {
+                if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file)) =
+                    lazuli_analyzer::type_ref_from_syntax_public(cap_text)
+                {
+                    api_outputs.push(InspectStorageApiOutput {
+                        api: api.to_owned(),
+                        file_capability: project_file_capability(&file),
+                    });
+                }
+            }
+        }
+    }
+
+    InspectStorage {
+        fields,
+        api_outputs,
+    }
+}
+
+/// Extract `(field_name, "@cap.File(...)")` from a `<field>: @cap.File(...) [required]`
+/// resource line. Returns `None` if the line is not a `@cap.File` field.
+fn extract_cap_file_field(trimmed: &str) -> Option<(String, String)> {
+    let (name_part, type_part) = trimmed.split_once(':')?;
+    let name = name_part.trim();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return None;
+    }
+    // Drop trailing `required` / `optional` / annotation keywords so the
+    // analyzer parses the bare type expression.
+    let type_tokens = type_part.trim();
+    let cap_start = type_tokens.find("@cap.File(")?;
+    let from_cap = &type_tokens[cap_start..];
+    let close = from_cap.find(')')?;
+    let cap_text = &from_cap[..=close];
+    Some((name.to_owned(), cap_text.to_owned()))
+}
+
+fn project_file_capability(file: &lazuli_ir::FileCapability) -> InspectFileCapability {
+    InspectFileCapability {
+        max_size: InspectFileSize {
+            bytes: file.max_size.bytes,
+            literal: format_file_size_literal(file.max_size.literal),
+        },
+        accept: file
+            .accept
+            .iter()
+            .map(|m| InspectMimeType {
+                family: m.family.clone(),
+                subtype: m.subtype.clone(),
+            })
+            .collect(),
+        visibility: file
+            .visibility
+            .map(|v| format_file_visibility(v).to_owned()),
+        signed_ttl: file.signed_ttl.clone(),
     }
 }
 
@@ -2317,7 +2516,7 @@ fn built_in_trace_fires_per_word(kind: lazuli_ir::TraceFiresPer) -> &'static str
 }
 
 fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
-    use lazuli_ir::{BuiltinType, TypeRef};
+    use lazuli_ir::{BuiltinType, CapabilityRef, TypeRef};
     match t {
         TypeRef::Builtin(b) => match b {
             BuiltinType::Text => "Text",
@@ -2337,6 +2536,48 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
         TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
         TypeRef::Many(inner) => format!("{}*", format_type_ref(inner)),
         TypeRef::Unresolved(text) => text.clone(),
+        // Phase L Tier 2 — render the typed capability back into the
+        // canonical source form so inspect summary lines stay readable.
+        TypeRef::Capability(CapabilityRef::File(file)) => format_file_capability(file),
+    }
+}
+
+/// Render a `FileCapability` back into the `@cap.File(...)` source form.
+/// Used by both `format_type_ref` and the `--expand=storage` projection.
+fn format_file_capability(file: &lazuli_ir::FileCapability) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!("max_size:{}", format_file_size_literal(file.max_size.literal)));
+    let accept = file
+        .accept
+        .iter()
+        .map(|m| format!("{}/{}", m.family, m.subtype))
+        .collect::<Vec<_>>()
+        .join("|");
+    parts.push(format!("accept:{accept}"));
+    if let Some(v) = file.visibility {
+        parts.push(format!("visibility:{}", format_file_visibility(v)));
+    }
+    if let Some(ttl) = file.signed_ttl.as_deref() {
+        parts.push(format!("signed_ttl:{ttl}"));
+    }
+    format!("@cap.File({})", parts.join(","))
+}
+
+fn format_file_size_literal(literal: lazuli_ir::FileSizeLiteral) -> String {
+    use lazuli_ir::FileSizeLiteral::*;
+    match literal {
+        Kb(n) => format!("{n}kb"),
+        Mb(n) => format!("{n}mb"),
+        Gb(n) => format!("{n}gb"),
+    }
+}
+
+fn format_file_visibility(visibility: lazuli_ir::FileVisibility) -> &'static str {
+    use lazuli_ir::FileVisibility::*;
+    match visibility {
+        Public => "public",
+        Private => "private",
+        Signed => "signed",
     }
 }
 
@@ -5032,6 +5273,96 @@ feature customer_auth
             !json.contains("\"auth\":{"),
             "auth projection must be absent without --expand=auth: {json}"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 2 — `--expand=storage` projection coverage
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn inspect_storage_projection_emits_resource_field_capability() {
+        let source = r#"
+feature customer_import
+  domain
+    resource CustomerImportBatch
+      file: @cap.File(max_size:25mb,accept:text/csv) required
+      uploaded_by: User required
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.storage = true;
+        let report = inspect_canonical_source(
+            source,
+            Path::new("customer_import.lzi"),
+            expansions,
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        let storage = &json["features"][0]["storage"];
+        assert!(!storage.is_null(), "storage projection should be present: {json}");
+        let field = &storage["fields"][0];
+        assert_eq!(field["resource"], "CustomerImportBatch");
+        assert_eq!(field["field"], "file");
+        assert_eq!(field["file_capability"]["max_size"]["bytes"], 25 * 1024 * 1024);
+        assert_eq!(field["file_capability"]["max_size"]["literal"], "25mb");
+        assert_eq!(field["file_capability"]["accept"][0]["family"], "text");
+        assert_eq!(field["file_capability"]["accept"][0]["subtype"], "csv");
+    }
+
+    #[test]
+    fn inspect_storage_projection_emits_api_output_capability() {
+        let source = r#"
+feature customer
+  api customer_export
+    method GET
+    path "/api/customers/export"
+    output @cap.File(max_size:100mb,accept:text/csv,visibility:signed,signed_ttl:1h)
+    policy @policy.global_read
+    handler "./api/export.go"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.storage = true;
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        let output = &json["features"][0]["storage"]["api_outputs"][0];
+        assert_eq!(output["api"], "customer_export");
+        assert_eq!(output["file_capability"]["max_size"]["literal"], "100mb");
+        assert_eq!(output["file_capability"]["visibility"], "signed");
+        assert_eq!(output["file_capability"]["signed_ttl"], "1h");
+    }
+
+    #[test]
+    fn inspect_storage_projection_omitted_without_expand() {
+        let source = r#"
+feature customer_import
+  domain
+    resource CustomerImportBatch
+      file: @cap.File(max_size:25mb,accept:text/csv) required
+"#;
+        let report = inspect_canonical_source(
+            source,
+            Path::new("customer_import.lzi"),
+            ExpandSet::default(),
+        );
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            !json.contains("\"storage\":{"),
+            "storage projection must be absent without --expand=storage: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_storage_projection_absent_when_feature_has_no_cap_file() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      name: Text required
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.storage = true;
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        // No @cap.File authored → field omitted entirely.
+        assert!(json["features"][0]["storage"].is_null());
     }
 
     #[test]
