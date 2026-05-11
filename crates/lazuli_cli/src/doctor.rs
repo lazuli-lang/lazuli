@@ -2477,22 +2477,44 @@ fn event_group_pattern_prefix_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
             }
 
             // Pattern-prefix rule (row 34). Strip trailing `*` to get
-            // the prefix; every authored event under the group must
-            // start with it.
+            // the group prefix. Short event names are *promoted* by
+            // the group's prefix at lowering time — `event created`
+            // under `customer_*` becomes the qualified event
+            // `customer_created`. Authored event names are short names
+            // by default in canonical Lazuli; the rule only fires
+            // when the same feature declares *another* group whose
+            // prefix matches the event — then the author probably
+            // wrote the event under the wrong group.
             if let Some(prefix) = group.pattern.strip_suffix('*') {
-                for event_name in &group.events {
-                    if !event_name.starts_with(prefix) {
-                        diagnostics.push(DoctorDiagnostic {
-                            path: feature.path.clone(),
-                            line,
-                            column: 1,
-                            severity: DoctorSeverity::Warning,
-                            code: "EVENTGROUP-PREFIX-001".to_owned(),
-                            message: format!(
-                                "event `{}` authored under group `{}` does not start with prefix `{}`.",
-                                event_name, group.pattern, prefix
-                            ),
+                if !prefix.is_empty() {
+                    for event_name in &group.events {
+                        if event_name.starts_with(prefix) {
+                            continue;
+                        }
+                        // Look for another group whose prefix the
+                        // event matches; only then is misrouting likely.
+                        let other_owner = feature.event_groups.iter().find(|other| {
+                            if other.pattern == group.pattern {
+                                return false;
+                            }
+                            let Some(other_prefix) = other.pattern.strip_suffix('*') else {
+                                return false;
+                            };
+                            !other_prefix.is_empty() && event_name.starts_with(other_prefix)
                         });
+                        if let Some(other) = other_owner {
+                            diagnostics.push(DoctorDiagnostic {
+                                path: feature.path.clone(),
+                                line,
+                                column: 1,
+                                severity: DoctorSeverity::Warning,
+                                code: "EVENTGROUP-PREFIX-001".to_owned(),
+                                message: format!(
+                                    "event `{}` authored under group `{}` matches group `{}`'s prefix — move it to the matching group or rename.",
+                                    event_name, group.pattern, other.pattern
+                                ),
+                            });
+                        }
                     }
                 }
             }
