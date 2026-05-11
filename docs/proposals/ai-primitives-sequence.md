@@ -12,26 +12,31 @@ need a one-stop view of the AI surface beyond Cut A.
 ## Sequence
 
 ```
-Cut A   ──▶ Cut A.7 ──▶ Cut A.5 ──▶ Cut A.6 ──▶ Cut A.8 ──▶ Cut B
-    │           │           │           │           │           │
-parser      pre-evidenced evidence-   evidence-   coordinate  pilot-
- + IR     in fixture     gated       gated       w/ runtime  evidence
-                                                              gated
+Cut A ──▶ A.7 ──▶ A.8 ──▶ A.9 ──▶ A.10 ──▶ A.11 ──▶ A.5 ──▶ A.6 ──▶ B
+   │      │       │       │       │        │        │       │
+   │      │       │       │       │        │        │       │
+shipped shipped shipped shipped shipped shipped pilot-  pilot-
+                                                  gated   gated
 ```
 
 Cut A is the load-bearing foundation. Everything after is additive
-on top of Cut A's `Agent` IR.
+on top of Cut A's `Agent` IR. Six cuts (A, A.7, A.8, A.9, A.10,
+A.11) have shipped. A.5 and A.6 stay pilot-gated; Cut B and Cuts
+D–H remain on the deferred list.
 
 ## Status table
 
 | Cut | Title | Layer | Depends on | Gate | Status |
 |---|---|---|---|---|---|
-| **A** | tools + discriminated output + evals | language | — | proposal-approved; awaiting impl | [proposal](./ai-primitives-v0.md), [plan](./ai-primitives-v0-implementation.md) |
-| **A.7** | agent `expose http` | language | A | pre-evidenced (fixture) | [proposal](./ai-primitives-cut-a-7.md) |
-| **A.5** | `safety` accepts list (PII coverage) | language | A | first pilot with multi-class PII fan-in *plus catch-all anti-pattern review* | [proposal](./ai-primitives-cut-a-5.md) |
-| **A.6** | tool result schema in registry | language | A | first pilot referencing `tools.<x>.<field>` | [proposal](./ai-primitives-cut-a-6.md) |
-| **A.8** | `agent_run` built-in trace event | language-light + runtime + adapter | A | runtime team ready to instrument | [proposal](./ai-primitives-cut-a-8.md) |
-| **B** | flow + budget tokens + knowledge + quota cost | language-light + pack | A | ≥1 pilot with multi-step flow + each sub-cut has own gate | [Cut B section in A](./ai-primitives-v0.md) |
+| **A** | tools + discriminated output + evals | language | — | shipped | [proposal](./ai-primitives-v0.md), [plan](./ai-primitives-v0-implementation.md). Phases 1–7, commits d2a6202 → b934207. |
+| **A.7** | agent `expose http` | language | A | shipped (pre-evidenced) | [proposal](./ai-primitives-cut-a-7.md), [plan](./ai-primitives-cut-a-7-implementation.md). Commit 3be8611. |
+| **A.8** | `agent_run` built-in trace event | language-light + runtime + adapter | A | shipped (language-side) | [proposal](./ai-primitives-cut-a-8.md). Commit ac0241d. Runtime instrumentation is parallel Drusa work. |
+| **A.9** | `approval` on commands (third write-tool guard) | language | A | shipped | [proposal](./ai-primitives-cut-a-9.md). Commit b0304b4. Surfaced from the post-Cut A second-opinion analysis. Text-pattern facts until Phase L. |
+| **A.10** | golden file evals (`golden "./path.jsonl" min_score N`) | language | A | shipped | Commit 3f7fcd3. AST + IR additive extension of `EvalCase`. Adapter loads + scores. |
+| **A.11** | CORS in `app.lzi` (allowlist + credentials + max_age) | language-light | — | shipped | [proposal](./ai-primitives-cut-a-11.md). Commit b3fc39e. Sits alongside `urls`; the runtime materialises CORS middleware. |
+| **A.5** | `safety` accepts list (PII coverage) | language | A | pilot-gated — first pilot with multi-class PII fan-in *plus catch-all anti-pattern review* | [proposal](./ai-primitives-cut-a-5.md). IR shape (`safety: Vec<QualifiedName>`) already shipped by Cut A. |
+| **A.6** | tool result schema in registry | language | A | pilot-gated — first pilot referencing `tools.<x>.<field>` | [proposal](./ai-primitives-cut-a-6.md) |
+| **B** | flow + budget tokens + knowledge + quota cost | language-light + pack | A | pilot-gated — ≥1 pilot with multi-step flow + each sub-cut has own gate | [Cut B section in A](./ai-primitives-v0.md) |
 | **D** | multi-slot `context` block (Tier 2) | language | A | pilot writes `@fn.*`/`query.sql` joining contexts for one agent | [proposal](./ai-primitives-cut-d.md) |
 | **E** | `calls agent.<name>(args)` in jobs/commands (Tier 2) | language | A | pilot writes job handler dispatching an agent | [proposal](./ai-primitives-cut-e.md) |
 | **F** | `input from contract.X.Y` / `output from` (record reuse) | language | A | pilot's agent input/output drifted from a contract record in production with the asymmetry visible in code review | [audit](./pressure-6-agent-contract-binding.md) |
@@ -327,3 +332,17 @@ not from the existing audit's residue.
   contract.*`), and H (typed prompt manifest) added from
   exploratory audits of Pressure 2 and Pressure 6. All
   pilot-gated; no open audits remain.
+- 2026-05-10 — Cuts A, A.7, A.8 shipped (commits d2a6202–b934207,
+  3be8611, ac0241d). LZIR_SCHEMA 0.3.6 → 0.6.0.
+- 2026-05-10 — Cut A.9 (`approval` on commands, third write-tool
+  guard) added + shipped (commit b0304b4). Surfaced from the
+  post-Cut A second-opinion analysis; passes boundary test as
+  language territory because it changes the write-tool guard
+  lattice and the command's authorisation surface.
+- 2026-05-10 — Cut A.10 (golden file evals) added + shipped
+  (commit 3f7fcd3). Small additive extension of `EvalCase`; runtime
+  adapter handles loading + scoring.
+- 2026-05-10 — Cut A.11 (CORS in `app.lzi`) added + shipped
+  (commit b3fc39e). Language-light tier; sits alongside `urls`.
+  Per-endpoint overrides deferred to pilot evidence.
+- 2026-05-10 — LZIR_SCHEMA at 0.8.0 after A.10 + A.11.
