@@ -15,7 +15,8 @@ use crate::ast::{
     JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
     JobTrigger, LetBindingDecl, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience,
     LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute,
-    LzxSurface, LzxViewExtension, Notification, Query, Span, Surface, TargetArgDecl,
+    LzxSurface, LzxViewExtension, Notification, Query, ResourceDecl, ResourceFieldDecl,
+    ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, Surface, TargetArgDecl,
     TargetExprDecl, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
 };
 
@@ -1155,6 +1156,7 @@ fn parse_feature_skeleton(
     let mut defaults: Option<FeatureDefaults> = None;
     let mut commands: Vec<CommandDecl> = Vec::new();
     let mut apis: Vec<ApiDecl> = Vec::new();
+    let mut resources: Vec<ResourceDecl> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1267,9 +1269,23 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // Phase L Tier 4c — `resource <Name>` block. The fixture authors
+        // resources inside `domain` at indent 4 (and historically also
+        // at indent 2 directly under `feature`), so we accept any
+        // indent > FEATURE_CHILD as long as the keyword and children
+        // shape are unambiguous. `parse_resource_decl` enforces the
+        // child indent contract relative to its own header.
+        if trimmed.starts_with("resource ") {
+            let (parsed, next) = parse_resource_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            resources.push(parsed);
+            i = next;
+            continue;
+        }
+
         // Any other feature child is skipped silently — Phase L still
-        // leaves resources/queries/workflows to the text-pattern doctor
-        // pipeline (Tier 4c-4d).
+        // leaves queries/workflows to the text-pattern doctor pipeline
+        // (Tier 4d for queries/records; later tier for workflows).
         last_end = line.end;
         i += 1;
     }
@@ -1286,6 +1302,7 @@ fn parse_feature_skeleton(
             defaults,
             commands,
             apis,
+            resources,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -2476,6 +2493,346 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
         },
         i,
     ))
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4c — `resource <Name>` block parser.
+//
+// The resource header lives at indent `H` (typically 4, inside
+// `domain`; the slice supports either 2 or 4). Children live at `H+2`
+// and grandchildren (`previously` under fields) at `H+4`. The parser
+// computes the child indent dynamically so an LLM that authors
+// resources at either feature-direct (`indent 2`) or `domain`-nested
+// (`indent 4`) indentation gets the same recogniser.
+// -----------------------------------------------------------------------------
+
+fn parse_resource_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(ResourceDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("resource ")
+        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+        .ok_or_else(|| line_error(header, "resource header must be `resource <Name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "resource header requires a name"));
+    }
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+
+    let mut previously: Vec<String> = Vec::new();
+    let mut tenancy: Option<DefaultsTenancy> = None;
+    let mut fields: Vec<ResourceFieldDecl> = Vec::new();
+    let mut has_many: Vec<ResourceHasMany> = Vec::new();
+    let mut soft_delete = false;
+    let mut timestamps = false;
+    let mut retention: Option<ResourceRetention> = None;
+    let mut validates: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "resource body children use one indentation level deeper than the `resource` header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("previously ") {
+            previously.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("tenancy ") {
+            let axis = rest.trim();
+            if axis.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`resource tenancy` requires an axis (`org`, `team`, `none`, or a custom name)",
+                ));
+            }
+            tenancy = Some(parse_defaults_tenancy(axis));
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "soft_delete" {
+            soft_delete = true;
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "timestamps" {
+            timestamps = true;
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("retention ") {
+            retention = Some(parse_resource_retention(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("validates ") {
+            validates.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("has_many ") {
+            has_many.push(parse_resource_has_many(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if trimmed.contains(':') {
+            // `<name>: <Type> [modifiers...]` field declaration. Consume
+            // optional `previously` grandchild block.
+            let (field, next) = parse_resource_field_decl(lines, i, grandchild_indent)?;
+            fields.push(field);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, or `<field>: <Type>`",
+            ));
+        }
+    }
+
+    Ok((
+        ResourceDecl {
+            name,
+            previously,
+            tenancy,
+            fields,
+            has_many,
+            soft_delete,
+            timestamps,
+            retention,
+            validates,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_resource_retention(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<ResourceRetention, ParseError> {
+    let rest = rest.trim();
+    let (duration, action) = rest.split_once(" then ").ok_or_else(|| {
+        line_error(
+            line,
+            "`retention` requires `<duration> then <action>` (e.g. `retention 7y then anonymize`)",
+        )
+    })?;
+    let action = match action.trim() {
+        "anonymize" => ResourceRetentionAction::Anonymize,
+        "delete" => ResourceRetentionAction::Delete,
+        "archive" => ResourceRetentionAction::Archive,
+        other => {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "`retention then` requires `anonymize`, `delete`, or `archive` (got `{other}`)"
+                ),
+            ));
+        }
+    };
+    Ok(ResourceRetention {
+        duration: duration.trim().to_owned(),
+        action,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_resource_has_many(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<ResourceHasMany, ParseError> {
+    let (name, after) = rest.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "`has_many` requires `<name>: <Type> [inverse <field>]` (e.g. `has_many notes: CustomerNote inverse customer`)",
+        )
+    })?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(line_error(
+            line,
+            "`has_many` requires a relation name before `:`",
+        ));
+    }
+    let after = after.trim();
+    let (type_text, inverse) = if let Some(idx) = after.find(" inverse ") {
+        (
+            after[..idx].trim().to_owned(),
+            Some(after[idx + " inverse ".len()..].trim().to_owned()),
+        )
+    } else {
+        (after.to_owned(), None)
+    };
+    if type_text.is_empty() {
+        return Err(line_error(
+            line,
+            "`has_many` requires a resource type after `:`",
+        ));
+    }
+    Ok(ResourceHasMany {
+        name: name.to_owned(),
+        type_text,
+        inverse,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_resource_field_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    grandchild_indent: usize,
+) -> Result<(ResourceFieldDecl, usize), ParseError> {
+    let header = &lines[start];
+    let trimmed = header.text.trim_start();
+    let (name_part, after) = trimmed.split_once(':').ok_or_else(|| {
+        line_error(
+            header,
+            "resource field must be `<name>: <Type> [modifiers...]`",
+        )
+    })?;
+    let name = name_part.trim();
+    if name.is_empty() {
+        return Err(line_error(
+            header,
+            "resource field requires a name before `:`",
+        ));
+    }
+    let after = after.trim();
+    // Split the type text from trailing modifiers honouring parens.
+    let (type_text, modifiers_text, default, derived_from) = split_resource_field_after(after);
+    let required = modifiers_text.contains("required");
+    let optional = modifiers_text.contains("optional");
+    let unique = modifiers_text.contains("unique");
+
+    // Consume optional `previously migrated <old>` grandchild lines.
+    let mut previously: Vec<String> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let inner = line.text.trim_start();
+        if is_trivia(inner) {
+            i += 1;
+            continue;
+        }
+        if line.indent != grandchild_indent {
+            break;
+        }
+        if let Some(rest) = inner.strip_prefix("previously ") {
+            previously.push(rest.trim().to_owned());
+            i += 1;
+        } else {
+            break;
+        }
+    }
+
+    Ok((
+        ResourceFieldDecl {
+            name: name.to_owned(),
+            type_text,
+            required,
+            optional,
+            unique,
+            default,
+            derived_from,
+            previously,
+            span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+/// Split `<TypeRef> [decorators...] [required|optional|unique] [= <default>]
+/// [derived from <expr>]` into structured pieces.
+fn split_resource_field_after(after: &str) -> (String, String, Option<String>, Option<String>) {
+    let after = after.trim();
+
+    // Pull out `derived from <expr>` (always at the end).
+    let (head, derived_from) = if let Some(idx) = find_token(after, " derived from ") {
+        let derived = after[idx + " derived from ".len()..].trim().to_owned();
+        (after[..idx].trim_end().to_owned(), Some(derived))
+    } else {
+        (after.to_owned(), None)
+    };
+
+    // Pull out ` = <default>`.
+    let (head, default) = if let Some(idx) = find_default_assignment(&head) {
+        let value = head[idx + " = ".len()..].trim().to_owned();
+        (head[..idx].trim_end().to_owned(), Some(value))
+    } else {
+        (head, None)
+    };
+
+    // Now split type (paren-aware) from trailing modifier tokens.
+    let (type_text, modifiers_text) = split_type_and_modifiers(&head);
+    (type_text, modifiers_text, default, derived_from)
+}
+
+fn split_type_and_modifiers(text: &str) -> (String, String) {
+    // Walk from the right, peeling off ` required` / ` optional` / ` unique`
+    // trailing modifiers. The type text (which may contain parenthesised
+    // decorator args like `@cap.Encrypted(key:@key.tenant)`) stays
+    // structurally untouched because the modifier suffixes are bare
+    // identifiers that never occur inside the paren-balanced span.
+    let mut head = text.to_owned();
+    let mut modifiers = Vec::new();
+    loop {
+        let trimmed = head.trim_end();
+        if trimmed.ends_with(" required") {
+            modifiers.push("required");
+            head = trimmed[..trimmed.len() - " required".len()].to_owned();
+        } else if trimmed.ends_with(" optional") {
+            modifiers.push("optional");
+            head = trimmed[..trimmed.len() - " optional".len()].to_owned();
+        } else if trimmed.ends_with(" unique") {
+            modifiers.push("unique");
+            head = trimmed[..trimmed.len() - " unique".len()].to_owned();
+        } else {
+            head = trimmed.to_owned();
+            break;
+        }
+    }
+    (head, modifiers.join(" "))
+}
+
+fn find_token(text: &str, needle: &str) -> Option<usize> {
+    // Find `needle` at depth 0 (not inside parens / brackets).
+    let bytes = text.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i + needle_bytes.len() <= bytes.len() {
+        let ch = bytes[i] as char;
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 && &bytes[i..i + needle_bytes.len()] == needle_bytes {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find ` = ` outside of parens/brackets. The default literal may itself
+/// contain `=` (rare), but the fixture's default literals are simple
+/// (`= lead`, `= 0`).
+fn find_default_assignment(text: &str) -> Option<usize> {
+    find_token(text, " = ")
 }
 
 // -----------------------------------------------------------------------------
@@ -5245,6 +5602,97 @@ feature customer
         assert!(
             message.contains("<kinds>: <atom>"),
             "error should require explicit `:` (got {message:?})"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 4c — `resource` block parser slice
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn resource_full_block_parses() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      previously migrated Account
+      owner: User optional
+      name: Text required
+      email: @semantic.Email @pii.contact required
+      lifecycle_stage: CustomerStatus = lead
+        previously migrated status
+      score: Integer @pii.derived = 0
+      external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
+      is_high_value: Boolean derived from score > 80
+      has_many notes: CustomerNote inverse customer
+
+      soft_delete
+      retention 7y then anonymize
+
+      validates @validator.tier_check
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let resources = &features[0].resources;
+        assert_eq!(resources.len(), 1);
+        let r = &resources[0];
+        assert_eq!(r.name, "Customer");
+        assert_eq!(r.previously, vec!["migrated Account"]);
+        assert!(r.soft_delete);
+        let ret = r.retention.as_ref().expect("retention");
+        assert_eq!(ret.duration, "7y");
+        assert!(matches!(
+            ret.action,
+            crate::ResourceRetentionAction::Anonymize
+        ));
+        assert_eq!(r.validates, vec!["@validator.tier_check"]);
+        assert_eq!(r.has_many.len(), 1);
+        assert_eq!(r.has_many[0].name, "notes");
+        assert_eq!(r.has_many[0].type_text, "CustomerNote");
+        assert_eq!(r.has_many[0].inverse.as_deref(), Some("customer"));
+        // 7 fields (owner, name, email, lifecycle_stage, score, external_id,
+        // is_high_value).
+        assert_eq!(r.fields.len(), 7);
+        let lifecycle = r
+            .fields
+            .iter()
+            .find(|f| f.name == "lifecycle_stage")
+            .expect("lifecycle_stage");
+        assert_eq!(lifecycle.type_text, "CustomerStatus");
+        assert_eq!(lifecycle.default.as_deref(), Some("lead"));
+        assert_eq!(lifecycle.previously, vec!["migrated status"]);
+        let derived = r
+            .fields
+            .iter()
+            .find(|f| f.name == "is_high_value")
+            .expect("is_high_value");
+        assert_eq!(derived.derived_from.as_deref(), Some("score > 80"));
+        let external = r
+            .fields
+            .iter()
+            .find(|f| f.name == "external_id")
+            .expect("external_id");
+        assert!(external.optional);
+        assert!(
+            external
+                .type_text
+                .starts_with("@cap.Encrypted(key:@key.tenant)")
+        );
+    }
+
+    #[test]
+    fn resource_retention_invalid_action_errors() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      name: Text required
+      retention 7y then incinerate
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("anonymize"),
+            "error should list valid actions: {message}"
         );
     }
 }

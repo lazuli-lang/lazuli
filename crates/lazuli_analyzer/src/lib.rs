@@ -363,6 +363,7 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
         constraints: Vec::new(),
         validate: None,
         validates: Vec::new(),
+        retention: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(aggregate.span)),
     };
@@ -403,6 +404,7 @@ fn lower_field(field: &syntax::Field) -> ir::Field {
         required,
         unique,
         default,
+        derived_from: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(field.span)),
     }
@@ -718,6 +720,7 @@ pub fn lower_feature_skeleton(
     };
     let commands = skeleton.commands.iter().map(lower_command_decl).collect();
     let apis = skeleton.apis.iter().map(lower_api_decl).collect();
+    let resources = skeleton.resources.iter().map(lower_resource_decl).collect();
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -727,7 +730,7 @@ pub fn lower_feature_skeleton(
         uses: Vec::new(),
         requirements: Vec::new(),
         enums: Vec::new(),
-        resources: Vec::new(),
+        resources,
         events: Vec::new(),
         rules: Vec::new(),
         policies: ir::Policies::default(),
@@ -747,6 +750,59 @@ pub fn lower_feature_skeleton(
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     })
+}
+
+/// Phase L Tier 4c — lower a canonical-indent `resource` block into
+/// `ir::Resource`. `tenancy` (resource-local override), `soft_delete`,
+/// `timestamps`, `retention`, `validates`, and `derived_from` all
+/// project through additive IR fields landed alongside this lowering.
+fn lower_resource_decl(r: &syntax::ResourceDecl) -> ir::Resource {
+    let tenancy = r.tenancy.as_ref().map(|t| match t {
+        syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
+        syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
+        syntax::DefaultsTenancy::None => ir::Tenancy::None,
+        syntax::DefaultsTenancy::Custom(axis) => ir::Tenancy::Custom(axis.clone()),
+    });
+    let fields = r.fields.iter().map(lower_resource_field).collect();
+    let retention = r.retention.as_ref().map(|ret| ir::RetentionSpec {
+        duration: ret.duration.clone(),
+        action: match ret.action {
+            syntax::ResourceRetentionAction::Anonymize => ir::RetentionAction::Anonymize,
+            syntax::ResourceRetentionAction::Delete => ir::RetentionAction::Delete,
+            syntax::ResourceRetentionAction::Archive => ir::RetentionAction::Archive,
+        },
+    });
+    // `validates @validator.tier_check` collapses onto `Resource.validate`
+    // for a single-entry case (the fixture pattern). Multi-entry would
+    // need a `Vec`; defer until pilot evidence demands it.
+    let validate = r.validates.first().map(|v| ir::PathRef::authored(v));
+    ir::Resource {
+        name: r.name.clone(),
+        tenancy,
+        soft_delete: r.soft_delete,
+        timestamps: if r.timestamps { Some(true) } else { None },
+        fields,
+        constraints: Vec::new(),
+        validate,
+        validates: Vec::new(),
+        retention,
+        previous_names: r.previously.clone(),
+        span_ref: Some(span_of(r.span)),
+    }
+}
+
+fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
+    let default = f.default.as_deref().map(|raw| parse_default(raw.trim()));
+    ir::Field {
+        name: f.name.clone(),
+        type_ref: type_ref_from_text(&f.type_text),
+        required: f.required,
+        unique: f.unique,
+        default,
+        derived_from: f.derived_from.clone(),
+        previous_names: f.previously.clone(),
+        span_ref: Some(span_of(f.span)),
+    }
 }
 
 /// Phase L Tier 4b — lower a canonical-indent `command` block into
@@ -2662,6 +2718,45 @@ feature pinned
             ir::Tenancy::Custom(axis) => assert_eq!(axis, "workspace"),
             other => panic!("expected custom axis, got {other:?}"),
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 4c — `resource` lowering
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn lower_feature_resource_lifts_retention_and_derived() {
+        let source = r#"
+feature customer
+  domain
+    resource Customer
+      name: Text required
+      score: Integer = 0
+      is_high_value: Boolean derived from score > 80
+      has_many notes: CustomerNote inverse customer
+
+      soft_delete
+      retention 7y then anonymize
+      validates @validator.tier_check
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert_eq!(feature.resources.len(), 1);
+        let r = &feature.resources[0];
+        assert_eq!(r.name, "Customer");
+        assert!(r.soft_delete);
+        let ret = r.retention.as_ref().expect("retention");
+        assert_eq!(ret.duration, "7y");
+        assert!(matches!(ret.action, ir::RetentionAction::Anonymize));
+        let derived = r
+            .fields
+            .iter()
+            .find(|f| f.name == "is_high_value")
+            .expect("is_high_value");
+        assert_eq!(derived.derived_from.as_deref(), Some("score > 80"));
+        // validates @validator.tier_check projects onto `Resource.validate`
+        // for single-entry authoring.
+        assert!(r.validate.is_some());
     }
 
     #[test]

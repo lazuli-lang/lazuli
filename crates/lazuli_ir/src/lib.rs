@@ -329,10 +329,31 @@ pub struct Resource {
     /// Field-level inline validators: `validates field <field> "./hooks/validate_tier.go"`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub validates: Vec<FieldValidation>,
+    /// Phase L Tier 4c — `retention <duration> then <action>` policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention: Option<RetentionSpec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// Phase L Tier 4c — retention policy lifted from
+/// `retention <duration> then <action>`. Duration stays verbatim
+/// (adapter parses), action is a closed catalog so doctor can pin a
+/// finite ruleset.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetentionSpec {
+    pub duration: String,
+    pub action: RetentionAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetentionAction {
+    Anonymize,
+    Delete,
+    Archive,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,6 +364,13 @@ pub struct Field {
     pub unique: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<DefaultValue>,
+    /// Phase L Tier 4c — `<name>: <Type> derived from <expr>` lifts
+    /// the computed-field expression. The analyzer keeps the verbatim
+    /// expression text since `Expr` doesn't yet model comparison
+    /// operators outside the predicate sublanguage; doctor reads the
+    /// text for cross-field resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

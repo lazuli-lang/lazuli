@@ -239,6 +239,9 @@ pub struct FeatureSkeleton {
     pub commands: Vec<CommandDecl>,
     /// Phase L Tier 4b — `api <name>` blocks.
     pub apis: Vec<ApiDecl>,
+    /// Phase L Tier 4c — `resource <Name>` blocks (authored inside
+    /// `domain`).
+    pub resources: Vec<ResourceDecl>,
     pub span: Span,
 }
 
@@ -493,6 +496,85 @@ pub struct InvalidatesDecl {
     /// Named args, e.g. `id: route.id`.
     pub args: Vec<TargetArgDecl>,
     pub span: Span,
+}
+
+// =============================================================================
+// Phase L Tier 4c — `resource <Name>` declaration.
+//
+// Resources live inside `domain` at indent 4. Children at indent 6 are
+// fields, `has_many`, `previously`, `soft_delete`, `retention`,
+// `validates`. The legacy lowering pipeline already produces an
+// `ir::Resource` from the brace MVP; the canonical-indent slice now
+// produces one too via `lower_resource_decl`.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceDecl {
+    pub name: String,
+    /// `previously migrated <old>` (one entry per `previously` line).
+    pub previously: Vec<String>,
+    /// `tenancy <axis>` resource-local override.
+    pub tenancy: Option<DefaultsTenancy>,
+    /// Field declarations (`<name>: <Type> [modifiers...]`).
+    pub fields: Vec<ResourceFieldDecl>,
+    /// `has_many <name>: <Resource> [inverse <field>]` lines.
+    pub has_many: Vec<ResourceHasMany>,
+    /// `soft_delete` declared verbatim.
+    pub soft_delete: bool,
+    /// `timestamps` declared verbatim.
+    pub timestamps: bool,
+    /// `retention <duration> then <action>` policy.
+    pub retention: Option<ResourceRetention>,
+    /// `validates @validator.<name>` and `validates resource "./..."`
+    /// declarations. Captured as raw text; the analyzer dispatches
+    /// between resource-level and field-level validators.
+    pub validates: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceFieldDecl {
+    pub name: String,
+    /// Raw type text including decorator chain. The analyzer projects
+    /// to `TypeRef` via `type_ref_from_text`.
+    pub type_text: String,
+    pub required: bool,
+    pub optional: bool,
+    pub unique: bool,
+    /// `= <expr>` default value (verbatim).
+    pub default: Option<String>,
+    /// `derived from <expr>` computed-field expression (Phase L Tier 4c).
+    pub derived_from: Option<String>,
+    /// Child `previously migrated <old>` lines beneath the field.
+    pub previously: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceHasMany {
+    pub name: String,
+    /// Resource type reference, e.g. `CustomerNote`.
+    pub type_text: String,
+    /// `inverse <field>` clause — captured verbatim.
+    pub inverse: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceRetention {
+    /// Duration literal, e.g. `7y`, `30d`. Captured verbatim.
+    pub duration: String,
+    /// `Anonymize | Delete | Archive` closed catalog.
+    pub action: ResourceRetentionAction,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceRetentionAction {
+    Anonymize,
+    Delete,
+    Archive,
 }
 
 // -----------------------------------------------------------------------------
