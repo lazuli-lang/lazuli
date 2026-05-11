@@ -251,10 +251,95 @@ pub struct FeatureSkeleton {
     /// Phase L Tier 4d — `record <Name>` declarations (typed value
     /// records for projection outputs, distinct from resources).
     pub records: Vec<RecordDecl>,
+    /// Phase L Tier 4 follow-up — `policies` block. At most one per
+    /// feature. Lowered into `ir::Policies` via the analyzer.
+    pub policies: Option<PoliciesDecl>,
+    /// Phase L Tier 4 follow-up — `enum <Name>` declarations
+    /// (authored inside `domain`).
+    pub enums: Vec<EnumDeclAst>,
     /// i18n bucket cycle — `translation` block. At most one per
     /// feature. Lowered into `ir::Translation` via the analyzer.
     pub translation: Option<TranslationDecl>,
     pub span: Span,
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4 follow-up — `policies` block surface AST.
+//
+// The `policies` block lives at indent 2 under the feature header. Its
+// direct children are either:
+//
+//   * Named category atoms (indent 4): `create: @role.admin, @role.sales`.
+//   * Per-resource field overrides (indent 4): `fields <Resource>` with
+//     grandchild field names at indent 6 and `read:` / `write:` at indent 8.
+//
+// The IR shape (`ir::Policies` / `ir::PolicyCategory` / `ir::FieldPolicies`
+// / `ir::FieldPolicy`) is mirrored 1:1 so lowering is structural.
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PoliciesDecl {
+    pub categories: Vec<PolicyCategoryDecl>,
+    pub fields: Vec<FieldPoliciesDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyCategoryDecl {
+    pub name: String,
+    /// Verbatim atom literals (`@role.admin`, `@scope.same_org`, ...).
+    /// Atoms not prefixed with `@` are dropped silently — matches the
+    /// retired `collect_policy_atoms` walker.
+    pub atoms: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldPoliciesDecl {
+    /// `fields <Resource>` — captured verbatim (qualifier-free identifier
+    /// in the fixture).
+    pub resource: String,
+    pub fields: Vec<FieldPolicyDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldPolicyDecl {
+    pub field: String,
+    pub read: Option<Vec<String>>,
+    pub write: Option<Vec<String>>,
+    pub span: Span,
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4 follow-up — `enum <Name>` declaration surface AST.
+//
+// Authored inside `domain` at indent 4. Variants at indent 6 are either
+// bare identifiers (`free`) or `<name> = <value>` (storage value is `i64`
+// or quoted string).
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnumDeclAst {
+    pub name: String,
+    pub variants: Vec<EnumVariantDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnumVariantDecl {
+    pub name: String,
+    /// `None` when no `= <value>` is authored. `Some(Integer(_))` for
+    /// `<name> = <number>`; `Some(String(_))` for `<name> = "<text>"`.
+    pub storage: Option<EnumStorageValueDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum EnumStorageValueDecl {
+    Integer(i64),
+    String(String),
 }
 
 /// i18n bucket cycle — surface AST for a `translation` block. The

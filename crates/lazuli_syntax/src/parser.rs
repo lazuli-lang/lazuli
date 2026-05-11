@@ -10,17 +10,19 @@ use crate::ast::{
     ApprovalThenDecl, AssignmentDecl, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword,
     AuthSessions, Command, CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl,
     CommandEffectDecl, CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot,
-    CommandRouteSlot, ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup,
-    FeatureDefaults, FeatureSkeleton, Field, FieldModifier, HttpMethod, InvalidatesDecl, Job,
-    JobBody, JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler,
-    JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey,
-    LookupQueryDecl, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
+    CommandRouteSlot, ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EnumDeclAst,
+    EnumStorageValueDecl, EnumVariantDecl, EventGroup, FeatureDefaults, FeatureSkeleton, Field,
+    FieldModifier, FieldPoliciesDecl, FieldPolicyDecl, HttpMethod, InvalidatesDecl, Job, JobBody,
+    JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
+    JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl,
+    LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
     LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
-    LzxViewExtension, Notification, NotificationDigest, NotificationThrottle, Query, QueryDecl,
-    QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceRetention,
-    ResourceRetentionAction, Span, SqlQueryDecl, Surface, TargetArgDecl, TargetExprDecl,
-    TenantMigration, ToolsCallsOp, TranslationDecl, TranslationKeyDecl, TranslationPluralArmDecl,
-    TranslationVariantDecl, Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify,
+    LzxViewExtension, Notification, NotificationDigest, NotificationThrottle, PoliciesDecl,
+    PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl,
+    ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, SqlQueryDecl, Surface,
+    TargetArgDecl, TargetExprDecl, TenantMigration, ToolsCallsOp, TranslationDecl,
+    TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, Webhook, WebhookDlq,
+    WebhookHandler, WebhookReplay, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1163,6 +1165,8 @@ fn parse_feature_skeleton(
     let mut resources: Vec<ResourceDecl> = Vec::new();
     let mut queries: Vec<QueryDecl> = Vec::new();
     let mut records: Vec<RecordDecl> = Vec::new();
+    let mut policies_block: Option<PoliciesDecl> = None;
+    let mut enums: Vec<EnumDeclAst> = Vec::new();
     let mut translation: Option<TranslationDecl> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
@@ -1323,6 +1327,33 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // Phase L Tier 4 follow-up — `policies` block. At most one per
+        // feature; duplicate is a parse error.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "policies" {
+            if policies_block.is_some() {
+                return Err(line_error(
+                    line,
+                    "feature may declare at most one `policies` block",
+                ));
+            }
+            let (parsed, next) = parse_policies_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            policies_block = Some(parsed);
+            i = next;
+            continue;
+        }
+
+        // Phase L Tier 4 follow-up — `enum <Name>` declaration. The
+        // fixture authors enums inside `domain` at indent 4. Header is
+        // recognised unambiguously by the keyword prefix at indent > 2.
+        if trimmed.starts_with("enum ") && line.indent > AGENT_INDENT_FEATURE_CHILD {
+            let (parsed, next) = parse_enum_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            enums.push(parsed);
+            i = next;
+            continue;
+        }
+
         // i18n bucket cycle — `translation` block. At most one per
         // feature; duplicate is a parse error.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "translation" {
@@ -1361,7 +1392,318 @@ fn parse_feature_skeleton(
             resources,
             queries,
             records,
+            policies: policies_block,
+            enums,
             translation,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4 follow-up — `policies` block parser.
+//
+// The `policies` header sits at AGENT_INDENT_FEATURE_CHILD (2 spaces). Two
+// kinds of children appear at indent 4:
+//
+//   * `<name>: <atom>, <atom>, ...` — named category (`create: @role.admin`).
+//   * `fields <Resource>` — field-override subblock with grandchild field
+//     names at indent 6 and `read:` / `write:` at indent 8.
+//
+// Non-`@`-prefixed atoms are silently dropped (matches the retired
+// `collect_policy_atoms` walker contract). Unknown indent levels produce
+// a parse error so authors get an early diagnostic instead of policies
+// vanishing silently.
+// -----------------------------------------------------------------------------
+
+fn parse_policies_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(PoliciesDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+    let greatgrand_indent = header_indent + 6;
+
+    let mut categories: Vec<PolicyCategoryDecl> = Vec::new();
+    let mut field_blocks: Vec<FieldPoliciesDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`policies` body children use one indentation level deeper than the header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("fields ") {
+            let resource = rest.trim().to_owned();
+            if resource.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`fields` requires a resource name (`fields <Resource>`)",
+                ));
+            }
+            let (block, next) = parse_field_policies_block(
+                lines,
+                i,
+                resource,
+                grandchild_indent,
+                greatgrand_indent,
+            )?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            field_blocks.push(block);
+            i = next;
+            continue;
+        }
+
+        if let Some((name, atoms_text)) = trimmed.split_once(':') {
+            let name = name.trim();
+            if !is_policy_identifier(name) {
+                i += 1;
+                continue;
+            }
+            let atoms = atoms_text
+                .split(',')
+                .map(str::trim)
+                .filter(|atom| atom.starts_with('@'))
+                .map(str::to_owned)
+                .collect();
+            categories.push(PolicyCategoryDecl {
+                name: name.to_owned(),
+                atoms,
+                span: Span::new(line.start, line.end),
+            });
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        return Err(line_error(
+            line,
+            "`policies` children are `<name>: <atom>, ...` or `fields <Resource>` headers",
+        ));
+    }
+
+    Ok((
+        PoliciesDecl {
+            categories,
+            fields: field_blocks,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_field_policies_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    resource: String,
+    field_indent: usize,
+    clause_indent: usize,
+) -> Result<(FieldPoliciesDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_indent = header.indent;
+    let mut fields: Vec<FieldPolicyDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != field_indent {
+            return Err(line_error(
+                line,
+                "`fields` children use one indentation level deeper than the header",
+            ));
+        }
+
+        // Bare field name at field_indent (`email`); read/write at
+        // clause_indent below.
+        let field_name = trimmed.to_owned();
+        if field_name.is_empty() || !is_policy_identifier(&field_name) {
+            return Err(line_error(
+                line,
+                "field policy entry must be a bare identifier",
+            ));
+        }
+        let field_header_end = line.end;
+        let mut read: Option<Vec<String>> = None;
+        let mut write: Option<Vec<String>> = None;
+        let mut last_field_end = field_header_end;
+        let mut j = i + 1;
+        while j < lines.len() {
+            let inner = &lines[j];
+            let inner_trim = inner.text.trim_start();
+            if is_trivia(inner_trim) {
+                j += 1;
+                continue;
+            }
+            if inner.indent <= field_indent {
+                break;
+            }
+            if inner.indent != clause_indent {
+                return Err(line_error(
+                    inner,
+                    "field policy clauses use one indentation level deeper than the field name",
+                ));
+            }
+            let parsed_atoms = |rest: &str| -> Vec<String> {
+                rest.split(',')
+                    .map(str::trim)
+                    .filter(|atom| atom.starts_with('@'))
+                    .map(str::to_owned)
+                    .collect()
+            };
+            if let Some(rest) = inner_trim.strip_prefix("read:") {
+                read = Some(parsed_atoms(rest));
+                last_field_end = inner.end;
+                j += 1;
+                continue;
+            }
+            if let Some(rest) = inner_trim.strip_prefix("write:") {
+                write = Some(parsed_atoms(rest));
+                last_field_end = inner.end;
+                j += 1;
+                continue;
+            }
+            return Err(line_error(
+                inner,
+                "field policy clauses are `read:` or `write:` followed by atoms",
+            ));
+        }
+        fields.push(FieldPolicyDecl {
+            field: field_name,
+            read,
+            write,
+            span: Span::new(line.start, last_field_end),
+        });
+        last_end = last_field_end;
+        i = j;
+    }
+
+    Ok((
+        FieldPoliciesDecl {
+            resource,
+            fields,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn is_policy_identifier(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    let mut chars = text.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4 follow-up — `enum <Name>` declaration parser.
+//
+// The fixture authors enums inside `domain` at indent 4 (header) with
+// variants at indent 6. A variant is either `name` or `name = <value>`
+// where the value is a bare integer or a quoted string.
+// -----------------------------------------------------------------------------
+
+fn parse_enum_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(EnumDeclAst, usize), ParseError> {
+    let header = &lines[start];
+    let trimmed = header.text.trim_start();
+    let name = trimmed
+        .strip_prefix("enum ")
+        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+        .ok_or_else(|| line_error(header, "enum header must be `enum <Name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "enum header requires a name"));
+    }
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+
+    let mut variants: Vec<EnumVariantDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let body = line.text.trim_start();
+        if is_trivia(body) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`enum` variants use one indentation level deeper than the header",
+            ));
+        }
+        let (variant_name, storage) = match body.split_once('=') {
+            Some((lhs, rhs)) => {
+                let var_name = lhs.trim().to_owned();
+                let raw = rhs.trim();
+                let storage = if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+                    Some(EnumStorageValueDecl::String(
+                        raw[1..raw.len() - 1].to_owned(),
+                    ))
+                } else if let Ok(n) = raw.parse::<i64>() {
+                    Some(EnumStorageValueDecl::Integer(n))
+                } else {
+                    return Err(line_error(
+                        line,
+                        "enum variant value must be an integer or a quoted string",
+                    ));
+                };
+                (var_name, storage)
+            }
+            None => (body.to_owned(), None),
+        };
+        if variant_name.is_empty() {
+            return Err(line_error(line, "enum variant requires a name"));
+        }
+        variants.push(EnumVariantDecl {
+            name: variant_name,
+            storage,
+            span: Span::new(line.start, line.end),
+        });
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        EnumDeclAst {
+            name,
+            variants,
             span: Span::new(header.start, last_end),
         },
         i,

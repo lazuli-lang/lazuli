@@ -833,6 +833,12 @@ pub fn lower_feature_skeleton(
     let resources = skeleton.resources.iter().map(lower_resource_decl).collect();
     let queries = skeleton.queries.iter().map(lower_query_decl).collect();
     let records = skeleton.records.iter().map(lower_record_decl).collect();
+    let policies = skeleton
+        .policies
+        .as_ref()
+        .map(lower_policies_decl)
+        .unwrap_or_default();
+    let enums = skeleton.enums.iter().map(lower_enum_decl).collect();
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -841,11 +847,11 @@ pub fn lower_feature_skeleton(
         defaults,
         uses: Vec::new(),
         requirements: Vec::new(),
-        enums: Vec::new(),
+        enums,
         resources,
         events: Vec::new(),
         rules: Vec::new(),
-        policies: ir::Policies::default(),
+        policies,
         commands,
         apis,
         records,
@@ -1005,6 +1011,68 @@ fn lower_record_decl(r: &syntax::RecordDecl) -> ir::Record {
         fields: r.fields.iter().map(lower_resource_field).collect(),
         discriminator_field: r.discriminator_field.clone(),
         span_ref: Some(span_of(r.span)),
+    }
+}
+
+/// Phase L Tier 4 follow-up — lower a canonical-indent `policies` block
+/// into `ir::Policies`. The AST mirrors the IR shape 1:1 so this is a
+/// structural copy: category atoms and per-resource field overrides
+/// project directly. Closed-catalog validation lives in doctor.
+fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
+    let categories = decl
+        .categories
+        .iter()
+        .map(|c| ir::PolicyCategory {
+            name: c.name.clone(),
+            atoms: c.atoms.clone(),
+            previous_names: Vec::new(),
+        })
+        .collect();
+    let fields = decl
+        .fields
+        .iter()
+        .map(|f| ir::FieldPolicies {
+            resource: lower_qualified_name(&f.resource),
+            fields: f
+                .fields
+                .iter()
+                .map(|fp| ir::FieldPolicy {
+                    field: fp.field.clone(),
+                    read: fp.read.clone(),
+                    write: fp.write.clone(),
+                    previous_names: Vec::new(),
+                })
+                .collect(),
+        })
+        .collect();
+    ir::Policies {
+        categories,
+        fields,
+        span_ref: Some(span_of(decl.span)),
+    }
+}
+
+/// Phase L Tier 4 follow-up — lower a canonical-indent `enum <Name>`
+/// declaration into `ir::EnumDecl`. Variant storage values project
+/// directly onto `ir::StorageValue`; absent values leave the codegen
+/// target free to pick.
+fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
+    ir::EnumDecl {
+        name: decl.name.clone(),
+        variants: decl
+            .variants
+            .iter()
+            .map(|v| ir::EnumVariant {
+                name: v.name.clone(),
+                storage_value: v.storage.as_ref().map(|s| match s {
+                    syntax::EnumStorageValueDecl::Integer(n) => ir::StorageValue::Integer(*n),
+                    syntax::EnumStorageValueDecl::String(s) => ir::StorageValue::String(s.clone()),
+                }),
+                previous_names: Vec::new(),
+            })
+            .collect(),
+        previous_names: Vec::new(),
+        span_ref: Some(span_of(decl.span)),
     }
 }
 

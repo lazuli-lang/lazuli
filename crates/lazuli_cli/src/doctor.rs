@@ -511,11 +511,7 @@ impl DoctorPackage {
                                     // the legacy `collect_feature_commands`
                                     // contract: only commands with `policy`
                                     // are inserted.
-                                    populate_commands_from_ir(
-                                        &feature,
-                                        &file.source,
-                                        &mut commands,
-                                    );
+                                    populate_commands_from_ir(&feature, &mut commands);
                                     // Phase L Tier 4 follow-up — populate the
                                     // resource field map from typed IR.
                                     // Replaces `collect_feature_resources`
@@ -1567,23 +1563,24 @@ fn job_block_has_schedule(lines: &[&str], start: usize) -> bool {
 /// Commands without a `policy` clause are skipped (mirroring the old
 /// walker, which only inserted entries when it saw `policy ...`).
 ///
-/// The feature-level `policies` block is not yet lifted by
-/// `lower_feature_skeleton` (canonical-indent slice owns it next
-/// cycle), so this helper still consults the source file via the
-/// small `collect_policy_atoms` text-walker to resolve
-/// `@policy.<name>` atom expansion — scoped to the current feature's
-/// line range so multi-feature files do not cross-pollute. Route slot
-/// binding-from-context now reads typed `RouteSlot.from` instead of
-/// re-parsing the line.
+/// `@policy.<name>` atoms expand against the typed
+/// `feature.policies.categories` slot, populated by
+/// `lower_feature_skeleton` from the canonical-indent `policies` block.
+/// The retired `collect_policy_atoms` text-walker that previously
+/// resolved these names is gone. Route slot binding-from-context reads
+/// typed `RouteSlot.from`.
 fn populate_commands_from_ir(
     feature: &lazuli_ir::Feature,
-    file_source: &str,
     commands: &mut BTreeMap<CommandKey, CommandPolicy>,
 ) {
     use lazuli_ir::PolicyRef;
 
-    let feature_lines = feature_line_slice(file_source, &feature.name);
-    let local_policies = collect_policy_atoms(&feature_lines);
+    let local_policies: BTreeMap<&str, &Vec<String>> = feature
+        .policies
+        .categories
+        .iter()
+        .map(|c| (c.name.as_str(), &c.atoms))
+        .collect();
 
     for command in &feature.commands {
         let (reference, atoms) = match &command.policy {
@@ -1591,7 +1588,10 @@ fn populate_commands_from_ir(
             PolicyRef::Atom(atom) => {
                 let reference = format!("@{atom}");
                 let atoms = if let Some(local) = atom.strip_prefix("policy.") {
-                    local_policies.get(local).cloned().unwrap_or_default()
+                    local_policies
+                        .get(local)
+                        .map(|atoms| (*atoms).clone())
+                        .unwrap_or_default()
                 } else {
                     vec![reference.clone()]
                 };
@@ -1629,80 +1629,6 @@ fn populate_commands_from_ir(
             },
         );
     }
-}
-
-/// Phase L Tier 4 follow-up — extract the line slice covering one
-/// feature in a multi-feature source. Returns lines from `feature
-/// <name>` (inclusive) up to (exclusive) the next top-level
-/// declaration, mirroring how the legacy `collect_canonical_facts`
-/// loop carved up the source. Empty result if the feature header is
-/// not found (defensive).
-fn feature_line_slice<'a>(source: &'a str, feature_name: &str) -> Vec<&'a str> {
-    let header_prefix = format!("feature {feature_name}");
-    let lines: Vec<&str> = source.lines().collect();
-    let Some(start) = lines.iter().position(|line| {
-        leading_spaces(line) == 0
-            && line.trim_start().starts_with(&header_prefix)
-            && line
-                .trim_start()
-                .strip_prefix("feature ")
-                .map(|rest| rest.split_whitespace().next() == Some(feature_name))
-                .unwrap_or(false)
-    }) else {
-        return Vec::new();
-    };
-    let mut end = start + 1;
-    while end < lines.len() {
-        let next = lines[end];
-        if leading_spaces(next) == 0 && !next.trim_start().is_empty() {
-            break;
-        }
-        end += 1;
-    }
-    lines[start..end].to_vec()
-}
-
-/// Phase L Tier 4 follow-up — feature-scoped `policies` block walker.
-/// Survives until the canonical-indent slice lifts `policies` into the
-/// IR. `collect_feature_commands` consumed this via the lines-slice
-/// argument; the IR-driven `populate_commands_from_ir` reads the file
-/// source once per feature and recomputes the map here.
-fn collect_policy_atoms(lines: &[&str]) -> BTreeMap<String, Vec<String>> {
-    let mut policies = BTreeMap::new();
-    let mut in_policies = false;
-
-    for line in lines {
-        let trimmed = line.trim_start();
-        let indent = leading_spaces(line);
-
-        if indent == 2 {
-            in_policies = trimmed == "policies";
-            continue;
-        }
-
-        if !in_policies || indent != 4 {
-            continue;
-        }
-
-        let Some((name, atoms)) = trimmed.split_once(':') else {
-            continue;
-        };
-        let name = name.trim();
-        if !is_identifier(name) {
-            continue;
-        }
-        policies.insert(
-            name.to_owned(),
-            atoms
-                .split(',')
-                .map(str::trim)
-                .filter(|atom| atom.starts_with('@'))
-                .map(str::to_owned)
-                .collect(),
-        );
-    }
-
-    policies
 }
 
 fn collect_lzx_experience_facts(
@@ -8532,7 +8458,7 @@ mod tests {
                             // the test harness exercises the same code path
                             // as `policy_reachability_diagnostics` /
                             // `command_route_binding_diagnostics`.
-                            populate_commands_from_ir(&feature, &file.source, &mut commands);
+                            populate_commands_from_ir(&feature, &mut commands);
                             populate_feature_resources_from_ir(
                                 &file.path,
                                 &file.source,
