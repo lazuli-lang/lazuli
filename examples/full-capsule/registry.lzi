@@ -15,6 +15,7 @@ registry
     object_storage files
     mailer transactional
     event_bus internal
+    cache shared
     tracing optional
     integration crm
 

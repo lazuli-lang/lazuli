@@ -11763,10 +11763,18 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "method" => Some("Declares the HTTP method for a custom API endpoint."),
         "output" => Some("Declares the response shape for a custom API endpoint."),
-        "cache" => Some("Declares generated query cache identity and stale-time behavior."),
+        "cache" => Some(
+            "Query cache contract: `key <expr>` + `ttl <duration>` (+ optional `tags <label>...` for fan-out invalidation, `namespace <label>` for cross-feature scoping). Requires a `cache <name>` capability in `registry.lzi`.",
+        ),
         "key" => Some("Declares a cache key, lookup key, or dedupe key depending on context."),
         "ttl" => Some(
-            "Time-to-live duration string parsed by the adapter (e.g., `\"7 days\"`, `\"30m\"`).",
+            "Cache time-to-live. Closed unit catalog: `s`, `m`, `h`, `d` (e.g. `5m`, `7d`). Quoted prose (`\"5 minutes\"`) also accepted; adapters parse it.",
+        ),
+        "tags" => Some(
+            "Cache tags: comma-separated labels used by `invalidates tag:<label>` for fan-out invalidation across queries. Labels are author-defined lowercase identifiers.",
+        ),
+        "namespace" => Some(
+            "Cache namespace label. Scopes the cache key beyond the default `<feature>.query.<name>` to avoid collisions in workspace / pack deployments. One namespace per query.",
         ),
         "invalidates" => Some("Declares queries that become stale after a command succeeds."),
         "error" => Some("Declares a named public error case with status and exposure fields."),

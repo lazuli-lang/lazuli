@@ -99,7 +99,9 @@ feature customer
 
       cache
         key customer.list(params)
-        ttl "5 minutes"
+        ttl 5m
+        tags customer-list, customer-summary
+        namespace customer
 
       paginate 50
 

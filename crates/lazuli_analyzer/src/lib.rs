@@ -487,6 +487,7 @@ fn lower_query(query: &syntax::Query) -> ir::Query {
         order: Vec::new(),
         paginate: None,
         modifier: None,
+        cache: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(query.span)),
     })
@@ -781,6 +782,7 @@ fn lower_query_decl(q: &syntax::QueryDecl) -> ir::Query {
             order: Vec::new(),
             paginate: list.paginate,
             modifier: list.modifier.clone(),
+            cache: lower_query_cache(&list.cache),
             previous_names: Vec::new(),
             span_ref: Some(span_of(list.span)),
         }),
@@ -812,10 +814,76 @@ fn lower_query_decl(q: &syntax::QueryDecl) -> ir::Query {
             scope_override: false,
             returns: type_ref_from_text(&sql.returns),
             sql_path: sql.sql_path.clone(),
+            cache: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(sql.span)),
         }),
     }
+}
+
+/// Cache bucket cycle — lift `cache` body lines (`key <expr>`, `ttl
+/// <literal-or-prose>`, `tags <label>...`, `namespace <label>`) into
+/// the typed `QueryCache` IR shape. Returns `None` when no `key` is
+/// declared (defensive — doctor flags `cache without key/ttl`).
+fn lower_query_cache(lines: &[String]) -> Option<ir::QueryCache> {
+    if lines.is_empty() {
+        return None;
+    }
+    let mut key: Option<String> = None;
+    let mut ttl: Option<ir::CacheTtl> = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut namespace: Option<String> = None;
+    for raw in lines {
+        let trimmed = raw.trim();
+        if let Some(rest) = trimmed.strip_prefix("key ") {
+            key = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("ttl ") {
+            let val = rest.trim();
+            ttl = Some(parse_cache_ttl(val));
+        } else if let Some(rest) = trimmed.strip_prefix("tags ") {
+            for part in rest.split(',') {
+                let label = part.trim();
+                if !label.is_empty() {
+                    tags.push(label.to_owned());
+                }
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("namespace ") {
+            namespace = Some(rest.trim().to_owned());
+        }
+    }
+    let key = key?;
+    let ttl = ttl?;
+    Some(ir::QueryCache {
+        key,
+        ttl,
+        tags,
+        namespace,
+    })
+}
+
+fn parse_cache_ttl(value: &str) -> ir::CacheTtl {
+    // Quoted prose: `ttl "5 minutes"`.
+    if value.starts_with('"') {
+        let body = value.trim_matches('"').to_owned();
+        return ir::CacheTtl::Quoted(body);
+    }
+    // Typed literal: `ttl 5m` (digits + s|m|h|d).
+    let bytes = value.as_bytes();
+    if let Some(idx) = bytes.iter().rposition(|c| c.is_ascii_alphabetic()) {
+        // Find last alphabetic char; everything before is the digit body.
+        let (num_part, unit_part) = value.split_at(idx);
+        let unit = unit_part.trim();
+        if let Ok(n) = num_part.trim().parse::<u32>() {
+            return match unit {
+                "s" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Seconds(n)),
+                "m" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Minutes(n)),
+                "h" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Hours(n)),
+                "d" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Days(n)),
+                _ => ir::CacheTtl::Quoted(value.to_owned()),
+            };
+        }
+    }
+    ir::CacheTtl::Quoted(value.to_owned())
 }
 
 fn lower_command_input_to_typed(slot: &syntax::CommandInputSlot) -> ir::TypedSlot {

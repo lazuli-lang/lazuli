@@ -817,6 +817,46 @@ impl Query {
     }
 }
 
+/// Cache bucket cycle — typed `cache` block on `query.list` / `query.sql`.
+/// Adapters parse `key` verbatim; `ttl` is closed-catalog literal or
+/// quoted prose; `tags`/`namespace` are author-defined labels used for
+/// fan-out invalidation cross-checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryCache {
+    /// `cache key <expr>` — opaque template stored verbatim.
+    pub key: String,
+    /// `cache ttl <literal>` — typed duration or quoted prose.
+    pub ttl: CacheTtl,
+    /// `cache tags <label>[, <label>...]` — lowercase identifiers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// `cache namespace <label>` — single label; `None` defaults to the
+    /// feature name at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+}
+
+/// Cache bucket cycle — `ttl` literal or quoted prose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum CacheTtl {
+    /// `ttl 5m` — typed literal with closed unit catalog.
+    Literal(CacheTtlLiteral),
+    /// `ttl "5 minutes"` — adapter-parsed prose, preserved verbatim.
+    Quoted(String),
+}
+
+/// Cache bucket cycle — typed duration literal. Closed catalog:
+/// `s` (seconds), `m` (minutes), `h` (hours), `d` (days).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "unit", content = "amount")]
+pub enum CacheTtlLiteral {
+    Seconds(u32),
+    Minutes(u32),
+    Hours(u32),
+    Days(u32),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListQuery {
     pub name: String,
@@ -834,6 +874,9 @@ pub struct ListQuery {
     pub paginate: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modifier: Option<String>,
+    /// Cache bucket cycle — typed `cache` block (key/ttl/tags?/namespace?).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<QueryCache>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -869,6 +912,12 @@ pub struct SqlQuery {
     pub scope_override: bool,
     pub returns: TypeRef,
     pub sql_path: String,
+    /// Cache bucket cycle — typed `cache` block. Same shape as
+    /// `ListQuery.cache`. `LookupQuery` deliberately does not gain a
+    /// cache slot (lookup caching is runtime-implicit; the fixture
+    /// only authors cache on list/sql shapes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<QueryCache>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
