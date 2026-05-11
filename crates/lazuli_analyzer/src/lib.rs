@@ -1142,6 +1142,12 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         handler,
         returns,
         emits: webhook.emits.clone(),
+        // Webhooks expanded cycle — wired in commit 2 once the parser
+        // surfaces the new children.
+        payload_from: None,
+        replay: None,
+        dlq: None,
+        retry: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(webhook.span)),
     })

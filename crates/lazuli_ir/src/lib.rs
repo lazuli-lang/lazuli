@@ -1524,6 +1524,46 @@ pub struct AppRegistry {
     /// omit `effect`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<RegistryToolEntry>,
+    /// Webhooks expanded cycle — catalog of expected inbound envelope
+    /// shapes (per provider, provider-neutral surface). Referenced by
+    /// `webhook ... payload from webhook_events.<name>`. Treated as
+    /// external-origin: Lazuli does not assume the source is
+    /// trustworthy, only that the contract matches what the provider
+    /// documents.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub webhook_events: Vec<WebhookEvent>,
+}
+
+/// Webhooks expanded cycle — single entry in the
+/// `registry.webhook_events` catalog. Mirrors the lightweight `record`
+/// shape (typed field decls + capability annotations) but keeps the
+/// type token verbatim because the envelope is external and Lazuli
+/// does not own its evolution. Doctor uses the field list to
+/// cross-check `tenant_from`, `idempotency by`, and `dlq emit` payload
+/// references; the runtime decodes against the same shape via
+/// generated Go types.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookEvent {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<WebhookEventField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Webhooks expanded cycle — one declared field inside a
+/// `webhook_events.<name>` envelope. The `type_text` is kept verbatim
+/// because the envelope is provider-side; `capabilities` capture any
+/// `@semantic.*` / `@pii.*` decorators authored on the line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookEventField {
+    pub name: String,
+    /// `Text`, `ID`, `Timestamp`, `Money`, ... — captured verbatim.
+    pub type_text: String,
+    pub required: bool,
+    /// `@semantic.Email`, `@pii.contact`, ... — kept as authored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2262,10 +2302,87 @@ pub struct Webhook {
     pub returns: Option<TypeRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
+    /// Webhooks expanded cycle — `payload from webhook_events.<name>`
+    /// typed envelope reference resolved against
+    /// `AppRegistry.webhook_events`. Carried as a structured ref so
+    /// doctor and inspect consumers do not have to re-parse the
+    /// dotted form. Atrito #2 of the canonical proposal: this is a
+    /// typed `WebhookEventRef`, not an opaque string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_from: Option<WebhookEventRef>,
+    /// Webhooks expanded cycle — `replay` child declaring an inbound
+    /// replay contract. `None` defers to the runtime default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplaySpec>,
+    /// Webhooks expanded cycle — `dlq <variant>` child declaring how
+    /// the runtime routes deliveries after retry exhaustion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dlq: Option<DlqSpec>,
+    /// Webhooks expanded cycle — Atrito #5 of the canonical proposal:
+    /// optional retry policy on inbound webhooks, reusing the jobs-side
+    /// `RetryPolicy` verbatim. Surface form: `retry <n> backoff
+    /// <strategy>`. The shared shape keeps the parser, doctor, and
+    /// codegen single-pathed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryPolicy>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// Webhooks expanded cycle — typed reference to a
+/// `registry.webhook_events.<name>` envelope. The `webhook_events.`
+/// prefix is implicit (registry path); the language keeps only the
+/// final identifier on disk so renames are local.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookEventRef {
+    /// Catalog entry name within `AppRegistry.webhook_events`.
+    pub name: String,
+}
+
+/// Webhooks expanded cycle — declarative replay contract on an inbound
+/// webhook. `Allow` requires `within "<duration>"`; `Deny` rejects any
+/// re-delivery whose dedupe key was seen before.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplaySpec {
+    pub mode: ReplayMode,
+    /// `within "<duration>"` — verbatim duration literal. The runtime
+    /// parses it; the language never normalises.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub within: Option<String>,
+    /// `dedupe by <path>` — optional override for the dedupe key path.
+    /// `None` reuses the webhook's `idempotency by ...` path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedupe_by: Option<Path>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayMode {
+    /// `replay allow within "<duration>"` — re-delivery accepted in
+    /// the window; runtime returns 200 without re-running the handler.
+    Allow,
+    /// `replay deny` — re-delivery always rejected; runtime returns a
+    /// 409 with `ErrWebhookReplayDenied`.
+    Deny,
+}
+
+/// Webhooks expanded cycle — dead-letter routing after retry
+/// exhaustion. Closed three-variant catalog; mutual exclusion is baked
+/// into the discriminator so the parser fails on duplicate children.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum DlqSpec {
+    /// `dlq emit <event>` — publish a tombstone event onto the bus.
+    /// Doctor resolves the event name against the feature's declared
+    /// events / `event.trace` set.
+    Emit { event: String },
+    /// `dlq handler "./path.go"` — adapter-side custom handler.
+    Handler { path: PathRef },
+    /// `dlq drop reason "..."` — explicit waiver. Mirrors
+    /// `verify none reason "..."` for the silent-drop edge.
+    Drop { reason: String },
 }
 
 /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor used by
