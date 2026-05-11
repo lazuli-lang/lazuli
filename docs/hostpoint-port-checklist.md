@@ -345,13 +345,34 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 
 ---
 
-## §5. Decisões pendentes (precisam de aprovação humana)
+## §5. Decisões resolvidas (2026-05-11)
 
-1. **`@semantic.GeoPoint` ou `Latitude+Longitude` separados?** Recomendado: `@semantic.GeoPoint { lat, lng }` por simetria com `@semantic.Email/Phone/etc`.
-2. **PostGIS no Postgres ou search externo (Algolia GeoSearch)?** Recomendado: **PostGIS** — sem dependência externa, melhor pra MVP, performance excelente até 100K+ properties.
-3. **Mapas adapter primário**: Google Maps (preciso, caro), MapBox (custo médio), Nominatim/OSM (gratuito, lento, sem SLA). Recomendado: **Nominatim para MVP, Google Maps para produção**.
-4. **MercadoPago adapter dentro do `@runtime/` ou `@plugin/hostpoint/mercadopago`?** Recomendado: **`@plugin/hostpoint/mercadopago`** porque é product-specific; promove para `@runtime/` se outros produtos quiserem.
-5. **FCM push notification adapter**: Hostpoint legacy usa FCM (Flutter). Mantém FCM ou migra para Expo Push Notifications (mais simples)? Recomendado: **Expo Push** para o novo app.
+Todas as 5 decisões pendentes foram aprovadas pelo owner. Phase Prep
+desbloqueada.
+
+1. **GeoPoint shape**: `@semantic.GeoPoint { lat, lng }` (tipo semântico único,
+   simétrico com `@semantic.Email`/`Phone`/etc). Validador embarcado;
+   `lat ∈ [-90,90]`, `lng ∈ [-180,180]`. Codegen Go projeta como
+   `postgis.Point` ou shape equivalente.
+2. **Geospatial search**: **PostGIS no Postgres** (extensão oficial, sem
+   dependency externa). Wire em `@runtime/postgres` (~30 LOC).
+   `ST_DWithin` / `ST_Distance` / GiST index. Algolia descartado: drift
+   de schema vs Postgres adiciona risk sem ganho de MVP.
+3. **Maps adapter primário**: **Google Maps direto** (sempre paid, sem fallback
+   Nominatim). Trade-off explícito: custo no dev/staging em troca de zero
+   gotchas de provider switch entre ambientes. Adapter em
+   `@plugin/google-maps` (repo separado, ver §4 abaixo para policy).
+4. **MercadoPago adapter**: **`@plugin/mercadopago`** (genérico — não é
+   hostpoint-specific, qualquer app brasileiro de pagamento usa). Vive em
+   repo privado, NÃO no core `lazuli/lazuli`. Descartado `@runtime/`
+   (não é commodity de plataforma; é provider opinativo) e descartado
+   `@plugin/hostpoint/mercadopago` (escopo errado — adapter é genérico,
+   não product-specific). Ver memória `project_plugin_namespace_policy`
+   para a regra completa de namespacing de plugins.
+5. **Push notifications**: **Expo Push** (built-in no Expo SDK, abstrai FCM
+   Android + APNs iOS). Adapter em `@plugin/expo-push` (proprietary,
+   repo separado). FCM direto descartado: o novo app é Expo-based, dual-channel
+   adiciona código sem ganho.
 
 ---
 
