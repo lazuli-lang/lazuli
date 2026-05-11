@@ -80,6 +80,41 @@ enum Commands {
         #[arg(long = "check")]
         check: Option<String>,
     },
+    /// OpenAPI bucket cycle — emit artifacts derived from the typed IR
+    /// slice. Today supports `openapi` (OpenAPI 3.1 spec YAML).
+    Generate {
+        /// Which artifact to emit. Closed catalog: `openapi`.
+        #[arg(value_enum)]
+        kind: GenerateKind,
+        /// Path to a `.lzi` file or a directory containing one.
+        input: PathBuf,
+        /// Output file path. When omitted the spec is written to stdout.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+        /// API version string emitted as `info.version`. Defaults to
+        /// "0.0.0" when not provided.
+        #[arg(long)]
+        api_version: Option<String>,
+    },
+    /// OpenAPI bucket cycle — diff two `lazuli inspect --format=json`
+    /// payloads and emit a markdown changelog covering added / removed /
+    /// deprecated / breaking / non-breaking operations.
+    Changelog {
+        /// Path to the baseline inspect JSON (typically `--from <rev>`).
+        #[arg(long)]
+        from: PathBuf,
+        /// Path to the new inspect JSON (typically `--to <rev>`).
+        #[arg(long)]
+        to: PathBuf,
+        /// Output file path. When omitted, the report is written to stdout.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum GenerateKind {
+    Openapi,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -301,7 +336,149 @@ fn main() -> Result<()> {
         Commands::Lsp => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
+        Commands::Generate {
+            kind,
+            input,
+            output,
+            api_version,
+        } => generate_command(kind, &input, output.as_deref(), api_version.as_deref()),
+        Commands::Changelog { from, to, output } => {
+            changelog_command(&from, &to, output.as_deref())
+        }
     }
+}
+
+/// OpenAPI bucket cycle — emit an artifact derived from the typed IR.
+fn generate_command(
+    kind: GenerateKind,
+    input: &Path,
+    output: Option<&Path>,
+    api_version: Option<&str>,
+) -> Result<()> {
+    match kind {
+        GenerateKind::Openapi => generate_openapi(input, output, api_version),
+    }
+}
+
+fn generate_openapi(input: &Path, output: Option<&Path>, api_version: Option<&str>) -> Result<()> {
+    let module = build_module_from_path(input)?;
+    let opts = lazuli_openapi::EmitOptions {
+        api_version: api_version.map(|s| s.to_owned()),
+        strict_typed_only: false,
+    };
+    let yaml = lazuli_openapi::emit(&module, opts);
+    match output {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!("creating output directory {}", parent.display())
+                    })?;
+                }
+            }
+            fs::write(path, &yaml)
+                .with_context(|| format!("writing OpenAPI spec to {}", path.display()))?;
+            println!("wrote {}", path.display());
+        }
+        None => print!("{}", yaml),
+    }
+    Ok(())
+}
+
+/// OpenAPI bucket cycle — emit a changelog markdown from two inspect
+/// JSON payloads.
+fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Result<()> {
+    let old_text =
+        fs::read_to_string(from).with_context(|| format!("reading {}", from.display()))?;
+    let new_text = fs::read_to_string(to).with_context(|| format!("reading {}", to.display()))?;
+    let old_module: lazuli_ir::Module = serde_json::from_str(&old_text)
+        .with_context(|| format!("parsing {} as IR JSON", from.display()))?;
+    let new_module: lazuli_ir::Module = serde_json::from_str(&new_text)
+        .with_context(|| format!("parsing {} as IR JSON", to.display()))?;
+    let report = lazuli_changelog::diff(&old_module, &new_module);
+    let md = lazuli_changelog::render_markdown(&report);
+    match output {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!("creating output directory {}", parent.display())
+                    })?;
+                }
+            }
+            fs::write(path, &md)
+                .with_context(|| format!("writing changelog to {}", path.display()))?;
+            println!("wrote {}", path.display());
+        }
+        None => print!("{}", md),
+    }
+    Ok(())
+}
+
+/// Build a `lazuli_ir::Module` from a `.lzi` file or directory by
+/// walking every `.lzi` file in the canonical fixture and lowering its
+/// `feature` blocks through the canonical-indent slice (Phase L Tier
+/// 4). Files without typed feature skeletons (e.g. `app.lzi`,
+/// `registry.lzi`) feed `AppManifest` / `AppRegistry`.
+fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
+    let mut module = lazuli_ir::Module {
+        workspace: None,
+        contracts: Vec::new(),
+        app: None,
+        registry: None,
+        profiles: Vec::new(),
+        features: Vec::new(),
+    };
+
+    let files: Vec<PathBuf> = if input.is_dir() {
+        let mut out = Vec::new();
+        for entry in
+            fs::read_dir(input).with_context(|| format!("reading directory {}", input.display()))?
+        {
+            let entry = entry?;
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("lzi") {
+                out.push(p);
+            }
+        }
+        out.sort();
+        out
+    } else {
+        vec![input.to_path_buf()]
+    };
+
+    for path in &files {
+        let source =
+            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        // App / registry / workspace manifests
+        if module.app.is_none() {
+            module.app = app_manifest::parse_app_manifest(&source);
+        }
+        if module.registry.is_none() {
+            module.registry = app_manifest::parse_app_registry(&source);
+        }
+        if module.workspace.is_none() {
+            module.workspace = app_manifest::parse_app_workspace(&source);
+        }
+        let contracts = app_manifest::parse_app_contracts(&source);
+        if !contracts.is_empty() {
+            module.contracts.extend(contracts);
+        }
+        let profiles = app_manifest::parse_app_profiles(&source);
+        if !profiles.is_empty() {
+            module.profiles.extend(profiles);
+        }
+        // Features via canonical-indent slice
+        if let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(&source) {
+            for ast in skeletons {
+                if let Ok(feature) = lazuli_analyzer::lower_feature_skeleton(&ast) {
+                    module.features.push(feature);
+                }
+            }
+        }
+    }
+
+    Ok(module)
 }
 
 /// Migrations bucket cycle Route C — `lazuli plan --check <name>`

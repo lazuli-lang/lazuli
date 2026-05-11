@@ -453,6 +453,7 @@ fn lower_command(
         approval: None,
         invalidates: Vec::new(),
         external_calls: Vec::new(),
+        deprecated: None,
         tests: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(command.span)),
@@ -985,6 +986,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         })
         .collect();
     let external_calls = c.external_calls.iter().map(lower_external_call).collect();
+    let deprecated = c.deprecated.as_ref().map(lower_command_deprecated);
     ir::Command {
         name: c.name.clone(),
         kind,
@@ -1000,9 +1002,44 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         approval,
         invalidates,
         external_calls,
+        deprecated,
         tests: None,
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
+    }
+}
+
+/// OpenAPI bucket cycle — lower an authored `deprecated` decorator into
+/// the typed IR shape. `replacement` is classified by syntactic shape:
+/// `https?://` → Url, `<feature>.command.<name>` → Qualified, otherwise
+/// → LocalCommand. Doctor resolves LocalCommand against the same-feature
+/// command table.
+fn lower_command_deprecated(decl: &syntax::CommandDeprecatedDecl) -> ir::Deprecation {
+    let replacement = decl.replacement.as_ref().map(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            ir::DeprecationReplacement::Url(trimmed.to_owned())
+        } else if let Some(stripped) = trimmed.strip_prefix("@") {
+            // `@adapter.command.<name>` or similar — store as Url-style
+            // verbatim escape hatch.
+            ir::DeprecationReplacement::Url(format!("@{}", stripped))
+        } else {
+            // Detect `<feature>.command.<name>` shape.
+            let parts: Vec<&str> = trimmed.split('.').collect();
+            if parts.len() == 3 && parts[1] == "command" {
+                ir::DeprecationReplacement::Qualified(ir::QualifiedName {
+                    feature: Some(parts[0].to_owned()),
+                    name: parts[2].to_owned(),
+                })
+            } else {
+                ir::DeprecationReplacement::LocalCommand(trimmed.to_owned())
+            }
+        }
+    });
+    ir::Deprecation {
+        since: decl.since.clone(),
+        replacement,
+        sunset: decl.sunset.clone(),
     }
 }
 

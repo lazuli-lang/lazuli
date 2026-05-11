@@ -7,8 +7,7 @@ use lazuli_ir::{
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
     ContractRecord, DeployCheckpoint, FeatureRequirement, QualifiedName, RegistryToolEntry,
     ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp, WorkspaceBoundary,
-    WorkspaceCommunication, WorkspaceGateway,
-    WorkspaceGatewayRoute,
+    WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist

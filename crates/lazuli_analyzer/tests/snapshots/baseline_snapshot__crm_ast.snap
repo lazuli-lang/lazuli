@@ -1,5 +1,6 @@
 ---
 source: crates/lazuli_analyzer/tests/baseline_snapshot.rs
+assertion_line: 17
 expression: document
 ---
 {
@@ -17,8 +18,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 32,
-            "end": 51
+            "start": 35,
+            "end": 54
           }
         },
         {
@@ -33,8 +34,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 54,
-            "end": 82
+            "start": 58,
+            "end": 86
           }
         },
         {
@@ -47,8 +48,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 85,
-            "end": 120
+            "start": 90,
+            "end": 125
           }
         }
       ],
@@ -64,8 +65,8 @@ expression: document
             "CustomerCreated"
           ],
           "span": {
-            "start": 124,
-            "end": 219
+            "start": 131,
+            "end": 230
           }
         }
       ],
@@ -80,8 +81,8 @@ expression: document
             "status"
           ],
           "span": {
-            "start": 223,
-            "end": 280
+            "start": 236,
+            "end": 296
           }
         }
       ],
@@ -103,14 +104,14 @@ expression: document
             "status"
           ],
           "span": {
-            "start": 284,
-            "end": 404
+            "start": 302,
+            "end": 426
           }
         }
       ],
       "span": {
-        "start": 9,
-        "end": 406
+        "start": 11,
+        "end": 429
       }
     },
     {
@@ -125,8 +126,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 430,
-            "end": 450
+            "start": 456,
+            "end": 476
           }
         },
         {
@@ -138,8 +139,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 453,
-            "end": 479
+            "start": 480,
+            "end": 506
           }
         },
         {
@@ -152,8 +153,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 482,
-            "end": 510
+            "start": 510,
+            "end": 538
           }
         }
       ],
@@ -169,8 +170,8 @@ expression: document
             "ProjectCreated"
           ],
           "span": {
-            "start": 514,
-            "end": 613
+            "start": 544,
+            "end": 647
           }
         }
       ],
@@ -185,8 +186,8 @@ expression: document
             "active"
           ],
           "span": {
-            "start": 617,
-            "end": 680
+            "start": 653,
+            "end": 719
           }
         }
       ],
@@ -205,19 +206,19 @@ expression: document
           ],
           "detail_fields": [],
           "span": {
-            "start": 684,
-            "end": 786
+            "start": 725,
+            "end": 830
           }
         }
       ],
       "span": {
-        "start": 408,
-        "end": 788
+        "start": 433,
+        "end": 833
       }
     }
   ],
   "span": {
     "start": 0,
-    "end": 789
+    "end": 835
   }
 }

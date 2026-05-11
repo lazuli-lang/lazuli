@@ -7290,9 +7290,15 @@ mod tests {
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
                                     event_groups: feature.event_groups.clone(),
+                                    tenant_migrations: feature.tenant_migrations.clone(),
+                                    resource_previous_names: Vec::new(),
+                                    field_previous_names: Vec::new(),
+                                    all_resource_names_in_feature: BTreeSet::new(),
+                                    all_field_names_in_feature: BTreeMap::new(),
                                     job_lines,
                                     webhook_lines,
                                     notification_lines,
+                                    tenant_migration_lines: BTreeMap::new(),
                                     event_group_lines,
                                 });
                             }

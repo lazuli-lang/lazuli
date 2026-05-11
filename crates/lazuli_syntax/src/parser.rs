@@ -8,13 +8,13 @@ use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, ApiDecl,
     ApprovalThenDecl, AssignmentDecl, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword,
-    AuthSessions, Command, CommandApproval, CommandAudit, CommandDecl, CommandEffectDecl,
-    CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
-    ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup, FeatureDefaults,
-    FeatureSkeleton, Field, FieldModifier, HttpMethod, InvalidatesDecl, Job, JobBody,
-    JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
-    JobTrigger, LetBindingDecl, ListQueryDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp,
-    LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
+    AuthSessions, Command, CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl,
+    CommandEffectDecl, CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot,
+    CommandRouteSlot, ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup,
+    FeatureDefaults, FeatureSkeleton, Field, FieldModifier, HttpMethod, InvalidatesDecl, Job,
+    JobBody, JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler,
+    JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl, LookupKey, LookupQueryDecl, LzxAction,
+    LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
     LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
     Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl,
     ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, SqlQueryDecl, Surface,
@@ -1673,6 +1673,7 @@ fn parse_command_decl(
     let mut invalidates: Vec<InvalidatesDecl> = Vec::new();
     let mut external_calls: Vec<JobExternalCall> = Vec::new();
     let mut tests: Vec<String> = Vec::new();
+    let mut deprecated: Option<CommandDeprecatedDecl> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -1803,10 +1804,23 @@ fn parse_command_decl(
             tests.extend(parsed);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
+        } else if trimmed == "deprecated" {
+            deprecated = Some(CommandDeprecatedDecl {
+                since: None,
+                replacement: None,
+                sunset: None,
+                span: Span::new(line.start, line.end),
+            });
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("deprecated ") {
+            deprecated = Some(parse_command_deprecated(line, rest)?);
+            last_end = line.end;
+            i += 1;
         } else {
             return Err(line_error(
                 line,
-                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, or `tests`",
+                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, or `tests`",
             ));
         }
     }
@@ -1831,10 +1845,73 @@ fn parse_command_decl(
             invalidates,
             external_calls,
             tests,
+            deprecated,
             span: Span::new(header.start, last_end),
         },
         i,
     ))
+}
+
+/// Parse `deprecated [since "<X>"] [replacement <ref>] [sunset "<Y>"]` —
+/// inline single-line shape. Keys may appear in any order; each at most
+/// once.
+fn parse_command_deprecated(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<CommandDeprecatedDecl, ParseError> {
+    let mut since: Option<String> = None;
+    let mut replacement: Option<String> = None;
+    let mut sunset: Option<String> = None;
+    let mut cursor = rest.trim();
+    while !cursor.is_empty() {
+        if let Some(after) = cursor.strip_prefix("since ") {
+            let (val, next) = take_quoted_or_word(after)
+                .ok_or_else(|| line_error(line, "`deprecated since` requires a value"))?;
+            since = Some(val);
+            cursor = next.trim_start();
+        } else if let Some(after) = cursor.strip_prefix("replacement ") {
+            let (val, next) = take_quoted_or_word(after)
+                .ok_or_else(|| line_error(line, "`deprecated replacement` requires a value"))?;
+            replacement = Some(val);
+            cursor = next.trim_start();
+        } else if let Some(after) = cursor.strip_prefix("sunset ") {
+            let (val, next) = take_quoted_or_word(after)
+                .ok_or_else(|| line_error(line, "`deprecated sunset` requires a value"))?;
+            sunset = Some(val);
+            cursor = next.trim_start();
+        } else {
+            return Err(line_error(
+                line,
+                "`deprecated` children are `since`, `replacement`, `sunset`",
+            ));
+        }
+    }
+    Ok(CommandDeprecatedDecl {
+        since,
+        replacement,
+        sunset,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Take a quoted string or a single bare word (dotted refs allowed),
+/// returning the unquoted value and the remainder of the input.
+fn take_quoted_or_word(s: &str) -> Option<(String, &str)> {
+    let trimmed = s.trim_start();
+    if let Some(after_quote) = trimmed.strip_prefix('"') {
+        let end = after_quote.find('"')?;
+        let value = after_quote[..end].to_owned();
+        let next = &after_quote[end + 1..];
+        Some((value, next))
+    } else {
+        let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+        let value = trimmed[..end].to_owned();
+        if value.is_empty() {
+            return None;
+        }
+        let next = &trimmed[end..];
+        Some((value, next))
+    }
 }
 
 fn parse_command_route_slot(

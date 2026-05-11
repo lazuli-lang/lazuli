@@ -1,5 +1,6 @@
 ---
 source: crates/lazuli_analyzer/tests/baseline_snapshot.rs
+assertion_line: 24
 expression: app
 ---
 {
@@ -23,8 +24,8 @@ expression: app
               "required": true,
               "unique": false,
               "span_ref": {
-                "start": 32,
-                "end": 51
+                "start": 35,
+                "end": 54
               }
             },
             {
@@ -36,8 +37,8 @@ expression: app
               "required": true,
               "unique": true,
               "span_ref": {
-                "start": 54,
-                "end": 82
+                "start": 58,
+                "end": 86
               }
             },
             {
@@ -57,14 +58,14 @@ expression: app
                 }
               },
               "span_ref": {
-                "start": 85,
-                "end": 120
+                "start": 90,
+                "end": 125
               }
             }
           ],
           "span_ref": {
-            "start": 9,
-            "end": 406
+            "start": 11,
+            "end": 429
           }
         },
         {
@@ -79,8 +80,8 @@ expression: app
               "required": true,
               "unique": false,
               "span_ref": {
-                "start": 430,
-                "end": 450
+                "start": 456,
+                "end": 476
               }
             },
             {
@@ -92,8 +93,8 @@ expression: app
               "required": true,
               "unique": false,
               "span_ref": {
-                "start": 453,
-                "end": 479
+                "start": 480,
+                "end": 506
               }
             },
             {
@@ -109,14 +110,14 @@ expression: app
                 "value": true
               },
               "span_ref": {
-                "start": 482,
-                "end": 510
+                "start": 510,
+                "end": 538
               }
             }
           ],
           "span_ref": {
-            "start": 408,
-            "end": 788
+            "start": 433,
+            "end": 833
           }
         }
       ],
@@ -155,8 +156,8 @@ expression: app
             "CustomerCreated"
           ],
           "span_ref": {
-            "start": 124,
-            "end": 219
+            "start": 131,
+            "end": 230
           }
         },
         {
@@ -187,8 +188,8 @@ expression: app
             "ProjectCreated"
           ],
           "span_ref": {
-            "start": 514,
-            "end": 613
+            "start": 544,
+            "end": 647
           }
         }
       ],
@@ -225,8 +226,8 @@ expression: app
             }
           ],
           "span_ref": {
-            "start": 223,
-            "end": 280
+            "start": 236,
+            "end": 296
           }
         },
         {
@@ -261,8 +262,8 @@ expression: app
             }
           ],
           "span_ref": {
-            "start": 617,
-            "end": 680
+            "start": 653,
+            "end": 719
           }
         }
       ],
@@ -274,7 +275,7 @@ expression: app
       "escape_routes": [],
       "span_ref": {
         "start": 0,
-        "end": 789
+        "end": 835
       }
     }
   ]

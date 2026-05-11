@@ -556,17 +556,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazuli_changelog"
+version = "0.1.0"
+dependencies = [
+ "lazuli_ir",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lazuli_cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "lazuli_analyzer",
+ "lazuli_changelog",
  "lazuli_codegen_go",
  "lazuli_codegen_spec",
  "lazuli_codegen_ts",
  "lazuli_ir",
  "lazuli_lsp",
+ "lazuli_openapi",
  "lazuli_planner",
  "lazuli_syntax",
  "serde",
@@ -627,6 +638,15 @@ name = "lazuli_mcp"
 version = "0.1.0"
 dependencies = [
  "lazuli_ir",
+]
+
+[[package]]
+name = "lazuli_openapi"
+version = "0.1.0"
+dependencies = [
+ "lazuli_ir",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -262,6 +262,7 @@ feature customer
 
   command reassign
     previously migrated assign_owner
+    deprecated since "2026.04" replacement capture_lead sunset "2026-12-31"
     route id: ID
     input
       owner_id: User.ID required

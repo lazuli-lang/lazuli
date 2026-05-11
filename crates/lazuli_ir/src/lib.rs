@@ -594,12 +594,47 @@ pub struct Command {
     /// Mirrors `Job.external_calls`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub external_calls: Vec<ExternalCallRef>,
+    /// OpenAPI bucket cycle — `deprecated [since "..." replacement <ref>
+    /// sunset "..."]`. `None` for live commands; `Some` for those flagged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<Deprecation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// OpenAPI bucket cycle — typed deprecation marker for commands (and
+/// post-Tier-4 apis). All sub-fields are optional; bare `deprecated`
+/// surfaces as `Deprecation::default()`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deprecation {
+    /// Authored `since "<version>"`. Free-form (semver, calendar,
+    /// git-sha) — emitted verbatim under `x-lazuli-deprecated-since`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// Authored `replacement <ref>` resolved at lowering. `None` when
+    /// omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<DeprecationReplacement>,
+    /// Authored `sunset "<YYYY-MM-DD>"` — ISO-8601 date. Format-checked
+    /// at lowering; doctor warns if in the past.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+}
+
+/// Closed catalog of replacement reference shapes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DeprecationReplacement {
+    /// `replacement <command_name>` — same-feature short form.
+    LocalCommand(String),
+    /// `replacement <feature>.command.<name>` — cross-feature.
+    Qualified(QualifiedName),
+    /// `replacement "https://..."` — explicit URL escape hatch.
+    Url(String),
 }
 
 /// Phase L Tier 4b — declarative audit spec captured from a command's

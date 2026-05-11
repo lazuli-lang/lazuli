@@ -357,6 +357,19 @@ pub struct CommandDecl {
     /// `tests` block — captured as raw lines until a typed test grammar
     /// lands. The body is the indented child list, trimmed.
     pub tests: Vec<String>,
+    /// OpenAPI bucket cycle — `deprecated [since ".." replacement <ref> sunset ".."]`.
+    pub deprecated: Option<CommandDeprecatedDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandDeprecatedDecl {
+    /// Authored `since "<version>"` — verbatim (semver, calendar, git-sha).
+    pub since: Option<String>,
+    /// Authored `replacement <ref>` — verbatim dotted ref or quoted URL.
+    pub replacement: Option<String>,
+    /// Authored `sunset "<YYYY-MM-DD>"` — verbatim ISO-8601 string.
+    pub sunset: Option<String>,
     pub span: Span,
 }
 
