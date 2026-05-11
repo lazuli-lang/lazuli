@@ -8754,12 +8754,20 @@ fn validate_app_deploy_line(
         {
             app.deploy_has_rollback = true;
         }
+        // Migrations bucket cycle Route C — five new deploy children.
+        // `strategy` catalog enforced downstream by `DEPLOY-STRATEGY-001`.
+        ["strategy", value]
+            if matches!(*value, "rolling" | "blue_green" | "canary") => {}
+        ["lock_timeout", _value] => {}
+        ["pre_migration_hook", _value] => {}
+        ["post_migration_hook", _value] => {}
+        ["checkpoint", _name, _path] => {}
         _ => diagnostics.push(simple_canonical_diagnostic(
             line_index,
             line,
             DiagnosticSeverity::WARNING,
             "app-deploy-contract",
-            "deploy contracts use `migrations before_deploy|manual|disabled`, `migration_lock required|optional`, `destructive_migrations require_approval|forbidden`, and `rollback on_failed_healthcheck|manual|disabled`.",
+            "deploy contracts use `migrations before_deploy|manual|disabled`, `migration_lock required|optional`, `destructive_migrations require_approval|forbidden`, `rollback on_failed_healthcheck|manual|disabled`, `strategy rolling|blue_green|canary`, `lock_timeout \"<duration>\"`, `pre_migration_hook \"<path>\"`, `post_migration_hook \"<path>\"`, and `checkpoint <name> \"<path>\"`.",
         )),
     }
 }

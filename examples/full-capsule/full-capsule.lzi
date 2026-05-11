@@ -409,6 +409,13 @@ feature customer
     retry 3 backoff exponential
     handler "./jobs/recompute_scores.go"
 
+  tenant_migration backfill_customer_score
+    target tenants org
+    idempotency by tenant.org_id
+    retry 3 backoff exponential
+    timeout "5m"
+    handler "./migrations/backfill_customer_score.go"
+
   extensions
     client status_cell: CellRenderer[Customer]
     client score_cell: CellRenderer[Customer]

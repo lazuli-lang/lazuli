@@ -1,0 +1,9 @@
+{
+  "lazuli_version": "0.1.0",
+  "checkpoint_name": "baseline",
+  "note": "Pinned IR snapshot for migration planning. Regenerate via `lazuli inspect --format=json examples/full-capsule > examples/full-capsule/checkpoints/full-capsule.snapshot.json` once Tier-4 typed field diff lands.",
+  "features": [],
+  "app": {
+    "name": "FullCapsule"
+  }
+}
