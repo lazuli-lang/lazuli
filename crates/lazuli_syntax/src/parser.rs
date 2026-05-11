@@ -13,11 +13,12 @@ use crate::ast::{
     ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, Document, EventGroup, FeatureDefaults,
     FeatureSkeleton, Field, FieldModifier, HttpMethod, InvalidatesDecl, Job, JobBody,
     JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
-    JobTrigger, LetBindingDecl, LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience,
-    LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute,
-    LzxSurface, LzxViewExtension, Notification, Query, ResourceDecl, ResourceFieldDecl,
-    ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, Surface, TargetArgDecl,
-    TargetExprDecl, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
+    JobTrigger, LetBindingDecl, ListQueryDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp,
+    LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
+    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
+    Notification, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl,
+    ResourceHasMany, ResourceRetention, ResourceRetentionAction, Span, SqlQueryDecl, Surface,
+    TargetArgDecl, TargetExprDecl, ToolsCallsOp, Webhook, WebhookHandler, WebhookVerify,
 };
 
 #[derive(Parser)]
@@ -1157,6 +1158,8 @@ fn parse_feature_skeleton(
     let mut commands: Vec<CommandDecl> = Vec::new();
     let mut apis: Vec<ApiDecl> = Vec::new();
     let mut resources: Vec<ResourceDecl> = Vec::new();
+    let mut queries: Vec<QueryDecl> = Vec::new();
+    let mut records: Vec<RecordDecl> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1283,9 +1286,31 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Any other feature child is skipped silently — Phase L still
-        // leaves queries/workflows to the text-pattern doctor pipeline
-        // (Tier 4d for queries/records; later tier for workflows).
+        // Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql`
+        // blocks. Authored inside `domain` at indent 4. Header is
+        // recognised unambiguously by the keyword prefix.
+        if trimmed.starts_with("query.list ")
+            || trimmed.starts_with("query.lookup ")
+            || trimmed.starts_with("query.sql ")
+        {
+            let (parsed, next) = parse_query_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            queries.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Phase L Tier 4d — `record <Name>` block.
+        if trimmed.starts_with("record ") {
+            let (parsed, next) = parse_record_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            records.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Any other feature child is skipped silently — workflows and
+        // surfaces remain in the legacy text-pattern doctor pipeline.
         last_end = line.end;
         i += 1;
     }
@@ -1303,6 +1328,8 @@ fn parse_feature_skeleton(
             commands,
             apis,
             resources,
+            queries,
+            records,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -2833,6 +2860,609 @@ fn find_token(text: &str, needle: &str) -> Option<usize> {
 /// (`= lead`, `= 0`).
 fn find_default_assignment(text: &str) -> Option<usize> {
     find_token(text, " = ")
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql` and
+// `record <Name>` block parsers.
+//
+// Queries live inside `domain` at indent 4. Children at indent 6 are
+// `policy`, `modifier`, `params`, `scope`/`scope override`, `filters`,
+// `search`, `cache`, `paginate`, `order`, `returns`, `sql`. Grandchildren
+// (typed param slots, `scope override` body) at indent 8.
+// -----------------------------------------------------------------------------
+
+fn parse_query_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(QueryDecl, usize), ParseError> {
+    let header = &lines[start];
+    let trimmed = header.text.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("query.lookup ") {
+        return parse_query_lookup_decl(lines, start, rest);
+    }
+    if let Some(rest) = trimmed.strip_prefix("query.list ") {
+        return parse_query_list_decl(lines, start, rest);
+    }
+    if let Some(rest) = trimmed.strip_prefix("query.sql ") {
+        return parse_query_sql_decl(lines, start, rest);
+    }
+    Err(line_error(
+        header,
+        "query header must be `query.list <name>`, `query.lookup <name> by ...`, or `query.sql <name>`",
+    ))
+}
+
+fn parse_query_lookup_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+) -> Result<(QueryDecl, usize), ParseError> {
+    let header = &lines[start];
+    let rest = rest.trim();
+    // Two shapes accepted today:
+    //   - inline: `<name> by <field>: <Type>` (Cut A canonical).
+    //   - block: `<name>` with `params` / `filters` / `policy` children.
+    let (name, inline_key) = if let Some((name, after)) = rest.split_once(" by ") {
+        (
+            name.trim().to_owned(),
+            Some(parse_lookup_key(header, after)?),
+        )
+    } else {
+        (rest.to_owned(), None)
+    };
+    if name.is_empty() {
+        return Err(line_error(header, "`query.lookup` requires a name"));
+    }
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+    let mut policy: Option<String> = None;
+    let mut params: Vec<CommandInputSlot> = Vec::new();
+    // `filters` lines are captured for cross-check but not lowered to
+    // typed keys today; Cut A's contract is `keys` (from `by ...`) so
+    // multi-key block lookups keep their filters in the AST sidecar
+    // while IR uses `keys` from the inline form.
+    let mut filters: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`query.lookup` body children use one indentation level deeper than the header",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "params" {
+            let (parsed, next) = parse_query_params_block(lines, i, grandchild_indent)?;
+            params = parsed;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "filters" {
+            let (collected, next) = parse_query_indented_block(lines, i, grandchild_indent);
+            filters = collected;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "`query.lookup` children are `policy`, `params`, or `filters`",
+            ));
+        }
+    }
+    // Build the IR-facing keys list. Inline form contributes one
+    // explicit key; block form synthesises a key per param so the IR
+    // shape stays consistent.
+    let keys: Vec<LookupKey> = if let Some(key) = inline_key {
+        vec![key]
+    } else {
+        params
+            .iter()
+            .map(|p| LookupKey {
+                name: p.name.clone(),
+                type_text: p.type_text.clone(),
+                span: p.span,
+            })
+            .collect()
+    };
+    let _ = filters; // captured for future doctor cross-check; not yet
+    // promoted to IR predicate.
+    Ok((
+        QueryDecl::Lookup(LookupQueryDecl {
+            name,
+            policy,
+            keys,
+            span: Span::new(header.start, last_end),
+        }),
+        i,
+    ))
+}
+
+fn parse_lookup_key(line: &SourceLine<'_>, rest: &str) -> Result<LookupKey, ParseError> {
+    let (name, type_text) = rest.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "`query.lookup ... by <field>: <Type>` requires `<field>: <Type>`",
+        )
+    })?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(line_error(
+            line,
+            "`query.lookup ... by <field>: <Type>` requires a field name before `:`",
+        ));
+    }
+    let type_text = type_text.trim();
+    if type_text.is_empty() {
+        return Err(line_error(
+            line,
+            "`query.lookup ... by <field>: <Type>` requires a type after `:`",
+        ));
+    }
+    Ok(LookupKey {
+        name: name.to_owned(),
+        type_text: type_text.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_query_list_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+) -> Result<(QueryDecl, usize), ParseError> {
+    let header = &lines[start];
+    let name = rest.trim().to_owned();
+    if name.is_empty() {
+        return Err(line_error(header, "`query.list` requires a name"));
+    }
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+
+    let mut policy: Option<String> = None;
+    let mut modifier: Option<String> = None;
+    let mut params: Vec<CommandInputSlot> = Vec::new();
+    let mut scope_override = false;
+    let mut scope_reason: Option<String> = None;
+    let mut scope_assignments: Vec<String> = Vec::new();
+    let mut scope_lines: Vec<String> = Vec::new();
+    let mut filters: Vec<String> = Vec::new();
+    let mut search: Option<QuerySearch> = None;
+    let mut cache: Vec<String> = Vec::new();
+    let mut paginate: Option<u32> = None;
+    let mut order: Vec<String> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`query.list` body children use one indentation level deeper than the header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("modifier ") {
+            modifier = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "params" {
+            let (parsed, next) = parse_query_params_block(lines, i, grandchild_indent)?;
+            params = parsed;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "scope override" {
+            scope_override = true;
+            let (reason, assignments, next) =
+                parse_query_scope_override_block(lines, i, grandchild_indent)?;
+            scope_reason = reason;
+            scope_assignments = assignments;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "scope" {
+            let (lines_collected, next) = parse_query_indented_block(lines, i, grandchild_indent);
+            scope_lines = lines_collected;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "filters" {
+            let (lines_collected, next) = parse_query_indented_block(lines, i, grandchild_indent);
+            filters = lines_collected;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("search ") {
+            let (parsed, next) = parse_query_search(lines, i, rest, grandchild_indent)?;
+            search = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "cache" {
+            let (lines_collected, next) = parse_query_indented_block(lines, i, grandchild_indent);
+            cache = lines_collected;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("paginate ") {
+            paginate = Some(rest.trim().parse::<u32>().map_err(|_| {
+                line_error(line, "`paginate` requires a positive integer page size")
+            })?);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("order ") {
+            order.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`query.list` children are `policy`, `modifier`, `params`, `scope`/`scope override`, `filters`, `search`, `cache`, `paginate`, or `order`",
+            ));
+        }
+    }
+
+    Ok((
+        QueryDecl::List(ListQueryDecl {
+            name,
+            policy,
+            modifier,
+            params,
+            scope_override,
+            scope_reason,
+            scope_assignments,
+            scope_lines,
+            filters,
+            search,
+            cache,
+            paginate,
+            order,
+            span: Span::new(header.start, last_end),
+        }),
+        i,
+    ))
+}
+
+fn parse_query_sql_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+) -> Result<(QueryDecl, usize), ParseError> {
+    let header = &lines[start];
+    let name = rest.trim().to_owned();
+    if name.is_empty() {
+        return Err(line_error(header, "`query.sql` requires a name"));
+    }
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+
+    let mut policy: Option<String> = None;
+    let mut params: Vec<CommandInputSlot> = Vec::new();
+    let mut scope_lines: Vec<String> = Vec::new();
+    let mut returns: Option<String> = None;
+    let mut sql_path: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`query.sql` body children use one indentation level deeper than the header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "params" {
+            let (parsed, next) = parse_query_params_block(lines, i, grandchild_indent)?;
+            params = parsed;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "scope" {
+            let (lines_collected, next) = parse_query_indented_block(lines, i, grandchild_indent);
+            scope_lines = lines_collected;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("returns ") {
+            returns = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("sql ") {
+            sql_path = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "`query.sql` children are `policy`, `params`, `scope`, `returns`, or `sql`",
+            ));
+        }
+    }
+
+    let returns = returns.ok_or_else(|| {
+        line_error(
+            header,
+            "`query.sql` requires a `returns <Type>` declaration",
+        )
+    })?;
+    let sql_path = sql_path.ok_or_else(|| {
+        line_error(
+            header,
+            "`query.sql` requires a `sql \"./<path>.sql\"` declaration",
+        )
+    })?;
+    Ok((
+        QueryDecl::Sql(SqlQueryDecl {
+            name,
+            policy,
+            params,
+            scope_lines,
+            returns,
+            sql_path,
+            span: Span::new(header.start, last_end),
+        }),
+        i,
+    ))
+}
+
+fn parse_query_params_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    grandchild_indent: usize,
+) -> Result<(Vec<CommandInputSlot>, usize), ParseError> {
+    let mut slots: Vec<CommandInputSlot> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent < grandchild_indent {
+            break;
+        }
+        if line.indent != grandchild_indent {
+            return Err(line_error(
+                line,
+                "query `params` children use the deepest indentation level",
+            ));
+        }
+        let (name_part, type_part) = trimmed.split_once(':').ok_or_else(|| {
+            line_error(
+                line,
+                "query `params` slots use `<name>: <Type> [required|optional]`",
+            )
+        })?;
+        let name = name_part.trim();
+        if name.is_empty() {
+            return Err(line_error(
+                line,
+                "query `params` slot requires a name before `:`",
+            ));
+        }
+        let (type_text, required, optional) = split_command_input_modifiers(type_part.trim());
+        slots.push(CommandInputSlot {
+            name: name.to_owned(),
+            type_text,
+            required,
+            optional,
+            span: Span::new(line.start, line.end),
+        });
+        i += 1;
+    }
+    Ok((slots, i))
+}
+
+fn parse_query_scope_override_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    grandchild_indent: usize,
+) -> Result<(Option<String>, Vec<String>, usize), ParseError> {
+    let mut reason: Option<String> = None;
+    let mut assignments: Vec<String> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent < grandchild_indent {
+            break;
+        }
+        if line.indent != grandchild_indent {
+            return Err(line_error(
+                line,
+                "`scope override` children use the deepest indentation level",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("reason ") {
+            reason = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else {
+            assignments.push(trimmed.to_owned());
+        }
+        i += 1;
+    }
+    Ok((reason, assignments, i))
+}
+
+fn parse_query_indented_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    grandchild_indent: usize,
+) -> (Vec<String>, usize) {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent < grandchild_indent {
+            break;
+        }
+        out.push(trimmed.to_owned());
+        i += 1;
+    }
+    (out, i)
+}
+
+fn parse_query_search(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+    grandchild_indent: usize,
+) -> Result<(QuerySearch, usize), ParseError> {
+    let header = &lines[start];
+    let (source, fields) = rest.split_once(" over ").ok_or_else(|| {
+        line_error(
+            header,
+            "`search` requires `<path> over <field>, <field>` (e.g. `search params.search over name, email`)",
+        )
+    })?;
+    let fields: Vec<String> = fields
+        .split(',')
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut mode: Option<String> = None;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent < grandchild_indent {
+            break;
+        }
+        if line.indent != grandchild_indent {
+            return Err(line_error(
+                line,
+                "`search` children use the deepest indentation level",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("mode ") {
+            mode = Some(rest.trim().to_owned());
+            i += 1;
+        } else {
+            return Err(line_error(line, "`search` children are `mode <kind>` only"));
+        }
+    }
+    Ok((
+        QuerySearch {
+            source: source.trim().to_owned(),
+            fields,
+            mode,
+            span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+fn parse_record_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(RecordDecl, usize), ParseError> {
+    let header = &lines[start];
+    let trimmed = header.text.trim_start();
+    let name = trimmed
+        .strip_prefix("record ")
+        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+        .ok_or_else(|| line_error(header, "record header must be `record <Name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "record header requires a name"));
+    }
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+
+    let mut fields: Vec<ResourceFieldDecl> = Vec::new();
+    let mut discriminator_field: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`record` body children use one indentation level deeper than the header",
+            ));
+        }
+        if trimmed.contains(':') {
+            let (field, next) = parse_resource_field_decl(lines, i, grandchild_indent)?;
+            if field.type_text.contains("discriminator") {
+                discriminator_field = Some(field.name.clone());
+            }
+            fields.push(field);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "`record` children are `<field>: <Type>` lines only",
+            ));
+        }
+    }
+
+    Ok((
+        RecordDecl {
+            name,
+            fields,
+            discriminator_field,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
 }
 
 // -----------------------------------------------------------------------------
@@ -5694,5 +6324,114 @@ feature customer
             message.contains("anonymize"),
             "error should list valid actions: {message}"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 4d — `query` and `record` block parser slice
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn query_list_full_block_parses() {
+        let source = r#"
+feature customer
+  domain
+    query.list list
+      modifier @query_modifier.query_scope_modifier
+
+      params
+        lifecycle_stage: CustomerStatus optional
+        search: Text optional
+
+      filters
+        lifecycle_stage when params.lifecycle_stage
+
+      search params.search over name, email
+        mode contains
+
+      cache
+        key customer.list(params)
+        ttl "5 minutes"
+
+      paginate 50
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features[0].queries.len(), 1);
+        match &features[0].queries[0] {
+            crate::QueryDecl::List(q) => {
+                assert_eq!(q.name, "list");
+                assert_eq!(
+                    q.modifier.as_deref(),
+                    Some("@query_modifier.query_scope_modifier")
+                );
+                assert_eq!(q.params.len(), 2);
+                assert_eq!(q.filters.len(), 1);
+                let search = q.search.as_ref().expect("search");
+                assert_eq!(search.fields, vec!["name", "email"]);
+                assert_eq!(search.mode.as_deref(), Some("contains"));
+                assert_eq!(q.paginate, Some(50));
+            }
+            other => panic!("expected query.list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_lookup_inline_parses() {
+        let source = r#"
+feature customer
+  domain
+    query.lookup by_id by id: ID
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        match &features[0].queries[0] {
+            crate::QueryDecl::Lookup(l) => {
+                assert_eq!(l.name, "by_id");
+                assert_eq!(l.keys.len(), 1);
+                assert_eq!(l.keys[0].name, "id");
+                assert_eq!(l.keys[0].type_text, "ID");
+            }
+            other => panic!("expected query.lookup, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_sql_parses() {
+        let source = r#"
+feature customer
+  domain
+    query.sql lifetime_value
+      returns CustomerLtv[]
+      scope
+        org = ctx.user.org
+      sql "./queries/customer_lifetime_value.sql"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        match &features[0].queries[0] {
+            crate::QueryDecl::Sql(s) => {
+                assert_eq!(s.name, "lifetime_value");
+                assert_eq!(s.returns, "CustomerLtv[]");
+                assert_eq!(s.sql_path, "./queries/customer_lifetime_value.sql");
+                assert_eq!(s.scope_lines.len(), 1);
+            }
+            other => panic!("expected query.sql, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn record_block_parses() {
+        let source = r#"
+feature customer
+  domain
+    record CustomerLtv
+      customer_id: ID
+      amount: @semantic.Money
+      currency: Text
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features[0].records.len(), 1);
+        let r = &features[0].records[0];
+        assert_eq!(r.name, "CustomerLtv");
+        assert_eq!(r.fields.len(), 3);
+        assert_eq!(r.fields[1].name, "amount");
+        assert_eq!(r.fields[1].type_text, "@semantic.Money");
     }
 }

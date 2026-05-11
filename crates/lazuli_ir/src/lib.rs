@@ -241,6 +241,10 @@ pub struct Feature {
     /// `FeatureSkeleton.apis`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub apis: Vec<Api>,
+    /// Phase L Tier 4d — `record <Name>` declarations lifted from the
+    /// canonical-indent slice. Legacy lowering leaves this empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<Record>,
     pub queries: Vec<Query>,
     pub workflows: Vec<Workflow>,
     pub jobs: Vec<Job>,
@@ -346,6 +350,25 @@ pub struct Resource {
 pub struct RetentionSpec {
     pub duration: String,
     pub action: RetentionAction,
+}
+
+/// Phase L Tier 4d — typed value record. Mirrors `Resource` minus the
+/// tenancy / constraint / soft-delete machinery; used for SQL-query
+/// return types, agent discriminated-record outputs, and other typed
+/// projection bags. Distinct from `Resource` (no persistence axis) and
+/// from `ContractRecord` (cross-feature contracts).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Record {
+    pub name: String,
+    pub fields: Vec<Field>,
+    /// `discriminator <field>` marker — `Some(field_name)` when the
+    /// record carries a tagged-union discriminator (Cut A.6). Lowering
+    /// finds the field on the surface; doctor cross-checks the enum
+    /// type via `output discriminator <Record>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discriminator_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

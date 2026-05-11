@@ -94,6 +94,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         policies: ir::Policies::default(),
         commands,
         apis: Vec::new(),
+        records: Vec::new(),
         queries,
         workflows: Vec::new(),
         jobs: Vec::new(),
@@ -721,6 +722,8 @@ pub fn lower_feature_skeleton(
     let commands = skeleton.commands.iter().map(lower_command_decl).collect();
     let apis = skeleton.apis.iter().map(lower_api_decl).collect();
     let resources = skeleton.resources.iter().map(lower_resource_decl).collect();
+    let queries = skeleton.queries.iter().map(lower_query_decl).collect();
+    let records = skeleton.records.iter().map(lower_record_decl).collect();
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -736,7 +739,8 @@ pub fn lower_feature_skeleton(
         policies: ir::Policies::default(),
         commands,
         apis,
-        queries: Vec::new(),
+        records,
+        queries,
         workflows: Vec::new(),
         jobs,
         webhooks,
@@ -750,6 +754,80 @@ pub fn lower_feature_skeleton(
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     })
+}
+
+/// Phase L Tier 4d — lower a canonical-indent query declaration into
+/// `ir::Query`. The three shapes (`query.list`, `query.lookup`,
+/// `query.sql`) project onto the existing IR variants.
+fn lower_query_decl(q: &syntax::QueryDecl) -> ir::Query {
+    match q {
+        syntax::QueryDecl::List(list) => ir::Query::List(ir::ListQuery {
+            name: list.name.clone(),
+            params: list
+                .params
+                .iter()
+                .map(lower_command_input_to_typed)
+                .collect(),
+            scope: Vec::new(),
+            scope_override: list.scope_override,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: list.paginate,
+            modifier: list.modifier.clone(),
+            previous_names: Vec::new(),
+            span_ref: Some(span_of(list.span)),
+        }),
+        syntax::QueryDecl::Lookup(lookup) => ir::Query::Lookup(ir::LookupQuery {
+            name: lookup.name.clone(),
+            params: Vec::new(),
+            keys: lookup
+                .keys
+                .iter()
+                .map(|k| ir::KeyClause {
+                    path: ir::Path::from_segments([k.name.clone()]),
+                    equals: ir::Expr::Path(ir::Path::from_segments([k.name.clone()])),
+                })
+                .collect(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: Some(span_of(lookup.span)),
+        }),
+        syntax::QueryDecl::Sql(sql) => ir::Query::Sql(ir::SqlQuery {
+            name: sql.name.clone(),
+            params: sql
+                .params
+                .iter()
+                .map(lower_command_input_to_typed)
+                .collect(),
+            scope: Vec::new(),
+            scope_override: false,
+            returns: type_ref_from_text(&sql.returns),
+            sql_path: sql.sql_path.clone(),
+            previous_names: Vec::new(),
+            span_ref: Some(span_of(sql.span)),
+        }),
+    }
+}
+
+fn lower_command_input_to_typed(slot: &syntax::CommandInputSlot) -> ir::TypedSlot {
+    ir::TypedSlot {
+        name: slot.name.clone(),
+        type_ref: type_ref_from_text(&slot.type_text),
+        required: slot.required,
+    }
+}
+
+/// Phase L Tier 4d — lower a canonical-indent `record` block into
+/// `ir::Record`.
+fn lower_record_decl(r: &syntax::RecordDecl) -> ir::Record {
+    ir::Record {
+        name: r.name.clone(),
+        fields: r.fields.iter().map(lower_resource_field).collect(),
+        discriminator_field: r.discriminator_field.clone(),
+        span_ref: Some(span_of(r.span)),
+    }
 }
 
 /// Phase L Tier 4c — lower a canonical-indent `resource` block into

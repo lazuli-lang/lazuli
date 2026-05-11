@@ -242,6 +242,12 @@ pub struct FeatureSkeleton {
     /// Phase L Tier 4c — `resource <Name>` blocks (authored inside
     /// `domain`).
     pub resources: Vec<ResourceDecl>,
+    /// Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql`
+    /// declarations.
+    pub queries: Vec<QueryDecl>,
+    /// Phase L Tier 4d — `record <Name>` declarations (typed value
+    /// records for projection outputs, distinct from resources).
+    pub records: Vec<RecordDecl>,
     pub span: Span,
 }
 
@@ -575,6 +581,121 @@ pub enum ResourceRetentionAction {
     Anonymize,
     Delete,
     Archive,
+}
+
+// =============================================================================
+// Phase L Tier 4d — `query.list`, `query.lookup`, `query.sql`, and
+// `record` declarations.
+//
+// Three query shapes with overlapping (but not identical) children.
+// Records are simple typed-field bags (no constraints, no tenancy);
+// they live under `domain` alongside resources and queries.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum QueryDecl {
+    List(ListQueryDecl),
+    Lookup(LookupQueryDecl),
+    Sql(SqlQueryDecl),
+}
+
+impl QueryDecl {
+    pub fn name(&self) -> &str {
+        match self {
+            QueryDecl::List(q) => &q.name,
+            QueryDecl::Lookup(q) => &q.name,
+            QueryDecl::Sql(q) => &q.name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListQueryDecl {
+    pub name: String,
+    /// `policy @policy.<name>`.
+    pub policy: Option<String>,
+    /// `modifier @query_modifier.<name>` reference.
+    pub modifier: Option<String>,
+    /// `params` block (typed slots).
+    pub params: Vec<CommandInputSlot>,
+    /// `scope override` flag — when set, the query opts out of feature
+    /// default tenancy.
+    pub scope_override: bool,
+    /// `scope override\n  reason "..."` text.
+    pub scope_reason: Option<String>,
+    /// `scope override\n  deleted_at = nil` raw assignments captured
+    /// for cross-check; not yet lowered to typed predicate.
+    pub scope_assignments: Vec<String>,
+    /// `scope` block (without `override`) — verbatim lines for now;
+    /// the legacy lowering produces typed predicates.
+    pub scope_lines: Vec<String>,
+    /// `filters` block lines (`field when params.field`).
+    pub filters: Vec<String>,
+    /// `search params.<key> over <fields>` line with optional `mode contains`.
+    pub search: Option<QuerySearch>,
+    /// `cache` block — verbatim lines.
+    pub cache: Vec<String>,
+    /// `paginate <N>` page size.
+    pub paginate: Option<u32>,
+    /// `order <field> <asc|desc>` declarations.
+    pub order: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LookupQueryDecl {
+    pub name: String,
+    /// `policy @policy.<name>`.
+    pub policy: Option<String>,
+    /// `by <field>: <Type>` keys. Authored on the same line as the
+    /// header in the fixture (`query.lookup by_id by id: ID`).
+    pub keys: Vec<LookupKey>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LookupKey {
+    pub name: String,
+    pub type_text: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqlQueryDecl {
+    pub name: String,
+    pub policy: Option<String>,
+    /// `params` block.
+    pub params: Vec<CommandInputSlot>,
+    /// `scope` block — verbatim lines.
+    pub scope_lines: Vec<String>,
+    /// `returns <Type>` declaration (required for SQL queries).
+    pub returns: String,
+    /// `sql "./queries/<name>.sql"` path literal.
+    pub sql_path: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuerySearch {
+    /// `params.search` source path.
+    pub source: String,
+    /// `over name, email` list.
+    pub fields: Vec<String>,
+    /// `mode contains` (closed catalog — `contains` only today).
+    pub mode: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordDecl {
+    pub name: String,
+    pub fields: Vec<ResourceFieldDecl>,
+    /// `discriminator` field marker name when authored. Cut A.6 used
+    /// `record` types with a discriminator field for tagged-union
+    /// agent outputs.
+    pub discriminator_field: Option<String>,
+    pub span: Span,
 }
 
 // -----------------------------------------------------------------------------
