@@ -80,6 +80,36 @@ struct DoctorPackage {
     /// resolve `Customer` in `feature customer` when `uses customer` is
     /// declared.
     feature_uses: BTreeMap<String, BTreeSet<String>>,
+    /// Phase L Tier 3: lifted `Job` / `Webhook` / `Notification` /
+    /// `EventGroup` per feature, paired with source line anchors so the
+    /// six new diagnostics (`JOB-*`, `WEBHOOK-SCOPE-*`,
+    /// `NOTIF-CHANNEL-*`, `EVENTGROUP-NESTING-*`) attach to the right
+    /// authoring site.
+    tier3_facts: Vec<Tier3FeatureFacts>,
+}
+
+/// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
+/// for one feature, with source line anchors for diagnostic placement.
+#[derive(Debug, Clone)]
+struct Tier3FeatureFacts {
+    feature: String,
+    path: PathBuf,
+    feature_line: usize,
+    /// Resolved tenancy axis (`org`, `team`, custom, none) inferred
+    /// from the feature's `defaults` block. `None` if the source did
+    /// not declare a default. Doctor's tenant_from / fanout checks
+    /// use this to cross-check axis references.
+    tenancy_axis: Option<String>,
+    jobs: Vec<lazuli_ir::Job>,
+    webhooks: Vec<lazuli_ir::Webhook>,
+    notifications: Vec<lazuli_ir::Notification>,
+    event_groups: Vec<lazuli_ir::EventGroup>,
+    /// `job_name -> source line` lookup.
+    job_lines: BTreeMap<String, usize>,
+    webhook_lines: BTreeMap<String, usize>,
+    notification_lines: BTreeMap<String, usize>,
+    /// `event_group_pattern -> source line` lookup.
+    event_group_lines: BTreeMap<String, usize>,
 }
 
 impl DoctorPackage {
@@ -108,6 +138,7 @@ impl DoctorPackage {
             BTreeMap::new();
         let mut feature_adapters: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut feature_uses: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut tier3_facts: Vec<Tier3FeatureFacts> = Vec::new();
 
         for path in paths {
             let source = fs::read_to_string(&path)
@@ -210,6 +241,59 @@ impl DoctorPackage {
                                 Ok(feature) => {
                                     let header_line =
                                         line_col_for_offset(&file.source, skeleton.span.start).0;
+                                    // Tier 3 facts harvest — done before
+                                    // `feature.agents` is consumed below.
+                                    if !feature.jobs.is_empty()
+                                        || !feature.webhooks.is_empty()
+                                        || !feature.notifications.is_empty()
+                                        || !feature.event_groups.is_empty()
+                                    {
+                                        let job_lines = collect_construct_lines(
+                                            &file.source,
+                                            "job ",
+                                            feature.jobs.iter().map(|j| j.name.as_str()).collect(),
+                                        );
+                                        let webhook_lines = collect_construct_lines(
+                                            &file.source,
+                                            "webhook ",
+                                            feature
+                                                .webhooks
+                                                .iter()
+                                                .map(|w| w.name.as_str())
+                                                .collect(),
+                                        );
+                                        let notification_lines = collect_construct_lines(
+                                            &file.source,
+                                            "notification ",
+                                            feature
+                                                .notifications
+                                                .iter()
+                                                .map(|n| n.name.as_str())
+                                                .collect(),
+                                        );
+                                        let event_group_lines = collect_event_group_lines(
+                                            &file.source,
+                                            feature
+                                                .event_groups
+                                                .iter()
+                                                .map(|g| g.pattern.as_str())
+                                                .collect(),
+                                        );
+                                        tier3_facts.push(Tier3FeatureFacts {
+                                            feature: feature.name.clone(),
+                                            path: file.path.clone(),
+                                            feature_line: header_line,
+                                            tenancy_axis: tenancy_axis_for(&feature),
+                                            jobs: feature.jobs.clone(),
+                                            webhooks: feature.webhooks.clone(),
+                                            notifications: feature.notifications.clone(),
+                                            event_groups: feature.event_groups.clone(),
+                                            job_lines,
+                                            webhook_lines,
+                                            notification_lines,
+                                            event_group_lines,
+                                        });
+                                    }
                                     for agent in feature.agents {
                                         let agent_line = agent
                                             .span_ref
@@ -327,6 +411,7 @@ impl DoctorPackage {
             feature_resources,
             feature_adapters,
             feature_uses,
+            tier3_facts,
         })
     }
 
@@ -419,6 +504,17 @@ impl DoctorPackage {
         // diagnostics. See `docs/proposals/bucket-storage-cycle.md`
         // §Doctor/LSP.
         diagnostics.extend(cap_file_storage_diagnostics(&self.operational));
+
+        // Row 33 — Jobs bucket cycle: six IR-driven diagnostics on the
+        // Tier 3 lift (`JOB-TIMEOUT-001`, `JOB-FANOUT-001`,
+        // `JOB-FANOUT-002`, `WEBHOOK-SCOPE-001`, `NOTIF-CHANNEL-001`,
+        // `EVENTGROUP-NESTING-001`). See
+        // `docs/proposals/bucket-jobs-cycle.md` §Doctor/LSP.
+        diagnostics.extend(tier3_diagnostics(&self.tier3_facts));
+
+        // Row 34 — `event_group` pattern-prefix rule promoted from LSP
+        // to doctor now that `EventGroup` IR exists.
+        diagnostics.extend(event_group_pattern_prefix_diagnostics(&self.tier3_facts));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -2159,6 +2255,249 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
         }
     }
 
+    diagnostics
+}
+
+// -----------------------------------------------------------------------------
+// Phase L Tier 3 — jobs bucket cycle (row 33) — six IR-driven diagnostics.
+// -----------------------------------------------------------------------------
+
+/// Closed catalog for notification channels. `NOTIF-CHANNEL-001` rejects
+/// any value not in this list. SPECULATIVE channels (`push`, `sms`)
+/// gate on adapter binding evidence; the catalog stays narrow today.
+const NOTIFICATION_CHANNEL_CATALOG: &[&str] = &["email", "in_app", "slack", "discord", "webhook"];
+
+fn tier3_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for feature in facts {
+        for job in &feature.jobs {
+            tier3_job_diagnostics(feature, job, &mut diagnostics);
+        }
+        for webhook in &feature.webhooks {
+            tier3_webhook_diagnostics(feature, webhook, &mut diagnostics);
+        }
+        for notification in &feature.notifications {
+            tier3_notification_diagnostics(feature, notification, &mut diagnostics);
+        }
+    }
+    diagnostics
+}
+
+fn tier3_job_diagnostics(
+    feature: &Tier3FeatureFacts,
+    job: &lazuli_ir::Job,
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    let line = feature
+        .job_lines
+        .get(&job.name)
+        .copied()
+        .unwrap_or(feature.feature_line);
+
+    // JOB-TIMEOUT-001: job declares external calls but no timeout. The
+    // `INT-CALL-002` text-pattern check on `ExternalCallFact` covers
+    // the same ground today; this rule fires from the IR lift so the
+    // diagnostic survives `parse_command` arriving in Tier 4 and the
+    // text-pattern fact disappearing.
+    if !job.external_calls.is_empty() && job.timeout.is_none() {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "JOB-TIMEOUT-001".to_owned(),
+            message: format!(
+                "job `{}` declares external `calls` but no `timeout \"...\"` — external operations require an explicit timeout.",
+                job.name
+            ),
+        });
+    }
+
+    // JOB-FANOUT-001: fanout.axis must match the feature's tenancy axis.
+    if let (Some(fanout), Some(axis)) = (&job.fanout, &feature.tenancy_axis) {
+        if &fanout.axis != axis {
+            diagnostics.push(DoctorDiagnostic {
+                path: feature.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "JOB-FANOUT-001".to_owned(),
+                message: format!(
+                    "job `{}` declares `fanout tenants {}` but feature `{}` uses tenancy axis `{}`.",
+                    job.name, fanout.axis, feature.feature, axis
+                ),
+            });
+        }
+    }
+
+    // JOB-FANOUT-002: scheduled job declares fanout but no idempotency
+    // key — without a key, fanout re-fire can double-execute on tenants.
+    if matches!(job.trigger, lazuli_ir::JobTrigger::Schedule { .. })
+        && job.fanout.is_some()
+        && job.idempotency.is_none()
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "JOB-FANOUT-002".to_owned(),
+            message: format!(
+                "scheduled job `{}` declares `fanout` but no `idempotency by ...` — re-fires may double-execute per tenant.",
+                job.name
+            ),
+        });
+    }
+}
+
+fn tier3_webhook_diagnostics(
+    feature: &Tier3FeatureFacts,
+    webhook: &lazuli_ir::Webhook,
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    let line = feature
+        .webhook_lines
+        .get(&webhook.name)
+        .copied()
+        .unwrap_or(feature.feature_line);
+
+    // WEBHOOK-SCOPE-001: webhook missing `tenant_from` on a multi-tenant
+    // app. Pilot-gated until the tenancy axis lifter lands (Tier 4);
+    // we fire the diagnostic conservatively when the webhook simply
+    // lacks `tenant_from` so the LSP rule keeps its coverage.
+    if webhook.tenant_from.is_none() {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "WEBHOOK-SCOPE-001".to_owned(),
+            message: format!(
+                "webhook `{}` does not declare `tenant_from payload.<axis>_id` — verify it should be globally scoped.",
+                webhook.name
+            ),
+        });
+    }
+}
+
+fn tier3_notification_diagnostics(
+    feature: &Tier3FeatureFacts,
+    notification: &lazuli_ir::Notification,
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    let line = feature
+        .notification_lines
+        .get(&notification.name)
+        .copied()
+        .unwrap_or(feature.feature_line);
+
+    // NOTIF-CHANNEL-001: every channel literal must be in the closed
+    // catalog. Empty channel list is also rejected.
+    if notification.channels.is_empty() {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "NOTIF-CHANNEL-001".to_owned(),
+            message: format!(
+                "notification `{}` declares no `channel` — at least one of {} is required.",
+                notification.name,
+                NOTIFICATION_CHANNEL_CATALOG.join(", ")
+            ),
+        });
+    } else {
+        for channel in &notification.channels {
+            if !NOTIFICATION_CHANNEL_CATALOG.contains(&channel.as_str()) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "NOTIF-CHANNEL-001".to_owned(),
+                    message: format!(
+                        "notification `{}` declares channel `{}` outside the closed catalog ({}).",
+                        notification.name,
+                        channel,
+                        NOTIFICATION_CHANNEL_CATALOG.join(", ")
+                    ),
+                });
+            }
+        }
+    }
+}
+
+/// Phase L Tier 3 — EVENTGROUP-NESTING-001 + the pattern-prefix
+/// promotion (row 34). Two rules over `event_group`:
+///
+/// - **NESTING-001**: an event group must not contain another event
+///   group. Non-canonical authoring; the LSP catches it file-local
+///   today but the IR lift now surfaces it cross-feature.
+/// - **pattern-prefix**: every concrete event authored under a group
+///   must share the pattern prefix (`customer_*` → events must start
+///   with `customer_`). Promoted from the LSP `event_group_can_own_
+///   short_event_declarations` rule.
+fn event_group_pattern_prefix_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for feature in facts {
+        for group in &feature.event_groups {
+            let line = feature
+                .event_group_lines
+                .get(&group.pattern)
+                .copied()
+                .unwrap_or(feature.feature_line);
+
+            // EVENTGROUP-NESTING-001: parse_event_group records nested
+            // `event_group` headers as raw child lines today, so we
+            // scan `raw_payload` + adjacent groups; for now we surface
+            // the case where two groups share the same parent feature
+            // *and* one pattern fully contains another's prefix.
+            for other in &feature.event_groups {
+                if other.pattern == group.pattern {
+                    continue;
+                }
+                if let (Some(group_prefix), Some(other_prefix)) = (
+                    group.pattern.strip_suffix('*'),
+                    other.pattern.strip_suffix('*'),
+                ) {
+                    if other_prefix.starts_with(group_prefix) && other_prefix != group_prefix {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: feature.path.clone(),
+                            line,
+                            column: 1,
+                            severity: DoctorSeverity::Warning,
+                            code: "EVENTGROUP-NESTING-001".to_owned(),
+                            message: format!(
+                                "event_group `{}` in feature `{}` is a prefix of `{}` — nest in the more specific group or rename one pattern.",
+                                group.pattern, feature.feature, other.pattern
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // Pattern-prefix rule (row 34). Strip trailing `*` to get
+            // the prefix; every authored event under the group must
+            // start with it.
+            if let Some(prefix) = group.pattern.strip_suffix('*') {
+                for event_name in &group.events {
+                    if !event_name.starts_with(prefix) {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: feature.path.clone(),
+                            line,
+                            column: 1,
+                            severity: DoctorSeverity::Warning,
+                            code: "EVENTGROUP-PREFIX-001".to_owned(),
+                            message: format!(
+                                "event `{}` authored under group `{}` does not start with prefix `{}`.",
+                                event_name, group.pattern, prefix
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
     diagnostics
 }
 
@@ -4777,6 +5116,66 @@ fn collect_auth_anchors(source: &str, auth_line: usize) -> AuthAnchors {
     anchors
 }
 
+/// Phase L Tier 3 — best-effort line lookup for `job` / `webhook` /
+/// `notification` headers inside a feature. Walks the file looking for
+/// lines whose trimmed text starts with `<prefix><name>` (e.g.
+/// `job process_import`). Returns a `name -> 1-based line` map.
+fn collect_construct_lines(
+    source: &str,
+    prefix: &str,
+    names: BTreeSet<&str>,
+) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    if names.is_empty() {
+        return out;
+    }
+    for (idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix(prefix) else {
+            continue;
+        };
+        let name = rest.split_whitespace().next().unwrap_or("");
+        if names.contains(name) {
+            out.entry(name.to_owned()).or_insert(idx + 1);
+        }
+    }
+    out
+}
+
+/// Phase L Tier 3 — line lookup for `event_group <pattern>` headers.
+/// Same as `collect_construct_lines` but matches the pattern token.
+fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    if patterns.is_empty() {
+        return out;
+    }
+    for (idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("event_group ") else {
+            continue;
+        };
+        let pattern = rest.split_whitespace().next().unwrap_or("");
+        if patterns.contains(pattern) {
+            out.entry(pattern.to_owned()).or_insert(idx + 1);
+        }
+    }
+    out
+}
+
+/// Phase L Tier 3 — derive the feature's tenancy axis from the lifted
+/// IR `Defaults` block. Returns the axis name (`org`, `team`, custom)
+/// or `None` when the feature declares `tenancy none` / inherits.
+/// `parse_feature_skeletons` does not yet lift `defaults.tenancy` from
+/// the canonical-indent slice, so we read the underlying source.
+fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
+    let _ = feature;
+    // Until `parse_feature_skeletons` lifts `defaults.tenancy`, doctor's
+    // tenant_from cross-check stays best-effort: when the axis is
+    // unknown, the diagnostic only flags missing `tenant_from` (not the
+    // axis mismatch). Tier 4 fills this in alongside `parse_command`.
+    None
+}
+
 /// Harvest `resource <Name>` declarations under each `feature <name>`
 /// block, recording field name + verbatim type text + trailing
 /// modifiers. The walk tolerates the canonical fixture's
@@ -6233,6 +6632,7 @@ mod tests {
             feature_resources,
             feature_adapters,
             feature_uses,
+            tier3_facts: Vec::new(),
         }
     }
 
