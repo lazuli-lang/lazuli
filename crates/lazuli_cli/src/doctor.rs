@@ -158,11 +158,14 @@ struct Tier3FeatureFacts {
     translation_line: usize,
     /// Phase L Tier 4 follow-up — lifted `record <Name>` declarations
     /// per feature. Replaces the text-scanned `FeatureSymbols.records`
-    /// for the agent discriminator cross-checks. Enums are NOT lifted
-    /// here because the canonical-indent slice does not yet parse
-    /// `enum <Name>` blocks; `FeatureSymbols.enums` survives for
-    /// `agent_discriminator_target_invalid` lookups.
+    /// for the agent discriminator cross-checks.
     records: Vec<lazuli_ir::Record>,
+    /// Phase L Tier 4 follow-up — lifted `enum <Name>` declarations per
+    /// feature. Closes out the canonical-indent slice for `domain`:
+    /// `agent_discriminator_target_invalid` and
+    /// `check_record_discriminator` both read from here. The retired
+    /// `FeatureSymbols.enums` text walker is gone.
+    enums: Vec<lazuli_ir::EnumDecl>,
     /// Notifications expanded bucket cycle — lifted `event` /
     /// `event.trace` declarations for this feature. `NOTIF-DIGEST-001`
     /// resolves `notification.digest.group_by` against the trigger
@@ -502,6 +505,7 @@ impl DoctorPackage {
                                             translation: feature.translation.clone(),
                                             translation_line,
                                             records: feature.records.clone(),
+                                            enums: feature.enums.clone(),
                                             events: feature.events.clone(),
                                         });
                                     }
@@ -687,7 +691,6 @@ impl DoctorPackage {
         diagnostics.extend(agent_discriminator_diagnostics(
             &self.agents,
             &self.tier3_facts,
-            &self.feature_symbols,
         ));
         diagnostics.extend(agent_eval_diagnostics(&self.agents));
 
@@ -878,17 +881,13 @@ struct AuthFacts {
     oauth_lines: BTreeMap<String, usize>,
 }
 
-/// Phase L Tier 4 follow-up — `records` slot retired (lifted into
-/// `Tier3FeatureFacts.records` from the typed IR). `enums` survives as
-/// a small text-walker because the canonical-indent slice does not yet
-/// lift `enum <Name>` declarations into `FeatureSkeleton.enums`. The
-/// next cycle that lifts `enum` will drop this slot.
+/// Phase L Tier 4 follow-up — both `records` and `enums` slots retired
+/// (lifted into `Tier3FeatureFacts.records` / `Tier3FeatureFacts.enums`
+/// from the typed IR). The struct now carries only the command policy
+/// hint that `agent_tool_diagnostics` still text-walks while the legacy
+/// pipeline owns surface commands.
 #[derive(Debug, Clone, Default)]
 struct FeatureSymbols {
-    /// Short enum name → header source fact. Used by
-    /// `agent_discriminator_diagnostics` to resolve
-    /// `output discriminator <Enum>` references.
-    enums: BTreeMap<String, SymbolFact>,
     /// Maps short command name (e.g. `archive`) to its registered policy
     /// + safety hint. Commands are inherently write-effect for Cut A.
     commands: BTreeMap<String, CommandSymbolFact>,
@@ -4560,24 +4559,12 @@ fn scan_feature_range(
             continue;
         }
 
-        // Phase L Tier 4 follow-up — the `record` branch is retired
-        // (lifted into `Tier3FeatureFacts.records` from the typed IR).
-        // The `enum` branch survives because the canonical-indent slice
-        // does not yet lift `enum <Name>` declarations into the IR —
-        // the next cycle that adds an `EnumDecl` AST + skeleton lift
-        // will drop this branch and the `FeatureSymbols.enums` slot.
-        if let Some(rest) = trimmed.strip_prefix("enum ") {
-            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-            if !name.is_empty() {
-                symbols.enums.insert(
-                    name,
-                    SymbolFact {
-                        path: file.path.clone(),
-                        line: feature_start + i + 1,
-                    },
-                );
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("command ") {
+        // Phase L Tier 4 follow-up — the `record` and `enum` branches
+        // are retired (lifted into `Tier3FeatureFacts.records` /
+        // `Tier3FeatureFacts.enums` from the typed IR). Only `command`
+        // headers survive here for the legacy `agent_tool_diagnostics`
+        // policy-hint lookup.
+        if let Some(rest) = trimmed.strip_prefix("command ") {
             let name = rest.split_whitespace().next().unwrap_or("").to_owned();
             if !name.is_empty() {
                 let policy = scan_block_for_policy(&lines[i + 1..], leading_spaces(raw));
@@ -4926,25 +4913,21 @@ fn policy_atoms_more_restrictive(tool_policy: &str, agent_policy: &str) -> bool 
 // Diagnostic ids: agent_discriminator_target_invalid / field_invalid
 // -----------------------------------------------------------------------------
 
-/// Phase L Tier 4 follow-up — partly IR-driven replacement for the
+/// Phase L Tier 4 follow-up — fully IR-driven replacement for the
 /// records/enums branches of `scan_feature_range`. Records read from
-/// `Tier3FeatureFacts.records` (typed `ir::Record` lift). Enums still
-/// read from `FeatureSymbols.enums` (text walker) because the
-/// canonical-indent slice does not yet lift `enum <Name>`
-/// declarations into the IR — the next cycle that adds an `EnumDecl`
-/// surface AST will retire the enum branch and drop the
-/// `FeatureSymbols.enums` slot.
+/// `Tier3FeatureFacts.records` (typed `ir::Record` lift); enums read
+/// from `Tier3FeatureFacts.enums` (typed `ir::EnumDecl` lift). The
+/// retired `FeatureSymbols.enums` text walker is gone.
 fn agent_discriminator_diagnostics(
     agents: &[AgentFacts],
     tier3_facts: &[Tier3FeatureFacts],
-    feature_symbols: &BTreeMap<String, FeatureSymbols>,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     let any_enum = |name: &str| -> bool {
-        feature_symbols
-            .values()
-            .any(|symbols| symbols.enums.contains_key(name))
+        tier3_facts
+            .iter()
+            .any(|f| f.enums.iter().any(|e| e.name == name))
     };
     let any_record = |name: &str| -> bool {
         tier3_facts
@@ -5010,7 +4993,7 @@ fn agent_discriminator_diagnostics(
                                     agent,
                                     name,
                                     record,
-                                    feature_symbols,
+                                    tier3_facts,
                                 ));
                             }
                         }
@@ -5028,15 +5011,15 @@ fn agent_discriminator_diagnostics(
 /// consumes `ir::Record` directly. The discriminator-marker count
 /// comes from `Record.discriminator_field` (typed `Option<String>`);
 /// the discriminator field's type is read by name from the record's
-/// typed field list. The enum lookup still routes through
-/// `FeatureSymbols.enums` because the canonical-indent slice does not
-/// yet lift `enum <Name>` declarations into the IR.
+/// typed field list. The enum lookup walks `Tier3FeatureFacts.enums`
+/// (typed `ir::EnumDecl` lift); the legacy `FeatureSymbols.enums`
+/// text walker is gone.
 fn check_record_discriminator(
     fact: &AgentFacts,
     agent: &Agent,
     record_name: &str,
     record: &lazuli_ir::Record,
-    feature_symbols: &BTreeMap<String, FeatureSymbols>,
+    tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     let Some(field_name) = record.discriminator_field.as_deref() else {
         // No discriminator: it's a legacy `output <Record>` shape, not a
@@ -5058,9 +5041,9 @@ fn check_record_discriminator(
         return diagnostics;
     };
     let type_name = type_ref_name(&field.type_ref);
-    let enum_exists = feature_symbols
-        .values()
-        .any(|symbols| symbols.enums.contains_key(&type_name));
+    let enum_exists = tier3_facts
+        .iter()
+        .any(|f| f.enums.iter().any(|e| e.name == type_name));
     if !enum_exists {
         diagnostics.push(DoctorDiagnostic {
             path: fact.path.clone(),
@@ -8450,6 +8433,7 @@ mod tests {
                                     translation: feature.translation.clone(),
                                     translation_line,
                                     records: feature.records.clone(),
+                                    enums: feature.enums.clone(),
                                     events: feature.events.clone(),
                                 });
                             }
@@ -8592,6 +8576,7 @@ mod tests {
                                     translation: feature.translation.clone(),
                                     translation_line: header_line,
                                     records: feature.records.clone(),
+                                    enums: feature.enums.clone(),
                                     events: feature.events.clone(),
                                 });
                             }
@@ -11654,6 +11639,7 @@ feature customer_auth
             translation: None,
             translation_line: 1,
             records: Vec::new(),
+            enums: Vec::new(),
             events: Vec::new(),
         });
         let diagnostics = package.diagnostics();
@@ -11704,6 +11690,7 @@ feature customer_auth
             translation: None,
             translation_line: 1,
             records: Vec::new(),
+            enums: Vec::new(),
             events: Vec::new(),
         });
         let diagnostics = package.diagnostics();
