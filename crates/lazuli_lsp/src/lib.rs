@@ -174,6 +174,14 @@ impl LanguageServer for Backend {
             detail: auth_catalog_detail(value).map(str::to_owned),
             ..CompletionItem::default()
         }));
+        // Migrations bucket cycle Route C — closed `deploy.strategy`
+        // catalog. Hovers/completions surface the three rollout patterns.
+        items.extend(DEPLOY_STRATEGY_VALUES.iter().map(|value| CompletionItem {
+            label: (*value).to_owned(),
+            kind: Some(CompletionItemKind::VALUE),
+            detail: deploy_strategy_detail(value).map(str::to_owned),
+            ..CompletionItem::default()
+        }));
         Ok(Some(CompletionResponse::Array(items)))
     }
 
@@ -11705,9 +11713,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "route" => Some(
             "Declares route or context values accepted by a command/view, or a top-level typed app route in `.lzx`.",
         ),
-        "previously" => {
-            Some("Declares identity continuity with an explicit `migrated` or `alias` mode.")
-        }
+        "previously" => Some(
+            "Declares identity continuity with an explicit `migrated` or `alias` mode. Doctor: `PREVIOUSLY-FWD-001` rejects stale rename targets; `PREVIOUSLY-CYCLE-001` rejects A→B→A cycles; `PREVIOUSLY-DUP-001` rejects two current names claiming the same previous identity.",
+        ),
         "migrated" => Some(
             "Marks a previous name as migration-only history, not a generated compatibility alias.",
         ),
@@ -11755,6 +11763,26 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "webhook" => Some(
             "Declares a verified inbound HTTP integration boundary. Requires `path \"...\"` and `verify hmac <alg>` with nested `secret env.X` + `header \"X-...\"`. Multi-tenant apps must declare `tenant_from payload.<axis>_id`.",
+        ),
+        // Migrations bucket cycle Route C — `tenant_migration` kind +
+        // deploy block expansion. See `docs/proposals/bucket-migrations-cycle.md`.
+        "tenant_migration" => Some(
+            "Per-tenant idempotent schema migration. Closed body: `target tenants <axis>` (required), `idempotency by <path>` (required), `retry`, `timeout`, `handler \"./...\"`. No `emits` or business effects.",
+        ),
+        "strategy" => Some(
+            "Migration deployment strategy. Closed catalog: `rolling` (zero-downtime), `blue_green` (parallel cutover), `canary` (incremental traffic shift). Doctor: `DEPLOY-STRATEGY-001`.",
+        ),
+        "lock_timeout" => Some(
+            "Max time to wait for the migration advisory lock before aborting. Adapter-parsed duration literal (`\"30s\"`, `\"5m\"`).",
+        ),
+        "pre_migration_hook" => Some(
+            "Shell script the runtime executes before applying migrations. Path is relative to `app.lzi`.",
+        ),
+        "post_migration_hook" => Some(
+            "Shell script the runtime executes after applying migrations. Path is relative to `app.lzi`.",
+        ),
+        "checkpoint" => Some(
+            "Pinned IR snapshot for migration planning. `checkpoint <name> \"<path>\"` records a baseline; `lazuli plan --check <name>` validates the snapshot's integrity. Doctor: `DEPLOY-CHECKPOINT-001` (path missing) + `DEPLOY-CHECKPOINT-002` (version drift).",
         ),
         "trigger" => Some(
             "Declares the event or schedule that starts a job or notification. `trigger event <feature>.<event>` for reactors; `trigger schedule \"<cron>\"` for scheduled work.",
@@ -11951,6 +11979,16 @@ const KEYWORDS: &[&str] = &[
     "exporter",
     // Observability bucket cycle row 37 — `audit emit_to` slot.
     "emit_to",
+    // Migrations bucket cycle Route C — `tenant_migration` kind +
+    // `deploy.{strategy, lock_timeout, pre_migration_hook,
+    // post_migration_hook, checkpoint}` keywords. See
+    // `docs/proposals/bucket-migrations-cycle.md`.
+    "tenant_migration",
+    "strategy",
+    "lock_timeout",
+    "pre_migration_hook",
+    "post_migration_hook",
+    "checkpoint",
     "defaults",
     "domain",
     "policies",
@@ -12159,6 +12197,28 @@ pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
         "text" => Some("Log format — human-readable for local development."),
         "pii" => Some("Redaction — auto-strip fields tagged with `@pii.*`."),
         "none" => Some("Redaction — disabled; adapter may still redact."),
+        _ => None,
+    }
+}
+
+/// Migrations bucket cycle Route C — closed `deploy.strategy` catalog.
+/// Three rollout patterns the language fixes so doctor can pin a
+/// finite ruleset (`DEPLOY-STRATEGY-001`).
+pub const DEPLOY_STRATEGY_VALUES: &[&str] = &["rolling", "blue_green", "canary"];
+
+/// Hover/completion description for the deploy.strategy closed-catalog
+/// values. Mirrors `observability_catalog_detail` shape.
+pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "rolling" => Some(
+            "Rolling rollout — replace instances one window at a time. Lowest risk; longest cutover.",
+        ),
+        "blue_green" => Some(
+            "Blue/green rollout — provision parallel stack, flip traffic atomically. Fast rollback; doubles infra during cutover.",
+        ),
+        "canary" => Some(
+            "Canary rollout — shift traffic incrementally to a fresh cohort. Best for unproven changes; requires per-version observability.",
+        ),
         _ => None,
     }
 }
