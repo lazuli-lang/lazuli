@@ -64,6 +64,22 @@ struct DoctorPackage {
     /// `agent_tool_write_unguarded_diagnostics` without their own
     /// `safety` validator.
     command_approvals: Vec<CommandApprovalFact>,
+    /// Phase L: lowered `auth` block per feature, paired with source
+    /// line anchors for subblock-precise diagnostics.
+    auth_facts: Vec<AuthFacts>,
+    /// Phase L: per-feature resource declarations + field type text.
+    /// Used to resolve `auth identity Customer.email` and
+    /// `auth sessions resource CustomerSession` and to read
+    /// `@cap.Hashed(algorithm:…)` axes off session resource fields.
+    feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>>,
+    /// Phase L: per-feature `extensions adapter <local>` declarations
+    /// for the `auth_oauth_adapter_unbound` adapter resolution scope.
+    feature_adapters: BTreeMap<String, BTreeSet<String>>,
+    /// Phase L: per-feature `uses <other_feature>, ...` references so
+    /// `auth identity Customer.email` in `feature customer_auth` can
+    /// resolve `Customer` in `feature customer` when `uses customer` is
+    /// declared.
+    feature_uses: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl DoctorPackage {
@@ -87,6 +103,11 @@ impl DoctorPackage {
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
         let mut api_paths: Vec<ApiPathFact> = Vec::new();
         let mut command_approvals: Vec<CommandApprovalFact> = Vec::new();
+        let mut auth_facts: Vec<AuthFacts> = Vec::new();
+        let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
+            BTreeMap::new();
+        let mut feature_adapters: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut feature_uses: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         for path in paths {
             let source = fs::read_to_string(&path)
@@ -202,6 +223,28 @@ impl DoctorPackage {
                                             line: agent_line,
                                         });
                                     }
+                                    if let Some(auth) = feature.auth {
+                                        let auth_line = auth
+                                            .span_ref
+                                            .as_ref()
+                                            .map(|s| line_col_for_offset(&file.source, s.start).0)
+                                            .unwrap_or(header_line);
+                                        let anchors = collect_auth_anchors(&file.source, auth_line);
+                                        auth_facts.push(AuthFacts {
+                                            feature: feature.name.clone(),
+                                            auth,
+                                            path: file.path.clone(),
+                                            line: auth_line,
+                                            identity_line: anchors.identity_line,
+                                            password_line: anchors.password_line,
+                                            password_algorithm_line: anchors
+                                                .password_algorithm_line,
+                                            sessions_line: anchors.sessions_line,
+                                            sessions_resource_line: anchors.sessions_resource_line,
+                                            mfa_line: anchors.mfa_line,
+                                            oauth_lines: anchors.oauth_lines,
+                                        });
+                                    }
                                 }
                                 Err(error) => {
                                     file.local_diagnostics.push(DoctorDiagnostic {
@@ -234,6 +277,9 @@ impl DoctorPackage {
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_api_paths(&file, &mut api_paths);
                 collect_command_approvals(&file, &mut command_approvals);
+                collect_feature_resources(&file, &mut feature_resources);
+                collect_feature_adapters(&file, &mut feature_adapters);
+                collect_feature_uses(&file, &mut feature_uses);
                 profiles.extend(parse_app_profiles(&file.source).into_iter().map(|profile| {
                     DoctorAppProfile {
                         path: file.path.clone(),
@@ -277,6 +323,10 @@ impl DoctorPackage {
             registry_tool_defects,
             api_paths,
             command_approvals,
+            auth_facts,
+            feature_resources,
+            feature_adapters,
+            feature_uses,
         })
     }
 
@@ -305,7 +355,9 @@ impl DoctorPackage {
         ));
 
         // Cut A — agent + tool + eval + discriminator cross-feature checks.
-        diagnostics.extend(registry_tool_effect_diagnostics(&self.registry_tool_defects));
+        diagnostics.extend(registry_tool_effect_diagnostics(
+            &self.registry_tool_defects,
+        ));
         diagnostics.extend(agent_tool_diagnostics(
             &self.agents,
             &self.feature_symbols,
@@ -332,14 +384,20 @@ impl DoctorPackage {
 
         // Cut A.9 — `approval` primitive contract + role resolution.
         let known_roles = collect_known_roles(&self.files);
-        diagnostics.extend(approval_diagnostics(
-            &self.command_approvals,
-            &known_roles,
-        ));
+        diagnostics.extend(approval_diagnostics(&self.command_approvals, &known_roles));
 
         // Cut A.11 — `cors` block cross-checks against the app's
         // declared environments + urls.
         diagnostics.extend(cors_diagnostics(self.app.as_ref()));
+
+        // Phase L — auth block cross-feature diagnostics.
+        diagnostics.extend(auth_diagnostics(
+            &self.auth_facts,
+            &self.feature_resources,
+            &self.feature_adapters,
+            &self.feature_uses,
+            self.registry.as_ref(),
+        ));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -401,6 +459,33 @@ struct AgentFacts {
     line: usize,
 }
 
+/// Phase L — typed `auth` block facts harvested per feature for the four
+/// cross-feature diagnostics:
+///   - `auth_password_algorithm_hash_mismatch`
+///   - `auth_sessions_resource_unknown`
+///   - `auth_identity_field_unknown`
+///   - `auth_oauth_adapter_unbound`
+///
+/// The IR carries the lowered shape; the auxiliary `*_line` fields map
+/// each subblock back to the source so diagnostics point at the exact
+/// authored token rather than the `auth` header.
+#[derive(Debug, Clone)]
+struct AuthFacts {
+    feature: String,
+    auth: ir::Auth,
+    path: PathBuf,
+    /// 1-based line for the `auth` header.
+    line: usize,
+    identity_line: usize,
+    password_line: Option<usize>,
+    password_algorithm_line: Option<usize>,
+    sessions_line: Option<usize>,
+    sessions_resource_line: Option<usize>,
+    mfa_line: Option<usize>,
+    /// Per-provider `oauth <provider>` header line.
+    oauth_lines: BTreeMap<String, usize>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct FeatureSymbols {
     enums: BTreeMap<String, SymbolFact>,
@@ -417,6 +502,31 @@ struct FeatureSymbols {
 #[derive(Debug, Clone)]
 struct SymbolFact {
     path: PathBuf,
+    line: usize,
+}
+
+/// Phase L — typed shape of a `resource <Name>` declaration for the
+/// `auth_*` cross-checks. Fields carry their verbatim type text so the
+/// `@cap.Hashed(algorithm:…)` axis is readable without re-parsing.
+#[derive(Debug, Clone, Default)]
+struct ResourceFact {
+    path: PathBuf,
+    line: usize,
+    fields: BTreeMap<String, ResourceFieldFact>,
+}
+
+#[derive(Debug, Clone)]
+struct ResourceFieldFact {
+    /// Verbatim type text, e.g. `@cap.Hashed(algorithm:argon2id)`,
+    /// `@semantic.Email`, `Text`, `DateTime`.
+    type_text: String,
+    /// `optional`/`required`/etc. modifiers (verbatim trailing tokens
+    /// after the type). Used by `auth_identity_field_unknown` to detect
+    /// non-identity-shaped fields.
+    modifiers: String,
+    /// 1-based line where the field is declared. Currently unused by
+    /// diagnostics; reserved for future field-anchored messages.
+    #[allow(dead_code)]
     line: usize,
 }
 
@@ -2988,8 +3098,7 @@ fn scan_feature_range(
         } else if let Some(rest) = trimmed.strip_prefix("command ") {
             let name = rest.split_whitespace().next().unwrap_or("").to_owned();
             if !name.is_empty() {
-                let policy =
-                    scan_block_for_policy(&lines[i + 1..], leading_spaces(raw));
+                let policy = scan_block_for_policy(&lines[i + 1..], leading_spaces(raw));
                 symbols.commands.insert(
                     name,
                     CommandSymbolFact {
@@ -3101,9 +3210,7 @@ fn scan_block_for_policy(body: &[&str], parent_indent: usize) -> Option<String> 
 // Diagnostic id: tool_registry_effect_required_diagnostics
 // -----------------------------------------------------------------------------
 
-fn registry_tool_effect_diagnostics(
-    defects: &[RegistryToolDefect],
-) -> Vec<DoctorDiagnostic> {
+fn registry_tool_effect_diagnostics(defects: &[RegistryToolDefect]) -> Vec<DoctorDiagnostic> {
     defects
         .iter()
         .map(|defect| DoctorDiagnostic {
@@ -3165,12 +3272,8 @@ fn agent_tool_diagnostics(
         let agent_policy_text = format_agent_policy(agent);
 
         for binding in &agent.tools {
-            let (tool_label, resolved) = resolve_tool(
-                fact,
-                &binding.reference,
-                feature_symbols,
-                &registry_tools,
-            );
+            let (tool_label, resolved) =
+                resolve_tool(fact, &binding.reference, feature_symbols, &registry_tools);
 
             if resolved.effect == ResolvedToolEffect::Write {
                 // Check whether the target command carries an
@@ -3183,9 +3286,11 @@ fn agent_tool_diagnostics(
                     {
                         approval_index.contains(&(fact.feature.clone(), name.clone()))
                     }
-                    lazuli_ir::QualifiedToolRef::CrossFeature { feature, kind, name }
-                        if matches!(kind, lazuli_ir::ToolKind::Command) =>
-                    {
+                    lazuli_ir::QualifiedToolRef::CrossFeature {
+                        feature,
+                        kind,
+                        name,
+                    } if matches!(kind, lazuli_ir::ToolKind::Command) => {
                         approval_index.contains(&(feature.clone(), name.clone()))
                     }
                     _ => false,
@@ -3295,11 +3400,7 @@ fn resolve_tool(
                         ir::ToolEffect::Write => ResolvedToolEffect::Write,
                     },
                     policy: None,
-                    pii_classes: entry
-                        .pii_classes
-                        .iter()
-                        .map(|q| q.name.clone())
-                        .collect(),
+                    pii_classes: entry.pii_classes.iter().map(|q| q.name.clone()).collect(),
                 })
                 .unwrap_or(ResolvedTool {
                     effect: ResolvedToolEffect::Unknown,
@@ -3454,8 +3555,7 @@ fn agent_discriminator_diagnostics(
                     let first = name.chars().next();
                     if first.is_some_and(|c| c.is_ascii_uppercase()) {
                         let found = feature_symbols.values().any(|symbols| {
-                            symbols.records.contains_key(name)
-                                || symbols.enums.contains_key(name)
+                            symbols.records.contains_key(name) || symbols.enums.contains_key(name)
                         });
                         if !found {
                             diagnostics.push(DoctorDiagnostic {
@@ -3569,9 +3669,7 @@ fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
     for fact in agents {
         let agent = &fact.agent;
 
-        if !agent.evals.is_empty()
-            && (agent.temperature != Some(0.0) || agent.seed.is_none())
-        {
+        if !agent.evals.is_empty() && (agent.temperature != Some(0.0) || agent.seed.is_none()) {
             let reason = if agent.temperature != Some(0.0) {
                 "missing `temperature 0`"
             } else {
@@ -3592,15 +3690,15 @@ fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
 
         for case in &agent.evals {
             for assertion in &case.assertions {
-                if let ir::EvalPredicate::Closed(ir::Predicate::Comparison {
-                    left,
-                    op,
-                    right,
-                }) = &assertion.predicate
+                if let ir::EvalPredicate::Closed(ir::Predicate::Comparison { left, op, right }) =
+                    &assertion.predicate
                 {
                     if matches!(
                         op,
-                        ir::CompareOp::Lt | ir::CompareOp::Le | ir::CompareOp::Gt | ir::CompareOp::Ge
+                        ir::CompareOp::Lt
+                            | ir::CompareOp::Le
+                            | ir::CompareOp::Gt
+                            | ir::CompareOp::Ge
                     ) && !operand_resolves_numeric(left)
                         && !operand_resolves_numeric(right)
                     {
@@ -4369,6 +4467,568 @@ fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
     }
 }
 
+// =============================================================================
+// Phase L — auth block cross-feature diagnostics.
+//
+// Four ids per `docs/proposals/bucket-auth-cycle.md` §Doctor/LSP:
+//   - `auth_password_algorithm_hash_mismatch`
+//   - `auth_sessions_resource_unknown`
+//   - `auth_identity_field_unknown`
+//   - `auth_oauth_adapter_unbound`
+//
+// The lowered `ir::Auth` block arrives via `lower_feature_skeleton`
+// (Phase L Tier 1). This module owns the text-pattern collection of
+// neighbouring resources + extensions adapter slots and the
+// cross-feature lookup that the LSP cannot perform.
+// =============================================================================
+
+#[derive(Debug, Default)]
+struct AuthAnchors {
+    identity_line: usize,
+    password_line: Option<usize>,
+    password_algorithm_line: Option<usize>,
+    sessions_line: Option<usize>,
+    sessions_resource_line: Option<usize>,
+    mfa_line: Option<usize>,
+    oauth_lines: BTreeMap<String, usize>,
+}
+
+/// Walk the source under the `auth` block (starting at `auth_line`) and
+/// map each subblock onto its 1-based source line. Used to anchor
+/// diagnostics at the offending keyword rather than the `auth` header.
+fn collect_auth_anchors(source: &str, auth_line: usize) -> AuthAnchors {
+    let mut anchors = AuthAnchors {
+        identity_line: auth_line,
+        ..Default::default()
+    };
+    let lines: Vec<&str> = source.lines().collect();
+    if auth_line == 0 || auth_line > lines.len() {
+        return anchors;
+    }
+    // `auth_line` is 1-based; index = auth_line - 1 points at the
+    // `auth` keyword. Body starts the next line.
+    let header_index = auth_line - 1;
+    let auth_indent = leading_spaces(lines[header_index]);
+    let child_indent = auth_indent + 2;
+    let grand_indent = auth_indent + 4;
+
+    let mut i = header_index + 1;
+    let mut current_password = false;
+    let mut current_sessions = false;
+    let mut current_mfa = false;
+    let mut current_oauth: Option<String> = None;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent <= auth_indent {
+            break;
+        }
+        if indent == child_indent {
+            current_password = false;
+            current_sessions = false;
+            current_mfa = false;
+            current_oauth = None;
+            if let Some(rest) = trimmed.strip_prefix("identity ") {
+                let _ = rest;
+                anchors.identity_line = i + 1;
+            } else if trimmed == "password" {
+                anchors.password_line = Some(i + 1);
+                current_password = true;
+            } else if trimmed == "sessions" {
+                anchors.sessions_line = Some(i + 1);
+                current_sessions = true;
+            } else if let Some(rest) = trimmed.strip_prefix("mfa ") {
+                let _ = rest;
+                anchors.mfa_line = Some(i + 1);
+                current_mfa = true;
+            } else if let Some(rest) = trimmed.strip_prefix("oauth ") {
+                let provider = rest.split_whitespace().next().unwrap_or("").to_owned();
+                if !provider.is_empty() {
+                    anchors.oauth_lines.insert(provider.clone(), i + 1);
+                    current_oauth = Some(provider);
+                }
+            }
+        } else if indent == grand_indent {
+            if current_password {
+                if trimmed.starts_with("algorithm ") {
+                    anchors.password_algorithm_line = Some(i + 1);
+                }
+            } else if current_sessions && trimmed.starts_with("resource ") {
+                anchors.sessions_resource_line = Some(i + 1);
+            } else if current_mfa || current_oauth.is_some() {
+                // body lines for mfa/oauth carry adapter/enroll/verify
+                // refs but we don't need per-line anchors today.
+            }
+        }
+        i += 1;
+    }
+    anchors
+}
+
+/// Harvest `resource <Name>` declarations under each `feature <name>`
+/// block, recording field name + verbatim type text + trailing
+/// modifiers. The walk tolerates the canonical fixture's
+/// `domain` (indent 2) and `domain.resource` (indent 4 / fields at 6)
+/// shape; resources declared directly under `feature` are also picked
+/// up.
+fn collect_feature_resources(
+    file: &DoctorFile,
+    out: &mut BTreeMap<String, BTreeMap<String, ResourceFact>>,
+) {
+    if !is_lzi_path(&file.path) {
+        return;
+    }
+    let lines: Vec<&str> = file.source.lines().collect();
+    let mut feature: Option<String> = None;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            feature = trimmed
+                .strip_prefix("feature ")
+                .map(|n| n.trim().to_owned());
+            i += 1;
+            continue;
+        }
+        // `resource <Name>` only counts under `domain` (indent 4) or
+        // directly under `feature` (indent 2). Other `resource` lines
+        // are slot references — e.g. `auth.sessions.resource Session`
+        // at indent 6 — and must not be treated as declarations.
+        let resource_indent = leading_spaces(line);
+        if let Some(rest) = trimmed.strip_prefix("resource ") {
+            if resource_indent != 2 && resource_indent != 4 {
+                i += 1;
+                continue;
+            }
+            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+            if name.is_empty() {
+                i += 1;
+                continue;
+            }
+            let mut fact = ResourceFact {
+                path: file.path.clone(),
+                line: i + 1,
+                fields: BTreeMap::new(),
+            };
+            let mut j = i + 1;
+            while j < lines.len() {
+                let inner = lines[j];
+                let inner_trim = inner.trim_start();
+                if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if leading_spaces(inner) <= resource_indent {
+                    break;
+                }
+                if let Some((field_name, field_fact)) = parse_resource_field(inner_trim, j + 1) {
+                    fact.fields.insert(field_name, field_fact);
+                }
+                j += 1;
+            }
+            if let Some(feature_name) = feature.as_ref() {
+                out.entry(feature_name.clone())
+                    .or_default()
+                    .insert(name, fact);
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+}
+
+/// Parse `<field>: <Type> [modifiers...]`. The type text is whatever
+/// follows the first colon up to the first whitespace (so `@cap.Hashed(
+/// algorithm:argon2id)` round-trips intact because the args are
+/// parenthesised). Modifiers are the remainder, used to detect
+/// `optional` / `required`.
+fn parse_resource_field(trimmed: &str, line: usize) -> Option<(String, ResourceFieldFact)> {
+    let (name_part, rest) = trimmed.split_once(':')?;
+    let name = name_part.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let rest = rest.trim();
+    // Split into type + modifiers honouring parenthesised arg lists.
+    let mut depth = 0i32;
+    let mut split_at = rest.len();
+    for (idx, ch) in rest.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            c if c.is_whitespace() && depth == 0 => {
+                split_at = idx;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let type_text = rest[..split_at].to_owned();
+    let modifiers = rest[split_at..].trim().to_owned();
+    if type_text.is_empty() {
+        return None;
+    }
+    Some((
+        name.to_owned(),
+        ResourceFieldFact {
+            type_text,
+            modifiers,
+            line,
+        },
+    ))
+}
+
+/// Harvest each feature's `extensions adapter <name>: <Type> at "..."`
+/// declarations. Only the local name is stored; the type contract is
+/// checked elsewhere.
+fn collect_feature_adapters(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
+    if !is_lzi_path(&file.path) {
+        return;
+    }
+    let lines: Vec<&str> = file.source.lines().collect();
+    let mut feature: Option<String> = None;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            feature = trimmed
+                .strip_prefix("feature ")
+                .map(|n| n.trim().to_owned());
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 2 && trimmed == "extensions" {
+            let mut j = i + 1;
+            while j < lines.len() {
+                let inner = lines[j];
+                let inner_trim = inner.trim_start();
+                if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if leading_spaces(inner) <= 2 {
+                    break;
+                }
+                if let Some(rest) = inner_trim.strip_prefix("adapter ") {
+                    let name_segment = rest.split([':', ' ']).next().unwrap_or("").trim();
+                    if !name_segment.is_empty() {
+                        if let Some(feature_name) = feature.as_ref() {
+                            out.entry(feature_name.clone())
+                                .or_default()
+                                .insert(name_segment.to_owned());
+                        }
+                    }
+                }
+                j += 1;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+}
+
+/// Harvest each feature's `uses <feature>, <feature>, ...` declarations.
+/// Cross-feature resource resolution (e.g. `auth identity Customer.email`
+/// in `customer_auth uses customer`) reads this map.
+fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
+    if !is_lzi_path(&file.path) {
+        return;
+    }
+    let lines: Vec<&str> = file.source.lines().collect();
+    let mut feature: Option<String> = None;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+            feature = trimmed
+                .strip_prefix("feature ")
+                .map(|n| n.trim().to_owned());
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 2 && trimmed.starts_with("uses ") {
+            if let Some(rest) = trimmed.strip_prefix("uses ") {
+                if let Some(feature_name) = feature.as_ref() {
+                    let entry = out.entry(feature_name.clone()).or_default();
+                    for token in rest.split(',') {
+                        let name = token.trim();
+                        if !name.is_empty() {
+                            entry.insert(name.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Read the `algorithm:<X>` axis out of a `@cap.Hashed(...)` type text.
+/// Returns `None` when the field is not a `@cap.Hashed(...)` decorator
+/// or omits the axis.
+fn cap_hashed_algorithm(type_text: &str) -> Option<&str> {
+    let rest = type_text.strip_prefix("@cap.Hashed(")?;
+    let args = rest.strip_suffix(')')?;
+    for part in args.split(',') {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix("algorithm:") {
+            return Some(value.trim());
+        }
+    }
+    None
+}
+
+/// Heuristic: is this field's declared shape a plausible login
+/// identifier? Identity fields are unique-shaped — either tagged with
+/// `@semantic.Email` / `@semantic.Phone`, declared as an `ID`, or
+/// carry a `unique` modifier. The check is conservative; rejected
+/// shapes are obvious authoring errors (e.g. a `Text` free-form note
+/// field used as the login identity).
+fn is_identity_shaped(field: &ResourceFieldFact) -> bool {
+    let type_text = field.type_text.as_str();
+    if type_text.starts_with("@semantic.Email") || type_text.starts_with("@semantic.Phone") {
+        return true;
+    }
+    if type_text == "ID" {
+        return true;
+    }
+    field.modifiers.contains("unique")
+}
+
+/// Resolve `<Resource>` for a feature by searching its own resources
+/// first, then falling back to resources declared in features it
+/// `uses`. Returns the first hit.
+fn resolve_resource_for_feature<'a>(
+    feature: &str,
+    resource_name: &str,
+    feature_resources: &'a BTreeMap<String, BTreeMap<String, ResourceFact>>,
+    feature_uses: &BTreeMap<String, BTreeSet<String>>,
+) -> Option<&'a ResourceFact> {
+    if let Some(local) = feature_resources
+        .get(feature)
+        .and_then(|m| m.get(resource_name))
+    {
+        return Some(local);
+    }
+    if let Some(uses) = feature_uses.get(feature) {
+        for dep in uses {
+            if let Some(hit) = feature_resources
+                .get(dep)
+                .and_then(|m| m.get(resource_name))
+            {
+                return Some(hit);
+            }
+        }
+    }
+    None
+}
+
+/// Emit the four `auth_*` cross-feature diagnostics. Each diagnostic
+/// is anchored at the offending subblock line; the `auth` header is
+/// only used as a fallback.
+fn auth_diagnostics(
+    auth_facts: &[AuthFacts],
+    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
+    feature_adapters: &BTreeMap<String, BTreeSet<String>>,
+    feature_uses: &BTreeMap<String, BTreeSet<String>>,
+    registry: Option<&DoctorAppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let registry_integrations: BTreeSet<String> = registry
+        .map(|r| {
+            r.manifest
+                .integrations
+                .iter()
+                .map(|i| i.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for fact in auth_facts {
+        let feature = fact.feature.as_str();
+
+        // 1. `auth_identity_field_unknown` — resource and field must
+        //    resolve in the same feature (or one it `uses`), and the
+        //    field must be identity-shaped.
+        let identity_resource = fact.auth.identity.field.resource.name.as_str();
+        let identity_field = fact.auth.identity.field.field.as_str();
+        let identity_resource_fact = resolve_resource_for_feature(
+            feature,
+            identity_resource,
+            feature_resources,
+            feature_uses,
+        );
+        match identity_resource_fact {
+            None => diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.identity_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "auth_identity_field_unknown".to_owned(),
+                message: format!(
+                    "auth.identity `{identity_resource}.{identity_field}` does not resolve: resource not found in feature `{feature}`.",
+                ),
+            }),
+            Some(resource) => match resource.fields.get(identity_field) {
+                None => diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.identity_line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "auth_identity_field_unknown".to_owned(),
+                    message: format!(
+                        "auth.identity `{identity_resource}.{identity_field}` does not resolve: field not found on `{identity_resource}`.",
+                    ),
+                }),
+                Some(field) => {
+                    if !is_identity_shaped(field) {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: fact.path.clone(),
+                            line: fact.identity_line,
+                            column: 1,
+                            severity: DoctorSeverity::Error,
+                            code: "auth_identity_field_unknown".to_owned(),
+                            message: format!(
+                                "auth.identity `{identity_resource}.{identity_field}` does not resolve: field is not identity-shaped (missing @semantic.Email / @semantic.Phone / unique).",
+                            ),
+                        });
+                    }
+                }
+            },
+        }
+
+        // 2. `auth_sessions_resource_unknown` — sessions resource must
+        //    resolve in the same feature (or one it `uses`).
+        if let Some(sessions) = fact.auth.sessions.as_ref() {
+            let sessions_name = sessions.resource.name.as_str();
+            let resolved = resolve_resource_for_feature(
+                feature,
+                sessions_name,
+                feature_resources,
+                feature_uses,
+            );
+            if resolved.is_none() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.sessions_resource_line.unwrap_or(fact.line),
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "auth_sessions_resource_unknown".to_owned(),
+                    message: format!(
+                        "auth.sessions.resource `{sessions_name}` does not name a resource declared in feature `{feature}`.",
+                    ),
+                });
+            }
+        }
+
+        // 3. `auth_password_algorithm_hash_mismatch` — when both
+        //    `auth.password.algorithm` and the session resource carry
+        //    a `@cap.Hashed(algorithm:…)` field, the two axes must
+        //    match.
+        if let (Some(password), Some(sessions)) =
+            (fact.auth.password.as_ref(), fact.auth.sessions.as_ref())
+        {
+            let pw_algo = password.algorithm.trim();
+            if !pw_algo.is_empty() {
+                let sessions_name = sessions.resource.name.as_str();
+                if let Some(resource) = resolve_resource_for_feature(
+                    feature,
+                    sessions_name,
+                    feature_resources,
+                    feature_uses,
+                ) {
+                    // Find the first hash-shaped field on the session
+                    // resource that carries a `@cap.Hashed(...)`
+                    // decorator. Multiple is allowed; we pin the
+                    // first divergence.
+                    let mut found_hash_axis = None;
+                    for (field_name, field) in &resource.fields {
+                        if let Some(axis) = cap_hashed_algorithm(&field.type_text) {
+                            found_hash_axis = Some((field_name.clone(), axis.to_owned()));
+                            if axis != pw_algo {
+                                diagnostics.push(DoctorDiagnostic {
+                                    path: fact.path.clone(),
+                                    line: fact
+                                        .password_algorithm_line
+                                        .unwrap_or(fact.password_line.unwrap_or(fact.line)),
+                                    column: 1,
+                                    severity: DoctorSeverity::Error,
+                                    code: "auth_password_algorithm_hash_mismatch".to_owned(),
+                                    message: format!(
+                                        "auth.password.algorithm `{pw_algo}` must match `@cap.Hashed(algorithm:{pw_algo})` on the session resource's hash field (found `{axis}` on `{sessions_name}.{field_name}`).",
+                                        pw_algo = pw_algo,
+                                        axis = axis,
+                                        sessions_name = sessions_name,
+                                        field_name = field_name,
+                                    ),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                    let _ = found_hash_axis;
+                }
+            }
+        }
+
+        // 4. `auth_oauth_adapter_unbound` — each oauth provider's
+        //    adapter must resolve in the feature's `extensions
+        //    adapter <name>` list or `registry.integrations`.
+        let feature_adapter_names = feature_adapters.get(feature);
+        for provider in &fact.auth.oauth {
+            let adapter_ref = provider.adapter.as_str();
+            let local_name = adapter_ref.strip_prefix("@adapter.").unwrap_or("");
+            let in_feature = !local_name.is_empty()
+                && feature_adapter_names
+                    .map(|s| s.contains(local_name))
+                    .unwrap_or(false);
+            let in_registry = !local_name.is_empty() && registry_integrations.contains(local_name);
+            if !in_feature && !in_registry {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact
+                        .oauth_lines
+                        .get(provider.provider.as_str())
+                        .copied()
+                        .unwrap_or(fact.line),
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "auth_oauth_adapter_unbound".to_owned(),
+                    message: format!(
+                        "auth.oauth.`{provider}`.adapter `{adapter_ref}` is not declared in `extensions` of feature `{feature}` or `integrations` in `registry.lzi`.",
+                        provider = provider.provider,
+                        adapter_ref = adapter_ref,
+                        feature = feature,
+                    ),
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
 // -----------------------------------------------------------------------------
 // Cut A.8 — built-in trace event diagnostics
 //
@@ -4559,6 +5219,11 @@ mod tests {
         let mut registry_tool_defects: Vec<RegistryToolDefect> = Vec::new();
         let mut api_paths: Vec<ApiPathFact> = Vec::new();
         let mut command_approvals: Vec<CommandApprovalFact> = Vec::new();
+        let mut auth_facts: Vec<AuthFacts> = Vec::new();
+        let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
+            BTreeMap::new();
+        let mut feature_adapters: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut feature_uses: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         for (path, source) in sources {
             let mut file = DoctorFile {
@@ -4634,12 +5299,36 @@ mod tests {
                                     line: agent_line,
                                 });
                             }
+                            if let Some(auth) = feature.auth {
+                                let auth_line = auth
+                                    .span_ref
+                                    .as_ref()
+                                    .map(|s| line_col_for_offset(&file.source, s.start).0)
+                                    .unwrap_or(header_line);
+                                let anchors = collect_auth_anchors(&file.source, auth_line);
+                                auth_facts.push(AuthFacts {
+                                    feature: feature.name.clone(),
+                                    auth,
+                                    path: file.path.clone(),
+                                    line: auth_line,
+                                    identity_line: anchors.identity_line,
+                                    password_line: anchors.password_line,
+                                    password_algorithm_line: anchors.password_algorithm_line,
+                                    sessions_line: anchors.sessions_line,
+                                    sessions_resource_line: anchors.sessions_resource_line,
+                                    mfa_line: anchors.mfa_line,
+                                    oauth_lines: anchors.oauth_lines,
+                                });
+                            }
                         }
                     }
                 }
                 collect_feature_symbols(&file, &mut feature_symbols);
                 collect_api_paths(&file, &mut api_paths);
                 collect_command_approvals(&file, &mut command_approvals);
+                collect_feature_resources(&file, &mut feature_resources);
+                collect_feature_adapters(&file, &mut feature_adapters);
+                collect_feature_uses(&file, &mut feature_uses);
             } else {
                 let document = lazuli_syntax::parse_lzx_document(&file.source).unwrap();
                 collect_lzx_experience_facts(&document, &mut experiences);
@@ -4665,6 +5354,10 @@ mod tests {
             registry_tool_defects,
             api_paths,
             command_approvals,
+            auth_facts,
+            feature_resources,
+            feature_adapters,
+            feature_uses,
         }
     }
 
@@ -5798,10 +6491,7 @@ contract acme.ai.v1
     // -------------------------------------------------------------------------
 
     fn codes(diagnostics: &[DoctorDiagnostic]) -> BTreeSet<&str> {
-        diagnostics
-            .iter()
-            .map(|d| d.code.as_str())
-            .collect()
+        diagnostics.iter().map(|d| d.code.as_str()).collect()
     }
 
     #[test]
@@ -6040,8 +6730,7 @@ app MyApp
         )]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics)
-                .contains("cors_credentials_wildcard_conflict_diagnostics"),
+            codes(&diagnostics).contains("cors_credentials_wildcard_conflict_diagnostics"),
             "expected cors_credentials_wildcard_conflict_diagnostics; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
@@ -6254,8 +6943,7 @@ feature customer
         )]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics)
-                .contains("agent_run_subscriber_payload_drift_diagnostics"),
+            codes(&diagnostics).contains("agent_run_subscriber_payload_drift_diagnostics"),
             "expected agent_run_subscriber_payload_drift_diagnostics; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
@@ -6275,8 +6963,7 @@ feature customer
         )]);
         let diagnostics = package.diagnostics();
         assert!(
-            !codes(&diagnostics)
-                .contains("agent_run_subscriber_payload_drift_diagnostics"),
+            !codes(&diagnostics).contains("agent_run_subscriber_payload_drift_diagnostics"),
             "canonical fields must not drift; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
@@ -6315,8 +7002,7 @@ feature customer_outreach
         ]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics)
-                .contains("agent_expose_path_conflict_cross_feature_diagnostics"),
+            codes(&diagnostics).contains("agent_expose_path_conflict_cross_feature_diagnostics"),
             "expected agent_expose_path_conflict_cross_feature_diagnostics; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
@@ -6428,5 +7114,305 @@ feature customer
                 diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
             );
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L — `auth` block cross-feature diagnostics.
+    //
+    // Four ids per docs/proposals/bucket-auth-cycle.md §Doctor/LSP:
+    //   - auth_password_algorithm_hash_mismatch
+    //   - auth_sessions_resource_unknown
+    //   - auth_identity_field_unknown
+    //   - auth_oauth_adapter_unbound
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn doctor_emits_auth_password_algorithm_hash_mismatch() {
+        // `auth.password.algorithm bcrypt` diverges from
+        // `@cap.Hashed(algorithm:argon2id)` on the session resource's
+        // hash field.
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    password
+      algorithm bcrypt
+      hash @fn.h
+      verify @fn.v
+      rate_limit "5 per 10 minutes"
+
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let mismatch: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "auth_password_algorithm_hash_mismatch")
+            .collect();
+        assert_eq!(
+            mismatch.len(),
+            1,
+            "expected exactly one auth_password_algorithm_hash_mismatch; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            mismatch[0].message.contains("bcrypt"),
+            "diagnostic should cite authored algorithm: {}",
+            mismatch[0].message
+        );
+        assert!(
+            mismatch[0].message.contains("argon2id"),
+            "diagnostic should cite resource axis: {}",
+            mismatch[0].message
+        );
+    }
+
+    #[test]
+    fn doctor_emits_auth_sessions_resource_unknown() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    sessions
+      resource BogusSession
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("auth_sessions_resource_unknown"),
+            "expected auth_sessions_resource_unknown; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_emits_auth_identity_field_unknown_for_missing_field() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+
+  auth
+    identity Session.email
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "auth_identity_field_unknown")
+            .collect();
+        assert!(
+            !hits.is_empty(),
+            "expected auth_identity_field_unknown; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(hits[0].message.contains("field not found"));
+    }
+
+    #[test]
+    fn doctor_emits_auth_identity_field_unknown_for_non_identity_shape() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      note: Text required
+      expires_at: DateTime required
+
+  auth
+    identity Session.note
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "auth_identity_field_unknown")
+            .collect();
+        assert!(
+            !hits.is_empty(),
+            "expected auth_identity_field_unknown; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(hits[0].message.contains("identity-shaped"));
+    }
+
+    #[test]
+    fn doctor_emits_auth_oauth_adapter_unbound() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    oauth google
+      adapter @adapter.bogus_google_oauth
+
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("auth_oauth_adapter_unbound"),
+            "expected auth_oauth_adapter_unbound; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_resolves_oauth_adapter_via_feature_extensions() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    oauth google
+      adapter @adapter.google_oauth
+
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+
+  extensions
+    adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./oauth.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("auth_oauth_adapter_unbound"),
+            "extension adapter must satisfy oauth adapter lookup; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_well_formed_auth_emits_no_auth_diagnostics() {
+        // The canonical-shape positive case. None of the four auth_*
+        // diagnostics should fire on a coherent block.
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    password
+      algorithm argon2id
+      hash @fn.h
+      verify @fn.v
+      rate_limit "5 per 10 minutes"
+
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let surfaced = codes(&diagnostics);
+        for code in [
+            "auth_password_algorithm_hash_mismatch",
+            "auth_sessions_resource_unknown",
+            "auth_identity_field_unknown",
+            "auth_oauth_adapter_unbound",
+        ] {
+            assert!(
+                !surfaced.contains(code),
+                "well-formed auth should not emit {code}; got {:?}",
+                diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn doctor_resolves_identity_resource_via_feature_uses() {
+        // `customer_auth uses customer` — Customer.email is declared
+        // in the `customer` feature; auth identity in customer_auth
+        // must resolve via the `uses` graph.
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  domain
+    resource Customer
+      email: @semantic.Email required
+
+feature customer_auth
+  uses customer
+
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+
+  auth
+    identity Customer.email
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("auth_identity_field_unknown"),
+            "uses-relative identity resolution failed: {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
     }
 }

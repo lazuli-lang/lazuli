@@ -1,0 +1,25 @@
+feature x_auth
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  policies
+    fields Session
+      refresh_token_hash
+        read: @actor.system
+        write: @actor.system
+
+  auth
+    identity Session.email
+    password
+      algorithm bcrypt
+      hash @fn.h
+      verify @fn.v
+      rate_limit "5 per 10 minutes"
+
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
