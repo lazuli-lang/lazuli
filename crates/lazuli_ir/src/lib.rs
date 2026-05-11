@@ -1816,6 +1816,14 @@ pub struct AuthIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthPassword {
+    /// `algorithm argon2id` — required by Phase L. The runtime adapter
+    /// pins the KDF; the language records the author's choice verbatim
+    /// so doctor can spot legacy/banned algorithms (`md5`, `sha1`, etc.).
+    /// Existing JSON payloads that omit this field default to the empty
+    /// string for backward compatibility; doctor warns once the slot is
+    /// known to be empty.
+    #[serde(default)]
+    pub algorithm: String,
     /// `hash @fn.hash_customer_password` — extension fn reference.
     pub hash: String,
     pub verify: String,
@@ -1839,6 +1847,14 @@ pub struct AuthSessions {
 pub struct AuthMfa {
     /// MFA method id: `totp`, `sms`, `webauthn`. Adapter-specific beyond this.
     pub method: String,
+    /// `enroll @fn.<name>` — enrollment extension fn reference. Required
+    /// by Phase L; legacy payloads default to the empty string.
+    #[serde(default)]
+    pub enroll: String,
+    /// `verify @validator.<name>` or `@fn.<name>` — verification reference.
+    /// Required by Phase L; legacy payloads default to the empty string.
+    #[serde(default)]
+    pub verify: String,
     /// Optional adapter reference, e.g. `@adapter.totp_provider`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,

@@ -6,11 +6,11 @@ use thiserror::Error;
 
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
-    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Command,
-    ContainsRhs, Document, FeatureSkeleton, Field, FieldModifier, HttpMethod, LzxAction, LzxApp,
-    LzxAudience, LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder,
-    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query,
-    Span, Surface, ToolsCallsOp,
+    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, Auth,
+    AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Command, ContainsRhs,
+    Document, FeatureSkeleton, Field, FieldModifier, HttpMethod, LzxAction, LzxApp, LzxAudience,
+    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
+    LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, Query, Span, Surface, ToolsCallsOp,
 };
 
 #[derive(Parser)]
@@ -1141,6 +1141,7 @@ fn parse_feature_skeleton(
 ) -> Result<(FeatureSkeleton, usize), ParseError> {
     let header = &lines[start];
     let mut agents = Vec::new();
+    let mut auth: Option<Auth> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -1166,8 +1167,24 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Any other feature child is skipped silently — Phase 1 does not
-        // parse resources/commands/queries/workflows.
+        // Phase L — `auth` block. One per feature; duplicate is a parse error.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "auth" {
+            if auth.is_some() {
+                return Err(line_error(
+                    line,
+                    "feature may declare at most one `auth` block",
+                ));
+            }
+            let (parsed, next) = parse_auth(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            auth = Some(parsed);
+            i = next;
+            continue;
+        }
+
+        // Any other feature child is skipped silently — Phase L still
+        // leaves resources/commands/queries/workflows/jobs/webhooks to
+        // the text-pattern doctor pipeline.
         last_end = line.end;
         i += 1;
     }
@@ -1176,6 +1193,7 @@ fn parse_feature_skeleton(
         FeatureSkeleton {
             name,
             agents,
+            auth,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -1317,6 +1335,444 @@ fn parse_agent(
             tools,
             evals,
             expose,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+// -----------------------------------------------------------------------------
+// Phase L — `auth` block parser
+//
+// The `auth` header sits at AGENT_INDENT_FEATURE_CHILD (2 spaces). Its
+// direct children — `identity`, `password`, `sessions`, `mfa`, `oauth` —
+// live at AGENT_INDENT_AGENT_CHILD (4 spaces). Grandchildren (the named
+// options inside `password`/`sessions`/`mfa`/`oauth`) live at
+// AGENT_INDENT_GRANDCHILD (6 spaces). This mirrors `parse_agent` so an
+// LLM authoring auth has the same indentation contract as authoring an
+// agent.
+// -----------------------------------------------------------------------------
+
+fn parse_auth(lines: &[SourceLine<'_>], start: usize) -> Result<(Auth, usize), ParseError> {
+    let header = &lines[start];
+    let mut identity: Option<AuthIdentity> = None;
+    let mut password: Option<AuthPassword> = None;
+    let mut sessions: Option<AuthSessions> = None;
+    let mut mfa: Option<AuthMfa> = None;
+    let mut oauth: Vec<AuthOAuthProvider> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "`auth` body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("identity ") {
+            if identity.is_some() {
+                return Err(line_error(
+                    line,
+                    "`auth identity` may be declared at most once",
+                ));
+            }
+            let field = rest.trim();
+            if field.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`auth identity` requires `<Resource>.<field>`",
+                ));
+            }
+            if !field.contains('.') {
+                return Err(line_error(
+                    line,
+                    "`auth identity` requires `<Resource>.<field>` (dot-qualified)",
+                ));
+            }
+            identity = Some(AuthIdentity {
+                field: field.to_owned(),
+                span: Span::new(line.start, line.end),
+            });
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "password" {
+            if password.is_some() {
+                return Err(line_error(
+                    line,
+                    "`auth password` may be declared at most once",
+                ));
+            }
+            let (parsed, next) = parse_auth_password(lines, i)?;
+            password = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "sessions" {
+            if sessions.is_some() {
+                return Err(line_error(
+                    line,
+                    "`auth sessions` may be declared at most once",
+                ));
+            }
+            let (parsed, next) = parse_auth_sessions(lines, i)?;
+            sessions = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("mfa ") {
+            if mfa.is_some() {
+                return Err(line_error(line, "`auth mfa` may be declared at most once"));
+            }
+            let method = rest.trim();
+            if method.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`auth mfa` requires a method id (`totp`, `sms`, `webauthn`, ...)",
+                ));
+            }
+            let (parsed, next) = parse_auth_mfa(lines, i, method.to_owned())?;
+            mfa = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("oauth ") {
+            let provider = rest.trim();
+            if provider.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`auth oauth` requires a provider id (`google`, `github`, ...)",
+                ));
+            }
+            let (parsed, next) = parse_auth_oauth(lines, i, provider.to_owned())?;
+            oauth.push(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "`auth` children are `identity`, `password`, `sessions`, `mfa`, or `oauth`",
+            ));
+        }
+    }
+
+    let identity = identity.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth` requires an `identity <Resource>.<field>` declaration",
+        )
+    })?;
+
+    Ok((
+        Auth {
+            identity,
+            password,
+            sessions,
+            mfa,
+            oauth,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_auth_password(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(AuthPassword, usize), ParseError> {
+    let header = &lines[start];
+    let mut algorithm: Option<String> = None;
+    let mut hash: Option<String> = None;
+    let mut verify: Option<String> = None;
+    let mut rate_limit: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`auth password` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("algorithm ") {
+            algorithm = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("hash ") {
+            hash = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("verify ") {
+            verify = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+            rate_limit = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "`auth password` children are `algorithm`, `hash`, `verify`, or `rate_limit`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let algorithm = algorithm.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth password` requires an `algorithm <name>` declaration",
+        )
+    })?;
+    let hash = hash.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth password` requires a `hash @fn.<name>` declaration",
+        )
+    })?;
+    let verify = verify.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth password` requires a `verify @fn.<name>` declaration",
+        )
+    })?;
+
+    Ok((
+        AuthPassword {
+            algorithm,
+            hash,
+            verify,
+            rate_limit,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_auth_sessions(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(AuthSessions, usize), ParseError> {
+    let header = &lines[start];
+    let mut resource: Option<String> = None;
+    let mut ttl: Option<String> = None;
+    let mut refresh: Option<bool> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`auth sessions` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("resource ") {
+            resource = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("ttl ") {
+            ttl = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("refresh ") {
+            refresh = Some(parse_lzx_bool(rest.trim()).ok_or_else(|| {
+                line_error(line, "`refresh` must be `true` or `false`")
+            })?);
+        } else {
+            return Err(line_error(
+                line,
+                "`auth sessions` children are `resource`, `ttl`, or `refresh`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let resource = resource.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth sessions` requires a `resource <Name>` declaration",
+        )
+    })?;
+    let ttl = ttl.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth sessions` requires a `ttl \"<duration>\"` declaration",
+        )
+    })?;
+    let refresh = refresh.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth sessions` requires a `refresh <true|false>` declaration",
+        )
+    })?;
+
+    Ok((
+        AuthSessions {
+            resource,
+            ttl,
+            refresh,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_auth_mfa(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    method: String,
+) -> Result<(AuthMfa, usize), ParseError> {
+    let header = &lines[start];
+    let mut enroll: Option<String> = None;
+    let mut verify: Option<String> = None;
+    let mut adapter: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`auth mfa` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("enroll ") {
+            enroll = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("verify ") {
+            verify = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("adapter ") {
+            adapter = Some(rest.trim().to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "`auth mfa` children are `enroll`, `verify`, or `adapter`",
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let enroll = enroll.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth mfa` requires an `enroll @fn.<name>` declaration",
+        )
+    })?;
+    let verify = verify.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth mfa` requires a `verify @validator.<name>` declaration",
+        )
+    })?;
+
+    Ok((
+        AuthMfa {
+            method,
+            enroll,
+            verify,
+            adapter,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_auth_oauth(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    provider: String,
+) -> Result<(AuthOAuthProvider, usize), ParseError> {
+    let header = &lines[start];
+    let mut adapter: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`auth oauth` children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("adapter ") {
+            adapter = Some(rest.trim().to_owned());
+        } else {
+            return Err(line_error(line, "`auth oauth` children are `adapter`"));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    let adapter = adapter.ok_or_else(|| {
+        line_error(
+            header,
+            "`auth oauth` requires an `adapter @adapter.<name>` declaration",
+        )
+    })?;
+
+    Ok((
+        AuthOAuthProvider {
+            provider,
+            adapter,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -2649,5 +3105,164 @@ feature customer_outreach
         assert_eq!(features[0].agents[0].name, "first_agent");
         assert_eq!(features[1].name, "customer_outreach");
         assert_eq!(features[1].agents[0].name, "second_agent");
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L — `auth` block parser slice
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn auth_minimal_identity_only_parses() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let auth = features[0].auth.as_ref().expect("auth block");
+        assert_eq!(auth.identity.field, "Customer.email");
+        assert!(auth.password.is_none());
+        assert!(auth.sessions.is_none());
+        assert!(auth.mfa.is_none());
+        assert!(auth.oauth.is_empty());
+    }
+
+    #[test]
+    fn auth_full_block_parses() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
+      rate_limit "5 per 10 minutes"
+
+    oauth google
+      adapter @adapter.google_oauth
+
+    mfa totp
+      enroll @fn.enroll_customer_totp
+      verify @validator.verify_customer_totp
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      refresh false
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let auth = features[0].auth.as_ref().expect("auth block");
+
+        assert_eq!(auth.identity.field, "Customer.email");
+
+        let password = auth.password.as_ref().expect("password");
+        assert_eq!(password.algorithm, "argon2id");
+        assert_eq!(password.hash, "@fn.hash_customer_password");
+        assert_eq!(password.verify, "@fn.verify_customer_password");
+        assert_eq!(password.rate_limit.as_deref(), Some("5 per 10 minutes"));
+
+        assert_eq!(auth.oauth.len(), 1);
+        assert_eq!(auth.oauth[0].provider, "google");
+        assert_eq!(auth.oauth[0].adapter, "@adapter.google_oauth");
+
+        let mfa = auth.mfa.as_ref().expect("mfa");
+        assert_eq!(mfa.method, "totp");
+        assert_eq!(mfa.enroll, "@fn.enroll_customer_totp");
+        assert_eq!(mfa.verify, "@validator.verify_customer_totp");
+
+        let sessions = auth.sessions.as_ref().expect("sessions");
+        assert_eq!(sessions.resource, "CustomerSession");
+        assert_eq!(sessions.ttl, "7 days");
+        assert!(!sessions.refresh);
+    }
+
+    #[test]
+    fn auth_without_identity_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    password
+      algorithm argon2id
+      hash @fn.h
+      verify @fn.v
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("identity"),
+            "error should require identity: {message}"
+        );
+    }
+
+    #[test]
+    fn auth_password_without_algorithm_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      hash @fn.h
+      verify @fn.v
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("algorithm"),
+            "error should require algorithm: {message}"
+        );
+    }
+
+    #[test]
+    fn auth_mfa_without_enroll_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    mfa totp
+      verify @validator.totp
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("enroll"),
+            "error should require enroll: {message}"
+        );
+    }
+
+    #[test]
+    fn auth_duplicate_block_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+  auth
+    identity Customer.email
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("at most one"),
+            "error should mention duplicate: {message}"
+        );
+    }
+
+    #[test]
+    fn auth_identity_without_dot_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity customeremail
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("dot-qualified"),
+            "error should require Resource.field: {message}"
+        );
     }
 }

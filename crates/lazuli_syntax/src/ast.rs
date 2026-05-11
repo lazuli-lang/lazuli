@@ -218,6 +218,85 @@ pub struct LzxPlatformView {
 pub struct FeatureSkeleton {
     pub name: String,
     pub agents: Vec<Agent>,
+    /// Phase L — `auth` block. At most one per feature. Lowered into
+    /// `ir::Auth` via the analyzer; the surface AST mirrors the IR
+    /// shape so the only translation the analyzer performs is field
+    /// resolution (`Customer.email` → `FieldRef`).
+    pub auth: Option<Auth>,
+    pub span: Span,
+}
+
+// -----------------------------------------------------------------------------
+// Phase L — `auth` block (canonical-indent slice)
+//
+// `auth` declares the identity domain of a feature: a single identity
+// field plus optional password / mfa / sessions / oauth subcontracts.
+// One `auth` block per feature.
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Auth {
+    pub identity: AuthIdentity,
+    pub password: Option<AuthPassword>,
+    pub sessions: Option<AuthSessions>,
+    pub mfa: Option<AuthMfa>,
+    pub oauth: Vec<AuthOAuthProvider>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthIdentity {
+    /// Raw source text `Customer.email`. Lowering splits into
+    /// `FieldRef { resource, field }`.
+    pub field: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthPassword {
+    /// `algorithm argon2id` — required.
+    pub algorithm: String,
+    /// `hash @fn.<name>` — extension fn reference.
+    pub hash: String,
+    /// `verify @fn.<name>` — extension fn reference.
+    pub verify: String,
+    /// `rate_limit "5 per 10 minutes"` — optional declarative throttle.
+    pub rate_limit: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthSessions {
+    /// `resource CustomerSession` — name only; analyzer resolves the
+    /// resource against the feature's domain.
+    pub resource: String,
+    /// `ttl "7 days"` — duration string parsed by the adapter.
+    pub ttl: String,
+    /// `refresh true|false` — whether refresh tokens are issued.
+    pub refresh: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthMfa {
+    /// MFA method id, e.g. `totp`, `sms`, `webauthn`. Adapter-specific
+    /// beyond this.
+    pub method: String,
+    /// `enroll @fn.<name>` — required extension fn reference.
+    pub enroll: String,
+    /// `verify @validator.<name>` or `@fn.<name>` — required.
+    pub verify: String,
+    /// `adapter @adapter.<name>` — optional adapter reference.
+    pub adapter: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthOAuthProvider {
+    /// Provider id, e.g. `google`, `github`, `microsoft`.
+    pub provider: String,
+    /// `adapter @adapter.<provider>_oauth` — required.
+    pub adapter: String,
     pub span: Span,
 }
 

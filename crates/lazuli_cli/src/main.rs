@@ -115,6 +115,11 @@ struct ExpandSet {
     /// `expose http`. Cross-feature path collisions surface via doctor;
     /// this projection is the inspect-side observable.
     expose: bool,
+    /// Phase L — `--expand=auth` projects the per-feature `auth` block
+    /// (identity / password / sessions / mfa / oauth) from the canonical
+    /// IR. Without the flag the projection is omitted entirely; this
+    /// keeps the default inspect output stable.
+    auth: bool,
 }
 
 impl ExpandSet {
@@ -132,6 +137,7 @@ impl ExpandSet {
             defaults: true,
             tools: true,
             expose: true,
+            auth: true,
         }
     }
 
@@ -148,6 +154,7 @@ impl ExpandSet {
             || self.defaults
             || self.tools
             || self.expose
+            || self.auth
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -187,6 +194,9 @@ impl ExpandSet {
         }
         if self.expose {
             labels.push("expose");
+        }
+        if self.auth {
+            labels.push("auth");
         }
         labels
     }
@@ -417,8 +427,9 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "defaults" => set.defaults = true,
             "tools" => set.tools = true,
             "expose" => set.expose = true,
+            "auth" => set.auth = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, or expose"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, or auth"
             ),
         }
     }
@@ -500,6 +511,64 @@ struct InspectFeature {
     /// via doctor; this projection is the per-feature observable.
     #[serde(skip_serializing_if = "Option::is_none")]
     expose: Option<Vec<InspectExposeEntry>>,
+    /// Phase L — populated only when `--expand=auth` is set. Lowered
+    /// `auth` block from the canonical-indent slice. `None` when the
+    /// feature declares no `auth`; cross-feature checks (e.g. unique
+    /// identity per workspace) live in doctor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth: Option<InspectAuth>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAuth {
+    identity: InspectAuthIdentity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    password: Option<InspectAuthPassword>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sessions: Option<InspectAuthSessions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mfa: Option<InspectAuthMfa>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    oauth: Vec<InspectAuthOAuthProvider>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAuthIdentity {
+    /// `<Resource>.<field>` joined back together so downstream consumers
+    /// don't need to reassemble it.
+    field: String,
+    resource: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAuthPassword {
+    algorithm: String,
+    hash: String,
+    verify: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rate_limit: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAuthSessions {
+    resource: String,
+    ttl: String,
+    refresh: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAuthMfa {
+    method: String,
+    enroll: String,
+    verify: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    adapter: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectAuthOAuthProvider {
+    provider: String,
+    adapter: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -893,6 +962,16 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         None => (None, Vec::new(), Vec::new(), Vec::new()),
     };
 
+    // Phase L — lower the canonical-indent slice once per inspect call
+    // and build a per-feature lookup. The slice is permissive about
+    // unknown constructs, so a failed parse degrades gracefully into
+    // an empty lookup; the text-pattern inspect path still runs.
+    let auth_by_feature = if expansions.auth && !is_lzx {
+        collect_auth_by_feature(source)
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
     InspectReport {
         schema: "lazuli.inspect.v0",
         source: input.display().to_string(),
@@ -905,11 +984,34 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         routes,
         experiences,
         surfaces,
-        features: inspect_features(&lines, expansions),
+        features: inspect_features(&lines, expansions, &auth_by_feature),
     }
 }
 
-fn inspect_features(lines: &[String], expansions: ExpandSet) -> Vec<InspectFeature> {
+/// Phase L — run the canonical-indent slice and build a `feature_name ->
+/// IR Auth` lookup. Failures in either parse or lower silently degrade
+/// to an empty lookup: `--expand=auth` is a projection, not a check,
+/// so it must not flip inspect into an error path.
+fn collect_auth_by_feature(source: &str) -> std::collections::BTreeMap<String, lazuli_ir::Auth> {
+    let mut map = std::collections::BTreeMap::new();
+    let Ok(features) = lazuli_syntax::parse_feature_skeletons(source) else {
+        return map;
+    };
+    for feature in features {
+        if let Some(auth_ast) = feature.auth.as_ref() {
+            if let Ok(auth_ir) = lazuli_analyzer::lower_auth(auth_ast) {
+                map.insert(feature.name.clone(), auth_ir);
+            }
+        }
+    }
+    map
+}
+
+fn inspect_features(
+    lines: &[String],
+    expansions: ExpandSet,
+    auth_by_feature: &std::collections::BTreeMap<String, lazuli_ir::Auth>,
+) -> Vec<InspectFeature> {
     let mut features = Vec::new();
     let mut index = 0;
 
@@ -927,7 +1029,11 @@ fn inspect_features(lines: &[String], expansions: ExpandSet) -> Vec<InspectFeatu
                 index += 1;
             }
 
-            features.push(inspect_feature(&lines[start..index], expansions));
+            features.push(inspect_feature(
+                &lines[start..index],
+                expansions,
+                auth_by_feature,
+            ));
         } else {
             index += 1;
         }
@@ -936,7 +1042,11 @@ fn inspect_features(lines: &[String], expansions: ExpandSet) -> Vec<InspectFeatu
     features
 }
 
-fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
+fn inspect_feature(
+    lines: &[String],
+    expansions: ExpandSet,
+    auth_by_feature: &std::collections::BTreeMap<String, lazuli_ir::Auth>,
+) -> InspectFeature {
     let name = lines
         .first()
         .and_then(|line| line.split_whitespace().nth(1))
@@ -954,6 +1064,15 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
     let expose = expansions
         .expose
         .then(|| inspect_expose_projection(&name, &agents, lines));
+
+    // Phase L — auth projection is only present when `--expand=auth`
+    // is set AND the feature declared an `auth` block. Features
+    // without auth omit the field entirely so consumers can distinguish
+    // "no auth declared" from "auth declared but empty".
+    let auth = expansions
+        .auth
+        .then(|| auth_by_feature.get(&name).map(project_auth))
+        .flatten();
 
     InspectFeature {
         name,
@@ -978,6 +1097,45 @@ fn inspect_feature(lines: &[String], expansions: ExpandSet) -> InspectFeature {
         tests: expansions.tests.then(|| inspect_tests(lines, &policies)),
         tools,
         expose,
+        auth,
+    }
+}
+
+/// Phase L — project a lowered `ir::Auth` into the inspect-shaped
+/// `InspectAuth`. Mirrors the IR structure 1:1; the only translation is
+/// joining `FieldRef` back into a `<Resource>.<field>` string so the
+/// json projection reads exactly like the source surface.
+fn project_auth(auth: &lazuli_ir::Auth) -> InspectAuth {
+    InspectAuth {
+        identity: InspectAuthIdentity {
+            field: format!("{}.{}", auth.identity.field.resource.name, auth.identity.field.field),
+            resource: auth.identity.field.resource.name.clone(),
+        },
+        password: auth.password.as_ref().map(|p| InspectAuthPassword {
+            algorithm: p.algorithm.clone(),
+            hash: p.hash.clone(),
+            verify: p.verify.clone(),
+            rate_limit: p.rate_limit.clone(),
+        }),
+        sessions: auth.sessions.as_ref().map(|s| InspectAuthSessions {
+            resource: s.resource.name.clone(),
+            ttl: s.ttl.clone(),
+            refresh: s.refresh,
+        }),
+        mfa: auth.mfa.as_ref().map(|m| InspectAuthMfa {
+            method: m.method.clone(),
+            enroll: m.enroll.clone(),
+            verify: m.verify.clone(),
+            adapter: m.adapter.clone(),
+        }),
+        oauth: auth
+            .oauth
+            .iter()
+            .map(|o| InspectAuthOAuthProvider {
+                provider: o.provider.clone(),
+                adapter: o.adapter.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -4804,5 +4962,93 @@ feature customer
             json.contains("\"tools\":[\"query.lookup.by_id\"]"),
             "agent.tools list should still be present: {json}"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L — `--expand=auth` projection coverage
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn inspect_auth_projection_emits_full_block() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
+      rate_limit "5 per 10 minutes"
+
+    oauth google
+      adapter @adapter.google_oauth
+
+    mfa totp
+      enroll @fn.enroll_customer_totp
+      verify @validator.verify_customer_totp
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      refresh false
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.auth = true;
+        let report = inspect_canonical_source(
+            source,
+            Path::new("customer_auth.lzi"),
+            expansions,
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        let auth = &json["features"][0]["auth"];
+        assert!(!auth.is_null(), "auth projection should be present: {json}");
+        assert_eq!(auth["identity"]["field"], "Customer.email");
+        assert_eq!(auth["identity"]["resource"], "Customer");
+        assert_eq!(auth["password"]["algorithm"], "argon2id");
+        assert_eq!(auth["password"]["hash"], "@fn.hash_customer_password");
+        assert_eq!(auth["mfa"]["method"], "totp");
+        assert_eq!(auth["mfa"]["enroll"], "@fn.enroll_customer_totp");
+        assert_eq!(auth["mfa"]["verify"], "@validator.verify_customer_totp");
+        assert_eq!(auth["sessions"]["ttl"], "7 days");
+        assert_eq!(auth["sessions"]["refresh"], false);
+        assert_eq!(auth["oauth"][0]["provider"], "google");
+    }
+
+    #[test]
+    fn inspect_auth_projection_omitted_without_expand() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+"#;
+        let report = inspect_canonical_source(
+            source,
+            Path::new("customer_auth.lzi"),
+            ExpandSet::default(),
+        );
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            !json.contains("\"auth\":{"),
+            "auth projection must be absent without --expand=auth: {json}"
+        );
+    }
+
+    #[test]
+    fn inspect_auth_projection_absent_when_feature_has_no_auth() {
+        let source = r#"
+feature customer
+  agent simple
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.auth = true;
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        // No auth block authored → field omitted (None serialises away).
+        assert!(json["features"][0]["auth"].is_null());
     }
 }

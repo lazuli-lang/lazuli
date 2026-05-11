@@ -39,6 +39,15 @@ pub enum AnalyzeError {
 
     #[error("invalid tool reference `{reference}`")]
     InvalidToolRef { reference: String },
+
+    /// Phase L — `auth identity` field reference must split exactly once
+    /// into `<Resource>.<field>`. Parser already rejects missing-dot
+    /// shapes; this guards downstream lowering against multi-dot or
+    /// empty-segment forms slipping through.
+    #[error(
+        "invalid auth identity `{reference}` — expected `<Resource>.<field>`"
+    )]
+    InvalidAuthIdentity { reference: String },
 }
 
 pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
@@ -567,6 +576,10 @@ pub fn lower_feature_skeleton(
     for agent_ast in &skeleton.agents {
         agents.push(lower_agent(&skeleton.name, agent_ast)?);
     }
+    let auth = match &skeleton.auth {
+        Some(auth_ast) => Some(lower_auth(auth_ast)?),
+        None => None,
+    };
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -585,7 +598,7 @@ pub fn lower_feature_skeleton(
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
-        auth: None,
+        auth,
         surfaces: Vec::new(),
         extensions: Vec::new(),
         escape_routes: Vec::new(),
@@ -593,6 +606,74 @@ pub fn lower_feature_skeleton(
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     })
+}
+
+/// Phase L — lower a canonical-indent `auth` block into the IR `Auth`
+/// shape. The translation is mostly structural; the analyzer's only
+/// non-trivial duty is splitting `Customer.email` into `FieldRef`.
+pub fn lower_auth(auth: &syntax::Auth) -> Result<ir::Auth, AnalyzeError> {
+    Ok(ir::Auth {
+        identity: lower_auth_identity(&auth.identity)?,
+        password: auth.password.as_ref().map(lower_auth_password),
+        sessions: auth.sessions.as_ref().map(lower_auth_sessions),
+        mfa: auth.mfa.as_ref().map(lower_auth_mfa),
+        oauth: auth.oauth.iter().map(lower_auth_oauth).collect(),
+        span_ref: Some(span_of(auth.span)),
+    })
+}
+
+fn lower_auth_identity(
+    identity: &syntax::AuthIdentity,
+) -> Result<ir::AuthIdentity, AnalyzeError> {
+    let (resource, field) = identity.field.split_once('.').ok_or_else(|| {
+        AnalyzeError::InvalidAuthIdentity {
+            reference: identity.field.clone(),
+        }
+    })?;
+    if resource.is_empty() || field.is_empty() || field.contains('.') {
+        return Err(AnalyzeError::InvalidAuthIdentity {
+            reference: identity.field.clone(),
+        });
+    }
+    Ok(ir::AuthIdentity {
+        field: ir::FieldRef {
+            resource: qualified_name_local(resource),
+            field: field.to_owned(),
+        },
+    })
+}
+
+fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
+    ir::AuthPassword {
+        algorithm: password.algorithm.clone(),
+        hash: password.hash.clone(),
+        verify: password.verify.clone(),
+        rate_limit: password.rate_limit.clone(),
+    }
+}
+
+fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
+    ir::AuthSessions {
+        resource: qualified_name_local(&sessions.resource),
+        ttl: sessions.ttl.clone(),
+        refresh: sessions.refresh,
+    }
+}
+
+fn lower_auth_mfa(mfa: &syntax::AuthMfa) -> ir::AuthMfa {
+    ir::AuthMfa {
+        method: mfa.method.clone(),
+        enroll: mfa.enroll.clone(),
+        verify: mfa.verify.clone(),
+        adapter: mfa.adapter.clone(),
+    }
+}
+
+fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAuthProvider {
+    ir::AuthOAuthProvider {
+        provider: oauth.provider.clone(),
+        adapter: oauth.adapter.clone(),
+    }
 }
 
 /// Lower a single `agent` AST node into the IR form. The `feature` arg
@@ -984,7 +1065,7 @@ fn type_ref_from_text(text: &str) -> ir::TypeRef {
 mod tests {
     use lazuli_syntax::{parse_document, parse_lzx_document};
 
-    use super::{AnalyzeError, lower_document, lower_lzx_document};
+    use super::{AnalyzeError, lower_auth_identity, lower_document, lower_lzx_document};
 
     #[test]
     fn lowers_valid_document_to_ir() {
@@ -1550,6 +1631,97 @@ feature customer
 "#;
         let agent = lower_first_agent(source);
         assert!(agent.expose_http.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L — `auth` block lowering
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn lower_auth_full_block_to_ir() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
+      rate_limit "5 per 10 minutes"
+
+    oauth google
+      adapter @adapter.google_oauth
+
+    mfa totp
+      enroll @fn.enroll_customer_totp
+      verify @validator.verify_customer_totp
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      refresh false
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let auth = feature.auth.expect("auth lowered");
+
+        assert_eq!(auth.identity.field.resource.name, "Customer");
+        assert_eq!(auth.identity.field.field, "email");
+
+        let password = auth.password.as_ref().expect("password");
+        assert_eq!(password.algorithm, "argon2id");
+        assert_eq!(password.hash, "@fn.hash_customer_password");
+        assert_eq!(password.verify, "@fn.verify_customer_password");
+        assert_eq!(password.rate_limit.as_deref(), Some("5 per 10 minutes"));
+
+        let mfa = auth.mfa.as_ref().expect("mfa");
+        assert_eq!(mfa.method, "totp");
+        assert_eq!(mfa.enroll, "@fn.enroll_customer_totp");
+        assert_eq!(mfa.verify, "@validator.verify_customer_totp");
+
+        let sessions = auth.sessions.as_ref().expect("sessions");
+        assert_eq!(sessions.resource.name, "CustomerSession");
+        assert_eq!(sessions.ttl, "7 days");
+        assert!(!sessions.refresh);
+
+        assert_eq!(auth.oauth.len(), 1);
+        assert_eq!(auth.oauth[0].provider, "google");
+        assert_eq!(auth.oauth[0].adapter, "@adapter.google_oauth");
+    }
+
+    #[test]
+    fn lower_auth_identity_with_empty_field_errors() {
+        // Parser would already reject `identity .email` because the
+        // dot-qualified contract requires both segments; this test
+        // documents the analyzer's defensive guard for any future
+        // parser shape that lets a stray dot through.
+        let identity = lazuli_syntax::AuthIdentity {
+            field: "Customer.".to_owned(),
+            span: lazuli_syntax::Span::new(0, 9),
+        };
+        let err = lower_auth_identity(&identity).unwrap_err();
+        match err {
+            AnalyzeError::InvalidAuthIdentity { reference } => {
+                assert_eq!(reference, "Customer.");
+            }
+            other => panic!("expected InvalidAuthIdentity, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_feature_without_auth_keeps_field_none() {
+        let source = r#"
+feature customer
+  agent simple
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert!(feature.auth.is_none());
     }
 
     #[test]
