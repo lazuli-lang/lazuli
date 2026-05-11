@@ -38,12 +38,17 @@ var (
 
 // IssueSession persists a new session row and returns the cookie
 // value the transport layer must set on the response.
+//
+// Stub: DB persistence (pgx.Conn / Tx) wires when the `db` bucket
+// lands. The signature is already pgx-ready — generated code passes
+// the transaction through `ctx` and the implementation will read it
+// via `db.FromCtx(ctx)` once that helper exists.
 func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, identityID lazuli.ID, provider string) (string, error) {
 	_ = ctx
 	_ = contract
 	_ = identityID
 	_ = provider
-	return "", errors.New("auth: IssueSession not yet implemented")
+	return "", errors.New("auth: IssueSession pending db bucket wire")
 }
 
 // ResolveSession is the HTTP middleware hook that populates Ctx.User

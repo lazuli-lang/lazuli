@@ -2,6 +2,9 @@ package auth
 
 import (
 	"errors"
+	"strconv"
+
+	"github.com/pquerna/otp/totp"
 
 	"lazuli.dev/runtime/lazuli"
 )
@@ -27,6 +30,9 @@ type MfaContract struct {
 	// AdapterRef is the optional `@adapter.<name>` reference that
 	// supplies provider-specific config (TOTP issuer, digits, period).
 	AdapterRef string
+	// Issuer is the app name that surfaces in authenticator apps
+	// (e.g. `Lazuli`). Defaults to `Lazuli` when empty.
+	Issuer string
 }
 
 // MfaEnrolment is the typed return payload from EnrollMFA. The
@@ -35,8 +41,10 @@ type MfaContract struct {
 type MfaEnrolment struct {
 	// Secret is the base32-encoded TOTP secret.
 	Secret string
-	// QR is the data-URI of the QR image authenticator apps can scan.
-	QR string
+	// URI is the otpauth:// URI authenticator apps consume. Equivalent
+	// to the QR payload; transports can render it to PNG via
+	// `github.com/pquerna/otp.Key.Image` if a QR image is needed.
+	URI string
 }
 
 // Typed errors returned by the MFA capability. Mapped to
@@ -55,20 +63,50 @@ var (
 // method-specific enrolment payload.
 func EnrollMFA(ctx *lazuli.Ctx, contract MfaContract, identityID lazuli.ID) (MfaEnrolment, error) {
 	_ = ctx
-	_ = contract
-	_ = identityID
-	// TODO(runtime): TOTP via github.com/pquerna/otp/totp.
-	return MfaEnrolment{}, errors.New("auth: EnrollMFA not yet implemented")
+	switch contract.Method {
+	case MfaMethodTOTP, "":
+		issuer := contract.Issuer
+		if issuer == "" {
+			issuer = "Lazuli"
+		}
+		key, err := totp.Generate(totp.GenerateOpts{
+			Issuer:      issuer,
+			AccountName: strconv.FormatInt(int64(identityID), 10),
+		})
+		if err != nil {
+			return MfaEnrolment{}, err
+		}
+		return MfaEnrolment{
+			Secret: key.Secret(),
+			URI:    key.URL(),
+		}, nil
+	default:
+		return MfaEnrolment{}, ErrMfaMethodUnsupported
+	}
 }
 
 // VerifyMFA dispatches to the registered VerifyFn for the contract's
 // method and returns nil on success, ErrMfaCodeInvalid on miss,
 // ErrMfaNotEnrolled when the user has no enrolment row,
 // ErrMfaMethodUnsupported when the contract's method is not handled.
-func VerifyMFA(ctx *lazuli.Ctx, contract MfaContract, identityID lazuli.ID, code string) error {
+//
+// `secret` is the per-user TOTP secret persisted on enrolment; the
+// caller (typically a generated command) loads it from the identity
+// resource before calling this helper. Empty `secret` is treated as
+// `ErrMfaNotEnrolled`.
+func VerifyMFA(ctx *lazuli.Ctx, contract MfaContract, identityID lazuli.ID, secret, code string) error {
 	_ = ctx
-	_ = contract
 	_ = identityID
-	_ = code
-	return errors.New("auth: VerifyMFA not yet implemented")
+	switch contract.Method {
+	case MfaMethodTOTP, "":
+		if secret == "" {
+			return ErrMfaNotEnrolled
+		}
+		if !totp.Validate(code, secret) {
+			return ErrMfaCodeInvalid
+		}
+		return nil
+	default:
+		return ErrMfaMethodUnsupported
+	}
 }
