@@ -182,6 +182,20 @@ impl LanguageServer for Backend {
             detail: deploy_strategy_detail(value).map(str::to_owned),
             ..CompletionItem::default()
         }));
+        // Notifications expanded bucket cycle — closed
+        // `notification.digest.template_strategy` catalog. Two
+        // strategies; LSP completion narrows authoring before doctor
+        // surfaces an unknown value.
+        items.extend(
+            NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES
+                .iter()
+                .map(|value| CompletionItem {
+                    label: (*value).to_owned(),
+                    kind: Some(CompletionItemKind::VALUE),
+                    detail: notification_digest_template_strategy_detail(value).map(str::to_owned),
+                    ..CompletionItem::default()
+                }),
+        );
         Ok(Some(CompletionResponse::Array(items)))
     }
 
@@ -4587,6 +4601,13 @@ fn notification_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 } else if inner_trimmed.starts_with("policy ") {
                     has_policy = true;
                 }
+                // Notifications expanded bucket cycle — `digest` /
+                // `throttle` sub-blocks are recognised here only so
+                // the file-local diagnostic does not flag the
+                // headers as malformed children. The structural
+                // checks live in `tier3_notification_diagnostics`
+                // (six `NOTIF-DIGEST-*` / `NOTIF-THROTTLE-*` codes)
+                // and run against the typed IR.
             }
             index += 1;
         }
@@ -11703,6 +11724,36 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "template" => {
             Some("On a `notification`, points to the template file at `./path` (mjml/mdx/text).")
         }
+        "digest" => Some(
+            "On a `notification`, declares window-based aggregation. Children: `every \"<duration>\"` (required), `group_by <payload-path>`, `max_size <N>` (1..=10000), `template_strategy merge|append`. Distinct from scalar `rate_limit`. Doctor: `NOTIF-DIGEST-001/002/003`.",
+        ),
+        "throttle" => Some(
+            "On a `notification`, declares structured per-recipient / per-channel rate-limit with optional burst. Children: `max_per \"<duration>\"` (required), `per_recipient`, `per_channel`, `burst <N>`. Distinct from scalar `rate_limit` (which is per-call). Doctor: `NOTIF-THROTTLE-001/002/003`.",
+        ),
+        "every" => Some(
+            "On `notification.digest`, sets the aggregation window. Closed shape: `<N> (seconds|minutes|hours|days)`. Example: `every \"15 minutes\"`.",
+        ),
+        "group_by" => Some(
+            "On `notification.digest`, keys the aggregation bucket on a payload path. Doctor cross-checks the path against the trigger event's payload schema (`NOTIF-DIGEST-001`).",
+        ),
+        "max_size" => Some(
+            "On `notification.digest`, caps items per digest window. Range: 1..=10000. Above the ceiling buffers unbounded payloads.",
+        ),
+        "template_strategy" => Some(
+            "On `notification.digest`, declares how the adapter combines per-trigger payloads when rendering the digest template. Closed catalog: `merge` (last-write-wins per key), `append` (emits a list).",
+        ),
+        "max_per" => Some(
+            "On `notification.throttle`, sets the refill window for the rate-limit bucket. Closed shape: `<N> (seconds|minutes|hours|days)`.",
+        ),
+        "per_recipient" => Some(
+            "On `notification.throttle`, keys the throttle bucket on the notification's `recipient <path>`. Required when `burst` is set.",
+        ),
+        "per_channel" => Some(
+            "On `notification.throttle`, gives each channel of a multi-channel notification its own bucket (e.g., email and `in_app` throttled independently).",
+        ),
+        "burst" => Some(
+            "On `notification.throttle`, number of immediate dispatches the bucket allows before throttling starts. Useful for OTP / login flows. Requires `per_recipient`.",
+        ),
         "model" => {
             Some("On an `agent`, references the LLM model under the `@llm.<name>` namespace.")
         }
@@ -12089,6 +12140,19 @@ const KEYWORDS: &[&str] = &[
     "channel",
     "recipient",
     "template",
+    // Notifications expanded bucket cycle — `digest` / `throttle`
+    // sub-blocks + their child keywords. Closed-catalog completion
+    // for `template_strategy` lives below in
+    // `NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES`.
+    "digest",
+    "throttle",
+    "every",
+    "group_by",
+    "template_strategy",
+    "max_per",
+    "per_recipient",
+    "per_channel",
+    "burst",
     // Row 30 — storage bucket cycle `@cap.File(...)` argument keywords.
     "max_size",
     "accept",
@@ -12365,6 +12429,13 @@ pub const LOCALE_NEGOTIATE_STRATEGY_VALUES: &[&str] =
 /// `cldr_plural_arm_invalid` enforces this set.
 pub const CLDR_PLURAL_ARM_VALUES: &[&str] = &["zero", "one", "two", "few", "many", "other"];
 
+/// Notifications expanded bucket cycle — closed catalog for
+/// `notification.digest.template_strategy`. Two strategies: `merge`
+/// (last-write-wins per payload key) and `append` (emits a list the
+/// digest template iterates over). Doctor surfaces unknown values
+/// silently as `None` in IR; LSP completion narrows authoring.
+pub const NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES: &[&str] = &["merge", "append"];
+
 /// i18n bucket cycle — popular BCP-47 tags surfaced as soft completions.
 /// The set is **not** closed (BCP-47 tags are open); these are
 /// authoring hints only. Doctor never validates against this list.
@@ -12372,6 +12443,20 @@ pub const BCP47_POPULAR_TAGS: &[&str] = &[
     "en-US", "en-GB", "pt-BR", "pt-PT", "es-ES", "es-AR", "es-MX", "fr-FR", "de-DE", "it-IT",
     "ja-JP", "zh-CN", "zh-TW", "ko-KR",
 ];
+
+/// Notifications expanded bucket cycle — hover/completion description
+/// for `notification.digest.template_strategy` closed-catalog values.
+pub fn notification_digest_template_strategy_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "merge" => Some(
+            "Merge — collapse per-trigger payloads into a single object (last-write-wins per key). Default when omitted.",
+        ),
+        "append" => {
+            Some("Append — emit a list of per-trigger payloads the digest template iterates over.")
+        }
+        _ => None,
+    }
+}
 
 /// Hover/completion description for the deploy.strategy closed-catalog
 /// values. Mirrors `observability_catalog_detail` shape.
@@ -16116,5 +16201,84 @@ aggregate Customer {
             character: source.len() as u32,
         };
         assert!(cap_file_value_completions(source, position).is_none());
+    }
+
+    // ----------------------------------------------------------------
+    // Notifications expanded bucket cycle — hovers + closed-catalog
+    // completions for `notification.digest` / `notification.throttle`.
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn keyword_hover_describes_notification_digest_children() {
+        for kw in [
+            "digest",
+            "every",
+            "group_by",
+            "max_size",
+            "template_strategy",
+        ] {
+            assert!(
+                keyword_description(kw).is_some(),
+                "hover for `{kw}` must be available"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_hover_describes_notification_throttle_children() {
+        for kw in [
+            "throttle",
+            "max_per",
+            "per_recipient",
+            "per_channel",
+            "burst",
+        ] {
+            assert!(
+                keyword_description(kw).is_some(),
+                "hover for `{kw}` must be available"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_hover_throttle_distinguishes_from_rate_limit() {
+        let throttle = keyword_description("throttle").unwrap();
+        assert!(
+            throttle.contains("per-recipient") || throttle.contains("Distinct from"),
+            "throttle hover must call out the distinction from scalar rate_limit; got `{throttle}`"
+        );
+    }
+
+    #[test]
+    fn keywords_list_contains_notification_subblocks() {
+        for kw in [
+            "digest",
+            "throttle",
+            "every",
+            "group_by",
+            "max_size",
+            "template_strategy",
+            "max_per",
+            "per_recipient",
+            "per_channel",
+            "burst",
+        ] {
+            assert!(
+                KEYWORDS.contains(&kw),
+                "`KEYWORDS` should list `{kw}` so completions surface it"
+            );
+        }
+    }
+
+    #[test]
+    fn notification_digest_template_strategy_catalog_has_two_entries() {
+        use super::NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES;
+        assert_eq!(NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES.len(), 2);
+        for value in NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES {
+            assert!(
+                super::notification_digest_template_strategy_detail(value).is_some(),
+                "detail for `{value}` must be available"
+            );
+        }
     }
 }
