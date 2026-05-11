@@ -11747,14 +11747,39 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "error" => Some("Declares a named public error case with status and exposure fields."),
         "expose" => Some("Declares which error fields are visible to generated clients."),
         "write_window" => Some("Declares the temporal write window checked before a command runs."),
-        "idempotency" => Some("Declares a dedupe key for jobs and webhooks."),
-        "job" => Some("Declares asynchronous or scheduled work."),
-        "webhook" => Some("Declares a verified inbound HTTP integration boundary."),
-        "trigger" => Some("Declares the event or schedule that starts a job."),
-        "retry" => Some("Declares retry attempts and backoff for jobs or webhooks."),
-        "queue" => Some("Declares an async queue lane for event-triggered jobs."),
-        "tenant_from" => Some("Pins an event-triggered job tenant context from the event payload."),
-        "fanout" => Some("Declares per-tenant expansion for scheduled jobs."),
+        "idempotency" => Some(
+            "Declares a dedupe key for jobs, webhooks, and notifications. `idempotency by <path>` — re-fires sharing the same key are no-ops. Common paths: `envelope.id`, `payload.batch_id`, `tenant.org_id, schedule.day`.",
+        ),
+        "job" => Some(
+            "Declares a unit of asynchronous or scheduled work. `trigger event ...` runs as a reactor; `trigger schedule \"<cron>\"` runs as scheduled. Add `queue <lane>` to enqueue rather than run inline. Body is either `handler \"./...\"` or a declarative target / let / updates / emits chain.",
+        ),
+        "webhook" => Some(
+            "Declares a verified inbound HTTP integration boundary. Requires `path \"...\"` and `verify hmac <alg>` with nested `secret env.X` + `header \"X-...\"`. Multi-tenant apps must declare `tenant_from payload.<axis>_id`.",
+        ),
+        "trigger" => Some(
+            "Declares the event or schedule that starts a job or notification. `trigger event <feature>.<event>` for reactors; `trigger schedule \"<cron>\"` for scheduled work.",
+        ),
+        "retry" => Some(
+            "Declares retry attempts and backoff strategy. `retry <count> backoff <fixed|exponential>`. v0 catalog is closed; adapter-specific jitter is a Drusa concern.",
+        ),
+        "queue" => Some(
+            "Declares an async queue lane for event-triggered jobs. Without `queue`, event jobs run inline as reactors; with `queue <lane>`, the runtime adapter dispatches via the queue (River, Asynq).",
+        ),
+        "tenant_from" => Some(
+            "Pins an event/job/webhook/notification's tenant context from a payload path. `tenant_from payload.<axis>_id` — doctor cross-checks the axis against the feature's tenancy.",
+        ),
+        "fanout" => Some(
+            "Declares per-tenant expansion for scheduled jobs. `fanout tenants <axis>` runs one execution per tenant per fire. Requires `idempotency by ...` to avoid double-execution on re-fires (warning `JOB-FANOUT-002`).",
+        ),
+        "external_calls" => Some(
+            "Inspect projection of every `calls <slot>.<op>` inside a job body. Doctor uses it to enforce timeout, retry, and idempotency on each external call (`INT-CALL-*`, `JOB-TIMEOUT-001`).",
+        ),
+        "payload_group" => Some(
+            "On a notification template binding, references a shared `event_group` payload schema. The runtime hydrates the template with the named group's payload shape.",
+        ),
+        "payload" => Some(
+            "On an `event_group`, declares the shared event payload schema for every concrete event under the group. Field-binding lines (`customer_id = id`) compile into the group's typed payload.",
+        ),
         "reason" => Some("Documents why a dangerous declarative override is intentional."),
         "requires" => Some(
             "Declares a feature requirement or an additional authority requirement for a workflow transition.",
@@ -12029,6 +12054,9 @@ const KEYWORDS: &[&str] = &[
     "queue",
     "tenant_from",
     "fanout",
+    "external_calls",
+    "payload",
+    "payload_group",
     "reason",
     "requires",
     "algorithm",
