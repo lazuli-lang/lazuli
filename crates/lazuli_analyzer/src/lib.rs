@@ -46,6 +46,12 @@ pub enum AnalyzeError {
     /// empty-segment forms slipping through.
     #[error("invalid auth identity `{reference}` — expected `<Resource>.<field>`")]
     InvalidAuthIdentity { reference: String },
+
+    /// Phase L Tier 3 — `webhook verify <scheme>` only accepts `hmac`
+    /// today. Adapters that ship other schemes lift through the
+    /// registry adapter binding, not the verifier surface.
+    #[error("unsupported webhook verify scheme `{scheme}` (use `hmac`)")]
+    UnsupportedVerifyScheme { scheme: String },
 }
 
 pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
@@ -684,6 +690,22 @@ pub fn lower_feature_skeleton(
         Some(auth_ast) => Some(lower_auth(auth_ast)?),
         None => None,
     };
+    let mut jobs = Vec::with_capacity(skeleton.jobs.len());
+    for job_ast in &skeleton.jobs {
+        jobs.push(lower_job(&skeleton.name, job_ast)?);
+    }
+    let mut webhooks = Vec::with_capacity(skeleton.webhooks.len());
+    for webhook_ast in &skeleton.webhooks {
+        webhooks.push(lower_webhook(webhook_ast)?);
+    }
+    let mut notifications = Vec::with_capacity(skeleton.notifications.len());
+    for notification_ast in &skeleton.notifications {
+        notifications.push(lower_notification(&skeleton.name, notification_ast)?);
+    }
+    let mut event_groups = Vec::with_capacity(skeleton.event_groups.len());
+    for group_ast in &skeleton.event_groups {
+        event_groups.push(lower_event_group(group_ast));
+    }
     Ok(ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -700,10 +722,10 @@ pub fn lower_feature_skeleton(
         commands: Vec::new(),
         queries: Vec::new(),
         workflows: Vec::new(),
-        jobs: Vec::new(),
-        webhooks: Vec::new(),
-        notifications: Vec::new(),
-        event_groups: Vec::new(),
+        jobs,
+        webhooks,
+        notifications,
+        event_groups,
         auth,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -712,6 +734,300 @@ pub fn lower_feature_skeleton(
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     })
+}
+
+/// Phase L Tier 3 — lower a canonical-indent `job` block into `ir::Job`.
+/// Handler-backed bodies lower fully; declarative bodies preserve the
+/// raw spine (`raw_target`, `raw_lets`, `raw_effect`) until Tier 4.
+pub fn lower_job(feature: &str, job: &syntax::Job) -> Result<ir::Job, AnalyzeError> {
+    let trigger = lower_job_trigger(feature, &job.trigger);
+    let idempotency = job
+        .idempotency_by
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::IdempotencyKey { by: path });
+    let retry = job.retry.as_ref().map(lower_retry);
+    let tenant_from = job
+        .tenant_from
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::TenantFromSpec { path });
+    let fanout = job.fanout.as_ref().map(lower_fanout);
+    let external_calls = job.external_calls.iter().map(lower_external_call).collect();
+    let policy = job
+        .policy
+        .as_deref()
+        .map(lower_policy_atom)
+        .unwrap_or(ir::PolicyRef::None);
+    let policy = match policy {
+        ir::PolicyRef::None => None,
+        other => Some(other),
+    };
+    let body = lower_job_body(&job.body);
+
+    Ok(ir::Job {
+        name: job.name.clone(),
+        trigger,
+        queue: job.queue.clone(),
+        idempotency,
+        retry,
+        policy,
+        tenant_from,
+        fanout,
+        timeout: job.timeout.clone(),
+        external_calls,
+        body,
+        emits: job.emits.clone(),
+        previous_names: Vec::new(),
+        span_ref: Some(span_of(job.span)),
+    })
+}
+
+/// Phase L Tier 3 — lower a canonical-indent `webhook` block into
+/// `ir::Webhook`. `verify: PathRef` falls back to a conventional path
+/// derived from the webhook name (the legacy IR field is non-optional);
+/// `structured_verify` carries the real structured spec lifted by
+/// `parse_webhook_verify`.
+pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeError> {
+    let structured_verify = Some(ir::VerifySpec {
+        scheme: match webhook.verify.scheme.as_str() {
+            "hmac" => ir::VerifyScheme::Hmac,
+            other => {
+                return Err(AnalyzeError::UnsupportedVerifyScheme {
+                    scheme: other.to_owned(),
+                });
+            }
+        },
+        algorithm: webhook.verify.algorithm.clone(),
+        secret_env: webhook
+            .verify
+            .secret_env
+            .as_deref()
+            .map(extract_env_binding)
+            .unwrap_or_default(),
+        header: webhook.verify.header.clone().unwrap_or_default(),
+    });
+    let tenant_from = webhook
+        .tenant_from
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::TenantFromSpec { path });
+    let idempotency = webhook
+        .idempotency_by
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::IdempotencyKey { by: path });
+    let policy = webhook
+        .policy
+        .as_deref()
+        .map(lower_policy_atom)
+        .filter(|p| !matches!(p, ir::PolicyRef::None));
+
+    let (handler, returns) = match &webhook.handler {
+        Some(h) => (
+            ir::PathRef::authored(&h.path),
+            h.returns.as_deref().map(|t| type_ref_from_text(t)),
+        ),
+        None => (
+            ir::PathRef::convention(format!("./webhooks/{}.go", webhook.name)),
+            None,
+        ),
+    };
+
+    Ok(ir::Webhook {
+        name: webhook.name.clone(),
+        route: webhook.route.clone(),
+        verify: ir::PathRef::convention(format!("./webhooks/{}_verify.go", webhook.name)),
+        structured_verify,
+        tenant_from,
+        idempotency,
+        policy,
+        handler,
+        returns,
+        emits: webhook.emits.clone(),
+        previous_names: Vec::new(),
+        span_ref: Some(span_of(webhook.span)),
+    })
+}
+
+/// Phase L Tier 3 — lower a canonical-indent `notification` block into
+/// `ir::Notification`. Reuses `JobTrigger`, `IdempotencyKey`,
+/// `RetryPolicy`, `TenantFromSpec` from the job lowering helpers.
+pub fn lower_notification(
+    feature: &str,
+    notification: &syntax::Notification,
+) -> Result<ir::Notification, AnalyzeError> {
+    let trigger = lower_job_trigger(feature, &notification.trigger);
+    let tenant_from = notification
+        .tenant_from
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::TenantFromSpec { path });
+    let idempotency = notification
+        .idempotency_by
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::IdempotencyKey { by: path });
+    let retry = notification.retry.as_ref().map(lower_retry);
+    let policy = notification
+        .policy
+        .as_deref()
+        .map(lower_policy_atom)
+        .filter(|p| !matches!(p, ir::PolicyRef::None));
+    Ok(ir::Notification {
+        name: notification.name.clone(),
+        trigger,
+        channels: notification.channels.clone(),
+        recipient: notification.recipient.clone(),
+        template: notification.template.clone(),
+        policy,
+        tenant_from,
+        idempotency,
+        retry,
+        emits: notification.emits.clone(),
+        previous_names: Vec::new(),
+        span_ref: Some(span_of(notification.span)),
+    })
+}
+
+/// Phase L Tier 3 — lower a canonical-indent `event_group` into
+/// `ir::EventGroup`. The payload bag and authored events stay as raw
+/// strings; Tier 4 will lift these into typed shapes once the shared
+/// declarative parser exists.
+pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
+    ir::EventGroup {
+        pattern: group.pattern.clone(),
+        on_resource: group.on_resource.clone(),
+        raw_payload: group.payload.clone(),
+        raw_audit: group.audit.clone(),
+        events: group.events.clone(),
+        span_ref: Some(span_of(group.span)),
+    }
+}
+
+fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {
+    match trigger {
+        syntax::JobTrigger::Event(name) => ir::JobTrigger::Event {
+            event: qualified_event_name(feature, name),
+        },
+        syntax::JobTrigger::Schedule(cron) => ir::JobTrigger::Schedule { cron: cron.clone() },
+    }
+}
+
+fn qualified_event_name(feature: &str, name: &str) -> ir::QualifiedName {
+    if let Some((ns, ev)) = name.split_once('.') {
+        ir::QualifiedName {
+            feature: Some(ns.to_owned()),
+            name: ev.to_owned(),
+        }
+    } else {
+        ir::QualifiedName {
+            feature: Some(feature.to_owned()),
+            name: name.to_owned(),
+        }
+    }
+}
+
+fn lower_retry(retry: &syntax::JobRetry) -> ir::RetryPolicy {
+    ir::RetryPolicy {
+        count: retry.count,
+        backoff: match retry.backoff.as_str() {
+            "exponential" => ir::BackoffStrategy::Exponential,
+            _ => ir::BackoffStrategy::Fixed,
+        },
+    }
+}
+
+fn lower_fanout(fanout: &syntax::JobFanout) -> ir::FanoutSpec {
+    ir::FanoutSpec {
+        scope: ir::FanoutScope::Tenants,
+        axis: fanout.axis.clone(),
+    }
+}
+
+fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
+    ir::ExternalCallRef {
+        slot: call.slot.clone(),
+        op: call.op.clone(),
+        args: call
+            .args
+            .iter()
+            .map(|arg| ir::NamedArg {
+                name: arg.name.clone(),
+                value: lower_raw_expr(&arg.value),
+            })
+            .collect(),
+    }
+}
+
+fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
+    match body {
+        syntax::JobBody::Handler(h) => ir::JobBody::Handler(ir::JobHandler {
+            path: ir::PathRef::authored(&h.path),
+            returns: h.returns.as_deref().map(|t| type_ref_from_text(t)),
+        }),
+        syntax::JobBody::Declarative(d) => ir::JobBody::Declarative(ir::JobDeclarative {
+            target: None,
+            lets: Vec::new(),
+            effect: ir::CommandEffect::None,
+            raw_target: d.target.clone(),
+            raw_lets: d.lets.clone(),
+            raw_effect: d.effect.clone(),
+        }),
+        syntax::JobBody::None => ir::JobBody::Declarative(ir::JobDeclarative {
+            target: None,
+            lets: Vec::new(),
+            effect: ir::CommandEffect::None,
+            raw_target: None,
+            raw_lets: Vec::new(),
+            raw_effect: None,
+        }),
+    }
+}
+
+/// Capture a freeform expression as a string-bagged `Expr::Path`.
+/// Tier 4's command parser will replace this with the typed expression.
+fn lower_raw_expr(text: &str) -> ir::Expr {
+    let trimmed = text.trim();
+    if let Some(unquoted) = trimmed
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    {
+        return ir::Expr::String(unquoted.to_owned());
+    }
+    if let Ok(n) = trimmed.parse::<i64>() {
+        return ir::Expr::Integer(n);
+    }
+    match trimmed {
+        "true" => ir::Expr::Boolean(true),
+        "false" => ir::Expr::Boolean(false),
+        "nil" => ir::Expr::Nil,
+        _ => {
+            let segments = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
+            ir::Expr::Path(ir::Path { segments })
+        }
+    }
+}
+
+fn lower_path_string(text: &str) -> ir::Path {
+    ir::Path {
+        segments: text
+            .split(',')
+            .next()
+            .unwrap_or(text)
+            .split('.')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    }
+}
+
+/// Extract the env binding name from `env.<NAME>` (`secret env.X`).
+fn extract_env_binding(raw: &str) -> String {
+    raw.trim()
+        .strip_prefix("env.")
+        .map(|name| name.trim().to_owned())
+        .unwrap_or_else(|| raw.trim().to_owned())
 }
 
 /// Phase L — lower a canonical-indent `auth` block into the IR `Auth`
@@ -1805,6 +2121,183 @@ feature customer_auth
             }
             other => panic!("expected InvalidAuthIdentity, got {other:?}"),
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase L Tier 3 — job / webhook / notification / event_group lowering
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn lower_tier3_job_handler_full_block() {
+        let source = r#"
+feature customer
+  job process_import
+    trigger event customer_import_uploaded
+    queue customer_imports
+    tenant_from payload.org_id
+    idempotency by payload.batch_id
+    retry 3 backoff exponential
+    calls crm.normalize_import_batch
+      batch_id = payload.batch_id
+      org_id = payload.org_id
+    timeout "30s"
+    handler "./jobs/process_import.go"
+    emits customer_import_completed
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert_eq!(feature.jobs.len(), 1);
+        let job = &feature.jobs[0];
+        assert_eq!(job.name, "process_import");
+        assert_eq!(job.queue.as_deref(), Some("customer_imports"));
+        assert_eq!(job.timeout.as_deref(), Some("30s"));
+        let tenant = job.tenant_from.as_ref().expect("tenant_from");
+        assert_eq!(tenant.path.segments, vec!["payload", "org_id"]);
+        let retry = job.retry.as_ref().expect("retry");
+        assert_eq!(retry.count, 3);
+        assert!(matches!(retry.backoff, ir::BackoffStrategy::Exponential));
+        assert_eq!(job.external_calls.len(), 1);
+        assert_eq!(job.external_calls[0].slot, "crm");
+        assert_eq!(job.external_calls[0].op, "normalize_import_batch");
+        assert_eq!(job.external_calls[0].args.len(), 2);
+        match &job.body {
+            ir::JobBody::Handler(h) => {
+                assert_eq!(h.path.path, "./jobs/process_import.go");
+            }
+            other => panic!("expected Handler body, got {other:?}"),
+        }
+        assert_eq!(job.emits, vec!["customer_import_completed"]);
+    }
+
+    #[test]
+    fn lower_tier3_job_declarative_carve_out() {
+        let source = r#"
+feature customer
+  job recompute_score_after_invoice
+    trigger event billing.invoice_paid
+    tenant_from payload.org_id
+    idempotency by envelope.id
+    target query.by_id(id: payload.customer_id)
+    let new_score = @fn.risk_score(target)
+    updates Customer
+      score = new_score
+    emits customer_score_recomputed
+      score = new_score
+      reason = "invoice_paid"
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert_eq!(feature.jobs.len(), 1);
+        let job = &feature.jobs[0];
+        match &job.body {
+            ir::JobBody::Declarative(d) => {
+                assert_eq!(
+                    d.raw_target.as_deref(),
+                    Some("query.by_id(id: payload.customer_id)")
+                );
+                assert_eq!(d.raw_lets.len(), 1);
+                assert!(d.raw_effect.is_some());
+            }
+            other => panic!("expected Declarative body, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_tier3_webhook_structured_verify() {
+        let source = r#"
+feature customer
+  webhook crm_customer_upsert
+    path "/webhooks/crm/customer-upsert"
+    verify hmac sha256
+      secret env.CRM_WEBHOOK_SECRET
+      header "X-CRM-Signature"
+    tenant_from payload.org_id
+    idempotency by payload.external_id
+    handler "./integrations/upsert_customer_from_crm.go" returns Customer
+    emits customer_webhook_received
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert_eq!(feature.webhooks.len(), 1);
+        let webhook = &feature.webhooks[0];
+        assert_eq!(webhook.route, "/webhooks/crm/customer-upsert");
+        let verify = webhook
+            .structured_verify
+            .as_ref()
+            .expect("structured verify");
+        assert!(matches!(verify.scheme, ir::VerifyScheme::Hmac));
+        assert_eq!(verify.algorithm, "sha256");
+        assert_eq!(verify.secret_env, "CRM_WEBHOOK_SECRET");
+        assert_eq!(verify.header, "X-CRM-Signature");
+        let tenant = webhook.tenant_from.as_ref().expect("tenant_from");
+        assert_eq!(tenant.path.segments, vec!["payload", "org_id"]);
+        assert_eq!(
+            webhook.handler.path,
+            "./integrations/upsert_customer_from_crm.go"
+        );
+        assert_eq!(webhook.emits, vec!["customer_webhook_received"]);
+    }
+
+    #[test]
+    fn lower_tier3_notification_full_block() {
+        let source = r#"
+feature customer_outreach
+  notification welcome_email
+    channel email
+    recipient target.email
+    trigger event customer.customer_activated
+    tenant_from payload.org_id
+    idempotency by envelope.id
+    retry 3 backoff exponential
+    template "./outreach/welcome_email.mjml"
+    policy @policy.notify
+    emits welcome_email_sent
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert_eq!(feature.notifications.len(), 1);
+        let n = &feature.notifications[0];
+        assert_eq!(n.name, "welcome_email");
+        assert_eq!(n.channels, vec!["email"]);
+        assert_eq!(n.recipient, "target.email");
+        assert_eq!(n.template, "./outreach/welcome_email.mjml");
+        match &n.trigger {
+            ir::JobTrigger::Event { event } => {
+                assert_eq!(event.feature.as_deref(), Some("customer"));
+                assert_eq!(event.name, "customer_activated");
+            }
+            other => panic!("expected Event trigger, got {other:?}"),
+        }
+        assert_eq!(n.emits, vec!["welcome_email_sent"]);
+    }
+
+    #[test]
+    fn lower_tier3_event_group_payload_and_events() {
+        let source = r#"
+feature customer
+  event_group customer_* on Customer
+    payload
+      customer_id = id
+      org_id = org.id
+    event created
+    event activated
+    event archived
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert_eq!(feature.event_groups.len(), 1);
+        let group = &feature.event_groups[0];
+        assert_eq!(group.pattern, "customer_*");
+        assert_eq!(group.on_resource.as_deref(), Some("Customer"));
+        assert_eq!(group.raw_payload.len(), 2);
+        assert_eq!(
+            group.events,
+            vec![
+                "created".to_owned(),
+                "activated".to_owned(),
+                "archived".to_owned()
+            ]
+        );
     }
 
     // -------------------------------------------------------------------------
