@@ -2906,7 +2906,11 @@ fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             line,
             "@cap.File",
             &args,
-            &["max_size", "accept"],
+            // Row 30 — `visibility` + `signed_ttl` are typed arguments
+            // recognised by the analyzer (`type_ref_from_syntax`); add
+            // them to the canonical set so the LSP no longer warns on
+            // the canonical authoring form.
+            &["max_size", "accept", "visibility", "signed_ttl"],
         );
 
         if !args.iter().any(|(key, _)| key == "max_size") {
@@ -3580,9 +3584,7 @@ fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
 ///   - `<feature>.<above>` cross-feature prefix
 fn validate_tool_reference_shape(text: &str) -> Option<String> {
     if text.split_whitespace().count() != 1 {
-        return Some(
-            "each tool entry is a single qualified reference (one per line)".to_owned(),
-        );
+        return Some("each tool entry is a single qualified reference (one per line)".to_owned());
     }
     let token = text.trim();
     if token.contains("..") {
@@ -3814,9 +3816,7 @@ fn validate_eval_predicate_shape(body: &str) -> Option<String> {
             return Some("`tools.calls <op>` requires a tool reference target".to_owned());
         }
         if parts.next().is_some() {
-            return Some(
-                "`tools.calls <op> <ref>` accepts a single tool reference".to_owned(),
-            );
+            return Some("`tools.calls <op> <ref>` accepts a single tool reference".to_owned());
         }
         return None;
     }
@@ -4323,9 +4323,7 @@ fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 if leading_spaces(body) == 6 {
                     if let Some(rest) = body_trim.strip_prefix("by ") {
                         has_by = true;
-                        by_nonempty = rest
-                            .split(',')
-                            .any(|s| !s.trim().is_empty());
+                        by_nonempty = rest.split(',').any(|s| !s.trim().is_empty());
                     } else if let Some(rest) = body_trim.strip_prefix("timeout ") {
                         has_timeout = true;
                         timeout_nonempty = !rest.trim().is_empty();
@@ -4415,7 +4413,9 @@ fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// not start with a digit, must be non-empty.
 fn is_lower_ident(token: &str) -> bool {
     let mut chars = token.chars();
-    let Some(first) = chars.next() else { return false };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     if !(first.is_ascii_lowercase() || first == '_') {
         return false;
     }
@@ -13848,7 +13848,9 @@ feature customer
         let diagnostics = diagnostics_for(source);
         let codes = diagnostic_codes(&diagnostics);
         assert!(
-            codes.iter().any(|c| c == "agent_expose_slot_must_use_route_diagnostics"),
+            codes
+                .iter()
+                .any(|c| c == "agent_expose_slot_must_use_route_diagnostics"),
             "expected slot_must_use_route; got: {codes:?}"
         );
     }

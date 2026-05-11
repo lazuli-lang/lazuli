@@ -1,0 +1,11 @@
+feature x_pipeline
+  domain
+    resource ImportBatch
+      file: @cap.File(max_size:25mb,accept:application/json,visibility:private) required
+
+  api download
+    method GET
+    path "/api/x/download"
+    output @cap.File(max_size:10mb,accept:text/csv,visibility:signed,signed_ttl:1h)
+    policy @policy.global_read
+    handler "./api/x/download.go"

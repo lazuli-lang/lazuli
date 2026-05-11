@@ -302,7 +302,7 @@ feature customer
   api customer_export
     method GET
     path "/api/customers/export"
-    output @cap.File(max_size:100mb,accept:text/csv)
+    output @cap.File(max_size:100mb,accept:text/csv,visibility:signed,signed_ttl:1h)
     policy @policy.global_read
     rate_limit "10 per hour per user"
     handler "./api/export_customers.go"
@@ -704,7 +704,7 @@ feature customer_import
 
     resource CustomerImportBatch
       uploaded_by: User required
-      file: @cap.File(max_size:25mb,accept:text/csv) required
+      file: @cap.File(max_size:25mb,accept:text/csv,visibility:private) required
       status: ImportStatus = uploaded
       total_rows: Integer = 0
       valid_rows: Integer = 0
