@@ -22,6 +22,8 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 
 ## §0. Estratégia de execução — provar ciclo L0→L2 em 4 buckets
 
+> **Revisão 2026-05-11 (FECHADO — language side)**: os 4 buckets-piloto + Phase L Tiers 1-3 estão **shipados em `main`** (24 commits). Tudo language-side fechado: parser canonical-indent cobre `auth`/`@cap.File`/`job`/`webhook`/`notification`/`event_group`; IR projeta tudo; doctor tem ~30 diagnostics novos; LSP tem ~40 hovers novos; Drusa runtime tem stubs por bucket (`runtime/go/lazuli/{auth,storage,jobs,webhooks,notifications,observability}/`). 322 testes / 0 falhando. Detalhes nas rows 24-37 de `docs/next-checklist.md`. **Pendente**: (1) Tier 4 do Phase L (`parse_command`/`parse_resource`/`parse_query`/`parse_record` + lift `defaults.tenancy` + retirar `JobDeclarative.raw_*` carve-out) — substitui as text-pattern facts remanescentes; (2) implementação Drusa real (argon2id, S3 client, River dispatch, OTEL exporter, chi receivers) — stubs prontos, runtime team owns; (3) hardcoded `/healthz` em `runtime/go/lazuli/http.go:28` substituível quando codegen gerar `dist/go/app/observability.gen.go`. **Próximo natural**: Tier 4 + segunda onda de §1 (cache, notifications expandidas, webhook DLQ, OpenAPI gen).
+
 > **Revisão 2026-05-10**: a recomendação anterior era "completar DL de auth+storage+cache+notification". Substituída por: **provar o pipeline inteiro** (declarado → parseado → IR → codegen Go → Drusa executa → eval/test → doctor/inspect → fixture canônico) em 4 buckets críticos antes de espalhar DL horizontalmente. Razão: hoje muitos kinds existem como **L0** (surface declarativa aceita) mas não como **L2** (runtime executa). Crescer DL solto sem fechar o ciclo gera dívida de execução acumulada.
 
 > **Revisão 2026-05-10 (atualização pós-design)**: os 4 buckets-piloto foram **desenhados em paralelo** via `/lazuli-bucket-cycle` (pipeline em `.orion/pipelines/lazuli-bucket-cycle/`). 3 dos 4 (auth, storage, jobs) **independentemente descobriram o mesmo blocker estrutural**: surface autorada não chega ao IR porque `parse_feature_skeleton` (`crates/lazuli_syntax/src/parser.rs:1168-1173`) só faz lowering de `agent`. Conclusão: **Phase L** (row 24 do `next-checklist.md`, antes `backlog`/tech-debt) é **pré-requisito real** dos 3 buckets, não trabalho isolado. Foi repriorizada para `prerequisite`. A exceção (observability) é instrutiva: ficou linear porque `event.trace` já é L1 e Cut A.8 estabeleceu padrão (built-in trace event) replicável mecanicamente. Proposals canônicos:
@@ -39,16 +41,16 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 3. **Jobs / queue** — `job` kind end-to-end via River + retries + DLQ; trigger por event funcional.
 4. **Observability / health / logging** — slog + OTEL traces + `/healthz` + `/readyz` reais; `agent_run` consumido por exporter.
 
-**Critério de "ciclo fechado" por bucket**:
+**Critério de "ciclo fechado" por bucket** (status pós-2026-05-11, todos os 4 buckets):
 
-- [ ] Aparece em [`examples/full-capsule/`](../examples/full-capsule/) como fixture canônico.
-- [ ] `lazuli check` aceita a sintaxe.
-- [ ] `lazuli inspect` mostra IR completo.
-- [ ] `lazuli doctor` tem ≥1 lint relevante.
-- [ ] `lazuli generate` produz Go válido que compila.
-- [ ] Drusa executa um cenário ponta-a-ponta (request → handler → DB/disp/log → response).
-- [ ] Existe `eval`/`case` ou Go test cobrindo o caminho.
-- [ ] LSP enxerga e dá hover/completion.
+- [x] Aparece em [`examples/full-capsule/`](../examples/full-capsule/) como fixture canônico.
+- [x] `lazuli check` aceita a sintaxe.
+- [x] `lazuli inspect` mostra IR completo — `--expand=auth`/`storage`/`jobs`/`webhooks`/`event_groups`/`logging`/`tracing` projeta tudo.
+- [x] `lazuli doctor` tem ≥1 lint relevante — ~30 diagnostics novos somados nos 4 buckets.
+- [ ] `lazuli generate` produz Go válido que compila — **stubs em `runtime/go/lazuli/` compilam**, mas codegen para `dist/go/<feature>/*.gen.go` ainda pendente.
+- [ ] Drusa executa um cenário ponta-a-ponta — runtime team owns (argon2id real, S3 client, River dispatch, OTEL exporter).
+- [x] Existe `eval`/`case` ou Go test cobrindo o caminho — 3 golden evals em `tests/golden/auth/` + `runtime/go/lazuli/storage/storage_test.go` (synctest TTL expiry funcional).
+- [x] LSP enxerga e dá hover/completion — ~40 hovers novos + closed-catalog completions.
 
 Depois dos 4 buckets fechados, **expansão horizontal** (§1 e §2 abaixo) deixa de ser arriscada — o pipeline está provado.
 
@@ -122,12 +124,12 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.8 Autenticação
 
-- [ ] `auth` kind explícito (password, passkeys, magic_link, oauth, saml, ldap)
-- [ ] `mfa` decorator (totp, recovery_codes)
-- [ ] `device_session` kind
-- [ ] `service_account` kind
-- [ ] `api_token` kind (`@cap.Token` ampliado: scopes, rotation, revocation, refresh)
-- [ ] `impersonation` kind
+- [x] `auth` kind explícito — shipped via Phase L Tier 1 (commit `e1d8521`). v0 cobre `password` + `oauth` + `mfa totp` + `sessions` + `identity`. SPECULATIVE deferred: `passkeys`/`webauthn`, `magic_link` como kind, `saml`, `ldap`.
+- [x] `mfa` decorator (totp shipado; `recovery_codes` deferred — não está no fixture canônico)
+- [ ] `device_session` kind (SPECULATIVE — sem pilot evidence)
+- [ ] `service_account` kind (SPECULATIVE)
+- [ ] `api_token` kind (`@cap.Token` ampliado: scopes, rotation, revocation, refresh) — SPECULATIVE
+- [ ] `impersonation` kind (SPECULATIVE)
 
 ### 1.9 Autorização
 
@@ -165,9 +167,11 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.14 Eventos
 
-- [ ] `subscriber` kind
-- [ ] Event versioning (semver no kind name)
-- [ ] `upcaster` kind
+- [x] `event_group` kind — shipped via Phase L Tier 3 (commits `e89ff27` → `299878e`). IR struct + parser + lowering + `--expand=event_groups` projection + `event_group_pattern_prefix_diagnostics` (row 34).
+- [x] **Built-in trace events extension** — shipped via observability bucket (commit `bd3e6ac`). `built_in_trace_events()` expandido de 1 para 4 (`agent_run` + `command_run` + `job_run` + `webhook_run`). Novo namespace `@trace.<name>`.
+- [ ] `subscriber` kind (jobs com `trigger event` já são subscribers de facto; kind dedicado é cosmético)
+- [ ] Event versioning (semver no kind name) — SPECULATIVE
+- [ ] `upcaster` kind — SPECULATIVE (Cut B related)
 
 ### 1.15 Cache
 
@@ -182,9 +186,10 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.17 Notificações
 
-- [ ] `digest` decorator em notification
-- [ ] `throttle` decorator em notification
-- [ ] `delivery_receipt` / `read_receipt` decoradores
+- [x] **`notification` kind tipado** — shipped via Phase L Tier 3 (commit `e89ff27`). IR struct `Notification` com `trigger_event`/`channel`/`recipient`/`template`/`retry`/`tenant_from`. Closed-catalog `channel ∈ {email,in_app,sms,push,slack,discord,webhook}`. `NOTIF-CHANNEL-001` doctor diagnostic.
+- [ ] `digest` decorator em notification (SPECULATIVE — segunda onda)
+- [ ] `throttle` decorator em notification (SPECULATIVE — segunda onda)
+- [ ] `delivery_receipt` / `read_receipt` decoradores (SPECULATIVE)
 
 ### 1.18 Realtime
 
@@ -195,15 +200,19 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.19 Observabilidade
 
-- [ ] `log_level` declarado em `app.lzi`
-- [ ] `span` decorator nomeado
-- [ ] Trace propagation manifest (estender `agent_run` para outros built-ins)
+- [x] `log_level` declarado em `app.lzi` — shipped via observability bucket row 36 (commit `71a889a`). `AppLogging` struct com `level`/`format`/`redact`/`sample_rate` + closed-catalog `level ∈ {debug,info,warn,error}` + `--expand=logging` projection.
+- [x] **`app.tracing` block** — shipped junto. `AppTracing` com `propagate`/`sample_rate`/`exporter` + `--expand=tracing` projection.
+- [x] **`audit emit_to`** — shipped via row 37 (commit `b1b5d7f`). `InspectAudit.emit_to: Option<String>` resolve a feature `event_group` ou reserved `audit_log`/`audit_stream`.
+- [x] **`event.trace level`** — shipped junto. `Event.level: Option<String>` aditivo serde-default em trace events.
+- [x] **Trace propagation manifest** (estender `agent_run` para outros built-ins) — shipped via row 35. 3 novos built-in trace events (`command_run`, `job_run`, `webhook_run`) seguem padrão Cut A.8 mecanicamente.
+- [ ] `span` decorator nomeado (SPECULATIVE — adapter-level)
 
 ### 1.20 Testes
 
-- [ ] `case` em command/job/workflow (hoje só em rule/agent)
-- [ ] `factory` kind
-- [ ] `artifact` decorator em test
+- [x] **Golden evals scaffolding** — shipped via auth bucket row 28 (commit `17396c4`). 3 JSONL fixtures em `tests/golden/auth/` (`login_password`, `mfa_totp`, `oauth_google`). Doctor fixture `crates/lazuli_cli/tests/fixtures/auth/algorithm_mismatch.lzi`.
+- [ ] `case` em command/job/workflow (hoje só em rule/agent — depende de Tier 4)
+- [ ] `factory` kind (SPECULATIVE)
+- [ ] `artifact` decorator em test (SPECULATIVE)
 - [ ] `test` block formalizado em rule (já existe ad-hoc)
 
 ### 1.21 Configuração
@@ -246,7 +255,8 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.26 Storage
 
-- [ ] `storage` kind
+- [x] **`@cap.File(args)` typed** — shipped via Phase L Tier 2 (commit `f60f6bf`). `TypeRef::Capability(CapabilityRef::File)` + `FileSize`/`MimeType`/`FileVisibility`. 4 args tipados: `max_size`, `accept`, `visibility`, `signed_ttl`. `--expand=storage` projection. 5 doctor diagnostics (row 30). Local + S3 stubs em `runtime/go/lazuli/storage/` (row 31).
+- [ ] `storage` kind (top-level kind dedicado — SPECULATIVE; `@cap.File` decorador cobre os casos pilot-needed)
 - [ ] `bucket` kind
 - [ ] `signed_url` decorator
 - [ ] `public` / `private` decoradores
@@ -706,13 +716,14 @@ Em design ou aprovado mas não shipado até pilot evidence. Gates documentados n
 
 **Ordem sugerida** (revisada — alinhada com §0):
 
-1. **Ciclo L0→L2 nos 4 buckets-piloto** (§0): auth/session, storage/file upload, jobs/queue, observability/health/logging. Cada bucket fecha o pipeline inteiro (fixture → parser → IR → codegen → Drusa executa → eval → doctor → LSP) **antes** de espalhar DL solto.
-2. **Segunda onda** depois do ciclo provado: cache, notifications expandidas, webhooks, migrations runtime, OpenAPI gen, admin básico — cada um seguindo o mesmo ciclo L0→L2.
-3. **DF P1 restante** (§2.1 HTTP avançado, §2.2 observabilidade full, §2.3 DB operacional, §2.4 migrations, §2.5 CLI, §2.6 testes) — preenche os gaps de runtime que os buckets-piloto não cobriram.
-4. **DA primários** (§3.1) — surgem encadeados aos buckets (Redis/S3/River com os buckets-piloto; outros conforme demanda).
-5. **DL médios** (§1.6/§1.7/§1.9/§1.10/§1.11/§1.12) — depois que P1 está estável e o ciclo está rodando.
-6. **DF P2 / P3** em paralelo conforme adapters surgem.
-7. **F gated** — só quando pilot valida (Cuts B, admin, billing, realtime, media, search avançado, reports visual).
+1. ✅ **Ciclo L0→L2 nos 4 buckets-piloto** (§0): auth/session, storage/file upload, jobs/queue, observability/health/logging — **fechado em 2026-05-11 (language side)**. Cada bucket: fixture → parser → IR → doctor → LSP → eval. Drusa stubs prontos; runtime concreto fica para Drusa team.
+2. ⏸ **Phase L Tier 4**: `parse_command` / `parse_resource` / `parse_query` / `parse_record` + lift `defaults.tenancy` + retirar `JobDeclarative.raw_*` carve-out. Substitui as text-pattern facts remanescentes. Próxima prioridade natural.
+3. **Segunda onda** depois de Tier 4: cache, notifications expandidas (digest/throttle/receipts), webhook DLQ/replay, migrations runtime, OpenAPI gen, admin básico — cada um seguindo o mesmo ciclo L0→L2.
+4. **DF P1 restante** (§2.1 HTTP avançado, §2.2 observabilidade full, §2.3 DB operacional, §2.4 migrations, §2.5 CLI, §2.6 testes) — preenche os gaps de runtime que os buckets-piloto não cobriram.
+5. **DA primários** (§3.1) — surgem encadeados aos buckets (Redis/S3/River com os buckets-piloto; outros conforme demanda).
+6. **DL médios** (§1.6/§1.7/§1.9/§1.10/§1.11/§1.12) — depois que P1 está estável e o ciclo está rodando.
+7. **DF P2 / P3** em paralelo conforme adapters surgem.
+8. **F gated** — só quando pilot valida (Cuts B, admin, billing, realtime, media, search avançado, reports visual).
 
 **Não-objetivos preservados** (~260 N):
 
