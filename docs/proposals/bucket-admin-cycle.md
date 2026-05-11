@@ -54,7 +54,7 @@ What does **not** exist:
 The L0→L2 cycle for admin **cannot run today** because there is no pilot
 authoring it. This proposal is therefore a **language design** for what
 the admin bucket looks like, ready to lower once a pilot SaaS exercises
-it. No codegen, no runtime, no Drusa subpackage. Cuts pilot-gated explicit.
+it. No codegen, no runtime, no Lazuli Go subpackage. Cuts pilot-gated explicit.
 
 The "closed cycle" gate for admin, when Cut admin opens, reads: a resource
 declared `admin_resource Customer` in the fixture surfaces as a generated
@@ -70,8 +70,8 @@ audience), and **everything else waits for pilot pressure**.
 Inventario L0/L1/L2 dos constructs já presentes no fixture. `Surface` é
 "lê do fixture canônico"; `Grammar` é "parser reconhece"; `IR` é "struct
 dedicado em `lazuli_ir`"; `Doctor/LSP` é "diagnostic cross-checa";
-`Codegen` é "`lazuli_codegen_go` produz arquivo Go"; `Runtime` é "Drusa
-executa".
+`Codegen` é "`lazuli_codegen_go` produz arquivo Go"; `Runtime` é "o
+runtime Lazuli Go executa".
 
 | Construct | Surface | Grammar | IR | Doctor/LSP | Codegen | Runtime | L-level |
 |---|---|---|---|---|---|---|---|
@@ -281,7 +281,7 @@ single-shot import/export today.
 
 - **`admin_theme` / `admin_branding` / `menu_builder` kinds** — §25 DF.
   Pure rendering. Lives in the admin generator's runtime configuration
-  (Drusa or pack-supplied admin chrome). No language vocabulary.
+  (Lazuli Go or pack-supplied admin chrome). No language vocabulary.
 
 - **`admin_chart_type "line" | "bar" | "pie"` enum** — rendering hint.
   Lives in the chart widget's `.lzx` or generator default. The language
@@ -300,8 +300,8 @@ single-shot import/export today.
 - **Provider names in any admin kind** — no `forest_admin`, `retool`,
   `nocodb`, `directus`, `motor_admin`, `frappe` keywords. Adapters that
   back the admin generator flow through `@adapter.<name>` in
-  `registry.lzi`. Today the admin generator is **assumed to be a Drusa
-  built-in** (Cut admin DF), not an external SaaS — but the boundary
+  `registry.lzi`. Today the admin generator is **assumed to be a Lazuli
+  Go built-in** (Cut admin DF), not an external SaaS — but the boundary
   must hold if a pilot ever wants to swap.
 
 ### Cross-checks the new kinds enable (only if they land)
@@ -459,7 +459,7 @@ introduces it.
 
 ## Codegen proposto
 
-**Pilot-gated and Drusa-team territory.** When Cut admin opens, codegen
+**Pilot-gated and runtime-team territory.** When Cut admin opens, codegen
 emits one new file per feature carrying admin declarations:
 
 `dist/go/<feature>/admin.gen.go`
@@ -472,7 +472,7 @@ Contents (sketch — runtime team owns the shape):
 - `RegisterAdminActions(r *admin.Registry)` — same for actions, wired
   through the existing `command`/`query` dispatch (no new effect path).
 
-The admin generator (Drusa-side, `runtime/go/lazuli/admin/`) reads the
+The admin generator (runtime-side, `runtime/go/lazuli/admin/`) reads the
 registry at boot and **picks chrome at generate-time, not source-time**.
 No widget vocabulary, no theme, no menu-builder source. The author
 declares contract; the generator picks rendering.
@@ -492,8 +492,8 @@ Boundary discipline:
 
 ## Runtime proposto
 
-**Pilot-gated and Drusa-team territory.** When Cut admin opens, Drusa
-delivers one new subpackage:
+**Pilot-gated and runtime-team territory.** When Cut admin opens, the
+Lazuli Go runtime delivers one new subpackage:
 
 `runtime/go/lazuli/admin/`
 
@@ -608,7 +608,7 @@ exercise admin kinds).
 - [ ] `lazuli inspect --expand=admin` projects the IR.
 - [ ] `lazuli doctor` runs the six new `ADMIN-*` diagnostics.
 - [ ] `lazuli generate` emits `dist/go/<feature>/admin.gen.go`.
-- [ ] Drusa executes one CRUD page + one dashboard + one bulk action
+- [ ] Lazuli Go executes one CRUD page + one dashboard + one bulk action
       end-to-end against a Postgres + admin-chrome rig.
 - [ ] At least one Go test per kind in `runtime/go/lazuli/admin/`.
 - [ ] LSP serves hover on `admin_resource columns <field>` resolving

@@ -17,7 +17,7 @@ the language side: `parse_webhook` lifts the body
 `handler`, `emits`, `previous_names`
 (`crates/lazuli_ir/src/lib.rs:2121-2150`), and doctor cross-checks
 `WEBHOOK-SCOPE-001` against `tenant_from`
-(`crates/lazuli_cli/src/doctor.rs:2353-2380`). The Drusa runtime stub
+(`crates/lazuli_cli/src/doctor.rs:2353-2380`). The Lazuli Go runtime stub
 matches that shape exactly
 (`runtime/go/lazuli/webhooks/contract.go:30-58`).
 
@@ -42,7 +42,8 @@ inbound webhooks once they survive verification:
    re-delivery is allowed and on what window is undeclared**. The
    adapter has to assume "always allow within X" with no SLA visible
    to the consumer.
-3. **No declared dead-letter behavior.** When retries exhaust, Drusa's
+3. **No declared dead-letter behavior.** When retries exhaust, the
+   Lazuli Go runtime's
    `runtime/go/lazuli/webhooks/contract.go` typed errors
    (`ErrWebhookHmacInvalid`, `ErrWebhookIdempotent`,
    `ErrWebhookTenantUnscoped`) bubble back to the receiver but
@@ -71,7 +72,7 @@ beyond pilot evidence for tuning.
 Inventario do que existe hoje no caminho do construct. `Surface` é "lê
 do fixture canônico"; `Grammar` é "parser reconhece"; `IR` é "struct
 dedicado em `lazuli_ir`"; `Doctor/LSP` é "diagnostic cross-checa";
-`Codegen` é "`lazuli_codegen_go` produz arquivo Go"; `Runtime` é "Drusa
+`Codegen` é "`lazuli_codegen_go` produz arquivo Go"; `Runtime` é "o runtime Lazuli Go
 executa".
 
 | Construct | Surface | Grammar | IR | Doctor/LSP | Codegen | Runtime | L-level |
@@ -462,13 +463,13 @@ func RegisterWebhooks(r *webhooks.Registry) {
 
 No provider names. `webhooks.HmacSha256`, `webhooks.ReplaySpec`,
 `webhooks.DlqEmit` live in `runtime/go/lazuli/webhooks/` — the
-Drusa-side typed contract.
+runtime-side typed contract.
 
 ## Runtime proposto
 
-Drusa extends the existing `runtime/go/lazuli/webhooks/` package — no
-new subpackage. Three additions, all additive to the shipped
-`WebhookContract`:
+The Lazuli Go runtime extends the existing `runtime/go/lazuli/webhooks/`
+package — no new subpackage. Three additions, all additive to the
+shipped `WebhookContract`:
 
 ```go
 // runtime/go/lazuli/webhooks/contract.go (extended)
@@ -675,7 +676,7 @@ fixture.
       and on negative-case fixtures.
 - [ ] `lazuli generate` emits `dist/go/<feature>/webhooks.gen.go` with
       typed `PayloadType`, `Retry`, `Replay`, `DLQ`.
-- [ ] Drusa executes one inbound delivery + one replay-within-window
+- [ ] Lazuli Go executes one inbound delivery + one replay-within-window
       + one retry-to-DLQ end-to-end against a Postgres + River +
       stub-HMAC test rig.
 - [ ] At least two `synctest`-backed Go tests
@@ -696,7 +697,7 @@ fixture.
    `webhook_events crm_customer_upsert` and extend
    `full-capsule.lzi:775-783` with the new children. The fixture
    becomes the cycle's primary test surface.
-4. Hand off codegen + Drusa to the runtime team with the extended
+4. Hand off codegen + Lazuli Go runtime work to the runtime team with the extended
    `runtime/go/lazuli/webhooks/contract.go` shape. The agent in this
    profile stays in language/IR/doctor territory.
 5. Close the cycle on `crm_customer_upsert` first (already authored,
@@ -713,4 +714,4 @@ green `cargo test -q -p lazuli_runtime --features=integration` run.
 | Order | Cut | Status | Notes |
 |-------|-----|--------|-------|
 | 38 | Webhooks expanded — `webhook_event` registry kind | proposed | New registry-side catalog (`registry.webhook_events.<name>`) carrying typed envelope shape (reuses `RecordField` grammar). One new IR struct `WebhookEvent`, one new field `RegistryManifest.webhook_events`. Parser reuses `parse_record_body`. Two new doctor diagnostics (`WEBHOOK-PAYLOAD-001/002`, `WEBHOOK-EVENT-001`). See `docs/proposals/bucket-webhooks-expanded-cycle.md`. |
-| 39 | Webhooks expanded — `replay` + `dlq` decorators on `webhook` | proposed | Four additive fields on existing `Webhook` IR struct (`payload_from`, `replay`, `dlq`, `retry`). Two new IR structs (`ReplaySpec`, `DlqSpec`). Five new doctor diagnostics (`WEBHOOK-REPLAY-001/002`, `WEBHOOK-DLQ-001/002/003`). Drusa runtime extension under existing `runtime/go/lazuli/webhooks/` (no new subpackage). DLQ retry path runs through the jobs adapter — no new queue contract. See `docs/proposals/bucket-webhooks-expanded-cycle.md`. |
+| 39 | Webhooks expanded — `replay` + `dlq` decorators on `webhook` | proposed | Four additive fields on existing `Webhook` IR struct (`payload_from`, `replay`, `dlq`, `retry`). Two new IR structs (`ReplaySpec`, `DlqSpec`). Five new doctor diagnostics (`WEBHOOK-REPLAY-001/002`, `WEBHOOK-DLQ-001/002/003`). Lazuli Go runtime extension under existing `runtime/go/lazuli/webhooks/` (no new subpackage). DLQ retry path runs through the jobs adapter — no new queue contract. See `docs/proposals/bucket-webhooks-expanded-cycle.md`. |

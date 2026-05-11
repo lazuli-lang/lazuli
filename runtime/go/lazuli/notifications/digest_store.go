@@ -5,11 +5,11 @@
 // (`NotificationDigest.Every`) or when the cap is hit
 // (`NotificationDigest.MaxSize`, surfaced as `ErrDigestFull`).
 //
-// Two implementations ship with Drusa core:
+// Two implementations ship with the Lazuli runtime core:
 //
 //   - `MemoryDigestStore` — in-process, single-instance. Used for
 //     unit tests and single-pod deployments. Safe for `testing/synctest`.
-//   - real distributed stores (Redis, Postgres) live in `@drusa/...`
+//   - real distributed stores (Redis, Postgres) live in `@runtime/...`
 //     adapter packages and bind via `@adapter.notification.digest.<store>`
 //     in `registry.lzi`. No provider names appear in core.
 //

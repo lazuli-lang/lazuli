@@ -110,7 +110,7 @@ has no typed contract to read.
 ## Routes A vs B vs C
 
 Three ways to close the storage lowering gap, each honouring the
-Lazuli/Drusa boundary.
+language/runtime boundary.
 
 ### Route A — extend the IR with `CapabilityRef` + extend the analyzer to recognise `@cap.File(args)`
 
@@ -258,8 +258,8 @@ evidence and the §0 ciclo L0→L2 pilot bucket
 | `bucket` kind | Same as `storage` kind. The two are near-synonyms in the roadmap; pilot will tell which name is canonical. | Pilot needed: a product that authors per-bucket policy (lifecycle, encryption-at-rest scope, region pinning). Until that, the `object_storage <name>` capability slot in registry carries the contract. |
 | `storage_quota` decorator on tenant | Not authored. Roadmap §1.26 lists it; framework-coverage audit §28 names it under DL. | Pilot needed: a product that enforces per-tenant file quotas and bills on usage. The decorator would interact with `defaults.tenancy` and existing `@scope.same_org` policy; designing it without pilot pressure invents shape. |
 | Direct uploads (`presigned PUT`) | Not authored. Customer CSV upload at `full-capsule.lzi:751-758` uses `input file` (multipart body), not a presigned URL flow. | Pilot needed: a product where files exceed memory limits (>100MB) and the runtime must hand the client a presigned URL. Today's `input file` covers the multipart case canonically. |
-| Multipart / resumable uploads | Same as direct uploads — framework feature, not surface authoring pressure. Belongs to Drusa runtime (§2.22). | Pilot needed: a product authoring file uploads >5GB. The contract is adapter-specific (S3 multipart vs GCS resumable vs local stream-to-disk); Lazuli should not pre-declare it. |
-| File versioning / deduplication / lifecycle policies | Roadmap §2.22 lists these as DF (Drusa runtime concerns). | These are runtime/adapter, not language. The language might declare `lifecycle archive_after 90d` as a sugar over `retention`, but that's a promotion candidate, not pre-pilot. |
+| Multipart / resumable uploads | Same as direct uploads — framework feature, not surface authoring pressure. Belongs to the Lazuli Go runtime (§2.22). | Pilot needed: a product authoring file uploads >5GB. The contract is adapter-specific (S3 multipart vs GCS resumable vs local stream-to-disk); Lazuli should not pre-declare it. |
+| File versioning / deduplication / lifecycle policies | Roadmap §2.22 lists these as DF (Lazuli Go runtime concerns). | These are runtime/adapter, not language. The language might declare `lifecycle archive_after 90d` as a sugar over `retention`, but that's a promotion candidate, not pre-pilot. |
 | Image / video / audio processing, thumbnail generation, metadata extraction, virus scanning, CDN integration, backup integration | Framework-coverage audit §28: "**F**: image processing, thumbnail generation, video/audio processing, metadata extraction, virus scanning, CDN integration, backup integration (cuts media gated)." | **F-class** (pilot-gated). Strictly outside the storage bucket cycle scope. Don't promote any of these without a media pilot. |
 
 The pilot-needed subset is the four entries that already appear or
@@ -303,13 +303,13 @@ specific shape of bucket-piloto #2:
     at `crates/lazuli_cli/src/doctor.rs:1334`) — keep, upgrade to
     consume typed IR.
 - [ ] **`lazuli generate` produces Go that compiles.** Runtime-team
-  deliverable (parallel Drusa work). Consumed via stable IR JSON
+  deliverable (parallel runtime work). Consumed via stable IR JSON
   through `lazuli inspect --format=json --expand=storage`.
-- [ ] **Drusa executes end-to-end upload + download + signed URL.**
+- [ ] **Lazuli Go executes end-to-end upload + download + signed URL.**
   Runtime-team deliverable. Outside language scope.
 - [ ] **`eval`/test coverage.** A doctor test fixture exercising
-  each diagnostic; a Go integration test in Drusa for upload +
-  signed URL; a golden eval covering the symmetric
+  each diagnostic; a Go integration test in the Lazuli Go runtime
+  for upload + signed URL; a golden eval covering the symmetric
   `customer_export` round-trip is optional (no LLM in the loop).
 - [ ] **LSP hover/completion on `@cap.File` arguments.** Today the
   LSP carries shape-only diagnostics. Hover on `max_size` shows the
@@ -319,7 +319,7 @@ specific shape of bucket-piloto #2:
   on `signed` offers `true|false` or duration literal.
 
 The first four items are language-team Stage 3 deliverables. Items
-5-7 are Drusa-team. Item 8 is language-team but small.
+5-7 are runtime-team. Item 8 is language-team but small.
 
 This list is attainable in a single Stage 3 design cut once Route
 B lands; nothing on it depends on speculative primitives.
@@ -358,5 +358,5 @@ B lands; nothing on it depends on speculative primitives.
 When Route B is implemented, Stage 3 (design-language) runs on the
 shipped substrate and produces a focused proposal covering at most
 the three doctor diagnostics named in the closed-cycle criterion
-plus the `--expand=storage` projection. Stage 4 (Drusa codegen)
+plus the `--expand=storage` projection. Stage 4 (Lazuli Go codegen)
 then has a stable IR JSON to consume.

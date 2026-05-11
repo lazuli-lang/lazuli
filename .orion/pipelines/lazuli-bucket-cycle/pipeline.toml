@@ -1,10 +1,10 @@
 id = "lazuli-bucket-cycle"
 name = "Lazuli Bucket Cycle (L0→L2)"
-description = "Audita um bucket-piloto (auth/storage/jobs/observability) e produz um design end-to-end: linguagem → IR → codegen → drusa → evals → doctor → proposta consolidada em docs/proposals/."
+description = "Audita um bucket-piloto (auth/storage/jobs/observability) e produz um design end-to-end: linguagem → IR → codegen → Lazuli Go → evals → doctor → proposta consolidada em docs/proposals/."
 
 [command]
 slug = "lazuli-bucket-cycle"
-description = "Roda o ciclo L0→L2 num bucket (auth/storage/jobs/observability) — desenha surface .lzi + IR + codegen + drusa + evals + doctor."
+description = "Roda o ciclo L0→L2 num bucket (auth/storage/jobs/observability) — desenha surface .lzi + IR + codegen + Lazuli Go + evals + doctor."
 
 [defaults]
 agent = "lazuli-language-architect"
@@ -91,7 +91,7 @@ verificação que definem L0/L1/L2:
 4. **Doctor/LSP (`crates/lazuli_cli/src/doctor.rs` + `crates/lazuli_lsp`)**
    — quais têm diagnostics + hovers?
 5. **Codegen (`crates/lazuli_codegen_go` + `runtime/go/lazuli/`)** —
-   quais já produzem Go que compila e Drusa executa?
+   quais já produzem Go que compila e o runtime Lazuli Go executa?
 
 Probes úteis:
 - `cargo run -q -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi`
@@ -188,8 +188,8 @@ id = "design-runtime"
 skills = ["lazuli-language-audit"]
 tools = ["Read", "Grep"]
 prompt = """
-Especificar o que **Drusa** (runtime/go/lazuli/) entrega para o bucket
-funcionar end-to-end.
+Especificar o que **o runtime Lazuli Go** (runtime/go/lazuli/) entrega
+para o bucket funcionar end-to-end.
 
 Para cada adapter referenciado em `design-codegen`:
 1. Capability (HTTP middleware? DB query? Job dispatch? OTEL span?)
@@ -202,7 +202,7 @@ Confira `runtime/go/lazuli/` para reusar abstrações existentes (Ctx,
 withTx, queryCache, Error, etc.) em vez de duplicar.
 
 Output: secção `## Runtime proposto` listando os adapters/funções a
-implementar em Drusa. **Não escrever o código aqui** — só contrato.
+implementar no Lazuli Go. **Não escrever o código aqui** — só contrato.
 """
 depends_on = ["design-codegen"]
 
@@ -285,7 +285,7 @@ Estrutura do arquivo:
 - [ ] lazuli inspect mostra IR completo
 - [ ] lazuli doctor tem ≥1 lint relevante
 - [ ] lazuli generate produz Go válido que compila
-- [ ] Drusa executa cenário ponta-a-ponta
+- [ ] Runtime Lazuli Go executa cenário ponta-a-ponta
 - [ ] Existe eval/case ou Go test cobrindo
 - [ ] LSP enxerga e dá hover/completion
 
@@ -317,7 +317,7 @@ Summary final para o usuário:
 - Caminho do proposal: `docs/proposals/bucket-<bucket>-cycle.md`
 - Quantidade de novos kinds/decoradores propostos (linguagem)
 - Quantidade de structs IR novas
-- Quantidade de adapters Drusa novos
+- Quantidade de adapters do runtime Lazuli Go novos
 - Quantidade de diagnostics doctor/LSP novos
 - Quantidade de evals/testes propostos
 - 3 sugestões de row para `docs/next-checklist.md` (não editar; só sugerir)

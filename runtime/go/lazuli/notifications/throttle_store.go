@@ -3,11 +3,11 @@
 // store before each dispatch to gate per-recipient / per-channel
 // bursts.
 //
-// Two implementations ship with Drusa core:
+// Two implementations ship with the Lazuli runtime core:
 //
 //   - `MemoryThrottleStore` — in-process token bucket; reference for
 //     unit tests and single-pod deployments. Safe for `testing/synctest`.
-//   - real distributed stores (Redis, Postgres) live in `@drusa/...`
+//   - real distributed stores (Redis, Postgres) live in `@runtime/...`
 //     adapter packages and bind via
 //     `@adapter.notification.throttle.<store>` in `registry.lzi`.
 //

@@ -4,7 +4,7 @@
 pipeline. Implementation deferred to a separate run with
 `mode=implement`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-10.
 
@@ -35,7 +35,7 @@ today, each at a different L-level:
    (`event_trace_reserved_name_diagnostics`,
    `agent_run_subscriber_payload_drift_diagnostics`); LSP-aware;
    `--expand=events` projects `built_in_trace_events[]`. **L1
-   complete**, runtime instrumentation is parallel Drusa work.
+   complete**, runtime instrumentation is parallel Lazuli Go runtime work.
 
 3. **`audit` child on commands/queries/jobs/webhooks** — authored
    once in the fixture (`full-capsule.lzi:271`), specified in
@@ -68,10 +68,10 @@ request** (`slog.Info` in `loggingMiddleware`, http.go:178-184). No
 structured spans, no metrics, no `runtime/metrics`, no
 `/debug/pprof`, no panic reporter, no `agent_run` emitter yet
 (Cut A.8 reserves the language slot; the runtime side is the
-parallel Drusa cut).
+parallel runtime cut).
 
 The closed-cycle criterion is the §0 8-item checklist (fixture +
-check + inspect + doctor lint + generate Go + Drusa runs + eval/test
+check + inspect + doctor lint + generate Go + Lazuli Go runs + eval/test
 + LSP hover). Most boxes are already ticked for `event.trace` and
 `agent_run`; the gaps are in **the surface that connects audit,
 health, logging, and tracing to the runtime layer**.
@@ -81,7 +81,7 @@ Sentry, Datadog, Honeycomb, Tempo, Jaeger, Zipkin, Prometheus, New
 Relic. Those are `@adapter.*` / `@runtime/<name>` / `@plugin/...`
 references resolved through `registry.capabilities` and
 `registry.integrations`. The language declares *what* to observe and
-*at what level*; Drusa wires; adapters export.
+*at what level*; the Lazuli Go runtime wires; adapters export.
 
 ## Baseline (Stages 1-2 inventory)
 
@@ -95,7 +95,7 @@ references resolved through `registry.capabilities` and
 | `capability tracing <name>` in registry | `registry.lzi:18` | yes | `AppCapability` | LSP closed catalog (`tracing` allowed, lsp:8673) | none | none | **L0** |
 | `communication propagate trace_id, request_id` | `app.lzi:72`, `workspace.lzi:13` | yes | typed | LSP closed catalog | none | `Ctx.RequestID`/`Ctx.TraceID` populated from headers (ctx.go:30-33) | **L1 language, partial L2** |
 | `slog`-style structured logging | not authored | n/a | n/a | n/a | n/a | hardcoded `slog.Info` per HTTP request (http.go:174-186) | **language gap** |
-| `metric` / `span` / `profile` | not authored | n/a | n/a | n/a | n/a | n/a | **N (Drusa-only per audit §21)** |
+| `metric` / `span` / `profile` | not authored | n/a | n/a | n/a | n/a | n/a | **N (runtime-only per audit §21)** |
 | Health/ready endpoint binding to declared path | n/a | n/a | n/a | n/a | n/a | hardcoded `/healthz` (http.go:28); declared `/healthz` + `/readyz` ignored | **wiring gap** |
 | Panic reporter | not authored | n/a | n/a | n/a | n/a | none | **DF gap (§2.2)** |
 | Build info / version endpoint | `app version "0.1.0"` (`app.lzi:6`) | yes | `App.version` | LSP shape | none | none | **partial L1** |
@@ -116,8 +116,8 @@ language. The language adds **three thin axes**:
 ### 3.1 `app.logging` block — declarative log contract
 
 Declares level, format, and per-environment override discipline. The
-language fixes the **contract**; Drusa picks the slog handler;
-adapters export.
+language fixes the **contract**; the Lazuli Go runtime picks the slog
+handler; adapters export.
 
 ```lzi
 app AcmeCRM
@@ -157,7 +157,7 @@ consumes existing `@pii.*` annotations — boundary clean.
 
 **What this is not**: it is not a logger factory, not a sink list,
 not a sampler config, not a per-feature override. Sampling /
-filtering / sink fanout / async batching are all Drusa.
+filtering / sink fanout / async batching are all runtime concerns.
 
 ### 3.2 `app.tracing` block — declarative tracing contract
 
@@ -189,8 +189,9 @@ its own explicit slot so adapters know the **trace context** vs.
 implements head-vs-tail sampling. The language never names OTel,
 W3C TraceContext, Jaeger, Zipkin, Datadog, or any wire format.
 
-**Boundary check**: if a Lazuli project replaced Drusa with a Rust
-runtime, this block still declares the same intent (sample 10% of
+**Boundary check**: if a Lazuli project replaced the Lazuli Go
+runtime with a Rust runtime, this block still declares the same
+intent (sample 10% of
 spans, propagate these four fields, on/off). The runtime materializes
 it with its own tracer.
 
@@ -626,8 +627,8 @@ audit row insertion — live in `runtime/go/lazuli/observability/`.
 ## Runtime proposto (Stage 6)
 
 Six new files under `runtime/go/lazuli/observability/`. The boundary
-is firm: the language declares **what** to observe; Drusa wires
-**how**; adapters export to concrete sinks.
+is firm: the language declares **what** to observe; the Lazuli Go
+runtime wires **how**; adapters export to concrete sinks.
 
 ### 6.1 `runtime/go/lazuli/observability/logging.go`
 
@@ -717,13 +718,13 @@ is firm: the language declares **what** to observe; Drusa wires
   is enabled.
 - **Dependency**: stdlib `runtime`, `runtime/debug`.
 
-### 6.7 What Drusa does NOT do
+### 6.7 What the Lazuli Go runtime does NOT do
 
 Per the audit (§21 + §32 + §33), the following are **explicitly out
 of scope** for this proposal:
 
 - `runtime/metrics`, GC metrics, container-aware GOMAXPROCS,
-  scheduler metrics — Drusa stdlib pickups, not surfaced in
+  scheduler metrics — Lazuli Go stdlib pickups, not surfaced in
   language.
 - `/debug/pprof`, `runtime/pprof`, `runtime/trace.FlightRecorder`,
   goroutine-leak profiling — adapter-mounted under
@@ -734,7 +735,7 @@ of scope** for this proposal:
   the `LoggingContract.Format`/`Level` interface.
 
 The language commits to **three intent axes** (logging, tracing,
-audit); Drusa commits to a stable interface; adapters fill the
+audit); the Lazuli Go runtime commits to a stable interface; adapters fill the
 implementations. Same boundary discipline as auth/storage/jobs.
 
 ## Evals/Testes propostos (Stage 7)
@@ -920,7 +921,7 @@ existing `@<namespace>.` scope rule.
 - [ ] `lazuli generate` produces `dist/go/app/observability.gen.go`
       and per-feature `trace_subscribers.gen.go` / `audit.gen.go`
       that compile against `runtime/go/lazuli/observability/`.
-- [ ] Drusa runtime emits `agent_run` / `command_run` / `job_run` /
+- [ ] Lazuli Go runtime emits `agent_run` / `command_run` / `job_run` /
       `webhook_run` on the four authoring primitives; mounts
       `HealthProbes.Liveness` / `Readiness`; threads `slog` with
       the declared level/format/redact; threads a tracer with the
@@ -946,12 +947,12 @@ Implementation **ordering** matters:
 4. **Inspect projection** (additive — `app.logging`, `app.tracing`,
    extended `built_in_trace_events[]`, audit `emit_to`).
 5. **Codegen** (3 generated artifacts).
-6. **Runtime** (parallel Drusa work — 6 new files under
+6. **Runtime** (parallel Lazuli Go runtime work — 6 new files under
    `runtime/go/lazuli/observability/`).
 7. **Highlighting** + docs (`docs/invariants.md` adds the contracts
    as normative).
 
-The cycle closes when the Drusa-team observability cut lands and
+The cycle closes when the runtime-team observability cut lands and
 the closed-cycle criterion checklist all green.
 
 ## Rows sugeridas para `docs/next-checklist.md`
@@ -961,6 +962,6 @@ Three additions, formatted to match the existing table style
 
 ```
 | 26 | Observability bucket cycle — app.logging + app.tracing blocks | planned | New `AppLogging` + `AppTracing` IR structs on `App`; profile-aware overrides; 6 doctor diagnostics (`app_logging_*`, `app_tracing_*`); LSP hovers + completion for `level/format/redact/sample_rate/propagate`. Closed-catalog `level ∈ {debug,info,warn,error}` shared with §3.4. See `docs/proposals/bucket-observability-cycle.md` §Linguagem §IR. |
-| 27 | Observability bucket cycle — 3 new built-in trace events (command_run / job_run / webhook_run) + `@trace.<name>` namespace | planned | Extends `built_in_trace_events()` from 1 entry (`agent_run`, A.8) to 4. New `TraceFiresPer::CommandDispatch`. New reference namespace `@trace.<name>` for subscriber jobs. 2 doctor diagnostics (`event_trace_reserved_name` extended; `trigger_trace_unknown` new). Runtime instrumentation parallel Drusa work, same pattern as A.8. See `docs/proposals/bucket-observability-cycle.md` §3.5. |
-| 28 | Observability bucket cycle — audit `emit_to` + `event.trace level` + health probe wiring | planned | `Audit.emit_to: Option<String>` resolves to feature event_group or reserved `audit_log`/`audit_stream`. `Event.level` on trace events (closed catalog). Runtime mounts declared `HealthProbes.Liveness`/`Readiness` paths (replaces hardcoded `/healthz` in `runtime/go/lazuli/http.go:28`). 4 doctor diagnostics. Drusa-team owns `runtime/go/lazuli/observability/` package (6 files). See `docs/proposals/bucket-observability-cycle.md` §3.3 §3.4 §Runtime. |
+| 27 | Observability bucket cycle — 3 new built-in trace events (command_run / job_run / webhook_run) + `@trace.<name>` namespace | planned | Extends `built_in_trace_events()` from 1 entry (`agent_run`, A.8) to 4. New `TraceFiresPer::CommandDispatch`. New reference namespace `@trace.<name>` for subscriber jobs. 2 doctor diagnostics (`event_trace_reserved_name` extended; `trigger_trace_unknown` new). Runtime instrumentation parallel runtime-team work, same pattern as A.8. See `docs/proposals/bucket-observability-cycle.md` §3.5. |
+| 28 | Observability bucket cycle — audit `emit_to` + `event.trace level` + health probe wiring | planned | `Audit.emit_to: Option<String>` resolves to feature event_group or reserved `audit_log`/`audit_stream`. `Event.level` on trace events (closed catalog). Runtime mounts declared `HealthProbes.Liveness`/`Readiness` paths (replaces hardcoded `/healthz` in `runtime/go/lazuli/http.go:28`). 4 doctor diagnostics. The runtime team owns `runtime/go/lazuli/observability/` package (6 files). See `docs/proposals/bucket-observability-cycle.md` §3.3 §3.4 §Runtime. |
 ```

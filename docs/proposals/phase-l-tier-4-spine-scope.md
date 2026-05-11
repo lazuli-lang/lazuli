@@ -6,7 +6,7 @@ slice can finally retire the legacy text-pattern doctor collectors
 for commands, resources, queries, and records — and dissolve the
 `JobDeclarative.raw_*` carve-out introduced by Tier 3 Route C.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -221,7 +221,7 @@ ship in Tier 4 itself.
 
 ## Rotas A vs B vs C
 
-Three ways to close the Tier 4 gap. All honour the Lazuli/Drusa
+Three ways to close the Tier 4 gap. All honour the language/runtime
 boundary.
 
 ### Route A — full lift in one run (all four constructs + spine + defaults)
@@ -475,7 +475,7 @@ against fixture evidence.
 | `Command.audit: Option<AuditSpec>` | `audit actor, target.id, input.owner_id` + `emit_to audit_log` | `:271-272` | **Lift in 4b.** Observability bucket already lifted `InspectAudit.emit_to`; IR catches up. |
 | `Command.approval: Option<ApprovalSpec>` | `approval` block with `required_when`, `by`, `timeout`, `then` | `:273-277` | **Lift in 4b.** Cut A.9's commit note explicitly defers IR to Phase L. |
 | `Command.invalidates: Vec<InvalidatesSpec>` | `invalidates query.list`, `invalidates query.by_id(id: route.id)` | `:240-242`, `:282-284`, `:299-301` | **Lift in 4b.** Reuses existing `QualifiedName` + `NamedArg`. |
-| `Command.external_calls: Vec<ExternalCallRef>` | `calls <slot>.<op>` | Authored in jobs today (`:766-768`); commands authoring this pattern is the canonical Drusa-bucket expectation for the `customer_outreach` feature. Tier 3 already typed `Job.external_calls`; Tier 4 mirrors for commands. | **Lift in 4b.** Reuses `ExternalCallRef` IR type from Tier 3. |
+| `Command.external_calls: Vec<ExternalCallRef>` | `calls <slot>.<op>` | Authored in jobs today (`:766-768`); commands authoring this pattern is the canonical runtime-bucket expectation for the `customer_outreach` feature. Tier 3 already typed `Job.external_calls`; Tier 4 mirrors for commands. | **Lift in 4b.** Reuses `ExternalCallRef` IR type from Tier 3. |
 | `Api` struct + `Feature.apis: Vec<Api>` | `api customer_export` with `method`, `path`, `output`, `policy`, `rate_limit`, `handler` | `:303-309` | **Lift in 4b.** Replaces `collect_api_paths` text-pattern. |
 | `Field.derived_from: Option<Expr>` | `is_high_value: Boolean derived from score > 80` | `:56` | **Lift in 4c.** Reuses existing `Expr` enum. |
 | `Resource.retention: Option<RetentionSpec>` | `retention 7y then anonymize` | `:60` | **Lift in 4c.** Closed catalog `Anonymize | Delete | Archive`. |
@@ -720,7 +720,7 @@ fixture authors lowers through `parse_feature_skeleton`**. The
 canonical-indent slice becomes the only producer for the IR;
 text-pattern collectors retire from doctor; LSP file-local
 diagnostics gain doctor cross-feature siblings on demand. The
-Lazuli/Drusa boundary stays as defined: nothing in this proposal
+language/runtime boundary stays as defined: nothing in this proposal
 introduces provider names, DI mechanics, transport, or sidecar
 IR — every additive field is a closed catalog or a `String`
 verbatim consumed by adapters.

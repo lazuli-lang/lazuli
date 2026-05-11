@@ -358,7 +358,7 @@
       "patterns": [
         {
           "name": "entity.name.reference.package.lazuli",
-          "match": "@(?:drusa|plugin)/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*"
+          "match": "@(?:runtime|plugin)/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*"
         },
         {
           "name": "entity.name.reference.semantic.lazuli",

@@ -7,11 +7,11 @@
 
 ## Objetivo
 
-Mapear ~1.400 features que um "framework Go completo" da era 1.26 entregaria contra o estado real do Lazuli (linguagem `.lzi` + runtime Drusa + adapters). O exercício responde:
+Mapear ~1.400 features que um "framework Go completo" da era 1.26 entregaria contra o estado real do Lazuli (linguagem `.lzi` + runtime Lazuli Go + adapters). O exercício responde:
 
 1. Quantas features Lazuli **já cobre**?
 2. Quantas **deveria** cobrir?
-3. Quais são **linguagem** (`.lzi`) vs **framework** (runtime Drusa)?
+3. Quais são **linguagem** (`.lzi`) vs **framework** (runtime Lazuli Go)?
 4. Quais **não devem ter** (anti-Lazuli, fora de escopo)?
 
 Este documento mantém **a auditoria completa**, incluindo as ~260 categorizadas como out-of-scope, para preservar a justificativa de cada corte. O [`roadmap.md`](../roadmap.md) é o derivado prático, sem os N's.
@@ -20,15 +20,15 @@ Este documento mantém **a auditoria completa**, incluindo as ~260 categorizadas
 
 ## Legenda
 
-> **Revisão 2026-05-10** (após crítica): a tag `L` é genérica demais. Foi quebrada em **L0/L1/L2** porque "cobre" significa coisas muito diferentes para fixture, parser e runtime. Os números na coluna `L` deste documento são **L0** (expressível em fixture/IR/gramática). A coluna estrita L2 (parser+IR+codegen+runtime executando) é **substancialmente menor** — provavelmente <50, dado o estado de Drusa.
+> **Revisão 2026-05-10** (após crítica): a tag `L` é genérica demais. Foi quebrada em **L0/L1/L2** porque "cobre" significa coisas muito diferentes para fixture, parser e runtime. Os números na coluna `L` deste documento são **L0** (expressível em fixture/IR/gramática). A coluna estrita L2 (parser+IR+codegen+runtime executando) é **substancialmente menor** — provavelmente <50, dado o estado do runtime Go.
 
 | Tag | Significado | Onde mora |
 |----|---|---|
 | **L0** | **Expressível** em fixture canônico, gramática, ou IR shipado (a surface declarativa aceita) | `.lzi` source |
 | **L1** | **Parser/IR aceita** — `lazuli check` e `lazuli inspect` reconhecem; doctor lints estão wired | Parser + IR |
-| **L2** | **Runtime executa** — `lazuli generate` produz Go válido + Drusa roda em produção | Runtime Drusa |
+| **L2** | **Runtime executa** — `lazuli generate` produz Go válido + runtime Lazuli Go roda em produção | Lazuli Go runtime |
 | **DL** | **Deve ter na linguagem** — vira primitiva/decoração declarável no `.lzi` | `.lzi` |
-| **DF** | **Deve ter no framework/runtime** — Drusa entrega; `.lzi` referencia sem declarar mecânica | Runtime Go |
+| **DF** | **Deve ter no framework/runtime** — runtime Lazuli Go entrega; `.lzi` referencia sem declarar mecânica | Runtime Go |
 | **DA** | **Deve ter como adapter plugável** — provider-specific, registrado em `registry.lzi` | Adapter pack |
 | **F** | **Futuro / pilot-gated** — só após pilot validar necessidade (cuts B/D-H, capsule initiative) | Espera evidência |
 | **N** | **Não deve ter / fora de escopo por design** — anti-Lazuli ou redundante a Go nativo | — |
@@ -53,7 +53,7 @@ Este documento mantém **a auditoria completa**, incluindo as ~260 categorizadas
 | **L0** — Expressíveis em fixture/IR/gramática | **~155 (11%)** |
 | **L1/L2 estrito** — parser+IR+runtime executando | **<<155** (subset; provavelmente <50 hoje) |
 | **DL** — Devem virar primitiva `.lzi` | **~95 (7%)** |
-| **DF** — Devem ser entregues pelo runtime Drusa | **~485 (35%)** |
+| **DF** — Devem ser entregues pelo runtime Lazuli Go | **~485 (35%)** |
 | **DA** — Devem ser adapters plugáveis | **~290 (21%)** |
 | **F** — Pilot-gated / futuro evidence-based | **~115 (8%)** |
 | **N** — Não devem ter / fora de escopo (estrito + DA baixo-prioridade) | **~260 (19%)** |
@@ -61,12 +61,12 @@ Este documento mantém **a auditoria completa**, incluindo as ~260 categorizadas
 **Leituras corrigidas** (após revisão de números):
 
 - **Terreno legítimo (futuro completo)**: L+DL+DF+DA+F = **~1.145 features ≈ 82%** do inventário.
-- **Core desejável sem pilot-gated**: L+DL+DF+DA = **~1.025 features ≈ 73%** — esse é o "tamanho final realista" se Drusa amadurecer.
+- **Core desejável sem pilot-gated**: L+DL+DF+DA = **~1.025 features ≈ 73%** — esse é o "tamanho final realista" se o runtime Lazuli Go amadurecer.
 - **Out-of-scope (N)**: **~19%**.
 - **Maioria das lacunas (~485, 35%) é runtime/codegen**, não linguagem.
 - **DL ≈ 95** primitivas adicionais: tamanho final da gramática `.lzi`. Cut A já trouxe ~10; sobram ~85 (auth, storage, cache, notification expandidas, etc.).
 
-**Cuidado com "Lazuli já cobre 155"**: na maioria dos casos isso significa **L0** (a surface declarativa aceita), não **L2** (Drusa executa). O próprio `full-capsule.lzi` declara: *"Design fixture only; parser and codegen coverage may lag this surface."* Para auditoria de implementação real, ler L como L0; L2 honesto é muito menor.
+**Cuidado com "Lazuli já cobre 155"**: na maioria dos casos isso significa **L0** (a surface declarativa aceita), não **L2** (runtime Lazuli Go executa). O próprio `full-capsule.lzi` declara: *"Design fixture only; parser and codegen coverage may lag this surface."* Para auditoria de implementação real, ler L como L0; L2 honesto é muito menor.
 
 ---
 
@@ -386,7 +386,7 @@ Este documento mantém **a auditoria completa**, incluindo as ~260 categorizadas
 
 - **DF (toda)**: Go 1.26 support, toolchain management, `go.mod`/`go.work` awareness, `go doc -http`, `go vet`, vet analyzers (waitgroup, hostport), `testing/synctest`, `testing.ArtifactDir/T.Attr/T.Output`, `testing/cryptotest`, `runtime/trace.FlightRecorder`, goroutine leak profile, runtime/metrics scheduler, `runtime.SetDefaultGOMAXPROCS`, container-aware GOMAXPROCS, Green Tea GC, `encoding/json/v2`, `jsontext`, `errors.AsType`, `reflect.Type.Fields/Methods`, `reflect.Value.Fields/Methods`, `reflect.TypeAssert`, `log/slog.NewMultiHandler`, `crypto/hpke`, `crypto/mlkem`, `crypto/tls` PQ, `crypto/fips140`, `runtime/secret`, `net/http.CrossOriginProtection`, `net/http.HTTP2Config`, `Transport.NewClientConn`, `ReverseProxy.Rewrite`, `io.ReadAll` improvements, `bytes.Buffer.Peek`, `os.Process.WithHandle`, `signal.NotifyContext` cancel cause, `io/fs.ReadLinkFS`, `MapFS` symlink, `tar.Writer.AddFS`, `os.Root` helpers, `hash.Cloner`, `go/ast.ParseDirective`, `go/token.File.End`, `new(value)` initializer.
 - **F**: experimental APIs (json/v2, runtime/secret) gated por estabilização.
-- **N**: surface explícita em `.lzi` para essas features (`runtime` é Drusa-only).
+- **N**: surface explícita em `.lzi` para essas features (`runtime` é runtime-only).
 
 **Destaque**: toda essa seção é trabalho do **runtime team**, não da linguagem.
 
@@ -431,7 +431,7 @@ Top 10 gaps:
 9. `i18n locale`/`translation`.
 10. `flow` (Cut B agent orchestration).
 
-### Onde runtime Drusa precisa entregar (~485 DF — 35% do total)
+### Onde runtime Lazuli Go precisa entregar (~485 DF — 35% do total)
 
 Categorias críticas:
 - **Observabilidade** (~30) — `slog`, OTEL, runtime/metrics, pprof, health checks.
@@ -476,7 +476,7 @@ Categorias críticas:
 - **Terreno legítimo total** (incluindo F): ~82% (1.145).
 - **Out-of-scope (N)**: ~19%.
 - **Linguagem é compacta** (~95 primitivas adicionais a maturar — não 1400). Maturação chega a ~250 kinds totais.
-- **Peso real está no runtime/codegen Drusa** (~485 DF) e nos **adapters** (~290 DA).
+- **Peso real está no runtime/codegen Lazuli Go** (~485 DF) e nos **adapters** (~290 DA).
 - **Fronteira clara**: muda prova/shape/policy/tenancy/eval = linguagem; mecânica reusável = framework; provider-specific = adapter.
 - **Pilot-gated (~115)** é backlog disciplinado. Sem evidence, não promove.
 - **Rubric ≥8.5 + Rule Zero** explicam os ~260 N's (estritos + DA baixo-prioridade).
@@ -485,14 +485,14 @@ Categorias críticas:
 
 1. **Não cobrir as 1.400** — ~260 são anti-tese ou DA baixo-prioridade, ~115 são pilot-gated, ~290 crescem com demanda real.
 2. **Curto-prazo — provar ciclo L0→L2 em 4 buckets críticos** em vez de espalhar DL solto:
-   - **Auth/session** — flow completo: kind → parser → IR → codegen Go → Drusa roda → eval/test.
+   - **Auth/session** — flow completo: kind → parser → IR → codegen Go → runtime Lazuli Go roda → eval/test.
    - **Storage/file upload** — `@cap.File` end-to-end com S3 + local + signed URLs.
    - **Jobs/queue** — `job` kind end-to-end com River-backed dispatch + retries + DLQ.
    - **Observability/health/logging** — slog + OTEL + health/ready endpoints + `agent_run` consumindo.
-   Em cada bucket: expressível em `.lzi`, parseado, IR, codegen Go, roda em Drusa, evals/testes, doctor/inspect cobrem, fixture canônico atualizado.
+   Em cada bucket: expressível em `.lzi`, parseado, IR, codegen Go, roda no runtime Lazuli Go, evals/testes, doctor/inspect cobrem, fixture canônico atualizado.
 3. **Médio-prazo** (depois do ciclo provado): segunda onda — cache, notifications expandidas, webhooks, migrations, OpenAPI gen, admin básico.
 4. **Longo-prazo**: cuts B/admin/billing/realtime/media aguardam pilot evidence.
 
-A diferença entre essa recomendação e a anterior é grande: **não adianta crescer DL solto se Drusa não executa**. Provar L0→L2 num bucket pequeno valida o pipeline inteiro; depois disso, expansão horizontal é segura.
+A diferença entre essa recomendação e a anterior é grande: **não adianta crescer DL solto se o runtime Lazuli Go não executa**. Provar L0→L2 num bucket pequeno valida o pipeline inteiro; depois disso, expansão horizontal é segura.
 
 Para checklist-vivo derivado deste audit (sem os N's), ver [`docs/roadmap.md`](../roadmap.md).

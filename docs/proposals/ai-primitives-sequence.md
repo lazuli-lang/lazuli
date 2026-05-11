@@ -30,7 +30,7 @@ D–H remain on the deferred list.
 |---|---|---|---|---|---|
 | **A** | tools + discriminated output + evals | language | — | shipped | [proposal](./ai-primitives-v0.md), [plan](./ai-primitives-v0-implementation.md). Phases 1–7, commits d2a6202 → b934207. |
 | **A.7** | agent `expose http` | language | A | shipped (pre-evidenced) | [proposal](./ai-primitives-cut-a-7.md), [plan](./ai-primitives-cut-a-7-implementation.md). Commit 3be8611. |
-| **A.8** | `agent_run` built-in trace event | language-light + runtime + adapter | A | shipped (language-side) | [proposal](./ai-primitives-cut-a-8.md). Commit ac0241d. Runtime instrumentation is parallel Drusa work. |
+| **A.8** | `agent_run` built-in trace event | language-light + runtime + adapter | A | shipped (language-side) | [proposal](./ai-primitives-cut-a-8.md). Commit ac0241d. Runtime instrumentation is parallel Lazuli Go work. |
 | **A.9** | `approval` on commands (third write-tool guard) | language | A | shipped | [proposal](./ai-primitives-cut-a-9.md). Commit b0304b4. Surfaced from the post-Cut A second-opinion analysis. Text-pattern facts until Phase L. |
 | **A.10** | golden file evals (`golden "./path.jsonl" min_score N`) | language | A | shipped | Commit 3f7fcd3. AST + IR additive extension of `EvalCase`. Adapter loads + scores. |
 | **A.11** | CORS in `app.lzi` (allowlist + credentials + max_age) | language-light | — | shipped | [proposal](./ai-primitives-cut-a-11.md). Commit b3fc39e. Sits alongside `urls`; the runtime materialises CORS middleware. |

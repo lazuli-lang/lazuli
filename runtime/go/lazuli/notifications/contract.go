@@ -3,7 +3,7 @@
 // outbound contract (channel, recipient, trigger, template, policy,
 // tenant_from, idempotency, retry); this package owns the dispatcher
 // and the typed errors. Concrete channel adapters (Sendgrid for email,
-// FCM for push, Twilio for sms) sit in `@drusa/<adapter>` packages
+// FCM for push, Twilio for sms) sit in `@runtime/<adapter>` packages
 // and bind via `@adapter.notification.*` resolution at boot.
 //
 // Phase L Tier 3 / row 33 stubs.
@@ -67,7 +67,7 @@ type NotificationContract struct {
 	Digest *NotificationDigest
 	// Notifications expanded bucket cycle — typed shape for the
 	// `throttle` sub-block. nil when no throttling is declared.
-	// Distinct from any scalar `RateLimit` slot Drusa may add later;
+	// Distinct from any scalar `RateLimit` slot the runtime may add later;
 	// `Throttle` always keys on recipient/channel/burst axes.
 	Throttle *NotificationThrottle
 }
@@ -144,7 +144,7 @@ var (
 )
 
 // ChannelDispatcher is the per-channel adapter surface. Email
-// dispatchers (`@drusa/sendgrid`, `@drusa/ses`) implement this for
+// dispatchers (`@runtime/sendgrid`, `@runtime/ses`) implement this for
 // `ChannelEmail`; in-app dispatchers for `ChannelInApp`, and so on.
 type ChannelDispatcher interface {
 	Channel() Channel

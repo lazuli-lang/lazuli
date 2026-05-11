@@ -3,7 +3,7 @@
 **Status**: design proposal. Stages 3–9 of the `bucket=openapi` pipeline.
 Implementation deferred to a separate run with `mode=implement`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -92,7 +92,7 @@ surface that text-pattern walkers would have to match. So the cut is:
    consumer that compares two `lazuli inspect --format=json` payloads
    and emits a markdown delta. No authored surface change.
 
-The runtime stub is minimal — Drusa needs **zero new packages** for
+The runtime stub is minimal — the Lazuli Go runtime needs **zero new packages** for
 the first cut because OpenAPI emission is a Lazuli-side codegen
 artifact, not a runtime capability. The runtime team only needs to
 *serve* the resulting `openapi.yaml` if the author chooses to expose
@@ -299,7 +299,7 @@ once Tier 4 lifts it.
 | `Command.emits` | `x-lazuli-emits: [...]` extension | not OpenAPI core; readable downstream |
 | `Command.deprecated.since` | `deprecated: true`, `x-lazuli-deprecated-since: "..."` | bare `deprecated` is also `deprecated: true` |
 | `Command.deprecated.replacement` | `x-lazuli-replacement: "..."` | |
-| `Command.deprecated.sunset` | `x-lazuli-sunset: "..."` extension + response `Sunset` header schema | runtime header wiring is Drusa |
+| `Command.deprecated.sunset` | `x-lazuli-sunset: "..."` extension + response `Sunset` header schema | runtime header wiring is Lazuli Go |
 | `Resource` declaration | `components.schemas.<Resource>` | walks `Resource.fields`, lowering each `TypeRef` |
 | `TypeRef::Builtin(Text/Int/Bool/DateTime/...)` | OpenAPI scalar + `format` | `DateTime` → `format: "date-time"`, etc. |
 | `TypeRef::UserDefined(<Resource>)` | `$ref: #/components/schemas/<Resource>` | |
@@ -608,7 +608,7 @@ Boundary discipline (re-stated): the OpenAPI bucket has **almost no
 runtime surface** because OpenAPI is a contract-publication artifact.
 Server stub generation, OpenAPI validation middleware, OpenAPI UI
 (Swagger UI / Redoc / Stoplight) — these are **DF** (framework /
-runtime) per audit `:228` and **stay in Drusa adapters**, not in
+runtime) per audit `:228` and **stay in runtime adapters**, not in
 Lazuli core. The first cut only generates the spec; downstream tools
 read it.
 

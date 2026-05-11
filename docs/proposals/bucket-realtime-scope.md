@@ -22,7 +22,7 @@ The realtime cycle proposes four new feature-level kinds — `channel`,
 §Linguagem). Three of them live cleanly inside `feature <name>` blocks
 (`.lzi`) and parallel the existing `event` / `job` / `notification` shape:
 they declare a contract, doctor cross-checks tenant / policy / channel
-binding, codegen emits Drusa registry calls.
+binding, codegen emits Lazuli Go registry calls.
 
 The fourth — `subscription` — is different. A subscription is not a
 contract a feature *declares*; it is a contract a **view consumes**. The
@@ -150,7 +150,7 @@ component file. This is the same failure mode that justified
 | Polysemy risk | None — `subscribe` is new, has one meaning. | High — `source X live Y` widens `source`'s meaning. | None on `.lzx`; pushes opacity into `@client.*` instead. |
 | AI-first cold-read | Best: two locators with two intents, both declarative. | OK: one line, but the relationship between `X` and `Y` is implicit. | Worst: client component owns the contract, not the view. |
 | Cross-feature doctor | `subscribe` ref resolves to `subscription` kind, tenant axis matches, policy reachability checked — all from IR. | Same checks possible, but the modifier grammar makes the IR shape larger (one locator with two refs). | Cross-check is impossible — subscription ref lives inside `@client.*` opaque body. |
-| Boundary with Drusa | Clean. View declares the binding; runtime materializes the socket. | Same as A, modulo the grammar friction. | Subscription declaration in `.lzi` is detached from its surface consumer; doctor cannot trace "this subscription is reachable from this audience". |
+| Boundary with the runtime | Clean. View declares the binding; runtime materializes the socket. | Same as A, modulo the grammar friction. | Subscription declaration in `.lzi` is detached from its surface consumer; doctor cannot trace "this subscription is reachable from this audience". |
 | Escape hatch survival | `block @client.*` still works for non-Lazuli realtime needs (e.g., third-party chat widget). | Same. | This *is* the escape hatch; no upgrade path. |
 
 ### Recommendation
@@ -223,7 +223,7 @@ Adapted from the bucket-piloto checklist
 - [ ] **LSP hover + completion on `subscribe`.** Same shape as `source`.
 
 The first four items are language-team Stage 3 deliverables (gated on
-realtime cycle promotion). Items 5 is Drusa-team.
+realtime cycle promotion). Items 5 is runtime-team.
 
 ## Recommendation
 
@@ -248,4 +248,4 @@ When the realtime cycle is promoted, Stage 3 (design-language) runs on
 the shipped substrate from `bucket-realtime-cycle.md` and produces the
 focused proposal covering at most the three doctor diagnostics named in
 the closed-cycle criterion plus the `--expand=views` subscription
-projection. Stage 4 (Drusa codegen) then has a stable IR JSON to consume.
+projection. Stage 4 (Lazuli Go codegen) then has a stable IR JSON to consume.

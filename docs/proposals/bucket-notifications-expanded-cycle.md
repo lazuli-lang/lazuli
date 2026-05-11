@@ -4,7 +4,7 @@
 **Date**: 2026-05-11
 **Pre-requisite**: none. `notification` kind shipped via Phase L Tier 3
 (row 33, commits `e89ff27` → `53a5d1a`). Parser, IR struct, doctor
-(`NOTIF-CHANNEL-001`), inspect projection, and Drusa stubs already
+(`NOTIF-CHANNEL-001`), inspect projection, and Lazuli Go stubs already
 exist. This cycle is **additive** — four decorators on top of the
 shipped contract — and does not require a scope-out.
 
@@ -14,7 +14,7 @@ shipped contract — and does not require a scope-out.
 lifteia o bloco (`crates/lazuli_syntax/src/parser.rs:2333`), IR carrega
 shape tipado (`crates/lazuli_ir/src/lib.rs:2217`), doctor faz catálogo
 fechado de canais (`crates/lazuli_cli/src/doctor.rs:2383`), inspect
-projeta via `--expand=notifications`, e Drusa entrega o stub
+projeta via `--expand=notifications`, e o runtime Lazuli Go entrega o stub
 (`runtime/go/lazuli/notifications/contract.go:49`). Roadmap §1.17
 deixou quatro decorators marcados **SPECULATIVE**:
 
@@ -33,7 +33,7 @@ Os quatro foram listados juntos no audit §19
 classificados aqui como deferred.
 
 **Recomendação**: promover `digest` e `throttle` como decorators
-declarativos (L1 contract + doctor + LSP + Drusa stub field).
+declarativos (L1 contract + doctor + LSP + Lazuli Go stub field).
 `delivery_receipt` e `read_receipt` ficam **SPECULATIVE/deferred** —
 ambos exigem mecânica de callback que vaza para adapter (webhook
 inbound + token rotation) sem benefício de shape declarativo. Promover
@@ -55,7 +55,7 @@ L1 maturity:
   + closed catalog at `:2268`.
 - LSP: notification kind hover and child-keyword catalog
   (`crates/lazuli_lsp/src/lib.rs`, ~row 33).
-- Drusa stub: `runtime/go/lazuli/notifications/contract.go:49`
+- Lazuli Go stub: `runtime/go/lazuli/notifications/contract.go:49`
   + `ChannelDispatcher` interface at `:87`.
 
 What is missing is the **second-wave decorators** that audit §19
@@ -79,9 +79,9 @@ This proposal grades each decorator against three gates:
 1. **Fixture pressure** — does any pattern in `full-capsule` benefit?
 2. **Shape boundary** — is the decorator declarative (closed catalog,
    one canonical form) or does it leak mechanics into the language?
-3. **Drusa fit** — does the runtime contract for the decorator stay
-   typed (Lazuli describes intent, Drusa owns dispatch) or pull
-   provider mechanics into Lazuli?
+3. **Runtime fit** — does the runtime contract for the decorator stay
+   typed (Lazuli describes intent, the Lazuli Go runtime owns dispatch)
+   or pull provider mechanics into Lazuli?
 
 ## Baseline
 
@@ -161,9 +161,9 @@ notification daily_activity_summary
 - `group_by` is a payload path verbatim, like `tenant_from`. No
   expression language.
 
-**Drusa fit**:
+**Runtime fit**:
 
-- Drusa-side adds `DigestSpec { Window time.Duration; GroupBy string }`
+- Runtime-side adds `DigestSpec { Window time.Duration; GroupBy string }`
   to `runtime/go/lazuli/notifications/contract.go:49`'s
   `NotificationContract`. The dispatcher loop holds an in-process
   bucket (or Postgres/Redis bucket per adapter) keyed by `(notification,
@@ -229,7 +229,7 @@ notification password_reset_email
 - Cross-check: `per recipient` requires `recipient <path>` to resolve
   (same path used as the throttle key).
 
-**Drusa fit**:
+**Runtime fit**:
 
 - `runtime/go/lazuli/notifications/contract.go` adds
   `ThrottleSpec { Per Axis; Max uint32; Window time.Duration }`. The
@@ -538,7 +538,7 @@ runtime target.
 
 ## Runtime proposto
 
-Drusa entrega two additions to `runtime/go/lazuli/notifications/`:
+The Lazuli Go runtime ships two additions to `runtime/go/lazuli/notifications/`:
 
 ### `DigestSpec` + dispatcher loop
 
@@ -556,10 +556,10 @@ type DigestSpec struct {
 Digest accumulation lives **in-process** by default (a per-spec
 map keyed by `groupByValue`), with a flush goroutine driven by
 `testing/synctest`-friendly tickers. For cross-process correctness,
-Drusa exposes a `DigestStore` interface (in-memory implementation
-shipped; Redis/Postgres implementations ship as
+the Lazuli Go runtime exposes a `DigestStore` interface (in-memory
+implementation shipped; Redis/Postgres implementations ship as
 `@adapter.notification.digest.<store>` packs). No provider names in
-Drusa core.
+the runtime core.
 
 ### `ThrottleSpec` + bucket check
 
@@ -767,7 +767,7 @@ The bucket cycle closes when the four boxes hold:
       `NOTIF-CHANNEL-001`.
 - [ ] `lazuli generate` emits `dist/go/<feature>/notifications.gen.go`
       with `Digest`/`Throttle` fields populated.
-- [ ] Drusa executes one digest cycle (three triggers → one dispatch
+- [ ] Lazuli Go executes one digest cycle (three triggers → one dispatch
       after window) and one throttle cycle (4th request rejected, 1h
       later succeeds) under `testing/synctest`.
 - [ ] LSP serves hover on `digest` / `throttle` / `window` / `group_by`
@@ -801,7 +801,7 @@ The bucket cycle closes when the four boxes hold:
    event_group.
 7. Pin `crates/lazuli_cli/tests/fixtures/full-capsule-notifications.golden.json`
    to the post-extension inspect output.
-8. Hand off Drusa dispatcher loop + in-memory store implementations to
+8. Hand off the Lazuli Go dispatcher loop + in-memory store implementations to
    the runtime team. The language team stays in surface/IR/doctor
    territory.
 9. **Do not** promote `delivery_receipt` or `read_receipt` in this
@@ -817,5 +817,5 @@ covering the digest + throttle Go tests.
 | Order | Cut | Status | Notes |
 |-------|-----|--------|-------|
 | 38 | Notifications expanded — `digest` + `throttle` decorators (IR + parser + doctor + LSP) | proposed | Two additive decorators on the shipped `Notification` IR (`crates/lazuli_ir/src/lib.rs:2217`). Six new IR-driven diagnostics (`NOTIF-DIGEST-001/002/003`, `NOTIF-THROTTLE-001/002/003`) cross-checking against `Tier3FeatureFacts`. Two new closed-catalog hovers/completions. Fixture extends with `daily_activity_summary` (digest) and `password_reset_email` (throttle). Replaces the unimplemented `rate_limit` mention in `docs/invariants.md:178` with `throttle`. See `docs/proposals/bucket-notifications-expanded-cycle.md` §Linguagem. |
-| 39 | Notifications expanded — Drusa dispatcher + `DigestStore`/`ThrottleStore` interfaces | proposed | `runtime/go/lazuli/notifications/contract.go:49` gains `DigestSpec`/`ThrottleSpec`/`ThrottleAxis` + two pointer fields on `NotificationContract`. New `DigestStore`/`ThrottleStore` adapter interfaces (in-memory implementation in core; Redis/Postgres ship as `@adapter.notification.{digest,throttle}.<store>` packs). Two `testing/synctest` tests covering the canonical digest-window and throttle-bucket cycles. Drusa-team owns store implementations. See `docs/proposals/bucket-notifications-expanded-cycle.md` §Runtime/§Evals. |
+| 39 | Notifications expanded — Lazuli Go dispatcher + `DigestStore`/`ThrottleStore` interfaces | proposed | `runtime/go/lazuli/notifications/contract.go:49` gains `DigestSpec`/`ThrottleSpec`/`ThrottleAxis` + two pointer fields on `NotificationContract`. New `DigestStore`/`ThrottleStore` adapter interfaces (in-memory implementation in core; Redis/Postgres ship as `@adapter.notification.{digest,throttle}.<store>` packs). Two `testing/synctest` tests covering the canonical digest-window and throttle-bucket cycles. The runtime team owns store implementations. See `docs/proposals/bucket-notifications-expanded-cycle.md` §Runtime/§Evals. |
 | 40 | Notifications expanded — `delivery_receipt` / `read_receipt` deferred | pilot-gated | Both decorators classified SPECULATIVE in this cycle. Boundary cost (provider-specific outcome codes for delivery; per-channel polysemy for read) does not clear the closed-catalog bar today. Existing webhook+event primitives cover the use case. Reopen only when a fixture-grade pilot demonstrates structured delivery state as a domain-level contract. See `docs/proposals/bucket-notifications-expanded-cycle.md` §Linguagem §3-4. |

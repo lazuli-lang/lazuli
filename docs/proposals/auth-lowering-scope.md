@@ -98,7 +98,7 @@ currently triggers that promotion for `auth`.
 ## Routes A vs B
 
 Two ways to close the auth lowering gap, both honouring the
-Lazuli/Drusa boundary:
+language/runtime boundary:
 
 ### Route A — extend canonical-indent slice to include `auth`
 
@@ -148,8 +148,8 @@ strict regression of the established direction.
 
 Route A also matches the boundary discipline: every new `auth` child
 the design phase introduces (passkeys, recovery codes, etc.) extends
-typed IR directly, not the text-pattern harvester, keeping Drusa's
-codegen consumer surface stable.
+typed IR directly, not the text-pattern harvester, keeping the
+runtime's codegen consumer surface stable.
 
 ## Pilot-needed vs Speculative
 
@@ -217,14 +217,14 @@ specific shape of bucket-piloto #1:
     @adapter.<x>` does not resolve to a declared `extension adapter` or
     `registry.integrations` entry.
 - [ ] **`lazuli generate` produces Go that compiles.** Runtime-team
-  deliverable (parallel Drusa work). Consumed via stable IR JSON
+  deliverable (parallel runtime work). Consumed via stable IR JSON
   through `lazuli inspect --format=json --expand=auth`.
-- [ ] **Drusa executes end-to-end login + mfa + oauth.** Runtime-team
+- [ ] **Lazuli Go executes end-to-end login + mfa + oauth.** Runtime-team
   deliverable. Outside language scope.
 - [ ] **`eval`/test coverage.** Either Lazuli-native `eval` cases on the
   `login` / `enable_mfa` commands (`full-capsule.lzi:525-545`) or Go
-  integration tests in Drusa. Boundary point: if `eval` extends to
-  auth flows, design that delta in a separate proposal.
+  integration tests in the Lazuli Go runtime. Boundary point: if `eval`
+  extends to auth flows, design that delta in a separate proposal.
 - [ ] **LSP hover/completion on auth children.** Today the LSP carries
   shape-only diagnostics (`crates/lazuli_lsp/src/lib.rs:9424-9514`).
   Hover + completion on `auth password algorithm <X>` (closed catalog:
@@ -232,7 +232,7 @@ specific shape of bucket-piloto #1:
   lands.
 
 The first four items are language-team Stage 3 deliverables. Items
-5-7 are Drusa-team. Item 8 is language-team but small (LSP catalog
+5-7 are runtime-team. Item 8 is language-team but small (LSP catalog
 extension).
 
 This list is attainable in a single Stage 3 design cut once Route A
@@ -265,5 +265,5 @@ lands; nothing on it depends on speculative primitives.
 When Route A is implemented, Stage 3 (design-language) runs on the
 shipped substrate and produces a focused proposal covering at most the
 four doctor diagnostics named in the closed-cycle criterion plus the
-`--expand=auth` projection. Stage 4 (Drusa codegen) then has a stable
-IR JSON to consume.
+`--expand=auth` projection. Stage 4 (Lazuli Go codegen) then has a
+stable IR JSON to consume.

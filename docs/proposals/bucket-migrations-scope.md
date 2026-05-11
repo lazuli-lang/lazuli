@@ -25,7 +25,7 @@ Framework-coverage audit §8
 (`docs/audit/framework-coverage-1400.md:181-187`) puts the section at
 **L=4, DL=10, DF=22, F=2, N=2** (40 features). The DL bucket is
 exactly the eight decorators above plus `tenant_migration` and the
-doctor drift rule. DF lives in Drusa (atlas execution, locking,
+doctor drift rule. DF lives in the Lazuli Go runtime (atlas execution, locking,
 online migrations); F (2) is irreversible-migration markers + schema
 snapshots; N (2) is the "Go migrations file format" anti-pattern
 (Lazuli re-lowers from source, no parallel author file).
@@ -150,9 +150,9 @@ the moment Tier 4 lands.
 ## Routes A vs B vs C
 
 Three ways to close the migrations lowering gap. All honour the
-Lazuli/Drusa boundary: no provider names (`atlas`, `pg`,
+language/runtime boundary: no provider names (`atlas`, `pg`,
 `mysql`) in core syntax; execution mechanics (atlas planning, lock
-acquisition, online column moves) stay in Drusa.
+acquisition, online column moves) stay in the Lazuli Go runtime.
 
 ### Route A — full lowering in one run, after Tier 4 lands
 
@@ -268,7 +268,7 @@ What stays deferred to Tier 4:
 
 **Risk**: the cycle delivers value today but cannot answer the
 **core motivation** of the roadmap §1.6 entry (resource
-decorators). Migrations runtime work in Drusa (§2.4) cannot
+decorators). Migrations runtime work in the Lazuli Go runtime (§2.4) cannot
 consume typed `index`/`foreign_key` IR because that IR doesn't
 exist yet. Codegen for the migrations folder
 (`dist/<feature>/migrations/*.up.sql`) stays blocked. Route C's
@@ -284,7 +284,7 @@ deliverables are real but narrow.
 | Codegen unblock | Yes — `dist/<feature>/migrations/*.sql` consumes typed IR. | Codegen must re-parse source. | No — resource-field codegen still blocked until Tier 4. |
 | Phase L compat | Aligned — shrinks the slice's skip-list. | Misaligned — grows text-pattern surface. | Aligned — every Route C deliverable lands as typed IR. |
 | Risk of redesign | Low — Tier 4 settled before this cycle lands. | High — eight walkers retrofit at Tier 4. | None — Route C deliverables are orthogonal to resource lowering. |
-| Drusa runtime input | Typed `IndexSpec`, `ForeignKeySpec`, etc. ready for atlas/golang-migrate codegen. | Untyped — same as today. | `previously` + `tenant_migration` + `checkpoint` + deploy expansion ready for atlas wiring. Resource-field decorators stay blocked. |
+| Lazuli Go runtime input | Typed `IndexSpec`, `ForeignKeySpec`, etc. ready for atlas/golang-migrate codegen. | Untyped — same as today. | `previously` + `tenant_migration` + `checkpoint` + deploy expansion ready for atlas wiring. Resource-field decorators stay blocked. |
 | Time to first ship | Long — gates on Tier 4. | Medium — ships but doesn't unblock §1.6 properly. | Short — ships without Tier 4 dependency. |
 
 ### Recomendação
@@ -293,7 +293,7 @@ deliverables are real but narrow.
 reasons:
 
 1. **The roadmap §1.6 surface is bigger than a single cycle.** The
-   eight resource decorators × cross-feature semantics × Drusa
+   eight resource decorators × cross-feature semantics × Lazuli Go
    atlas wiring is a multi-cycle effort. Forcing all of it
    through a single cycle (Route A) pins the cycle on a
    prerequisite (Tier 4) that is itself a multi-cycle effort
@@ -353,10 +353,10 @@ evidence and roadmap §1.6 (`docs/roadmap.md:111-114`).
 | `lazuli plan` command | `docs/migrations.md:34-50` describes the intent. The CLI binary does not implement it. | **PARTIALLY PILOT-NEEDED.** Route C ships `lazuli plan --check <snapshot>` (snapshot integrity only). Typed field-level diff (`Rename Customer.status -> Customer.lifecycle_status`) waits for Tier 4. |
 | Irreversible migration markers (F-class per audit) | Not in fixture. Audit §8 lists under F. | Pilot needed: a destructive migration whose runbook needs an explicit "no rollback" gate. The existing `destructive_migrations require_approval` covers the approval surface; an irreversibility marker adds rollback-impossible declaration on top. Cut B-ish (post-pilot). |
 | Schema snapshot kind beyond pinned-path (F-class per audit) | Not in fixture. Audit §8 lists under F. | Pilot needed: a product whose snapshot needs structured metadata beyond a path (compatibility window, deprecation date, replacement feature). The pinned-path version Route C ships covers the canonical case. |
-| Online migrations / zero-downtime helpers | DF-class per audit. | Drusa concern. Not a language primitive at all — atlas/golang-migrate execution plan stays in runtime. |
-| Migration locking / status / rollback / redo / squashing | DF-class per audit. | Drusa concern. Same as above. |
-| Database create / drop / reset / truncate commands | DF-class per audit. | Drusa CLI concern (`lazuli db ...`). Not a language primitive. |
-| Seed loader | DF-class per audit. | Drusa concern. Optional sugar: `seeds "./seeds/customer.sql"` on feature, but that's a Tier 4 follow-up if pilot evidence warrants. |
+| Online migrations / zero-downtime helpers | DF-class per audit. | Runtime concern. Not a language primitive at all — atlas/golang-migrate execution plan stays in runtime. |
+| Migration locking / status / rollback / redo / squashing | DF-class per audit. | Runtime concern. Same as above. |
+| Database create / drop / reset / truncate commands | DF-class per audit. | Runtime CLI concern (`lazuli db ...`). Not a language primitive. |
+| Seed loader | DF-class per audit. | Runtime concern. Optional sugar: `seeds "./seeds/customer.sql"` on feature, but that's a Tier 4 follow-up if pilot evidence warrants. |
 | Separate "Go migrations" file format | N-class per audit. | Anti-Lazuli: violates "Lazuli re-lowers from source" principle. Permanent cut. |
 
 Net result for Route C: **5 PILOT-NEEDED items** land in the
@@ -411,11 +411,11 @@ to the migrations subset.
   - `deploy_strategy_invalid` — `strategy` is not in the closed
     catalog `{online, offline}`.
 - [ ] **`lazuli generate` produces Go that compiles.** Runtime-team
-  deliverable (Drusa). Consumed via stable IR JSON through
+  deliverable (Lazuli Go). Consumed via stable IR JSON through
   `lazuli inspect --format=json --expand=migrations`. Tier 3.5
   only needs the IR ready; runtime owns atlas/golang-migrate
   invocation.
-- [ ] **Drusa executes a tenant migration end-to-end.** Runtime-team
+- [ ] **Lazuli Go executes a tenant migration end-to-end.** Runtime-team
   deliverable. Outside language scope. The test case:
   `tenant_migration backfill_customer_score` runs once per
   tenant, recovers from interrupt mid-tenant, satisfies the
@@ -435,7 +435,7 @@ to the migrations subset.
   **out of scope** for Tier 3.5; lands in the Tier-4 follow-up.
 
 The first four items are language-team Tier 3.5 deliverables. Items
-5-6 are Drusa-team. Items 7-9 are language-team but small.
+5-6 are runtime-team. Items 7-9 are language-team but small.
 
 ## Recomendação
 
@@ -466,7 +466,7 @@ The first four items are language-team Tier 3.5 deliverables. Items
 
 When Route C is implemented, the Tier-4 follow-up cycle runs on
 the shipped substrate and adds the eight resource decorators +
-typed field diff. Drusa codegen then has typed input for atlas
+typed field diff. Lazuli Go codegen then has typed input for atlas
 plans + migration locking + online column moves.
 
 ## Side-quest fence (anti-mission-creep)
@@ -483,7 +483,7 @@ This cycle does **not**:
   this when codegen is ready.
 - Add online-migration helpers, zero-downtime column moves,
   blue-green migration sequencing, or any DF-class item from
-  audit §8. All Drusa.
+  audit §8. All runtime.
 - Promote `unique` to an `index` decorator. The two are
   conceptually different (uniqueness is an invariant; index is a
   query optimisation). Promoting `unique` to `index unique`

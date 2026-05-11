@@ -1,10 +1,10 @@
 // Dispatch surface for tenant migrations. The codegen registers each
 // `TenantMigrationContract` against a `Dispatcher` instance at boot;
-// the Drusa scheduler invokes `Dispatcher.ApplyAll` during deploy.
+// the Lazuli scheduler invokes `Dispatcher.ApplyAll` during deploy.
 //
 // Boundary discipline: this file ships only the contract shape and a
 // reference in-process implementation. Concrete adapters (atlas,
-// golang-migrate) live in `@drusa/...` packages and implement
+// golang-migrate) live in `@runtime/...` packages and implement
 // `TenantMigrator`. The dispatch shape here is intentionally minimal
 // so adapter swaps don't churn generated code.
 package migrations

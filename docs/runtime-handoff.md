@@ -1,12 +1,12 @@
 # Runtime Hand-off — AI Primitives Cut A
 
 **Status**: Hand-off doc. References the design completed in
-`docs/proposals/` for the runtime/Drusa team to implement.
+`docs/proposals/` for the Lazuli runtime team to implement.
 
-**Audience**: the Drusa runtime team. Assumes familiarity with the
-existing crates (`lazuli_syntax`, `lazuli_ir`, `lazuli_analyzer`,
-`lazuli_lsp`, `lazuli_cli`) but not with the AI primitives
-proposals.
+**Audience**: the Lazuli runtime team. Assumes familiarity with
+the existing crates (`lazuli_syntax`, `lazuli_ir`,
+`lazuli_analyzer`, `lazuli_lsp`, `lazuli_cli`) but not with the
+AI primitives proposals.
 
 ## What's being handed off
 
@@ -25,7 +25,7 @@ A.7 follows naturally once Cut A's IR lands.
 In this order:
 
 1. **`docs/state-of-ai-first.md`** — 15-minute overview of what
-   Lazuli is, the language/Drusa/adapters split, what works
+   Lazuli is, the language/runtime/adapters split, what works
    today, what doesn't.
 
 2. **`docs/proposals/ai-primitives-sequence.md`** — master index
@@ -115,7 +115,7 @@ These are inviolable per `.claude/agents/lazuli-language-architect.md`:
    `mercadopago`, `aws`, `kubernetes` keywords. Provider references
    go through `@runtime/...`, `@plugin/...`, `@adapter.<local>`.
 2. **No DI mechanics in source.** Construction order, lifetimes,
-   logger/db/client instances — all runtime/Drusa concerns.
+   logger/db/client instances — all runtime concerns.
 3. **No transport mechanics in contracts.** `contract.lzi`
    declares shape; HTTP routing tables, gRPC stub flags, broker
    partition strategies are adapter-shaped.

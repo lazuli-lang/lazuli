@@ -3,7 +3,7 @@
 **Status**: design proposal. Stages 3–9 of the `bucket=cache` pipeline.
 Implementation deferred to a separate run with `mode=implement`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -14,7 +14,7 @@ canonical "horizontal expansion" the closed cycle was meant to unlock.
 The roadmap §1.15 names cache as one line: *"`cache` kind explícito
 (tags, namespace, coalesce, stale-while-revalidate, sliding TTL,
 locks)"*. This proposal scopes that line against fixture evidence and
-the Drusa runtime contract that already ships.
+the Lazuli Go runtime contract that already ships.
 
 ## Contexto
 
@@ -90,7 +90,7 @@ mechanical.
 | Doctor cross-feature | **none** (no IR to read) | n/a |
 | Inspect projection | **none** — `lazuli inspect` exposes zero cache facts | confirmed via probe |
 | Codegen | text-pattern via hand-built spike | `crates/lazuli_codegen_spec/src/lib.rs:155-156, :100`; `crates/lazuli_codegen_go/src/runtime.rs:253-258, :480-484` |
-| Runtime (Drusa) | **functional** — 217 lines, LRU + TTL + per-tenant scoping + `invalidateQueries` + `CacheStats` | `runtime/go/lazuli/cache.go:1-217` |
+| Runtime (Lazuli Go) | **functional** — 217 lines, LRU + TTL + per-tenant scoping + `invalidateQueries` + `CacheStats` | `runtime/go/lazuli/cache.go:1-217` |
 | Highlighting | `cache | key | ttl | invalidates` colored via generic keyword scope | `editors/vscode/syntaxes/lazuli.tmLanguage.json` |
 | Adapter slot | not in capability catalog (`object_storage`/`queue`/`mailer`/`event_bus` exist; `cache` missing) | `crates/lazuli_lsp/src/lib.rs:8670` |
 | Capability `cache <name>` (registry) | **not declared** in fixture; not in closed catalog | `examples/full-capsule/registry.lzi:12-19` |
@@ -427,7 +427,7 @@ then package-wide fallback).
 ## Codegen (Stage 5)
 
 One new generated file per feature consuming `cache` / `invalidates`.
-Output is skeletal — Drusa supplies the runtime — and follows the
+Output is skeletal — the Lazuli Go runtime supplies the body — and follows the
 existing `dist/go/customer/customer.gen.go` style.
 
 ### `dist/go/customer/cache.gen.go`
@@ -761,7 +761,7 @@ projects the capability, the catalog must list it.
 - [ ] `lazuli generate` produces `dist/go/customer/cache.gen.go` that
   compiles under `runtime/go/lazuli/cache`. The hand-built
   `RuntimeCache` spike retires in the same commit.
-- [ ] Drusa runs round-trip cache hit + miss + tag-based invalidate +
+- [ ] Lazuli Go runs round-trip cache hit + miss + tag-based invalidate +
   per-tenant isolation end-to-end (runtime-team deliverable).
 - [ ] `runtime/go/lazuli/cache/cache_test.go` synctest test passes for
   round-trip + TTL expiry + tag invalidation + tenant isolation.
@@ -779,7 +779,7 @@ run that lands Route C: add `QueryCache` / `CacheTtl` /
 (`crates/lazuli_syntax/src/parser.rs:965-1100`), add `ExpandSet.cache`
 (`crates/lazuli_cli/src/main.rs:95-148`), retire `RuntimeCache` from
 `crates/lazuli_codegen_spec/src/lib.rs`, and ship the five doctor
-diagnostics + LSP entries. Drusa team owns
+diagnostics + LSP entries. The Lazuli Go runtime team owns
 `runtime/go/lazuli/cache/{contract,tags,adapter}.go` and the Redis
 adapter in `@runtime/redis` in parallel.
 
@@ -795,5 +795,5 @@ Three additions, formatted to match the existing table:
 ```
 | 38 | Cache bucket cycle Route C — preemptive IR for `cache` + `invalidates` | planned | Add `QueryCache { key, ttl, tags, namespace }` to `crates/lazuli_ir/src/lib.rs` next to `ListQuery`/`SqlQuery`. Add `Command.invalidates: Vec<InvalidationTarget>` typed enum (`Query { feature, name, args? }` / `QueryWildcard { feature }` / `Tag { label }`). Lower from text-pattern facts in legacy `parse_command`/`parse_query` (pest pipeline at `crates/lazuli_syntax/src/parser.rs:965-1100`). New `--expand=cache` projection. Retire `RuntimeCache` spike from `crates/lazuli_codegen_spec/src/lib.rs:155-156` when codegen consumes typed IR. See `docs/proposals/bucket-cache-cycle.md` §Linguagem/§IR + `docs/proposals/bucket-cache-scope.md`. |
 | 39 | Cache bucket cycle — 5 doctor diagnostics + LSP coverage | planned | `cache_ttl_unit_invalid` (typed promotion of `cache-contract`), `cache_invalidates_target_unresolved`, `cache_tags_referenced_but_undeclared`, `cache_namespace_collision` (warning), `cache_capability_undeclared`. LSP hovers for 6 keywords (`cache`, `key`, `ttl`, `tags`, `namespace`, `invalidates`) + closed-catalog completions for TTL units and invalidation targets. Capability kind closed set extended with `cache`. Depends on row 38. See `docs/proposals/bucket-cache-cycle.md` §Doctor/LSP. |
-| 40 | Cache bucket cycle — Drusa runtime + Redis adapter contract + integration test | planned | Extend `runtime/go/lazuli/cache.go` into `runtime/go/lazuli/cache/{contract,tags,adapter}.go` carrying typed `QuerySpec`/`InvalidationTarget`/`Backend` interface. `Backend` interface enables Redis (primary, `@runtime/redis`) / Memcached/Valkey (secondary) adapter packs. `runtime/go/lazuli/cache/cache_test.go` `testing/synctest` round-trip + tag invalidate + per-tenant isolation + TTL expiry. Drusa-team owns production Redis adapter. Depends on row 38. See `docs/proposals/bucket-cache-cycle.md` §Runtime/§Evals. |
+| 40 | Cache bucket cycle — Lazuli Go runtime + Redis adapter contract + integration test | planned | Extend `runtime/go/lazuli/cache.go` into `runtime/go/lazuli/cache/{contract,tags,adapter}.go` carrying typed `QuerySpec`/`InvalidationTarget`/`Backend` interface. `Backend` interface enables Redis (primary, `@runtime/redis`) / Memcached/Valkey (secondary) adapter packs. `runtime/go/lazuli/cache/cache_test.go` `testing/synctest` round-trip + tag invalidate + per-tenant isolation + TTL expiry. The runtime team owns production Redis adapter. Depends on row 38. See `docs/proposals/bucket-cache-cycle.md` §Runtime/§Evals. |
 ```

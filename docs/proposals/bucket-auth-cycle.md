@@ -3,7 +3,7 @@
 **Status**: design proposal. Stages 3–9 of the `bucket=auth` pipeline.
 Implementation deferred to a separate run with `mode=implement`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-10.
 
@@ -47,7 +47,7 @@ Copied verbatim from the pipeline run that produced
 | LSP (file-local text walk) | shape-only diagnostics (`auth-password-algorithm`, `auth-password-rate-limit`, `auth-session-ttl`) | `crates/lazuli_lsp/src/lib.rs:9420-9516` |
 | Doctor cross-feature | none (no IR to read) | n/a |
 | Inspect projection | none | n/a |
-| Runtime (Drusa) | only `populateDevSession` (X-Lazuli-* headers) | `runtime/go/lazuli/session.go:1-60` |
+| Runtime (Lazuli Go) | only `populateDevSession` (X-Lazuli-* headers) | `runtime/go/lazuli/session.go:1-60` |
 | Highlighting | none for `auth`/`identity`/`mfa`/`sessions`/`oauth`/`algorithm`/`ttl`/`refresh`/`enroll`/`verify`/`adapter` slots | `editors/vscode/syntaxes/lazuli.tmLanguage.json` |
 | Closed-catalog enforcement | partial — `@cap.Hashed(algorithm:…)` accepts `argon2id`/`bcrypt` (`crates/lazuli_lsp/src/lib.rs:2753-2760`); no enforcement on `auth password algorithm` | mismatched |
 
@@ -138,7 +138,7 @@ auth_sessions     = "sessions" NEWLINE INDENT
   share the catalog — divergence is exactly the
   `auth_password_algorithm_hash_mismatch` bug.
 - `oauth <provider> ∈ {google, github, microsoft, apple}` covers the
-  four providers Drusa adapter has shipped for in `runtime/go/lazuli`
+  four providers the Lazuli Go adapter has shipped for in `runtime/go/lazuli`
   surface today (only `google` is in fixture; the other three are
   named explicitly to let LSP completion offer them without inventing
   shape). Any non-listed provider triggers a `warning` (not error):
@@ -255,7 +255,7 @@ projection).
 ## Codegen (Stage 5)
 
 Three new generated files under `dist/go/<feature>/`. Output is
-skeletal — Drusa supplies the runtime — and follows the existing
+skeletal — the Lazuli Go runtime supplies the runtime body — and follows the existing
 `dist/go/customer/customer.gen.go` style.
 
 ### `dist/go/customer_auth/auth.gen.go`
@@ -393,7 +393,7 @@ func OAuthGoogleCallback(ctx *lazuli.Ctx, code, state string) (string, error) {
 Four new capability files under `runtime/go/lazuli/auth/`. Boundary
 discipline: **the language references these by capability, never by
 concrete provider**. Adapters (Google OAuth client, Twilio SMS,
-WebAuthn server) sit in `@drusa/...` or `@plugin/...` packages and
+WebAuthn server) sit in `@runtime/...` or `@plugin/...` packages and
 plug in via `@adapter.*` resolution.
 
 ### `runtime/go/lazuli/auth/password.go`
@@ -436,7 +436,7 @@ plug in via `@adapter.*` resolution.
   language declares the provider id + adapter ref; the runtime resolves
   the adapter to a concrete OAuth2 client at boot.
 - **Lifecycle**: stateless dispatcher. Adapters
-  (`@drusa/google_oauth`, etc.) own `golang.org/x/oauth2.Config`
+  (`@runtime/google_oauth`, etc.) own `golang.org/x/oauth2.Config`
   instances built from `registry.lzi` `integrations` config (client
   id, secret, redirect uri).
 - **Config**: looks up `auth.OAuthContract.AdapterRef` in the boot-time
@@ -636,7 +636,7 @@ highlighting.
 - [ ] `lazuli generate` produces `dist/go/customer_auth/{auth,session,
       mfa,oauth_google}.gen.go` that compile under
       `runtime/go/lazuli/auth`.
-- [ ] Drusa exposes login / logout / mfa enrol+verify / oauth
+- [ ] Lazuli Go exposes login / logout / mfa enrol+verify / oauth
       redirect+callback end-to-end (runtime-team deliverable).
 - [ ] Golden evals + the `testing/synctest` Go test for expiry pass.
 - [ ] LSP hovers + completion cover the 11 keywords + 4 closed
@@ -663,5 +663,5 @@ Three additions, formatted to match the existing table:
 ```
 | 26 | Auth bucket cycle Route A — canonical-indent slice covers `auth` | planned | Extend `parse_feature_skeleton` to recognise `auth` alongside `agent`; add `parse_auth`; wire `auth: Option<Auth>` through `FeatureSkeleton`. IR extensions: `AuthPassword.algorithm`, `AuthMfa.enroll`/`verify`. New `--expand=auth` projection. See `docs/proposals/bucket-auth-cycle.md` §Linguagem/§IR. |
 | 27 | Auth bucket cycle — 4 doctor diagnostics + LSP coverage | planned | `auth_password_algorithm_hash_mismatch`, `auth_sessions_resource_unknown`, `auth_identity_field_unknown`, `auth_oauth_adapter_unbound`; LSP hovers for 11 keywords + closed-catalog completions for `algorithm`/`oauth`/`mfa`/`refresh`. Depends on row 26. See `docs/proposals/bucket-auth-cycle.md` §Doctor/LSP. |
-| 28 | Auth bucket cycle — golden evals + Go expiry test | planned | `login_password`, `mfa_totp`, `oauth_google` JSONL golden evals + `runtime/go/lazuli/auth/auth_test.go` synctest expiry. Drusa-team owns the runtime `auth` package (`password.go`, `session.go`, `oauth.go`, `mfa.go`). Depends on row 26. See `docs/proposals/bucket-auth-cycle.md` §Evals/Testes/§Runtime. |
+| 28 | Auth bucket cycle — golden evals + Go expiry test | planned | `login_password`, `mfa_totp`, `oauth_google` JSONL golden evals + `runtime/go/lazuli/auth/auth_test.go` synctest expiry. The runtime team owns the runtime `auth` package (`password.go`, `session.go`, `oauth.go`, `mfa.go`). Depends on row 26. See `docs/proposals/bucket-auth-cycle.md` §Evals/Testes/§Runtime. |
 ```

@@ -3,7 +3,7 @@
 **Status**: design proposal. Stages 3–9 of the `bucket=i18n` pipeline.
 Implementation deferred to a separate run with `mode=implement`.
 
-**Audience**: language team (Lazuli core), runtime team (Drusa).
+**Audience**: language team (Lazuli core), Lazuli Go runtime team.
 
 **Date**: 2026-05-11.
 
@@ -55,19 +55,19 @@ Internacionalização) summarises the layering exactly:
 |---|---|---|
 | **L0** | `default_locale "pt-BR"` in `app.lzi:7` | language (shipped) |
 | **DL** | `locale` kind, `translation` kind, locale negotiation, locale middleware, missing-translation doctor rule, translation fallback, translation extraction CLI | language (this proposal) |
-| **DF** | ICU message format, pluralization, gender rules, date/time/number/currency localization, timezone support | Drusa runtime |
+| **DF** | ICU message format, pluralization, gender rules, date/time/number/currency localization, timezone support | Lazuli Go runtime |
 | **DA** | Lokalise, Crowdin, Phrase | adapters |
 | **F** | Cut i18n full chain — deferred until a real multi-locale pilot | pilot-gated |
 
-This proposal designs **DL only**. ICU runtime is a parallel Drusa
-deliverable; adapters are out of scope.
+This proposal designs **DL only**. ICU runtime is a parallel Lazuli
+Go runtime deliverable; adapters are out of scope.
 
 **Boundary discipline reminder**: Lazuli core never names ICU, CLDR,
 gettext, fluent, polyglot.js, react-intl, i18next, FormatJS,
 moment-timezone, Intl.NumberFormat. Those are runtime/adapter concerns.
 The language declares **which locales exist, what is translatable, how
-fallback flows, and where the catalog lives**; Drusa picks the message
-format library; adapters export to TMS platforms.
+fallback flows, and where the catalog lives**; the Lazuli Go runtime
+picks the message format library; adapters export to TMS platforms.
 
 ## Baseline (Stages 1-2 inventory)
 
@@ -84,8 +84,8 @@ format library; adapters export to TMS platforms.
 | `locale_negotiate` middleware | not in fixture; roadmap §1.22 | n/a | n/a | n/a | n/a | n/a | **proposed** |
 | Missing-translation doctor rule | not in fixture; roadmap §1.22 | n/a | n/a | n/a | n/a | n/a | **proposed** |
 | `lazuli translate extract` CLI | not implemented; roadmap §1.22 | n/a | n/a | n/a | n/a | n/a | **proposed** |
-| ICU / pluralization / gender | not authored | n/a | n/a | n/a | n/a | n/a | **DF (Drusa)** |
-| Date/number/currency localization | not authored | n/a | n/a | n/a | n/a | n/a | **DF (Drusa)** |
+| ICU / pluralization / gender | not authored | n/a | n/a | n/a | n/a | n/a | **DF (Lazuli Go)** |
+| Date/number/currency localization | not authored | n/a | n/a | n/a | n/a | n/a | **DF (Lazuli Go)** |
 | Lokalise / Crowdin / Phrase | not authored | n/a | n/a | n/a | n/a | n/a | **DA (adapters)** |
 
 **Cross-cutting fact**: every authoring construct that carries a
@@ -101,7 +101,7 @@ The surface adds **two new top-level kinds** (`locale` in `app.lzi`,
 and three **referencing rules** that connect the existing translatable
 strings (rule messages, notification templates) to translation keys.
 All other ICU / pluralization / gender / date / number / currency
-machinery stays Drusa.
+machinery stays in the runtime layer.
 
 ### 3.1 `locale` block in `app.lzi` — supported locales + fallback chain
 
@@ -149,7 +149,7 @@ manifest should see that `es-AR` falls back to `en-US`, not pt-BR.
 
 **What this is not**: it is not a locale data catalog, not a CLDR
 override, not a region/script/variant override schema. Region/script
-detection (e.g. `es-AR` → `es-419`) is Drusa.
+detection (e.g. `es-AR` → `es-419`) is runtime work.
 
 ### 3.2 `translation` block — typed translation keys per resource/view
 
@@ -191,7 +191,7 @@ Slot rules:
 | `<bcp47-tag> "<text>"` (inside a key) | required, one per supported locale | tag → string | tags must appear in `app.locale.supported` |
 | `plural <arm>` (inside a key) | optional, repeatable | arm name | **closed**: `zero`, `one`, `two`, `few`, `many`, `other` (CLDR plural categories — the catalog is fixed by the spec, not invented by Lazuli) |
 
-The catalog path uses `<locale>` as a placeholder; Drusa resolves it
+The catalog path uses `<locale>` as a placeholder; the Lazuli Go runtime resolves it
 to `./i18n/customer.pt-BR.json`, `./i18n/customer.en-US.json`, etc.
 The catalog **format** (JSON / YAML / .properties / fluent / ICU
 MessageFormat) is a runtime/adapter decision; Lazuli only declares
@@ -201,13 +201,13 @@ Plural arm names are **CLDR plural categories** (`zero`, `one`, `two`,
 `few`, `many`, `other`) — closed by the spec, not by Lazuli. Doctor
 validates that the named arm matches one of the six. The actual plural
 *rule* (which arm fires for which integer in which locale) is CLDR
-data — Drusa picks it up.
+data — the runtime picks it up.
 
 **Variable interpolation**: keys may contain placeholders like
 `{customer_name}`, `{count}`. The placeholders are **declared
 syntactically inside the key body** but the **substitution semantics
-(simple `{name}` vs ICU MessageFormat) is Drusa-side**. The language
-declares the contract; Drusa renders.
+(simple `{name}` vs ICU MessageFormat) is runtime-side**. The language
+declares the contract; the runtime renders.
 
 **What this is not**: it is not a localization editor, not a translation
 memory, not a string deduplication framework, not a per-string
@@ -308,7 +308,7 @@ notification welcome_email
   template "./outreach/welcome_email.<locale>.mjml"
 ```
 
-Resolution: Drusa picks the template based on `ctx.locale` after
+Resolution: the Lazuli Go runtime picks the template based on `ctx.locale` after
 negotiation. The same path-placeholder mechanism as `translation
 catalog` keeps the contract uniform — both use `<locale>` as a literal
 filename token.
@@ -358,8 +358,9 @@ Sources walked:
 
 Output: per-feature JSON catalogs matching the declared
 `translation catalog "<path>"` shape. The exact JSON schema is **a
-Drusa contract**, not a language contract — the CLI invokes a Drusa
-helper to write the format that Drusa loads. Lazuli only owns the
+runtime contract**, not a language contract — the CLI invokes a Lazuli
+Go helper to write the format that the runtime loads. Lazuli only owns
+the
 extraction surface (which keys exist, what locales must cover them).
 
 Exit codes:
@@ -719,7 +720,7 @@ no codegen change for the back-compat path.
 
 Four new files under `runtime/go/lazuli/i18n/`. The boundary stays
 firm: the language declares **what locales exist, what translates,
-how to negotiate**; Drusa wires **ICU rendering, CLDR plural rules,
+how to negotiate**; the Lazuli Go runtime wires **ICU rendering, CLDR plural rules,
 catalog loading, locale-aware Time/Number/Currency formatting**;
 adapters export to TMS platforms (Lokalise, Crowdin, Phrase).
 
@@ -757,7 +758,7 @@ adapters export to TMS platforms (Lokalise, Crowdin, Phrase).
   interpolation, plural selection, gender selection) lives here.
 - **Lifecycle**: boot-time load; per-request render.
 - **Dependency**: an ICU library (`github.com/<tbd>/icu-go` or
-  similar). The exact library is a Drusa choice, not language.
+  similar). The exact library is a runtime choice, not language.
 - **Plural arms**: rendered via CLDR plural rules from
   `golang.org/x/text/feature/plural`.
 
@@ -766,7 +767,7 @@ adapters export to TMS platforms (Lokalise, Crowdin, Phrase).
 - **Capability**: locale-aware Time, Date, Number, Currency, Duration
   formatters. Wraps `golang.org/x/text/{message, number, currency}`.
 - **Lifecycle**: per-call.
-- **What Drusa exposes to generated code**: helpers like
+- **What the Lazuli Go runtime exposes to generated code**: helpers like
   `i18n.FormatCurrency(amount, currencyCode, locale)`,
   `i18n.FormatDateTime(t, locale)`, `i18n.FormatNumber(n, locale)`.
   Generated handlers call these when rendering responses.
@@ -775,7 +776,7 @@ adapters export to TMS platforms (Lokalise, Crowdin, Phrase).
   `@semantic.Money`, `@semantic.Decimal`, `@semantic.Timestamp`) —
   no new language surface needed.
 
-### 6.5 What Drusa does NOT do
+### 6.5 What the Lazuli Go runtime does NOT do
 
 - Translation management UI (TMS) — adapter (`@plugin/lokalise/tms`,
   `@plugin/crowdin/sync`, etc.).
@@ -786,7 +787,7 @@ adapters export to TMS platforms (Lokalise, Crowdin, Phrase).
   the platform's i18n library (react-intl, FormatJS, react-native-localize).
 
 The language commits to **three intent axes** (locales, translations,
-negotiation); Drusa commits to a stable interface (catalog loader +
+negotiation); the Lazuli Go runtime commits to a stable interface (catalog loader +
 renderer + formatter + middleware); adapters fill TMS, machine
 translation, and platform-specific glue.
 
@@ -1022,8 +1023,8 @@ Sources walked:
    all `app.locale.supported` tags have variants.
 
 Output format: JSON per feature per locale, matching the catalog
-path. The exact JSON schema is a Drusa contract, not a language
-contract — the CLI invokes a Drusa helper (or, in the absence of
+path. The exact JSON schema is a runtime contract, not a language
+contract — the CLI invokes a Lazuli Go helper (or, in the absence of
 the helper, writes a minimal `{ "<key>": "<text>", ... }` stub).
 
 Idempotent: re-running the CLI never overwrites authored translation
@@ -1055,7 +1056,7 @@ warning, never destructive replacement.
 - [ ] `lazuli generate` produces `dist/go/app/locale.gen.go` and
       per-feature `dist/go/<feature>/translations.gen.go` that compile
       against `runtime/go/lazuli/i18n/`.
-- [ ] Drusa runtime mounts the negotiation middleware, resolves
+- [ ] Lazuli Go runtime mounts the negotiation middleware, resolves
       `ctx.Locale`, loads the per-feature catalogs, renders typed
       keys with ICU MessageFormat + CLDR plural rules.
       **Runtime-team deliverable.**
@@ -1082,12 +1083,12 @@ Implementation **ordering** matters:
 5. **CLI** (`lazuli translate extract`).
 6. **Codegen** (2 generated artifacts: `locale.gen.go` per app +
    `translations.gen.go` per feature).
-7. **Runtime** (parallel Drusa work — 4 new files under
+7. **Runtime** (parallel Lazuli Go runtime work — 4 new files under
    `runtime/go/lazuli/i18n/`).
 8. **Highlighting** + docs (`docs/invariants.md` adds the contracts
    as normative).
 
-The cycle closes when the Drusa-team i18n cut lands and the
+The cycle closes when the runtime-team i18n cut lands and the
 closed-cycle criterion checklist all green.
 
 ## Speculative — deferred until pilot pressure (Cut i18n full chain)
@@ -1105,7 +1106,7 @@ ahead of pilot evidence**.
 | Timezone propagation (user + tenant) | §2.18 in roadmap. `default_timezone` exists as L0 (`app.lzi:8`); the bucket should extend `app.locale` symmetrically once a real product authors per-user timezones. |
 | Right-to-left text direction | UI-platform concern (React, Expo). Not declarative. |
 | Bidi text rendering | Same. |
-| Locale-aware sort / collation | Generated handler concern. `golang.org/x/text/collate` is a Drusa pickup. |
+| Locale-aware sort / collation | Generated handler concern. `golang.org/x/text/collate` is a runtime pickup. |
 | TMS sync (Lokalise, Crowdin, Phrase) | DA. Adapters subscribe to `lazuli translate extract` output and push to the TMS via webhook or polling. |
 | Machine translation hooks | DA. Same boundary as TMS sync. |
 | Translation memory | DA. Same. |
@@ -1126,5 +1127,5 @@ Three additions, formatted to match the existing table style
 ```
 | 38 | i18n bucket cycle — `app.locale` block + `locale_negotiate` decorator | planned | New `AppLocale`/`LocaleFallback`/`LocaleNegotiate` IR structs. `locale` block on `app.lzi` (default/supported/fallback) supersedes bare `default_locale` scalar. `locale_negotiate` on `app.runtime unit` + per-api override (source: accept_language/query_param/cookie/user_profile/subdomain; strategy: best_match/prefix_match/exact_match). 8 doctor diagnostics (`app_locale_*`, `locale_fallback_*`, `locale_negotiate_*`). LSP hovers + closed-catalog completions. Profile-aware. See `docs/proposals/bucket-i18n-cycle.md` §3.1 §3.3 §IR §Doctor/LSP. |
 | 39 | i18n bucket cycle — `translation` kind + `@translation.<key>` namespace | planned | New `Translation`/`TranslationKey`/`TranslationVariant`/`TranslationPluralArm` IR structs on `Feature` (and reserved on `Experience` for surface labels post-pilot). `translation` block declares catalog path + typed keys. CLDR plural arms (`zero/one/two/few/many/other`) closed by spec. New `@translation` reference namespace. `Rule.message_ref` extends existing `Rule.message` for typed key references; back-compat preserved. 5 doctor diagnostics (`translation_locale_*`, `translation_key_unknown`, `translation_plural_arm_unknown`, `translation_catalog_missing_locale_token`). 2 warnings (`rule_message_inline_with_multilocale`, `notification_template_locale_token_with_monolocale`). Surface labels in `.lzx` deferred to post-pilot (§3.7). See `docs/proposals/bucket-i18n-cycle.md` §3.2 §3.4 §3.5 §IR §Doctor/LSP. |
-| 40 | i18n bucket cycle — `lazuli translate extract` CLI + Drusa runtime | planned | New CLI subcommand walks rule `message @translation.*` refs + notification `template "<path>"` with `<locale>` token + authored `translation` keys; writes per-locale catalog stubs to `<out>/<feature>.<locale>.json`. `--check` flag gates CI. Drusa-team owns `runtime/go/lazuli/i18n/` package (4 files: contract.go, negotiate.go, catalog.go, format.go) — locale negotiation middleware (RFC 4647 best-match), per-feature catalog loader, ICU MessageFormat renderer (library TBD), CLDR plural rules via `golang.org/x/text/feature/plural`, locale-aware Time/Date/Number/Currency formatters via `golang.org/x/text/{message,number,currency}`. Adapter slots reserved for Lokalise/Crowdin/Phrase TMS sync (DA, pilot-gated). ICU full surface + gender + per-tenant locale + pseudo-locales deferred to Cut i18n full chain. See `docs/proposals/bucket-i18n-cycle.md` §3.6 §Runtime §Speculative. |
+| 40 | i18n bucket cycle — `lazuli translate extract` CLI + Lazuli Go runtime | planned | New CLI subcommand walks rule `message @translation.*` refs + notification `template "<path>"` with `<locale>` token + authored `translation` keys; writes per-locale catalog stubs to `<out>/<feature>.<locale>.json`. `--check` flag gates CI. The runtime team owns `runtime/go/lazuli/i18n/` package (4 files: contract.go, negotiate.go, catalog.go, format.go) — locale negotiation middleware (RFC 4647 best-match), per-feature catalog loader, ICU MessageFormat renderer (library TBD), CLDR plural rules via `golang.org/x/text/feature/plural`, locale-aware Time/Date/Number/Currency formatters via `golang.org/x/text/{message,number,currency}`. Adapter slots reserved for Lokalise/Crowdin/Phrase TMS sync (DA, pilot-gated). ICU full surface + gender + per-tenant locale + pseudo-locales deferred to Cut i18n full chain. See `docs/proposals/bucket-i18n-cycle.md` §3.6 §Runtime §Speculative. |
 ```
