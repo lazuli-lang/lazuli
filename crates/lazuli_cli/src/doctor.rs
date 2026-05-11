@@ -390,6 +390,14 @@ impl DoctorPackage {
         // declared environments + urls.
         diagnostics.extend(cors_diagnostics(self.app.as_ref()));
 
+        // Observability bucket cycle row 36 — `app.logging` and
+        // `app.tracing` closed-catalog + range + exporter binding
+        // checks.
+        diagnostics.extend(app_logging_tracing_diagnostics(
+            self.app.as_ref(),
+            self.registry.as_ref().map(|reg| &reg.manifest),
+        ));
+
         // Phase L — auth block cross-feature diagnostics.
         diagnostics.extend(auth_diagnostics(
             &self.auth_facts,
@@ -4151,6 +4159,161 @@ fn same_origin(declared_url: &str, origin: &str) -> bool {
     canon(declared_url) == canon(origin)
 }
 
+// =============================================================================
+// Observability bucket cycle row 36 — `app.logging` + `app.tracing`
+//
+// Six diagnostics check the closed catalogs and the sample-rate range:
+//   - `app_logging_level_invalid_diagnostics`        error
+//   - `app_logging_format_invalid_diagnostics`       error
+//   - `app_logging_redact_unknown_diagnostics`       error
+//   - `app_logging_sample_rate_range_diagnostics`    error
+//   - `app_tracing_sample_rate_range_diagnostics`    error
+//   - `app_tracing_exporter_unbound_diagnostics`     error
+//
+// The closed catalogs are deliberately small (4 levels, 2 formats, 2
+// redact strategies). New catalog entries require a language cut.
+//
+// See `docs/proposals/bucket-observability-cycle.md` §3.1 §3.2.
+// =============================================================================
+
+/// Closed catalog shared with `event.trace <name> level <level>` in
+/// row 37. Mirrors `log/slog` level discipline.
+const LOG_LEVEL_CATALOG: &[&str] = &["debug", "info", "warn", "error"];
+
+/// Closed catalog for `app.logging.format`. JSON for production
+/// pipelines, text for local development.
+const LOG_FORMAT_CATALOG: &[&str] = &["json", "text"];
+
+/// Closed catalog for `app.logging.redact`. `pii` consumes `@pii.*`
+/// tags; `none` opts out entirely.
+const LOG_REDACT_CATALOG: &[&str] = &["pii", "none"];
+
+fn app_logging_tracing_diagnostics(
+    app: Option<&DoctorAppManifest>,
+    registry: Option<&ir::AppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    let manifest_path = app_manifest.path.clone();
+
+    if let Some(logging) = app_manifest.manifest.logging.as_ref() {
+        if let Some(level) = logging.level.as_deref() {
+            if !LOG_LEVEL_CATALOG.contains(&level) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_level_invalid_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.level {level}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(LOG_LEVEL_CATALOG),
+                    ),
+                });
+            }
+        }
+        if let Some(format) = logging.format.as_deref() {
+            if !LOG_FORMAT_CATALOG.contains(&format) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_format_invalid_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.format {format}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(LOG_FORMAT_CATALOG),
+                    ),
+                });
+            }
+        }
+        if let Some(redact) = logging.redact.as_deref() {
+            if !LOG_REDACT_CATALOG.contains(&redact) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_redact_unknown_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.redact {redact}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(LOG_REDACT_CATALOG),
+                    ),
+                });
+            }
+        }
+        if let Some(rate) = logging.sample_rate {
+            if !(0.0..=1.0).contains(&rate) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_logging_sample_rate_range_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.logging.sample_rate {rate}` must be a float in `[0.0, 1.0]`. Use `1.0` for full capture and `0.0` to disable."
+                    ),
+                });
+            }
+        }
+    }
+
+    if let Some(tracing) = app_manifest.manifest.tracing.as_ref() {
+        if let Some(rate) = tracing.sample_rate {
+            if !(0.0..=1.0).contains(&rate) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_tracing_sample_rate_range_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.tracing.sample_rate {rate}` must be a float in `[0.0, 1.0]`. Use `1.0` for full capture and `0.0` to disable."
+                    ),
+                });
+            }
+        }
+        if let Some(exporter) = tracing.exporter.as_deref() {
+            // The exporter slot must resolve to a `registry.capabilities
+            // <name> tracing` entry (declared as the `name`, valued as
+            // `tracing`) or to an integration. We accept any
+            // `AppCapability` whose value is `tracing` *or* whose name
+            // matches the exporter literal.
+            let resolved = registry
+                .map(|reg| {
+                    reg.capabilities
+                        .iter()
+                        .any(|cap| cap.name == exporter && cap.value == "tracing")
+                })
+                .unwrap_or(false);
+            if !resolved {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_tracing_exporter_unbound_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.tracing.exporter {exporter}` does not resolve to a `registry.capabilities` entry of kind `tracing`. Declare it in `registry.capabilities`, or remove the line to let the runtime pick a default.",
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn catalog_list(items: &[&str]) -> String {
+    items
+        .iter()
+        .map(|i| format!("`{i}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 // -----------------------------------------------------------------------------
 // Cut A.9 — `approval` primitive on commands
 // -----------------------------------------------------------------------------
@@ -7170,6 +7333,154 @@ app MyApp
         assert!(
             codes(&diagnostics).contains("cors_unknown_environment_diagnostics"),
             "expected cors_unknown_environment_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Observability bucket cycle row 36 — `app.logging` / `app.tracing`
+    // closed catalogs + sample-rate range + exporter binding.
+
+    #[test]
+    fn doctor_rejects_app_logging_level_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    level verbose
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_level_invalid_diagnostics"),
+            "expected app_logging_level_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_logging_format_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    format yaml
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_format_invalid_diagnostics"),
+            "expected app_logging_format_invalid_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_logging_redact_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    redact secrets
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_redact_unknown_diagnostics"),
+            "expected app_logging_redact_unknown_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_logging_sample_rate_above_one() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    sample_rate 2.5
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_logging_sample_rate_range_diagnostics"),
+            "expected app_logging_sample_rate_range_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_tracing_sample_rate_below_zero() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  tracing
+    sample_rate -0.1
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_tracing_sample_rate_range_diagnostics"),
+            "expected app_tracing_sample_rate_range_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_app_tracing_exporter_unbound() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  tracing
+    exporter mystery
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_tracing_exporter_unbound_diagnostics"),
+            "expected app_tracing_exporter_unbound_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_app_logging_with_canonical_values() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  logging
+    level info
+    format json
+    redact pii
+    sample_rate 1.0
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes_set = codes(&diagnostics);
+        assert!(
+            !codes_set.contains("app_logging_level_invalid_diagnostics"),
+            "canonical logging must not fire level diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            !codes_set.contains("app_logging_format_invalid_diagnostics"),
+            "canonical logging must not fire format diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            !codes_set.contains("app_logging_redact_unknown_diagnostics"),
+            "canonical logging must not fire redact diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            !codes_set.contains("app_logging_sample_rate_range_diagnostics"),
+            "canonical logging must not fire sample_rate diagnostic; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

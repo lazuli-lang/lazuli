@@ -126,6 +126,14 @@ struct ExpandSet {
     /// feature symmetry checks live in doctor (storage bucket cycle);
     /// this projection is the per-feature observable.
     storage: bool,
+    /// Observability bucket cycle row 36 — `--expand=tracing` /
+    /// `--expand=logging`. The `AppManifest.logging` /
+    /// `AppManifest.tracing` blocks always serialize when populated;
+    /// these labels mark the report as having intentionally surfaced
+    /// the observability axis so consumers (LLM, CLI users, docs)
+    /// know the projection is current.
+    tracing: bool,
+    logging: bool,
 }
 
 impl ExpandSet {
@@ -145,6 +153,8 @@ impl ExpandSet {
             expose: true,
             auth: true,
             storage: true,
+            tracing: true,
+            logging: true,
         }
     }
 
@@ -163,6 +173,8 @@ impl ExpandSet {
             || self.expose
             || self.auth
             || self.storage
+            || self.tracing
+            || self.logging
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -208,6 +220,12 @@ impl ExpandSet {
         }
         if self.storage {
             labels.push("storage");
+        }
+        if self.tracing {
+            labels.push("tracing");
+        }
+        if self.logging {
+            labels.push("logging");
         }
         labels
     }
@@ -436,8 +454,10 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "expose" => set.expose = true,
             "auth" => set.auth = true,
             "storage" => set.storage = true,
+            "tracing" => set.tracing = true,
+            "logging" => set.logging = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, or storage"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, or logging"
             ),
         }
     }

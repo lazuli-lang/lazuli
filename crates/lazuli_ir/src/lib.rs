@@ -1267,7 +1267,10 @@ pub struct BlockBinding {
 // Experience IR — `.lzx`
 // =============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Observability bucket cycle row 36 — `Eq` dropped to match the
+// downstream `AppManifest` change (which now carries `Option<f64>`
+// sample-rate fields). `PartialEq` is preserved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExperienceModule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<AppManifest>,
@@ -1279,7 +1282,13 @@ pub struct ExperienceModule {
     pub surfaces: Vec<PlatformSurface>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Observability bucket cycle row 36 — `AppManifest` no longer
+// derives `Eq` because the new `logging.sample_rate` /
+// `tracing.sample_rate` fields are `Option<f64>`. `f64` is
+// intentionally non-`Eq` due to NaN; `PartialEq` is sufficient for
+// the snapshot / fixture-equality assertions that depend on this
+// struct.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppManifest {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1326,6 +1335,12 @@ pub struct AppManifest {
     pub runtime: Vec<AppRuntimeUnit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deploy: Option<AppDeploy>,
+    /// Observability bucket cycle row 36 — `app.logging` block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logging: Option<AppLogging>,
+    /// Observability bucket cycle row 36 — `app.tracing` block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracing: Option<AppTracing>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -1587,6 +1602,84 @@ pub struct AppDeploy {
     pub destructive_migrations: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollback: Option<String>,
+}
+
+/// Observability bucket cycle row 36 — declarative logging contract.
+/// Lives directly under `app <Name>` alongside `urls`/`runtime`/`deploy`.
+/// The language fixes intent (level, format, redact strategy); the
+/// runtime materialises the slog handler stack. Adapter selection
+/// (slog/zap/zerolog) lives in `registry.capabilities`.
+///
+/// All slots are optional; `None` means "adapter default". Authors
+/// only need to declare the values they intend to override.
+///
+/// Closed catalogs:
+///   - level:  debug, info, warn, error
+///   - format: json, text
+///   - redact: pii, none
+///
+/// Doctor:
+///   - `app_logging_level_invalid_diagnostics`
+///   - `app_logging_format_invalid_diagnostics`
+///   - `app_logging_redact_unknown_diagnostics`
+///   - `app_logging_sample_rate_range_diagnostics`
+///
+/// See `docs/proposals/bucket-observability-cycle.md` §3.1.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AppLogging {
+    /// One of the level catalog tokens. `None` means adapter default
+    /// (typically `info` for production, `debug` for local).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
+    /// One of `json` (production-friendly, machine-parseable) or
+    /// `text` (dev-friendly, human-readable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// PII redaction policy. `pii` auto-strips fields tagged with any
+    /// `@pii.*` namespace; `none` disables auto-redaction (adapter
+    /// may still redact). `None` defers to adapter default (`pii`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redact: Option<String>,
+    /// Optional sampling rate in `[0.0, 1.0]`. `None` means "log
+    /// every record". The runtime turns this into a slog `LevelVar`
+    /// or sampling handler.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Observability bucket cycle row 36 — declarative tracing contract.
+/// Sibling to `AppLogging`. Declares whether trace spans are
+/// propagated and at what sampling rate. The exporter wiring lives
+/// in `registry.capabilities` (`tracing: @adapter.tracing`); this
+/// block only declares the intent.
+///
+/// All slots are optional; `None` means adapter default.
+///
+/// Doctor:
+///   - `app_tracing_sample_rate_range_diagnostics`
+///   - `app_tracing_exporter_unbound_diagnostics`
+///
+/// See `docs/proposals/bucket-observability-cycle.md` §3.2.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AppTracing {
+    /// Whether the runtime propagates trace context across the
+    /// request graph. `None` is treated as `true` by the runtime
+    /// (matches W3C default expectations).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub propagate: Option<bool>,
+    /// Head sampling rate in `[0.0, 1.0]`. `1.0` captures every
+    /// span; `0.0` disables capture (still propagates context).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<f64>,
+    /// Optional adapter slot name. Resolves to a
+    /// `registry.capabilities <slot>: tracing` entry. `None` lets
+    /// the runtime pick the default (no-op or stdout).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exporter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

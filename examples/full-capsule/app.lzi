@@ -93,3 +93,12 @@ app AcmeCRM
     migration_lock required
     destructive_migrations require_approval
     rollback on_failed_healthcheck
+
+  logging
+    level info
+    format json
+    redact pii
+
+  tracing
+    propagate true
+    sample_rate 0.1
