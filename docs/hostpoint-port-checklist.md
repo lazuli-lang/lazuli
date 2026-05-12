@@ -6,12 +6,12 @@
 > **Audit checkpoint (2026-05-12)**: este arquivo é o checklist de
 > **portabilidade do Hostpoint em cima do Lazuli**, não uma lista de bugs do
 > app Hostpoint original. Ele mistura pré-requisitos Lazuli (`Phase Prep`) e o
-> port do produto Hostpoint (`Phase 1+`). Depois das batches c21-c150, a infra
-> Lazuli avançou muito, mas o produto Hostpoint ainda não foi portado. Use
-> `docs/next-checklist.md` rows 60-76 como ledger de execução. Gate atual:
-> `cargo test -p lazuli_codegen_go --features smoke
-> full_capsule_compiles_with_go_build` ainda falha em
-> `customer_auth/command.gen.go: undefined: AuthSession`.
+> port do produto Hostpoint (`Phase 1+`). Depois das batches c21-c180, a infra
+> Lazuli avançou muito e o smoke do codegen Go está verde, mas o produto
+> Hostpoint real ainda não foi portado. Use `docs/next-checklist.md` rows
+> 60-77 como ledger de execução. Gate atual: `cargo test -p
+> lazuli_codegen_go --features smoke` passa; próximo gate é rodar um happy
+> path gerado de `examples/hostpoint-mini/` e iniciar Phase 1 no source real.
 
 ## Princípio fundador
 
@@ -28,18 +28,21 @@
 
 **Estimativa total: ~13-17 cells.** (Revisado pra baixo após correção: Lazuli Go wire ≠ implementação from scratch.)
 
-**Status audit 2026-05-12**: Phase Prep está majoritariamente implementada no
-lado Lazuli, mas não fechada. Confirmado verde: `go test ./...` em
-`runtime/go`, `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli`.
-Confirmado vermelho: smoke e2e do codegen Go (`AuthSession`). O port real do
-produto Hostpoint começa somente após esse gate.
+**Status audit 2026-05-12**: Phase Prep está fechada para o gate de codegen
+compilável/gofmt-clean e majoritariamente fechada no runtime Lazuli. Confirmado
+verde: `go test ./...` em `runtime/go`, `cargo test -p lazuli_codegen_go`,
+`cargo test -p lazuli_cli`, `cargo test -p lazuli_codegen_go --features smoke`
+e `lazuli check examples/hostpoint-mini`. O port real do produto Hostpoint ainda
+não começou; `hostpoint-mini` é playground de forma e smoke, não migração do app.
+Depois desta reconciliação, o checklist mostra 122 feitos / 211 totais, com os
+itens de produto real mantidos abertos quando só existe fixture/runtime.
 
-### 1.1 Codegen Lazuli → Go (BLOCKER #1 — ~12-15 cells)
+### 1.1 Codegen Lazuli → Go (Gate fechado — ~12-15 cells)
 
 Emitter que consome IR (já tipado via Phase L Tier 1-4) e produz Go que compila.
 
 - [x] `lazuli generate go --out dist/go/` CLI verb funcional
-- [x] Templates v0 por kind (gerados a partir do IR; smoke ainda bloqueado em `AuthSession`):
+- [x] Templates v0 por kind (gerados a partir do IR; smoke verde):
   - [x] `dist/go/<feature>/resource.gen.go` — structs + resource contract + db/json tags
   - [x] `dist/go/<feature>/command.gen.go` — typed input/output contract + handler stubs
   - [x] `dist/go/<feature>/query.gen.go` — list/lookup/sql contracts + cache metadata
@@ -50,11 +53,11 @@ Emitter que consome IR (já tipado via Phase L Tier 1-4) e produz Go que compila
   - [x] `dist/go/<feature>/notification.gen.go` — channel/digest/throttle contract emission
   - [x] `dist/go/<feature>/storage.gen.go` — file contract + signed/direct upload metadata
   - [x] `dist/go/<feature>/translation.gen.go` — embed catalog loader + placeholder catalog file
-- [ ] Build script roda `gofmt` no output — printer gera Go formatado; ainda não há harness separado de `gofmt`
-- [ ] Smoke test: codegen `examples/full-capsule/` → `go build ./dist/go/...` passa sem warning
+- [x] Build script/harness roda `gofmt` no output — `full_capsule_generated_go_is_gofmt_clean`
+- [x] Smoke test: codegen `examples/full-capsule/` → `go build ./dist/go/...` passa
 - [ ] Integration test: codegen + Lazuli Go local + sqlite mock executa happy-path login
 
-### 1.2 Lazuli Go wire (BLOCKER #2 — ~1.5-2 cells totais)
+### 1.2 Lazuli Go wire (Quase fechado — ~1.5-2 cells totais)
 
 Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime/go/lazuli/<bucket>/`. **Não é implementação** — é importar + chamar.
 
@@ -85,7 +88,7 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 #### Observability
 - [x] `log/slog` (stdlib) — wire JSON handler em `observability/logging.go` (~15 LOC)
 - [x] `go.opentelemetry.io/otel/sdk/trace` + `otlptracehttp` exporter — wire em `observability/tracing.go` (~25 LOC)
-- [ ] `getsentry/sentry-go` — wire panic handler (~15 LOC)
+- [x] `getsentry/sentry-go` — wire panic/error reporter
 
 #### Email
 - [x] `github.com/sendgrid/sendgrid-go` — primary (~20 LOC)
@@ -97,89 +100,94 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 ### 1.3 Codegen consume Tier 4 IR completo
 
 - [x] `Command.audit/approval/invalidates/external_calls` typed (já no IR) → codegen emite middleware + Postgres audit insert
-- [ ] `Resource.retention` → codegen emite cron job de anonymization
-- [ ] `Field.derived_from` → codegen emite computed column ou GENERATED ALWAYS AS
+- [ ] `Resource.retention` → codegen emite cron job de anonymization — metadata/intent now emitted; cron job still open
+- [ ] `Field.derived_from` → codegen emite computed column ou GENERATED ALWAYS AS — DDL intent comments emitted; generated column still open
 - [x] `CapabilityRef::Hashed/Encrypted/Token` → codegen emite import + chamada da lib correspondente
 
 ---
 
 ## §2. Features-core do Hostpoint mapeadas
 
+**Leitura dos checkboxes desta seção**: itens marcados como feitos são
+capacidades/modelos já representados em Lazuli ou em `examples/hostpoint-mini/`.
+Eles não significam que os dados/telas/serviços do Hostpoint real foram
+migrados. A migração real começa em §3 Phase 1.
+
 ### 2.1 Auth & User (Phase 1 port — 6-8 cells)
 
-- [ ] `feature auth_hostpoint`:
-  - [ ] `auth identity Customer.email`
-  - [ ] `auth password algorithm argon2id hash @fn.hash_password verify @fn.verify_password rate_limit "5 per 10 minutes per ip"`
-  - [ ] `auth oauth google adapter @adapter.google_oauth`
-  - [ ] `auth sessions resource Session ttl "7 days" refresh false`
-- [ ] `resource User` (mapeado de Firestore `auth_users`):
-  - [ ] `email: @semantic.Email @pii.contact required unique`
-  - [ ] `name: Text required`
-  - [ ] `role: UserRole required` (enum traveler|host)
+- [x] `feature auth_hostpoint` shape in `hostpoint-mini` (`feature account`):
+  - [x] `auth identity User.email`
+  - [x] `auth password algorithm argon2id hash @fn.hash_password verify @fn.verify_password rate_limit "5 per 10 minutes per ip"`
+  - [ ] `auth oauth google adapter @adapter.google_oauth` — runtime Google OAuth exists; mini fixture still password-first
+  - [x] `auth sessions resource Session ttl "30 days" refresh true`
+- [ ] `resource User` production migration (Firestore `auth_users` still not ported):
+  - [x] `email: @semantic.Email @pii.contact required unique`
+  - [x] `name: Text required`
+  - [x] `role: UserRole required` (enum guest|host|admin in mini; traveler/host final naming pending)
   - [ ] `fcm_token: Text optional` (mobile push)
   - [ ] `profile_photo: @cap.File(visibility=public, max_size=5mb, accept=image/*) optional`
   - [ ] `tenancy by user_id` (single-tenant — sem org)
-- [ ] `resource Session` (replace SharedPreferences + token refresh loop):
-  - [ ] `user: User required on_delete cascade`
-  - [ ] `expires_at: DateTime required`
-  - [ ] `refresh_token_hash: @cap.Hashed(algorithm:argon2id) required`
+- [x] `resource Session` shape (replace SharedPreferences + token refresh loop):
+  - [x] `user: User required on_delete cascade`
+  - [x] `expires_at: DateTime required`
+  - [x] `refresh_token_hash: @cap.Hashed(algorithm:argon2id) required`
 - [ ] Commands:
-  - [ ] `register` (email+password+role)
-  - [ ] `login` (email+password → session)
-  - [ ] `logout` (invalidate session)
-  - [ ] `request_password_reset` (magic link via email)
-  - [ ] `reset_password` (token + new password)
+  - [x] `register` (email+password+role)
+  - [x] `login` (email+password → session)
+  - [x] `logout` (invalidate session)
+  - [x] `request_password_reset` (magic link via email)
+  - [x] `reset_password` (token + new password)
   - [ ] `enable_mfa` (TOTP setup)
 - [ ] Policies:
-  - [ ] `@policy.same_user` (user can only modify own profile)
-  - [ ] `@role.traveler` / `@role.host` (role-based dispatch)
+  - [x] `@policy.same_user` equivalent (`@scope.self`) for profile fields
+  - [x] `@role.traveler` / `@role.host` role-based dispatch shape (`guest`/`host` in mini)
 
 ### 2.2 Property & Service (Phase 2 port — 17-21 cells)
 
-- [ ] `resource Property`:
-  - [ ] `host: User required on_delete cascade`
-  - [ ] `name: Text required`
-  - [ ] `description: Text optional`
-  - [ ] `address: Text required`
-  - [ ] `coordinates: GeoPoint required` ← **NEW: precisa de `@semantic.GeoPoint` ou `Latitude`+`Longitude` no IR**
+- [ ] `resource Property` production migration:
+  - [x] `host: User required on_delete cascade` shape (`owner: User`) in mini
+  - [x] `name: Text required` shape (`title: Text`) in mini
+  - [x] `description: Text optional`
+  - [x] `address: Text required` shape (`address` optional + `city`/`country`) in mini
+  - [x] `coordinates: GeoPoint required` via `@semantic.GeoPoint`
   - [ ] `photos: many Photo` (cap_file array)
-  - [ ] `amenities: Text[]` (array column)
+  - [x] `amenities: Text[]` shape present as `amenities: Text optional`; array cardinality still open
   - [ ] `rules: Text optional`
   - [ ] `tenancy by host_id`
-  - [ ] `soft_delete; retention 7y then anonymize`
-- [ ] `resource Service`:
-  - [ ] `property: Property required on_delete cascade`
-  - [ ] `host: User required on_delete cascade`
+  - [ ] `soft_delete; retention 7y then anonymize` — `soft_delete` present; retention metadata path exists, anonymization job open
+- [ ] `resource Service` production migration:
+  - [x] `property: Property required on_delete cascade`
+  - [x] `host: User required on_delete cascade`
   - [ ] `category: ServiceCategory required` (enum)
-  - [ ] `name: Text required`
-  - [ ] `price_cents: Integer required` (não Float — sempre cents)
-  - [ ] `currency: @semantic.Currency required` (default BRL)
+  - [ ] `name: Text required` — mini models booking service rather than sellable service listing
+  - [x] `price_cents: Integer required` (não Float — sempre cents) shape via `amount: @semantic.Money`
+  - [x] `currency: @semantic.Currency required` (default BRL)
   - [ ] `photos: @cap.File(visibility=public, max_size=3mb, accept=image/*)[3]` (max 3)
   - [ ] `available_hours: TimeRange[]`
-- [ ] Commands CRUD pra ambos (create/update/list/delete/detail)
+- [x] Commands CRUD/lifecycle shape pra ambos in mini (`create`, `update_listing`, `archive`, booking commands)
 - [ ] Queries:
-  - [ ] `properties.list filter by_amenity, by_price_range search params.q over name, description` (com cache `5 minutes` namespace `properties`)
-  - [ ] `properties.lookup by_id`
+  - [x] `properties.list filter ... search params.q over name, description` shape via mini list/search queries
+  - [x] `properties.lookup by_id`
   - [ ] `properties.search_by_radius(lat, lng, radius_km)` ← **PostGIS ou Haversine**
 - [ ] Indexes (mapeado de `firestore.indexes.json`):
   - [ ] `(host_id, created_at desc)`
   - [ ] `(category, price_cents)`
-  - [ ] `GIST (coordinates)` para PostGIS radius search
+  - [x] `GIST (coordinates)` para PostGIS radius search — codegen emits GiST for `@semantic.GeoPoint`
 
 ### 2.3 Geolocation (NEW — bucket separado)
 
 **Decisão estratégica**: maps + geocoding ficam em **adapter packs**, não Lazuli core. Geo primitives em IR são closed-set.
 
-- [ ] IR: adicionar `BuiltinType::GeoPoint` (lat+lng tuple) e/ou `@semantic.Latitude` + `@semantic.Longitude`
-- [ ] Storage: PostGIS extension nativa (geo queries no Postgres direto, sem provider externo)
-  - [ ] Codegen emite `CREATE EXTENSION IF NOT EXISTS postgis;` em migration
-  - [ ] Codegen emite `GEOGRAPHY(POINT, 4326)` para `GeoPoint` columns
-  - [ ] Codegen emite `ST_DWithin` para `search_by_radius` queries
-- [ ] Adapter `@runtime/google_maps` (geocoding endereço → coords; uma operation): wire `googlemaps.github.io/maps-services-go` (~20 LOC)
+- [x] IR: adicionar `BuiltinType::GeoPoint` (lat+lng tuple) e/ou `@semantic.Latitude` + `@semantic.Longitude`
+- [x] Storage: PostGIS extension nativa (geo queries no Postgres direto, sem provider externo)
+  - [x] Codegen emite `CREATE EXTENSION IF NOT EXISTS postgis;` em migration
+  - [x] Codegen emite `GEOGRAPHY(POINT, 4326)` para `GeoPoint` columns
+  - [x] Runtime helper emite `ST_DWithin` predicate; query.codegen dedicado `search_by_radius` ainda fica para Phase 2
+- [x] Adapter `@runtime/google_maps` (geocoding endereço → coords; uma operation): wire `googlemaps.github.io/maps-services-go` (~20 LOC)
 - [ ] Adapter alternativo `@runtime/mapbox` (mesmo contract)
 - [ ] Adapter alternativo `@runtime/nominatim` (OpenStreetMap, gratuito; ~30 LOC)
-- [ ] `requires integration maps: MapsProvider` em features que precisam geocoding
-- [ ] **Não** wirar map rendering — isso é client-side (Flutter `google_maps_flutter` ou Expo `react-native-maps`); Lazuli core não toca UI rendering
+- [x] `requires integration maps: MapsProvider` em features que precisam geocoding
+- [x] **Não** wirar map rendering — isso é client-side (Flutter `google_maps_flutter` ou Expo `react-native-maps`); Lazuli core não toca UI rendering
 
 ### 2.4 Transactions & Payment (Phase 4 port — 7 cells)
 
@@ -190,15 +198,15 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
   - [ ] `status: TransactionStatus required` (enum pending|completed|cancelled|refunded)
   - [ ] `amount_paid_cents: Integer required`
   - [ ] `mercadopago_payment_id: Text optional unique`
-- [ ] `requires integration payment_gateway: PaymentGateway`
-- [ ] App binding `payment_gateway = integrations.mercadopago` em `app.lzi`
-- [ ] `registry.lzi`: `integrations.mercadopago` typed
+- [x] `requires integration payment_gateway: PaymentGateway`
+- [x] App binding `payment_gateway = integrations.mercadopago` em `app.lzi`
+- [x] `registry.lzi`: `integrations.mercadopago` typed
 - [ ] Adapter pack `@runtime/mercadopago`:
   - [ ] OAuth wire (~30 LOC)
   - [ ] Token refresh wire (~15 LOC)
-  - [ ] Webhook signature verify (~20 LOC; usa HMAC SHA256)
-  - [ ] Create preference API call (~25 LOC)
-- [ ] `webhook mercadopago_callback` com `verify @validator.mercadopago_hmac tenant_from payload.external_reference`
+  - [x] Webhook signature verify (~20 LOC; usa HMAC SHA256)
+  - [x] Create preference API call (~25 LOC)
+- [x] `webhook mercadopago_callback` com `verify @validator.mercadopago_hmac tenant_from payload.external_reference`
 - [ ] `workflow transaction_lifecycle` no resource:
   - [ ] pending → completed (em webhook approved)
   - [ ] pending → cancelled (timeout 24h ou user cancel)
@@ -206,78 +214,77 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 
 ### 2.5 Reviews (Phase 4 port — 2 cells)
 
-- [ ] `resource Review`:
-  - [ ] `reviewer: User required on_delete cascade`
-  - [ ] `target_id: ID required`
-  - [ ] `target_type: ReviewTargetType required` (enum property|service|host)
-  - [ ] `stars: Integer required` (1-5)
-  - [ ] `text: Text optional max 1000`
-- [ ] Commands:
-  - [ ] `create_review` com policy `@policy.one_review_per_target_per_user`
-- [ ] Queries:
-  - [ ] `reviews.list_by_target(target_id, target_type)`
+- [ ] `resource Review` production migration:
+  - [x] `reviewer: User required on_delete cascade`
+  - [x] target fields shape (mini uses `service` + `property` refs instead of polymorphic `target_id`/`target_type`)
+  - [x] `stars: Integer required` (1-5)
+  - [x] `text: Text optional max 1000`
+- [x] Commands:
+  - [x] `create_review` shape
+- [x] Queries:
+  - [x] `reviews.list_by_target(target_id, target_type)` shape via property/status list query
   - [ ] `query.sql ./queries/rating_aggregate.sql` (avg stars + count, scope_by target)
 
 ### 2.6 Chat & Messaging (Phase 3 port — 6 cells)
 
-- [ ] `resource Chat`:
-  - [ ] `participants: User[]` (array — non-canonical em SQL; usar JSONB ou tabela junction)
+- [ ] `resource Chat` production migration:
+  - [x] participants shape via `guest` + `host` refs
   - [ ] `last_message_at: DateTime optional`
-- [ ] `resource Message`:
-  - [ ] `chat: Chat required on_delete cascade`
-  - [ ] `sender: User required on_delete restrict`
-  - [ ] `body: Text required`
-  - [ ] `sent_at: DateTime required defaults now`
+- [x] `resource Message`:
+  - [x] `chat: Chat required on_delete cascade`
+  - [x] `sender: User required on_delete restrict` shape (`author: User`)
+  - [x] `body: Text required`
+  - [x] `sent_at: DateTime required defaults now`
   - [ ] `read_at: DateTime optional`
-- [ ] Commands:
-  - [ ] `send_message` emits `event message_sent`
+- [x] Commands:
+  - [x] `send_message` emits `event message_sent`
   - [ ] `mark_message_read`
-- [ ] Queries:
-  - [ ] `messages.list_by_chat(chat_id)` (paginated, com cache 30s)
-- [ ] `event_group message_*` (replicar pattern Phase L Tier 3)
+- [x] Queries:
+  - [x] `messages.list_by_chat(chat_id)` (paginated, com cache 30s)
+- [ ] `event_group message_*` (replicar pattern Phase L Tier 3) — `message_sent` event exists; explicit group still open
 - [ ] **MVP**: polling — Expo app re-fetch `messages.list_by_chat` every 2s
 - [ ] **Future (Cut realtime gated)**: `channel chat_messages` + `subscription` + WebSocket (proposal pronto)
 
 ### 2.7 Notifications (Phase 3 port — 2 cells)
 
-- [ ] `notification new_message_email`:
-  - [ ] `trigger event chat.message_sent`
-  - [ ] `channel email`
-  - [ ] `recipient input.recipient_email`
+- [ ] `notification new_message_email` production template:
+  - [x] `trigger event chat.message_sent`
+  - [x] `channel email`
+  - [x] `recipient input.recipient_email` shape via notification queue recipient
   - [ ] `template "./templates/new_message.<locale>.tmpl"`
-  - [ ] `throttle max_per "1 hour" per_recipient burst 3` (decisão B — convivendo com rate_limit)
-- [ ] `notification booking_confirmed`:
-  - [ ] `trigger event payment.transaction_completed`
-  - [ ] `channel email, push`
+  - [x] `throttle max_per "1 hour" per_recipient burst 3` (runtime throttle helpers exist)
+- [ ] `notification booking_confirmed` production template:
+  - [x] `trigger event payment.transaction_completed` shape via payment events
+  - [x] `channel email, push`
   - [ ] `template "./templates/booking_confirmed.<locale>.tmpl"`
 - [ ] Channels:
-  - [ ] Email: Sendgrid adapter
-  - [ ] Push: FCM adapter (`firebase.google.com/go/v4/messaging`)
+  - [x] Email: Sendgrid adapter
+  - [x] Push: Expo Push adapter (`runtime/go/lazuli/notifications/expo.go`)
 
 ### 2.8 i18n (já mostly done — 1 cell pra port)
 
 - [ ] `app.locale default "pt-BR" supported "pt-BR", "en-US"` (legacy hostpoint só pt-BR; novo Expo bilíngue)
 - [ ] `translation hostpoint_messages` em `customer_auth` feature
-- [ ] `locale_negotiate source accept_language strategy best_match` em runtime unit
-- [ ] Templates email com `<locale>` token
+- [x] `locale_negotiate source accept_language strategy best_match` em runtime unit
+- [x] Templates email com `<locale>` token
 
 ### 2.9 Observability (já done na Lazuli — 0 cells port)
 
 - [x] Built-in trace events `command_run`/`job_run`/`webhook_run`/`agent_run` (Lazuli já entrega)
 - [x] `app.logging level info format json redact pii.*`
 - [x] `app.tracing propagate true sample_rate 0.1 exporter otlp`
-- [ ] Sentry adapter wire (~15 LOC em Lazuli Go)
+- [x] Sentry adapter wire (~15 LOC em Lazuli Go)
 
 ### 2.10 File Storage (já mostly done — wire S3 em Lazuli Go)
 
 - [ ] Property/Service photos: `@cap.File(visibility=public, max_size=5mb, accept=image/*)`
 - [ ] User profile photo: idem
 - [ ] Optional docs privadas: `@cap.File(visibility=signed, signed_ttl="24h", max_size=10mb)`
-- [ ] Codegen emite presigned URL endpoint para direct upload S3
+- [x] Runtime expõe helper HTTP para direct upload S3/local; codegen endpoint específico por feature ainda é Phase 2
 
 ### 2.11 Search (MVP simples, avançado deferred)
 
-- [ ] **MVP**: `query.list filter search params.q over name, description` (LIKE SQL — já cobre L1)
+- [x] **MVP**: `query.list filter search params.q over name, description` (LIKE SQL — já cobre L1)
 - [ ] **Phase 6+ (Cut search gated)**: Meilisearch adapter quando volume justificar (~10K+ properties)
 
 ---
@@ -286,43 +293,43 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 
 ### Phase Prep (3 semanas, 13-17 cells)
 
-- [ ] **Codegen real** emite `dist/go/<feature>/*.gen.go` que compila
-- [ ] **Lazuli Go wire** (10+ libs Go): argon2 + pgx + chi + River + S3 + slog + OTEL + sendgrid + oauth2 + totp
-- [ ] **Smoke test**: `examples/full-capsule/` → `go build` → roda em Docker compose local
-- [ ] **Decision gate**: codegen + Lazuli Go runnable até 2026-06-01? Proceed.
+- [x] **Codegen real** emite `dist/go/<feature>/*.gen.go` que compila
+- [ ] **Lazuli Go wire** (10+ libs Go): argon2 + pgx + chi + River + S3 + slog + OTEL + sendgrid + oauth2 + totp — all except chi decision are wired/tested
+- [ ] **Smoke test**: `examples/full-capsule/` → `go build` → roda em Docker compose local — `go build` smoke green; Docker/local app run still open
+- [x] **Decision gate**: codegen + Lazuli Go runnable até 2026-06-01? Proceed for Phase 1 planning.
 
 ### Phase 1 — Auth Port (3 semanas, 6-8 cells)
 
-- [ ] Port firebase_auth → Lazuli `auth` block
-- [ ] Port Firestore `auth_users` → `resource User` + `Session`
+- [ ] Port firebase_auth → Lazuli `auth` block — modeled in `hostpoint-mini`; real source migration open
+- [ ] Port Firestore `auth_users` → `resource User` + `Session` — modeled in `hostpoint-mini`; data migration open
 - [ ] Migrate rules → `@policy.same_user` + `@role.traveler/host`
 - [ ] Commands: register/login/logout/reset/mfa
 - [ ] Golden eval login_password + login_oauth
-- [ ] Lazuli Go executa login real (argon2id wire) end-to-end
+- [ ] Lazuli Go executa login real (argon2id wire) end-to-end — password/session helpers exist; generated happy path still open
 
 ### Phase 2 — Data Port (5-6 semanas, 17-21 cells)
 
-- [ ] `resource Property` + `Service` + indexes
-- [ ] Geolocation: PostGIS column + radius search query
-- [ ] Maps adapter wire (Google Maps geocoding inicial)
+- [ ] `resource Property` + `Service` + indexes — modeled in `hostpoint-mini`; source/data migration open
+- [ ] Geolocation: PostGIS column + radius search query — IR + DDL + runtime predicate exist; generated query open
+- [x] Maps adapter wire (Google Maps geocoding inicial)
 - [ ] Commands CRUD + queries
-- [ ] File upload S3 (Lazuli Go S3 wire)
-- [ ] Soft delete + retention 7y
+- [x] File upload S3 (Lazuli Go S3 wire)
+- [ ] Soft delete + retention 7y — metadata emitted; anonymization job open
 - [ ] Doctor schema drift + integrity checks
 
 ### Phase 3 — Chat + Events (2 semanas, 6 cells)
 
-- [ ] Chat + Message resources
-- [ ] send_message command + event_group
-- [ ] Notifications (Sendgrid wire)
+- [x] Chat + Message resources modeled in `hostpoint-mini`
+- [ ] send_message command + event_group — command/event modeled; explicit event_group open
+- [x] Notifications (Sendgrid wire)
 - [ ] **MVP polling**, realtime flagged como Phase 6
 
 ### Phase 4 — Payment + Reviews (2 semanas, 7-9 cells)
 
-- [ ] ServiceTransaction + workflow lifecycle
-- [ ] MercadoPago adapter pack (`@runtime/mercadopago`)
-- [ ] Webhook signature verify
-- [ ] Review CRUD + rating aggregation
+- [ ] ServiceTransaction + workflow lifecycle — modeled in `hostpoint-mini` as `PaymentTransaction`; real port open
+- [ ] MercadoPago adapter pack (`@runtime/mercadopago`) — client + webhook verify exist; OAuth/token refresh open
+- [x] Webhook signature verify
+- [ ] Review CRUD + rating aggregation — Review CRUD modeled; SQL aggregate query open
 
 ### Phase 5 — UI + e2e (3-4 semanas, 11 cells)
 
@@ -355,7 +362,7 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 
 **Revisão pra baixo significativa vs. estimativa anterior (86-132)**: o entendimento correto de que Lazuli Go = wire (~1.6 cells totais para todas as libs combinadas) em vez de reimplementação (35-44 cells) elimina ~30 cells de fantasma.
 
-**MVP realista (2026-07-15)** com 1 dev: Phase Prep + Phase 1 + Phase 2 lite + Phase 4 webhook test. ~25-30 cells, 6-7 semanas.
+**MVP realista (2026-07-15)** com 1 dev: Phase Prep + Phase 1 + Phase 2 lite + Phase 4 webhook test. ~25-30 cells, 6-7 semanas. A estimativa restante caiu porque Phase Prep/codegen smoke e vários adapters Hostpoint-needed já estão prontos; a incerteza agora está mais em migração de produto/dados/UI do que em infraestrutura Lazuli.
 
 **Produção completa (2026-09-30)** com 1-2 devs: tudo até Phase 5.
 
@@ -408,10 +415,10 @@ desbloqueada.
 
 ## §7. Próximo passo concreto
 
-**HOJE** (decisão de continuação):
+**HOJE** (continuação após c151-c180):
 
-1. Aprovar (ou recusar) as 5 decisões pendentes §5
-2. Lançar agent pra implementar **Phase Prep §1.1 (Codegen Lazuli→Go)** — esse é o real blocker (12-15 cells)
-3. Lançar agent paralelo pra implementar **Phase Prep §1.2 (Lazuli Go wire)** — pode rodar em paralelo (~1.5-2 cells totais)
+1. Criar/rodar happy path gerado de `examples/hostpoint-mini`: register/login/session + property list/search + MercadoPago webhook verify.
+2. Começar **Phase 1 Auth Port** no source real do Hostpoint: mapear Firebase Auth/Firestore `auth_users` para `.lzi`.
+3. Manter este arquivo e `docs/roadmap.md` atualizados a cada wave, além de `docs/next-checklist.md`.
 
-Quando Phase Prep completar (~3 semanas), kick Phase 1 (Auth port) imediatamente. Decision gate 2026-06-01.
+Phase Prep não é mais o gargalo principal; o gargalo agora é produto real + dados + UI.

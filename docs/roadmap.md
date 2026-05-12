@@ -22,37 +22,45 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 
 ## Status atual — 2026-05-12
 
-Este arquivo ficou atrasado durante a execução paralela c21-c150. O progresso
-foi registrado em `docs/next-checklist.md` rows 72-76, mas o roadmap-mestre
-não estava sendo reconciliado, então a sensação visual era correta: havia
-muito commit, mas pouca indicação de "onde estamos".
+Este arquivo ficou atrasado durante a execução paralela c21-c180. O progresso
+foi registrado em `docs/next-checklist.md` rows 72-77, mas o roadmap-mestre
+não estava sendo reconciliado a cada batch. A sensação visual era correta:
+havia muito commit e pouca indicação de "onde estamos". Este checkpoint
+reconcilia os itens verificáveis e mantém abertos os itens compostos ou de
+produto real.
 
 Estado honesto agora:
 
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Este checkpoint marca apenas itens
-  verificáveis e deixa os itens compostos parcialmente feitos abertos.
-- `origin/main` está verde no runtime Go: `go test ./...` em `runtime/go`
-  passou após a batch c121-c150.
-- `cargo test -p lazuli_codegen_go` e `cargo test -p lazuli_cli` passam.
+  ainda não tinha acompanhado as batches. Depois da reconciliação c151-c180,
+  este arquivo mostra 101 feitos / 426 totais. Itens compostos parcialmente
+  feitos continuam abertos com nota.
+- Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
+  c151-c180.
+- `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli` e
+  `cargo test -p lazuli_codegen_go --features smoke` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
   HTTP/middleware, observabilidade, DB, migrations, cache, jobs, eventos,
   sessões, storage, API helpers, i18n, segurança, config e debug-loop sidecars
   existem com testes.
 - A parte language/IR/doctor/LSP continua à frente do runtime: Phase L e os
   buckets piloto estão fechados no lado da linguagem.
-- O blocker visível ainda é o smoke e2e do codegen Go: `cargo test -p
-  lazuli_codegen_go --features smoke full_capsule_compiles_with_go_build`
-  ainda falha em `customer_auth/command.gen.go: undefined: AuthSession`.
-  Portanto, o ciclo `lazuli generate go examples/full-capsule -> go build`
-  **não está fechado**.
+- O blocker visível do codegen Go foi fechado: o smoke
+  `full_capsule_compiles_with_go_build` agora passa e há smoke separado
+  garantindo que o Go gerado está `gofmt`-clean.
+- `examples/hostpoint-mini/` foi expandido como playground de portabilidade:
+  auth, property, service/booking, payment, review, chat e notification estão
+  modelados; isso ainda **não** significa que o produto Hostpoint real foi
+  migrado.
 
 Fronteira imediata antes de mais expansão horizontal:
 
-1. Corrigir o smoke do codegen Go (`AuthSession` não resolvido no output).
-2. Revalidar `lazuli generate go examples/full-capsule -> go build ./...`.
+1. Rodar um happy path gerado de Hostpoint-mini contra runtime local
+   (login/session + uma query + um command).
+2. Iniciar Phase 1 do port real: migrar o source Hostpoint para `.lzi`,
+   começando por auth/users/sessions.
 3. Atualizar este roadmap e `docs/hostpoint-port-checklist.md` junto de cada
    batch, não só `next-checklist.md`.
 
@@ -60,17 +68,18 @@ Leitura rápida:
 
 - `docs/next-checklist.md` = ledger detalhado de execução/commits.
 - `docs/roadmap.md` = mapa de capacidade e fronteira atual.
-- `docs/hostpoint-port-checklist.md` = checklist de produto Hostpoint, ainda
-  precisa de reconciliação linha-a-linha contra o que já entrou em Lazuli.
+- `docs/hostpoint-port-checklist.md` = checklist de produto Hostpoint,
+  reconciliado com as capacidades Lazuli atuais, mas ainda separando playground
+  de port real.
 
 Progresso real por camada:
 
 | Camada | Estado em 2026-05-12 |
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
-| Codegen Go | CLI + emitters amplos existem; 180 testes unitários passam; smoke e2e falha em `AuthSession`. |
-| Runtime Go | 316 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2 implementados. |
-| Hostpoint produto | Ainda não portado; existe `examples/hostpoint-mini/` como playground, mas Phase 1 do produto não começou. |
+| Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
+| Runtime Go | 340+ arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2 implementados, incluindo providers Hostpoint-needed. |
+| Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
 
@@ -101,10 +110,9 @@ Progresso real por camada:
 - [x] `lazuli check` aceita a sintaxe.
 - [x] `lazuli inspect` mostra IR completo — `--expand=auth`/`storage`/`jobs`/`webhooks`/`event_groups`/`logging`/`tracing` projeta tudo.
 - [x] `lazuli doctor` tem ≥1 lint relevante — ~30 diagnostics novos somados nos 4 buckets.
-- [ ] `lazuli generate` produz Go válido que compila — CLI e emitter existem e
-  geram o fixture completo, mas o smoke `go build ./...` ainda falha em
-  `customer_auth/command.gen.go: undefined: AuthSession`. Próximo corte direto:
-  resolver esse tipo no output gerado.
+- [x] `lazuli generate` produz Go válido que compila — smoke
+  `full_capsule_compiles_with_go_build` passa e o output gerado também é
+  validado por `gofmt -l`.
 - [ ] Lazuli Go executa um cenário ponta-a-ponta — runtime helpers agora são
   amplos e testados, mas ainda falta um happy path gerado rodando contra
   adapters reais/locais.
@@ -114,8 +122,9 @@ Progresso real por camada:
 Depois dos 4 buckets fechados, **expansão horizontal** (§1 e §2 abaixo) deixa de ser arriscada — o pipeline está provado.
 
 **Segunda onda** (depois do ciclo provado): cache, notifications expandidas,
-webhooks, migrations, OpenAPI gen e runtime helpers foram parcialmente
-executados nas rows 72-76 do `next-checklist`. Admin básico permanece aberto.
+webhooks, migrations, OpenAPI gen, runtime helpers e providers Hostpoint-needed
+foram parcialmente executados nas rows 72-77 do `next-checklist`. Admin básico
+permanece aberto.
 
 ---
 
@@ -347,11 +356,12 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 A maior parte do trabalho. Este parágrafo dizia que o runtime Go estava em
 **~5%** (spike CRUD + queries); isso ficou obsoleto depois das batches
-c21-c150. O estado atual é: runtime helper coverage ampla e testada, mas ainda
-sem declarar "produção completa" porque o smoke e2e do codegen Go segue
-vermelho em `AuthSession`. Tudo abaixo continua sendo o backlog de destino,
-ordenado por prioridade de bloqueio de produção; checkboxes compostos só devem
-ser marcados quando a capability inteira estiver entregue.
+c21-c180. O estado atual é: runtime helper coverage ampla e testada, e o smoke
+e2e do codegen Go está verde. Ainda não declaramos "produção completa" porque
+falta um app gerado rodando happy path contra adapters locais/reais. Tudo
+abaixo continua sendo o backlog de destino, ordenado por prioridade de bloqueio
+de produção; checkboxes compostos só devem ser marcados quando a capability
+inteira estiver entregue.
 
 ### 2.1 HTTP / servidor (P1 — bloqueia produção)
 
@@ -364,27 +374,27 @@ ser marcados quando a capability inteira estiver entregue.
 - [ ] Reverse proxy + forwarded headers + real IP
 - [x] Compressão gzip native
 - [x] ETag + conditional requests + Cache-Control + Range
-- [ ] CSRF via `net/http.CrossOriginProtection` (Go 1.26)
-- [ ] Middleware: circuit breaker, retry, body parser, validation, observability, slow request, timeout
+- [x] CSRF via `net/http.CrossOriginProtection` (Go 1.26)
+- [ ] Middleware: circuit breaker, retry, body parser, validation, observability, slow request, timeout — chain/recover/request-id/CSRF/security/timeout pieces exist; full set remains open.
 - [x] Panic recovery
 - [ ] Custom error pages (renderiza decorador da linguagem)
 - [ ] Maintenance mode
 
 ### 2.2 Observabilidade (P1 — bloqueia produção)
 
-- [ ] `log/slog` + `slog.NewMultiHandler` (Go 1.26)
+- [x] `log/slog` + JSON/text handler wiring
 - [x] Structured JSON + text logs
 - [ ] Log sampling
 - [x] Log redaction (consome `@pii` annotations)
-- [ ] Request / query / job logs auto-instrumentados
+- [x] Request / query / job logs auto-instrumentados — request-id logging, query logging, job metrics/log hooks exist; product-specific policy remains runtime/codegen work.
 - [x] OpenTelemetry traces + metrics + logs — OTLP trace wiring + runtime metrics are present; log export remains adapter-level.
-- [ ] Trace propagation + span attributes
-- [ ] Spans built-in: error, DB, HTTP, queue, agent (`agent_run`)
+- [x] Trace propagation + span attributes
+- [x] Spans built-in: error, DB, HTTP, queue, agent (`agent_run`)
 - [x] Runtime metrics (`runtime/metrics`)
 - [x] Health / readiness / liveness / startup / dependency checks
 - [x] `/debug/pprof` + `runtime/pprof`
 - [x] `runtime/trace` + `runtime/trace.FlightRecorder` (Go 1.26)
-- [ ] Profiles: memory, CPU, mutex, block, alloc, goroutine leak
+- [ ] Profiles: memory, CPU, mutex, block, alloc, goroutine leak — pprof/profile report helpers and attribution shipped; automated leak detection remains open.
 - [ ] GC / scheduler metrics
 - [x] Panic reporting
 - [x] Build info + version endpoint
@@ -400,7 +410,7 @@ ser marcados quando a capability inteira estiver entregue.
 - [x] Nested transactions + savepoints
 - [ ] Unit of work pattern
 - [ ] Lazy/preloading mechanics
-- [ ] Cursor + offset pagination
+- [x] Cursor + offset pagination
 - [ ] Bulk insert / update / upsert
 - [ ] Batch queries
 - [ ] Pessimistic locking (consome decorador)
@@ -409,11 +419,11 @@ ser marcados quando a capability inteira estiver entregue.
 
 ### 2.4 Migrations (P1)
 
-- [ ] SQL migrations execution (atlas-backed)
-- [ ] Transactional + non-transactional modes
+- [ ] SQL migrations execution (atlas-backed) — runtime SQL runner exists; atlas-backed CLI flow remains open.
+- [x] Transactional + non-transactional modes
 - [ ] Online migrations (zero-downtime helpers)
 - [x] Migration locking + status + rollback + redo + squashing — lock/status/rollback/reset helpers shipped; redo/squash remain future refinements.
-- [ ] Database create / drop / reset / truncate commands
+- [ ] Database create / drop / reset / truncate commands — reset helpers exist; CLI command set remains open.
 - [x] Seed loader
 
 ### 2.5 CLI (P1)
@@ -491,7 +501,7 @@ ser marcados quando a capability inteira estiver entregue.
 ### 2.9 Eventos (P2)
 
 - [x] Event replay mechanics
-- [ ] Event store backend (PostgreSQL default)
+- [x] Event store backend (PostgreSQL default)
 
 ### 2.10 Cache (P2)
 
@@ -504,14 +514,14 @@ ser marcados quando a capability inteira estiver entregue.
 
 ### 2.11 Sessões (P2)
 
-- [ ] Redis / database / memory session stores
-- [ ] Session invalidation + audit + cleanup
+- [x] Redis / database / memory session stores
+- [x] Session invalidation + audit + cleanup
 - [x] Session TTL / renewal
 
 ### 2.12 Email / notificações (P2)
 
 - [ ] SMTP server
-- [ ] Transactional + bulk mail
+- [ ] Transactional + bulk mail — Sendgrid/SMTP clients, message attachments and localized template renderer exist; bulk orchestration remains open.
 - [x] Attachments + inline attachments
 - [x] Mail previews (dev) + sandbox
 - [ ] Mail retries
@@ -579,7 +589,7 @@ ser marcados quando a capability inteira estiver entregue.
 - [ ] Trials, coupons, receipts, taxes mechanics
 - [ ] Usage / metered billing
 - [ ] Payment methods, dunning, billing portal
-- [ ] Webhook verification, plan changes, cancellation, grace periods, refunds
+- [ ] Webhook verification, plan changes, cancellation, grace periods, refunds — generic payment contract, idempotency, MercadoPago webhook verify/client/capture/refund helpers exist; billing lifecycle remains open.
 
 ### 2.22 Storage (P2)
 
@@ -589,7 +599,7 @@ ser marcados quando a capability inteira estiver entregue.
 
 ### 2.23 Busca (P3)
 
-- [ ] SQL full-text + PostgreSQL tsvector
+- [ ] SQL full-text + PostgreSQL tsvector — simple SQL LIKE search helper exists; tsvector remains open.
 - [ ] Async indexing + reindex CLI
 - [ ] Search analytics
 
@@ -652,21 +662,23 @@ ser marcados quando a capability inteira estiver entregue.
 
 Registry-driven, plugados via `registry.lzi`. **Pick-one-primary** por categoria: Rule Zero.
 
-### 3.1 Primários (alvo must-have, ~20 — ainda nenhum wired no runtime Go)
+### 3.1 Primários (alvo must-have, ~20)
 
-> Todos abaixo são **alvo declarado** em `docs/architecture.md` / `docs/target-stack.md`, **não implementação shipada**. O primeiro adapter realmente wired vai surgir junto com §0 buckets (auth → Redis sessions; storage → S3; jobs → River; observability → slog/OTEL).
+> Status reconciliado após c151-c180: vários providers primários já têm runtime
+> wire/helper testado. Itens compostos continuam abertos quando ainda falta o
+> CLI/codegen/prod story inteiro.
 
-- [ ] **DB**: PostgreSQL via `pgx/v5`
-- [ ] **Router**: `chi`
+- [x] **DB**: PostgreSQL via `pgx/v5`
+- [ ] **Router**: `chi` — runtime usa `net/http`/`ServeMux`; decisão de chi segue aberta.
 - [ ] **Migrations**: `atlas` + `golang-migrate`
-- [ ] **Logs**: `slog` (stdlib) + OpenTelemetry
+- [x] **Logs**: `slog` (stdlib) + OpenTelemetry
 - [ ] **Validation**: `validator/v10`
-- [ ] **Jobs**: `river` (Postgres-backed)
-- [ ] **Cache / sessions**: Redis (`redis/go-redis`)
-- [ ] **Storage**: S3 (AWS SDK)
-- [ ] **Email**: Sendgrid (primário)
+- [x] **Jobs**: `river` (Postgres-backed)
+- [x] **Cache / sessions**: Redis (`redis/go-redis`)
+- [x] **Storage**: S3 (AWS SDK)
+- [x] **Email**: Sendgrid (primário)
 - [ ] **LLM**: OpenAI + Anthropic (alvo; depende de runtime de agent dispatch)
-- [ ] **Observability backend**: Sentry (errors) + OTEL collector
+- [x] **Observability backend**: Sentry (errors) + OTEL collector
 - [ ] **Search**: Meilisearch
 - [ ] **Billing**: Stripe
 - [ ] **Bundler**: esbuild
@@ -675,11 +687,16 @@ Registry-driven, plugados via `registry.lzi`. **Pick-one-primary** por categoria
 ### 3.2 Secundários (provider alternatives, ~50)
 
 - [ ] **DB extras**: MySQL/MariaDB, SQLite (`modernc.org/sqlite`), CockroachDB, ClickHouse, MongoDB
-- [ ] **Cloud storage**: GCS, Azure Blob, MinIO
+- [x] **Cloud storage**: MinIO
+- [ ] **Cloud storage**: GCS, Azure Blob
 - [ ] **Email extras**: Mailgun, SES, Postmark, Resend
+- [x] **Notification**: Expo Push
 - [ ] **Notification**: Twilio (SMS), Firebase (push), Slack webhook, Discord webhook
-- [ ] **Payment extras**: Paddle, Mercado Pago, PayPal
-- [ ] **Auth providers**: GitHub, Google, Microsoft, Apple
+- [x] **Payment extras**: Mercado Pago
+- [ ] **Payment extras**: Paddle, PayPal
+- [x] **Auth providers**: Google
+- [ ] **Auth providers**: GitHub, Microsoft, Apple
+- [x] **Maps**: Google Maps geocoding
 - [ ] **Search extras**: Typesense, Elasticsearch, OpenSearch, Algolia
 - [ ] **Queues alternativos**: SQS, Pub/Sub, NATS, Kafka, RabbitMQ
 - [ ] **Cache extras**: Memcached, Valkey
