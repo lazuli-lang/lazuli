@@ -1,5 +1,20 @@
 package lazuli
 
+// EventGroup describes a family of related events declared by a feature.
+// Generated code emits these values from `event_group` declarations so
+// tooling and runtime integrations can inspect the event contract.
+type EventGroup struct {
+	Pattern  string
+	Resource string
+	Events   []EventDescriptor
+}
+
+// EventDescriptor describes a single event contained in an EventGroup.
+type EventDescriptor struct {
+	Name        string
+	PayloadType string
+}
+
 // EventEmit declares a single event publication from a command, workflow
 // transition, job, or webhook. The runtime publishes after the surrounding
 // transaction commits; consumers receive via the event bus.
