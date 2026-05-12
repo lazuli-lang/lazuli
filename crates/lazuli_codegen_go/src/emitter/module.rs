@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::Module;
 
+use super::cross_feature::CrossFeatureIndex;
 use super::enums::emit_enum_file;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
@@ -56,6 +57,14 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         contents: emit_go_mod(&module_name, &lazuli_go_version),
     });
 
+    // Phase Prep §1.1 mini-cell pré-E3 — build the cross-feature
+    // resolver index once per run, before any per-feature walker
+    // sees a type. The index lifts cross-feature `UserDefined` /
+    // `EnumRef` references (analyzer leaves these with
+    // `qname.feature = None`) to `<owner>.<Name>` plus a
+    // `<module>/<owner>` import.
+    let cross_index = CrossFeatureIndex::build(module);
+
     let source_label = resolve_source_label(module);
     for feature in features.values() {
         let path = format!("{name}/{name}.gen.go", name = feature.name);
@@ -66,7 +75,9 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         // file. Features that declare neither skip the file entirely
         // (an empty body would leave a stray `package <feature>` and
         // gofmt would tolerate it but the file would carry no signal).
-        if let Some(contents) = emit_resource_file(&source_label, feature) {
+        if let Some(contents) =
+            emit_resource_file(&source_label, feature, &module_name, &cross_index)
+        {
             let resource_path = format!("{name}/resource.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: resource_path,

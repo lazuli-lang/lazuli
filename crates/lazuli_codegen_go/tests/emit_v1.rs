@@ -334,3 +334,95 @@ fn lazuli_go_version_override_lands_in_go_mod() {
     // ...) against it.
     assert!(go_mod.contents.contains("lazuli.dev/runtime v9.9.9"));
 }
+
+#[test]
+fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
+    // Phase Prep §1.1 — two features. `customer` declares
+    // `Customer`; `org` declares `User`. A `Customer.owner: User`
+    // field should emit `*org.User` plus a `lazuli/test-app/org`
+    // import in `customer/resource.gen.go`. The analyzer leaves
+    // `qname.feature = None` for these refs; codegen resolves them
+    // via the cross-feature index.
+    let mut module = minimal_module("test_app", "customer");
+    module.features.push(empty_feature("org"));
+
+    // Add Customer{owner: User} on `customer` feature.
+    module.features[0].resources.push(Resource {
+        name: "Customer".to_owned(),
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields: vec![Field {
+            name: "owner".to_owned(),
+            type_ref: TypeRef::UserDefined(lazuli_ir::QualifiedName {
+                feature: None,
+                name: "User".to_owned(),
+            }),
+            required: true,
+            unique: false,
+            default: None,
+            derived_from: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }],
+        constraints: Vec::new(),
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    });
+
+    // Add User on `org` feature.
+    module.features[1].resources.push(Resource {
+        name: "User".to_owned(),
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields: vec![Field {
+            name: "name".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Text),
+            required: true,
+            unique: false,
+            default: None,
+            derived_from: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }],
+        constraints: Vec::new(),
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    });
+
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let customer_resource = files
+        .iter()
+        .find(|f| f.path == "customer/resource.gen.go")
+        .expect("expected customer/resource.gen.go");
+
+    assert!(
+        customer_resource.contents.contains("Owner org.User"),
+        "expected cross-feature `org.User` ref, got:\n{}",
+        customer_resource.contents
+    );
+    assert!(
+        customer_resource.contents.contains("\"lazuli/test-app/org\""),
+        "expected cross-feature import path `lazuli/test-app/org`, got:\n{}",
+        customer_resource.contents
+    );
+
+    // Sanity: the `org` feature's resource file still emits `User`
+    // bare (same-package).
+    let org_resource = files
+        .iter()
+        .find(|f| f.path == "org/resource.gen.go")
+        .expect("expected org/resource.gen.go");
+    assert!(
+        org_resource.contents.contains("type User struct"),
+        "expected `type User struct` in org/resource.gen.go, got:\n{}",
+        org_resource.contents
+    );
+}

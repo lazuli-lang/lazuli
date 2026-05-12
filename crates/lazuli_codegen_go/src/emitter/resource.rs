@@ -25,20 +25,42 @@ use lazuli_ir::{
     BuiltinType, Feature, Record, RetentionAction, Resource, Tenancy, TypeRef,
 };
 
+use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
-use super::types;
+use super::types::{self, TypeCtx};
 
 /// Emit `<feature>/resource.gen.go` for a feature, or `None` when the
 /// feature declares no resources or records (so `module.rs` skips the
 /// file entirely — gofmt would warn on an empty package body).
-pub fn emit_resource_file(source_label: &str, feature: &Feature) -> Option<String> {
+///
+/// `module_name` and `cross_index` are threaded through so the
+/// `types::go_type_for` resolver can lift cross-feature references
+/// (e.g. a `customer.Customer` field that names a `User` declared in
+/// the `org` feature emits `*org.User` plus the corresponding
+/// `<module_name>/org` import). Callers in `module.rs` construct
+/// these once per `generate_v1` run.
+pub fn emit_resource_file(
+    source_label: &str,
+    feature: &Feature,
+    module_name: &str,
+    cross_index: &CrossFeatureIndex<'_>,
+) -> Option<String> {
     if feature.resources.is_empty() && feature.records.is_empty() {
         return None;
     }
 
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
+
+    // Cross-feature resolver. Reused for every type lookup inside this
+    // file so cross-feature refs land as `<owner>.<Name>` plus a
+    // `<module_name>/<owner>` import (proposal §11 boundary).
+    let type_ctx = TypeCtx {
+        current_feature: feature.name.as_str(),
+        module_name,
+        cross_index,
+    };
 
     // Collect sorted resource / record names so iteration order is
     // independent of how the IR `Vec` happened to be populated.
@@ -61,12 +83,12 @@ pub fn emit_resource_file(source_label: &str, feature: &Feature) -> Option<Strin
             // package; nothing extra to register.
         }
         for field in &resource.fields {
-            register_imports_for_type(&field.type_ref, &mut imports);
+            register_imports_for_type(&field.type_ref, &type_ctx, &mut imports);
         }
     }
     for record in &records {
         for field in &record.fields {
-            register_imports_for_type(&field.type_ref, &mut imports);
+            register_imports_for_type(&field.type_ref, &type_ctx, &mut imports);
         }
     }
 
@@ -80,21 +102,26 @@ pub fn emit_resource_file(source_label: &str, feature: &Feature) -> Option<Strin
             p.blank();
         }
         first_block = false;
-        emit_resource(&mut p, feature, resource);
+        emit_resource(&mut p, feature, resource, &type_ctx);
     }
     for record in &records {
         if !first_block {
             p.blank();
         }
         first_block = false;
-        emit_record(&mut p, record);
+        emit_record(&mut p, record, &type_ctx);
     }
 
     Some(p.finish())
 }
 
 /// Walk a single `Resource` — struct + `lazuli.Resource[T]` value.
-fn emit_resource(p: &mut GoPrinter, feature: &Feature, resource: &Resource) {
+fn emit_resource(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    resource: &Resource,
+    ctx: &TypeCtx<'_>,
+) {
     let pascal = pascal_case(&resource.name);
     let var_name = format!("{}Resource", lower_camel(&resource.name));
     let resource_dsl_name = &resource.name;
@@ -153,7 +180,7 @@ fn emit_resource(p: &mut GoPrinter, feature: &Feature, resource: &Resource) {
             });
             continue;
         }
-        let (go_type, _import) = types::go_type_for(&field.type_ref);
+        let (go_type, _import) = types::go_type_for(&field.type_ref, ctx);
         let optional = !field.required;
         let final_type = if optional {
             format!("*{}", go_type)
@@ -257,7 +284,7 @@ fn emit_resource(p: &mut GoPrinter, feature: &Feature, resource: &Resource) {
 
 /// Walk a `Record` — typed struct only, no resource value. Records
 /// carry no identity, tenancy, soft-delete, or retention axis.
-fn emit_record(p: &mut GoPrinter, record: &Record) {
+fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>) {
     let pascal = pascal_case(&record.name);
     write_section_banner(
         p,
@@ -283,7 +310,7 @@ fn emit_record(p: &mut GoPrinter, record: &Record) {
             });
             continue;
         }
-        let (go_type, _import) = types::go_type_for(&field.type_ref);
+        let (go_type, _import) = types::go_type_for(&field.type_ref, ctx);
         let optional = !field.required;
         let final_type = if optional {
             format!("*{}", go_type)
@@ -489,15 +516,23 @@ fn is_geo_point(type_ref: &TypeRef) -> bool {
 }
 
 /// Register every import surfaced by a `TypeRef` onto the file-level
-/// `ImportSet`. Recurses into `Many<T>` so wrapping a typed `T` carries
-/// its import through.
-fn register_imports_for_type(type_ref: &TypeRef, imports: &mut ImportSet) {
-    let (_go, import) = types::go_type_for(type_ref);
+/// `ImportSet`. Recurses into `Many<T>` so wrapping a typed `T`
+/// carries its import through. Cross-feature refs surface here as
+/// `<module>/<feature>` paths and route through `ImportSet::add`'s
+/// "third-party" bucket (the classifier doesn't know the difference,
+/// but the `import` block still compiles — Go doesn't care which
+/// group a local module sits in).
+fn register_imports_for_type(
+    type_ref: &TypeRef,
+    ctx: &TypeCtx<'_>,
+    imports: &mut ImportSet,
+) {
+    let (_go, import) = types::go_type_for(type_ref, ctx);
     if let Some(path) = import {
-        imports.add(path);
+        imports.add(&path);
     }
     if let TypeRef::Many(inner) = type_ref {
-        register_imports_for_type(inner, imports);
+        register_imports_for_type(inner, ctx, imports);
     }
 }
 
@@ -575,9 +610,54 @@ fn is_acronym(word: &str) -> bool {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        CapabilityRef, Defaults, EncryptedCapability, Feature, Field, Policies, Record, Resource,
-        RetentionAction, RetentionSpec, Tenancy, TypeRef,
+        AppManifest, CapabilityRef, Defaults, EncryptedCapability, Feature, Field, Module,
+        Policies, Record, Resource, RetentionAction, RetentionSpec, Tenancy, TypeRef,
     };
+
+    /// Test helper: build a single-feature module around `feature`,
+    /// construct the cross-feature index against it, and emit the
+    /// resource file. Pre-Phase-Prep tests didn't need the index;
+    /// the helper keeps the suite concise while threading the new
+    /// arguments through.
+    fn emit(feature: &Feature) -> Option<String> {
+        let module = Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: Some(AppManifest {
+                name: "test".to_owned(),
+                title: None,
+                version: None,
+                targets: Vec::new(),
+                default_locale: None,
+                default_timezone: None,
+                auth_failed_redirect: None,
+                not_found: None,
+                uses: Vec::new(),
+                packs: Vec::new(),
+                bindings: Vec::new(),
+                architecture: None,
+                services: Vec::new(),
+                communication: None,
+                environments: Vec::new(),
+                urls: Vec::new(),
+                cors: None,
+                env: Vec::new(),
+                integrations: Vec::new(),
+                capabilities: Vec::new(),
+                runtime: Vec::new(),
+                deploy: None,
+                logging: None,
+                tracing: None,
+                locale: None,
+                span_ref: None,
+            }),
+            registry: None,
+            profiles: Vec::new(),
+            features: vec![feature.clone()],
+        };
+        let index = CrossFeatureIndex::build(&module);
+        emit_resource_file("examples/x.lzi", feature, "lazuli/test", &index)
+    }
 
     fn base_feature(name: &str) -> Feature {
         Feature {
@@ -654,7 +734,7 @@ mod tests {
     #[test]
     fn empty_feature_returns_none() {
         let feature = base_feature("customer");
-        assert!(emit_resource_file("examples/x.lzi", &feature).is_none());
+        assert!(emit(&feature).is_none());
     }
 
     #[test]
@@ -668,7 +748,7 @@ mod tests {
             ],
         );
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
 
         assert!(out.contains("// Code generated by lazuli; DO NOT EDIT."));
         assert!(out.contains("package customer"));
@@ -700,7 +780,7 @@ mod tests {
             discriminator_field: None,
             span_ref: None,
         });
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("type CustomerLtv struct {"));
         assert!(!out.contains("lazuli.Resource"));
         assert!(out.contains("CustomerID lazuli.ID"));
@@ -724,7 +804,7 @@ mod tests {
             }],
         );
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
         assert!(out.contains("Blob storage.FileRef"));
     }
@@ -737,7 +817,7 @@ mod tests {
             vec![simple_field("location", BuiltinType::SemanticGeoPoint, true)],
         );
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("\"github.com/cridenour/go-postgis\""));
         assert!(out.contains("Location postgis.Point"));
         // The geo column tag must carry the PostGIS type modifier so
@@ -757,7 +837,7 @@ mod tests {
         );
         resource.soft_delete = true;
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("DeletedAt *lazuli.Time"));
         assert!(out.contains("json:\"deleted_at,omitempty\""));
         // With soft_delete, `SoftDelete:` (11 chars) is the widest key
@@ -777,7 +857,7 @@ mod tests {
             action: RetentionAction::Anonymize,
         });
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("Retention: &lazuli.RetentionSpec{"));
         assert!(out.contains("Window: lazuli.Duration(\"7y\"),"));
         assert!(out.contains("Then:   lazuli.Anonymize,"));
@@ -792,7 +872,7 @@ mod tests {
         );
         resource.tenancy = Some(Tenancy::Org);
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("OrgID lazuli.ID"));
         assert!(out.contains("Tenancy: lazuli.TenancyOrg,"));
     }
@@ -806,7 +886,7 @@ mod tests {
             vec![simple_field("name", BuiltinType::Text, true)],
         );
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("CreatedAt lazuli.Time"));
         assert!(out.contains("UpdatedAt lazuli.Time"));
     }
@@ -822,7 +902,7 @@ mod tests {
         // Explicit opt-out on the resource side beats the feature default.
         resource.timestamps = Some(false);
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(!out.contains("CreatedAt"));
         assert!(!out.contains("UpdatedAt"));
     }
@@ -835,7 +915,7 @@ mod tests {
             vec![simple_field("name", BuiltinType::Text, false)],
         );
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("Name *string"));
         assert!(out.contains("json:\"name,omitempty\""));
     }
@@ -847,7 +927,7 @@ mod tests {
         field.derived_from = Some("score > 80".to_owned());
         let resource = simple_resource("customer", vec![field]);
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("// IsHighValue is derived"));
         // Not a real struct field.
         assert!(!out.contains("IsHighValue bool"));
@@ -872,7 +952,7 @@ mod tests {
             }],
         );
         feature.resources.push(resource);
-        let out = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let out = emit(&feature).expect("must emit");
         assert!(out.contains("ExternalID lazuli.EncryptedRef"));
     }
 
@@ -887,12 +967,110 @@ mod tests {
             "alpha",
             vec![simple_field("name", BuiltinType::Text, true)],
         ));
-        let a = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
-        let b = emit_resource_file("examples/x.lzi", &feature).expect("must emit");
+        let a = emit(&feature).expect("must emit");
+        let b = emit(&feature).expect("must emit");
         assert_eq!(a, b);
         // Resources sorted alphabetically: alpha banner appears before zebra.
         let alpha_pos = a.find("Resource: Alpha").expect("alpha banner");
         let zebra_pos = a.find("Resource: Zebra").expect("zebra banner");
         assert!(alpha_pos < zebra_pos);
+    }
+
+    #[test]
+    fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
+        // Two features: `customer` declares `Customer`; `org` declares
+        // `User`. `Customer.owner: User` references a type the
+        // analyzer left as `feature: None` because it lives in
+        // another feature. The cross-feature resolver should lift it
+        // to `*org.User` plus an `lazuli/test/org` import.
+        let mut customer = base_feature("customer");
+        let resource = simple_resource(
+            "customer",
+            vec![Field {
+                name: "owner".to_owned(),
+                type_ref: TypeRef::UserDefined(lazuli_ir::QualifiedName {
+                    feature: None,
+                    name: "User".to_owned(),
+                }),
+                required: false,
+                unique: false,
+                default: None,
+                derived_from: None,
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+        );
+        customer.resources.push(resource);
+
+        let mut org = base_feature("org");
+        org.resources
+            .push(simple_resource("user", Vec::new()));
+        // The org resource is named lowercase; pascal-case the
+        // emitter-side declared type still appears as `User` in
+        // the index because `CrossFeatureIndex` keys on
+        // `Resource.name` verbatim. So we build the index against
+        // an explicit `User` resource.
+        org.resources.clear();
+        org.resources.push(Resource {
+            name: "User".to_owned(),
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: Vec::new(),
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        });
+
+        let module = Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: Some(AppManifest {
+                name: "test".to_owned(),
+                title: None,
+                version: None,
+                targets: Vec::new(),
+                default_locale: None,
+                default_timezone: None,
+                auth_failed_redirect: None,
+                not_found: None,
+                uses: Vec::new(),
+                packs: Vec::new(),
+                bindings: Vec::new(),
+                architecture: None,
+                services: Vec::new(),
+                communication: None,
+                environments: Vec::new(),
+                urls: Vec::new(),
+                cors: None,
+                env: Vec::new(),
+                integrations: Vec::new(),
+                capabilities: Vec::new(),
+                runtime: Vec::new(),
+                deploy: None,
+                logging: None,
+                tracing: None,
+                locale: None,
+                span_ref: None,
+            }),
+            registry: None,
+            profiles: Vec::new(),
+            features: vec![customer.clone(), org],
+        };
+        let index = CrossFeatureIndex::build(&module);
+        let out = emit_resource_file("examples/x.lzi", &customer, "lazuli/test", &index)
+            .expect("must emit");
+
+        assert!(
+            out.contains("Owner *org.User"),
+            "expected `*org.User` cross-feature ref, got:\n{out}"
+        );
+        assert!(
+            out.contains("\"lazuli/test/org\""),
+            "expected cross-feature import `lazuli/test/org`, got:\n{out}"
+        );
     }
 }
