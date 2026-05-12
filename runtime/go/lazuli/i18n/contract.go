@@ -8,7 +8,16 @@
 // sibling packages and adapter packs.
 package i18n
 
-import "errors"
+import (
+	"embed"
+	"errors"
+)
+
+type Catalog struct {
+	Name     string
+	FS       embed.FS
+	BasePath string
+}
 
 // LocaleContract is the lowered `app.locale` block from app.lzi.
 type LocaleContract struct {
