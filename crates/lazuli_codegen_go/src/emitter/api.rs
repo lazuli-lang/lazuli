@@ -2,13 +2,9 @@
 //! feature and emits typed args plus an API contract value into
 //! `<feature>/api.gen.go`.
 //!
-//! Runtime gap: Lazuli Go does not yet expose `lazuli.Api[I, O]`, a
-//! typed `HttpMethod` catalog, or API extension-point discovery. To keep
-//! generated Go source parseable while preserving the intended shape,
-//! this emitter writes an anonymous struct value and places
-//! `TODO(runtime)` / `TODO(extension-points)` comments inside the value
-//! literal. When the runtime lands proposal 4.2, the value can switch
-//! directly to `lazuli.Api[Args, Output]`.
+//! API values use the real Lazuli Go `lazuli.Api[I, O]` contract. Handler
+//! population remains an extension-point concern; generated literals leave
+//! `Handler` unset and pin the intended registration site in a comment.
 //!
 //! Determinism: APIs are sorted by name, route args preserve path
 //! order, and imports flow through `ImportSet`.
@@ -84,40 +80,13 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
     emit_args_struct(p, &args_type, &args);
     p.blank();
 
-    p.line(&format!("var {var_name} = struct {{"));
-    p.indent();
-    let rate_limit_type = if api.rate_limit.is_some() {
-        "lazuli.RateLimit"
-    } else {
-        "lazuli.RateLimit"
-    };
-    let rows = vec![
-        ("Name", "string"),
-        ("Feature", "string"),
-        ("Method", "string"),
-        ("Path", "string"),
-        ("Policy", "lazuli.Policy"),
-        ("RateLimit", rate_limit_type),
-    ];
-    p.aligned_rows(&rows);
-    p.dedent();
-    p.line("}{");
-    p.indent();
-    p.line(&format!(
-        "// TODO(runtime): replace this anonymous struct with lazuli.Api[{args_type}, {output_type}] when Lazuli Go adds Api[I, O] (proposal 4.2)."
-    ));
-    p.line(&format!(
-        "// TODO(runtime): replace Method string with lazuli.HttpMethod and {} when Lazuli Go adds the method catalog.",
-        method_const_name(api.method)
-    ));
     if !args.is_empty() {
         p.line("// TODO(ir): Api path parameters have no typed IR slots; args are inferred from the path.");
     }
-    p.line("// TODO(extension-points): user-authored handler registered via");
     p.line(&format!(
-        "// lazuli.RegisterApi(\"{}\", func(ctx, input) (O, error) {{...}})",
-        escape_string(&api.name)
+        "var {var_name} = lazuli.Api[{args_type}, {output_type}]{{"
     ));
+    p.indent();
 
     let mut kv_rows: Vec<(String, String)> = vec![
         (
@@ -130,7 +99,7 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
         ),
         (
             "Method:".to_owned(),
-            format!("\"{}\",", method_literal(api.method)),
+            format!("{},", method_const_name(api.method)),
         ),
         (
             "Path:".to_owned(),
@@ -141,7 +110,7 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
     if let Some(rate_limit) = &api.rate_limit {
         kv_rows.push((
             "RateLimit:".to_owned(),
-            format!("lazuli.RateLimit(\"{}\"),", escape_string(rate_limit)),
+            format!("\"{}\",", escape_string(rate_limit)),
         ));
     }
 
@@ -150,6 +119,11 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
+    p.line("// TODO(extension-points): user-authored handler via");
+    p.line(&format!(
+        "// lazuli.RegisterApi(\"{}\", func(ctx, input) (O, error) {{...}})",
+        escape_string(&api.name)
+    ));
     p.dedent();
     p.line("}");
 }
@@ -288,16 +262,6 @@ fn format_policy(policy: &PolicyRef) -> String {
             format!("lazuli.Policy{{Name: \"{}\"}},", escape_string(raw))
         }
         PolicyRef::None => "lazuli.Policy{},".to_owned(),
-    }
-}
-
-fn method_literal(method: HttpMethod) -> &'static str {
-    match method {
-        HttpMethod::Get => "GET",
-        HttpMethod::Post => "POST",
-        HttpMethod::Put => "PUT",
-        HttpMethod::Patch => "PATCH",
-        HttpMethod::Delete => "DELETE",
     }
 }
 
@@ -491,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_file_api_emits_runtime_todos_storage_and_register_placeholder() {
+    fn canonical_file_api_emits_real_type_storage_and_register_placeholder() {
         let mut feature = base_feature("customer");
         let mut api = simple_api(
             "customer_export",
@@ -511,45 +475,64 @@ mod tests {
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
         assert!(!out.contains("\"lazuli/test/customer/api\""));
         assert!(out.contains("type CustomerExportArgs struct{}"));
-        assert!(out.contains("var customerExport = struct {"));
-        assert!(out.contains("// TODO(runtime): replace this anonymous struct with lazuli.Api[CustomerExportArgs, storage.FileRef]"));
-        assert!(out.contains("// TODO(extension-points): user-authored handler registered via"));
+        assert!(
+            out.contains("var customerExport = lazuli.Api[CustomerExportArgs, storage.FileRef]{")
+        );
+        assert!(!out.contains("var customerExport = struct {"));
+        assert!(!out.contains("TODO(runtime):"));
+        assert!(out.contains("// TODO(extension-points): user-authored handler via"));
         assert!(out.contains(
             "// lazuli.RegisterApi(\"customer_export\", func(ctx, input) (O, error) {...})"
         ));
-        assert!(out.contains("Method:    \"GET\","));
+        assert!(out.contains("Method:    lazuli.MethodGet,"));
         assert!(out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"));
-        assert!(out.contains("RateLimit: lazuli.RateLimit(\"10 per hour per user\"),"));
+        assert!(out.contains("RateLimit: \"10 per hour per user\","));
         assert!(!out.contains("Handler:"));
     }
 
     #[test]
-    fn path_params_emit_inferred_args_and_method_gap_comment() {
+    fn path_params_emit_inferred_args_and_method_constant() {
         let mut feature = base_feature("customer");
         feature.records.push(simple_record("CustomerSummary"));
-        feature.apis.push(simple_api(
+        let mut api = simple_api(
             "customer_summary",
-            HttpMethod::Patch,
-            "/api/customer/{id}/summary/:locale",
+            HttpMethod::Get,
+            "/api/customer/{id}/summary",
             TypeRef::UserDefined(QualifiedName {
                 feature: None,
                 name: "CustomerSummary".to_owned(),
             }),
-        ));
+        );
+        api.rate_limit = Some("60 per minute per user".to_owned());
+        feature.apis.push(api);
 
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type CustomerSummaryArgs struct {"));
-        assert!(out.contains("ID     lazuli.ID `json:\"id\"`"));
-        assert!(out.contains("Locale string    `json:\"locale\"`"));
-        assert!(out.contains(
-            "// TODO(runtime): replace Method string with lazuli.HttpMethod and lazuli.MethodPatch"
-        ));
+        assert!(out.contains("ID lazuli.ID `json:\"id\"`"));
         assert!(out.contains("// TODO(ir): Api path parameters have no typed IR slots"));
         assert!(out.contains(
-            "// lazuli.RegisterApi(\"customer_summary\", func(ctx, input) (O, error) {...})"
+            r#"var customerSummary = lazuli.Api[CustomerSummaryArgs, CustomerSummary]{
+	Name:      "customer_summary",
+	Feature:   "customer",
+	Method:    lazuli.MethodGet,
+	Path:      "/api/customer/{id}/summary",
+	Policy:    lazuli.Policy{Name: "@policy.read"},
+	RateLimit: "60 per minute per user",
+	// TODO(extension-points): user-authored handler via
+	// lazuli.RegisterApi("customer_summary", func(ctx, input) (O, error) {...})
+}"#
         ));
-        assert!(out.contains("Method:  \"PATCH\","));
+        assert!(!out.contains("TODO(runtime):"));
         assert!(!out.contains("Handler:"));
+    }
+
+    #[test]
+    fn method_consts_cover_runtime_catalog() {
+        assert_eq!(method_const_name(HttpMethod::Get), "lazuli.MethodGet");
+        assert_eq!(method_const_name(HttpMethod::Post), "lazuli.MethodPost");
+        assert_eq!(method_const_name(HttpMethod::Put), "lazuli.MethodPut");
+        assert_eq!(method_const_name(HttpMethod::Patch), "lazuli.MethodPatch");
+        assert_eq!(method_const_name(HttpMethod::Delete), "lazuli.MethodDelete");
     }
 
     #[test]
@@ -571,9 +554,8 @@ mod tests {
         let module = module_with_features(vec![customer, org]);
         let out = emit_from_module(&module, 0).expect("must emit");
         assert!(out.contains("\"lazuli/test/org\""));
-        assert!(out.contains(
-            "// TODO(runtime): replace this anonymous struct with lazuli.Api[OwnerProfileArgs, org.UserProfile]"
-        ));
+        assert!(out.contains("var ownerProfile = lazuli.Api[OwnerProfileArgs, org.UserProfile]{"));
+        assert!(out.contains("Method:  lazuli.MethodPost,"));
         assert!(out.contains("OwnerID lazuli.ID `json:\"owner_id\"`"));
     }
 
