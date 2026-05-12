@@ -95,6 +95,48 @@ func (s *MemoryEventStore) List(ctx context.Context, filter EventListFilter) ([]
 	return results, nil
 }
 
+// ReplayEvents streams stored events matching filter in append order.
+func (s *MemoryEventStore) ReplayEvents(ctx context.Context, filter EventReplayFilter, yield func(Event) error) error {
+	events, err := s.List(ctx, EventListFilter{Tenant: filter.Tenant})
+	if err != nil {
+		return err
+	}
+	for _, stored := range events {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !eventMatchesReplayFilter(stored.Event, filter) {
+			continue
+		}
+		if err := yield(stored.Event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func eventMatchesReplayFilter(event Event, filter EventReplayFilter) bool {
+	if len(filter.Names) > 0 {
+		matched := false
+		for _, name := range filter.Names {
+			if event.Name == name {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if !filter.Since.IsZero() && event.OccurredAt.Before(filter.Since) {
+		return false
+	}
+	if !filter.Until.IsZero() && !event.OccurredAt.Before(filter.Until) {
+		return false
+	}
+	return true
+}
+
 func sameTenant(left, right *Tenant) bool {
 	if left == nil || right == nil {
 		return left == right

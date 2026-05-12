@@ -242,7 +242,7 @@ type fakeEventReplayStore struct {
 	yielded int
 }
 
-var _ EventStore = (*fakeEventReplayStore)(nil)
+var _ EventReplayStore = (*fakeEventReplayStore)(nil)
 
 func (s *fakeEventReplayStore) ReplayEvents(ctx context.Context, filter EventReplayFilter, yield func(Event) error) error {
 	s.calls++

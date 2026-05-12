@@ -34,12 +34,12 @@ type EventReplayFilter struct {
 	Until  time.Time
 }
 
-// EventStore is the minimal durable event store contract required for replay.
+// EventReplayStore is the minimal durable event store contract required for replay.
 //
 // Implementations should stream matching events in deterministic order, call
 // yield synchronously, stop when yield returns an error, and return that error
 // so ReplayEvents can preserve subscriber and context failures.
-type EventStore interface {
+type EventReplayStore interface {
 	ReplayEvents(ctx context.Context, filter EventReplayFilter, yield func(Event) error) error
 }
 
@@ -104,7 +104,7 @@ type EventReplaySummary struct {
 // honors WithReplayMaxEvents before invoking subscriber for the next event.
 func ReplayEvents(
 	ctx context.Context,
-	store EventStore,
+	store EventReplayStore,
 	filter EventReplayFilter,
 	subscriber Subscriber,
 	options ...ReplayOption,
@@ -197,7 +197,7 @@ func replayFailureError(failures []EventReplayFailure) error {
 	return errors.Join(errs...)
 }
 
-func isNilEventStore(store EventStore) bool {
+func isNilEventStore(store EventReplayStore) bool {
 	if store == nil {
 		return true
 	}
