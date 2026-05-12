@@ -1,5 +1,43 @@
 package lazuli
 
+import "lazuli.dev/runtime/lazuli/jobs"
+
+// ExternalCallRef is the lowered `calls <slot>.<op>` reference shared with
+// jobs so integration adapters see one shape across command and job bodies.
+type ExternalCallRef = jobs.ExternalCallRef
+
+// RetryPolicy is the lowered `retry <count> backoff <strategy>` block shared
+// with jobs.
+type RetryPolicy = jobs.RetryPolicy
+
+// ApprovalThen is the closed catalog of approval timeout resolutions.
+type ApprovalThen string
+
+const (
+	ApprovalThenDeny     ApprovalThen = "deny"
+	ApprovalThenAllow    ApprovalThen = "allow"
+	ApprovalThenEscalate ApprovalThen = "escalate"
+)
+
+// ApprovalSpec is the lowered command approval contract.
+type ApprovalSpec struct {
+	Then   ApprovalThen
+	By     string
+	Reason string
+}
+
+// IdempotencyKey is the lowered `idempotency by <path>` directive.
+type IdempotencyKey struct {
+	Path string
+}
+
+// Deprecation is the lowered command deprecation marker.
+type Deprecation struct {
+	Since       string
+	Replacement string
+	Sunset      string
+}
+
 // Command is a write operation declared by the DSL. Type parameter I is the
 // input shape (the `input` block); O is the output shape (the resource the
 // command creates/updates, or a custom record).
@@ -27,6 +65,10 @@ type Command[I, O any] struct {
 	// Audit declares whether and what to record. nil means no audit.
 	Audit *AuditSpec
 
+	// Approval declares an approval gate for the command. nil means no
+	// approval is required.
+	Approval *ApprovalSpec
+
 	// Validators are reusable validators called via `validate @validator.X`
 	// or `let ... = @validator.X`. Order matches the DSL.
 	Validators []ValidatorRef
@@ -48,6 +90,22 @@ type Command[I, O any] struct {
 	// `query.<name>` short form or fully qualified `<feature>.query.<name>`.
 	Invalidates []string
 
+	// ExternalCalls lists integration calls declared by the command body.
+	ExternalCalls []ExternalCallRef
+
+	// Timeout is the duration literal (`"30s"`, `"5m"`) for command execution.
+	Timeout string
+
+	// Retry declares the attempt count + backoff strategy for external calls.
+	Retry *RetryPolicy
+
+	// Idempotency declares the request dedupe key path.
+	Idempotency *IdempotencyKey
+
+	// Deprecation declares lifecycle metadata for generated API/OpenAPI
+	// surfaces. nil means the command is live.
+	Deprecation *Deprecation
+
 	// untouched generic erasure marker for registry storage
 	_ struct{}
 }
@@ -56,29 +114,41 @@ type Command[I, O any] struct {
 // code does not call this directly.
 func (c *Command[I, O]) erased() *commandErased {
 	return &commandErased{
-		Name:        c.Name,
-		Resource:    c.Resource,
-		Policy:      c.Policy,
-		RateLimit:   c.RateLimit,
-		Audit:       c.Audit,
-		Validators:  c.Validators,
-		Effect:      c.Effect,
-		Emits:       c.Emits,
-		EmitsTrace:  c.EmitsTrace,
-		Invalidates: c.Invalidates,
+		Name:          c.Name,
+		Resource:      c.Resource,
+		Policy:        c.Policy,
+		RateLimit:     c.RateLimit,
+		Audit:         c.Audit,
+		Approval:      c.Approval,
+		Validators:    c.Validators,
+		Effect:        c.Effect,
+		Emits:         c.Emits,
+		EmitsTrace:    c.EmitsTrace,
+		Invalidates:   c.Invalidates,
+		ExternalCalls: c.ExternalCalls,
+		Timeout:       c.Timeout,
+		Retry:         c.Retry,
+		Idempotency:   c.Idempotency,
+		Deprecation:   c.Deprecation,
 	}
 }
 
 // commandErased is the runtime's view of any Command[I, O].
 type commandErased struct {
-	Name        string
-	Resource    any
-	Policy      Policy
-	RateLimit   RateLimit
-	Audit       *AuditSpec
-	Validators  []ValidatorRef
-	Effect      Effect
-	Emits       []EventEmit
-	EmitsTrace  []EventTraceEmit
-	Invalidates []string
+	Name          string
+	Resource      any
+	Policy        Policy
+	RateLimit     RateLimit
+	Audit         *AuditSpec
+	Approval      *ApprovalSpec
+	Validators    []ValidatorRef
+	Effect        Effect
+	Emits         []EventEmit
+	EmitsTrace    []EventTraceEmit
+	Invalidates   []string
+	ExternalCalls []ExternalCallRef
+	Timeout       string
+	Retry         *RetryPolicy
+	Idempotency   *IdempotencyKey
+	Deprecation   *Deprecation
 }
