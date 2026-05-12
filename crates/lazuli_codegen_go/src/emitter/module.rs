@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::Module;
 
+use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::enums::emit_enum_file;
 use super::imports::ImportSet;
@@ -93,6 +94,20 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
             let enum_path = format!("{name}/enum.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: enum_path,
+                contents,
+            });
+        }
+
+        // Cell E3 — `Command` emission. Walks every command on the
+        // feature into a sibling `command.gen.go`. Features without
+        // commands skip the file entirely (mirrors the resource /
+        // enum skip rule so the output listing stays signal-rich).
+        if let Some(contents) =
+            emit_command_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let command_path = format!("{name}/command.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: command_path,
                 contents,
             });
         }
