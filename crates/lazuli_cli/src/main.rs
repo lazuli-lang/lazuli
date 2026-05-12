@@ -778,27 +778,68 @@ fn translate_extract_command(
     Ok(())
 }
 
+#[derive(Debug)]
+struct LazuliSourceFile {
+    path: PathBuf,
+    source: String,
+}
+
+fn read_lzi_sources(input: &Path) -> Result<Vec<LazuliSourceFile>> {
+    let paths = collect_lzi_input_paths(input)?;
+    if input.is_dir() && paths.is_empty() {
+        bail!("no .lzi files found in {}", input.display());
+    }
+
+    paths
+        .into_iter()
+        .map(|path| {
+            let source = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            Ok(LazuliSourceFile { path, source })
+        })
+        .collect()
+}
+
+fn collect_lzi_input_paths(input: &Path) -> Result<Vec<PathBuf>> {
+    if input.is_dir() {
+        let mut paths = Vec::new();
+        for entry in
+            fs::read_dir(input).with_context(|| format!("reading directory {}", input.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("lzi") {
+                paths.push(path);
+            }
+        }
+        paths.sort();
+        return Ok(paths);
+    }
+
+    Ok(vec![input.to_path_buf()])
+}
+
+fn combine_lzi_sources(sources: &[LazuliSourceFile]) -> String {
+    let mut combined = String::new();
+    for file in sources {
+        if !combined.is_empty() && !combined.ends_with('\n') {
+            combined.push('\n');
+        }
+        combined.push_str(&file.source);
+        if !combined.ends_with('\n') {
+            combined.push('\n');
+        }
+    }
+    combined
+}
+
 /// `lazuli translate extract` helper — collect the `.lzi` paths that
 /// host a given feature. We mirror what `build_module_from_path` does
 /// — walk the package's `.lzi` files and return any that contain a
 /// `feature <name>` header.
 fn collect_feature_lzi_paths(root: &Path, feature_name: &str) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    let candidates: Vec<PathBuf> = if root.is_dir() {
-        let mut acc: Vec<PathBuf> = Vec::new();
-        for entry in
-            fs::read_dir(root).with_context(|| format!("reading directory {}", root.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("lzi") {
-                acc.push(path);
-            }
-        }
-        acc
-    } else {
-        vec![root.to_path_buf()]
-    };
+    let candidates = collect_lzi_input_paths(root)?;
     let header = format!("feature {feature_name}");
     for path in candidates {
         let text =
@@ -873,22 +914,7 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         features: Vec::new(),
     };
 
-    let files: Vec<PathBuf> = if input.is_dir() {
-        let mut out = Vec::new();
-        for entry in
-            fs::read_dir(input).with_context(|| format!("reading directory {}", input.display()))?
-        {
-            let entry = entry?;
-            let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("lzi") {
-                out.push(p);
-            }
-        }
-        out.sort();
-        out
-    } else {
-        vec![input.to_path_buf()]
-    };
+    let files = collect_lzi_input_paths(input)?;
 
     for path in &files {
         let source =
@@ -1049,16 +1075,19 @@ fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
 }
 
 fn check_command(input: &Path, security_profile: CheckSecurityProfile) -> Result<()> {
-    let source =
-        fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
-    let diagnostics =
-        lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile.into());
-    let has_error = diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
+    let sources = read_lzi_sources(input)?;
+    let mut has_error = false;
 
-    for diagnostic in &diagnostics {
-        print_diagnostic(input, diagnostic);
+    for file in &sources {
+        let diagnostics =
+            lazuli_lsp::diagnostics_for_source_with_profile(&file.source, security_profile.into());
+        has_error |= diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
+
+        for diagnostic in &diagnostics {
+            print_diagnostic(&file.path, diagnostic);
+        }
     }
 
     if has_error {
@@ -1125,8 +1154,8 @@ fn compile_command(input: &Path, out: &Path) -> Result<()> {
 
 fn inspect_command(input: &Path, expand: &str, format: InspectFormat) -> Result<()> {
     let expansions = parse_expand_set(expand)?;
-    let source =
-        fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
+    let sources = read_lzi_sources(input)?;
+    let source = combine_lzi_sources(&sources);
 
     match format {
         InspectFormat::Json => {
@@ -6107,14 +6136,19 @@ fn leading_spaces(line: &str) -> usize {
 mod tests {
     use std::{
         fs,
-        path::Path,
+        path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
 
     use super::{
-        ExpandSet, REGISTRY_TEMPLATE, app_template, expand_canonical_source,
-        inspect_canonical_source, new_command, parse_expand_set, pascal_case,
+        CheckSecurityProfile, ExpandSet, REGISTRY_TEMPLATE, app_template, check_command,
+        combine_lzi_sources, expand_canonical_source, inspect_canonical_source, new_command,
+        parse_expand_set, pascal_case, read_lzi_sources,
     };
+
+    fn workspace_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    }
 
     #[test]
     fn pascal_case_converts_project_names() {
@@ -6154,6 +6188,38 @@ mod tests {
         assert!(!bare.join(".gitignore").exists());
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn check_command_accepts_directory_input() {
+        let root = workspace_root().join("examples").join("hostpoint-mini");
+        check_command(&root, CheckSecurityProfile::Strict).unwrap();
+    }
+
+    #[test]
+    fn inspect_json_accepts_directory_input() {
+        let root = workspace_root().join("examples").join("hostpoint-mini");
+        let sources = read_lzi_sources(&root).unwrap();
+        let names: Vec<_> = sources
+            .iter()
+            .map(|file| file.path.file_name().unwrap().to_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["app.lzi", "hostpoint-mini.lzi", "registry.lzi"]);
+
+        let source = combine_lzi_sources(&sources);
+        let report = inspect_canonical_source(&source, &root, ExpandSet::default());
+
+        assert_eq!(report.app.as_ref().unwrap().name, "HostpointMini");
+        assert!(report.registry.is_some());
+        for expected in ["account", "property", "service", "payment"] {
+            assert!(
+                report
+                    .features
+                    .iter()
+                    .any(|feature| feature.name == expected),
+                "expected feature {expected} in inspect report"
+            );
+        }
     }
 
     #[test]
