@@ -80,21 +80,40 @@ enum Commands {
         #[arg(long = "check")]
         check: Option<String>,
     },
-    /// OpenAPI bucket cycle — emit artifacts derived from the typed IR
-    /// slice. Today supports `openapi` (OpenAPI 3.1 spec YAML).
+    /// OpenAPI / Lazuli Go bucket cycle — emit artifacts derived from
+    /// the typed IR slice. Today supports `openapi` (OpenAPI 3.1 spec
+    /// YAML) and `go` (Lazuli Go user-code that imports
+    /// `lazuli.dev/runtime/lazuli`).
     Generate {
-        /// Which artifact to emit. Closed catalog: `openapi`.
+        /// Which artifact to emit. Closed catalog: `openapi`, `go`.
         #[arg(value_enum)]
         kind: GenerateKind,
         /// Path to a `.lzi` file or a directory containing one.
         input: PathBuf,
-        /// Output file path. When omitted the spec is written to stdout.
-        #[arg(long, short)]
+        /// Output file path (for `openapi`) or directory (for `go`).
+        /// When omitted, `openapi` writes to stdout; `go` requires
+        /// `--out` because it produces multiple files.
+        #[arg(long, short, alias = "out")]
         output: Option<PathBuf>,
-        /// API version string emitted as `info.version`. Defaults to
-        /// "0.0.0" when not provided.
+        /// API version string emitted as `info.version` (openapi only).
+        /// Defaults to "0.0.0" when not provided.
         #[arg(long)]
         api_version: Option<String>,
+        /// Go module path emitted in root `go.mod` (go only). Defaults
+        /// to `lazuli/<app-name-kebab>` derived from `app.name`, or
+        /// `lazuli/app` when no manifest is present.
+        #[arg(long)]
+        module: Option<String>,
+        /// Version constraint emitted in `require lazuli.dev/runtime/lazuli`
+        /// (go only). Defaults to the crate-pinned
+        /// `lazuli_codegen_go::LAZULI_GO_VERSION` constant.
+        #[arg(long)]
+        lazuli_go_version: Option<String>,
+        /// Smoke-run the emitter without writing any file. Surfaces
+        /// unresolved references and exits non-zero on any error.
+        /// Mirrors `translate extract --check`.
+        #[arg(long)]
+        check: bool,
     },
     /// OpenAPI bucket cycle — diff two `lazuli inspect --format=json`
     /// payloads and emit a markdown changelog covering added / removed /
@@ -145,6 +164,7 @@ enum TranslateCommand {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum GenerateKind {
     Openapi,
+    Go,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -381,7 +401,18 @@ fn main() -> Result<()> {
             input,
             output,
             api_version,
-        } => generate_command(kind, &input, output.as_deref(), api_version.as_deref()),
+            module,
+            lazuli_go_version,
+            check,
+        } => generate_command(
+            kind,
+            &input,
+            output.as_deref(),
+            api_version.as_deref(),
+            module.as_deref(),
+            lazuli_go_version.as_deref(),
+            check,
+        ),
         Commands::Changelog { from, to, output } => {
             changelog_command(&from, &to, output.as_deref())
         }
@@ -396,16 +427,126 @@ fn main() -> Result<()> {
     }
 }
 
-/// OpenAPI bucket cycle — emit an artifact derived from the typed IR.
+/// OpenAPI / Lazuli Go bucket cycle — emit an artifact derived from
+/// the typed IR. Dispatch by closed-catalog `GenerateKind`.
 fn generate_command(
     kind: GenerateKind,
     input: &Path,
     output: Option<&Path>,
     api_version: Option<&str>,
+    module: Option<&str>,
+    lazuli_go_version: Option<&str>,
+    check: bool,
 ) -> Result<()> {
     match kind {
         GenerateKind::Openapi => generate_openapi(input, output, api_version),
+        GenerateKind::Go => generate_go(input, output, module, lazuli_go_version, check),
     }
+}
+
+/// Lazuli Go bucket cycle — emit Lazuli Go user-code from the typed
+/// IR. Walks `lazuli_codegen_go::generate_v1`, then either writes the
+/// resulting files into `--out` or, in `--check` mode, prints what
+/// would be emitted without touching the filesystem.
+///
+/// Per the proposal §1.1, `--out` is required for `go` because the
+/// emitter produces multiple files (one per feature plus a root
+/// `go.mod`). `--check` short-circuits the write step and exits 1
+/// when the emitter surfaces unresolved references. The §6.2.1 error
+/// catalog is wired in cell I4; this cell ships the coarse pass/fail
+/// signal.
+fn generate_go(
+    input: &Path,
+    output: Option<&Path>,
+    module: Option<&str>,
+    lazuli_go_version: Option<&str>,
+    check: bool,
+) -> Result<()> {
+    let module_ir = build_module_from_path(input)?;
+
+    let module_name = match module {
+        Some(name) => name.to_owned(),
+        None => default_module_name(&module_ir),
+    };
+    let go_version = lazuli_go_version
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| lazuli_codegen_go::LAZULI_GO_VERSION.to_owned());
+
+    let options = lazuli_codegen_go::GoEmitOptions {
+        module_name: Some(module_name),
+        lazuli_go_version: go_version,
+        check,
+    };
+    let files = lazuli_codegen_go::generate_v1(&module_ir, &options);
+
+    if check {
+        // Coarse pass/fail signal; the closed §6.2.1 error catalog
+        // (CODEGEN-GO-PLUGIN-001, etc.) lands in cell I4. Today we
+        // just enumerate what the emitter would produce and exit 0.
+        println!("lazuli generate go --check");
+        println!("would emit {} file(s):", files.len());
+        for file in &files {
+            println!("  {}", file.path);
+        }
+        return Ok(());
+    }
+
+    let out_dir = output.ok_or_else(|| {
+        anyhow::anyhow!(
+            "`lazuli generate go` requires --out <dir>; the emitter writes multiple files"
+        )
+    })?;
+
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("creating output directory {}", out_dir.display()))?;
+
+    for file in &files {
+        write_generated_file(out_dir, &file.path, &file.contents)?;
+    }
+
+    println!("wrote {} file(s) to {}", files.len(), out_dir.display());
+    Ok(())
+}
+
+/// Derive the Go module name from the IR's `app.name` (kebab-cased,
+/// per proposal §1.1). Falls back to `lazuli/app` when no manifest
+/// surfaces a name.
+fn default_module_name(module: &lazuli_ir::Module) -> String {
+    let name = module
+        .app
+        .as_ref()
+        .map(|app| app.name.as_str())
+        .unwrap_or("app");
+    format!("lazuli/{}", to_kebab_case(name))
+}
+
+/// Lower-snake / lower-kebab caser used by `default_module_name`. Kept
+/// local to avoid pulling the codegen-go internal helpers into the CLI
+/// surface; mirrors the small kebab caser in
+/// `lazuli_codegen_go::to_kebab_case`.
+fn to_kebab_case(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut prev_lower = false;
+    for ch in value.chars() {
+        if ch == '_' || ch == ' ' {
+            out.push('-');
+            prev_lower = false;
+            continue;
+        }
+        if ch.is_ascii_uppercase() {
+            if prev_lower && !out.is_empty() {
+                out.push('-');
+            }
+            for low in ch.to_lowercase() {
+                out.push(low);
+            }
+            prev_lower = false;
+            continue;
+        }
+        out.push(ch);
+        prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+    }
+    out
 }
 
 fn generate_openapi(input: &Path, output: Option<&Path>, api_version: Option<&str>) -> Result<()> {
@@ -939,7 +1080,7 @@ fn compile_command(input: &Path, out: &Path) -> Result<()> {
     fs::create_dir_all(out)
         .with_context(|| format!("failed to create output directory {}", out.display()))?;
 
-    for file in lazuli_codegen_go::generate(&app) {
+    for file in lazuli_codegen_go::generate_legacy_demo(&app) {
         write_generated_file(out, &file.path, &file.contents)?;
     }
 

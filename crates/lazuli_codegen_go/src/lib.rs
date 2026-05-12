@@ -26,13 +26,63 @@ pub use runtime::emit_feature_go;
 
 use lazuli_ir::{BuiltinType, CommandInput, Field, Module, Resource, TypeRef};
 
+/// Crate-pinned default version constraint emitted in the generated
+/// `go.mod`'s `require lazuli.dev/runtime/lazuli` line. `lazuli
+/// generate go` accepts `--lazuli-go-version` to override; this
+/// constant is the fallback. Bumped together with the Lazuli Go lib.
+pub const LAZULI_GO_VERSION: &str = "v0.1.0";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFile {
     pub path: String,
     pub contents: String,
 }
 
-pub fn generate(module: &Module) -> Vec<GeneratedFile> {
+/// Options accepted by `generate_v1`. Mirrors the CLI surface described
+/// in `docs/proposals/codegen-lazuli-go.md` §1.1.
+#[derive(Debug, Clone)]
+pub struct GoEmitOptions {
+    /// Go module path emitted in root `go.mod`. When `None` the
+    /// emitter derives `lazuli/<kebab-cased-app-name>` per proposal
+    /// §1.1; the CLI usually resolves this before calling.
+    pub module_name: Option<String>,
+    /// Version constraint emitted in
+    /// `require lazuli.dev/runtime/lazuli <version>`. Defaults to
+    /// `LAZULI_GO_VERSION`.
+    pub lazuli_go_version: String,
+    /// Smoke-run flag. Today the emitter ignores this (both modes
+    /// build the same `Vec<GeneratedFile>`); the CLI handles the
+    /// "do not write" branch. Reserved for the §6.2.1 error catalog
+    /// landing in cell I4.
+    pub check: bool,
+}
+
+impl Default for GoEmitOptions {
+    fn default() -> Self {
+        Self {
+            module_name: None,
+            lazuli_go_version: LAZULI_GO_VERSION.to_owned(),
+            check: false,
+        }
+    }
+}
+
+/// Entry point for the new Lazuli Go emitter (proposal §2.3). For the
+/// I1 cell this is a thin shell that wires the CLI through; the
+/// emitter scaffold (`printer`, `imports`, `types`, `module`) lands
+/// in cell E1 and the per-kind walkers in E2-E4 + G1-G7. Returning an
+/// empty `Vec` keeps `cargo test` green until E1 fills it in.
+pub fn generate_v1(_module: &Module, _options: &GoEmitOptions) -> Vec<GeneratedFile> {
+    Vec::new()
+}
+
+/// Legacy Phase J / spike emitter. Produces the hard-coded
+/// `backend/go.mod`, `backend/main.go`, and
+/// `backend/internal/lazuli/models.go` triple used by
+/// `lazuli compile` today. Kept for back-compat with the spike CLI
+/// path; retired once `lazuli generate go` (cells E1-G7) reaches
+/// feature parity.
+pub fn generate_legacy_demo(module: &Module) -> Vec<GeneratedFile> {
     let module_name = module
         .features
         .first()
@@ -285,13 +335,13 @@ mod tests {
     use lazuli_analyzer::lower_document;
     use lazuli_syntax::parse_document;
 
-    use super::generate;
+    use super::{GoEmitOptions, LAZULI_GO_VERSION, generate_legacy_demo, generate_v1};
 
     #[test]
-    fn generates_go_backend_files() {
+    fn legacy_demo_emits_backend_files() {
         let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
         let module = lower_document(&document).unwrap();
-        let files = generate(&module);
+        let files = generate_legacy_demo(&module);
 
         assert!(files.iter().any(|file| file.path == "backend/main.go"));
         assert!(
@@ -299,5 +349,22 @@ mod tests {
                 .iter()
                 .any(|file| file.contents.contains("handleCustomerList"))
         );
+    }
+
+    #[test]
+    fn generate_v1_stub_returns_empty_until_e1() {
+        // The I1 cell wires the CLI verb only; the emitter scaffold
+        // ships in cell E1. Until then this entry point is a stub.
+        let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
+        let module = lower_document(&document).unwrap();
+        let files = generate_v1(&module, &GoEmitOptions::default());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn lazuli_go_version_is_pinned() {
+        // Sanity: the crate-pinned version constant matches what the
+        // CLI's `--lazuli-go-version` default resolves to.
+        assert!(LAZULI_GO_VERSION.starts_with('v'));
     }
 }
