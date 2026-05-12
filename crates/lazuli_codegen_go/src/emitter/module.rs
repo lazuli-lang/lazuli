@@ -27,7 +27,7 @@ use super::query::emit_query_file;
 use super::resource::emit_resource_file;
 use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PATH};
 use super::storage::emit_storage_file;
-use super::translation::emit_translation_file;
+use super::translation::emit_translation_files;
 use super::webhook::emit_webhook_file;
 use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION};
 
@@ -208,16 +208,14 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
 
         // Cell G3a — Translation emission. Per-feature `i18n.Catalog`
         // + `//go:embed i18n/*.json` + `embed.FS` in `translation.gen.go`.
-        if let Some(contents) =
-            emit_translation_file(&source_label, feature, &module_name, &cross_index)
-        {
-            let translation_path =
-                format!("{name}/translation.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: translation_path,
-                contents,
-            });
-        }
+        // Now also emits `i18n/_placeholder.json` companion so the
+        // `//go:embed` directive resolves at compile time (cell B1).
+        files.extend(emit_translation_files(
+            &source_label,
+            feature,
+            &module_name,
+            &cross_index,
+        ));
 
         // Cell G3b — EventGroup emission. Per-feature `lazuli.EventGroup`
         // values + payload structs in `events.gen.go`.
