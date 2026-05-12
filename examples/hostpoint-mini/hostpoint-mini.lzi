@@ -2,19 +2,163 @@ feature account
   purpose "User identity for the Hostpoint mini fixture."
 
   domain
+    enum UserRole
+      guest
+      host
+      admin
+
     resource User
       email: @semantic.Email @pii.contact required unique
       name: Text required
+      role: UserRole = guest
+      password_hash: @cap.Hashed(algorithm:argon2id) optional
+      last_login_at: DateTime optional
+
+      timestamps
       retention 7y then anonymize
 
+    resource Session
+      user: User required on_delete cascade
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+
+      timestamps
+      retention 30d then delete
+
+    resource PasswordReset
+      user: User required on_delete cascade
+      token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
+      requested_at: DateTime required
+      used_at: DateTime optional
+
+      retention 7d then delete
+
+    query.lookup by_id by id: ID
+
+    query.lookup by_email by email: @semantic.Email
+
+    query.lookup session_by_id by id: ID
+
+    event user_registered
+      user_id: ID
+      email: @semantic.Email @pii.contact
+
+    event user_logged_in
+      user_id: ID
+      session_id: ID
+
+    event user_logged_out
+      session_id: ID
+
+    event password_reset_requested
+      user_id: ID
+      reset_id: ID
+
+    event password_reset_completed
+      user_id: ID
+
   policies
+    register: @scope.public
+    login: @scope.public
+    logout: @scope.authenticated
+    reset_password: @scope.public
     read: @scope.self, @role.admin
     update: @scope.self, @role.admin
+    delete: @role.admin
 
     fields User
       email
         read: @scope.self, @role.admin
         write: @scope.self, @role.admin
+
+      role
+        read: @scope.self, @role.admin
+        write: @role.admin
+
+      password_hash
+        read: @actor.system
+        write: @actor.system
+
+    fields Session
+      refresh_token_hash
+        read: @actor.system
+        write: @actor.system
+
+    fields PasswordReset
+      token
+        read: @actor.system
+        write: @actor.system
+
+  auth
+    identity User.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_password
+      verify @fn.verify_password
+      rate_limit "5 per 10 minutes"
+
+    sessions
+      resource Session
+      ttl "30 days"
+      refresh true
+
+  command register
+    input
+      email: @semantic.Email required
+      password: Text required
+      name: Text required
+    policy @policy.register
+    rate_limit "5 per 10 minutes per ip"
+    creates User
+      email = input.email
+      name = input.name
+      role = UserRole.guest
+      password_hash = @fn.hash_password(input.password)
+    emits user_registered
+
+  command login
+    input
+      email: @semantic.Email required
+      password: Text required
+    policy @policy.login
+    rate_limit "5 per 10 minutes per ip"
+    returns AuthSession
+    emits user_logged_in
+
+  command logout
+    route session_id: ID from ctx.session.id
+    target query.session_by_id(id: route.session_id)
+    policy @policy.logout
+    rate_limit "30 per minute per user"
+    deletes Session
+    emits user_logged_out
+
+  command request_password_reset
+    input
+      email: @semantic.Email required
+    target query.by_email(email: input.email)
+    policy @policy.reset_password
+    rate_limit "3 per hour per ip"
+    creates PasswordReset
+      user = target
+      token = @fn.issue_password_reset_token(target)
+      requested_at = ctx.now
+    emits password_reset_requested
+
+  command reset_password
+    input
+      token: Text required
+      password: Text required
+    policy @policy.reset_password
+    rate_limit "3 per hour per ip"
+    handler "./auth/reset_password.go"
+    emits password_reset_completed
+
+  extensions
+    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./auth/hash_password.go"
+    fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_password.go"
+    fn issue_password_reset_token: Function[User, @cap.Token(ttl:1h,single_use:true,store:hashed)] at "./auth/issue_password_reset_token.go"
 
 feature property
   purpose "Host properties with owner, pricing, and geo coordinates."
