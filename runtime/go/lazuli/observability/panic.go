@@ -15,6 +15,8 @@ import (
 	"context"
 	"net/http"
 	"runtime/debug"
+	"sync"
+	"time"
 )
 
 // PanicScope names the boundary that caught the panic. Used to pick
@@ -32,6 +34,62 @@ const (
 	ScopeWebhookHandler
 )
 
+// PanicReport is the payload sent to a configured panic reporter when
+// Lazuli recovers a panic at a runtime boundary.
+type PanicReport struct {
+	// Recovered is the value returned by recover().
+	Recovered any
+	// Stack is the goroutine stack captured at the recovery site.
+	Stack []byte
+	// Scope names the runtime boundary that recovered the panic.
+	Scope PanicScope
+	// RequestPath is the HTTP request path when the panic came from
+	// RecoverHTTP. It is empty for non-HTTP scopes.
+	RequestPath string
+	// RequestMethod is the HTTP method when the panic came from
+	// RecoverHTTP. It is empty for non-HTTP scopes.
+	RequestMethod string
+	// Time is when the panic was recovered.
+	Time time.Time
+}
+
+// PanicReporter receives recovered panic reports. Implementations
+// should return quickly and must not rely on being called
+// asynchronously.
+type PanicReporter interface {
+	ReportPanic(context.Context, PanicReport)
+}
+
+// PanicReporterFunc adapts a function to PanicReporter.
+type PanicReporterFunc func(context.Context, PanicReport)
+
+// ReportPanic implements PanicReporter.
+func (f PanicReporterFunc) ReportPanic(ctx context.Context, report PanicReport) {
+	if f == nil {
+		return
+	}
+	f(ctx, report)
+}
+
+var panicReporterRegistry struct {
+	sync.RWMutex
+	reporter PanicReporter
+}
+
+// SetPanicReporter configures the process-wide panic reporter. Passing
+// nil disables reporting. Reporter panics are ignored so recovery
+// behavior remains unchanged.
+func SetPanicReporter(reporter PanicReporter) {
+	panicReporterRegistry.Lock()
+	panicReporterRegistry.reporter = reporter
+	panicReporterRegistry.Unlock()
+}
+
+// ResetPanicReporter clears the process-wide panic reporter.
+func ResetPanicReporter() {
+	SetPanicReporter(nil)
+}
+
 // RecoverHTTP wraps an http.Handler so panics emit a typed
 // `command_run` trace event and return 500.
 //
@@ -43,7 +101,16 @@ func RecoverHTTP(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				stack := debug.Stack()
-				_ = stack
+				ctx := context.Background()
+				report := newPanicReport(rec, stack, ScopeHTTPCommand)
+				if r != nil {
+					ctx = r.Context()
+					report.RequestMethod = r.Method
+					if r.URL != nil {
+						report.RequestPath = r.URL.Path
+					}
+				}
+				reportPanic(ctx, report)
 				// TODO(runtime): build CommandRunPayload with
 				// `Status: "error"`, `ErrorCode: "internal_panic"`,
 				// `RequestID` from ctx; call EmitCommandRun; write
@@ -67,8 +134,8 @@ func RecoverScope(ctx context.Context, scope PanicScope, fn func(context.Context
 	defer func() {
 		if rec := recover(); rec != nil {
 			stack := debug.Stack()
-			_ = stack
-			_ = scope
+			report := newPanicReport(rec, stack, scope)
+			reportPanic(ctx, report)
 			// TODO(runtime): build the right `Emit*Run` payload per
 			// scope; surface a typed error to the caller.
 			panicErr = &PanicError{Recovered: rec, Stack: stack, Scope: scope}
@@ -90,4 +157,29 @@ type PanicError struct {
 // Error implements the error interface.
 func (e *PanicError) Error() string {
 	return "lazuli/observability: panic recovered"
+}
+
+func newPanicReport(rec any, stack []byte, scope PanicScope) PanicReport {
+	return PanicReport{
+		Recovered: rec,
+		Stack:     append([]byte(nil), stack...),
+		Scope:     scope,
+		Time:      time.Now().UTC(),
+	}
+}
+
+func reportPanic(ctx context.Context, report PanicReport) {
+	panicReporterRegistry.RLock()
+	reporter := panicReporterRegistry.reporter
+	panicReporterRegistry.RUnlock()
+	if reporter == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	defer func() {
+		_ = recover()
+	}()
+	reporter.ReportPanic(ctx, report)
 }
