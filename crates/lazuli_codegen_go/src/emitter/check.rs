@@ -46,9 +46,11 @@ struct RefUse {
 pub fn run_checks(module: &Module) -> Vec<CheckIssue> {
     let declared_plugins = declared_plugin_names(module);
     let mut refs = Vec::new();
+    let mut unresolved_output_refs = Vec::new();
 
     for feature in &module.features {
         collect_feature_refs(feature, &mut refs);
+        collect_feature_unresolved_output_refs(feature, &mut unresolved_output_refs);
     }
 
     let mut issues = Vec::new();
@@ -118,6 +120,20 @@ pub fn run_checks(module: &Module) -> Vec<CheckIssue> {
             // Stub for CODEGEN-GO-FN-006. Extension stub discovery lands
             // with the follow-up §10.5 resolver.
         }
+    }
+    for reference in unresolved_output_refs {
+        let site = reference.site.as_deref().unwrap_or("unknown site");
+        push_issue(
+            &mut issues,
+            &mut seen,
+            CODE_UNRESOLVED,
+            Severity::Error,
+            format!(
+                "unresolved bare return/output type {} at {}; declare a resource, record, or enum named {} in this feature or resolve the reference before Go codegen",
+                reference.literal, site, reference.literal
+            ),
+            &reference,
+        );
     }
 
     issues
@@ -429,6 +445,63 @@ fn collect_command_refs(command: &Command, feature: &str, refs: &mut Vec<RefUse>
     collect_test_block_refs(&command.tests, feature, &site, refs);
 }
 
+fn collect_feature_unresolved_output_refs(feature: &Feature, refs: &mut Vec<RefUse>) {
+    for command in &feature.commands {
+        if let CommandEffect::Returns(effect) = &command.effect {
+            let site = format!("command {} returns", command.name);
+            collect_unresolved_bare_output_type_ref(&effect.return_type, feature, &site, refs);
+        }
+    }
+
+    for api in &feature.apis {
+        let site = format!("api {} output", api.name);
+        collect_unresolved_bare_output_type_ref(&api.output, feature, &site, refs);
+    }
+
+    for query in &feature.queries {
+        if let Query::Sql(query) = query {
+            let site = format!("query.sql {} returns", query.name);
+            collect_unresolved_bare_output_type_ref(&query.returns, feature, &site, refs);
+        }
+    }
+}
+
+fn collect_unresolved_bare_output_type_ref(
+    type_ref: &TypeRef,
+    feature: &Feature,
+    site: &str,
+    refs: &mut Vec<RefUse>,
+) {
+    match type_ref {
+        TypeRef::Many(inner) => {
+            collect_unresolved_bare_output_type_ref(inner, feature, site, refs);
+        }
+        TypeRef::Unresolved(raw) => {
+            let name = raw.trim();
+            if is_bare_unresolved_type(name) && !feature_declares_type(feature, name) {
+                push_ref(name, &feature.name, site, refs);
+            }
+        }
+        TypeRef::Builtin(_)
+        | TypeRef::Capability(_)
+        | TypeRef::UserDefined(_)
+        | TypeRef::EnumRef(_) => {}
+    }
+}
+
+fn is_bare_unresolved_type(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('@')
+}
+
+fn feature_declares_type(feature: &Feature, name: &str) -> bool {
+    feature
+        .resources
+        .iter()
+        .any(|resource| resource.name == name)
+        || feature.records.iter().any(|record| record.name == name)
+        || feature.enums.iter().any(|enum_decl| enum_decl.name == name)
+}
+
 fn collect_command_effect_refs(
     effect: &CommandEffect,
     feature: &str,
@@ -712,7 +785,10 @@ fn is_ref_char(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{AppManifest, AppRegistry, Defaults, Field, Policies, QualifiedName, Resource};
+    use lazuli_ir::{
+        Api, AppManifest, AppRegistry, CommandKind, Defaults, Field, HttpMethod, PathRef, Policies,
+        QualifiedName, Record, Resource, ReturnsEffect, SqlQuery,
+    };
 
     fn empty_feature(name: &str) -> Feature {
         Feature {
@@ -839,6 +915,71 @@ mod tests {
         }
     }
 
+    fn record(name: &str) -> Record {
+        Record {
+            name: name.to_owned(),
+            fields: Vec::new(),
+            discriminator_field: None,
+            span_ref: None,
+        }
+    }
+
+    fn command_returns(name: &str, type_ref: TypeRef) -> Command {
+        Command {
+            name: name.to_owned(),
+            kind: CommandKind::Returns,
+            route: Vec::new(),
+            input: CommandInput::Empty,
+            target: None,
+            lets: Vec::new(),
+            effect: CommandEffect::Returns(ReturnsEffect {
+                return_type: type_ref,
+            }),
+            policy: PolicyRef::None,
+            emits: Vec::new(),
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: Vec::new(),
+            external_calls: Vec::new(),
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            deprecated: None,
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn api_with_output(name: &str, output: TypeRef) -> Api {
+        Api {
+            name: name.to_owned(),
+            method: HttpMethod::Post,
+            path: format!("/{name}"),
+            policy: PolicyRef::None,
+            rate_limit: None,
+            output,
+            handler: PathRef::authored(format!("./api/{name}.go")),
+            locale_negotiate: None,
+            span_ref: None,
+        }
+    }
+
+    fn sql_query_returns(name: &str, returns: TypeRef) -> Query {
+        Query::Sql(SqlQuery {
+            name: name.to_owned(),
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            returns,
+            sql_path: format!("./queries/{name}.sql"),
+            cache: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        })
+    }
+
     fn codes(issues: &[CheckIssue]) -> Vec<&'static str> {
         issues.iter().map(|issue| issue.code).collect()
     }
@@ -931,6 +1072,70 @@ mod tests {
         feature
             .uses
             .push("@cap.File(max_size:25mb,accept:text/csv)".to_owned());
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn unresolved_bare_command_return_reports_unresolved_002() {
+        let mut feature = empty_feature("customer_auth");
+        feature.commands.push(command_returns(
+            "login",
+            TypeRef::Unresolved("AuthSession".to_owned()),
+        ));
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert_eq!(codes(&issues), vec![CODE_UNRESOLVED]);
+        assert_eq!(issues[0].severity, Severity::Error);
+        assert_eq!(issues[0].feature.as_deref(), Some("customer_auth"));
+        assert_eq!(issues[0].site.as_deref(), Some("command login returns"));
+        assert!(issues[0].message.contains("AuthSession"));
+    }
+
+    #[test]
+    fn unresolved_bare_api_output_reports_unresolved_002() {
+        let mut feature = empty_feature("customer_auth");
+        feature.apis.push(api_with_output(
+            "login",
+            TypeRef::Unresolved("AuthSession".to_owned()),
+        ));
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert_eq!(codes(&issues), vec![CODE_UNRESOLVED]);
+        assert_eq!(issues[0].site.as_deref(), Some("api login output"));
+        assert!(issues[0].message.contains("AuthSession"));
+    }
+
+    #[test]
+    fn unresolved_bare_query_return_reports_unresolved_002() {
+        let mut feature = empty_feature("customer_auth");
+        feature.queries.push(sql_query_returns(
+            "active_sessions",
+            TypeRef::Many(Box::new(TypeRef::Unresolved("AuthSession".to_owned()))),
+        ));
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert_eq!(codes(&issues), vec![CODE_UNRESOLVED]);
+        assert_eq!(
+            issues[0].site.as_deref(),
+            Some("query.sql active_sessions returns")
+        );
+        assert!(issues[0].message.contains("AuthSession"));
+    }
+
+    #[test]
+    fn same_feature_declared_output_type_does_not_report() {
+        let mut feature = empty_feature("customer_auth");
+        feature.records.push(record("AuthSession"));
+        feature.commands.push(command_returns(
+            "login",
+            TypeRef::Unresolved("AuthSession".to_owned()),
+        ));
 
         let issues = run_checks(&module_with_feature(feature));
 
