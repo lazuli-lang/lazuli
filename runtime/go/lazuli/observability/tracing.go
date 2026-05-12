@@ -66,9 +66,9 @@ var (
 	ErrTracerNotConfigured = errors.New("lazuli/observability: tracer_not_configured")
 )
 
-// Configure wires the global TracerProvider from the contract. Call
-// once at boot. Returns a shutdown fn the caller defers.
-func Configure(ctx context.Context, contract TracingContract, serviceName string) (shutdown func(context.Context) error, err error) {
+// ConfigureTracing wires the global TracerProvider from the contract.
+// Call once at boot. Returns a shutdown fn the caller defers.
+func ConfigureTracing(ctx context.Context, contract TracingContract, serviceName string) (shutdown func(context.Context) error, err error) {
 	if isNoopTracingExporter(contract.Exporter) {
 		tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
 		configureTracingPropagation(contract.Propagate)
