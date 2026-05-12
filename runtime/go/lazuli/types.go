@@ -94,6 +94,26 @@ type RateLimit string
 // Duration is a Lazuli duration literal: "30s", "10m", "1h", "7d", "7y".
 type Duration string
 
+// AppCors is the lowered `app.cors` contract emitted by Go codegen.
+type AppCors struct {
+	Allow       []string
+	Credentials bool
+	MaxAge      int64
+}
+
+// AppRoute is the lowered application route contract emitted by Go codegen.
+type AppRoute struct {
+	Name     string
+	Path     string
+	PathType string
+	From     *string
+}
+
+// StringPtr returns a pointer to s for generated optional string fields.
+func StringPtr(s string) *string {
+	return &s
+}
+
 // RetentionSpec declares how long a resource retains rows after soft-delete
 // before the runtime applies the terminal action.
 type RetentionSpec struct {
