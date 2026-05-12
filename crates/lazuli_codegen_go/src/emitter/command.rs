@@ -676,30 +676,7 @@ fn pascal_case(s: &str) -> String {
 }
 
 fn lower_camel(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut first = true;
-    for word in s.split(|c: char| c == '_' || c == '-') {
-        if word.is_empty() {
-            continue;
-        }
-        if first {
-            out.push_str(&word.to_ascii_lowercase());
-            first = false;
-            continue;
-        }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(c) = chars.next() {
-            for u in c.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
+    super::casing::lower_camel(s)
 }
 
 fn is_acronym(word: &str) -> bool {

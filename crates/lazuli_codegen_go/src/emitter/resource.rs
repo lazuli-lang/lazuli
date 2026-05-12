@@ -572,30 +572,25 @@ fn pascal_case(s: &str) -> String {
 
 /// lowerCamelCase using the same acronym table. Leading word is always
 /// lower-cased so `id_lookup` becomes `idLookup`, not `IDLookup`.
+///
+/// Derives from `pascal_case` so it handles both snake_case
+/// (`customer_import_batch` → `customerImportBatch`) and PascalCase
+/// (`CustomerImportBatch` → `customerImportBatch`) inputs uniformly.
+/// The previous split-on-`_` implementation collapsed PascalCase
+/// names like `CustomerImportBatch` into a single all-lowercase word
+/// (`customerimportbatch`), breaking cross-emitter references when
+/// `query.rs` referenced `<resource>Resource` per Go idiom.
 fn lower_camel(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut first = true;
-    for word in s.split(|c: char| c == '_' || c == '-') {
-        if word.is_empty() {
-            continue;
-        }
-        if first {
-            out.push_str(&word.to_ascii_lowercase());
-            first = false;
-            continue;
-        }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(c) = chars.next() {
-            for u in c.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
+    let pascal = pascal_case(s);
+    let mut chars = pascal.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = String::with_capacity(pascal.len());
+    for c in first.to_lowercase() {
+        out.push(c);
     }
+    out.push_str(chars.as_str());
     out
 }
 

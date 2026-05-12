@@ -14,6 +14,7 @@
 //! modules will live as sibling files inside this directory.
 
 pub mod auth;
+pub mod casing;
 pub mod command;
 pub mod cross_feature;
 pub mod enums;
