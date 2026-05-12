@@ -107,10 +107,13 @@ fn emit_go_mod(module_name: &str, lazuli_go_version: &str) -> String {
     p.blank();
     p.line("require (");
     p.indent();
-    p.line(&format!(
-        "lazuli.dev/runtime/lazuli {}",
-        lazuli_go_version
-    ));
+    // The Lazuli Go lib publishes a single Go module at
+    // `lazuli.dev/runtime`; per-bucket subpackages (`auth`, `storage`,
+    // `jobs`, the top-level `lazuli` package, ...) live under it. The
+    // `require` clause names the module, not the subpackage; generated
+    // imports reference `lazuli.dev/runtime/lazuli` and
+    // `lazuli.dev/runtime/lazuli/<bucket>` paths against that module.
+    p.line(&format!("lazuli.dev/runtime {}", lazuli_go_version));
     p.dedent();
     p.line(")");
     p.finish()

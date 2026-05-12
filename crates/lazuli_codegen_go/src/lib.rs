@@ -28,9 +28,9 @@ pub use runtime::emit_feature_go;
 use lazuli_ir::{BuiltinType, CommandInput, Field, Module, Resource, TypeRef};
 
 /// Crate-pinned default version constraint emitted in the generated
-/// `go.mod`'s `require lazuli.dev/runtime/lazuli` line. `lazuli
-/// generate go` accepts `--lazuli-go-version` to override; this
-/// constant is the fallback.
+/// `go.mod`'s `require lazuli.dev/runtime` line. `lazuli generate go`
+/// accepts `--lazuli-go-version` to override; this constant is the
+/// fallback.
 ///
 /// **Source of truth**: `runtime/go/VERSION` (single line, e.g.
 /// `v0.1.0`). This const must match — bumped together with the Lazuli
@@ -53,9 +53,8 @@ pub struct GoEmitOptions {
     /// emitter derives `lazuli/<kebab-cased-app-name>` per proposal
     /// §1.1; the CLI usually resolves this before calling.
     pub module_name: Option<String>,
-    /// Version constraint emitted in
-    /// `require lazuli.dev/runtime/lazuli <version>`. Defaults to
-    /// `LAZULI_GO_VERSION`.
+    /// Version constraint emitted in `require lazuli.dev/runtime
+    /// <version>`. Defaults to `LAZULI_GO_VERSION`.
     pub lazuli_go_version: String,
     /// Smoke-run flag. Today the emitter ignores this (both modes
     /// build the same `Vec<GeneratedFile>`); the CLI handles the

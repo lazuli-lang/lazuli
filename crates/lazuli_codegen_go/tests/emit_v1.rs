@@ -136,8 +136,8 @@ fn emits_go_mod_and_feature_stub() {
     assert!(
         go_mod
             .contents
-            .contains(&format!("lazuli.dev/runtime/lazuli {}", LAZULI_GO_VERSION)),
-        "expected `lazuli.dev/runtime/lazuli {LAZULI_GO_VERSION}` in go.mod, got:\n{}",
+            .contains(&format!("lazuli.dev/runtime {}", LAZULI_GO_VERSION)),
+        "expected `lazuli.dev/runtime {LAZULI_GO_VERSION}` in go.mod, got:\n{}",
         go_mod.contents
     );
 
@@ -265,5 +265,9 @@ fn lazuli_go_version_override_lands_in_go_mod() {
         .iter()
         .find(|f| f.path == "go.mod")
         .expect("go.mod missing");
-    assert!(go_mod.contents.contains("lazuli.dev/runtime/lazuli v9.9.9"));
+    // Require names the Lazuli Go module (`lazuli.dev/runtime`); the
+    // generated code imports the per-bucket subpackages
+    // (`lazuli.dev/runtime/lazuli`, `lazuli.dev/runtime/lazuli/storage`,
+    // ...) against it.
+    assert!(go_mod.contents.contains("lazuli.dev/runtime v9.9.9"));
 }
