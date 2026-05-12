@@ -10,10 +10,10 @@ import (
 
 var errPreviewStoreMissing = errors.New("email: preview store is nil")
 
-// Message is the email payload captured by preview stores.
+// PreviewMessage is the email payload captured by preview stores.
 //
 // ID and CreatedAt are preview metadata added by the store when omitted.
-type Message struct {
+type PreviewMessage struct {
 	ID        string
 	From      string
 	To        string
@@ -27,11 +27,11 @@ type Message struct {
 type PreviewStore interface {
 	// Save stores a message and returns the stored copy. Stores may add preview
 	// metadata such as ID and CreatedAt when the caller leaves them empty.
-	Save(ctx context.Context, message Message) (Message, error)
+	Save(ctx context.Context, message PreviewMessage) (PreviewMessage, error)
 	// List returns messages in store-defined order.
-	List(ctx context.Context) ([]Message, error)
+	List(ctx context.Context) ([]PreviewMessage, error)
 	// Get returns the message for id and whether it was found.
-	Get(ctx context.Context, id string) (Message, bool, error)
+	Get(ctx context.Context, id string) (PreviewMessage, bool, error)
 	// Delete removes the message for id and reports whether it existed.
 	Delete(ctx context.Context, id string) (bool, error)
 }
@@ -42,7 +42,7 @@ type PreviewStore interface {
 type MemoryPreviewStore struct {
 	mu       sync.RWMutex
 	next     uint64
-	messages []Message
+	messages []PreviewMessage
 	index    map[string]int
 	now      func() time.Time
 }
@@ -58,9 +58,9 @@ func NewMemoryPreviewStore() *MemoryPreviewStore {
 // Save assigns a store-local ID. If message.CreatedAt is zero, Save assigns the
 // current time. Saving a message with an existing ID replaces that message in
 // place while preserving list order.
-func (s *MemoryPreviewStore) Save(ctx context.Context, message Message) (Message, error) {
+func (s *MemoryPreviewStore) Save(ctx context.Context, message PreviewMessage) (PreviewMessage, error) {
 	if err := previewContextErr(ctx); err != nil {
-		return Message{}, err
+		return PreviewMessage{}, err
 	}
 
 	s.mu.Lock()
@@ -85,7 +85,7 @@ func (s *MemoryPreviewStore) Save(ctx context.Context, message Message) (Message
 }
 
 // List returns a snapshot of captured messages in insertion order.
-func (s *MemoryPreviewStore) List(ctx context.Context) ([]Message, error) {
+func (s *MemoryPreviewStore) List(ctx context.Context) ([]PreviewMessage, error) {
 	if err := previewContextErr(ctx); err != nil {
 		return nil, err
 	}
@@ -93,15 +93,15 @@ func (s *MemoryPreviewStore) List(ctx context.Context) ([]Message, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]Message, len(s.messages))
+	out := make([]PreviewMessage, len(s.messages))
 	copy(out, s.messages)
 	return out, nil
 }
 
 // Get returns the captured message for id and whether it was found.
-func (s *MemoryPreviewStore) Get(ctx context.Context, id string) (Message, bool, error) {
+func (s *MemoryPreviewStore) Get(ctx context.Context, id string) (PreviewMessage, bool, error) {
 	if err := previewContextErr(ctx); err != nil {
-		return Message{}, false, err
+		return PreviewMessage{}, false, err
 	}
 
 	s.mu.RLock()
@@ -109,7 +109,7 @@ func (s *MemoryPreviewStore) Get(ctx context.Context, id string) (Message, bool,
 
 	idx, ok := s.index[id]
 	if !ok {
-		return Message{}, false, nil
+		return PreviewMessage{}, false, nil
 	}
 	return s.messages[idx], true, nil
 }
@@ -129,7 +129,7 @@ func (s *MemoryPreviewStore) Delete(ctx context.Context, id string) (bool, error
 	}
 
 	copy(s.messages[idx:], s.messages[idx+1:])
-	s.messages[len(s.messages)-1] = Message{}
+	s.messages[len(s.messages)-1] = PreviewMessage{}
 	s.messages = s.messages[:len(s.messages)-1]
 	delete(s.index, id)
 	for i := idx; i < len(s.messages); i++ {
@@ -196,7 +196,7 @@ func (d *SandboxDispatcher) Send(ctx context.Context, to, subject, htmlBody, tex
 	if d == nil || d.Store == nil {
 		return errPreviewStoreMissing
 	}
-	_, err := d.Store.Save(ctx, Message{
+	_, err := d.Store.Save(ctx, PreviewMessage{
 		From:     d.From,
 		To:       to,
 		Subject:  subject,

@@ -47,10 +47,10 @@ func (c *Coalescer) Do(ctx context.Context, key string, fn func(context.Context)
 	}()
 
 	value, err := fn(ctx)
-	stored := cloneBytes(value)
+	stored := cloneCoalescedBytes(value)
 	c.finish(key, call, stored, err, nil, false)
 
-	return cloneBytes(stored), false, err
+	return cloneCoalescedBytes(stored), false, err
 }
 
 func (c *Coalescer) callFor(key string) (*coalesceCall, bool) {
@@ -87,13 +87,13 @@ func (call *coalesceCall) wait(ctx context.Context) ([]byte, bool, error) {
 		if call.panicked {
 			panic(call.panicValue)
 		}
-		return cloneBytes(call.value), true, call.err
+		return cloneCoalescedBytes(call.value), true, call.err
 	case <-ctx.Done():
 		return nil, true, ctx.Err()
 	}
 }
 
-func cloneBytes(value []byte) []byte {
+func cloneCoalescedBytes(value []byte) []byte {
 	if value == nil {
 		return nil
 	}

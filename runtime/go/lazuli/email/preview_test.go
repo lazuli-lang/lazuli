@@ -58,11 +58,11 @@ func TestSandboxDispatcherCapturesMessages(t *testing.T) {
 func TestMemoryPreviewStoreDelete(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryPreviewStore()
-	first, err := store.Save(ctx, Message{To: "first@example.com", Subject: "First"})
+	first, err := store.Save(ctx, PreviewMessage{To: "first@example.com", Subject: "First"})
 	if err != nil {
 		t.Fatalf("Save first: %v", err)
 	}
-	second, err := store.Save(ctx, Message{To: "second@example.com", Subject: "Second"})
+	second, err := store.Save(ctx, PreviewMessage{To: "second@example.com", Subject: "Second"})
 	if err != nil {
 		t.Fatalf("Save second: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestMemoryPreviewStoreZeroValue(t *testing.T) {
 	ctx := context.Background()
 	var store MemoryPreviewStore
 
-	saved, err := store.Save(ctx, Message{To: "user@example.com", Subject: "Zero"})
+	saved, err := store.Save(ctx, PreviewMessage{To: "user@example.com", Subject: "Zero"})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestMemoryPreviewStoreConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryPreviewStore()
 	dispatcher := &SandboxDispatcher{Store: store}
-	seed, err := store.Save(ctx, Message{To: "seed@example.com", Subject: "Seed"})
+	seed, err := store.Save(ctx, PreviewMessage{To: "seed@example.com", Subject: "Seed"})
 	if err != nil {
 		t.Fatalf("Save seed: %v", err)
 	}

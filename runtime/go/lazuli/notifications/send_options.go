@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -21,42 +20,6 @@ type SendOptions struct {
 	// RetrySleep waits between retry attempts. Nil uses a real timer;
 	// tests can inject a no-op sleeper.
 	RetrySleep func(context.Context, time.Duration) error
-}
-
-// IdempotencyStore atomically claims notification idempotency keys.
-type IdempotencyStore interface {
-	// Claim returns true when key was not seen before and has now been
-	// recorded. It returns false when the key is already claimed.
-	Claim(ctx context.Context, key string) (bool, error)
-}
-
-// MemoryIdempotencyStore is the in-process reference idempotency store.
-type MemoryIdempotencyStore struct {
-	mu   sync.Mutex
-	keys map[string]struct{}
-}
-
-// NewMemoryIdempotencyStore returns an empty in-process idempotency store.
-func NewMemoryIdempotencyStore() *MemoryIdempotencyStore {
-	return &MemoryIdempotencyStore{keys: make(map[string]struct{})}
-}
-
-// Claim implements IdempotencyStore.
-func (m *MemoryIdempotencyStore) Claim(ctx context.Context, key string) (bool, error) {
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.keys[key]; exists {
-		return false, nil
-	}
-	m.keys[key] = struct{}{}
-	return true, nil
 }
 
 // ErrNotificationRegistryNil is returned when SendWithOptions receives no registry.
@@ -129,12 +92,16 @@ func SendWithOptions(
 			return err
 		}
 		if opts.IdempotencyStore != nil {
-			claimed, err := opts.IdempotencyStore.Claim(ctx, scopedIdempotencyKey(contract, tenant, idempotencyKey))
+			err := opts.IdempotencyStore.Claim(ctx, IdempotencyKey{
+				Notification: notificationName(contract),
+				Tenant:       tenant,
+				Key:          idempotencyKey,
+			}, notificationIdempotencyDefaultTTL)
+			if errors.Is(err, ErrNotificationIdempotent) {
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("notifications: claim idempotency key for %s: %w", notificationName(contract), err)
-			}
-			if !claimed {
-				return nil
 			}
 		}
 	}
@@ -386,14 +353,6 @@ func throttleKey(contract NotificationContract, env Envelope) ThrottleKey {
 	return key
 }
 
-func scopedIdempotencyKey(contract NotificationContract, tenant, idempotencyKey string) string {
-	name := notificationName(contract)
-	if tenant == "" {
-		return name + ":" + idempotencyKey
-	}
-	return name + ":" + tenant + ":" + idempotencyKey
-}
-
 func notificationName(contract NotificationContract) string {
 	switch {
 	case contract.Feature != "" && contract.Name != "":
@@ -408,6 +367,7 @@ func notificationName(contract NotificationContract) string {
 }
 
 const (
-	notificationRetryBaseDelay = 5 * time.Second
-	notificationRetryMaxDelay  = 5 * time.Minute
+	notificationRetryBaseDelay        = 5 * time.Second
+	notificationRetryMaxDelay         = 5 * time.Minute
+	notificationIdempotencyDefaultTTL = 24 * time.Hour
 )
