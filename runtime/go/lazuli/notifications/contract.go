@@ -19,11 +19,11 @@ import (
 type Channel string
 
 const (
-	ChannelEmail    Channel = "email"
-	ChannelInApp    Channel = "in_app"
-	ChannelSlack    Channel = "slack"
-	ChannelDiscord  Channel = "discord"
-	ChannelWebhook  Channel = "webhook"
+	ChannelEmail   Channel = "email"
+	ChannelInApp   Channel = "in_app"
+	ChannelSlack   Channel = "slack"
+	ChannelDiscord Channel = "discord"
+	ChannelWebhook Channel = "webhook"
 	// ChannelPush / ChannelSms are SPECULATIVE — gated on
 	// `@adapter.notification.push` / `.sms` adapter bindings landing.
 )
@@ -88,13 +88,18 @@ type NotificationDigest struct {
 }
 
 // DigestStrategy is the closed-catalog enum mirroring
-// `ir::DigestStrategy`. Defaults to `DigestMerge` when the DSL omits
+// `ir::DigestStrategy`. Defaults to `DigestStrategyMerge` when the DSL omits
 // `template_strategy`.
 type DigestStrategy string
 
 const (
-	DigestMerge  DigestStrategy = "merge"
-	DigestAppend DigestStrategy = "append"
+	DigestStrategyMerge  DigestStrategy = "merge"
+	DigestStrategyAppend DigestStrategy = "append"
+
+	// Backwards-compatible aliases for the shorter names used by the
+	// first runtime stub.
+	DigestMerge  = DigestStrategyMerge
+	DigestAppend = DigestStrategyAppend
 )
 
 // NotificationThrottle mirrors `ir::NotificationThrottle`. The
@@ -113,12 +118,12 @@ type NotificationThrottle struct {
 // dispatch. `Recipient` is resolved before dispatch via the
 // contract's `recipient <path>` expression.
 type Envelope struct {
-	ID            string
-	Tenant        string
-	Channel       Channel
-	Recipient     string
-	Payload       map[string]any
-	TemplateData  map[string]any
+	ID           string
+	Tenant       string
+	Channel      Channel
+	Recipient    string
+	Payload      map[string]any
+	TemplateData map[string]any
 }
 
 // Typed errors.
