@@ -18,8 +18,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 35,
-            "end": 54
+            "start": 32,
+            "end": 51
           }
         },
         {
@@ -34,8 +34,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 58,
-            "end": 86
+            "start": 54,
+            "end": 82
           }
         },
         {
@@ -48,8 +48,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 90,
-            "end": 125
+            "start": 85,
+            "end": 120
           }
         }
       ],
@@ -65,8 +65,8 @@ expression: document
             "CustomerCreated"
           ],
           "span": {
-            "start": 131,
-            "end": 230
+            "start": 124,
+            "end": 219
           }
         }
       ],
@@ -81,8 +81,8 @@ expression: document
             "status"
           ],
           "span": {
-            "start": 236,
-            "end": 296
+            "start": 223,
+            "end": 280
           }
         }
       ],
@@ -104,14 +104,14 @@ expression: document
             "status"
           ],
           "span": {
-            "start": 302,
-            "end": 426
+            "start": 284,
+            "end": 404
           }
         }
       ],
       "span": {
-        "start": 11,
-        "end": 429
+        "start": 9,
+        "end": 406
       }
     },
     {
@@ -126,8 +126,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 456,
-            "end": 476
+            "start": 430,
+            "end": 450
           }
         },
         {
@@ -139,8 +139,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 480,
-            "end": 506
+            "start": 453,
+            "end": 479
           }
         },
         {
@@ -153,8 +153,8 @@ expression: document
             }
           ],
           "span": {
-            "start": 510,
-            "end": 538
+            "start": 482,
+            "end": 510
           }
         }
       ],
@@ -170,8 +170,8 @@ expression: document
             "ProjectCreated"
           ],
           "span": {
-            "start": 544,
-            "end": 647
+            "start": 514,
+            "end": 613
           }
         }
       ],
@@ -186,8 +186,8 @@ expression: document
             "active"
           ],
           "span": {
-            "start": 653,
-            "end": 719
+            "start": 617,
+            "end": 680
           }
         }
       ],
@@ -206,19 +206,19 @@ expression: document
           ],
           "detail_fields": [],
           "span": {
-            "start": 725,
-            "end": 830
+            "start": 684,
+            "end": 786
           }
         }
       ],
       "span": {
-        "start": 433,
-        "end": 833
+        "start": 408,
+        "end": 788
       }
     }
   ],
   "span": {
     "start": 0,
-    "end": 835
+    "end": 789
   }
 }

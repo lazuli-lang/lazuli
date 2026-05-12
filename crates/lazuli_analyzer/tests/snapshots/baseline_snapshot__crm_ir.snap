@@ -24,8 +24,8 @@ expression: app
               "required": true,
               "unique": false,
               "span_ref": {
-                "start": 35,
-                "end": 54
+                "start": 32,
+                "end": 51
               }
             },
             {
@@ -37,8 +37,8 @@ expression: app
               "required": true,
               "unique": true,
               "span_ref": {
-                "start": 58,
-                "end": 86
+                "start": 54,
+                "end": 82
               }
             },
             {
@@ -58,14 +58,14 @@ expression: app
                 }
               },
               "span_ref": {
-                "start": 90,
-                "end": 125
+                "start": 85,
+                "end": 120
               }
             }
           ],
           "span_ref": {
-            "start": 11,
-            "end": 429
+            "start": 9,
+            "end": 406
           }
         },
         {
@@ -80,8 +80,8 @@ expression: app
               "required": true,
               "unique": false,
               "span_ref": {
-                "start": 456,
-                "end": 476
+                "start": 430,
+                "end": 450
               }
             },
             {
@@ -93,8 +93,8 @@ expression: app
               "required": true,
               "unique": false,
               "span_ref": {
-                "start": 480,
-                "end": 506
+                "start": 453,
+                "end": 479
               }
             },
             {
@@ -110,14 +110,14 @@ expression: app
                 "value": true
               },
               "span_ref": {
-                "start": 510,
-                "end": 538
+                "start": 482,
+                "end": 510
               }
             }
           ],
           "span_ref": {
-            "start": 433,
-            "end": 833
+            "start": 408,
+            "end": 788
           }
         }
       ],
@@ -156,8 +156,8 @@ expression: app
             "CustomerCreated"
           ],
           "span_ref": {
-            "start": 131,
-            "end": 230
+            "start": 124,
+            "end": 219
           }
         },
         {
@@ -188,8 +188,8 @@ expression: app
             "ProjectCreated"
           ],
           "span_ref": {
-            "start": 544,
-            "end": 647
+            "start": 514,
+            "end": 613
           }
         }
       ],
@@ -226,8 +226,8 @@ expression: app
             }
           ],
           "span_ref": {
-            "start": 236,
-            "end": 296
+            "start": 223,
+            "end": 280
           }
         },
         {
@@ -262,8 +262,8 @@ expression: app
             }
           ],
           "span_ref": {
-            "start": 653,
-            "end": 719
+            "start": 617,
+            "end": 680
           }
         }
       ],
@@ -275,7 +275,7 @@ expression: app
       "escape_routes": [],
       "span_ref": {
         "start": 0,
-        "end": 835
+        "end": 789
       }
     }
   ]
