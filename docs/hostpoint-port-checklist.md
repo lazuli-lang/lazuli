@@ -1,7 +1,15 @@
 # Hostpoint Port — Sub-Checklist
 
 **Source analysis**: `docs/audit/framework-coverage-1400.md` + análise read-only de `c:/Users/lucas/hostpoint/` + `c:/Users/lucas/dev/flutter-hostpoint/`.
-**Última revisão**: 2026-05-11.
+**Última revisão**: 2026-05-12.
+
+> **Status tracking note (2026-05-12)**: este sub-checklist ainda não foi
+> reconciliado linha-a-linha depois das batches c21-c150. Use
+> `docs/next-checklist.md` rows 72-76 como ledger de execução e
+> `docs/roadmap.md` §Status atual como fonte do "onde estamos". O blocker
+> imediato para iniciar o port com confiança é fechar o smoke
+> `lazuli generate go examples/full-capsule -> go build`, que hoje falha em
+> `customer_auth/command.gen.go: undefined: AuthSession`.
 
 ## Princípio fundador
 

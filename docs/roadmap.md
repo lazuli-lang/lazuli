@@ -1,6 +1,6 @@
 # Lazuli Roadmap
 
-**Última revisão**: 2026-05-10
+**Última revisão**: 2026-05-12
 **Source audit**: [`docs/audit/framework-coverage-1400.md`](audit/framework-coverage-1400.md)
 **Near-term execution**: [`docs/next-checklist.md`](next-checklist.md)
 **Language backlog**: [`docs/language-backlog.md`](language-backlog.md)
@@ -17,6 +17,45 @@ Estrutura:
 - **§4 Pilot-gated** — ~115 features F. Aguardam pilot evidence.
 
 Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito quando faz sentido implementar junto. Próximos cuts vivem em `next-checklist.md`.
+
+---
+
+## Status atual — 2026-05-12
+
+Este arquivo ficou atrasado durante a execução paralela c21-c150. O progresso
+foi registrado em `docs/next-checklist.md` rows 72-76, mas o roadmap-mestre
+não estava sendo reconciliado, então a sensação visual era correta: havia
+muito commit, mas pouca indicação de "onde estamos".
+
+Estado honesto agora:
+
+- `origin/main` está verde no runtime Go: `go test ./...` em `runtime/go`
+  passou após a batch c121-c150.
+- A execução paralela já levou o runtime Go bem além dos stubs iniciais:
+  HTTP/middleware, observabilidade, DB, migrations, cache, jobs, eventos,
+  sessões, storage, API helpers, i18n, segurança, config e debug-loop sidecars
+  existem com testes.
+- A parte language/IR/doctor/LSP continua à frente do runtime: Phase L e os
+  buckets piloto estão fechados no lado da linguagem.
+- O blocker visível ainda é o smoke e2e do codegen Go: `cargo test -p
+  lazuli_codegen_go --features smoke full_capsule_compiles_with_go_build`
+  ainda falha em `customer_auth/command.gen.go: undefined: AuthSession`.
+  Portanto, o ciclo `lazuli generate go examples/full-capsule -> go build`
+  **não está fechado**.
+
+Fronteira imediata antes de mais expansão horizontal:
+
+1. Corrigir o smoke do codegen Go (`AuthSession` não resolvido no output).
+2. Revalidar `lazuli generate go examples/full-capsule -> go build ./...`.
+3. Atualizar este roadmap e `docs/hostpoint-port-checklist.md` junto de cada
+   batch, não só `next-checklist.md`.
+
+Leitura rápida:
+
+- `docs/next-checklist.md` = ledger detalhado de execução/commits.
+- `docs/roadmap.md` = mapa de capacidade e fronteira atual.
+- `docs/hostpoint-port-checklist.md` = checklist de produto Hostpoint, ainda
+  precisa de reconciliação linha-a-linha contra o que já entrou em Lazuli.
 
 ---
 
@@ -47,14 +86,21 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 - [x] `lazuli check` aceita a sintaxe.
 - [x] `lazuli inspect` mostra IR completo — `--expand=auth`/`storage`/`jobs`/`webhooks`/`event_groups`/`logging`/`tracing` projeta tudo.
 - [x] `lazuli doctor` tem ≥1 lint relevante — ~30 diagnostics novos somados nos 4 buckets.
-- [ ] `lazuli generate` produz Go válido que compila — **stubs em `runtime/go/lazuli/` compilam**, mas codegen para `dist/go/<feature>/*.gen.go` ainda pendente.
-- [ ] Lazuli Go executa um cenário ponta-a-ponta — runtime team owns (argon2id real, S3 client, River dispatch, OTEL exporter).
+- [ ] `lazuli generate` produz Go válido que compila — CLI e emitter existem e
+  geram o fixture completo, mas o smoke `go build ./...` ainda falha em
+  `customer_auth/command.gen.go: undefined: AuthSession`. Próximo corte direto:
+  resolver esse tipo no output gerado.
+- [ ] Lazuli Go executa um cenário ponta-a-ponta — runtime helpers agora são
+  amplos e testados, mas ainda falta um happy path gerado rodando contra
+  adapters reais/locais.
 - [x] Existe `eval`/`case` ou Go test cobrindo o caminho — 3 golden evals em `tests/golden/auth/` + `runtime/go/lazuli/storage/storage_test.go` (synctest TTL expiry funcional).
 - [x] LSP enxerga e dá hover/completion — ~40 hovers novos + closed-catalog completions.
 
 Depois dos 4 buckets fechados, **expansão horizontal** (§1 e §2 abaixo) deixa de ser arriscada — o pipeline está provado.
 
-**Segunda onda** (depois do ciclo provado): cache, notifications expandidas, webhooks, migrations, OpenAPI gen, admin básico.
+**Segunda onda** (depois do ciclo provado): cache, notifications expandidas,
+webhooks, migrations, OpenAPI gen e runtime helpers foram parcialmente
+executados nas rows 72-76 do `next-checklist`. Admin básico permanece aberto.
 
 ---
 
