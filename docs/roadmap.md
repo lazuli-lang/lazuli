@@ -34,11 +34,11 @@ Estado honesto agora:
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Depois da reconciliação c181-c225,
-  este arquivo mostra 132 feitos / 426 totais. Itens compostos parcialmente
+  ainda não tinha acompanhado as batches. Depois da reconciliação c226-c270,
+  este arquivo mostra 145 feitos / 426 totais. Itens compostos parcialmente
   feitos continuam abertos com nota.
 - Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
-  c151-c180.
+  c226-c270.
 - `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli` e
   `cargo test -p lazuli_codegen_go --features smoke` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
@@ -54,9 +54,10 @@ Estado honesto agora:
   auth, property, service/booking, payment, review, chat e notification estão
   modelados; isso ainda **não** significa que o produto Hostpoint real foi
   migrado.
-- A batch c181-c225 foi deliberadamente de **framework/Lazurite readiness**:
-  45 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
-  jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen.
+- As batches c181-c270 foram deliberadamente de **framework/Lazurite readiness**:
+  90 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
+  jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen/
+  auth/events/admin hardening.
   Nenhum trabalho de port do Hostpoint real foi iniciado.
 
 Fronteira imediata antes de qualquer port real:
@@ -86,7 +87,7 @@ Progresso real por camada:
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
 | Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
-| Runtime Go | 430+ arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
+| Runtime Go | 536 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
 | Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
@@ -174,7 +175,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 - [ ] `lock` decorator (optimistic/pessimistic/row-level)
 - [ ] `view` kind (materialized + database views)
-- [ ] `outbox` / `inbox` kinds
+- [ ] `outbox` / `inbox` kinds — runtime outbox helpers exist; language surface still open
 - [ ] `event_store` kind
 - [ ] `read_model` kind
 - [ ] `full_text` decorator em field
@@ -204,10 +205,10 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 - [x] `auth` kind explícito — shipped via Phase L Tier 1 (commit `e1d8521`). v0 cobre `password` + `oauth` + `mfa totp` + `sessions` + `identity`. SPECULATIVE deferred: `passkeys`/`webauthn`, `magic_link` como kind, `saml`, `ldap`.
 - [x] `mfa` decorator (totp shipado; `recovery_codes` deferred — não está no fixture canônico)
-- [ ] `device_session` kind (SPECULATIVE — sem pilot evidence)
+- [ ] `device_session` kind (SPECULATIVE — runtime helpers exist; language surface still open)
 - [ ] `service_account` kind (SPECULATIVE)
-- [ ] `api_token` kind (`@cap.Token` ampliado: scopes, rotation, revocation, refresh) — SPECULATIVE
-- [ ] `impersonation` kind (SPECULATIVE)
+- [ ] `api_token` kind (`@cap.Token` ampliado: scopes, rotation, revocation, refresh) — runtime scoped-token helpers exist; language surface still open
+- [ ] `impersonation` kind — runtime helpers exist; language surface still open
 
 ### 1.9 Autorização
 
@@ -229,7 +230,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 - [ ] `deprecated` decorator em api/command (deprecation headers)
 - [ ] `webhook_event` registry kind
 - [ ] `webhook_replay` / `webhook_dlq` decoradores
-- [ ] API changelog gerado de IR diff
+- [ ] API changelog gerado de IR diff — runtime docgen changelog helpers exist; IR diff source still open
 
 ### 1.12 JSON / serialização
 
@@ -240,16 +241,16 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 - [ ] `chain` kind (job chaining)
 - [ ] `batch` decorator em job
-- [ ] `lock` kind (distributed)
-- [ ] `leader` kind (election)
+- [ ] `lock` kind (distributed) — runtime distributed-lock helpers exist; language surface still open
+- [ ] `leader` kind (election) — runtime leader-election helpers exist; language surface still open
 
 ### 1.14 Eventos
 
 - [x] `event_group` kind — shipped via Phase L Tier 3 (commits `e89ff27` → `299878e`). IR struct + parser + lowering + `--expand=event_groups` projection + `event_group_pattern_prefix_diagnostics` (row 34).
 - [x] **Built-in trace events extension** — shipped via observability bucket (commit `bd3e6ac`). `built_in_trace_events()` expandido de 1 para 4 (`agent_run` + `command_run` + `job_run` + `webhook_run`). Novo namespace `@trace.<name>`.
 - [ ] `subscriber` kind (jobs com `trigger event` já são subscribers de facto; kind dedicado é cosmético)
-- [ ] Event versioning (semver no kind name) — SPECULATIVE
-- [ ] `upcaster` kind — SPECULATIVE (Cut B related)
+- [ ] Event versioning (semver no kind name) — runtime version/upcaster helpers exist; language surface still open
+- [ ] `upcaster` kind — runtime upcaster helpers exist; language surface still open
 
 ### 1.15 Cache
 
@@ -374,16 +375,16 @@ inteira estiver entregue.
 ### 2.1 HTTP / servidor (P1 — bloqueia produção)
 
 - [ ] HTTP/1.1 + HTTP/2 + keep-alive + timeouts
-- [ ] mTLS, ACME/Let's Encrypt, HSTS native
+- [ ] mTLS, ACME/Let's Encrypt, HSTS native — HSTS middleware shipped; mTLS/ACME remain open.
 - [x] Streaming / chunked / SSE — SSE helper shipped in runtime Go; chunked behavior rides stdlib `net/http`.
 - [ ] WebSocket server (sem rooms/presence — F)
 - [x] Multipart parser robusto
 - [ ] Static files com fingerprint + manifest
-- [ ] Reverse proxy + forwarded headers + real IP
+- [x] Reverse proxy + forwarded headers + real IP
 - [x] Compressão gzip native
 - [x] ETag + conditional requests + Cache-Control + Range
 - [x] CSRF via `net/http.CrossOriginProtection` (Go 1.26)
-- [ ] Middleware: circuit breaker, retry, body parser, validation, observability, slow request, timeout — chain/recover/request-id/CSRF/security/timeout pieces exist; full set remains open.
+- [x] Middleware: circuit breaker, retry, body parser, validation, observability, slow request, timeout
 - [x] Panic recovery
 - [x] Custom error pages (renderiza decorador da linguagem)
 - [x] Maintenance mode
@@ -392,7 +393,7 @@ inteira estiver entregue.
 
 - [x] `log/slog` + JSON/text handler wiring
 - [x] Structured JSON + text logs
-- [ ] Log sampling
+- [x] Log sampling
 - [x] Log redaction (consome `@pii` annotations)
 - [x] Request / query / job logs auto-instrumentados — request-id logging, query logging, job metrics/log hooks exist; product-specific policy remains runtime/codegen work.
 - [x] OpenTelemetry traces + metrics + logs — OTLP trace wiring + runtime metrics are present; log export remains adapter-level.
@@ -402,8 +403,8 @@ inteira estiver entregue.
 - [x] Health / readiness / liveness / startup / dependency checks
 - [x] `/debug/pprof` + `runtime/pprof`
 - [x] `runtime/trace` + `runtime/trace.FlightRecorder` (Go 1.26)
-- [ ] Profiles: memory, CPU, mutex, block, alloc, goroutine leak — pprof/profile report helpers and attribution shipped; automated leak detection remains open.
-- [ ] GC / scheduler metrics
+- [x] Profiles: memory, CPU, mutex, block, alloc, goroutine leak — pprof/profile report helpers, profile summaries, attribution, and leak checker shipped.
+- [x] GC / scheduler metrics
 - [x] Panic reporting
 - [x] Build info + version endpoint
 - [x] Log correlation com request ID
@@ -411,13 +412,13 @@ inteira estiver entregue.
 ### 2.3 Database operacional (P1)
 
 - [x] Connection pool tuning
-- [ ] Read replicas + primary/replica routing (consome decoradores da linguagem)
+- [x] Read replicas + primary/replica routing (runtime helper shipped; language decorator remains a separate §1 item)
 - [x] Health checks
 - [x] Query logging + slow query log + query comments + query tracing (spans)
 - [x] Prepared statements automáticos
 - [x] Nested transactions + savepoints
 - [x] Unit of work pattern
-- [ ] Lazy/preloading mechanics
+- [x] Lazy/preloading mechanics
 - [x] Cursor + offset pagination
 - [x] Bulk insert / update / upsert
 - [x] Batch queries
@@ -486,11 +487,11 @@ inteira estiver entregue.
 - [ ] `runtime/secret` integration (Go 1.26)
 - [x] Password pepper + key derivation
 - [x] Envelope encryption
-- [ ] HTML escaping automático
+- [x] HTML escaping automático
 - [x] SQL injection safeguards (codegen)
-- [ ] Safe file serving
+- [x] Safe file serving
 - [ ] Dependency vulnerability scanning hook
-- [ ] SBOM generation
+- [x] SBOM generation
 - [ ] SLSA / provenance hooks
 - [x] Request body redaction
 - [ ] At-rest encryption helpers
@@ -613,23 +614,23 @@ inteira estiver entregue.
 
 ### 2.24 Relatórios (P3)
 
-- [ ] CSV / Excel / JSON / XML export — CSV/JSON shipped; Excel/XML remain open.
+- [ ] CSV / Excel / JSON / XML export — CSV/JSON/XML shipped; Excel remains open.
 - [ ] PDF generation
 - [ ] Report builder UI (admin gated)
 - [ ] Dashboard widgets + chart helpers
-- [ ] CSV / Excel / JSON import + validation reports + rollback
+- [ ] CSV / Excel / JSON import + validation reports + rollback — CSV import validation shipped; Excel/JSON/rollback remain open.
 
 ### 2.25 Deploy / ops (P2 — Cut deploy)
 
-- [ ] Dockerfile + Docker Compose + Kubernetes manifests + Helm chart + systemd + Procfile generators — Dockerfile/Compose shipped; Kubernetes/Helm/systemd/Procfile remain open.
+- [ ] Dockerfile + Docker Compose + Kubernetes manifests + Helm chart + systemd + Procfile generators — Dockerfile/Compose/Kubernetes/systemd/Procfile shipped; Helm remains open.
 - [x] Multi-stage + distroless + static binary builds
 - [ ] CGO / no-CGO modes + cross compilation
-- [ ] Release + rollback commands
-- [ ] Blue-green + canary deployment
-- [ ] Migrations on deploy + pre/post hooks
-- [ ] Health gates + smoke tests
-- [ ] Runtime config + secrets injection
-- [ ] Autoscaling metrics
+- [ ] Release + rollback commands — rollback planning helpers shipped; CLI commands remain open.
+- [ ] Blue-green + canary deployment — rollout evaluation helpers shipped; deploy execution remains open.
+- [ ] Migrations on deploy + pre/post hooks — migration hook runner shipped; deploy integration remains open.
+- [x] Health gates + smoke tests
+- [x] Runtime config + secrets injection
+- [x] Autoscaling metrics
 
 ### 2.26 Performance (P3)
 
