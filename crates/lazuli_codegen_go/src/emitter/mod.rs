@@ -13,14 +13,19 @@
 //! EventGroup) land in subsequent cells (E2-E4, G1-G7); their
 //! modules will live as sibling files inside this directory.
 
+pub mod auth;
 pub mod command;
 pub mod cross_feature;
 pub mod enums;
 pub mod imports;
+pub mod job;
 pub mod module;
+pub mod notification;
 pub mod printer;
+pub mod query;
 pub mod resource;
 pub mod root;
 pub mod types;
+pub mod webhook;
 
 pub use module::emit_module;

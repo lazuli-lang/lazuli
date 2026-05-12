@@ -11,13 +11,18 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::Module;
 
+use super::auth::emit_auth_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::enums::emit_enum_file;
 use super::imports::ImportSet;
+use super::job::emit_job_file;
+use super::notification::emit_notification_file;
 use super::printer::GoPrinter;
+use super::query::emit_query_file;
 use super::resource::emit_resource_file;
 use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PATH};
+use super::webhook::emit_webhook_file;
 use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION};
 
 /// Default Go module path used when the caller did not supply one and
@@ -128,6 +133,69 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
             let command_path = format!("{name}/command.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: command_path,
+                contents,
+            });
+        }
+
+        // Cell E4 — Query.{List, Lookup, Sql} emission. Per-feature
+        // typed Args struct + `lazuli.Query[A, R]` value per query
+        // into `query.gen.go`.
+        if let Some(contents) =
+            emit_query_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let query_path = format!("{name}/query.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: query_path,
+                contents,
+            });
+        }
+
+        // Cell G1 — Auth emission. Per-feature `auth` block lowered
+        // to `auth.PasswordContract` / `SessionsContract` / `MfaContract`
+        // / `OAuthContract` typed values in `auth.gen.go`.
+        if let Some(contents) =
+            emit_auth_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let auth_path = format!("{name}/auth.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: auth_path,
+                contents,
+            });
+        }
+
+        // Cell G2a — Job emission. Per-feature `lazuli.JobContract`
+        // values in `job.gen.go`.
+        if let Some(contents) =
+            emit_job_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let job_path = format!("{name}/job.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: job_path,
+                contents,
+            });
+        }
+
+        // Cell G2b — Webhook v0 spine emission. Per-feature
+        // `lazuli.WebhookContract` values in `webhook.gen.go`.
+        if let Some(contents) =
+            emit_webhook_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let webhook_path = format!("{name}/webhook.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: webhook_path,
+                contents,
+            });
+        }
+
+        // Cell G2c — Notification v0 spine emission. Per-feature
+        // `lazuli.NotificationContract` values in `notification.gen.go`.
+        if let Some(contents) =
+            emit_notification_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let notification_path =
+                format!("{name}/notification.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: notification_path,
                 contents,
             });
         }
