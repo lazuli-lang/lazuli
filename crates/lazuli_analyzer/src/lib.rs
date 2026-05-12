@@ -534,6 +534,30 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     // actual type and drop the rest. This matches the behaviour of
     // `parse_resource_field` in the retired doctor walker.
     let ty = first_paren_balanced_token(ty);
+    // Codegen follow-up (2026-05-12) — `Type[]` array form lifts to
+    // `TypeRef::Many(<inner>)` so emitters can render `[]<inner>` in
+    // their target language. Before this peel, `returns CustomerLtv[]`
+    // landed as flat `UserDefined("CustomerLtv[]")` and codegen
+    // sanitised to `CustomerLtv__`. Strip exactly one `[]` suffix
+    // and recurse — nested arrays (`[][]`) are unusual but the peel
+    // is correct under recursion.
+    if let Some(stripped) = ty.strip_suffix("[]") {
+        let inner = type_ref_from_syntax(stripped.trim_end());
+        return ir::TypeRef::Many(Box::new(inner));
+    }
+    // Codegen follow-up — `<Type>.ID` member access (route slot
+    // syntax `route owner_id: User.ID required`). The IR currently
+    // has no member-access carrier on `TypeRef`; pragmatic peel:
+    // any `.ID` / `.Id` suffix resolves to `BuiltinType::Id` because
+    // every resource carries its identity in the same canonical
+    // `lazuli.ID` type. Member access on non-ID fields is rejected
+    // (falls through to `UserDefined` with the dotted name; doctor
+    // will surface as unresolved).
+    if let Some(prefix) = ty.strip_suffix(".ID").or_else(|| ty.strip_suffix(".Id")) {
+        if !prefix.is_empty() && !prefix.contains('.') {
+            return ir::TypeRef::Builtin(ir::BuiltinType::Id);
+        }
+    }
     // Phase L Tier 2 — typed `@cap.File(...)` capability.
     if let Some(file) = parse_cap_file_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::File(file));
