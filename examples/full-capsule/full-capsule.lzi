@@ -480,6 +480,13 @@ feature customer_auth
       expires_at: DateTime required
       retention 30d then delete
 
+    record AuthSession
+      customer_id: Customer.ID required
+      session_id: CustomerSession.ID required
+      provider: AuthProvider required
+      access_token: Text required
+      expires_at: DateTime required
+
     resource CustomerMfaConfig
       customer: Customer required on_delete restrict
       verified_at: DateTime required
