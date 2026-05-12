@@ -107,49 +107,10 @@ func Build(examples []Example) ([]Entry, error) {
 	}
 
 	sortEntries(entries)
-	if err := validateUniqueSourcePaths(entries); err != nil {
+	if err := validateUniqueBundleEntries(entries); err != nil {
 		return nil, err
 	}
 	return entries, nil
-}
-
-// Validate checks final bundle entries for required fields and matching content
-// hashes.
-func Validate(entries []Entry) error {
-	var errs []error
-	for i, entry := range entries {
-		if err := ValidateEntry(entry); err != nil {
-			errs = append(errs, indexedError(i, err))
-		}
-	}
-	return errors.Join(errs...)
-}
-
-// ValidateEntry checks a final bundle entry for required fields and a matching
-// content hash.
-func ValidateEntry(entry Entry) error {
-	example := Example{
-		Name:         entry.Name,
-		Intent:       entry.Intent,
-		SourcePath:   entry.SourcePath,
-		Tags:         entry.Tags,
-		LZISource:    entry.LZISource,
-		IRSnippet:    entry.IRSnippet,
-		CommonErrors: entry.CommonErrors,
-	}
-	normalized, err := NewEntry(example)
-	if err != nil {
-		return err
-	}
-
-	hash := strings.TrimSpace(entry.ContentHash)
-	if hash == "" {
-		return invalidField("content_hash", "value is required")
-	}
-	if hash != normalized.ContentHash {
-		return invalidField("content_hash", "hash does not match lzi_source")
-	}
-	return nil
 }
 
 // ContentHash returns the SHA-256 digest used for Entry.ContentHash.
@@ -311,15 +272,6 @@ func normalizeStringList(field string, values []string, required bool) ([]string
 
 	sort.Strings(normalized)
 	return normalized, nil
-}
-
-func validateUniqueSourcePaths(entries []Entry) error {
-	for i := 1; i < len(entries); i++ {
-		if entries[i].SourcePath == entries[i-1].SourcePath {
-			return indexedError(i, invalidField("source_path", fmt.Sprintf("duplicate source path %q", entries[i].SourcePath)))
-		}
-	}
-	return nil
 }
 
 func sortEntries(entries []Entry) {
