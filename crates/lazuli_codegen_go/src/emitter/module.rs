@@ -17,6 +17,7 @@ use super::enums::emit_enum_file;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
 use super::resource::emit_resource_file;
+use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PATH};
 use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION};
 
 /// Default Go module path used when the caller did not supply one and
@@ -49,7 +50,10 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         features.insert(feature.name.as_str(), feature);
     }
 
-    let mut files = Vec::with_capacity(features.len() + 1);
+    // Capacity hint: go.mod + main.go + lazuli_app.gen.go + per-feature
+    // (1 stub + up to 3 kind files). The vec grows on miss; the hint
+    // keeps the common case allocation-free.
+    let mut files = Vec::with_capacity(features.len() * 4 + 3);
 
     // Root `go.mod` first so byte-comparison fixtures find it at
     // index 0.
@@ -67,6 +71,22 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
     let cross_index = CrossFeatureIndex::build(module);
 
     let source_label = resolve_source_label(module);
+
+    // Cell I2 — root `main.go` (always emitted) + `lazuli_app.gen.go`
+    // (skipped when `module.app == None` and no observable surface).
+    // Ordered after `go.mod` and before per-feature files so reading
+    // the output listing top-down surfaces the binary entry first.
+    files.push(GeneratedFile {
+        path: MAIN_GO_PATH.to_owned(),
+        contents: emit_main_go(module, &module_name, &source_label),
+    });
+    if let Some(contents) = emit_lazuli_app_gen(module, &source_label) {
+        files.push(GeneratedFile {
+            path: LAZULI_APP_PATH.to_owned(),
+            contents,
+        });
+    }
+
     for feature in features.values() {
         let path = format!("{name}/{name}.gen.go", name = feature.name);
         let contents = emit_feature_stub(&source_label, &feature.name);

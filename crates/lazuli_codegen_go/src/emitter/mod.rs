@@ -20,6 +20,7 @@ pub mod imports;
 pub mod module;
 pub mod printer;
 pub mod resource;
+pub mod root;
 pub mod types;
 
 pub use module::emit_module;
