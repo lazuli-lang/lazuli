@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use lazuli_ir::Module;
 
 use super::api::emit_api_file;
+use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
 use super::auth::emit_auth_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
@@ -273,6 +274,13 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
     // files at the module root. Resource-level (not feature-level) so
     // numbering stays stable across feature reorderings.
     files.extend(emit_migrations(module, &source_label));
+
+    // Cell B15 — audit_log table DDL + per-command audit metadata
+    // emission. The shared audit table lands at
+    // `migrations/audit_log.sql`; per-command metadata lands beside
+    // command.gen.go when the command declares `audit default`.
+    files.push(emit_audit_log_ddl());
+    files.extend(emit_audit_metadata(module));
 
     files
 }
