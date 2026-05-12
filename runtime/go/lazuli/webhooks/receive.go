@@ -50,14 +50,5 @@ func handleOne(
 	w http.ResponseWriter,
 	req *http.Request,
 ) {
-	_ = ctx
-	_ = contract
-	_ = handler
-	_ = req
-	// TODO(runtime): read body, run VerifyHmacSignature against the
-	// declared SecretEnv/Header, parse JSON, dedupe via
-	// IdempotencyBy path, resolve TenantFrom, dispatch handler, emit
-	// declared events on success, propagate audit + observability
-	// span.
-	w.WriteHeader(http.StatusNotImplemented)
+	HandleWithOptions(w, req.WithContext(ctx), contract, handler, ReceiverOptions{})
 }
