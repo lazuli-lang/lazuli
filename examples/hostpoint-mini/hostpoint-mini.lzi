@@ -25,6 +25,12 @@ feature account
       timestamps
       retention 30d then delete
 
+    record AuthSession
+      user_id: User.ID required
+      session_id: Session.ID required
+      access_token: Text required
+      expires_at: DateTime required
+
     resource PasswordReset
       user: User required on_delete cascade
       token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
@@ -161,18 +167,146 @@ feature account
     fn issue_password_reset_token: Function[User, @cap.Token(ttl:1h,single_use:true,store:hashed)] at "./auth/issue_password_reset_token.go"
 
 feature property
-  purpose "Host properties with owner, pricing, and geo coordinates."
+  purpose "Host properties with owner, pricing, geo coordinates, and listing lifecycle."
 
   uses account
 
   domain
+    enum PropertyStatus
+      draft
+      active
+      paused
+      archived
+
     resource Property
-      owner: User required
+      owner: User required on_delete restrict
       title: Text required
+      description: Text optional
+      address: Text optional
+      city: Text required
+      country: Text required
       price: @semantic.Money required
       currency: @semantic.Currency required
       location: @semantic.GeoPoint required
-      created_at: DateTime required
+      capacity: Integer required
+      bedrooms: Integer optional
+      amenities: Text optional
+      map_place_id: Text optional
+      cover_photo_url: Text optional
+      status: PropertyStatus = draft
+
+      soft_delete
+      timestamps
+
+    query.list list
+      params
+        owner: User optional
+        status: PropertyStatus optional
+        city: Text optional
+        search: Text optional
+
+      filters
+        owner when params.owner
+        status when params.status
+        city when params.city
+
+      search params.search over title, description, city
+        mode contains
+
+      paginate 50
+
+    query.lookup by_id by id: ID
+
+    query.list search
+      params
+        search: Text
+        city: Text optional
+
+      filters
+        city when params.city
+
+      search params.search over title, description, city
+        mode contains
+
+      paginate 25
+
+    event property_created
+      property_id: ID
+      owner_id: ID
+
+    event property_updated
+      property_id: ID
+      owner_id: ID
+
+    event property_archived
+      property_id: ID
+      owner_id: ID
+
+  policies
+    create: @role.host, @role.admin
+    update: @scope.owner, @role.admin
+    read: @scope.public
+    delete: @scope.owner, @role.admin
+
+  command create
+    input
+      title: Text required
+      description: Text optional
+      city: Text required
+      country: Text required
+      price: @semantic.Money required
+      currency: @semantic.Currency required
+      location: @semantic.GeoPoint required
+      capacity: Integer required
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    creates Property
+      owner = ctx.user
+      title = input.title
+      description = input.description
+      city = input.city
+      country = input.country
+      price = input.price
+      currency = input.currency
+      location = input.location
+      capacity = input.capacity
+      status = PropertyStatus.draft
+    emits property_created
+    invalidates query.list
+
+  command update_listing
+    route id: ID
+    input
+      title: Text required
+      description: Text optional
+      price: @semantic.Money required
+      currency: @semantic.Currency required
+      capacity: Integer required
+      status: PropertyStatus required
+    policy @policy.update
+    rate_limit "60 per minute per user"
+    updates Property
+      title = input.title
+      description = input.description
+      price = input.price
+      currency = input.currency
+      capacity = input.capacity
+      status = input.status
+    emits property_updated
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
+  command archive
+    route id: ID
+    policy @policy.delete
+    rate_limit "30 per minute per user"
+    updates Property
+      status = PropertyStatus.archived
+    emits property_archived
+    invalidates
+      query.list
+      query.by_id(id: route.id)
 
 feature service
   purpose "Booking service for a guest, property, stay window, and amount."
@@ -180,31 +314,284 @@ feature service
   uses account, property
 
   domain
+    enum ServiceStatus
+      requested
+      accepted
+      paid
+      completed
+      canceled
+
     resource Service
-      guest: User required
-      property: Property required
+      guest: User required on_delete restrict
+      host: User required on_delete restrict
+      property: Property required on_delete restrict
       check_in: Date required
       check_out: Date required
+      guests: Integer required
       amount: @semantic.Money required
       currency: @semantic.Currency required
+      status: ServiceStatus = requested
       payment_reference: Text optional
+      special_requests: Text optional
+      canceled_at: DateTime optional
+      completed_at: DateTime optional
+
+      timestamps
+
+    query.list list
+      params
+        guest: User optional
+        host: User optional
+        property: Property optional
+        status: ServiceStatus optional
+
+      filters
+        guest when params.guest
+        host when params.host
+        property when params.property
+        status when params.status
+
+      paginate 50
+
+    query.lookup by_id by id: ID
+
+    query.list by_guest
+      params
+        guest: User
+
+      filters
+        guest = params.guest
+
+      order check_in desc
+
+    query.list by_property
+      params
+        property: Property
+
+      filters
+        property = params.property
+
+      order check_in desc
+
+    event service_requested
+      service_id: ID
+      guest_id: ID
+      host_id: ID
+      property_id: ID
+
+    event service_accepted
+      service_id: ID
+      host_id: ID
+
+    event service_canceled
+      service_id: ID
+      by_id: ID
+
+    event service_completed
+      service_id: ID
+      host_id: ID
+
+  policies
+    create: @scope.authenticated
+    read: @scope.self, @role.admin
+    update: @scope.owner, @role.admin
+    delete: @scope.owner, @role.admin
+
+  command request_booking
+    input
+      property_id: ID required
+      check_in: Date required
+      check_out: Date required
+      guests: Integer required
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      special_requests: Text optional
+    target property.query.by_id(id: input.property_id)
+    policy @policy.create
+    rate_limit "20 per hour per user"
+    creates Service
+      guest = ctx.user
+      host = target.owner
+      property = target
+      check_in = input.check_in
+      check_out = input.check_out
+      guests = input.guests
+      amount = input.amount
+      currency = input.currency
+      special_requests = input.special_requests
+      status = ServiceStatus.requested
+    emits service_requested
+      host_id = target.owner.id
+      property_id = input.property_id
+    invalidates query.list
+
+  command update_dates
+    route id: ID
+    input
+      check_in: Date required
+      check_out: Date required
+      guests: Integer required
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    updates Service
+      check_in = input.check_in
+      check_out = input.check_out
+      guests = input.guests
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
+  command cancel
+    route id: ID
+    policy @policy.delete
+    rate_limit "30 per minute per user"
+    updates Service
+      status = ServiceStatus.canceled
+      canceled_at = ctx.now
+    emits service_canceled
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
+  workflow lifecycle on Service.status
+    policy @policy.update
+
+    accept: requested -> accepted
+      emits service_accepted
+
+    mark_paid: accepted -> paid
+
+    complete: paid -> completed
+      emits service_completed
+
+    cancel_requested: requested -> canceled
+      emits service_canceled
+
+    cancel_accepted: accepted -> canceled
+      emits service_canceled
 
 feature payment
-  purpose "Mercado Pago payment callback handling for bookings."
+  purpose "Mercado Pago payment transaction lifecycle and callback handling for bookings."
 
   defaults
     policy_for webhooks: @actor.system
 
-  uses service
+  uses account, service
 
   requires integration mercadopago: PaymentGateway
 
   domain
+    enum PaymentProvider
+      mercadopago
+      manual
+
+    enum PaymentStatus
+      pending
+      authorized
+      captured
+      failed
+      refunded
+
+    resource PaymentTransaction
+      service: Service required on_delete restrict
+      payer: User required on_delete restrict
+      provider: PaymentProvider required
+      external_reference: Text required unique
+      provider_payment_id: Text optional
+      status: PaymentStatus = pending
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      authorized_at: DateTime optional
+      captured_at: DateTime optional
+      failed_at: DateTime optional
+      refunded_at: DateTime optional
+
+      timestamps
+
+    query.list list
+      params
+        service: Service optional
+        payer: User optional
+        status: PaymentStatus optional
+
+      filters
+        service when params.service
+        payer when params.payer
+        status when params.status
+
+      paginate 50
+
+    query.lookup by_id by id: ID
+
+    query.lookup by_external_reference by external_reference: Text
+
+    event payment_started
+      transaction_id: ID
+      service_id: ID
+      payer_id: ID
+
+    event payment_authorized
+      transaction_id: ID
+      service_id: ID
+      provider_payment_id: Text
+
     event payment_received
+      transaction_id: ID
       service_id: ID
       external_reference: Text
       amount: @semantic.Money
       currency: @semantic.Currency
+
+    event payment_failed
+      transaction_id: ID
+      service_id: ID
+      reason: Text
+
+    event payment_refunded
+      transaction_id: ID
+      service_id: ID
+
+  policies
+    create: @scope.authenticated
+    read: @scope.self, @role.admin
+    update: @actor.system, @role.admin
+    webhooks: @actor.system
+
+  command start_checkout
+    input
+      service_id: ID required
+      provider: PaymentProvider required
+      external_reference: Text required
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+    target service.query.by_id(id: input.service_id)
+    policy @policy.create
+    rate_limit "20 per hour per user"
+    creates PaymentTransaction
+      service = target
+      payer = ctx.user
+      provider = input.provider
+      external_reference = input.external_reference
+      amount = input.amount
+      currency = input.currency
+      status = PaymentStatus.pending
+    emits payment_started
+    invalidates query.list
+
+  workflow status on PaymentTransaction.status
+    policy @policy.update
+
+    authorize: pending -> authorized
+      emits payment_authorized
+
+    capture: authorized -> captured
+      emits payment_received
+
+    fail_pending: pending -> failed
+      emits payment_failed
+
+    refund: captured -> refunded
+      emits payment_refunded
 
   webhook mercadopago_callback
     path "/webhooks/mercadopago"
@@ -216,3 +603,289 @@ feature payment
     idempotency by payload.id
     handler "./webhooks/mercadopago_callback.go"
     emits payment_received
+
+feature review
+  purpose "Guest reviews tied to completed services and listed properties."
+
+  uses account, property, service
+
+  domain
+    enum ReviewStatus
+      published
+      hidden
+
+    resource Review
+      service: Service required on_delete restrict
+      property: Property required on_delete restrict
+      reviewer: User required on_delete restrict
+      rating: Integer required
+      body: Text optional
+      status: ReviewStatus = published
+
+      timestamps
+
+    constraints
+      unique service per reviewer
+
+    query.lookup by_id by id: ID
+
+    query.list for_property
+      params
+        property: Property
+        status: ReviewStatus optional
+
+      filters
+        property = params.property
+        status when params.status
+
+      paginate 50
+
+    event review_created
+      review_id: ID
+      service_id: ID
+      property_id: ID
+      reviewer_id: ID
+      host_id: ID
+
+    event review_hidden
+      review_id: ID
+      by_id: ID
+
+  policies
+    create: @scope.authenticated
+    read: @scope.public
+    update: @scope.owner, @role.admin
+    delete: @role.admin
+
+  command create
+    input
+      service_id: ID required
+      property_id: ID required
+      rating: Integer required
+      body: Text optional
+    target service.query.by_id(id: input.service_id)
+    let reviewed_property = property.query.by_id(id: input.property_id)
+    policy @policy.create
+    rate_limit "10 per hour per user"
+    creates Review
+      service = target
+      property = reviewed_property
+      reviewer = ctx.user
+      rating = input.rating
+      body = input.body
+      status = ReviewStatus.published
+    emits review_created
+      property_id = input.property_id
+      host_id = target.host.id
+
+  command hide
+    route id: ID
+    policy @policy.delete
+    rate_limit "30 per minute per user"
+    updates Review
+      status = ReviewStatus.hidden
+    emits review_hidden
+
+feature chat
+  purpose "Guest-host chats and messages around booking services."
+
+  uses account, service
+
+  domain
+    enum ChatStatus
+      open
+      closed
+
+    enum MessageKind
+      text
+      system
+
+    resource Chat
+      service: Service required on_delete restrict
+      guest: User required on_delete restrict
+      host: User required on_delete restrict
+      status: ChatStatus = open
+      opened_at: DateTime required
+      closed_at: DateTime optional
+
+      timestamps
+
+    resource Message
+      chat: Chat required on_delete cascade
+      author: User required on_delete restrict
+      kind: MessageKind = text
+      body: Text required
+
+      timestamps
+      retention 2y then anonymize
+
+    query.lookup by_id by id: ID
+
+    query.list for_service
+      params
+        service: Service
+
+      filters
+        service = params.service
+
+      paginate 10
+
+    query.list messages
+      params
+        chat: Chat
+
+      filters
+        chat = params.chat
+
+      order created_at asc
+      paginate 100
+
+    event chat_started
+      chat_id: ID
+      service_id: ID
+      guest_id: ID
+      host_id: ID
+
+    event message_sent
+      message_id: ID
+      chat_id: ID
+      author_id: ID
+      recipient_id: ID
+
+    event chat_closed
+      chat_id: ID
+      by_id: ID
+
+  policies
+    create: @scope.authenticated
+    read: @scope.self, @role.admin
+    update: @scope.self, @role.admin
+    delete: @scope.self, @role.admin
+
+  command start
+    input
+      service_id: ID required
+    target service.query.by_id(id: input.service_id)
+    policy @policy.create
+    rate_limit "20 per hour per user"
+    creates Chat
+      service = target
+      guest = target.guest
+      host = target.host
+      status = ChatStatus.open
+      opened_at = ctx.now
+    emits chat_started
+      service_id = input.service_id
+      guest_id = target.guest.id
+      host_id = target.host.id
+
+  command send_message
+    input
+      chat_id: ID required
+      body: Text required
+    target query.by_id(id: input.chat_id)
+    policy @policy.create
+    rate_limit "120 per minute per user"
+    creates Message
+      chat = target
+      author = ctx.user
+      kind = MessageKind.text
+      body = input.body
+    emits message_sent
+      chat_id = input.chat_id
+      author_id = ctx.user.id
+      recipient_id = target.host.id
+
+  command close
+    route id: ID
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    updates Chat
+      status = ChatStatus.closed
+      closed_at = ctx.now
+    emits chat_closed
+
+feature notification
+  purpose "Queue in-app notifications from booking, review, and chat events."
+
+  uses account, service, review, chat
+
+  domain
+    enum NotificationChannel
+      email
+      in_app
+
+    enum NotificationStatus
+      queued
+      sent
+      failed
+
+    resource Notification
+      recipient: User required on_delete cascade
+      channel: NotificationChannel required
+      status: NotificationStatus = queued
+      subject: Text required
+      body: Text required
+      source_event: Text required
+
+      timestamps
+      retention 1y then delete
+
+    query.list inbox
+      params
+        recipient: User
+
+      filters
+        recipient = params.recipient
+
+      paginate 50
+
+    event notification_queued
+      notification_id: ID
+      recipient_id: ID
+
+    event notification_sent
+      notification_id: ID
+      provider_message_id: Text
+
+  policies
+    create: @actor.system
+    read: @scope.self, @role.admin
+    update: @actor.system
+    delete: @role.admin
+
+  job queue_service_requested
+    trigger event service.service_requested
+    idempotency by envelope.id
+    retry 3 backoff exponential
+    creates Notification
+      recipient = payload.host_id
+      channel = NotificationChannel.in_app
+      subject = "New booking request"
+      body = "A guest requested one of your properties."
+      source_event = "service_requested"
+    emits notification_queued
+
+  job queue_review_created
+    trigger event review.review_created
+    idempotency by envelope.id
+    retry 3 backoff exponential
+    creates Notification
+      recipient = payload.host_id
+      channel = NotificationChannel.in_app
+      subject = "New review"
+      body = "A guest reviewed your property."
+      source_event = "review_created"
+    emits notification_queued
+
+  job queue_message_sent
+    trigger event chat.message_sent
+    idempotency by envelope.id
+    retry 3 backoff exponential
+    creates Notification
+      recipient = payload.recipient_id
+      channel = NotificationChannel.in_app
+      subject = "New message"
+      body = "You have a new booking message."
+      source_event = "message_sent"
+    emits notification_queued
