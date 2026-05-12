@@ -49,21 +49,8 @@ func Upload(
 	body io.Reader,
 	metadata Metadata,
 ) (Key, error) {
-	if metadata.Size > 0 && contract.MaxSize > 0 && metadata.Size > contract.MaxSize {
-		return "", ErrFileSizeExceeded
-	}
-	if metadata.ContentType != "" && len(contract.Accept) > 0 {
-		got := parseMime(metadata.ContentType)
-		matched := false
-		for _, accept := range contract.Accept {
-			if accept.Matches(got) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return "", ErrFileMimeRejected
-		}
+	if err := validateUploadMetadata(contract, metadata); err != nil {
+		return "", err
 	}
 
 	key := mintKey(contract, metadata)
@@ -435,4 +422,3 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	r.pos += n
 	return n, nil
 }
-
