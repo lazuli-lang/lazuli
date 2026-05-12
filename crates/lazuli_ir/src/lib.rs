@@ -461,6 +461,12 @@ pub enum BuiltinType {
     SemanticUrl,
     /// Phase L Tier 4 follow-up — `@semantic.Uuid`.
     SemanticUuid,
+    /// Hostpoint Phase Prep follow-up (2026-05-11) — `@semantic.GeoPoint`.
+    /// Closed-catalog single semantic carrying `{ lat, lng }`. Required
+    /// by `codegen-lazuli-go.md` §6.3/§9.1 to materialise as
+    /// `postgis.Point` in generated Go + drive the `GIST` index
+    /// emission in DDL migrations.
+    SemanticGeoPoint,
     CapSecret,
     /// Deprecated: the flat `CapFile` variant never carried arguments.
     /// Phase L Tier 2 introduces `TypeRef::Capability(CapabilityRef::File(...))`

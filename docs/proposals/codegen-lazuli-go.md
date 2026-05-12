@@ -740,9 +740,11 @@ The 5 decisions resolved 2026-05-11. Each row shows how the emitter wires it.
 
 Honest list of items this proposal did not close. Each must be resolved before its dependent cell ships.
 
-### 10.1 PostGIS Go binding library
+### 10.1 PostGIS Go binding library — RESOLVED (2026-05-11)
 
-Three candidates: `github.com/cridenour/go-postgis` (lightweight, ~200 LOC, pgx-native scan), `github.com/twpayne/go-geom` (broader feature set, OGC/WKT/WKB roundtrip, larger dep graph), `github.com/paulmach/orb` (popular but pgx integration weaker). Pick one **before** cell G4-related geo work; locks the import constant in `types.rs`. Recommendation: **`cridenour/go-postgis`** for the MVP given the wire-thin philosophy (§0); revisit if Hostpoint surfaces a need orb covers better.
+Three candidates were considered: `github.com/cridenour/go-postgis` (lightweight, ~200 LOC, pgx-native scan), `github.com/twpayne/go-geom` (broader feature set, OGC/WKT/WKB roundtrip, larger dep graph), `github.com/paulmach/orb` (popular but pgx integration weaker).
+
+**Chosen**: `github.com/cridenour/go-postgis` for the MVP, aligned with the wire-thin philosophy (§0). `BuiltinType::SemanticGeoPoint` lifted in IR; analyzer accepts `@semantic.GeoPoint`; emitter's `types.rs` maps it to `postgis.Point` + the `github.com/cridenour/go-postgis` import. Revisit if Hostpoint surfaces a need orb covers better.
 
 ### 10.2 Per-kind file split vs single-file-per-feature — when?
 

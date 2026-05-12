@@ -558,6 +558,7 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "@semantic.Phone" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPhone),
         "@semantic.Url" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUrl),
         "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
+        "@semantic.GeoPoint" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint),
         _ => {}
     }
     match ty {

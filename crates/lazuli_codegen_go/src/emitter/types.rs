@@ -71,6 +71,17 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
             "lazuli.UUID".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
+        // Hostpoint Phase Prep §9.1 — `@semantic.GeoPoint` resolves to
+        // `postgis.Point` via the lightweight `cridenour/go-postgis`
+        // binding (chosen per `codegen-lazuli-go.md` §10.1; revisit if
+        // a future bucket needs `twpayne/go-geom`'s broader WKT/WKB
+        // roundtrip). Resource fields carrying this type also emit a
+        // `db:"…,type:geography(point,4326)"` tag (proposal §3.1) and
+        // a `GIST` index in the DDL migration (proposal §9.2).
+        BuiltinType::SemanticGeoPoint => (
+            "postgis.Point".to_owned(),
+            Some("github.com/cridenour/go-postgis"),
+        ),
         BuiltinType::CapSecret => (
             "lazuli.Secret".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
@@ -181,5 +192,13 @@ mod tests {
         let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::CapFile));
         assert_eq!(go, "storage.FileRef");
         assert_eq!(import, Some("lazuli.dev/runtime/lazuli/storage"));
+    }
+
+    #[test]
+    fn semantic_geopoint_maps_to_postgis_point() {
+        // Hostpoint §9.1 — geo codegen materialises via cridenour/go-postgis.
+        let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticGeoPoint));
+        assert_eq!(go, "postgis.Point");
+        assert_eq!(import, Some("github.com/cridenour/go-postgis"));
     }
 }
