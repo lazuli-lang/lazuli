@@ -824,3 +824,84 @@ fn root_lazuli_app_gen_skipped_when_manifest_has_no_observable_surface() {
         "expected root main.go regardless of manifest surface"
     );
 }
+
+#[test]
+fn full_capsule_emits_expected_integration_snapshot_structure() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("crate should live under <repo>/crates/lazuli_codegen_go");
+    let fixture_dir = repo_root.join("examples").join("full-capsule");
+
+    let app_source = std::fs::read_to_string(fixture_dir.join("app.lzi"))
+        .expect("expected examples/full-capsule/app.lzi to be readable");
+    let app_name = app_source
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("app "))
+        .expect("expected full-capsule app.lzi to declare `app <Name>`");
+
+    let feature_source = std::fs::read_to_string(fixture_dir.join("full-capsule.lzi"))
+        .expect("expected examples/full-capsule/full-capsule.lzi to be readable");
+    let features = lazuli_syntax::parse_feature_skeletons(&feature_source)
+        .expect("expected full-capsule feature skeletons to parse")
+        .into_iter()
+        .map(|ast| {
+            lazuli_analyzer::lower_feature_skeleton(&ast)
+                .expect("expected full-capsule feature skeleton to lower")
+        })
+        .collect();
+
+    let module = Module {
+        workspace: None,
+        contracts: Vec::new(),
+        app: Some(minimal_app_manifest(app_name)),
+        registry: None,
+        profiles: Vec::new(),
+        features,
+    };
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let paths = files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        files.len() >= 40,
+        "expected at least 40 full-capsule files, got {}: {:?}",
+        files.len(),
+        paths
+    );
+
+    for feature in [
+        "account",
+        "customer",
+        "customer_auth",
+        "customer_import",
+        "customer_outreach",
+        "customer_tags",
+    ] {
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.starts_with(&format!("{feature}/"))),
+            "expected generated directory for feature `{feature}`, got: {:?}",
+            paths
+        );
+    }
+
+    for root_file in ["go.mod", "main.go", "lazuli_app.gen.go"] {
+        assert!(
+            paths.contains(&root_file),
+            "expected root file `{root_file}`, got: {:?}",
+            paths
+        );
+    }
+
+    assert!(
+        paths
+            .iter()
+            .any(|path| path.starts_with("migrations/") && path.ends_with(".sql")),
+        "expected at least one N3 DDL migration file, got: {:?}",
+        paths
+    );
+}
