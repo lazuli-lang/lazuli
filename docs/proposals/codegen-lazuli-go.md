@@ -746,13 +746,19 @@ Three candidates were considered: `github.com/cridenour/go-postgis` (lightweight
 
 **Chosen**: `github.com/cridenour/go-postgis` for the MVP, aligned with the wire-thin philosophy (§0). `BuiltinType::SemanticGeoPoint` lifted in IR; analyzer accepts `@semantic.GeoPoint`; emitter's `types.rs` maps it to `postgis.Point` + the `github.com/cridenour/go-postgis` import. Revisit if Hostpoint surfaces a need orb covers better.
 
+**Status (2026-05-12)**: resolved — see commit `97b193d`.
+
 ### 10.2 Per-kind file split vs single-file-per-feature — when?
 
 §5.1 chose per-kind. Spike emission today is monolithic. **Open**: do we ship E2-E4 as monolithic + split in G4, or split from day one? Argument for monolithic-first: byte-equivalent with `runtime.rs` output → trivial to verify against the existing fixture. Argument for split-first: every subsequent cell touches one file instead of one giant file. **Lean**: split-first; the file boundary is cheap. Decide at I2 review.
 
+**Status (2026-05-12)**: resolved — see commits `ddc4913` + `677adc5`; per-kind emission shipped from E1/E2 onward.
+
 ### 10.3 How does codegen learn about `@plugin/<name>` declared in `registry.lzi`?
 
 `ir::AppRegistry` (`:1785`) is the natural home, but the resolver in `crates/lazuli_codegen_go/src/emitter/refs.rs` needs to walk it. **Open**: does codegen take the IR `Module` only, or `Module` + the resolved `registry.lzi` IR side-by-side? The former is cleaner; the latter is what the openapi emitter does today (it walks `module.app` directly). Recommendation: walk `module.app.registry` (already part of `AppManifest`) and surface unresolved refs via `CODEGEN-GO-PLUGIN-001`.
+
+**Status (2026-05-12)**: partial — see commit `cf0221a` for the cross-feature index; plugin registry validation via `--check` remains cell I4.
 
 ### 10.4 Should `lazuli generate go` invoke `gofmt`?
 
@@ -760,29 +766,43 @@ The openapi emitter doesn't shell out. Our column-alignment in `printer.rs` matc
 
 **Revisit trigger (locked)**: if `gofmt -l dist/go/` returns a non-empty list during the smoke harness (§7.4 criterion #3) for any kind covered by the green slice (cells E1–E4, G1–G4), the emitter has drifted from `gofmt` semantics. The fix is to extend `printer.rs` alignment rules; shell-out remains the last resort. The smoke harness's `gofmt -l` step is the deterministic trigger, not a periodic review.
 
+**Status (2026-05-12)**: resolved — see commit `ddc4913`; trust printer alignment and keep `gofmt -l` as the smoke gate, with no codegen-time invocation.
+
 ### 10.5 How are user-authored Go extension files (`@fn`/`@hook`) discovered?
 
 Per `docs/extension-points.md`, `@fn.hash_customer_password` resolves to `features/customer/domain/hash_customer_password.go`. **Open**: does codegen *generate* the file stub the first time (Rails-generator-style) or just emit the reference and assume the user wrote it? **Lean**: emit stubs with `//go:generate` comments and a `// IMPLEMENT ME` body on first run only (idempotency: never overwrite). But that conflicts with the "extensions.go is sacred" rule in §5.3. Defer to a follow-up proposal (`codegen-lazuli-go-extension-stubs.md`); first cell-set ships **without** stub generation.
+
+**Status (2026-05-12)**: open — see commit `d0c1fe7` for the Api emitter `TODO(extension-points)` placeholder; discovery remains unresolved.
 
 ### 10.6 `--check` mode reach
 
 Does `--check` validate plugin registry coverage only, or also (a) IR Tier 4 slot completeness, (b) target Lazuli Go lib version compatibility, (c) `.sql` file existence for `Query.Sql`, (d) extension file existence for `@fn`/`@hook`? Decide before I4 implementation. **Lean**: minimal scope (plugin + unresolved refs) at I4; defer the rest to an explicit `lazuli doctor codegen` verb so the language-team-owned `doctor.rs` carries integrity checks, not the codegen crate.
 
+**Status (2026-05-12)**: partial — IR-side integrity is covered by doctor cells D1/D2; plugin registry `--check` coverage remains cell I4.
+
 ### 10.7 Multi-app workspaces
 
 `docs/grammar.workspace.md` describes multi-app workspaces. **Open**: does `lazuli generate go` accept a workspace input and emit one `dist/go/<app>/` per app? Or is it strictly single-app for now? **Lean**: single-app at v0, mirrors `lazuli generate openapi`. Workspace-level codegen is a follow-up cycle.
+
+**Status (2026-05-12)**: open — v0 remains single-app; no implementation cell has closed workspace-level Go emission.
 
 ### 10.8 Migration ordering and naming
 
 Migration files at `dist/go/migrations/<NNN>_<name>.sql`. **Open**: how is `<NNN>` derived? Resource declaration order in the IR is unstable across feature reorderings. Three options: (1) content-hash prefix (immutable but ugly), (2) sequential by feature emission order (stable if features sort lexically), (3) timestamp-based (Rails style — but then `lazuli generate go` is non-idempotent). **Lean**: option 2, with the doctor surfacing reorder warnings. Defer specifics to a `bucket-migrations-cycle.md` follow-up.
 
+**Status (2026-05-12)**: resolved — see cell N3; numbering is sequential by lexicographic feature + resource order.
+
 ### 10.9 How does the agent dispatch land?
 
 Per `crates/lazuli_codegen_go/src/lib.rs:1-21`, Cut A's agent block is acknowledged but **not yet generated**. The runtime team owns this. **Open for this proposal**: should the codegen crate ship a stub `agent.gen.go` emitter that hand-shakes with the runtime team's dispatch implementation, or wait until Cut A's runtime side stabilises? Recommendation: **wait**; the runtime hand-off (`docs/runtime-handoff.md`) already routes this work elsewhere.
 
+**Status (2026-05-12)**: deferred — see commit `016a546` and `docs/runtime-handoff.md`; runtime team owns agent dispatch.
+
 ### 10.10 Codegen + LSP feedback loop
 
 When the user edits `.lzi`, does the LSP suggest "regenerate Go"? Or is regeneration explicit (`lazuli generate go` on save)? **Open**. Recommendation: explicit at v0; revisit once the editor extension matures (separate cycle).
+
+**Status (2026-05-12)**: open — no LSP/codegen feedback-loop cell has landed yet.
 
 ---
 
