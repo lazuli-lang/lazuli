@@ -2,20 +2,20 @@
 //! declared on a feature and emits the v0 Lazuli Go
 //! `webhooks.WebhookContract` value into `<feature>/webhook.gen.go`.
 //!
-//! The Lazuli Go runtime currently carries the v0 spine only:
-//! `Feature`, `Name`, `Route`, `Verify`, `TenantFrom`,
-//! `IdempotencyBy`, `Policy`, `HandlerPath`, `ReturnsType`, and
-//! `Emits`. Expanded webhook slots (`payload_from`, `replay`, `dlq`,
-//! `retry`) are preserved as TODO comments inside the value literal so
-//! the generated source keeps the user's captured intent visible
-//! without inventing runtime fields that do not exist yet.
+//! The Lazuli Go runtime carries the webhook spine plus expanded
+//! webhook slots: `PayloadFrom`, `Replay`, `DLQ`, and `Retry`.
+//! `Retry` reuses `jobs.RetryPolicy`, so the jobs runtime import is
+//! included only when a feature declares webhook retry policy.
 //!
 //! Determinism: webhooks are sorted by name before emission. Imports
 //! flow through `ImportSet`, and type strings for `handler returns`
 //! reuse `types::go_type_for` so cross-feature names render the same
 //! way as resource/command emitters.
 
-use lazuli_ir::{Feature, PolicyRef, TypeRef, VerifyScheme, Webhook};
+use lazuli_ir::{
+    BackoffStrategy, DlqSpec, Feature, PolicyRef, ReplayMode, RetryPolicy, TypeRef, VerifyScheme,
+    Webhook,
+};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
@@ -47,6 +47,9 @@ pub fn emit_webhook_file(
     webhooks.sort_by(|a, b| a.name.cmp(&b.name));
 
     imports.add("lazuli.dev/runtime/lazuli/webhooks");
+    if webhooks.iter().any(|webhook| webhook.retry.is_some()) {
+        imports.add("lazuli.dev/runtime/lazuli/jobs");
+    }
 
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
@@ -134,6 +137,18 @@ fn emit_webhook(p: &mut GoPrinter, feature: &Feature, webhook: &Webhook, ctx: &T
     if !webhook.emits.is_empty() {
         kv_rows.push(("Emits:".to_owned(), format_string_slice(&webhook.emits)));
     }
+    if let Some(payload_from) = &webhook.payload_from {
+        kv_rows.push(("PayloadFrom:".to_owned(), format_payload_from(payload_from)));
+    }
+    if let Some(replay) = &webhook.replay {
+        kv_rows.push(("Replay:".to_owned(), format_replay_spec(replay)));
+    }
+    if let Some(dlq) = &webhook.dlq {
+        kv_rows.push(("DLQ:".to_owned(), format_dlq_spec(dlq)));
+    }
+    if let Some(retry) = &webhook.retry {
+        kv_rows.push(("Retry:".to_owned(), format_retry_policy(retry)));
+    }
 
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
@@ -192,79 +207,63 @@ fn format_string_slice(values: &[String]) -> String {
     format!("[]string{{{}}},", entries.join(", "))
 }
 
+fn format_payload_from(payload_from: &lazuli_ir::WebhookEventRef) -> String {
+    format!(
+        "&webhooks.WebhookEventRef{{Name: \"{}\"}},",
+        escape_string(&payload_from.name)
+    )
+}
+
+fn format_replay_spec(replay: &lazuli_ir::ReplaySpec) -> String {
+    let mut fields = vec![format!("Mode: {}", replay_mode_const(replay.mode))];
+    if let Some(window) = &replay.within {
+        fields.push(format!("Window: \"{}\"", escape_string(window)));
+    }
+    format!("&webhooks.ReplaySpec{{{}}},", fields.join(", "))
+}
+
+fn replay_mode_const(mode: ReplayMode) -> &'static str {
+    match mode {
+        ReplayMode::Allow => "webhooks.ReplayAllow",
+        ReplayMode::Deny => "webhooks.ReplayDeny",
+    }
+}
+
+fn format_dlq_spec(dlq: &DlqSpec) -> String {
+    match dlq {
+        DlqSpec::Emit { event } => format!(
+            "&webhooks.DlqSpec{{Kind: webhooks.DlqEmit, Topic: \"{}\"}},",
+            escape_string(event)
+        ),
+        DlqSpec::Handler { path } => format!(
+            "&webhooks.DlqSpec{{Kind: webhooks.DlqHandler, Handler: \"{}\"}},",
+            escape_string(&path.path)
+        ),
+        DlqSpec::Drop { .. } => "&webhooks.DlqSpec{Kind: webhooks.DlqDrop},".to_owned(),
+    }
+}
+
+fn format_retry_policy(retry: &RetryPolicy) -> String {
+    format!(
+        "&jobs.RetryPolicy{{Count: {}, Backoff: {}}},",
+        retry.count,
+        backoff_const(retry.backoff)
+    )
+}
+
+fn backoff_const(backoff: BackoffStrategy) -> &'static str {
+    match backoff {
+        BackoffStrategy::Fixed => "jobs.BackoffFixed",
+        BackoffStrategy::Exponential => "jobs.BackoffExponential",
+    }
+}
+
 fn emit_runtime_gaps(p: &mut GoPrinter, webhook: &Webhook) {
     if webhook.structured_verify.is_none() {
         p.line(&format!(
             "// TODO(runtime): legacy verifier path \"{}\" is not represented by WebhookContract v0.",
             escape_string(&webhook.verify.path)
         ));
-    }
-    if let Some(payload) = &webhook.payload_from {
-        p.line(&format!(
-            "// TODO(runtime): payload_from webhook_events.{} not yet in WebhookContract v0 spine.",
-            comment_text(&payload.name)
-        ));
-    }
-    if let Some(replay) = &webhook.replay {
-        p.line(&format!(
-            "// TODO(runtime): replay {}{} not yet in WebhookContract v0 spine.",
-            replay_mode_name(replay.mode),
-            replay_suffix(replay)
-        ));
-    }
-    if let Some(dlq) = &webhook.dlq {
-        p.line(&format!(
-            "// TODO(runtime): dlq {} not yet in WebhookContract v0 spine.",
-            describe_dlq(dlq)
-        ));
-    }
-    if let Some(retry) = &webhook.retry {
-        p.line(&format!(
-            "// TODO(runtime): retry {} backoff {} not yet in WebhookContract v0 spine.",
-            retry.count,
-            backoff_strategy_name(retry.backoff)
-        ));
-    }
-}
-
-fn replay_mode_name(mode: lazuli_ir::ReplayMode) -> &'static str {
-    match mode {
-        lazuli_ir::ReplayMode::Allow => "allow",
-        lazuli_ir::ReplayMode::Deny => "deny",
-    }
-}
-
-fn replay_suffix(replay: &lazuli_ir::ReplaySpec) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(within) = &replay.within {
-        parts.push(format!("within \"{}\"", comment_text(within)));
-    }
-    if let Some(dedupe_by) = &replay.dedupe_by {
-        parts.push(format!("dedupe by {}", path_to_string(dedupe_by)));
-    }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", parts.join(" "))
-    }
-}
-
-fn describe_dlq(dlq: &lazuli_ir::DlqSpec) -> String {
-    match dlq {
-        lazuli_ir::DlqSpec::Emit { event } => format!("emit {}", comment_text(event)),
-        lazuli_ir::DlqSpec::Handler { path } => {
-            format!("handler \"{}\"", comment_text(&path.path))
-        }
-        lazuli_ir::DlqSpec::Drop { reason } => {
-            format!("drop reason \"{}\"", comment_text(reason))
-        }
-    }
-}
-
-fn backoff_strategy_name(backoff: lazuli_ir::BackoffStrategy) -> &'static str {
-    match backoff {
-        lazuli_ir::BackoffStrategy::Fixed => "fixed",
-        lazuli_ir::BackoffStrategy::Exponential => "exponential",
     }
 }
 
@@ -282,36 +281,8 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     p.blank();
 }
 
-fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-') {
-        if word.is_empty() {
-            continue;
-        }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            for u in first.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
-}
-
 fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid"
-    )
 }
 
 fn escape_string(raw: &str) -> String {
@@ -324,12 +295,6 @@ fn escape_string(raw: &str) -> String {
         }
     }
     out
-}
-
-fn comment_text(raw: &str) -> String {
-    raw.chars()
-        .map(|ch| if ch == '\r' || ch == '\n' { ' ' } else { ch })
-        .collect()
 }
 
 #[cfg(test)]
@@ -511,24 +476,91 @@ mod tests {
         assert!(out.contains("\"Payment\","));
         assert!(out.contains("Emits:"));
         assert!(out.contains("[]string{\"payment_received\"},"));
+        assert!(!out.contains("\"lazuli.dev/runtime/lazuli/jobs\""));
+        assert!(!out.contains("PayloadFrom:"));
+        assert!(!out.contains("Replay:"));
+        assert!(!out.contains("DLQ:"));
+        assert!(!out.contains("Retry:"));
     }
 
     #[test]
-    fn expanded_slots_emit_runtime_todos_inside_literal() {
+    fn payload_from_emits_webhook_event_ref() {
         let mut feature = base_feature("customer_import");
         let mut webhook = base_webhook("crm_customer_upsert");
         webhook.structured_verify = Some(hmac_verify());
         webhook.payload_from = Some(WebhookEventRef {
             name: "crm_customer_upsert".to_owned(),
         });
+        feature.webhooks.push(webhook);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("PayloadFrom:"));
+        assert!(out.contains("&webhooks.WebhookEventRef{Name: \"crm_customer_upsert\"},"));
+        assert!(!out.contains("// TODO(runtime): payload_from"));
+    }
+
+    #[test]
+    fn replay_emits_mode_and_window() {
+        let mut feature = base_feature("customer_import");
+        let mut webhook = base_webhook("crm_customer_upsert");
+        webhook.structured_verify = Some(hmac_verify());
         webhook.replay = Some(ReplaySpec {
             mode: ReplayMode::Allow,
             within: Some("24h".to_owned()),
             dedupe_by: Some(path(&["payload", "external_id"])),
         });
-        webhook.dlq = Some(DlqSpec::Emit {
+        feature.webhooks.push(webhook);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("Replay:"));
+        assert!(out.contains("&webhooks.ReplaySpec{Mode: webhooks.ReplayAllow, Window: \"24h\"},"));
+        assert!(!out.contains("// TODO(runtime): replay"));
+        assert!(!out.contains("dedupe by"));
+    }
+
+    #[test]
+    fn dlq_emits_runtime_variants() {
+        let mut feature = base_feature("customer_import");
+
+        let mut emit_dlq = base_webhook("crm_emit_dlq");
+        emit_dlq.structured_verify = Some(hmac_verify());
+        emit_dlq.dlq = Some(DlqSpec::Emit {
             event: "customer_webhook_dead_lettered".to_owned(),
         });
+        feature.webhooks.push(emit_dlq);
+
+        let mut handler_dlq = base_webhook("crm_handler_dlq");
+        handler_dlq.structured_verify = Some(hmac_verify());
+        handler_dlq.dlq = Some(DlqSpec::Handler {
+            path: PathRef::authored("./webhooks/customer_dlq.go"),
+        });
+        feature.webhooks.push(handler_dlq);
+
+        let mut drop_dlq = base_webhook("crm_drop_dlq");
+        drop_dlq.structured_verify = Some(hmac_verify());
+        drop_dlq.dlq = Some(DlqSpec::Drop {
+            reason: "provider sends transient noise".to_owned(),
+        });
+        feature.webhooks.push(drop_dlq);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("DLQ:"));
+        assert!(out.contains(
+            "&webhooks.DlqSpec{Kind: webhooks.DlqEmit, Topic: \"customer_webhook_dead_lettered\"},"
+        ));
+        assert!(out.contains(
+            "&webhooks.DlqSpec{Kind: webhooks.DlqHandler, Handler: \"./webhooks/customer_dlq.go\"},"
+        ));
+        assert!(out.contains("&webhooks.DlqSpec{Kind: webhooks.DlqDrop},"));
+        assert!(!out.contains("// TODO(runtime): dlq"));
+        assert!(!out.contains("provider sends transient noise"));
+    }
+
+    #[test]
+    fn retry_emits_jobs_policy_and_import() {
+        let mut feature = base_feature("customer_import");
+        let mut webhook = base_webhook("crm_customer_upsert");
+        webhook.structured_verify = Some(hmac_verify());
         webhook.retry = Some(RetryPolicy {
             count: 5,
             backoff: BackoffStrategy::Exponential,
@@ -536,16 +568,10 @@ mod tests {
         feature.webhooks.push(webhook);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("// TODO(runtime): payload_from webhook_events.crm_customer_upsert"));
-        assert!(out.contains(
-            "// TODO(runtime): replay allow within \"24h\" dedupe by payload.external_id"
-        ));
-        assert!(out.contains("// TODO(runtime): dlq emit customer_webhook_dead_lettered"));
-        assert!(out.contains("// TODO(runtime): retry 5 backoff exponential"));
-        assert!(!out.contains("PayloadType:"));
-        assert!(!out.contains("Replay:"));
-        assert!(!out.contains("DLQ:"));
-        assert!(!out.contains("Retry:"));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/jobs\""));
+        assert!(out.contains("Retry:"));
+        assert!(out.contains("&jobs.RetryPolicy{Count: 5, Backoff: jobs.BackoffExponential},"));
+        assert!(!out.contains("// TODO(runtime): retry"));
     }
 
     #[test]
