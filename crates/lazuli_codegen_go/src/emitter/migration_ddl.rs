@@ -119,7 +119,12 @@ fn emit_resource_migration<'a>(
     let columns = resource_columns(module, feature, resource, cross_index);
     for (idx, column) in columns.iter().enumerate() {
         let comma = if idx + 1 == columns.len() { "" } else { "," };
-        writeln!(sql, "    {}{}", column.render(), comma).unwrap();
+        let rendered = column.render();
+        let mut lines = rendered.lines().peekable();
+        while let Some(line) = lines.next() {
+            let suffix = if lines.peek().is_none() { comma } else { "" };
+            writeln!(sql, "    {line}{suffix}").unwrap();
+        }
     }
     writeln!(sql, ");").unwrap();
 
@@ -216,7 +221,12 @@ fn resource_columns<'a>(
 
     columns.extend(resource.fields.iter().map(|field| {
         let pg_type = pg_type_for_field(module, feature, field, cross_index);
-        SqlColumn::typed(&field.name, &pg_type.sql, field.required)
+        SqlColumn::typed_with_comment(
+            &field.name,
+            &pg_type.sql,
+            field.required,
+            derived_column_comment(feature, resource, field, &pg_type.sql),
+        )
     }));
 
     if uses_timestamps(feature, resource) {
@@ -254,6 +264,7 @@ enum SqlColumn {
         name: String,
         pg_type: String,
         required: bool,
+        leading_comment: Option<String>,
     },
 }
 
@@ -263,10 +274,20 @@ impl SqlColumn {
     }
 
     fn typed(name: &str, pg_type: &str, required: bool) -> Self {
+        Self::typed_with_comment(name, pg_type, required, None)
+    }
+
+    fn typed_with_comment(
+        name: &str,
+        pg_type: &str,
+        required: bool,
+        leading_comment: Option<String>,
+    ) -> Self {
         Self::Typed {
             name: name.to_owned(),
             pg_type: pg_type.to_owned(),
             required,
+            leading_comment,
         }
     }
 
@@ -277,15 +298,36 @@ impl SqlColumn {
                 name,
                 pg_type,
                 required,
+                leading_comment,
             } => {
                 let mut rendered = format!("{} {}", sql_ident(name), pg_type);
                 if *required {
                     rendered.push_str(" NOT NULL");
                 }
+                if let Some(comment) = leading_comment {
+                    rendered = format!("{comment}\n{rendered}");
+                }
                 rendered
             }
         }
     }
+}
+
+fn derived_column_comment(
+    feature: &Feature,
+    resource: &Resource,
+    field: &Field,
+    pg_type: &str,
+) -> Option<String> {
+    let expression = field.derived_from.as_deref()?;
+    Some(format!(
+        "-- TODO(lazuli): generated column pending; source={}.{}.{}; pg_type={}; derived_from={}",
+        comment_value(&feature.name),
+        comment_value(&resource.name),
+        comment_value(&field.name),
+        comment_value(pg_type),
+        comment_value(expression)
+    ))
 }
 
 struct PgType {
@@ -757,6 +799,32 @@ DROP TABLE IF EXISTS \"customer\";
     }
 
     #[test]
+    fn emits_derived_field_intent_comment_next_to_column() {
+        let mut feature = base_feature("customer");
+        let mut is_high_value = builtin("is_high_value", BuiltinType::Boolean, true);
+        is_high_value.derived_from = Some("score > 80".to_owned());
+        feature.resources.push(resource(
+            "Customer",
+            vec![
+                builtin("score", BuiltinType::Integer, true),
+                is_high_value,
+                builtin("segment", BuiltinType::Text, false),
+            ],
+        ));
+
+        let files = emit_migrations(&base_module(vec![feature]), "crm");
+        let sql = &files[0].contents;
+
+        assert!(sql.contains(
+            "\
+    score BIGINT NOT NULL,
+    -- TODO(lazuli): generated column pending; source=customer.Customer.is_high_value; pg_type=BOOLEAN; derived_from=score > 80
+    is_high_value BOOLEAN NOT NULL,
+    segment TEXT"
+        ));
+    }
+
+    #[test]
     fn emits_org_tenancy_and_timestamps_from_effective_settings() {
         let mut feature = base_feature("customer");
         feature.defaults.tenancy = Some(Tenancy::Org);
@@ -849,10 +917,9 @@ DROP TABLE IF EXISTS \"customer\";
             .find(|file| file.path == "migrations/001_places_place.down.sql")
             .expect("expected place down migration");
         assert!(down.contents.contains("DROP TABLE IF EXISTS \"place\";"));
-        assert!(
-            down.contents
-                .contains("-- DROP INDEX place_coordinates_gist;")
-        );
+        assert!(down
+            .contents
+            .contains("-- DROP INDEX place_coordinates_gist;"));
         assert!(down.contents.contains(
             "-- Note: `CREATE EXTENSION postgis` is NOT dropped here \u{2014} extension\n\
 -- removal is operational, not migration-driven."
