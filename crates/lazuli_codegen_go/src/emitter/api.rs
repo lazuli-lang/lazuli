@@ -43,7 +43,7 @@ pub fn emit_api_file(
     apis.sort_by(|a, b| a.name.cmp(&b.name));
 
     for api in &apis {
-        register_imports_for_type(&api.output, &type_ctx, &mut imports);
+        register_imports_for_api_output(&api.output, &type_ctx, &mut imports);
     }
 
     p.banner(source_label, &feature.name);
@@ -66,7 +66,7 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
     let qualified_name = format!("{}.{}", feature.name, api.name);
     let args_type = api_args_type_name(&api.name);
     let var_name = lower_camel(&api.name);
-    let (output_type, _import) = types::go_type_for(&api.output, ctx);
+    let (output_type, _import) = go_type_for_api_output(&api.output, ctx);
 
     write_section_banner(
         p,
@@ -219,13 +219,40 @@ fn infer_route_arg_type(name: &str) -> &'static str {
     }
 }
 
-fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
-    let (_go, import) = types::go_type_for(type_ref, ctx);
+fn go_type_for_api_output(type_ref: &TypeRef, ctx: &TypeCtx<'_>) -> (String, Option<String>) {
+    match type_ref {
+        TypeRef::Capability(_) => types::go_type_for(type_ref, ctx),
+        TypeRef::Many(inner) => {
+            let (inner_go, import) = go_type_for_api_output(inner, ctx);
+            (format!("[]{}", inner_go), import)
+        }
+        TypeRef::UserDefined(qname) if is_cap_file_literal(&qname.name) => storage_file_ref_type(),
+        TypeRef::Unresolved(raw) if is_cap_file_literal(raw) => storage_file_ref_type(),
+        _ => types::go_type_for(type_ref, ctx),
+    }
+}
+
+fn storage_file_ref_type() -> (String, Option<String>) {
+    (
+        "storage.FileRef".to_owned(),
+        Some("lazuli.dev/runtime/lazuli/storage".to_owned()),
+    )
+}
+
+// API outputs may still carry the authored decorator text on older
+// analyzer paths; normalize it before the generic identifier sanitizer.
+fn is_cap_file_literal(raw: &str) -> bool {
+    let raw = raw.trim();
+    raw == "@cap.File" || raw.starts_with("@cap.File(")
+}
+
+fn register_imports_for_api_output(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
+    let (_go, import) = go_type_for_api_output(type_ref, ctx);
     if let Some(path) = import {
         imports.add(&path);
     }
     if let TypeRef::Many(inner) = type_ref {
-        register_imports_for_type(inner, ctx, imports);
+        register_imports_for_api_output(inner, ctx, imports);
     }
 }
 
@@ -305,8 +332,9 @@ fn escape_string(raw: &str) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, BuiltinType, Defaults, Module, PathRef, Policies, QualifiedName, Record,
-        Resource,
+        AppManifest, BuiltinType, CapabilityRef, Defaults, FileCapability, FileSize,
+        FileSizeLiteral, FileVisibility, MimeType, Module, PathRef, Policies, QualifiedName,
+        Record, Resource,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -448,6 +476,29 @@ mod tests {
         }
     }
 
+    fn make_file_capability(
+        literal: FileSizeLiteral,
+        accept: Vec<(&str, &str)>,
+        visibility: Option<FileVisibility>,
+        signed_ttl: Option<&str>,
+    ) -> FileCapability {
+        FileCapability {
+            max_size: FileSize {
+                bytes: literal.bytes(),
+                literal,
+            },
+            accept: accept
+                .into_iter()
+                .map(|(family, subtype)| MimeType {
+                    family: family.to_owned(),
+                    subtype: subtype.to_owned(),
+                })
+                .collect(),
+            visibility,
+            signed_ttl: signed_ttl.map(str::to_owned),
+        }
+    }
+
     #[test]
     fn empty_feature_returns_none() {
         let feature = base_feature("customer");
@@ -488,6 +539,51 @@ mod tests {
         assert!(out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"));
         assert!(out.contains("RateLimit: \"10 per hour per user\","));
         assert!(!out.contains("Handler:"));
+    }
+
+    #[test]
+    fn typed_cap_file_api_output_uses_storage_file_ref() {
+        let mut feature = base_feature("customer");
+        feature.apis.push(simple_api(
+            "customer_export",
+            HttpMethod::Get,
+            "/api/customers/export",
+            TypeRef::Capability(CapabilityRef::File(make_file_capability(
+                FileSizeLiteral::Mb(100),
+                vec![("text", "csv")],
+                Some(FileVisibility::Signed),
+                Some("1h"),
+            ))),
+        ));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
+        assert!(
+            out.contains("var customerExport = lazuli.Api[CustomerExportArgs, storage.FileRef]{")
+        );
+        assert!(!out.contains("_cap_File"));
+    }
+
+    #[test]
+    fn cap_file_literal_api_output_uses_storage_file_ref() {
+        let mut feature = base_feature("customer");
+        feature.apis.push(simple_api(
+            "customer_export",
+            HttpMethod::Get,
+            "/api/customers/export",
+            TypeRef::UserDefined(QualifiedName {
+                feature: None,
+                name: "@cap.File(max_size:100mb,accept:text/csv,visibility:signed,signed_ttl:1h)"
+                    .to_owned(),
+            }),
+        ));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
+        assert!(
+            out.contains("var customerExport = lazuli.Api[CustomerExportArgs, storage.FileRef]{")
+        );
+        assert!(!out.contains("_cap_File"));
     }
 
     #[test]
