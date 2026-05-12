@@ -2,12 +2,13 @@
 //! feature and emits typed args plus an API contract value into
 //! `<feature>/api.gen.go`.
 //!
-//! Runtime gap: Lazuli Go does not yet expose `lazuli.Api[I, O]` or a
-//! typed `HttpMethod` catalog. To keep generated Go source parseable
-//! while preserving the intended shape, this emitter writes an
-//! anonymous struct value and places `TODO(runtime)` comments inside
-//! the value literal. When the runtime lands proposal 4.2, the value
-//! can switch directly to `lazuli.Api[Args, Output]`.
+//! Runtime gap: Lazuli Go does not yet expose `lazuli.Api[I, O]`, a
+//! typed `HttpMethod` catalog, or API extension-point discovery. To keep
+//! generated Go source parseable while preserving the intended shape,
+//! this emitter writes an anonymous struct value and places
+//! `TODO(runtime)` / `TODO(extension-points)` comments inside the value
+//! literal. When the runtime lands proposal 4.2, the value can switch
+//! directly to `lazuli.Api[Args, Output]`.
 //!
 //! Determinism: APIs are sorted by name, route args preserve path
 //! order, and imports flow through `ImportSet`.
@@ -47,10 +48,6 @@ pub fn emit_api_file(
 
     for api in &apis {
         register_imports_for_type(&api.output, &type_ctx, &mut imports);
-        let handler = handler_ref(feature, api, module_name);
-        if let Some(import_path) = handler.import_path {
-            imports.add(&import_path);
-        }
     }
 
     p.banner(source_label, &feature.name);
@@ -63,18 +60,17 @@ pub fn emit_api_file(
             p.blank();
         }
         first_block = false;
-        emit_api(&mut p, feature, api, module_name, &type_ctx);
+        emit_api(&mut p, feature, api, &type_ctx);
     }
 
     Some(p.finish())
 }
 
-fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, module_name: &str, ctx: &TypeCtx<'_>) {
+fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) {
     let qualified_name = format!("{}.{}", feature.name, api.name);
     let args_type = api_args_type_name(&api.name);
     let var_name = lower_camel(&api.name);
     let (output_type, _import) = types::go_type_for(&api.output, ctx);
-    let handler = handler_ref(feature, api, module_name);
 
     write_section_banner(
         p,
@@ -90,7 +86,6 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, module_name: &str, 
 
     p.line(&format!("var {var_name} = struct {{"));
     p.indent();
-    let handler_type = format!("func(ctx *lazuli.Ctx, input {args_type}) ({output_type}, error)");
     let rate_limit_type = if api.rate_limit.is_some() {
         "lazuli.RateLimit"
     } else {
@@ -103,7 +98,6 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, module_name: &str, 
         ("Path", "string"),
         ("Policy", "lazuli.Policy"),
         ("RateLimit", rate_limit_type),
-        ("Handler", handler_type.as_str()),
     ];
     p.aligned_rows(&rows);
     p.dedent();
@@ -119,6 +113,11 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, module_name: &str, 
     if !args.is_empty() {
         p.line("// TODO(ir): Api path parameters have no typed IR slots; args are inferred from the path.");
     }
+    p.line("// TODO(extension-points): user-authored handler registered via");
+    p.line(&format!(
+        "// lazuli.RegisterApi(\"{}\", func(ctx, input) (O, error) {{...}})",
+        escape_string(&api.name)
+    ));
 
     let mut kv_rows: Vec<(String, String)> = vec![
         (
@@ -145,7 +144,6 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, module_name: &str, 
             format!("lazuli.RateLimit(\"{}\"),", escape_string(rate_limit)),
         ));
     }
-    kv_rows.push(("Handler:".to_owned(), format!("{},", handler.expr())));
 
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
@@ -247,65 +245,6 @@ fn infer_route_arg_type(name: &str) -> &'static str {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct HandlerRef {
-    import_path: Option<String>,
-    qualifier: Option<String>,
-    func_name: String,
-}
-
-impl HandlerRef {
-    fn expr(&self) -> String {
-        match &self.qualifier {
-            Some(qualifier) => format!("{qualifier}.{}", self.func_name),
-            None => self.func_name.clone(),
-        }
-    }
-}
-
-fn handler_ref(feature: &Feature, api: &Api, module_name: &str) -> HandlerRef {
-    let normalized = api.handler.path.replace('\\', "/");
-    let trimmed = normalized
-        .strip_prefix("./")
-        .unwrap_or(normalized.as_str())
-        .trim_matches('/');
-    let mut parts: Vec<&str> = trimmed
-        .split('/')
-        .filter(|part| !part.is_empty() && *part != ".")
-        .collect();
-
-    if parts
-        .last()
-        .map(|part| part.ends_with(".go"))
-        .unwrap_or(false)
-    {
-        parts.pop();
-    }
-
-    if parts.is_empty() {
-        return HandlerRef {
-            import_path: None,
-            qualifier: None,
-            func_name: pascal_case(&api.name),
-        };
-    }
-
-    let dir = parts.join("/");
-    let last = parts.last().copied().unwrap_or("handlers");
-    let import_path = format!(
-        "{}/{}/{}",
-        module_name.trim_end_matches('/'),
-        feature.name,
-        dir
-    );
-
-    HandlerRef {
-        import_path: Some(import_path),
-        qualifier: Some(sanitise_go_ident(last)),
-        func_name: pascal_case(&api.name),
-    }
-}
-
 fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
     let (_go, import) = types::go_type_for(type_ref, ctx);
     if let Some(path) = import {
@@ -384,29 +323,6 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     }
     p.line(&format!("// {rule}"));
     p.blank();
-}
-
-fn sanitise_go_ident(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-    if out.is_empty() {
-        return "handlers".to_owned();
-    }
-    if out
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_digit())
-        .unwrap_or(false)
-    {
-        out.insert(0, '_');
-    }
-    out
 }
 
 fn escape_string(raw: &str) -> String {
@@ -575,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_file_api_emits_runtime_todos_storage_and_handler_import() {
+    fn canonical_file_api_emits_runtime_todos_storage_and_register_placeholder() {
         let mut feature = base_feature("customer");
         let mut api = simple_api(
             "customer_export",
@@ -593,14 +509,18 @@ mod tests {
         assert!(out.contains("package customer"));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
-        assert!(out.contains("\"lazuli/test/customer/api\""));
+        assert!(!out.contains("\"lazuli/test/customer/api\""));
         assert!(out.contains("type CustomerExportArgs struct{}"));
         assert!(out.contains("var customerExport = struct {"));
         assert!(out.contains("// TODO(runtime): replace this anonymous struct with lazuli.Api[CustomerExportArgs, storage.FileRef]"));
+        assert!(out.contains("// TODO(extension-points): user-authored handler registered via"));
+        assert!(out.contains(
+            "// lazuli.RegisterApi(\"customer_export\", func(ctx, input) (O, error) {...})"
+        ));
         assert!(out.contains("Method:    \"GET\","));
         assert!(out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"));
         assert!(out.contains("RateLimit: lazuli.RateLimit(\"10 per hour per user\"),"));
-        assert!(out.contains("Handler:   api.CustomerExport,"));
+        assert!(!out.contains("Handler:"));
     }
 
     #[test]
@@ -625,8 +545,11 @@ mod tests {
             "// TODO(runtime): replace Method string with lazuli.HttpMethod and lazuli.MethodPatch"
         ));
         assert!(out.contains("// TODO(ir): Api path parameters have no typed IR slots"));
+        assert!(out.contains(
+            "// lazuli.RegisterApi(\"customer_summary\", func(ctx, input) (O, error) {...})"
+        ));
         assert!(out.contains("Method:  \"PATCH\","));
-        assert!(out.contains("Handler: handlers.CustomerSummary,"));
+        assert!(!out.contains("Handler:"));
     }
 
     #[test]
@@ -648,9 +571,9 @@ mod tests {
         let module = module_with_features(vec![customer, org]);
         let out = emit_from_module(&module, 0).expect("must emit");
         assert!(out.contains("\"lazuli/test/org\""));
-        assert!(
-            out.contains("func(ctx *lazuli.Ctx, input OwnerProfileArgs) (org.UserProfile, error)")
-        );
+        assert!(out.contains(
+            "// TODO(runtime): replace this anonymous struct with lazuli.Api[OwnerProfileArgs, org.UserProfile]"
+        ));
         assert!(out.contains("OwnerID lazuli.ID `json:\"owner_id\"`"));
     }
 
