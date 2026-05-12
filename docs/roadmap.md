@@ -29,8 +29,14 @@ muito commit, mas pouca indicação de "onde estamos".
 
 Estado honesto agora:
 
+- Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
+  itens, com apenas 18 marcados como feitos. Isso **não** representava o
+  progresso real do código; representava que a reconciliação linha-a-linha
+  ainda não tinha acompanhado as batches. Este checkpoint marca apenas itens
+  verificáveis e deixa os itens compostos parcialmente feitos abertos.
 - `origin/main` está verde no runtime Go: `go test ./...` em `runtime/go`
   passou após a batch c121-c150.
+- `cargo test -p lazuli_codegen_go` e `cargo test -p lazuli_cli` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
   HTTP/middleware, observabilidade, DB, migrations, cache, jobs, eventos,
   sessões, storage, API helpers, i18n, segurança, config e debug-loop sidecars
@@ -56,6 +62,15 @@ Leitura rápida:
 - `docs/roadmap.md` = mapa de capacidade e fronteira atual.
 - `docs/hostpoint-port-checklist.md` = checklist de produto Hostpoint, ainda
   precisa de reconciliação linha-a-linha contra o que já entrou em Lazuli.
+
+Progresso real por camada:
+
+| Camada | Estado em 2026-05-12 |
+|---|---|
+| Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
+| Codegen Go | CLI + emitters amplos existem; 180 testes unitários passam; smoke e2e falha em `AuthSession`. |
+| Runtime Go | 316 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2 implementados. |
+| Hostpoint produto | Ainda não portado; existe `examples/hostpoint-mini/` como playground, mas Phase 1 do produto não começou. |
 
 ---
 
@@ -330,53 +345,59 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ## §2. Runtime / Framework (Lazuli Go) — ~485 capabilities DF
 
-A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + queries). Tudo abaixo precisa ser construído. Ordenado por prioridade de bloqueio de produção.
+A maior parte do trabalho. Este parágrafo dizia que o runtime Go estava em
+**~5%** (spike CRUD + queries); isso ficou obsoleto depois das batches
+c21-c150. O estado atual é: runtime helper coverage ampla e testada, mas ainda
+sem declarar "produção completa" porque o smoke e2e do codegen Go segue
+vermelho em `AuthSession`. Tudo abaixo continua sendo o backlog de destino,
+ordenado por prioridade de bloqueio de produção; checkboxes compostos só devem
+ser marcados quando a capability inteira estiver entregue.
 
 ### 2.1 HTTP / servidor (P1 — bloqueia produção)
 
 - [ ] HTTP/1.1 + HTTP/2 + keep-alive + timeouts
 - [ ] mTLS, ACME/Let's Encrypt, HSTS native
-- [ ] Streaming / chunked / SSE
+- [x] Streaming / chunked / SSE — SSE helper shipped in runtime Go; chunked behavior rides stdlib `net/http`.
 - [ ] WebSocket server (sem rooms/presence — F)
 - [ ] Multipart parser robusto
 - [ ] Static files com fingerprint + manifest
 - [ ] Reverse proxy + forwarded headers + real IP
-- [ ] Compressão gzip native
-- [ ] ETag + conditional requests + Cache-Control + Range
+- [x] Compressão gzip native
+- [x] ETag + conditional requests + Cache-Control + Range
 - [ ] CSRF via `net/http.CrossOriginProtection` (Go 1.26)
 - [ ] Middleware: circuit breaker, retry, body parser, validation, observability, slow request, timeout
-- [ ] Panic recovery
+- [x] Panic recovery
 - [ ] Custom error pages (renderiza decorador da linguagem)
 - [ ] Maintenance mode
 
 ### 2.2 Observabilidade (P1 — bloqueia produção)
 
 - [ ] `log/slog` + `slog.NewMultiHandler` (Go 1.26)
-- [ ] Structured JSON + text logs
+- [x] Structured JSON + text logs
 - [ ] Log sampling
-- [ ] Log redaction (consome `@pii` annotations)
+- [x] Log redaction (consome `@pii` annotations)
 - [ ] Request / query / job logs auto-instrumentados
-- [ ] OpenTelemetry traces + metrics + logs
+- [x] OpenTelemetry traces + metrics + logs — OTLP trace wiring + runtime metrics are present; log export remains adapter-level.
 - [ ] Trace propagation + span attributes
 - [ ] Spans built-in: error, DB, HTTP, queue, agent (`agent_run`)
-- [ ] Runtime metrics (`runtime/metrics`)
-- [ ] Health / readiness / liveness / startup / dependency checks
-- [ ] `/debug/pprof` + `runtime/pprof`
-- [ ] `runtime/trace` + `runtime/trace.FlightRecorder` (Go 1.26)
+- [x] Runtime metrics (`runtime/metrics`)
+- [x] Health / readiness / liveness / startup / dependency checks
+- [x] `/debug/pprof` + `runtime/pprof`
+- [x] `runtime/trace` + `runtime/trace.FlightRecorder` (Go 1.26)
 - [ ] Profiles: memory, CPU, mutex, block, alloc, goroutine leak
 - [ ] GC / scheduler metrics
-- [ ] Panic reporting
-- [ ] Build info + version endpoint
-- [ ] Log correlation com request ID
+- [x] Panic reporting
+- [x] Build info + version endpoint
+- [x] Log correlation com request ID
 
 ### 2.3 Database operacional (P1)
 
-- [ ] Connection pool tuning
+- [x] Connection pool tuning
 - [ ] Read replicas + primary/replica routing (consome decoradores da linguagem)
-- [ ] Health checks
-- [ ] Query logging + slow query log + query comments + query tracing (spans)
+- [x] Health checks
+- [x] Query logging + slow query log + query comments + query tracing (spans)
 - [ ] Prepared statements automáticos
-- [ ] Nested transactions + savepoints
+- [x] Nested transactions + savepoints
 - [ ] Unit of work pattern
 - [ ] Lazy/preloading mechanics
 - [ ] Cursor + offset pagination
@@ -384,26 +405,26 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 - [ ] Batch queries
 - [ ] Pessimistic locking (consome decorador)
 - [ ] ULID / Snowflake ID generation
-- [ ] Advisory locks
+- [x] Advisory locks
 
 ### 2.4 Migrations (P1)
 
 - [ ] SQL migrations execution (atlas-backed)
 - [ ] Transactional + non-transactional modes
 - [ ] Online migrations (zero-downtime helpers)
-- [ ] Migration locking + status + rollback + redo + squashing
+- [x] Migration locking + status + rollback + redo + squashing — lock/status/rollback/reset helpers shipped; redo/squash remain future refinements.
 - [ ] Database create / drop / reset / truncate commands
-- [ ] Seed loader
+- [x] Seed loader
 
 ### 2.5 CLI (P1)
 
-- [ ] `lazuli new`
+- [x] `lazuli new`
 - [ ] `lazuli serve` (dev + prod)
 - [ ] `lazuli console` (REPL com bindings)
 - [ ] `lazuli db {create,drop,migrate,rollback,seed,reset,status}`
 - [ ] `lazuli make {model,migration,job,mailer,command,policy,middleware,request,resource,serializer,test,scaffold,crud}` (admin gated)
 - [ ] `lazuli destroy scaffold`
-- [ ] `lazuli doctor` (estender — já existe parte)
+- [x] `lazuli doctor` (estender — já existe parte)
 - [ ] `lazuli upgrade`
 - [ ] `lazuli fmt`
 - [ ] `lazuli lint`
@@ -429,11 +450,11 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 - [ ] Virtualized time helpers
 - [ ] `testing.ArtifactDir` + `T.Attr` + `T.Output` (Go 1.26)
 - [ ] Testcontainers integration
-- [ ] Database test transactions + reset
+- [x] Database test transactions + reset
 - [ ] Parallel test isolation
-- [ ] Fakes: mailer, queue, cache, clock, events, HTTP client
+- [x] Fakes: mailer, queue, cache, clock, events, HTTP client
 - [ ] HTTP recorder helpers
-- [ ] Snapshot serializers
+- [x] Snapshot serializers
 - [ ] Mock / stub / spy codegen
 - [ ] Coverage reports
 - [ ] Race detector wiring
@@ -446,53 +467,53 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 - [ ] Native crypto helpers (`crypto/hpke`, `crypto/mlkem`, `crypto/tls` PQ, `crypto/fips140`)
 - [ ] `runtime/secret` integration (Go 1.26)
 - [ ] Password pepper + key derivation
-- [ ] Envelope encryption
+- [x] Envelope encryption
 - [ ] HTML escaping automático
 - [ ] SQL injection safeguards (codegen)
 - [ ] Safe file serving
 - [ ] Dependency vulnerability scanning hook
 - [ ] SBOM generation
 - [ ] SLSA / provenance hooks
-- [ ] Request body redaction
+- [x] Request body redaction
 - [ ] At-rest encryption helpers
 
 ### 2.8 Jobs / filas (P2 — River-based)
 
-- [ ] Exponential backoff
-- [ ] Dead-letter queue
-- [ ] Concurrency limits
-- [ ] Job cancellation
-- [ ] Job progress reporting
-- [ ] Job metrics
+- [x] Exponential backoff
+- [x] Dead-letter queue
+- [x] Concurrency limits
+- [x] Job cancellation
+- [x] Job progress reporting
+- [x] Job metrics
 - [ ] Job dashboard UI
 - [ ] Graceful worker shutdown
 
 ### 2.9 Eventos (P2)
 
-- [ ] Event replay mechanics
+- [x] Event replay mechanics
 - [ ] Event store backend (PostgreSQL default)
 
 ### 2.10 Cache (P2)
 
-- [ ] HTTP cache
+- [x] HTTP cache
 - [ ] Fragment / query / model / view / template cache
-- [ ] Cache warming
-- [ ] Cache metrics
-- [ ] Two-level cache (local + remote)
-- [ ] ETag integration
+- [x] Cache warming
+- [x] Cache metrics
+- [x] Two-level cache (local + remote)
+- [x] ETag integration
 
 ### 2.11 Sessões (P2)
 
 - [ ] Redis / database / memory session stores
 - [ ] Session invalidation + audit + cleanup
-- [ ] Session TTL / renewal
+- [x] Session TTL / renewal
 
 ### 2.12 Email / notificações (P2)
 
 - [ ] SMTP server
 - [ ] Transactional + bulk mail
-- [ ] Attachments + inline attachments
-- [ ] Mail previews (dev) + sandbox
+- [x] Attachments + inline attachments
+- [x] Mail previews (dev) + sandbox
 - [ ] Mail retries
 - [ ] Bounce handling
 - [ ] Unsubscribe links
@@ -500,7 +521,7 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 ### 2.13 Realtime (P3 — Cut realtime gated)
 
 - [ ] WebSocket server completo
-- [ ] SSE server
+- [x] SSE server
 - [ ] Pub/sub mechanics
 - [ ] Presence tracking + heartbeats
 - [ ] Reconnect handling + backpressure + connection draining
@@ -509,38 +530,38 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 ### 2.14 APIs (P2)
 
 - [ ] OpenAPI validation + UI
-- [ ] Server stubs
+- [x] Server stubs
 - [ ] gRPC adapter
 - [ ] JSON-RPC
 - [ ] ConnectRPC
-- [ ] Contract tests runner
-- [ ] HATEOAS helpers
-- [ ] API analytics
+- [x] Contract tests runner
+- [x] HATEOAS helpers
+- [x] API analytics
 
 ### 2.15 Views / templates (P2)
 
 - [ ] Template inheritance / layouts / partials (atrás de `.lzx`)
 - [ ] Markdown rendering
 - [ ] Syntax highlighting
-- [ ] Asset fingerprinting + manifest
-- [ ] Source maps
+- [x] Asset fingerprinting + manifest
+- [x] Source maps
 
 ### 2.16 JSON v2 (P2)
 
 - [ ] `encoding/json/v2` + `jsontext` (Go 1.26)
-- [ ] NDJSON streaming
-- [ ] Streaming JSON parsers
+- [x] NDJSON streaming
+- [x] Streaming JSON parsers
 
 ### 2.17 Configuração (P2)
 
-- [ ] Runtime config reload (sem restart)
+- [x] Runtime config reload (sem restart)
 
 ### 2.18 Internacionalização (P3 — Cut i18n)
 
 - [ ] ICU message format
 - [ ] Pluralization + gender rules
-- [ ] Date / time / number / currency localization
-- [ ] Timezone propagation (user + tenant)
+- [x] Date / time / number / currency localization
+- [x] Timezone propagation (user + tenant)
 
 ### 2.19 Admin (P3 — Cut admin)
 
@@ -562,8 +583,8 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 
 ### 2.22 Storage (P2)
 
-- [ ] Local storage adapter
-- [ ] Direct uploads + multipart + resumable
+- [x] Local storage adapter
+- [x] Direct uploads + multipart + resumable
 - [ ] File deduplication + versioning + lifecycle policies
 
 ### 2.23 Busca (P3)
@@ -620,9 +641,9 @@ A maior parte do trabalho. Hoje o runtime Go está em **~5%** (spike CRUD + quer
 
 ### 2.28 Qualidade (P2)
 
-- [ ] Plugin API + extension/generator/middleware/driver/provider registries
-- [ ] Semantic versioning + upgrade guides + LTS policy
-- [ ] Internal diagnostics
+- [x] Plugin API + extension/generator/middleware/driver/provider registries
+- [x] Semantic versioning + upgrade guides + LTS policy
+- [x] Internal diagnostics
 - [ ] Documentation generator + API reference generator
 
 ---

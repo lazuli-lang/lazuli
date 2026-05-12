@@ -3,12 +3,14 @@
 **Source analysis**: `docs/audit/framework-coverage-1400.md` + análise read-only de `c:/Users/lucas/hostpoint/` + `c:/Users/lucas/dev/flutter-hostpoint/`.
 **Última revisão**: 2026-05-12.
 
-> **Status tracking note (2026-05-12)**: este sub-checklist ainda não foi
-> reconciliado linha-a-linha depois das batches c21-c150. Use
-> `docs/next-checklist.md` rows 72-76 como ledger de execução e
-> `docs/roadmap.md` §Status atual como fonte do "onde estamos". O blocker
-> imediato para iniciar o port com confiança é fechar o smoke
-> `lazuli generate go examples/full-capsule -> go build`, que hoje falha em
+> **Audit checkpoint (2026-05-12)**: este arquivo é o checklist de
+> **portabilidade do Hostpoint em cima do Lazuli**, não uma lista de bugs do
+> app Hostpoint original. Ele mistura pré-requisitos Lazuli (`Phase Prep`) e o
+> port do produto Hostpoint (`Phase 1+`). Depois das batches c21-c150, a infra
+> Lazuli avançou muito, mas o produto Hostpoint ainda não foi portado. Use
+> `docs/next-checklist.md` rows 60-76 como ledger de execução. Gate atual:
+> `cargo test -p lazuli_codegen_go --features smoke
+> full_capsule_compiles_with_go_build` ainda falha em
 > `customer_auth/command.gen.go: undefined: AuthSession`.
 
 ## Princípio fundador
@@ -26,23 +28,29 @@
 
 **Estimativa total: ~13-17 cells.** (Revisado pra baixo após correção: Lazuli Go wire ≠ implementação from scratch.)
 
+**Status audit 2026-05-12**: Phase Prep está majoritariamente implementada no
+lado Lazuli, mas não fechada. Confirmado verde: `go test ./...` em
+`runtime/go`, `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli`.
+Confirmado vermelho: smoke e2e do codegen Go (`AuthSession`). O port real do
+produto Hostpoint começa somente após esse gate.
+
 ### 1.1 Codegen Lazuli → Go (BLOCKER #1 — ~12-15 cells)
 
 Emitter que consome IR (já tipado via Phase L Tier 1-4) e produz Go que compila.
 
-- [ ] `lazuli generate go --out dist/go/` CLI verb funcional (hoje só `lazuli generate openapi` shipped)
-- [ ] Templates por kind (consumir IR JSON via `lazuli inspect --format=json`):
-  - [ ] `dist/go/<feature>/resource.gen.go` — structs + repository pattern via `pgx`
-  - [ ] `dist/go/<feature>/command.gen.go` — handler + validation + auth middleware
-  - [ ] `dist/go/<feature>/query.gen.go` — list/lookup com pgx + cache via `redis/go-redis`
-  - [ ] `dist/go/<feature>/api.gen.go` — chi route + handler binding
-  - [ ] `dist/go/<feature>/auth.gen.go` — login/logout + session middleware
-  - [ ] `dist/go/<feature>/job.gen.go` — River worker registration
-  - [ ] `dist/go/<feature>/webhook.gen.go` — chi receiver + HMAC verify
-  - [ ] `dist/go/<feature>/notification.gen.go` — channel dispatcher
-  - [ ] `dist/go/<feature>/storage.gen.go` — signed URL handler
-  - [ ] `dist/go/<feature>/translation.gen.go` — catalog loader + format
-- [ ] Build script roda `gofmt` no output
+- [x] `lazuli generate go --out dist/go/` CLI verb funcional
+- [x] Templates v0 por kind (gerados a partir do IR; smoke ainda bloqueado em `AuthSession`):
+  - [x] `dist/go/<feature>/resource.gen.go` — structs + resource contract + db/json tags
+  - [x] `dist/go/<feature>/command.gen.go` — typed input/output contract + handler stubs
+  - [x] `dist/go/<feature>/query.gen.go` — list/lookup/sql contracts + cache metadata
+  - [x] `dist/go/<feature>/api.gen.go` — route contract + handler placeholder binding
+  - [x] `dist/go/<feature>/auth.gen.go` — identity/password/oauth/session/MFA contracts
+  - [x] `dist/go/<feature>/job.gen.go` — River-compatible job contracts + registration surface
+  - [x] `dist/go/<feature>/webhook.gen.go` — receiver/HMAC/retry/DLQ contract emission
+  - [x] `dist/go/<feature>/notification.gen.go` — channel/digest/throttle contract emission
+  - [x] `dist/go/<feature>/storage.gen.go` — file contract + signed/direct upload metadata
+  - [x] `dist/go/<feature>/translation.gen.go` — embed catalog loader + placeholder catalog file
+- [ ] Build script roda `gofmt` no output — printer gera Go formatado; ainda não há harness separado de `gofmt`
 - [ ] Smoke test: codegen `examples/full-capsule/` → `go build ./dist/go/...` passa sem warning
 - [ ] Integration test: codegen + Lazuli Go local + sqlite mock executa happy-path login
 
@@ -51,47 +59,47 @@ Emitter que consome IR (já tipado via Phase L Tier 1-4) e produz Go que compila
 Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime/go/lazuli/<bucket>/`. **Não é implementação** — é importar + chamar.
 
 #### Auth
-- [ ] `golang.org/x/crypto/argon2` — wire em `auth/password.go` (~10 LOC: Argon2id IDKey com parâmetros canônicos)
-- [ ] `golang.org/x/crypto/bcrypt` — fallback para migração de legacy (~5 LOC)
-- [ ] Session store: Postgres table via pgx (~30 LOC; pode usar `riverqueue` lib do River pra inspiração de schema-managed)
-- [ ] `golang.org/x/oauth2` + `golang.org/x/oauth2/google` — OAuth Google wire (~20 LOC)
-- [ ] `github.com/pquerna/otp/totp` — TOTP MFA wire (~10 LOC)
+- [x] `golang.org/x/crypto/argon2` — wire em `auth/password.go` (~10 LOC: Argon2id IDKey com parâmetros canônicos)
+- [x] `golang.org/x/crypto/bcrypt` — fallback para migração de legacy (~5 LOC)
+- [x] Session store: Postgres table via pgx (~30 LOC; pode usar `riverqueue` lib do River pra inspiração de schema-managed)
+- [x] `golang.org/x/oauth2` + `golang.org/x/oauth2/google` — OAuth Google wire (~20 LOC)
+- [x] `github.com/pquerna/otp/totp` — TOTP MFA wire (~10 LOC)
 
 #### Storage
-- [ ] `github.com/aws/aws-sdk-go-v2/service/s3` + `s3/v1` presigner — wire upload/signed URL (~30 LOC)
-- [ ] Local filesystem adapter (~20 LOC)
-- [ ] (futuro) `github.com/minio/minio-go/v7` se quiser MinIO support
+- [x] `github.com/aws/aws-sdk-go-v2/service/s3` + `s3/v1` presigner — wire upload/signed URL (~30 LOC)
+- [x] Local filesystem adapter (~20 LOC)
+- [x] (futuro) `github.com/minio/minio-go/v7` se quiser MinIO support
 
 #### Jobs
-- [ ] `github.com/riverqueue/river` + `riverpgxv5` — wire dispatcher + retry policy (~40 LOC)
-- [ ] DLQ handler hook (River nativo via `Worker.NextRetry`)
+- [x] `github.com/riverqueue/river` + `riverpgxv5` — wire dispatcher + retry policy (~40 LOC)
+- [x] DLQ handler hook (River nativo via `Worker.NextRetry`)
 
 #### DB
-- [ ] `github.com/jackc/pgx/v5` + `pgxpool` — wire connection pool em `db.go` (~30 LOC)
-- [ ] `withTx` helper já existe em `runtime/go/lazuli/db.go` — completar com retry on serialization failure
+- [x] `github.com/jackc/pgx/v5` + `pgxpool` — wire connection pool em `db.go` (~30 LOC)
+- [x] `withTx` helper já existe em `runtime/go/lazuli/db.go` — completar com retry on serialization failure
 
 #### HTTP
-- [ ] `github.com/go-chi/chi/v5` — wire router em `http.go` (já parcial; substitui hardcoded `/healthz`)
-- [ ] Middleware: recover, request-id, otel, csrf via Go 1.26 `net/http.CrossOriginProtection`
+- [ ] `github.com/go-chi/chi/v5` — wire router em `http.go` (runtime usa `net/http` `ServeMux` hoje; decisão de chi ainda aberta)
+- [x] Middleware: recover, request-id, otel, csrf via Go 1.26 `net/http.CrossOriginProtection`
 
 #### Observability
-- [ ] `log/slog` (stdlib) — wire JSON handler em `observability/logging.go` (~15 LOC)
-- [ ] `go.opentelemetry.io/otel/sdk/trace` + `otlptracehttp` exporter — wire em `observability/tracing.go` (~25 LOC)
+- [x] `log/slog` (stdlib) — wire JSON handler em `observability/logging.go` (~15 LOC)
+- [x] `go.opentelemetry.io/otel/sdk/trace` + `otlptracehttp` exporter — wire em `observability/tracing.go` (~25 LOC)
 - [ ] `getsentry/sentry-go` — wire panic handler (~15 LOC)
 
 #### Email
-- [ ] `github.com/sendgrid/sendgrid-go` — primary (~20 LOC)
-- [ ] SMTP stdlib (`net/smtp`) — fallback (~15 LOC)
+- [x] `github.com/sendgrid/sendgrid-go` — primary (~20 LOC)
+- [x] SMTP stdlib (`net/smtp`) — fallback (~15 LOC)
 
 #### Webhooks
-- [ ] HMAC verify usando `crypto/hmac` + `crypto/sha256` (stdlib) — wire genérico (~10 LOC)
+- [x] HMAC verify usando `crypto/hmac` + `crypto/sha256` (stdlib) — wire genérico (~10 LOC)
 
 ### 1.3 Codegen consume Tier 4 IR completo
 
-- [ ] `Command.audit/approval/invalidates/external_calls` typed (já no IR) → codegen emite middleware + Postgres audit insert
+- [x] `Command.audit/approval/invalidates/external_calls` typed (já no IR) → codegen emite middleware + Postgres audit insert
 - [ ] `Resource.retention` → codegen emite cron job de anonymization
 - [ ] `Field.derived_from` → codegen emite computed column ou GENERATED ALWAYS AS
-- [ ] `CapabilityRef::Hashed/Encrypted/Token` → codegen emite import + chamada da lib correspondente
+- [x] `CapabilityRef::Hashed/Encrypted/Token` → codegen emite import + chamada da lib correspondente
 
 ---
 
@@ -255,9 +263,9 @@ Cada item abaixo é **~10-50 LOC** de wire da lib pra dentro do runtime `runtime
 
 ### 2.9 Observability (já done na Lazuli — 0 cells port)
 
-- [ ] Built-in trace events `command_run`/`job_run`/`webhook_run`/`agent_run` (Lazuli já entrega)
-- [ ] `app.logging level info format json redact pii.*`
-- [ ] `app.tracing propagate true sample_rate 0.1 exporter otlp`
+- [x] Built-in trace events `command_run`/`job_run`/`webhook_run`/`agent_run` (Lazuli já entrega)
+- [x] `app.logging level info format json redact pii.*`
+- [x] `app.tracing propagate true sample_rate 0.1 exporter otlp`
 - [ ] Sentry adapter wire (~15 LOC em Lazuli Go)
 
 ### 2.10 File Storage (já mostly done — wire S3 em Lazuli Go)
