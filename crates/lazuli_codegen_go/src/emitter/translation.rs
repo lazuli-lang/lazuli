@@ -1,19 +1,19 @@
 //! Cell G3a - `Translation` kind emission. Walks the optional
-//! `Feature.translation` block and emits the Go-side embedded catalog
-//! handle into `<feature>/translation.gen.go`.
+//! `Feature.translation` block and emits the Go-side embedded
+//! `i18n.Catalog` handle into `<feature>/translation.gen.go`.
 //!
 //! Proposal references:
-//! - §3.10 - `//go:embed i18n/*.json`, `embed.FS`, and the future
+//! - §3.10 - `//go:embed i18n/*.json`, `embed.FS`, and the
 //!   `i18n.Catalog` value shape.
-//! - §4.5 - Lazuli Go lib gap: `runtime/go/lazuli/i18n` currently has
-//!   `LocaleContract` and `Fallback`, but no `Catalog` type.
+//! - §4.5 - Lazuli Go lib backfill: `runtime/go/lazuli/i18n` now has
+//!   a `Catalog` type.
 //! - §11 - catalog JSON files remain user territory; codegen owns only
 //!   the embed directive and generated Go wrapper.
 //!
 //! Determinism: there is at most one translation block per feature.
-//! The generated source does not walk `Translation.keys`, because the
-//! strings ship in sibling JSON catalogs and must not be duplicated
-//! into Go literals.
+//! The generated source does not duplicate translation variants,
+//! because the strings ship in sibling JSON catalogs and must not be
+//! copied into Go literals.
 
 use lazuli_ir::{Feature, Translation};
 
@@ -23,7 +23,9 @@ use super::imports::ImportSet;
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/translation.gen.go` for a feature, or `None` when
-/// the feature declares no `translation` block.
+/// the feature declares no `translation` block or has no translation
+/// keys. The latter keeps `//go:embed i18n/*.json` out of generated
+/// packages that do not actually ship catalog files.
 pub fn emit_translation_file(
     source_label: &str,
     feature: &Feature,
@@ -31,6 +33,9 @@ pub fn emit_translation_file(
     cross_index: &CrossFeatureIndex<'_>,
 ) -> Option<String> {
     let translation = feature.translation.as_ref()?;
+    if translation.keys.is_empty() {
+        return None;
+    }
 
     // The translation emitter does not need cross-feature type
     // resolution, but the signature matches the orchestrator surface
@@ -40,24 +45,15 @@ pub fn emit_translation_file(
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
     imports.add("embed");
-    if i18n_catalog_available() {
-        imports.add("lazuli.dev/runtime/lazuli/i18n");
-    }
+    imports.add("lazuli.dev/runtime/lazuli/i18n");
 
-    p.line("//go:build lazuli_i18n");
-    p.blank();
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
     p.blank();
 
     emit_translation_embed(&mut p);
     p.blank();
-
-    if i18n_catalog_available() {
-        emit_catalog_value(&mut p, feature, translation);
-    } else {
-        p.line("// TODO(runtime): i18n.Catalog not yet in lib (§4.5)");
-    }
+    emit_catalog_value(&mut p, feature, translation);
 
     Some(p.finish())
 }
@@ -67,29 +63,29 @@ fn emit_translation_embed(p: &mut GoPrinter) {
     p.line("var translationFS embed.FS");
 }
 
-fn emit_catalog_value(p: &mut GoPrinter, feature: &Feature, _translation: &Translation) {
+fn emit_catalog_value(p: &mut GoPrinter, feature: &Feature, translation: &Translation) {
     let var_name = translation_var_name(&feature.name);
-    let catalog_name = catalog_name(feature);
-    p.line(&format!(
-        "var {var_name} = i18n.Catalog{{Name: {:?}, FS: translationFS, BasePath: \"i18n\"}}",
-        catalog_name
-    ));
+    let catalog_name = catalog_name(feature, translation);
+    p.line(&format!("var {var_name} = i18n.Catalog{{"));
+    p.indent();
+    p.line(&format!("Name:     {:?},", catalog_name));
+    p.line("FS:       translationFS,");
+    p.line("BasePath: \"i18n\",");
+    p.dedent();
+    p.line("}");
 }
 
 fn translation_var_name(feature_name: &str) -> String {
     format!("{}Translations", lower_camel(feature_name))
 }
 
-fn catalog_name(feature: &Feature) -> String {
-    format!("{}.messages", feature.name)
-}
-
-fn i18n_catalog_available() -> bool {
-    // Verified against `runtime/go/lazuli/i18n` in this worktree:
-    // `Catalog` is still the §4.5 runtime gap. Keeping this as a
-    // helper makes the eventual flip a one-line change without
-    // reshaping emission.
-    false
+fn catalog_name(feature: &Feature, translation: &Translation) -> String {
+    let key_name = translation
+        .keys
+        .first()
+        .map(|key| key.name.as_str())
+        .unwrap_or("messages");
+    format!("{}.{}", feature.name, key_name)
 }
 
 #[cfg(test)]
@@ -187,19 +183,32 @@ mod tests {
     }
 
     #[test]
-    fn translation_emits_embed_fs_and_catalog_gap_todo() {
+    fn translation_with_empty_keys_returns_none() {
+        let mut feature = base_feature("customer");
+        feature.translation = Some(Translation {
+            catalog: "./i18n/customer.<locale>.json".to_owned(),
+            keys: Vec::new(),
+        });
+
+        assert!(emit(&feature).is_none());
+    }
+
+    #[test]
+    fn translation_emits_embed_fs_and_catalog_value() {
         let mut feature = base_feature("customer");
         feature.translation = Some(sample_translation());
         let out = emit(&feature).expect("must emit");
 
-        assert!(out.starts_with(
-            "//go:build lazuli_i18n\n\n// Code generated by lazuli; DO NOT EDIT.\n"
-        ));
+        assert!(out.starts_with("// Code generated by lazuli; DO NOT EDIT.\n"));
+        assert!(!out.contains("//go:build lazuli_i18n"));
         assert!(out.contains("package customer"));
-        assert!(out.contains("import (\n\t\"embed\"\n)"));
+        assert!(out.contains("import (\n\t\"embed\"\n\n\t\"lazuli.dev/runtime/lazuli/i18n\"\n)"));
         assert!(out.contains("//go:embed i18n/*.json"));
         assert!(out.contains("var translationFS embed.FS"));
-        assert!(out.contains("// TODO(runtime): i18n.Catalog not yet in lib (§4.5)"));
+        assert!(out.contains("var customerTranslations = i18n.Catalog{"));
+        assert!(out.contains("Name:     \"customer.welcome_title\","));
+        assert!(out.contains("FS:       translationFS,"));
+        assert!(out.contains("BasePath: \"i18n\","));
     }
 
     #[test]
@@ -214,14 +223,14 @@ mod tests {
     }
 
     #[test]
-    fn catalog_gap_skips_active_i18n_import_and_value() {
+    fn catalog_uses_lower_camel_feature_var_name() {
         let mut feature = base_feature("customer_outreach");
         feature.translation = Some(sample_translation());
         let out = emit(&feature).expect("must emit");
 
         assert!(out.contains("package customer_outreach"));
-        assert!(!out.contains("\"lazuli.dev/runtime/lazuli/i18n\""));
-        assert!(!out.contains("var customerOutreachTranslations = i18n.Catalog"));
+        assert!(out.contains("var customerOutreachTranslations = i18n.Catalog"));
+        assert!(out.contains("Name:     \"customer_outreach.welcome_title\","));
     }
 
     #[test]
