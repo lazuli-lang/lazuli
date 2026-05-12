@@ -5,7 +5,10 @@ mod smoke {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Output};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
     struct TempDir {
         path: PathBuf,
@@ -17,10 +20,11 @@ mod smoke {
                 .duration_since(UNIX_EPOCH)
                 .expect("system time before UNIX_EPOCH")
                 .as_nanos();
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
             let path = repo_root
                 .join("target")
                 .join("lazuli-go-smoke")
-                .join(format!("{}-{nonce}", std::process::id()));
+                .join(format!("{}-{nonce}-{id}", std::process::id()));
             fs::create_dir_all(&path)
                 .unwrap_or_else(|err| panic!("creating tempdir {}: {err}", path.display()));
             Self { path }
