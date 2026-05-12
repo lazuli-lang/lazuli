@@ -325,6 +325,21 @@ impl DoctorPackage {
                                 Ok(feature) => {
                                     let header_line =
                                         line_col_for_offset(&file.source, skeleton.span.start).0;
+                                    let semantic_type_diagnostics =
+                                        semantic_type_unknown_diagnostics_for_feature(
+                                            &file.path,
+                                            &file.source,
+                                            &feature,
+                                        );
+                                    file.local_diagnostics.extend(semantic_type_diagnostics);
+                                    let semantic_type_surface_diagnostics =
+                                        semantic_type_unknown_diagnostics_for_syntax_feature(
+                                            &file.path,
+                                            &file.source,
+                                            skeleton,
+                                        );
+                                    file.local_diagnostics
+                                        .extend(semantic_type_surface_diagnostics);
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
                                     // Migrations bucket cycle Route C —
@@ -4440,6 +4455,530 @@ fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     references
 }
 
+const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
+const SEMANTIC_TYPE_CATALOG: &str =
+    "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT";
+
+fn semantic_type_unknown_diagnostics_for_syntax_feature(
+    path: &Path,
+    source: &str,
+    feature: &lazuli_syntax::FeatureSkeleton,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for command in &feature.commands {
+        for route in &command.route {
+            push_unknown_semantic_type_text(
+                path,
+                source,
+                &route.type_text,
+                route.span.start,
+                &mut diagnostics,
+            );
+        }
+        if let lazuli_syntax::CommandInputDecl::Typed(slots) = &command.input {
+            for slot in slots {
+                push_unknown_semantic_type_text(
+                    path,
+                    source,
+                    &slot.type_text,
+                    slot.span.start,
+                    &mut diagnostics,
+                );
+            }
+        }
+        if let Some(returns) = command.returns.as_deref() {
+            push_unknown_semantic_type_text(
+                path,
+                source,
+                returns,
+                command.span.start,
+                &mut diagnostics,
+            );
+        }
+        if let Some(handler) = command.handler.as_ref() {
+            if let Some(returns) = handler.returns.as_deref() {
+                push_unknown_semantic_type_text(
+                    path,
+                    source,
+                    returns,
+                    command.span.start,
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
+
+    for query in &feature.queries {
+        match query {
+            lazuli_syntax::QueryDecl::List(query) => {
+                for param in &query.params {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        &param.type_text,
+                        param.span.start,
+                        &mut diagnostics,
+                    );
+                }
+            }
+            lazuli_syntax::QueryDecl::Lookup(query) => {
+                for key in &query.keys {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        &key.type_text,
+                        key.span.start,
+                        &mut diagnostics,
+                    );
+                }
+            }
+            lazuli_syntax::QueryDecl::Sql(query) => {
+                for param in &query.params {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        &param.type_text,
+                        param.span.start,
+                        &mut diagnostics,
+                    );
+                }
+                push_unknown_semantic_type_text(
+                    path,
+                    source,
+                    &query.returns,
+                    query.span.start,
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
+
+    for api in &feature.apis {
+        push_unknown_semantic_type_text(
+            path,
+            source,
+            &api.output,
+            api.span.start,
+            &mut diagnostics,
+        );
+    }
+
+    for job in &feature.jobs {
+        match &job.body {
+            lazuli_syntax::JobBody::Handler(handler) => {
+                if let Some(returns) = handler.returns.as_deref() {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        returns,
+                        job.span.start,
+                        &mut diagnostics,
+                    );
+                }
+            }
+            lazuli_syntax::JobBody::Declarative(_) => {}
+            lazuli_syntax::JobBody::None => {}
+        }
+    }
+
+    for webhook in &feature.webhooks {
+        if let Some(handler) = webhook.handler.as_ref() {
+            if let Some(returns) = handler.returns.as_deref() {
+                push_unknown_semantic_type_text(
+                    path,
+                    source,
+                    returns,
+                    webhook.span.start,
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
+
+    for agent in &feature.agents {
+        for slot in &agent.input {
+            push_unknown_semantic_type_text(
+                path,
+                source,
+                &slot.type_text,
+                slot.span.start,
+                &mut diagnostics,
+            );
+        }
+        if let Some(output) = agent.output.as_ref() {
+            match output {
+                lazuli_syntax::AgentOutput::Stream(type_text)
+                | lazuli_syntax::AgentOutput::Plain(type_text) => {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        type_text,
+                        agent.span.start,
+                        &mut diagnostics,
+                    );
+                }
+                lazuli_syntax::AgentOutput::Discriminator(_) => {}
+            }
+        }
+        if let Some(expose) = agent.expose.as_ref() {
+            for slot in &expose.route_slots {
+                push_unknown_semantic_type_text(
+                    path,
+                    source,
+                    &slot.type_text,
+                    slot.span.start,
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn semantic_type_unknown_diagnostics_for_feature(
+    path: &Path,
+    source: &str,
+    feature: &lazuli_ir::Feature,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let feature_loc = span_line_col(source, feature.span_ref.as_ref()).unwrap_or((1, 1));
+
+    for resource in &feature.resources {
+        let resource_loc = span_line_col(source, resource.span_ref.as_ref()).unwrap_or(feature_loc);
+        for field in &resource.fields {
+            let loc = span_line_col(source, field.span_ref.as_ref())
+                .or_else(|| find_nested_type_site_line(source, resource_loc.0, &field.name))
+                .unwrap_or(resource_loc);
+            push_unknown_semantic_type(path, &field.type_ref, loc, &mut diagnostics);
+        }
+    }
+
+    for record in &feature.records {
+        let record_loc = span_line_col(source, record.span_ref.as_ref()).unwrap_or(feature_loc);
+        for field in &record.fields {
+            let loc = span_line_col(source, field.span_ref.as_ref())
+                .or_else(|| find_nested_type_site_line(source, record_loc.0, &field.name))
+                .unwrap_or(record_loc);
+            push_unknown_semantic_type(path, &field.type_ref, loc, &mut diagnostics);
+        }
+    }
+
+    for event in &feature.events {
+        let event_loc = span_line_col(source, event.span_ref.as_ref()).unwrap_or(feature_loc);
+        for field in &event.payload {
+            let loc =
+                find_nested_type_site_line(source, event_loc.0, &field.name).unwrap_or(event_loc);
+            push_unknown_semantic_type(path, &field.type_ref, loc, &mut diagnostics);
+        }
+    }
+
+    for command in &feature.commands {
+        let command_loc = span_line_col(source, command.span_ref.as_ref()).unwrap_or(feature_loc);
+        for slot in &command.route {
+            let loc = find_nested_type_site_line(source, command_loc.0, &slot.name)
+                .unwrap_or(command_loc);
+            push_unknown_semantic_type(path, &slot.type_ref, loc, &mut diagnostics);
+        }
+        if let lazuli_ir::CommandInput::Typed(slots) = &command.input {
+            check_typed_slots_for_unknown_semantics(
+                path,
+                source,
+                slots,
+                command_loc,
+                &mut diagnostics,
+            );
+        }
+        check_command_effect_for_unknown_semantics(
+            path,
+            &command.effect,
+            command_loc,
+            &mut diagnostics,
+        );
+    }
+
+    for query in &feature.queries {
+        let query_loc = query_line_col(source, query).unwrap_or(feature_loc);
+        match query {
+            lazuli_ir::Query::List(query) => {
+                check_typed_slots_for_unknown_semantics(
+                    path,
+                    source,
+                    &query.params,
+                    query_loc,
+                    &mut diagnostics,
+                );
+            }
+            lazuli_ir::Query::Lookup(query) => {
+                check_typed_slots_for_unknown_semantics(
+                    path,
+                    source,
+                    &query.params,
+                    query_loc,
+                    &mut diagnostics,
+                );
+            }
+            lazuli_ir::Query::Sql(query) => {
+                check_typed_slots_for_unknown_semantics(
+                    path,
+                    source,
+                    &query.params,
+                    query_loc,
+                    &mut diagnostics,
+                );
+                push_unknown_semantic_type(path, &query.returns, query_loc, &mut diagnostics);
+            }
+        }
+    }
+
+    for job in &feature.jobs {
+        let job_loc = span_line_col(source, job.span_ref.as_ref()).unwrap_or(feature_loc);
+        match &job.body {
+            lazuli_ir::JobBody::Handler(handler) => {
+                if let Some(returns) = handler.returns.as_ref() {
+                    push_unknown_semantic_type(path, returns, job_loc, &mut diagnostics);
+                }
+            }
+            lazuli_ir::JobBody::Declarative(body) => {
+                check_command_effect_for_unknown_semantics(
+                    path,
+                    &body.effect,
+                    job_loc,
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
+
+    for webhook in &feature.webhooks {
+        let webhook_loc = span_line_col(source, webhook.span_ref.as_ref()).unwrap_or(feature_loc);
+        if let Some(returns) = webhook.returns.as_ref() {
+            push_unknown_semantic_type(path, returns, webhook_loc, &mut diagnostics);
+        }
+    }
+
+    for api in &feature.apis {
+        let api_loc = span_line_col(source, api.span_ref.as_ref()).unwrap_or(feature_loc);
+        push_unknown_semantic_type(path, &api.output, api_loc, &mut diagnostics);
+    }
+
+    for agent in &feature.agents {
+        let agent_loc = span_line_col(source, agent.span_ref.as_ref()).unwrap_or(feature_loc);
+        check_typed_slots_for_unknown_semantics(
+            path,
+            source,
+            &agent.input,
+            agent_loc,
+            &mut diagnostics,
+        );
+        if let Some(output_type) = agent.output_type.as_ref() {
+            push_unknown_semantic_type(path, output_type, agent_loc, &mut diagnostics);
+        }
+        if let Some(expose) = agent.expose_http.as_ref() {
+            let expose_loc = span_line_col(source, expose.span_ref.as_ref()).unwrap_or(agent_loc);
+            check_typed_slots_for_unknown_semantics(
+                path,
+                source,
+                &expose.route_slots,
+                expose_loc,
+                &mut diagnostics,
+            );
+        }
+    }
+
+    for extension in &feature.extensions {
+        let extension_loc =
+            span_line_col(source, extension.span_ref.as_ref()).unwrap_or(feature_loc);
+        check_extension_contract_for_unknown_semantics(
+            path,
+            &extension.contract,
+            extension_loc,
+            &mut diagnostics,
+        );
+    }
+
+    diagnostics
+}
+
+fn check_typed_slots_for_unknown_semantics(
+    path: &Path,
+    source: &str,
+    slots: &[lazuli_ir::TypedSlot],
+    parent_loc: (usize, usize),
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    for slot in slots {
+        let loc =
+            find_nested_type_site_line(source, parent_loc.0, &slot.name).unwrap_or(parent_loc);
+        push_unknown_semantic_type(path, &slot.type_ref, loc, diagnostics);
+    }
+}
+
+fn check_command_effect_for_unknown_semantics(
+    path: &Path,
+    effect: &lazuli_ir::CommandEffect,
+    loc: (usize, usize),
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    if let lazuli_ir::CommandEffect::Returns(returns) = effect {
+        push_unknown_semantic_type(path, &returns.return_type, loc, diagnostics);
+    }
+}
+
+fn check_extension_contract_for_unknown_semantics(
+    path: &Path,
+    contract: &lazuli_ir::ExtensionContract,
+    loc: (usize, usize),
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    match contract {
+        lazuli_ir::ExtensionContract::CellRenderer { type_arg }
+        | lazuli_ir::ExtensionContract::ViewBlock { type_arg }
+        | lazuli_ir::ExtensionContract::FormField { type_arg }
+        | lazuli_ir::ExtensionContract::Hook { type_arg }
+        | lazuli_ir::ExtensionContract::Validator { type_arg }
+        | lazuli_ir::ExtensionContract::QueryModifier { type_arg }
+        | lazuli_ir::ExtensionContract::IntegrationAdapter { type_arg } => {
+            push_unknown_semantic_type(path, type_arg, loc, diagnostics);
+        }
+        lazuli_ir::ExtensionContract::Function { input, output } => {
+            push_unknown_semantic_type(path, input, loc, diagnostics);
+            push_unknown_semantic_type(path, output, loc, diagnostics);
+        }
+    }
+}
+
+fn push_unknown_semantic_type(
+    path: &Path,
+    type_ref: &lazuli_ir::TypeRef,
+    loc: (usize, usize),
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    if let Some(name) = unknown_semantic_type_name(type_ref) {
+        diagnostics.push(DoctorDiagnostic {
+            path: path.to_path_buf(),
+            line: loc.0,
+            column: loc.1,
+            severity: DoctorSeverity::Error,
+            code: SEMANTIC_TYPE_UNKNOWN_CODE.to_owned(),
+            message: format!(
+                "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
+            ),
+        });
+    }
+}
+
+fn push_unknown_semantic_type_text(
+    path: &Path,
+    source: &str,
+    type_text: &str,
+    offset: usize,
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    let loc = line_col_for_offset(source, offset);
+    for name in unknown_semantic_type_names_in_text(type_text) {
+        diagnostics.push(DoctorDiagnostic {
+            path: path.to_path_buf(),
+            line: loc.0,
+            column: loc.1,
+            severity: DoctorSeverity::Error,
+            code: SEMANTIC_TYPE_UNKNOWN_CODE.to_owned(),
+            message: format!(
+                "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
+            ),
+        });
+    }
+}
+
+fn unknown_semantic_type_name(type_ref: &lazuli_ir::TypeRef) -> Option<&str> {
+    match type_ref {
+        lazuli_ir::TypeRef::UserDefined(qname)
+            if qname.name.starts_with("@semantic.")
+                && !is_known_semantic_type_name(qname.name.as_str()) =>
+        {
+            Some(qname.name.as_str())
+        }
+        lazuli_ir::TypeRef::Many(inner) => unknown_semantic_type_name(inner),
+        _ => None,
+    }
+}
+
+fn unknown_semantic_type_names_in_text(type_text: &str) -> Vec<&str> {
+    type_text
+        .split(|ch: char| !(ch == '@' || ch == '.' || ch == '_' || ch.is_ascii_alphanumeric()))
+        .filter(|token| token.starts_with("@semantic.") && !is_known_semantic_type_name(token))
+        .collect()
+}
+
+fn is_known_semantic_type_name(name: &str) -> bool {
+    let Some(short) = name.strip_prefix("@semantic.") else {
+        return false;
+    };
+    matches!(
+        short,
+        "Email"
+            | "Phone"
+            | "URL"
+            | "Url"
+            | "UUID"
+            | "Uuid"
+            | "Date"
+            | "Currency"
+            | "Money"
+            | "JSON"
+            | "Json"
+            | "GeoPoint"
+    )
+}
+
+fn span_line_col(source: &str, span: Option<&lazuli_ir::SpanRef>) -> Option<(usize, usize)> {
+    span.map(|span| line_col_for_offset(source, span.start))
+}
+
+fn query_line_col(source: &str, query: &lazuli_ir::Query) -> Option<(usize, usize)> {
+    match query {
+        lazuli_ir::Query::List(query) => span_line_col(source, query.span_ref.as_ref()),
+        lazuli_ir::Query::Lookup(query) => span_line_col(source, query.span_ref.as_ref()),
+        lazuli_ir::Query::Sql(query) => span_line_col(source, query.span_ref.as_ref()),
+    }
+}
+
+fn find_nested_type_site_line(
+    source: &str,
+    parent_line: usize,
+    site_name: &str,
+) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = source.lines().collect();
+    let parent_index = parent_line.checked_sub(1)?;
+    let parent_indent = lines
+        .get(parent_index)
+        .map(|line| leading_spaces(line))
+        .unwrap_or(0);
+    let field_prefix = format!("{site_name}:");
+    let route_prefix = format!("route {site_name}:");
+
+    for (idx, line) in lines.iter().enumerate().skip(parent_index + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent <= parent_indent {
+            break;
+        }
+        if trimmed.starts_with(&field_prefix) || trimmed.starts_with(&route_prefix) {
+            let column = line
+                .find(site_name)
+                .map(|offset| offset + 1)
+                .unwrap_or(indent + 1);
+            return Some((idx + 1, column));
+        }
+    }
+
+    None
+}
+
 // =============================================================================
 // Cut A — cross-feature diagnostics (8 ids per plan §5.2).
 //
@@ -8231,6 +8770,21 @@ mod tests {
                         if let Ok(feature) = lower_feature_skeleton(skeleton) {
                             let header_line =
                                 line_col_for_offset(&file.source, skeleton.span.start).0;
+                            let semantic_type_diagnostics =
+                                semantic_type_unknown_diagnostics_for_feature(
+                                    &file.path,
+                                    &file.source,
+                                    &feature,
+                                );
+                            file.local_diagnostics.extend(semantic_type_diagnostics);
+                            let semantic_type_surface_diagnostics =
+                                semantic_type_unknown_diagnostics_for_syntax_feature(
+                                    &file.path,
+                                    &file.source,
+                                    skeleton,
+                                );
+                            file.local_diagnostics
+                                .extend(semantic_type_surface_diagnostics);
                             // Webhooks expanded cycle — populate the
                             // Tier 3 facts so the new doctor rules
                             // (`WEBHOOK-PAYLOAD-001/002`, ...) can run
@@ -9661,6 +10215,36 @@ contract acme.ai.v1
 
     fn codes(diagnostics: &[DoctorDiagnostic]) -> BTreeSet<&str> {
         diagnostics.iter().map(|d| d.code.as_str()).collect()
+    }
+
+    const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/semantic_unknown.lzi");
+
+    #[test]
+    fn doctor_emits_semantic_type_unknown_for_unknown_semantic_fields() {
+        let package =
+            package_from_sources(vec![("semantic_unknown.lzi", SEMANTIC_UNKNOWN_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == SEMANTIC_TYPE_UNKNOWN_CODE)
+            .collect();
+
+        assert_eq!(
+            hits.len(),
+            2,
+            "expected two semantic_type_unknown diagnostics, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(hits.iter().any(|diagnostic| {
+            diagnostic.line == 8
+                && diagnostic.message
+                    == "unknown @semantic type \"@semantic.Distance\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT}."
+        }));
+        assert!(hits.iter().any(|diagnostic| {
+            diagnostic.line == 15
+                && diagnostic.message
+                    == "unknown @semantic type \"@semantic.Range\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT}."
+        }));
     }
 
     #[test]

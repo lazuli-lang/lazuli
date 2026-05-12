@@ -1,0 +1,17 @@
+# Doctor fixture - `semantic_type_unknown`.
+# Unknown `@semantic.*` names should not silently fall through as user types.
+
+feature semantic_unknown
+  domain
+    resource Shipment
+      id: ID required
+      distance: @semantic.Distance required
+
+  policies
+    create: @role.admin
+
+  command quote
+    input
+      destination: @semantic.Range required
+    policy @policy.create
+    returns Text
