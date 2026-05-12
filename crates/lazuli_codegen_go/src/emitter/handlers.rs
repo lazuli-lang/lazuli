@@ -1198,11 +1198,7 @@ fn extract_handler_refs(text: &str) -> Vec<HandlerRef> {
             .char_indices()
             .find_map(
                 |(index, ch)| {
-                    if is_ref_char(ch) {
-                        None
-                    } else {
-                        Some(index)
-                    }
+                    if is_ref_char(ch) { None } else { Some(index) }
                 },
             )
             .unwrap_or(after_prefix.len());
@@ -1606,9 +1602,10 @@ mod tests {
         assert!(hash.contents.contains(
             "func HashPassword(ctx *lazuli.Ctx, input string) (lazuli.HashedRef, error)"
         ));
-        assert!(hash
-            .contents
-            .contains("//   Site: customer_auth.auth.password.hash"));
+        assert!(
+            hash.contents
+                .contains("//   Site: customer_auth.auth.password.hash")
+        );
         assert!(hash.contents.contains(
             "return zero[lazuli.HashedRef](), errors.New(\"hash_password not yet implemented\")"
         ));
@@ -1636,12 +1633,16 @@ mod tests {
 
         let files = emit_handler_stubs(&module, &existing);
 
-        assert!(!files
-            .iter()
-            .any(|file| file.path == "customer_auth/handlers/hash_password.go"));
-        assert!(files
-            .iter()
-            .any(|file| file.path == "customer_auth/handlers/verify_password.go"));
+        assert!(
+            !files
+                .iter()
+                .any(|file| file.path == "customer_auth/handlers/hash_password.go")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "customer_auth/handlers/verify_password.go")
+        );
     }
 
     #[test]
@@ -1667,12 +1668,16 @@ mod tests {
 
         let files = emit_handler_stubs(&module, &existing);
 
-        assert!(!files
-            .iter()
-            .any(|file| file.path == "customer_auth/handlers/hash_password.go"));
-        assert!(files
-            .iter()
-            .any(|file| file.path == "customer_auth/handlers/verify_password.go"));
+        assert!(
+            !files
+                .iter()
+                .any(|file| file.path == "customer_auth/handlers/hash_password.go")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "customer_auth/handlers/verify_password.go")
+        );
     }
 
     #[test]
@@ -1724,12 +1729,14 @@ mod tests {
             .iter()
             .find(|file| file.path == "customer/handlers/risk_score.go")
             .expect("risk_score stub emitted");
-        assert!(risk
-            .contents
-            .contains("func RiskScore(ctx *lazuli.Ctx, input Customer) (int64, error)"));
-        assert!(risk
-            .contents
-            .contains("//   Site: customer.recompute_score.let.new_score"));
+        assert!(
+            risk.contents
+                .contains("func RiskScore(ctx *lazuli.Ctx, input Customer) (int64, error)")
+        );
+        assert!(
+            risk.contents
+                .contains("//   Site: customer.recompute_score.let.new_score")
+        );
     }
 
     #[test]
@@ -1780,9 +1787,10 @@ mod tests {
             .iter()
             .find(|file| file.path == "customer/handlers/risk_score.go")
             .expect("risk_score declaration stub emitted");
-        assert!(risk
-            .contents
-            .contains("//   Site: customer.extensions.fn.risk_score"));
+        assert!(
+            risk.contents
+                .contains("//   Site: customer.extensions.fn.risk_score")
+        );
     }
 
     #[test]
@@ -1794,12 +1802,14 @@ mod tests {
         let files = emit_handler_stubs(&module, &BTreeSet::new());
         let file = &files[0];
 
-        assert!(file
-            .contents
-            .contains("func Unknown(ctx *lazuli.Ctx, input any) (any, error)"));
-        assert!(file
-            .contents
-            .contains("return zero[any](), errors.New(\"unknown not yet implemented\")"));
+        assert!(
+            file.contents
+                .contains("func Unknown(ctx *lazuli.Ctx, input any) (any, error)")
+        );
+        assert!(
+            file.contents
+                .contains("return zero[any](), errors.New(\"unknown not yet implemented\")")
+        );
     }
 
     #[test]
