@@ -54,23 +54,23 @@ func TestMemoryTraceSinkStoresBuiltInPayloads(t *testing.T) {
 		t.Fatalf("Events() len = %d, want 4", len(events))
 	}
 	traceSinkAssertEvent(t, events[0], TraceEventAgentRun, now)
-	if events[0].AgentRun == nil || events[0].AgentRun.Agent != "support.triage" {
-		t.Fatalf("agent_run payload = %+v, want support.triage", events[0].AgentRun)
+	if events[0].Payload.AgentRun == nil || events[0].Payload.AgentRun.Agent != "support.triage" {
+		t.Fatalf("agent_run payload = %+v, want support.triage", events[0].Payload.AgentRun)
 	}
-	if got := events[0].AgentRun.Tools[0].Name; got != "crm.lookup" {
+	if got := events[0].Payload.AgentRun.Tools[0].Name; got != "crm.lookup" {
 		t.Fatalf("agent_run tool = %q, want crm.lookup", got)
 	}
 	traceSinkAssertEvent(t, events[1], TraceEventCommandRun, now)
-	if events[1].CommandRun == nil || events[1].CommandRun.Command != "customer.reassign" {
-		t.Fatalf("command_run payload = %+v, want customer.reassign", events[1].CommandRun)
+	if events[1].Payload.CommandRun == nil || events[1].Payload.CommandRun.Command != "customer.reassign" {
+		t.Fatalf("command_run payload = %+v, want customer.reassign", events[1].Payload.CommandRun)
 	}
 	traceSinkAssertEvent(t, events[2], TraceEventJobRun, now)
-	if events[2].JobRun == nil || events[2].JobRun.Job != "billing.settle" {
-		t.Fatalf("job_run payload = %+v, want billing.settle", events[2].JobRun)
+	if events[2].Payload.JobRun == nil || events[2].Payload.JobRun.Job != "billing.settle" {
+		t.Fatalf("job_run payload = %+v, want billing.settle", events[2].Payload.JobRun)
 	}
 	traceSinkAssertEvent(t, events[3], TraceEventWebhookRun, now)
-	if events[3].WebhookRun == nil || events[3].WebhookRun.Webhook != "stripe.invoice" {
-		t.Fatalf("webhook_run payload = %+v, want stripe.invoice", events[3].WebhookRun)
+	if events[3].Payload.WebhookRun == nil || events[3].Payload.WebhookRun.Webhook != "stripe.invoice" {
+		t.Fatalf("webhook_run payload = %+v, want stripe.invoice", events[3].Payload.WebhookRun)
 	}
 	if got := sink.Dropped(); got != 0 {
 		t.Fatalf("Dropped() = %d, want 0", got)
@@ -98,8 +98,8 @@ func TestMemoryTraceSinkDropsWhenFull(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("Events() len = %d, want 1", len(events))
 	}
-	if events[0].CommandRun.Command != "customer.create" {
-		t.Fatalf("stored command = %q, want customer.create", events[0].CommandRun.Command)
+	if events[0].Payload.CommandRun.Command != "customer.create" {
+		t.Fatalf("stored command = %q, want customer.create", events[0].Payload.CommandRun.Command)
 	}
 	if got := sink.Dropped(); got != 1 {
 		t.Fatalf("Dropped() = %d, want 1", got)
@@ -156,24 +156,24 @@ func TestMemoryTraceSinkReturnsDefensiveCopies(t *testing.T) {
 		t.Fatal("TryEmit = false, want true")
 	}
 	payload.Tools[0].Name = "mutated-original"
-	event.AgentRun.Agent = "mutated-event"
-	event.AgentRun.Tools[0].Name = "mutated-event-tool"
+	event.Payload.AgentRun.Agent = "mutated-event"
+	event.Payload.AgentRun.Tools[0].Name = "mutated-event-tool"
 
 	events := sink.Events()
-	if got := events[0].AgentRun.Agent; got != "support.triage" {
+	if got := events[0].Payload.AgentRun.Agent; got != "support.triage" {
 		t.Fatalf("stored Agent = %q, want support.triage", got)
 	}
-	if got := events[0].AgentRun.Tools[0].Name; got != "crm.lookup" {
+	if got := events[0].Payload.AgentRun.Tools[0].Name; got != "crm.lookup" {
 		t.Fatalf("stored tool = %q, want crm.lookup", got)
 	}
 
-	events[0].AgentRun.Agent = "mutated-snapshot"
-	events[0].AgentRun.Tools[0].Name = "mutated-snapshot-tool"
+	events[0].Payload.AgentRun.Agent = "mutated-snapshot"
+	events[0].Payload.AgentRun.Tools[0].Name = "mutated-snapshot-tool"
 	again := sink.Events()
-	if got := again[0].AgentRun.Agent; got != "support.triage" {
+	if got := again[0].Payload.AgentRun.Agent; got != "support.triage" {
 		t.Fatalf("stored Agent after snapshot mutation = %q, want support.triage", got)
 	}
-	if got := again[0].AgentRun.Tools[0].Name; got != "crm.lookup" {
+	if got := again[0].Payload.AgentRun.Tools[0].Name; got != "crm.lookup" {
 		t.Fatalf("stored tool after snapshot mutation = %q, want crm.lookup", got)
 	}
 }

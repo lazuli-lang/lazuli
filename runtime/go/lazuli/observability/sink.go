@@ -9,38 +9,6 @@ import (
 
 const defaultMemoryTraceSinkCapacity = 1024
 
-// TraceEventName is one of the runtime-reserved built-in trace event names.
-//
-// EXPERIMENTAL: subject to change before 1.0
-type TraceEventName string
-
-const (
-	// TraceEventAgentRun is emitted once per agent dispatch.
-	TraceEventAgentRun TraceEventName = "agent_run"
-	// TraceEventCommandRun is emitted once per command dispatch.
-	TraceEventCommandRun TraceEventName = "command_run"
-	// TraceEventJobRun is emitted once per job invocation.
-	TraceEventJobRun TraceEventName = "job_run"
-	// TraceEventWebhookRun is emitted once per inbound webhook delivery.
-	TraceEventWebhookRun TraceEventName = "webhook_run"
-)
-
-// TraceEvent is the runtime envelope for one built-in trace event.
-//
-// Exactly one payload pointer should be populated and Name should match it.
-// Constructors below produce that shape for the four reserved trace events.
-//
-// EXPERIMENTAL: subject to change before 1.0
-type TraceEvent struct {
-	Name       TraceEventName
-	RecordedAt time.Time
-
-	AgentRun   *AgentRunPayload
-	CommandRun *CommandRunPayload
-	JobRun     *JobRunPayload
-	WebhookRun *WebhookRunPayload
-}
-
 // TraceSink accepts trace events without blocking the caller's hot path.
 //
 // EXPERIMENTAL: subject to change before 1.0
@@ -50,47 +18,6 @@ type TraceSink interface {
 	TryEmit(ctx context.Context, event TraceEvent) bool
 	// Dropped returns the number of events this sink declined to accept.
 	Dropped() uint64
-}
-
-// NewAgentRunTraceEvent returns an agent_run trace event envelope.
-//
-// EXPERIMENTAL: subject to change before 1.0
-func NewAgentRunTraceEvent(payload AgentRunPayload) TraceEvent {
-	payload = cloneAgentRunPayload(payload)
-	return TraceEvent{
-		Name:     TraceEventAgentRun,
-		AgentRun: &payload,
-	}
-}
-
-// NewCommandRunTraceEvent returns a command_run trace event envelope.
-//
-// EXPERIMENTAL: subject to change before 1.0
-func NewCommandRunTraceEvent(payload CommandRunPayload) TraceEvent {
-	return TraceEvent{
-		Name:       TraceEventCommandRun,
-		CommandRun: &payload,
-	}
-}
-
-// NewJobRunTraceEvent returns a job_run trace event envelope.
-//
-// EXPERIMENTAL: subject to change before 1.0
-func NewJobRunTraceEvent(payload JobRunPayload) TraceEvent {
-	return TraceEvent{
-		Name:   TraceEventJobRun,
-		JobRun: &payload,
-	}
-}
-
-// NewWebhookRunTraceEvent returns a webhook_run trace event envelope.
-//
-// EXPERIMENTAL: subject to change before 1.0
-func NewWebhookRunTraceEvent(payload WebhookRunPayload) TraceEvent {
-	return TraceEvent{
-		Name:       TraceEventWebhookRun,
-		WebhookRun: &payload,
-	}
 }
 
 // MemoryTraceSink is a bounded in-memory TraceSink safe for concurrent use.
@@ -205,31 +132,5 @@ func traceSinkContextDone(ctx context.Context) bool {
 }
 
 func cloneTraceEvent(event TraceEvent) TraceEvent {
-	if event.AgentRun != nil {
-		payload := cloneAgentRunPayload(*event.AgentRun)
-		event.AgentRun = &payload
-	}
-	if event.CommandRun != nil {
-		payload := *event.CommandRun
-		event.CommandRun = &payload
-	}
-	if event.JobRun != nil {
-		payload := *event.JobRun
-		event.JobRun = &payload
-	}
-	if event.WebhookRun != nil {
-		payload := *event.WebhookRun
-		event.WebhookRun = &payload
-	}
-	return event
-}
-
-func cloneAgentRunPayload(payload AgentRunPayload) AgentRunPayload {
-	if payload.Tools == nil {
-		return payload
-	}
-	tools := make([]ToolCall, len(payload.Tools))
-	copy(tools, payload.Tools)
-	payload.Tools = tools
-	return payload
+	return traceRingCloneEvent(event)
 }
