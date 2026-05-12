@@ -6,7 +6,8 @@
 //!   every feature package so each feature's `init()` registers its
 //!   resources/commands/queries with the Lazuli Go runtime registry.
 //!   Calls `lazuli.Boot(ctx, dbURL)` with the same shape the spike
-//!   already proves in `dist/go/main.go`.
+//!   already proves in `dist/go/main.go`, then gives the runtime a
+//!   single registry-driven mount point before serving HTTP.
 //! - `lazuli_app.gen.go` — App-level contract values. Lowers
 //!   `module.app: Option<AppManifest>` into per-bucket contract
 //!   declarations using the contract types the Lazuli Go lib already
@@ -39,7 +40,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::{AppLogging, AppLocale, AppTracing, Module};
+use lazuli_ir::{AppLocale, AppLogging, AppTracing, Module};
 
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
@@ -79,11 +80,12 @@ pub fn emit_main_go(module: &Module, module_name: &str, source_label: &str) -> S
     p.blank();
 
     // Boot block — the Lazuli Go lib's current `Boot(ctx, dbURL)`
-    // signature (see `runtime/go/lazuli/handle.go:523`). When the
-    // runtime team grows the `lazuli.AppContract` umbrella the call
-    // changes to `Boot(ctx, lazuliApp)`; until then we read the DB URL
-    // from `LAZULI_DB` and fall back to a local Postgres default to
-    // keep the smoke-test workflow ergonomic.
+    // signature opens shared runtime state, but does not itself mount
+    // the HTTP registry. When the runtime team grows the
+    // `lazuli.AppContract` umbrella the call changes to
+    // `Boot(ctx, lazuliApp)`; until then we read the DB URL from
+    // `LAZULI_DB` and fall back to a local Postgres default to keep the
+    // smoke-test workflow ergonomic.
     p.line("func main() {");
     p.indent();
     p.line("ctx := context.Background()");
@@ -111,6 +113,12 @@ pub fn emit_main_go(module: &Module, module_name: &str, source_label: &str) -> S
     p.dedent();
     p.line(")");
     p.blank();
+    p.line("// Feature packages are imported above for init-time registry registration.");
+    p.line("// MountAll walks that registry and attaches API, command, and agent HTTP");
+    p.line("// handlers before the process starts accepting requests.");
+    p.line("mux := lazuli.Mux()");
+    p.line("lazuli.MountAll(mux)");
+    p.blank();
     p.line("addr := os.Getenv(\"LAZULI_ADDR\")");
     p.line("if addr == \"\" {");
     p.indent();
@@ -118,7 +126,7 @@ pub fn emit_main_go(module: &Module, module_name: &str, source_label: &str) -> S
     p.dedent();
     p.line("}");
     p.line("slog.Info(\"lazuli http listening\", \"addr\", addr)");
-    p.line("if err := http.ListenAndServe(addr, lazuli.Mux()); err != nil {");
+    p.line("if err := http.ListenAndServe(addr, mux); err != nil {");
     p.indent();
     p.line("slog.Error(\"lazuli http server exited\", \"error\", err)");
     p.line("os.Exit(1)");
@@ -279,10 +287,7 @@ fn emit_locale_contract(p: &mut GoPrinter, locale: &AppLocale) {
         p.line("Fallbacks: []i18n.Fallback{");
         p.indent();
         for fb in &locale.fallbacks {
-            p.line(&format!(
-                "{{From: {:?}, To: {:?}}},",
-                fb.from, fb.to
-            ));
+            p.line(&format!("{{From: {:?}, To: {:?}}},", fb.from, fb.to));
         }
         p.dedent();
         p.line("},");
@@ -319,10 +324,7 @@ fn emit_logging_contract(p: &mut GoPrinter, logging: &AppLogging) {
         ));
     }
     if let Some(rate) = logging.sample_rate {
-        rows.push((
-            "SampleRate:".to_owned(),
-            format!("{},", format_f64(rate)),
-        ));
+        rows.push(("SampleRate:".to_owned(), format!("{},", format_f64(rate))));
     }
     emit_aligned_struct_value_rows(p, &rows);
     p.dedent();
@@ -340,10 +342,7 @@ fn emit_tracing_contract(p: &mut GoPrinter, tracing: &AppTracing) {
         rows.push(("Propagate:".to_owned(), format!("{},", propagate)));
     }
     if let Some(rate) = tracing.sample_rate {
-        rows.push((
-            "SampleRate:".to_owned(),
-            format!("{},", format_f64(rate)),
-        ));
+        rows.push(("SampleRate:".to_owned(), format!("{},", format_f64(rate))));
     }
     if let Some(exporter) = tracing.exporter.as_deref() {
         // Adapter refs (`@adapter.otlp`) are emitted verbatim — the
@@ -520,17 +519,34 @@ mod tests {
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("func main() {"));
         assert!(out.contains("lazuli.Boot(ctx, dbURL)"));
+        assert!(out.contains("mux := lazuli.Mux()"));
+        assert!(out.contains("lazuli.MountAll(mux)"));
+        assert!(out.contains("http.ListenAndServe(addr, mux)"));
+        assert!(!out.contains("http.ListenAndServe(addr, lazuli.Mux())"));
         // No feature side-effect imports when the module has no features.
         assert!(!out.contains("_ \"lazuli/"));
     }
 
     #[test]
+    fn main_go_documents_registry_driven_http_mounting() {
+        let module = module_with(vec![empty_feature("customer")], Some(manifest("test_app")));
+        let out = emit_main_go(&module, "lazuli/test-app", "test_app");
+
+        assert!(out.contains(
+            "// Feature packages are imported above for init-time registry registration."
+        ));
+        assert!(
+            out.contains(
+                "// MountAll walks that registry and attaches API, command, and agent HTTP"
+            )
+        );
+        assert!(out.contains("// handlers before the process starts accepting requests."));
+    }
+
+    #[test]
     fn main_go_two_features_emits_sorted_side_effect_imports() {
         let module = module_with(
-            vec![
-                empty_feature("zebra"),
-                empty_feature("alpha"),
-            ],
+            vec![empty_feature("zebra"), empty_feature("alpha")],
             Some(manifest("test_app")),
         );
         let out = emit_main_go(&module, "lazuli/test-app", "test_app");
