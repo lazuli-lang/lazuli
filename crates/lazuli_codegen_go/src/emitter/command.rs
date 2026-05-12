@@ -8,10 +8,8 @@
 //!   spike at `dist/go/customer/customer.gen.go:48-122`).
 //! - §4.1 — Tier 4 slots (`Command.approval`, `Command.external_calls`,
 //!   `Command.timeout`, `Command.retry`, `Command.idempotency`,
-//!   `Command.deprecated`) are gaps on the Lazuli Go lib side and
-//!   surface as comment-only `// TODO(...)` lines until the runtime
-//!   team adds the matching fields to `Command[I, O]`. Codegen does
-//!   not touch `runtime/go/lazuli/**`.
+//!   `Command.deprecated`) lower to the Lazuli Go lib backfill on
+//!   `Command[I, O]`.
 //! - §11 — boundary discipline: every `lazuli.*` reference flows
 //!   through `types::go_type_for` so `imports::ImportSet` records
 //!   `lazuli.dev/runtime/lazuli` once for the whole file.
@@ -47,8 +45,10 @@
 //! intact even when IR reordering happens elsewhere.
 
 use lazuli_ir::{
-    Assignment, Command, CommandEffect, CommandInput, CreateEffect, DeleteEffect, Expr,
-    Feature, InvalidatesSpec, PolicyRef, QualifiedName, ReturnsEffect, TypedSlot, UpdateEffect,
+    ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
+    CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
+    Feature, IdempotencyKey, InvalidatesSpec, NamedArg, Path, PolicyRef, QualifiedName,
+    RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -121,12 +121,7 @@ pub fn emit_command_file(
 
 /// Walk a single `Command` — optional Input struct, then the
 /// `lazuli.Command[I, O]` value.
-fn emit_command(
-    p: &mut GoPrinter,
-    feature: &Feature,
-    command: &Command,
-    ctx: &TypeCtx<'_>,
-) {
+fn emit_command(p: &mut GoPrinter, feature: &Feature, command: &Command, ctx: &TypeCtx<'_>) {
     let resource_pascal = effect_resource_pascal(&command.effect);
     let qualified_name = format!("{}.{}", feature.name, command.name);
 
@@ -200,6 +195,9 @@ fn emit_command(
         // subjects round-trip through the audit-default behaviour.
         kv_rows.push(("Audit:".to_owned(), "lazuli.AuditDefault,".to_owned()));
     }
+    if let Some(approval) = &command.approval {
+        kv_rows.push(("Approval:".to_owned(), format_approval(approval)));
+    }
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
         let pad = key_width.saturating_sub(key.len());
@@ -220,21 +218,17 @@ fn emit_command(
         emit_invalidates(p, &command.invalidates);
     }
 
-    // Tier 4 gap surface (proposal §4.1) — emit comments only; do not
-    // synthesise struct fields the Lazuli Go lib doesn't have.
-    emit_tier4_gaps(p, command);
+    // Tier 4 operational/lifecycle fields. Approval is emitted in the
+    // aligned key block above so it stays next to Audit in runtime
+    // field order.
+    emit_tier4_fields(p, feature, command);
 
     p.dedent();
     p.line("}");
 }
 
 /// Emit the `type <Name>Input struct` block for a typed input list.
-fn emit_input_struct(
-    p: &mut GoPrinter,
-    name: &str,
-    slots: &[TypedSlot],
-    ctx: &TypeCtx<'_>,
-) {
+fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &TypeCtx<'_>) {
     p.line(&format!("type {name} struct {{"));
     p.indent();
     let mut rows: Vec<(String, String, String)> = Vec::with_capacity(slots.len());
@@ -297,7 +291,9 @@ fn emit_creates_effect(p: &mut GoPrinter, create: &CreateEffect) {
         p.line(&format!(
             "Effect: lazuli.Creates(&{resource_var}, lazuli.Bindings{{}}),"
         ));
-        p.line("// TODO(from-input): `creates X from input` — expand bindings from typed input slots.");
+        p.line(
+            "// TODO(from-input): `creates X from input` — expand bindings from typed input slots.",
+        );
         return;
     }
     p.line(&format!(
@@ -316,9 +312,7 @@ fn emit_updates_effect(p: &mut GoPrinter, update: &UpdateEffect) {
     // Lazuli Go lib `Updates` takes (resource, where, bind). For E3 we
     // assume the implicit `id` route slot drives WHERE; if the IR ever
     // grows a structured `target_by` axis we lift it here.
-    p.line(&format!(
-        "Effect: lazuli.Updates(&{resource_var},"
-    ));
+    p.line(&format!("Effect: lazuli.Updates(&{resource_var},"));
     p.indent();
     p.line("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},");
     p.line("lazuli.Bindings{");
@@ -446,36 +440,171 @@ fn emit_invalidates(p: &mut GoPrinter, specs: &[InvalidatesSpec]) {
         };
         entries.push(format!("\"{}\"", qualified));
     }
+    p.line(&format!("Invalidates: []string{{{}}},", entries.join(", ")));
+}
+
+fn format_approval(approval: &ApprovalSpec) -> String {
+    format!(
+        "&lazuli.ApprovalSpec{{Then: \"{}\", By: \"{}\", Reason: \"{}\"}},",
+        approval_then_literal(approval.then),
+        escape_string(&approval.by),
+        escape_string(approval.required_when.as_deref().unwrap_or(""))
+    )
+}
+
+fn emit_tier4_fields(p: &mut GoPrinter, feature: &Feature, command: &Command) {
+    if !command.external_calls.is_empty() {
+        emit_external_calls(p, &command.external_calls);
+    }
+    if let Some(timeout) = &command.timeout {
+        p.line(&format!("Timeout: \"{}\",", escape_string(timeout)));
+    }
+    if let Some(retry) = &command.retry {
+        emit_retry(p, retry);
+    }
+    if let Some(idempotency) = &command.idempotency {
+        emit_idempotency(p, idempotency);
+    }
+    if let Some(deprecation) = &command.deprecated {
+        emit_deprecation(p, &feature.name, deprecation);
+    }
+}
+
+fn emit_external_calls(p: &mut GoPrinter, calls: &[ExternalCallRef]) {
+    let mut sorted: Vec<&ExternalCallRef> = calls.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.slot
+            .cmp(&b.slot)
+            .then_with(|| a.op.cmp(&b.op))
+            .then_with(|| format_args_key(&a.args).cmp(&format_args_key(&b.args)))
+    });
+
+    p.line("ExternalCalls: []lazuli.ExternalCallRef{");
+    p.indent();
+    for call in sorted {
+        if call.args.is_empty() {
+            p.line(&format!(
+                "{{Slot: \"{}\", Operation: \"{}\"}},",
+                escape_string(&call.slot),
+                escape_string(&call.op)
+            ));
+            continue;
+        }
+
+        let args = sorted_arg_strings(&call.args)
+            .into_iter()
+            .map(|arg| format!("\"{}\"", escape_string(&arg)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        p.line(&format!(
+            "{{Slot: \"{}\", Operation: \"{}\", Args: []string{{{}}}}},",
+            escape_string(&call.slot),
+            escape_string(&call.op),
+            args
+        ));
+    }
+    p.dedent();
+    p.line("},");
+}
+
+fn emit_retry(p: &mut GoPrinter, retry: &RetryPolicy) {
     p.line(&format!(
-        "Invalidates: []string{{{}}},",
-        entries.join(", ")
+        "Retry: &lazuli.RetryPolicy{{Count: {}, Backoff: {}}},",
+        retry.count,
+        backoff_literal(retry.backoff)
     ));
 }
 
-/// Emit comment-only TODOs for Tier 4 slots that are present in the IR
-/// but missing on the Lazuli Go lib's `Command[I, O]` value. The
-/// runtime team owns the additions (proposal §4.1); codegen surfaces
-/// the gap rather than dropping the captured intent.
-fn emit_tier4_gaps(p: &mut GoPrinter, command: &Command) {
-    if command.approval.is_some() {
-        p.line("// TODO(approval): Command.approval not yet in Lazuli Go lib (proposal §4.1).");
+fn emit_idempotency(p: &mut GoPrinter, idempotency: &IdempotencyKey) {
+    p.line(&format!(
+        "Idempotency: &lazuli.IdempotencyKey{{Path: \"{}\"}},",
+        escape_string(&format_path(&idempotency.by))
+    ));
+}
+
+fn emit_deprecation(p: &mut GoPrinter, feature: &str, deprecation: &Deprecation) {
+    p.line(&format!(
+        "Deprecation: &lazuli.Deprecation{{Since: \"{}\", Replacement: \"{}\", Sunset: \"{}\"}},",
+        escape_string(deprecation.since.as_deref().unwrap_or("")),
+        escape_string(&format_deprecation_replacement(
+            feature,
+            deprecation.replacement.as_ref()
+        )),
+        escape_string(deprecation.sunset.as_deref().unwrap_or(""))
+    ));
+}
+
+fn approval_then_literal(then: ApprovalThen) -> &'static str {
+    match then {
+        ApprovalThen::Deny => "deny",
+        ApprovalThen::Allow => "allow",
+        ApprovalThen::Escalate => "escalate",
     }
-    if !command.external_calls.is_empty() {
-        p.line(
-            "// TODO(external-calls): Command.external_calls not yet in Lazuli Go lib (proposal §4.1).",
-        );
+}
+
+fn backoff_literal(backoff: BackoffStrategy) -> &'static str {
+    match backoff {
+        BackoffStrategy::Fixed => "\"fixed\"",
+        BackoffStrategy::Exponential => "\"exponential\"",
     }
-    if command.timeout.is_some() {
-        p.line("// TODO(timeout): Command.timeout not yet in Lazuli Go lib (proposal §4.1).");
+}
+
+fn format_deprecation_replacement(
+    feature: &str,
+    replacement: Option<&DeprecationReplacement>,
+) -> String {
+    match replacement {
+        Some(DeprecationReplacement::LocalCommand(name)) => {
+            format!("{feature}.command.{name}")
+        }
+        Some(DeprecationReplacement::Qualified(qname)) => format!(
+            "{}.command.{}",
+            qname.feature.as_deref().unwrap_or(feature),
+            qname.name
+        ),
+        Some(DeprecationReplacement::Url(url)) => url.clone(),
+        None => String::new(),
     }
-    if command.retry.is_some() {
-        p.line("// TODO(retry): Command.retry not yet in Lazuli Go lib (proposal §4.1).");
+}
+
+fn format_path(path: &Path) -> String {
+    path.segments.join(".")
+}
+
+fn format_args_key(args: &[NamedArg]) -> String {
+    sorted_arg_strings(args).join("\u{1f}")
+}
+
+fn sorted_arg_strings(args: &[NamedArg]) -> Vec<String> {
+    let mut out: Vec<String> = args
+        .iter()
+        .map(|arg| format!("{}={}", arg.name, format_expr(&arg.value)))
+        .collect();
+    out.sort();
+    out
+}
+
+fn format_expr(expr: &Expr) -> String {
+    match expr {
+        Expr::Path(path) => format_path(path),
+        Expr::String(value) => format!("\"{}\"", escape_string(value)),
+        Expr::Integer(value) => value.to_string(),
+        Expr::Boolean(value) => value.to_string(),
+        Expr::Enum(literal) => match &literal.type_name {
+            Some(qname) => format!("{}.{}", format_qname(None, qname), literal.variant),
+            None => literal.variant.clone(),
+        },
+        Expr::Nil => "nil".to_owned(),
     }
-    if command.idempotency.is_some() {
-        p.line("// TODO(idempotency): Command.idempotency not yet in Lazuli Go lib (proposal §4.1).");
+}
+
+fn format_qname(default_feature: Option<&str>, qname: &QualifiedName) -> String {
+    if qname.name.contains('.') && qname.feature.is_none() {
+        return qname.name.clone();
     }
-    if command.deprecated.is_some() {
-        p.line("// TODO(deprecated): Command.deprecated not yet in Lazuli Go lib (proposal §4.1).");
+    match qname.feature.as_deref().or(default_feature) {
+        Some(feature) => format!("{feature}.{}", qname.name),
+        None => qname.name.clone(),
     }
 }
 
@@ -583,13 +712,10 @@ fn format_policy(policy: &PolicyRef) -> String {
                 "lazuli.Policy{{Name: \"@{stripped}\", Atoms: []lazuli.PolicyAtom{{{{Namespace: \"{ns}\", Name: \"{nm}\"}}}}}},"
             )
         }
-        PolicyRef::External { feature, name } => format!(
-            "lazuli.Policy{{Name: \"{feature}.policy.{name}\"}},"
-        ),
-        PolicyRef::Unresolved(raw) => format!(
-            "lazuli.Policy{{Name: \"{}\"}},",
-            escape_string(raw)
-        ),
+        PolicyRef::External { feature, name } => {
+            format!("lazuli.Policy{{Name: \"{feature}.policy.{name}\"}},")
+        }
+        PolicyRef::Unresolved(raw) => format!("lazuli.Policy{{Name: \"{}\"}},", escape_string(raw)),
         PolicyRef::None => "lazuli.Policy{},".to_owned(),
     }
 }
@@ -710,9 +836,10 @@ fn _returns_effect_compiles(_: ReturnsEffect) {}
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, BuiltinType, CommandKind, CreateEffect, Defaults, DeleteEffect, EnumLiteral,
-        Feature, Module, NamedArg, Path, Policies, QualifiedName, Record, Resource, RouteSlot,
-        Tenancy, TypeRef, UpdateEffect,
+        AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
+        DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, IdempotencyKey, Module,
+        NamedArg, Path, Policies, QualifiedName, Record, Resource, RetryPolicy, RouteSlot, Tenancy,
+        TypeRef, UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -899,9 +1026,7 @@ mod tests {
         assert!(out.contains("package customer"));
         // No Input struct on the empty-input branch.
         assert!(!out.contains("ArchiveCustomerInput"));
-        assert!(out.contains(
-            "var archiveCustomer = lazuli.Command[struct{}, Customer]{"
-        ));
+        assert!(out.contains("var archiveCustomer = lazuli.Command[struct{}, Customer]{"));
     }
 
     #[test]
@@ -937,9 +1062,7 @@ mod tests {
         assert!(out.contains("`json:\"email\"`"));
         assert!(out.contains("Email lazuli.Email"));
         // Command value shape.
-        assert!(out.contains(
-            "var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"
-        ));
+        assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
         assert!(out.contains("Name:      \"customer.create\","));
         assert!(out.contains("Resource:  &customerResource,"));
         assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
@@ -960,11 +1083,7 @@ mod tests {
             type_ref: TypeRef::Builtin(BuiltinType::Id),
             from: None,
         }];
-        cmd.input = CommandInput::Typed(vec![typed_slot(
-            "tier",
-            BuiltinType::Text,
-            true,
-        )]);
+        cmd.input = CommandInput::Typed(vec![typed_slot("tier", BuiltinType::Text, true)]);
         cmd.policy = PolicyRef::Local("update".to_owned());
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Customer"),
@@ -976,7 +1095,9 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("var updateCustomerTier = lazuli.Command[UpdateCustomerTierInput, Customer]{"));
+        assert!(out.contains(
+            "var updateCustomerTier = lazuli.Command[UpdateCustomerTierInput, Customer]{"
+        ));
         assert!(out.contains("Effect: lazuli.Updates(&customerResource,"));
         assert!(out.contains("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},"));
         assert!(out.contains("\"tier\": lazuli.FromInput(\"tier\"),"));
@@ -998,7 +1119,9 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{"));
+        assert!(
+            out.contains("var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{")
+        );
         assert!(out.contains("Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{"));
         assert!(out.contains("\"id\": lazuli.FromInput(\"ID\"),"));
     }
@@ -1055,16 +1178,11 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains(
-            "Invalidates: []string{\"query.list\", \"billing.query.ledger\"},"
-        ));
+        assert!(out.contains("Invalidates: []string{\"query.list\", \"billing.query.ledger\"},"));
     }
 
     #[test]
-    fn tier4_gaps_emit_todo_comments_not_struct_fields() {
-        // Approval, external_calls, timeout, retry, idempotency, and
-        // deprecated all land as comments (proposal §4.1 — Lazuli Go
-        // lib doesn't have these slots on `Command[I, O]` yet).
+    fn tier4_fields_emit_runtime_struct_fields() {
         let mut feature = base_feature("customer");
         let mut cmd = base_command("reassign");
         cmd.effect = CommandEffect::Updates(UpdateEffect {
@@ -1084,18 +1202,55 @@ mod tests {
             span_ref: None,
         }];
         cmd.timeout = Some("30s".to_owned());
+        cmd.retry = Some(RetryPolicy {
+            count: 3,
+            backoff: BackoffStrategy::Exponential,
+        });
+        cmd.idempotency = Some(IdempotencyKey {
+            by: Path::from_segments(["input", "external_id"]),
+        });
+        cmd.deprecated = Some(lazuli_ir::Deprecation {
+            since: Some("2026.04".to_owned()),
+            replacement: Some(DeprecationReplacement::LocalCommand(
+                "reassign_v2".to_owned(),
+            )),
+            sunset: Some("2026-12-31".to_owned()),
+        });
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("// TODO(approval): Command.approval"));
-        assert!(out.contains("// TODO(external-calls): Command.external_calls"));
-        assert!(out.contains("// TODO(timeout): Command.timeout"));
-        // No corresponding struct fields land in the value (Lazuli Go
-        // lib `Command[I,O]` has no Approval/ExternalCalls/Timeout
-        // slots today).
+        assert!(out.contains(
+            "Approval: &lazuli.ApprovalSpec{Then: \"deny\", By: \"@role.admin\", Reason: \"target.tier = enterprise\"},"
+        ));
+        assert!(out.contains("ExternalCalls: []lazuli.ExternalCallRef{"));
+        assert!(out.contains("{Slot: \"audit\", Operation: \"log\"},"));
+        assert!(out.contains("Timeout: \"30s\","));
+        assert!(out.contains("Retry: &lazuli.RetryPolicy{Count: 3, Backoff: \"exponential\"},"));
+        assert!(out.contains("Idempotency: &lazuli.IdempotencyKey{Path: \"input.external_id\"},"));
+        assert!(out.contains(
+            "Deprecation: &lazuli.Deprecation{Since: \"2026.04\", Replacement: \"customer.command.reassign_v2\", Sunset: \"2026-12-31\"},"
+        ));
+        assert!(!out.contains("TODO("));
+    }
+
+    #[test]
+    fn tier4_fields_omit_absent_slots() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
         assert!(!out.contains("Approval:"));
         assert!(!out.contains("ExternalCalls:"));
         assert!(!out.contains("Timeout:"));
+        assert!(!out.contains("Retry:"));
+        assert!(!out.contains("Idempotency:"));
+        assert!(!out.contains("Deprecation:"));
     }
 
     #[test]
@@ -1151,8 +1306,8 @@ mod tests {
 
         let module = module_with_features(vec![customer.clone(), org]);
         let index = CrossFeatureIndex::build(&module);
-        let out =
-            emit_command_file("examples/x.lzi", &customer, "lazuli/test", &index).expect("must emit");
+        let out = emit_command_file("examples/x.lzi", &customer, "lazuli/test", &index)
+            .expect("must emit");
 
         assert!(out.contains("Owner org.User"));
         assert!(out.contains("\"lazuli/test/org\""));
