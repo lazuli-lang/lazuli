@@ -246,8 +246,9 @@ fn emit_resource(
     p.blank();
 
     // Resource[T] value. Keys are column-aligned so the value literal
-    // reads as a stable table; `SoftDelete` is the longest key in the
-    // closed catalog so we pad to its width.
+    // reads as a stable table. Include `Retention` in the width pass
+    // when present so the runtime lifecycle metadata sits in the same
+    // contract table as Name / Feature / Tenancy / SoftDelete.
     p.line(&format!(
         "var {var_name} = lazuli.Resource[{pascal}]{{"
     ));
@@ -261,13 +262,25 @@ fn emit_resource(
     if resource.soft_delete {
         kv_rows.push(("SoftDelete:".to_owned(), "true,".to_owned()));
     }
-    let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    let retention_key = resource.retention.as_ref().map(|_| "Retention:");
+    let key_width = kv_rows
+        .iter()
+        .map(|(k, _)| k.len())
+        .chain(retention_key.map(str::len))
+        .max()
+        .unwrap_or(0);
     for (key, value) in &kv_rows {
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
     if let Some(retention) = &resource.retention {
-        p.line("Retention: &lazuli.RetentionSpec{");
+        let key = "Retention:";
+        let pad = key_width.saturating_sub(key.len());
+        p.line(&format!(
+            "{}{} &lazuli.RetentionSpec{{",
+            key,
+            " ".repeat(pad)
+        ));
         p.indent();
         p.line(&format!(
             "Window: lazuli.Duration(\"{}\"),",
@@ -856,6 +869,44 @@ mod tests {
         assert!(out.contains("Retention: &lazuli.RetentionSpec{"));
         assert!(out.contains("Window: lazuli.Duration(\"7y\"),"));
         assert!(out.contains("Then:   lazuli.Anonymize,"));
+    }
+
+    #[test]
+    fn retention_metadata_aligns_with_soft_delete_contract_key() {
+        let mut feature = base_feature("customer");
+        let mut resource = simple_resource(
+            "customer",
+            vec![simple_field("name", BuiltinType::Text, true)],
+        );
+        resource.soft_delete = true;
+        resource.retention = Some(RetentionSpec {
+            duration: "30d".to_owned(),
+            action: RetentionAction::Delete,
+        });
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("SoftDelete: true,"));
+        assert!(out.contains("Retention:  &lazuli.RetentionSpec{"));
+        assert!(out.contains("Window: lazuli.Duration(\"30d\"),"));
+        assert!(out.contains("Then:   lazuli.Delete,"));
+    }
+
+    #[test]
+    fn retention_spec_lifts_archive_action() {
+        let mut feature = base_feature("customer");
+        let mut resource = simple_resource(
+            "customer",
+            vec![simple_field("name", BuiltinType::Text, true)],
+        );
+        resource.retention = Some(RetentionSpec {
+            duration: "90d".to_owned(),
+            action: RetentionAction::Archive,
+        });
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("Retention: &lazuli.RetentionSpec{"));
+        assert!(out.contains("Window: lazuli.Duration(\"90d\"),"));
+        assert!(out.contains("Then:   lazuli.Archive,"));
     }
 
     #[test]
