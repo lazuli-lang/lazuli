@@ -20,6 +20,7 @@
 //! Plan reference: `docs/proposals/ai-primitives-v0-implementation.md`
 //! §9.1. Runtime team: `docs/runtime-handoff.md`.
 
+pub mod emitter;
 pub mod runtime;
 
 pub use runtime::emit_feature_go;
@@ -67,13 +68,13 @@ impl Default for GoEmitOptions {
     }
 }
 
-/// Entry point for the new Lazuli Go emitter (proposal §2.3). For the
-/// I1 cell this is a thin shell that wires the CLI through; the
-/// emitter scaffold (`printer`, `imports`, `types`, `module`) lands
-/// in cell E1 and the per-kind walkers in E2-E4 + G1-G7. Returning an
-/// empty `Vec` keeps `cargo test` green until E1 fills it in.
-pub fn generate_v1(_module: &Module, _options: &GoEmitOptions) -> Vec<GeneratedFile> {
-    Vec::new()
+/// Entry point for the new Lazuli Go emitter (proposal §2.3). Cell
+/// E1 wires the scaffold (`printer`, `imports`, `types`, `module`);
+/// per-kind walkers (E2-E4 + G1-G7) extend `emitter::module`
+/// downstream. Output: root `go.mod` plus one `.gen.go` stub per
+/// feature.
+pub fn generate_v1(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFile> {
+    emitter::emit_module(module, options)
 }
 
 /// Legacy Phase J / spike emitter. Produces the hard-coded
@@ -352,13 +353,17 @@ mod tests {
     }
 
     #[test]
-    fn generate_v1_stub_returns_empty_until_e1() {
-        // The I1 cell wires the CLI verb only; the emitter scaffold
-        // ships in cell E1. Until then this entry point is a stub.
+    fn generate_v1_emits_go_mod_plus_feature_stubs() {
+        // E1 lands the scaffold: root `go.mod` plus one `.gen.go`
+        // stub per feature. Per-kind content is empty until E2-E4.
         let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
         let module = lower_document(&document).unwrap();
         let files = generate_v1(&module, &GoEmitOptions::default());
-        assert!(files.is_empty());
+        assert!(files.iter().any(|f| f.path == "go.mod"));
+        assert!(
+            !files.is_empty(),
+            "expected at least the root go.mod plus per-feature stubs"
+        );
     }
 
     #[test]
