@@ -27,7 +27,11 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 					"path", r.URL.Path,
 					"stack", string(debug.Stack()),
 				)
-				http.Error(w, "internal server error", http.StatusInternalServerError)
+				WriteProblem(w, ProblemFromError(&Error{
+					Status:  http.StatusInternalServerError,
+					Code:    CodeInternal,
+					Message: "internal server error",
+				}))
 			}
 		}()
 

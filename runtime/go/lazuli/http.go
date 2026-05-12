@@ -2,7 +2,6 @@ package lazuli
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -149,25 +148,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-// writeError encodes a runtime error envelope. Non-Lazuli errors map to 500.
+// writeError encodes a runtime error as problem details. Non-Lazuli errors map
+// to 500.
 func writeError(w http.ResponseWriter, err error) {
-	var le *Error
-	if errors.As(err, &le) {
-		status := le.Status
-		if status == 0 {
-			status = http.StatusInternalServerError
-		}
-		writeJSON(w, status, map[string]any{
-			"code":    le.Code,
-			"message": le.Message,
-			"data":    le.Data,
-		})
-		return
-	}
-	writeJSON(w, http.StatusInternalServerError, map[string]any{
-		"code":    CodeInternal,
-		"message": err.Error(),
-	})
+	WriteProblem(w, ProblemFromError(err))
 }
 
 // loggingMiddleware logs every request with method, path, status, duration.

@@ -29,8 +29,18 @@ func TestRecoverMiddlewareRecoversPanicAndReturns500(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
-	if got := strings.TrimSpace(rec.Body.String()); got != "internal server error" {
-		t.Fatalf("body = %q, want %q", got, "internal server error")
+	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", got)
+	}
+	body := decodeProblemResponse(t, rec)
+	if body["status"] != float64(http.StatusInternalServerError) {
+		t.Fatalf("body status = %v, want %d", body["status"], http.StatusInternalServerError)
+	}
+	if body["detail"] != "internal server error" {
+		t.Fatalf("body detail = %v, want internal server error", body["detail"])
+	}
+	if body["code"] != CodeInternal {
+		t.Fatalf("body code = %v, want %s", body["code"], CodeInternal)
 	}
 
 	var entry map[string]any

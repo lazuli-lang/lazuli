@@ -331,8 +331,11 @@ func retryAfterSeconds(delay time.Duration) string {
 }
 
 func writeRateLimited(w http.ResponseWriter) {
-	writeJSON(w, http.StatusTooManyRequests, map[string]string{
-		"code":    CodeRateLimited,
-		"message": "rate limit exceeded",
+	WriteProblem(w, Problem{
+		Status: http.StatusTooManyRequests,
+		Detail: "rate limit exceeded",
+		Extensions: map[string]any{
+			"code": CodeRateLimited,
+		},
 	})
 }
