@@ -174,6 +174,10 @@ struct Tier3FeatureFacts {
     /// fact level keeps the diagnostic shape-aware without adding a
     /// new fact family.
     events: Vec<lazuli_ir::Event>,
+    /// Whether the feature authored a top-level `policies` block.
+    /// `Feature.policies` has a default value, so doctor reads the
+    /// lowered `span_ref` to distinguish "absent" from "declared".
+    policies_declared: bool,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -524,6 +528,7 @@ impl DoctorPackage {
                                             records: feature.records.clone(),
                                             enums: feature.enums.clone(),
                                             events: feature.events.clone(),
+                                            policies_declared: feature.policies.span_ref.is_some(),
                                         });
                                     }
                                     // Phase L Tier 4 follow-up — populate the
@@ -751,6 +756,10 @@ impl DoctorPackage {
         diagnostics.extend(audit_event_health_diagnostics(
             &self.files,
             self.app.as_ref(),
+        ));
+        diagnostics.extend(resource_policy_and_command_audit_hints(
+            &self.tier3_facts,
+            &self.feature_resources,
         ));
 
         // Cut A.9 — `approval` primitive contract + role resolution.
@@ -7887,6 +7896,111 @@ fn audit_event_health_diagnostics(
     diagnostics
 }
 
+fn resource_policy_and_command_audit_hints(
+    facts: &[Tier3FeatureFacts],
+    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen_commands: BTreeSet<(PathBuf, String, String)> = BTreeSet::new();
+    let mut seen_resources: BTreeSet<(PathBuf, String, String)> = BTreeSet::new();
+
+    for feature in facts {
+        let mut referenced_write_resources = BTreeSet::new();
+        for command in &feature.commands {
+            if is_write_effect_command(command) {
+                if command.audit.is_none()
+                    && seen_commands.insert((
+                        feature.path.clone(),
+                        feature.feature.clone(),
+                        command.name.clone(),
+                    ))
+                {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line: feature
+                            .command_lines
+                            .get(&command.name)
+                            .copied()
+                            .unwrap_or(feature.feature_line),
+                        column: 1,
+                        severity: DoctorSeverity::Hint,
+                        code: "command_without_audit_hint".to_owned(),
+                        message: format!(
+                            "command `{}.{}` is write-effect but has no `audit default` declared ÔÇö write actions without audit are invisible to compliance. Add `audit default` on the command or `audit_default` in feature defaults.",
+                            feature.feature, command.name
+                        ),
+                    });
+                }
+
+                if let Some(resource) = write_effect_resource(command) {
+                    let is_local_resource = match resource.feature.as_deref() {
+                        Some(owner) => owner == feature.feature,
+                        None => true,
+                    };
+                    if is_local_resource {
+                        referenced_write_resources.insert(resource.name.clone());
+                    }
+                }
+            }
+        }
+
+        if feature.policies_declared || referenced_write_resources.is_empty() {
+            continue;
+        }
+
+        let Some(resources) = feature_resources.get(&feature.feature) else {
+            continue;
+        };
+        for resource in referenced_write_resources {
+            let Some(resource_fact) = resources.get(&resource) else {
+                continue;
+            };
+            if !seen_resources.insert((
+                resource_fact.path.clone(),
+                feature.feature.clone(),
+                resource.clone(),
+            )) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                path: resource_fact.path.clone(),
+                line: if resource_fact.line == 0 {
+                    feature.feature_line
+                } else {
+                    resource_fact.line
+                },
+                column: 1,
+                severity: DoctorSeverity::Hint,
+                code: "resource_without_policy_hint".to_owned(),
+                message: format!(
+                    "feature `{}` declares resource `{}` with no `policies` block ÔÇö every write command implicitly gets the default policy. Add an explicit `policies` block to make access control auditable.",
+                    feature.feature, resource
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+fn is_write_effect_command(command: &lazuli_ir::Command) -> bool {
+    matches!(
+        command.kind,
+        lazuli_ir::CommandKind::Create
+            | lazuli_ir::CommandKind::Update
+            | lazuli_ir::CommandKind::Delete
+    )
+}
+
+fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::QualifiedName> {
+    match &command.effect {
+        lazuli_ir::CommandEffect::Creates(effect) => Some(&effect.resource),
+        lazuli_ir::CommandEffect::Updates(effect) => Some(&effect.resource),
+        lazuli_ir::CommandEffect::Deletes(effect) => Some(&effect.resource),
+        lazuli_ir::CommandEffect::Returns(_) | lazuli_ir::CommandEffect::None => None,
+    }
+}
+
 /// Render a `{name1, name2, ...}`-style list for diagnostic messages.
 /// Empty sets render as `<none>` so the message stays unambiguous.
 fn format_name_list(names: &BTreeSet<String>) -> String {
@@ -9374,6 +9488,7 @@ mod tests {
                                     records: feature.records.clone(),
                                     enums: feature.enums.clone(),
                                     events: feature.events.clone(),
+                                    policies_declared: feature.policies.span_ref.is_some(),
                                 });
                             }
                             // Phase L Tier 4 follow-up — mirror the IR-driven
@@ -9518,6 +9633,7 @@ mod tests {
                                     records: feature.records.clone(),
                                     enums: feature.enums.clone(),
                                     events: feature.events.clone(),
+                                    policies_declared: feature.policies.span_ref.is_some(),
                                 });
                             }
                         }
@@ -10718,6 +10834,123 @@ contract acme.ai.v1
     const APP_URLS_MISSING_FIXTURE: &str = "app MyApp\n";
 
     const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/semantic_unknown.lzi");
+
+    const DOCTOR_HINTS_WRITE_WITHOUT_GUARDS_FIXTURE: &str = r#"
+feature customer
+  domain
+    resource Customer
+      id: ID required
+      name: Text required
+
+  command create
+    input
+      name: Text required
+    creates Customer from input
+"#;
+
+    const DOCTOR_HINTS_GUARDED_WRITE_FIXTURE: &str = r#"
+feature customer
+  policies
+    create: @role.admin
+
+  domain
+    resource Customer
+      id: ID required
+      name: Text required
+
+  command create
+    policy @policy.create
+    audit default
+    input
+      name: Text required
+    creates Customer from input
+"#;
+
+    const DOCTOR_HINTS_UNWRITTEN_RESOURCE_FIXTURE: &str = r#"
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  command preview
+    returns Customer
+"#;
+
+    #[test]
+    fn doctor_hints_resource_without_policy_for_written_resource() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            DOCTOR_HINTS_WRITE_WITHOUT_GUARDS_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "resource_without_policy_hint")
+            .collect();
+
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one resource hint, got {diagnostics:?}"
+        );
+        let diagnostic = hits[0];
+        assert_eq!(diagnostic.severity, DoctorSeverity::Hint);
+        assert_eq!(diagnostic.line, 4);
+        assert_eq!(
+            diagnostic.message,
+            "feature `customer` declares resource `Customer` with no `policies` block ÔÇö every write command implicitly gets the default policy. Add an explicit `policies` block to make access control auditable."
+        );
+    }
+
+    #[test]
+    fn doctor_hints_command_without_audit_for_write_command() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            DOCTOR_HINTS_WRITE_WITHOUT_GUARDS_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "command_without_audit_hint")
+            .collect();
+
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one command hint, got {diagnostics:?}"
+        );
+        let diagnostic = hits[0];
+        assert_eq!(diagnostic.severity, DoctorSeverity::Hint);
+        assert_eq!(diagnostic.line, 8);
+        assert_eq!(
+            diagnostic.message,
+            "command `customer.create` is write-effect but has no `audit default` declared ÔÇö write actions without audit are invisible to compliance. Add `audit default` on the command or `audit_default` in feature defaults."
+        );
+    }
+
+    #[test]
+    fn doctor_hints_suppressed_when_policy_block_and_audit_declared() {
+        let package =
+            package_from_sources(vec![("customer.lzi", DOCTOR_HINTS_GUARDED_WRITE_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+
+        assert!(!codes.contains("resource_without_policy_hint"));
+        assert!(!codes.contains("command_without_audit_hint"));
+    }
+
+    #[test]
+    fn doctor_hints_skip_unwritten_resource_and_returns_command() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            DOCTOR_HINTS_UNWRITTEN_RESOURCE_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+
+        assert!(!codes.contains("resource_without_policy_hint"));
+        assert!(!codes.contains("command_without_audit_hint"));
+    }
 
     #[test]
     fn doctor_emits_semantic_type_unknown_for_unknown_semantic_fields() {
@@ -12819,6 +13052,7 @@ feature customer_auth
             records: Vec::new(),
             enums: Vec::new(),
             events: Vec::new(),
+            policies_declared: false,
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -12870,6 +13104,7 @@ feature customer_auth
             records: Vec::new(),
             enums: Vec::new(),
             events: Vec::new(),
+            policies_declared: false,
         });
         let diagnostics = package.diagnostics();
         assert!(
