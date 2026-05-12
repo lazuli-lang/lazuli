@@ -30,8 +30,9 @@ func TestSessionTTLContractShape(t *testing.T) {
 		TTL:      7 * 24 * time.Hour,
 		Refresh:  false,
 	}
-	if contract.TTL <= 0 {
-		t.Fatalf("TTL must be positive, got %v", contract.TTL)
+	ttl, ok := contract.TTL.(time.Duration)
+	if !ok || ttl <= 0 {
+		t.Fatalf("TTL must be a positive duration, got %T %v", contract.TTL, contract.TTL)
 	}
 	if contract.Resource == "" {
 		t.Fatalf("Resource must be set")
@@ -68,6 +69,7 @@ func TestErrorSentinels(t *testing.T) {
 		ErrPasswordRateLimited,
 		ErrSessionExpired,
 		ErrSessionNotFound,
+		ErrTokenInvalid,
 		ErrOAuthStateMismatch,
 		ErrOAuthAdapterUnregistered,
 		ErrMfaCodeInvalid,

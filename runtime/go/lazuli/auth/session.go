@@ -1,8 +1,19 @@
 package auth
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"lazuli.dev/runtime/lazuli"
 )
@@ -19,54 +30,217 @@ type SessionsContract struct {
 	// Resource names the same-feature resource that backs persisted
 	// sessions (e.g. `CustomerSession`).
 	Resource string
-	// TTL is the session lifetime parsed by Lazuli from the DSL
-	// duration string.
-	TTL time.Duration
+	// TTL is the session lifetime. Generated code currently emits a
+	// time.Duration; tests and adapters may pass the original DSL string
+	// (e.g. "7 days"). Unparseable or non-positive values fall back to 24h.
+	TTL any
 	// Refresh enables refresh-token rotation. Default `false`.
 	Refresh bool
 }
+
+// SessionAttrs carries optional session metadata reserved for generated
+// callers. The current v0 table contract stores only user_id/token/expires_at,
+// so runtime helpers return an empty map on resolve.
+type SessionAttrs = map[string]any
 
 // Typed errors returned by the session capability. Mapped to
 // `expose client` HTTP status codes:
 //
 //	ErrSessionExpired  → 401 auth.session_expired
 //	ErrSessionNotFound → 401 auth.session_unknown
+//	ErrTokenInvalid    → 400 auth.token_invalid
 var (
 	ErrSessionExpired  = errors.New("auth: session expired")
 	ErrSessionNotFound = errors.New("auth: session not found")
+	ErrTokenInvalid    = errors.New("auth: token invalid")
 )
+
+type sessionDB interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+var sessionDBProvider = func() sessionDB {
+	return lazuli.DB()
+}
 
 // IssueSession persists a new session row and returns the cookie
 // value the transport layer must set on the response.
-//
-// Stub: DB persistence (pgx.Conn / Tx) wires when the `db` bucket
-// lands. The signature is already pgx-ready — generated code passes
-// the transaction through `ctx` and the implementation will read it
-// via `db.FromCtx(ctx)` once that helper exists.
-func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, identityID lazuli.ID, provider string) (string, error) {
-	_ = ctx
-	_ = contract
-	_ = identityID
-	_ = provider
-	return "", errors.New("auth: IssueSession pending db bucket wire")
+func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, userID lazuli.ID, attrs SessionAttrs) (string, time.Time, error) {
+	_ = attrs
+
+	token, tokenHash, err := newSessionToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	expiresAt := sessionNow(ctx).Add(sessionTTL(contract.TTL))
+	sql := fmt.Sprintf(
+		"INSERT INTO %s (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+		quoteSessionIdent(contract.Resource),
+	)
+	if _, err := sessionDBProvider().Exec(ctxOrBackground(ctx), sql, userID, tokenHash, expiresAt); err != nil {
+		return "", time.Time{}, err
+	}
+	return token, expiresAt, nil
 }
 
 // ResolveSession is the HTTP middleware hook that populates Ctx.User
 // (and Ctx.Tenant when the session row carries one) from a cookie
 // value. Replaces the dev-mode `populateDevSession` once the codegen
 // emits a `SessionsContract`.
-func ResolveSession(ctx *lazuli.Ctx, contract SessionsContract, cookie string) error {
-	_ = ctx
-	_ = contract
-	_ = cookie
-	return errors.New("auth: ResolveSession not yet implemented")
+func ResolveSession(ctx *lazuli.Ctx, contract SessionsContract, token string) (lazuli.ID, SessionAttrs, error) {
+	tokenHash, err := hashSessionToken(token)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	sql := fmt.Sprintf(
+		"SELECT user_id, expires_at FROM %s WHERE token_hash = $1 LIMIT 1",
+		quoteSessionIdent(contract.Resource),
+	)
+	var userID lazuli.ID
+	var expiresAt time.Time
+	err = sessionDBProvider().QueryRow(ctxOrBackground(ctx), sql, tokenHash).Scan(&userID, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil, ErrSessionNotFound
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+	if !expiresAt.After(sessionNow(ctx)) {
+		return 0, nil, ErrSessionExpired
+	}
+	return userID, SessionAttrs{}, nil
 }
 
 // InvalidateSession deletes the persisted session row and asks the
 // transport layer to clear the cookie.
-func InvalidateSession(ctx *lazuli.Ctx, contract SessionsContract, cookie string) error {
-	_ = ctx
-	_ = contract
-	_ = cookie
-	return errors.New("auth: InvalidateSession not yet implemented")
+func InvalidateSession(ctx *lazuli.Ctx, contract SessionsContract, token string) error {
+	tokenHash, err := hashSessionToken(token)
+	if err != nil {
+		return err
+	}
+	sql := fmt.Sprintf(
+		"DELETE FROM %s WHERE token_hash = $1",
+		quoteSessionIdent(contract.Resource),
+	)
+	_, err = sessionDBProvider().Exec(ctxOrBackground(ctx), sql, tokenHash)
+	return err
+}
+
+func newSessionToken() (string, string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf)
+	tokenHash, err := hashSessionToken(token)
+	if err != nil {
+		return "", "", err
+	}
+	return token, tokenHash, nil
+}
+
+func hashSessionToken(token string) (string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(raw) != 32 {
+		return "", ErrTokenInvalid
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func sessionTTL(raw any) time.Duration {
+	const fallback = 24 * time.Hour
+	switch v := raw.(type) {
+	case time.Duration:
+		if v > 0 {
+			return v
+		}
+	case string:
+		if d, ok := parseSessionDuration(v); ok && d > 0 {
+			return d
+		}
+	case lazuli.Duration:
+		if d, ok := parseSessionDuration(string(v)); ok && d > 0 {
+			return d
+		}
+	}
+	return fallback
+}
+
+func parseSessionDuration(raw string) (time.Duration, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(trimmed); err == nil {
+		return d, true
+	}
+
+	compact := strings.ReplaceAll(trimmed, " ", "")
+	if d, ok := parseSessionNumberUnit(compact); ok {
+		return d, true
+	}
+
+	parts := strings.Fields(trimmed)
+	if len(parts) != 2 {
+		return 0, false
+	}
+	return parseSessionNumberAndUnit(parts[0], parts[1])
+}
+
+func parseSessionNumberUnit(compact string) (time.Duration, bool) {
+	splitAt := -1
+	for i, c := range compact {
+		if c < '0' || c > '9' {
+			splitAt = i
+			break
+		}
+	}
+	if splitAt <= 0 {
+		return 0, false
+	}
+	return parseSessionNumberAndUnit(compact[:splitAt], compact[splitAt:])
+}
+
+func parseSessionNumberAndUnit(n, unit string) (time.Duration, bool) {
+	value, err := strconv.ParseInt(n, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, false
+	}
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "ms", "millisecond", "milliseconds":
+		return time.Duration(value) * time.Millisecond, true
+	case "s", "sec", "secs", "second", "seconds":
+		return time.Duration(value) * time.Second, true
+	case "m", "min", "mins", "minute", "minutes":
+		return time.Duration(value) * time.Minute, true
+	case "h", "hr", "hrs", "hour", "hours":
+		return time.Duration(value) * time.Hour, true
+	case "d", "day", "days":
+		return time.Duration(value) * 24 * time.Hour, true
+	case "w", "week", "weeks":
+		return time.Duration(value) * 7 * 24 * time.Hour, true
+	default:
+		return 0, false
+	}
+}
+
+func sessionNow(ctx *lazuli.Ctx) time.Time {
+	if ctx != nil && !ctx.Now.IsZero() {
+		return ctx.Now
+	}
+	return time.Now()
+}
+
+func quoteSessionIdent(name string) string {
+	for _, c := range name {
+		ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_'
+		if !ok {
+			panic("lazuli/auth: refusing to quote suspicious session resource: " + name)
+		}
+	}
+	return `"` + name + `"`
 }
