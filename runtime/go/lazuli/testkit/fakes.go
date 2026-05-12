@@ -18,41 +18,6 @@ import (
 
 var errNilRequest = errors.New("lazuli/testkit: nil request")
 
-// Clock is a manually advanced clock for tests that accept a time source.
-//
-// Pass Clock.Now anywhere the runtime expects a func() time.Time.
-type Clock struct {
-	mu  sync.Mutex
-	now time.Time
-}
-
-// NewClock returns a clock pinned to now.
-func NewClock(now time.Time) *Clock {
-	return &Clock{now: now}
-}
-
-// Now returns the clock's current time.
-func (c *Clock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-// Set pins the clock to now.
-func (c *Clock) Set(now time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = now
-}
-
-// Advance moves the clock by d and returns the new current time.
-func (c *Clock) Advance(d time.Duration) time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-	return c.now
-}
-
 // RoundTripper is a recording http.RoundTripper fake.
 //
 // When RoundTripFunc is set it receives the request after the fake has recorded
