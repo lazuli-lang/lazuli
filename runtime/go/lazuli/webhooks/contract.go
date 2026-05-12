@@ -12,32 +12,16 @@
 // Webhooks expanded cycle (rows 38–39, 2026-05-11) extends the language
 // surface with `payload from webhook_events.<name>`, `replay`, `dlq`,
 // and an inbound `retry` decorator that reuses the jobs RetryPolicy
-// shape. The runtime extensions are intentionally NOT in this stub —
-// the runtime team adds:
-//
-//   - `WebhookContract.Retry *Retry`
-//   - `WebhookContract.Replay *ReplaySpec` (Mode = Allow|Deny, Within,
-//     DedupeBy)
-//   - `WebhookContract.DLQ *DlqSpec` (Kind = Emit|Handler|Drop, plus
-//     event/path/reason)
-//   - `WebhookContract.PayloadType PayloadType` for typed envelope
-//     decode against the codegen `<Feature><Name>Payload` struct.
-//   - Lifecycle additions: typed decode after verify, replay-window
-//     check, retry through the shared `jobs.Adapter`, DLQ routing on
-//     exhaustion.
-//   - New typed errors: `ErrWebhookReplayDenied`,
-//     `ErrWebhookReplayWindowExpired`, `ErrWebhookDeadLettered`.
-//
-// All new shapes are mirrored in `lazuli_ir::Webhook` /
-// `lazuli_ir::ReplaySpec` / `lazuli_ir::DlqSpec` / `lazuli_ir::
-// WebhookEventRef`, so codegen can wire `WebhookContract` field-for-
-// field. See `docs/proposals/bucket-webhooks-expanded-cycle.md`
-// §Runtime / §Codegen.
+// shape. This contract carries those lowered fields so codegen can wire
+// `WebhookContract` field-for-field; lifecycle behavior remains owned by
+// the receiver implementation.
 package webhooks
 
 import (
 	"context"
 	"errors"
+
+	"lazuli.dev/runtime/lazuli/jobs"
 )
 
 // VerifyScheme is the closed-catalog scheme for inbound webhook
@@ -66,20 +50,63 @@ type TenantFromSpec struct {
 	Path string
 }
 
+// WebhookEventRef is the lowered `payload from webhook_events.<name>`
+// reference. The receiver uses it to select the generated payload
+// envelope for typed decode.
+type WebhookEventRef struct {
+	Name string
+}
+
+// ReplayMode names whether a webhook allows replayed envelopes.
+type ReplayMode int
+
+const (
+	ReplayAllow ReplayMode = iota
+	ReplayDeny
+)
+
+// ReplaySpec is the lowered `replay` block. Window is the accepted
+// freshness bound as authored in the DSL (for example, `"24h"`).
+type ReplaySpec struct {
+	Mode   ReplayMode
+	Window string
+}
+
+// DlqKind names how exhausted webhook deliveries are handled.
+type DlqKind int
+
+const (
+	DlqEmit DlqKind = iota
+	DlqHandler
+	DlqDrop
+)
+
+// DlqSpec is the lowered `dlq` block. Handler is used when Kind is
+// DlqHandler; Topic is used when Kind is DlqEmit.
+type DlqSpec struct {
+	Kind    DlqKind
+	Handler string
+	Topic   string
+}
+
 // WebhookContract is the lowered `webhook <name>` shape. The codegen
 // emits `var <FeatureCamel>Webhook<NameCamel>Contract = webhooks.WebhookContract{...}`
 // per webhook.
 type WebhookContract struct {
-	Feature        string
-	Name           string
-	Route          string
-	Verify         VerifySpec
-	TenantFrom     *TenantFromSpec
-	IdempotencyBy  string
-	Policy         string
-	HandlerPath    string
-	ReturnsType    string
-	Emits          []string
+	Feature       string
+	Name          string
+	Route         string
+	Verify        VerifySpec
+	TenantFrom    *TenantFromSpec
+	IdempotencyBy string
+	Policy        string
+	HandlerPath   string
+	ReturnsType   string
+	Emits         []string
+	PayloadFrom   *WebhookEventRef
+	Replay        *ReplaySpec
+	DLQ           *DlqSpec
+	Retry         *jobs.RetryPolicy
 }
 
 // Envelope is the runtime payload threaded through a webhook handler.
@@ -100,7 +127,7 @@ type HandlerFunc func(ctx context.Context, envelope Envelope) (any, error)
 
 // Typed errors. Surfaced through the observability / audit pipeline.
 var (
-	ErrWebhookHmacInvalid  = errors.New("webhooks: hmac verification failed")
-	ErrWebhookIdempotent   = errors.New("webhooks: duplicate envelope")
+	ErrWebhookHmacInvalid    = errors.New("webhooks: hmac verification failed")
+	ErrWebhookIdempotent     = errors.New("webhooks: duplicate envelope")
 	ErrWebhookTenantUnscoped = errors.New("webhooks: tenant_from unresolved")
 )
