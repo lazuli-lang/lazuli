@@ -163,7 +163,7 @@ func TestOAuthStateTokenUniqueness(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OAuthRedirect[%d]: %v", i, err)
 		}
-		state := loadOAuthState(ctx, contract.Provider)
+		state := LoadOAuthState(ctx, contract.Provider)
 		if state == "" {
 			t.Fatalf("OAuthRedirect[%d] did not stash a state token", i)
 		}

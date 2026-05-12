@@ -107,7 +107,7 @@ func OAuthRedirect(ctx *lazuli.Ctx, contract OAuthContract) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	stashOAuthState(ctx, contract.Provider, state)
+	StashOAuthState(ctx, contract.Provider, state)
 	return cfg.AuthCodeURL(state, oauth2.AccessTypeOnline), nil
 }
 
@@ -132,7 +132,7 @@ func OAuthCallback(
 	code, state string,
 ) (string, error) {
 	_ = sessions
-	expected := loadOAuthState(ctx, contract.Provider)
+	expected := LoadOAuthState(ctx, contract.Provider)
 	if expected == "" || state == "" || state != expected {
 		return "", ErrOAuthStateMismatch
 	}
@@ -162,11 +162,17 @@ func ctxOrBackground(ctx *lazuli.Ctx) context.Context {
 
 // oauthStateKey is the context-value key the transport uses to stash
 // the state token between OAuthRedirect (mint) and OAuthCallback
-// (verify). Keeping it package-private so adapters use the helpers
-// rather than poking at the Ctx directly.
+// (verify). The key type stays package-private; callers go through
+// StashOAuthState / LoadOAuthState rather than poking at the Ctx
+// directly.
 type oauthStateKey struct{ Provider string }
 
-func stashOAuthState(ctx *lazuli.Ctx, provider, state string) {
+// StashOAuthState persists `state` in `ctx` keyed by provider. The
+// canonical web flow uses this to thread the state token from
+// cookie → Ctx before calling OAuthCallback. Mutates `ctx.Context`
+// because the Ctx is a request-scoped pointer; callers must not
+// share the same Ctx across requests.
+func StashOAuthState(ctx *lazuli.Ctx, provider, state string) {
 	if ctx == nil {
 		return
 	}
@@ -177,7 +183,10 @@ func stashOAuthState(ctx *lazuli.Ctx, provider, state string) {
 	ctx.Context = context.WithValue(parent, oauthStateKey{Provider: provider}, state)
 }
 
-func loadOAuthState(ctx *lazuli.Ctx, provider string) string {
+// LoadOAuthState returns the state token previously stashed in `ctx`
+// for `provider`. Returns "" when no state was stashed; OAuthCallback
+// treats an empty trusted state as `ErrOAuthStateMismatch`.
+func LoadOAuthState(ctx *lazuli.Ctx, provider string) string {
 	if ctx == nil || ctx.Context == nil {
 		return ""
 	}

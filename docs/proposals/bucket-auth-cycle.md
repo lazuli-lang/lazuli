@@ -345,8 +345,12 @@ func EnrollMFA(ctx *lazuli.Ctx, customerID lazuli.ID) (auth.MfaEnrolment, error)
 }
 
 // VerifyMFA is the validator hook called by `command enable_mfa`.
-func VerifyMFA(ctx *lazuli.Ctx, customerID lazuli.ID, code string) error {
-    return auth.VerifyMFA(ctx, MfaContract, customerID, code)
+// The caller is responsible for loading the persisted TOTP secret
+// from the identity resource (e.g. `Customer.mfa_secret`) — the runtime
+// helper does not touch the DB. This split keeps `runtime/go/lazuli/auth/`
+// free of pgx coupling; the secret is threaded explicitly.
+func VerifyMFA(ctx *lazuli.Ctx, customerID lazuli.ID, secret, code string) error {
+    return auth.VerifyMFA(ctx, MfaContract, customerID, secret, code)
 }
 ```
 
@@ -374,6 +378,15 @@ func OAuthGoogleCallback(ctx *lazuli.Ctx, code, state string) (string, error) {
     return auth.OAuthCallback(ctx, OAuthGoogle, SessionsContract, code, state)
 }
 ```
+
+The web flow has two requests (`/login/google` → `/login/google/callback`) so
+the state token must persist across them via a same-site cookie. The runtime
+exposes `auth.StashOAuthState(ctx, provider, state)` and
+`auth.LoadOAuthState(ctx, provider)` so transports can thread the cookie value
+through ctx before calling `OAuthCallback`. `OAuthRedirect` itself mints state
+inline (single-process flows / unit tests); transports that own state minting
+can call `auth.GenerateOAuthState()` + `auth.BuildOAuthConfig(contract)` +
+`cfg.AuthCodeURL(state, …)` directly and bypass `OAuthRedirect`.
 
 ### Types reused from `runtime/go/lazuli`
 
