@@ -2337,6 +2337,24 @@ fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
 /// canonical-indent migration replaces this with a real type-ref parser.
 fn type_ref_from_text(text: &str) -> ir::TypeRef {
     let trimmed = text.trim();
+    // Codegen follow-up (2026-05-12) — strip trailing `[]` (array form)
+    // and `<Type>.ID`/`.Id` member access before matching, mirroring
+    // `type_ref_from_syntax`. Route slots and typed inputs flow through
+    // this minimal lifter; without these peels they landed as flat
+    // `Unresolved(\"User.ID\")` / `Unresolved(\"CustomerLtv[]\")` and the
+    // Go codegen sanitiser flattened them to `User_ID` / `CustomerLtv__`.
+    if let Some(stripped) = trimmed.strip_suffix("[]") {
+        let inner = type_ref_from_text(stripped.trim_end());
+        return ir::TypeRef::Many(Box::new(inner));
+    }
+    if let Some(prefix) = trimmed
+        .strip_suffix(".ID")
+        .or_else(|| trimmed.strip_suffix(".Id"))
+    {
+        if !prefix.is_empty() && !prefix.contains('.') {
+            return ir::TypeRef::Builtin(ir::BuiltinType::Id);
+        }
+    }
     match trimmed {
         "Text" => ir::TypeRef::Builtin(ir::BuiltinType::Text),
         "Integer" => ir::TypeRef::Builtin(ir::BuiltinType::Integer),
