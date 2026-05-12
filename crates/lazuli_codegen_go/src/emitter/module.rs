@@ -11,17 +11,22 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::Module;
 
+use super::api::emit_api_file;
 use super::auth::emit_auth_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::enums::emit_enum_file;
+use super::events::emit_events_file;
 use super::imports::ImportSet;
 use super::job::emit_job_file;
+use super::migration::emit_migration_file;
 use super::notification::emit_notification_file;
 use super::printer::GoPrinter;
 use super::query::emit_query_file;
 use super::resource::emit_resource_file;
 use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PATH};
+use super::storage::emit_storage_file;
+use super::translation::emit_translation_file;
 use super::webhook::emit_webhook_file;
 use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION};
 
@@ -196,6 +201,69 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
                 format!("{name}/notification.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: notification_path,
+                contents,
+            });
+        }
+
+        // Cell G3a — Translation emission. Per-feature `i18n.Catalog`
+        // + `//go:embed i18n/*.json` + `embed.FS` in `translation.gen.go`.
+        if let Some(contents) =
+            emit_translation_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let translation_path =
+                format!("{name}/translation.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: translation_path,
+                contents,
+            });
+        }
+
+        // Cell G3b — EventGroup emission. Per-feature `lazuli.EventGroup`
+        // values + payload structs in `events.gen.go`.
+        if let Some(contents) =
+            emit_events_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let events_path = format!("{name}/events.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: events_path,
+                contents,
+            });
+        }
+
+        // Cell G4 — Storage emission. Per-feature `storage.FileContract`
+        // values for every `@cap.File(...)` site in `storage.gen.go`.
+        if let Some(contents) =
+            emit_storage_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let storage_path = format!("{name}/storage.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: storage_path,
+                contents,
+            });
+        }
+
+        // Cell G5 — Api emission. Per-feature `lazuli.Api[I, O]`
+        // values in `api.gen.go` (Lazuli Go lib gap §4.2 — emitter
+        // ships TODO comments inside the value literal).
+        if let Some(contents) =
+            emit_api_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let api_path = format!("{name}/api.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: api_path,
+                contents,
+            });
+        }
+
+        // Cell TM — TenantMigration emission. Per-feature
+        // `migrations.MigrationContract` values in `migration.gen.go`.
+        if let Some(contents) =
+            emit_migration_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let migration_path =
+                format!("{name}/migration.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: migration_path,
                 contents,
             });
         }

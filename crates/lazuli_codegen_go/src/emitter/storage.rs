@@ -107,7 +107,7 @@ fn file_capability(type_ref: &TypeRef) -> Option<&FileCapability> {
     }
 }
 
-fn site_sort_key(site: &StorageSite<'_>) -> (u8, &str, &str) {
+fn site_sort_key<'a>(site: &'a StorageSite<'a>) -> (u8, &'a str, &'a str) {
     match site {
         StorageSite::ResourceField {
             resource, field, ..
