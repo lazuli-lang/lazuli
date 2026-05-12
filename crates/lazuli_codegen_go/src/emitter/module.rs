@@ -13,6 +13,7 @@ use lazuli_ir::Module;
 
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
+use super::resource::emit_resource_file;
 use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION};
 
 /// Default Go module path used when the caller did not supply one and
@@ -59,6 +60,18 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         let path = format!("{name}/{name}.gen.go", name = feature.name);
         let contents = emit_feature_stub(&source_label, &feature.name);
         files.push(GeneratedFile { path, contents });
+
+        // Cell E2 — `Resource` + `Record` emission lands in a sibling
+        // file. Features that declare neither skip the file entirely
+        // (an empty body would leave a stray `package <feature>` and
+        // gofmt would tolerate it but the file would carry no signal).
+        if let Some(contents) = emit_resource_file(&source_label, feature) {
+            let resource_path = format!("{name}/resource.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: resource_path,
+                contents,
+            });
+        }
     }
 
     files

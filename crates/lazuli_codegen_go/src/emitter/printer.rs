@@ -97,6 +97,33 @@ impl GoPrinter {
             self.line(&scratch);
         }
     }
+
+    /// Emit aligned three-column rows. Pads columns 1 and 2 to the
+    /// width of the widest entry in each column; column 3 starts after
+    /// a single space gap. Used for the
+    /// `<Name> <GoType> \`db:"…" json:"…"\`` struct-row alignment
+    /// proven in `runtime.rs:686-702`. Columns 1 and 2 carry the field
+    /// declaration; column 3 is the back-tick wrapped tag block.
+    pub fn aligned_struct_rows(&mut self, rows: &[(&str, &str, &str)]) {
+        if rows.is_empty() {
+            return;
+        }
+        let name_width = rows.iter().map(|(n, _, _)| n.len()).max().unwrap_or(0);
+        let type_width = rows.iter().map(|(_, t, _)| t.len()).max().unwrap_or(0);
+        for (name, ty, tag) in rows {
+            let mut scratch = String::with_capacity(name_width + type_width + tag.len() + 4);
+            let _ = write!(
+                scratch,
+                "{name:<name_width$} {ty:<type_width$} {tag}",
+                name = name,
+                name_width = name_width,
+                ty = ty,
+                type_width = type_width,
+                tag = tag,
+            );
+            self.line(&scratch);
+        }
+    }
 }
 
 impl Default for GoPrinter {
@@ -166,6 +193,30 @@ mod tests {
     fn aligned_rows_empty_input_is_noop() {
         let mut printer = GoPrinter::new();
         printer.aligned_rows(&[]);
+        assert_eq!(printer.finish(), String::new());
+    }
+
+    #[test]
+    fn aligned_struct_rows_pads_three_columns() {
+        let mut printer = GoPrinter::new();
+        printer.indent();
+        printer.aligned_struct_rows(&[
+            ("ID", "lazuli.ID", "`db:\"id\"         json:\"id\"`"),
+            ("CreatedAt", "lazuli.Time", "`db:\"created_at\" json:\"created_at\"`"),
+        ]);
+        let out = printer.finish();
+        // CreatedAt = 9 chars name; widest type = "lazuli.Time" = 11 chars.
+        // ID pads to 9 chars; lazuli.ID pads to 11 chars.
+        assert_eq!(
+            out,
+            "\tID        lazuli.ID   `db:\"id\"         json:\"id\"`\n\tCreatedAt lazuli.Time `db:\"created_at\" json:\"created_at\"`\n"
+        );
+    }
+
+    #[test]
+    fn aligned_struct_rows_empty_input_is_noop() {
+        let mut printer = GoPrinter::new();
+        printer.aligned_struct_rows(&[]);
         assert_eq!(printer.finish(), String::new());
     }
 

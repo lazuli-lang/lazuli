@@ -13,7 +13,9 @@
 //! deliberately decoupled from grammar-side drift.
 
 use lazuli_codegen_go::{GoEmitOptions, LAZULI_GO_VERSION, generate_v1};
-use lazuli_ir::{AppManifest, Defaults, Feature, Module, Policies};
+use lazuli_ir::{
+    AppManifest, BuiltinType, Defaults, Feature, Field, Module, Policies, Resource, TypeRef,
+};
 
 fn empty_feature(name: &str) -> Feature {
     Feature {
@@ -181,6 +183,73 @@ fn deterministic_output_across_runs() {
         assert_eq!(left.path, right.path);
         assert_eq!(left.contents, right.contents);
     }
+}
+
+#[test]
+fn resource_kind_emits_typed_struct_and_resource_value() {
+    // Cell E2 integration smoke: a feature carrying one resource
+    // surfaces an extra `<feature>/resource.gen.go` alongside the
+    // stub. Typed struct + `lazuli.Resource[T]` value land per
+    // proposal §3.1.
+    let mut module = minimal_module("hostpoint", "customer");
+    let resource = Resource {
+        name: "customer".to_owned(),
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields: vec![Field {
+            name: "name".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Text),
+            required: true,
+            unique: false,
+            default: None,
+            derived_from: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }],
+        constraints: Vec::new(),
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    };
+    module.features[0].resources.push(resource);
+
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let resource_file = files
+        .iter()
+        .find(|f| f.path == "customer/resource.gen.go")
+        .expect("expected customer/resource.gen.go alongside the stub");
+    assert!(
+        resource_file.contents.contains("type Customer struct"),
+        "expected struct declaration in resource.gen.go:\n{}",
+        resource_file.contents
+    );
+    assert!(
+        resource_file
+            .contents
+            .contains("var customerResource = lazuli.Resource[Customer]"),
+        "expected `var customerResource = lazuli.Resource[Customer]` in resource.gen.go:\n{}",
+        resource_file.contents
+    );
+}
+
+#[test]
+fn resource_kind_skips_file_when_feature_declares_no_resources_or_records() {
+    // A bare feature stays at the `<feature>.gen.go` stub only; we
+    // don't materialise an empty `resource.gen.go` because a single
+    // `package <feature>` line provides no signal and would clutter
+    // the listing.
+    let module = minimal_module("hostpoint", "customer");
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    assert!(
+        files
+            .iter()
+            .all(|f| f.path != "customer/resource.gen.go"),
+        "expected no resource.gen.go for an empty feature, got files: {:?}",
+        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
 }
 
 #[test]

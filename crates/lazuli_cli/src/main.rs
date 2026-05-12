@@ -3926,6 +3926,7 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::SemanticUrl => "@semantic.Url",
             BuiltinType::SemanticUuid => "@semantic.Uuid",
             BuiltinType::SemanticMoney => "@semantic.Money",
+            BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
             BuiltinType::CapSecret => "@cap.Secret",
             BuiltinType::CapFile => "@cap.File",
         }

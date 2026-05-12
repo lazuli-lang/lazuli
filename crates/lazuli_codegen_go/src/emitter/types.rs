@@ -25,9 +25,18 @@ pub fn go_type_for(ty: &TypeRef) -> (String, Option<&'static str>) {
             // Cross-feature references are not yet handled (Tier 4
             // surfaces `QualifiedName.feature`); when they land we
             // emit `<feature>.<Name>` plus the feature's import.
-            (qname.name.clone(), None)
+            //
+            // Defensive sanitiser: the analyzer falls through to
+            // `UserDefined` for `@semantic.<unknown>` and similar
+            // decorator-prefixed identifiers (e.g. `@semantic.Money`
+            // is not yet in the closed catalog — flag the analyzer
+            // gap upstream). We must still emit a Go-valid identifier
+            // so the file compiles even before the analyzer catches
+            // up; cell I4's §6.2.1 catalog upgrades this to a hard
+            // diagnostic.
+            (sanitise_go_ident(&qname.name), None)
         }
-        TypeRef::EnumRef(qname) => (qname.name.clone(), None),
+        TypeRef::EnumRef(qname) => (sanitise_go_ident(&qname.name), None),
         TypeRef::Many(inner) => {
             let (inner_go, import) = go_type_for(inner);
             (format!("[]{}", inner_go), import)
@@ -183,6 +192,20 @@ mod tests {
         let (go, import) = go_type_for(&TypeRef::UserDefined(qname));
         assert_eq!(go, "Customer");
         assert_eq!(import, None);
+    }
+
+    #[test]
+    fn user_defined_sanitises_decorator_prefixed_names() {
+        // Analyzer gap: `@semantic.Money` is not in the closed catalog
+        // and falls through to `UserDefined`. The emitter must still
+        // produce Go-valid identifiers; cell I4 will upgrade this to a
+        // hard diagnostic instead of an emission fix.
+        let qname = QualifiedName {
+            feature: None,
+            name: "@semantic.Money".to_owned(),
+        };
+        let (go, _) = go_type_for(&TypeRef::UserDefined(qname));
+        assert_eq!(go, "_semantic_Money");
     }
 
     #[test]
