@@ -234,7 +234,8 @@ fn emit_args_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &Ty
     p.indent();
     let mut rows: Vec<(String, String, String)> = Vec::with_capacity(slots.len());
     for slot in slots {
-        let (go_type, _import) = types::go_type_for(&slot.type_ref, ctx);
+        let type_ref = query_arg_type_ref(&slot.type_ref, ctx);
+        let (go_type, _import) = types::go_type_for(&type_ref, ctx);
         let optional = !slot.required;
         let final_type = if optional {
             format!("*{}", go_type)
@@ -256,6 +257,20 @@ fn emit_args_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &Ty
     p.aligned_struct_rows(&row_refs);
     p.dedent();
     p.line("}");
+}
+
+fn query_arg_type_ref(type_ref: &TypeRef, ctx: &TypeCtx<'_>) -> TypeRef {
+    match type_ref {
+        TypeRef::Unresolved(name) => match ctx.cross_index.owner(name) {
+            Some(owner) => TypeRef::UserDefined(lazuli_ir::QualifiedName {
+                feature: Some(owner.to_owned()),
+                name: name.clone(),
+            }),
+            None => type_ref.clone(),
+        },
+        TypeRef::Many(inner) => TypeRef::Many(Box::new(query_arg_type_ref(inner, ctx))),
+        _ => type_ref.clone(),
+    }
 }
 
 fn emit_scope_gaps(p: &mut GoPrinter, scope: &[Predicate], scope_override: bool) {
@@ -531,7 +546,7 @@ fn register_imports_for_query(
     match query {
         Query::List(q) => {
             for slot in &q.params {
-                register_imports_for_type(&slot.type_ref, ctx, imports);
+                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
             }
             if q.cache.as_ref().map(cache_uses_time).unwrap_or(false) {
                 imports.add("time");
@@ -540,12 +555,12 @@ fn register_imports_for_query(
         Query::Lookup(q) => {
             let resource = resource_for_query(feature, &q.name);
             for slot in lookup_args(q, resource) {
-                register_imports_for_type(&slot.type_ref, ctx, imports);
+                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
             }
         }
         Query::Sql(q) => {
             for slot in &q.params {
-                register_imports_for_type(&slot.type_ref, ctx, imports);
+                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
             }
             register_imports_for_type(&q.returns, ctx, imports);
             if q.cache.as_ref().map(cache_uses_time).unwrap_or(false) {
@@ -553,6 +568,15 @@ fn register_imports_for_query(
             }
         }
     }
+}
+
+fn register_imports_for_query_arg_type(
+    type_ref: &TypeRef,
+    ctx: &TypeCtx<'_>,
+    imports: &mut ImportSet,
+) {
+    let resolved = query_arg_type_ref(type_ref, ctx);
+    register_imports_for_type(&resolved, ctx, imports);
 }
 
 fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
@@ -812,6 +836,16 @@ mod tests {
         emit_query_file("examples/x.lzi", feature, "lazuli/test", &index)
     }
 
+    fn emit_from_module(module: &Module, feature_name: &str) -> Option<String> {
+        let feature = module
+            .features
+            .iter()
+            .find(|feature| feature.name == feature_name)
+            .expect("feature exists");
+        let index = CrossFeatureIndex::build(module);
+        emit_query_file("examples/x.lzi", feature, "lazuli/test", &index)
+    }
+
     fn module_with_features(features: Vec<Feature>) -> Module {
         Module {
             workspace: None,
@@ -1014,6 +1048,62 @@ mod tests {
         assert!(out.contains("TTL: 5 * time.Minute,"));
         assert!(out.contains("// TODO(runtime): QueryCache.tags not yet in Lazuli Go lib"));
         assert!(out.contains("// TODO(runtime): QueryCache.namespace not yet in Lazuli Go lib"));
+    }
+
+    #[test]
+    fn list_query_args_resolve_unresolved_cross_feature_ref() {
+        let mut customer = base_feature("customer");
+        customer.resources.push(resource("Customer", Vec::new()));
+        customer.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            params: vec![slot("user", TypeRef::Unresolved("User".to_owned()), false)],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+        let mut account = base_feature("account");
+        account.resources.push(resource("User", Vec::new()));
+        let module = module_with_features(vec![customer, account]);
+
+        let out = emit_from_module(&module, "customer").expect("must emit");
+        assert!(out.contains("\"lazuli/test/account\""));
+        assert!(out.contains("User *account.User `json:\"user,omitempty\"`"));
+    }
+
+    #[test]
+    fn list_query_args_resolve_many_unresolved_cross_feature_ref() {
+        let mut customer = base_feature("customer");
+        customer.resources.push(resource("Customer", Vec::new()));
+        customer.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            params: vec![slot(
+                "reviewers",
+                TypeRef::Many(Box::new(TypeRef::Unresolved("User".to_owned()))),
+                true,
+            )],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+        let mut account = base_feature("account");
+        account.resources.push(resource("User", Vec::new()));
+        let module = module_with_features(vec![customer, account]);
+
+        let out = emit_from_module(&module, "customer").expect("must emit");
+        assert!(out.contains("\"lazuli/test/account\""));
+        assert!(out.contains("Reviewers []account.User `json:\"reviewers\"`"));
     }
 
     #[test]
