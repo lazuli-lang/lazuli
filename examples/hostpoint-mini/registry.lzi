@@ -3,9 +3,24 @@ registry
     group mercadopago
       server MERCADOPAGO_ACCESS_TOKEN: Secret required in production
       server MERCADOPAGO_WEBHOOK_SECRET: Secret required in production
+    group google_maps
+      server GOOGLE_MAPS_API_KEY: Secret required in production
+    group object_storage
+      server OBJECT_STORAGE_BUCKET: Text required in production
+      server OBJECT_STORAGE_REGION: Text required in production
+      server OBJECT_STORAGE_ENDPOINT: Url optional
+    group email
+      server EMAIL_API_KEY: Secret required in production
+      server EMAIL_FROM_ADDRESS: Text required in production
+    group expo_push
+      server EXPO_PUSH_ACCESS_TOKEN: Secret required in production
 
   capabilities
     payment_gateway mercadopago
+    object_storage files
+    mailer transactional
+    integration maps
+    integration push_notifications
 
   packs
     hostpoint from @plugin/hostpoint/mini
@@ -14,11 +29,38 @@ registry
       provides feature property
       provides feature service
       provides feature payment
+      requires integration maps: MapsProvider
+      requires integration object_storage: ObjectStorageProvider
+      requires integration email: EmailProvider
+      requires integration push_notifications: PushNotificationProvider
       requires integration mercadopago: PaymentGateway
 
   integrations
+    google_maps: MapsProvider
+      adapter @plugin/lazurite/google-maps
+      environments sandbox, production
+      credentials platform
+        api_key env.GOOGLE_MAPS_API_KEY
+    object_storage: ObjectStorageProvider
+      adapter @adapter.object_storage
+      environments local, production
+      credentials platform
+        bucket env.OBJECT_STORAGE_BUCKET
+        region env.OBJECT_STORAGE_REGION
+        endpoint env.OBJECT_STORAGE_ENDPOINT
+    email: EmailProvider
+      adapter @adapter.email
+      environments sandbox, production
+      credentials platform
+        api_key env.EMAIL_API_KEY
+        from_address env.EMAIL_FROM_ADDRESS
+    expo_push: PushNotificationProvider
+      adapter @plugin/lazurite/expo-push
+      environments sandbox, production
+      credentials platform
+        access_token env.EXPO_PUSH_ACCESS_TOKEN
     mercadopago: PaymentGateway
-      adapter @plugin/hostpoint/mercadopago
+      adapter @plugin/lazurite/mercadopago
       environments sandbox, production
       credentials platform
         access_token env.MERCADOPAGO_ACCESS_TOKEN
