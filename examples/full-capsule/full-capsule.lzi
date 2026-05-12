@@ -877,3 +877,24 @@ feature customer_outreach
     template "./outreach/archive_survey.mjml"
     policy @policy.notify
     emits archive_survey_sent
+
+feature account
+  purpose
+    Identity owner for application users (canonical, cross-feature).
+
+  uses org
+
+  domain
+    resource User
+      email: @semantic.Email @pii.contact required unique
+      name: Text required
+      role: Text optional
+
+  policies
+    read: @scope.same_org
+    update: @role.admin
+
+    fields User
+      email
+        read: @scope.same_org
+        write: @role.admin
