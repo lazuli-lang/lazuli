@@ -1,6 +1,8 @@
 //! Cell G3a - `Translation` kind emission. Walks the optional
 //! `Feature.translation` block and emits the Go-side embedded
-//! `i18n.Catalog` handle into `<feature>/translation.gen.go`.
+//! `i18n.Catalog` handle into `<feature>/translation.gen.go`, plus
+//! `<feature>/i18n/_placeholder.json` so `//go:embed i18n/*.json`
+//! always matches at least one generated file.
 //!
 //! Proposal references:
 //! - §3.10 - `//go:embed i18n/*.json`, `embed.FS`, and the
@@ -21,11 +23,45 @@ use super::casing::lower_camel;
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
+use crate::GeneratedFile;
 
-/// Emit `<feature>/translation.gen.go` for a feature, or `None` when
-/// the feature declares no `translation` block or has no translation
-/// keys. The latter keeps `//go:embed i18n/*.json` out of generated
-/// packages that do not actually ship catalog files.
+const PLACEHOLDER_JSON_PATH: &str = "i18n/_placeholder.json";
+const PLACEHOLDER_JSON_CONTENTS: &str = "{}";
+
+/// Emit translation generated files for a feature. Returns an empty
+/// vector when the feature declares no `translation` block or has no
+/// translation keys.
+///
+/// When keys exist, this emits both `<feature>/translation.gen.go` and
+/// `<feature>/i18n/_placeholder.json`. The placeholder file keeps
+/// `//go:embed i18n/*.json` valid even before users add real catalogs.
+pub fn emit_translation_files(
+    source_label: &str,
+    feature: &Feature,
+    module_name: &str,
+    cross_index: &CrossFeatureIndex<'_>,
+) -> Vec<GeneratedFile> {
+    let Some(contents) = emit_translation_file(source_label, feature, module_name, cross_index)
+    else {
+        return Vec::new();
+    };
+
+    vec![
+        GeneratedFile {
+            path: format!("{name}/translation.gen.go", name = feature.name),
+            contents,
+        },
+        GeneratedFile {
+            path: format!("{name}/{PLACEHOLDER_JSON_PATH}", name = feature.name),
+            contents: PLACEHOLDER_JSON_CONTENTS.to_owned(),
+        },
+    ]
+}
+
+/// Emit `<feature>/translation.gen.go` contents for a feature, or
+/// `None` when the feature declares no `translation` block or has no
+/// translation keys. The latter keeps `//go:embed i18n/*.json` out of
+/// generated packages that do not actually ship catalog files.
 pub fn emit_translation_file(
     source_label: &str,
     feature: &Feature,
@@ -176,6 +212,12 @@ mod tests {
         emit_translation_file("examples/x.lzi", feature, "lazuli/test", &index)
     }
 
+    fn emit_files(feature: &Feature) -> Vec<GeneratedFile> {
+        let module = module_with_features(vec![feature.clone()]);
+        let index = CrossFeatureIndex::build(&module);
+        emit_translation_files("examples/x.lzi", feature, "lazuli/test", &index)
+    }
+
     #[test]
     fn empty_feature_returns_none() {
         let feature = base_feature("customer");
@@ -191,6 +233,41 @@ mod tests {
         });
 
         assert!(emit(&feature).is_none());
+    }
+
+    #[test]
+    fn translation_files_include_placeholder_json() {
+        let mut feature = base_feature("customer");
+        feature.translation = Some(sample_translation());
+        let files = emit_files(&feature);
+
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "customer/translation.gen.go",
+                "customer/i18n/_placeholder.json"
+            ]
+        );
+
+        let placeholder = files
+            .iter()
+            .find(|file| file.path == "customer/i18n/_placeholder.json")
+            .expect("must emit placeholder JSON");
+        assert_eq!(placeholder.contents, "{}");
+    }
+
+    #[test]
+    fn translation_files_skip_placeholder_when_keys_are_empty() {
+        let mut feature = base_feature("customer");
+        feature.translation = Some(Translation {
+            catalog: "./i18n/customer.<locale>.json".to_owned(),
+            keys: Vec::new(),
+        });
+
+        assert!(emit_files(&feature).is_empty());
     }
 
     #[test]
