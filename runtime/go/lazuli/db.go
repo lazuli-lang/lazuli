@@ -14,6 +14,41 @@ import (
 // `Boot(...)` at startup; commands and queries pull connections from here.
 var dbPool *pgxpool.Pool
 
+// NewPool opens a Postgres pool with Lazuli runtime defaults.
+func NewPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	cfg, err := newPoolConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	return pgxpool.NewWithConfig(ctx, cfg)
+}
+
+// MustNewPool opens a Postgres pool and panics if configuration fails.
+// It is useful in main() boot paths.
+func MustNewPool(ctx context.Context, url string) *pgxpool.Pool {
+	pool, err := NewPool(ctx, url)
+	if err != nil {
+		panic(err)
+	}
+	return pool
+}
+
+func newPoolConfig(url string) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.MaxConns = 25
+	cfg.MinConns = 2
+	cfg.MaxConnLifetime = 30 * time.Minute
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.HealthCheckPeriod = time.Minute
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	return cfg, nil
+}
+
 // DB returns the active connection pool. Panics if `Boot` has not been
 // called — generated code only reaches DB through the runtime, so a missing
 // pool is a programming error, not a user error.
