@@ -16,7 +16,25 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const lazuliVersion = "v0.1.0"
+
+var healthCheckTimeout = 2 * time.Second
+
+type healthCheck func(ctx context.Context) error
+
+var healthRegistry = struct {
+	sync.RWMutex
+	db     *pgxpool.Pool
+	checks map[string]healthCheck
+}{
+	checks: make(map[string]healthCheck),
+}
 
 // HealthProbeSet is the lowered set of runtime-unit probes from
 // `app.lzi`. Codegen emits a `var HealthProbes = observability.HealthProbeSet{...}`
@@ -53,6 +71,88 @@ var (
 	// to a 503 envelope listing the failing probe names.
 	ErrReadinessUnhealthy = errors.New("lazuli/observability: readiness_unhealthy")
 )
+
+// HealthHandler returns an http.Handler suitable for mounting at /healthz.
+func HealthHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		failures := make(map[string]string)
+		for name, check := range healthChecksSnapshot() {
+			if err := runHealthCheck(r.Context(), check); err != nil {
+				failures[name] = err.Error()
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if len(failures) == 0 {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"status":  "ok",
+				"version": lazuliVersion,
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "unhealthy",
+			"checks": failures,
+		})
+	})
+}
+
+// RegisterDBCheck wires a Postgres pool into the health probe.
+func RegisterDBCheck(pool *pgxpool.Pool) {
+	healthRegistry.Lock()
+	defer healthRegistry.Unlock()
+	healthRegistry.db = pool
+}
+
+// RegisterCheck adds a named arbitrary health check.
+func RegisterCheck(name string, check func(ctx context.Context) error) {
+	healthRegistry.Lock()
+	defer healthRegistry.Unlock()
+	if check == nil {
+		delete(healthRegistry.checks, name)
+		return
+	}
+	healthRegistry.checks[name] = check
+}
+
+func healthChecksSnapshot() map[string]healthCheck {
+	healthRegistry.RLock()
+	defer healthRegistry.RUnlock()
+
+	checks := make(map[string]healthCheck, len(healthRegistry.checks)+1)
+	for name, check := range healthRegistry.checks {
+		checks[name] = check
+	}
+	if healthRegistry.db != nil {
+		pool := healthRegistry.db
+		checks["db"] = pool.Ping
+	}
+	return checks
+}
+
+func runHealthCheck(ctx context.Context, check healthCheck) error {
+	if check == nil {
+		return errors.New("health check is nil")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, healthCheckTimeout)
+	defer cancel()
+
+	errc := make(chan error, 1)
+	go func() {
+		errc <- check(ctx)
+	}()
+
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // RegisterProbes mounts the declared paths onto the provided mux.
 // Stub: full implementation (probe registry threading, slog
