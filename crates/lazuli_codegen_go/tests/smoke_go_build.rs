@@ -42,9 +42,52 @@ mod smoke {
         let repo_root = repo_root();
         let tempdir = TempDir::new(&repo_root);
 
+        generate_full_capsule(&repo_root, tempdir.path());
+
+        append_runtime_replace(&repo_root, tempdir.path());
+
+        let build = Command::new("go")
+            .current_dir(tempdir.path())
+            .env("GOFLAGS", "-mod=mod")
+            .args(["build", "./..."])
+            .output()
+            .expect("failed to run `go build ./...`");
+        assert_success("go build ./...", &build);
+    }
+
+    #[test]
+    fn full_capsule_generated_go_is_gofmt_clean() {
+        let repo_root = repo_root();
+        let tempdir = TempDir::new(&repo_root);
+
+        generate_full_capsule(&repo_root, tempdir.path());
+
+        let go_files = collect_go_files(tempdir.path());
+        assert!(
+            !go_files.is_empty(),
+            "expected generated Go files under {}",
+            tempdir.path().display()
+        );
+
+        let gofmt = Command::new("gofmt")
+            .current_dir(tempdir.path())
+            .arg("-l")
+            .args(&go_files)
+            .output()
+            .expect("failed to run `gofmt -l`");
+        assert_success("gofmt -l", &gofmt);
+
+        let listed = String::from_utf8_lossy(&gofmt.stdout);
+        assert!(
+            listed.trim().is_empty(),
+            "generated Go files are not gofmt-clean:\n{listed}"
+        );
+    }
+
+    fn generate_full_capsule(repo_root: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
-            .current_dir(&repo_root)
+            .current_dir(repo_root)
             .args([
                 "run",
                 "-q",
@@ -58,20 +101,32 @@ mod smoke {
                 "examples/full-capsule",
                 "--out",
             ])
-            .arg(tempdir.path())
+            .arg(out_dir)
             .output()
             .expect("failed to run `cargo run -p lazuli_cli --bin lazuli -- generate go`");
         assert_success("lazuli generate go examples/full-capsule", &generate);
+    }
 
-        append_runtime_replace(&repo_root, tempdir.path());
+    fn collect_go_files(root: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        collect_go_files_into(root, &mut files);
+        files.sort();
+        files
+    }
 
-        let build = Command::new("go")
-            .current_dir(tempdir.path())
-            .env("GOFLAGS", "-mod=mod")
-            .args(["build", "./..."])
-            .output()
-            .expect("failed to run `go build ./...`");
-        assert_success("go build ./...", &build);
+    fn collect_go_files_into(dir: &Path, files: &mut Vec<PathBuf>) {
+        for entry in
+            fs::read_dir(dir).unwrap_or_else(|err| panic!("reading {}: {err}", dir.display()))
+        {
+            let entry =
+                entry.unwrap_or_else(|err| panic!("reading entry in {}: {err}", dir.display()));
+            let path = entry.path();
+            if path.is_dir() {
+                collect_go_files_into(&path, files);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("go") {
+                files.push(path);
+            }
+        }
     }
 
     fn repo_root() -> PathBuf {

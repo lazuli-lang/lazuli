@@ -184,13 +184,34 @@ fn emit_sql_query(p: &mut GoPrinter, feature: &Feature, query: &SqlQuery, ctx: &
         "var {var_name} = lazuli.Query[{args_struct}, {return_type}]{{"
     ));
     p.indent();
-    emit_query_header(p, feature, &qualified_name, None, "lazuli.QuerySQL");
-    emit_scope_gaps(p, &query.scope, query.scope_override);
-    p.line(&format!(
-        "SQL:     \"./queries/{}.sql\",",
-        escape_string(&query.name)
-    ));
-    p.line(&format!("Returns: \"{}\",", escape_string(&returns_name)));
+    let mut rows = query_header_rows(feature, &qualified_name, None, "lazuli.QuerySQL");
+    if query.scope.is_empty() && !query.scope_override {
+        rows.push((
+            "SQL:".to_owned(),
+            format!("\"./queries/{}.sql\",", escape_string(&query.name)),
+        ));
+        rows.push((
+            "Returns:".to_owned(),
+            format!("\"{}\",", escape_string(&returns_name)),
+        ));
+        emit_keyed_rows(p, &rows);
+    } else {
+        emit_keyed_rows(p, &rows);
+        emit_scope_gaps(p, &query.scope, query.scope_override);
+        emit_keyed_rows(
+            p,
+            &[
+                (
+                    "SQL:".to_owned(),
+                    format!("\"./queries/{}.sql\",", escape_string(&query.name)),
+                ),
+                (
+                    "Returns:".to_owned(),
+                    format!("\"{}\",", escape_string(&returns_name)),
+                ),
+            ],
+        );
+    }
     if let Some(cache) = &query.cache {
         emit_cache(p, cache);
     }
@@ -205,6 +226,16 @@ fn emit_query_header(
     resource: Option<&Resource>,
     kind_const: &str,
 ) {
+    let kv_rows = query_header_rows(feature, qualified_name, resource, kind_const);
+    emit_keyed_rows(p, &kv_rows);
+}
+
+fn query_header_rows(
+    feature: &Feature,
+    qualified_name: &str,
+    resource: Option<&Resource>,
+    kind_const: &str,
+) -> Vec<(String, String)> {
     let mut kv_rows: Vec<(String, String)> = Vec::new();
     kv_rows.push(("Name:".to_owned(), format!("\"{qualified_name}\",")));
     if let Some(resource) = resource {
@@ -222,8 +253,12 @@ fn emit_query_header(
     };
     kv_rows.push(("Policy:".to_owned(), policy));
 
-    let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-    for (key, value) in &kv_rows {
+    kv_rows
+}
+
+fn emit_keyed_rows(p: &mut GoPrinter, rows: &[(String, String)]) {
+    let key_width = rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    for (key, value) in rows {
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
@@ -1169,8 +1204,8 @@ mod tests {
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
         assert!(out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{"));
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
-        assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
-        assert!(out.contains("Returns: \"CustomerLtv[]\","));
+        assert!(out.contains("SQL:      \"./queries/lifetime_value.sql\","));
+        assert!(out.contains("Returns:  \"CustomerLtv[]\","));
         assert!(out.contains("// TODO(runtime): quoted QueryCache.ttl"));
     }
 

@@ -155,7 +155,7 @@ fn emit_command(p: &mut GoPrinter, feature: &Feature, command: &Command, ctx: &T
                 command.name
             ));
             p.line("// expand against the targeted resource fields (proposal §3.2).");
-            p.line(&format!("type {input_struct} struct {{}}"));
+            p.line(&format!("type {input_struct} struct{{}}"));
             p.blank();
             input_struct
         }
@@ -315,9 +315,7 @@ fn emit_creates_effect(
         "Effect: lazuli.Creates(&{resource_var}, lazuli.Bindings{{"
     ));
     p.indent();
-    for assignment in &create.assignments {
-        p.line(&format_binding_row(assignment, let_bindings));
-    }
+    emit_binding_rows(p, &create.assignments, let_bindings);
     p.dedent();
     p.line("}),");
 }
@@ -336,9 +334,7 @@ fn emit_updates_effect(
     p.line("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},");
     p.line("lazuli.Bindings{");
     p.indent();
-    for assignment in &update.assignments {
-        p.line(&format_binding_row(assignment, let_bindings));
-    }
+    emit_binding_rows(p, &update.assignments, let_bindings);
     p.dedent();
     p.line("},");
     p.dedent();
@@ -356,20 +352,69 @@ fn emit_deletes_effect(p: &mut GoPrinter, _delete: &DeleteEffect) {
     p.line("}),");
 }
 
-/// Render one `Bindings` entry from an `Assignment`. Walks the Expr
-/// shape to pick the right Lazuli Go lib `From*` constructor.
-fn format_binding_row(assignment: &Assignment, let_bindings: &BTreeMap<&str, &Expr>) -> String {
-    let column = assignment.field.to_ascii_lowercase();
-    let value_repr = format_binding_source(&assignment.value, let_bindings);
-    format!("\"{column}\": {value_repr},")
+/// Render `Bindings` entries from assignments. Walks each Expr shape
+/// to pick the right Lazuli Go lib `From*` constructor, then aligns the
+/// map keys the same way gofmt does.
+fn emit_binding_rows(
+    p: &mut GoPrinter,
+    assignments: &[Assignment],
+    let_bindings: &BTreeMap<&str, &Expr>,
+) {
+    let rows: Vec<BindingRow> = assignments
+        .iter()
+        .map(|assignment| binding_row(assignment, let_bindings))
+        .collect();
+    let key_width = rows.iter().map(|row| row.key.len()).max().unwrap_or(0);
+    for row in rows {
+        let comment = row
+            .comment
+            .map(|comment| format!(" {comment}"))
+            .unwrap_or_default();
+        p.line(&format!(
+            "{key:<key_width$} {value},{comment}",
+            key = row.key,
+            key_width = key_width,
+            value = row.value,
+            comment = comment,
+        ));
+    }
 }
 
-fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> String {
+struct BindingRow {
+    key: String,
+    value: String,
+    comment: Option<String>,
+}
+
+fn binding_row(assignment: &Assignment, let_bindings: &BTreeMap<&str, &Expr>) -> BindingRow {
+    let column = assignment.field.to_ascii_lowercase();
+    let key = format!("\"{column}\":");
+    let value = format_binding_source(&assignment.value, let_bindings);
+    BindingRow {
+        key,
+        value: value.expr,
+        comment: value.comment,
+    }
+}
+
+struct BindingValue {
+    expr: String,
+    comment: Option<String>,
+}
+
+fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> BindingValue {
+    fn plain(expr: String) -> BindingValue {
+        BindingValue {
+            expr,
+            comment: None,
+        }
+    }
+
     match expr {
         Expr::Path(path) => format_path_source(&path.segments, let_bindings),
-        Expr::String(s) => format!("lazuli.FromConst(\"{}\")", escape_string(s)),
-        Expr::Integer(n) => format!("lazuli.FromConst({n})"),
-        Expr::Boolean(b) => format!("lazuli.FromConst({b})"),
+        Expr::String(s) => plain(format!("lazuli.FromConst(\"{}\")", escape_string(s))),
+        Expr::Integer(n) => plain(format!("lazuli.FromConst({n})")),
+        Expr::Boolean(b) => plain(format!("lazuli.FromConst({b})")),
         Expr::Enum(literal) => {
             let qualifier = literal
                 .type_name
@@ -377,30 +422,28 @@ fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> S
                 .map(|q| pascal_case(&q.name))
                 .unwrap_or_default();
             if qualifier.is_empty() {
-                format!("lazuli.FromConst(\"{}\")", literal.variant)
+                plain(format!("lazuli.FromConst(\"{}\")", literal.variant))
             } else {
-                format!(
+                plain(format!(
                     "lazuli.FromConst({}{})",
                     qualifier,
                     pascal_case(&literal.variant)
-                )
+                ))
             }
         }
-        Expr::Nil => "lazuli.FromConst(nil)".to_owned(),
+        Expr::Nil => plain("lazuli.FromConst(nil)".to_owned()),
     }
 }
 
 /// Classify a `Path` (e.g. `input.name`, `ctx.user`, `route.id`) into
 /// the matching Lazuli Go lib source constructor.
-fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>) -> String {
+fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>) -> BindingValue {
     if let [name] = segments {
         if let Some(target_expr) = let_bindings.get(name.as_str()) {
-            return format!(
-                "lazuli.FromConst(\"{}\") /* let {} = {} */",
-                escape_string(name),
-                name,
-                format_expr(target_expr)
-            );
+            return BindingValue {
+                expr: format!("lazuli.FromConst(\"{}\")", escape_string(name)),
+                comment: Some(format!("/* let {} = {} */", name, format_expr(target_expr))),
+            };
         }
     }
 
@@ -411,15 +454,30 @@ fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>)
         String::new()
     };
     match head {
-        "input" => format!("lazuli.FromInput(\"{tail}\")"),
-        "ctx" => format!("lazuli.FromCtx(\"{tail}\")"),
-        "target" => format!("lazuli.FromTarget(\"{tail}\")"),
-        "route" => format!("lazuli.FromInput(\"{tail}\")"),
+        "input" => BindingValue {
+            expr: format!("lazuli.FromInput(\"{tail}\")"),
+            comment: None,
+        },
+        "ctx" => BindingValue {
+            expr: format!("lazuli.FromCtx(\"{tail}\")"),
+            comment: None,
+        },
+        "target" => BindingValue {
+            expr: format!("lazuli.FromTarget(\"{tail}\")"),
+            comment: None,
+        },
+        "route" => BindingValue {
+            expr: format!("lazuli.FromInput(\"{tail}\")"),
+            comment: None,
+        },
         _ => {
             // Fallback: surface as a constant string so the output
             // remains Go-valid. Cell I4 will upgrade this to a hard
             // diagnostic for unresolved binding sources.
-            format!("lazuli.FromConst(\"{}\")", segments.join("."))
+            BindingValue {
+                expr: format!("lazuli.FromConst(\"{}\")", segments.join(".")),
+                comment: None,
+            }
         }
     }
 }
@@ -1101,7 +1159,7 @@ mod tests {
         assert!(out.contains("RateLimit: lazuli.RateLimit(\"30 per hour per ip\"),"));
         // Effect block — Creates with two FromInput bindings.
         assert!(out.contains("Effect: lazuli.Creates(&customerResource, lazuli.Bindings{"));
-        assert!(out.contains("\"name\": lazuli.FromInput(\"name\"),"));
+        assert!(out.contains("\"name\":  lazuli.FromInput(\"name\"),"));
         assert!(out.contains("\"email\": lazuli.FromInput(\"email\"),"));
     }
 
@@ -1127,7 +1185,7 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(
             out.contains(
-                "\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"
+                "\"tier\": lazuli.FromConst(\"new_tier\"), /* let new_tier = input.tier */"
             )
         );
     }

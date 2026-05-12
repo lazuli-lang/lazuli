@@ -245,13 +245,10 @@ fn emit_resource(
     p.line("}");
     p.blank();
 
-    // Resource[T] value. Keys are column-aligned so the value literal
-    // reads as a stable table. Include `Retention` in the width pass
-    // when present so the runtime lifecycle metadata sits in the same
-    // contract table as Name / Feature / Tenancy / SoftDelete.
-    p.line(&format!(
-        "var {var_name} = lazuli.Resource[{pascal}]{{"
-    ));
+    // Resource[T] value. Simple keys are column-aligned so the value
+    // literal reads as a stable table. `Retention` starts a nested
+    // literal, and gofmt treats that as a separate alignment group.
+    p.line(&format!("var {var_name} = lazuli.Resource[{pascal}]{{"));
     p.indent();
     let tenancy_const = tenancy_const(effective_tenancy(feature, resource));
     let mut kv_rows: Vec<(String, String)> = vec![
@@ -262,25 +259,13 @@ fn emit_resource(
     if resource.soft_delete {
         kv_rows.push(("SoftDelete:".to_owned(), "true,".to_owned()));
     }
-    let retention_key = resource.retention.as_ref().map(|_| "Retention:");
-    let key_width = kv_rows
-        .iter()
-        .map(|(k, _)| k.len())
-        .chain(retention_key.map(str::len))
-        .max()
-        .unwrap_or(0);
+    let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
     if let Some(retention) = &resource.retention {
-        let key = "Retention:";
-        let pad = key_width.saturating_sub(key.len());
-        p.line(&format!(
-            "{}{} &lazuli.RetentionSpec{{",
-            key,
-            " ".repeat(pad)
-        ));
+        p.line("Retention: &lazuli.RetentionSpec{");
         p.indent();
         p.line(&format!(
             "Window: lazuli.Duration(\"{}\"),",
@@ -372,17 +357,11 @@ struct TaggedField {
     comment: Option<String>,
 }
 
-/// Emit the struct body. Every data row pulls its column widths from
-/// a single global pass over the typed fields so the `name`, `type`,
-/// and `tag` columns stay aligned even when a stand-alone comment row
-/// interrupts the visual block (gofmt resets alignment across comments
-/// — we keep it consistent to mirror the runtime-spike fixture).
+/// Emit the struct body. Comments split gofmt alignment groups, so
+/// name/type column widths are computed per contiguous data run. The
+/// `db` tag segment is padded globally because it lives inside the raw
+/// struct tag string, which gofmt does not rewrite.
 fn write_struct_rows(p: &mut GoPrinter, tagged: &[TaggedField]) {
-    // Two-pass: build rendered rows first so we can compute global
-    // name/type/tag widths, then emit with `aligned_struct_rows` for
-    // contiguous data slices (comments interrupt the slice, but each
-    // slice is rendered with the *global* widths so columns line up
-    // across the comment line).
     let max_db_width = tagged
         .iter()
         .filter(|f| f.comment.is_none())
@@ -391,7 +370,11 @@ fn write_struct_rows(p: &mut GoPrinter, tagged: &[TaggedField]) {
         .unwrap_or(0);
 
     enum Row {
-        Data { name: String, ty: String, tag: String },
+        Data {
+            name: String,
+            ty: String,
+            tag: String,
+        },
         Comment(String),
     }
 
@@ -407,27 +390,26 @@ fn write_struct_rows(p: &mut GoPrinter, tagged: &[TaggedField]) {
         })
         .collect();
 
-    let name_width = rows
-        .iter()
-        .filter_map(|r| match r {
-            Row::Data { name, .. } => Some(name.len()),
-            _ => None,
-        })
-        .max()
-        .unwrap_or(0);
-    let ty_width = rows
-        .iter()
-        .filter_map(|r| match r {
-            Row::Data { ty, .. } => Some(ty.len()),
-            _ => None,
-        })
-        .max()
-        .unwrap_or(0);
+    fn emit_data_run(p: &mut GoPrinter, run: &[&Row]) {
+        let name_width = run
+            .iter()
+            .filter_map(|r| match r {
+                Row::Data { name, .. } => Some(name.len()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        let ty_width = run
+            .iter()
+            .filter_map(|r| match r {
+                Row::Data { ty, .. } => Some(ty.len()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
 
-    for row in &rows {
-        match row {
-            Row::Comment(text) => p.line(text),
-            Row::Data { name, ty, tag } => {
+        for row in run {
+            if let Row::Data { name, ty, tag } = row {
                 let mut scratch = String::with_capacity(name_width + ty_width + tag.len() + 4);
                 let _ = write!(
                     scratch,
@@ -442,6 +424,19 @@ fn write_struct_rows(p: &mut GoPrinter, tagged: &[TaggedField]) {
             }
         }
     }
+
+    let mut data_run: Vec<&Row> = Vec::new();
+    for row in &rows {
+        match row {
+            Row::Comment(text) => {
+                emit_data_run(p, &data_run);
+                data_run.clear();
+                p.line(text);
+            }
+            Row::Data { .. } => data_run.push(row),
+        }
+    }
+    emit_data_run(p, &data_run);
 }
 
 /// Format the `db:"…"` token segment (no surrounding back-ticks). Used
@@ -886,7 +881,7 @@ mod tests {
         feature.resources.push(resource);
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("SoftDelete: true,"));
-        assert!(out.contains("Retention:  &lazuli.RetentionSpec{"));
+        assert!(out.contains("Retention: &lazuli.RetentionSpec{"));
         assert!(out.contains("Window: lazuli.Duration(\"30d\"),"));
         assert!(out.contains("Then:   lazuli.Delete,"));
     }
