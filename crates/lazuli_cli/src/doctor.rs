@@ -754,6 +754,8 @@ impl DoctorPackage {
             &self.approval_presences,
         ));
 
+        diagnostics.extend(app_urls_missing_diagnostics(self.app.as_ref()));
+
         // Cut A.11 — `cors` block cross-checks against the app's
         // declared environments + urls.
         diagnostics.extend(cors_diagnostics(self.app.as_ref()));
@@ -5945,6 +5947,26 @@ fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> {
     audiences
 }
 
+fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+    let Some(app_manifest) = app else {
+        return Vec::new();
+    };
+    if !app_manifest.manifest.urls.is_empty() {
+        return Vec::new();
+    }
+
+    vec![DoctorDiagnostic {
+        path: app_manifest.path.clone(),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Warning,
+        code: "app_urls_missing".to_owned(),
+        message: APP_URLS_MISSING_MESSAGE.to_owned(),
+    }]
+}
+
+const APP_URLS_MISSING_MESSAGE: &str = "app declares no `urls` block — auth callbacks, CORS allowlist, and frontend redirect targets cannot be configured. Add a `urls` block to app.lzi with at least one environment URL (e.g., `urls\n  dev: \"http://localhost:3000\"`).";
+
 // -----------------------------------------------------------------------------
 // Cut A.11 — `cors` block cross-feature checks
 //
@@ -9746,6 +9768,8 @@ app AcmeCRM
     backend go
   environments
     production
+  urls
+    api production "https://api.acme.example"
   runtime
     unit api
       serves commands
@@ -9792,6 +9816,8 @@ app AcmeCRM
     backend go
   environments
     production
+  urls
+    api production "https://api.acme.example"
   runtime
     unit api
       serves commands
@@ -10009,6 +10035,8 @@ app AcmeCRM
     backend go
   environments
     production
+  urls
+    api production "https://api.acme.example"
   runtime
     unit worker
       runs jobs *
@@ -10110,6 +10138,8 @@ app AcmeCRM
   environments
     local
     production
+  urls
+    api production "https://api.acme.example"
   runtime
     unit worker
       runs jobs *
@@ -10408,6 +10438,8 @@ contract acme.ai.v1
         diagnostics.iter().map(|d| d.code.as_str()).collect()
     }
 
+    const APP_URLS_MISSING_FIXTURE: &str = "app MyApp\n";
+
     const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/semantic_unknown.lzi");
 
     #[test]
@@ -10528,7 +10560,6 @@ feature identity
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
-
 
     #[test]
     fn doctor_rejects_tool_with_stricter_policy_than_agent() {
@@ -10724,6 +10755,26 @@ feature customer
             "expected eval_ordered_op_invalid_diagnostics; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn doctor_warns_when_app_urls_missing_or_empty() {
+        for source in [APP_URLS_MISSING_FIXTURE, "app MyApp\n  urls\n"] {
+            let package = package_from_sources(vec![("app.lzi", source)]);
+            let diagnostics = package.diagnostics();
+            let diagnostic = diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code == "app_urls_missing")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected app_urls_missing; got {:?}",
+                        diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+                    )
+                });
+
+            assert_eq!(diagnostic.severity, DoctorSeverity::Warning);
+            assert_eq!(diagnostic.message, APP_URLS_MISSING_MESSAGE);
+        }
     }
 
     #[test]
