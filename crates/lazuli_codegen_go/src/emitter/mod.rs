@@ -16,6 +16,7 @@
 pub mod api;
 pub mod auth;
 pub mod casing;
+pub mod check;
 pub mod command;
 pub mod cross_feature;
 pub mod enums;
