@@ -1,0 +1,34 @@
+registry
+  env
+    group mercadopago
+      server MERCADOPAGO_ACCESS_TOKEN: Secret required in production
+      server MERCADOPAGO_WEBHOOK_SECRET: Secret required in production
+
+  capabilities
+    payment_gateway mercadopago
+
+  packs
+    hostpoint from @plugin/hostpoint/mini
+      version "0.1.0"
+      provides feature account
+      provides feature property
+      provides feature service
+      provides feature payment
+      requires integration mercadopago: PaymentGateway
+
+  integrations
+    mercadopago: PaymentGateway
+      adapter @plugin/hostpoint/mercadopago
+      environments sandbox, production
+      credentials platform
+        access_token env.MERCADOPAGO_ACCESS_TOKEN
+        webhook_secret env.MERCADOPAGO_WEBHOOK_SECRET
+
+  webhook_events
+    mercadopago_payment
+      id: Text required
+      external_reference: Text required
+      status: Text required
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      received_at: Timestamp required

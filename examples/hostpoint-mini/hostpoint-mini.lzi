@@ -1,0 +1,74 @@
+feature account
+  purpose "User identity for the Hostpoint mini fixture."
+
+  domain
+    resource User
+      email: @semantic.Email @pii.contact required unique
+      name: Text required
+      retention 7y then anonymize
+
+  policies
+    read: @scope.self, @role.admin
+    update: @scope.self, @role.admin
+
+    fields User
+      email
+        read: @scope.self, @role.admin
+        write: @scope.self, @role.admin
+
+feature property
+  purpose "Host properties with owner, pricing, and geo coordinates."
+
+  uses account
+
+  domain
+    resource Property
+      owner: User required
+      title: Text required
+      price: @semantic.Money required
+      currency: @semantic.Currency required
+      location: @semantic.GeoPoint required
+      created_at: DateTime required
+
+feature service
+  purpose "Booking service for a guest, property, stay window, and amount."
+
+  uses account, property
+
+  domain
+    resource Service
+      guest: User required
+      property: Property required
+      check_in: Date required
+      check_out: Date required
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      payment_reference: Text optional
+
+feature payment
+  purpose "Mercado Pago payment callback handling for bookings."
+
+  defaults
+    policy_for webhooks: @actor.system
+
+  uses service
+
+  requires integration mercadopago: PaymentGateway
+
+  domain
+    event payment_received
+      service_id: ID
+      external_reference: Text
+      amount: @semantic.Money
+      currency: @semantic.Currency
+
+  webhook mercadopago_callback
+    path "/webhooks/mercadopago"
+    payload from webhook_events.mercadopago_payment
+    verify hmac sha256
+      secret env.MERCADOPAGO_WEBHOOK_SECRET
+      header "X-Signature"
+    tenant_from payload.external_reference
+    idempotency by payload.id
+    handler "./webhooks/mercadopago_callback.go"
+    emits payment_received

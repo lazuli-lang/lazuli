@@ -1,0 +1,35 @@
+app HostpointMini
+  uses
+    account
+    property
+    service
+    payment
+
+  packs
+    hostpoint from registry.packs.hostpoint
+
+  bindings
+    hostpoint.mercadopago = integrations.mercadopago
+    payment.mercadopago = integrations.mercadopago
+
+  targets
+    backend go
+    web react
+
+  environments
+    local
+    production
+
+  urls
+    web local "http://localhost:3000"
+    api local "http://localhost:3000"
+
+  runtime
+    unit api
+      serves webhooks
+      healthcheck "/healthz"
+
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+    strategy rolling
