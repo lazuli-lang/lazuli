@@ -50,6 +50,7 @@ use lazuli_ir::{
     Feature, IdempotencyKey, InvalidatesSpec, NamedArg, Path, PolicyRef, QualifiedName,
     RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
 };
+use std::collections::BTreeMap;
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
@@ -206,7 +207,12 @@ fn emit_command(p: &mut GoPrinter, feature: &Feature, command: &Command, ctx: &T
 
     // Effect block — multi-line. Emitted unaligned (independent
     // formatting from the kv block above).
-    emit_effect(p, &command.effect, ctx);
+    let let_bindings: BTreeMap<&str, &Expr> = command
+        .lets
+        .iter()
+        .map(|binding| (binding.name.as_str(), &binding.value))
+        .collect();
+    emit_effect(p, &command.effect, ctx, &let_bindings);
 
     // Emits block.
     if !command.emits.is_empty() {
@@ -260,10 +266,15 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
 /// Emit the Effect literal — picks one of Lazuli Go lib's `Creates`,
 /// `Updates`, `Deletes` builders or falls through with a TODO comment
 /// for `Returns`/`None`.
-fn emit_effect(p: &mut GoPrinter, effect: &CommandEffect, ctx: &TypeCtx<'_>) {
+fn emit_effect(
+    p: &mut GoPrinter,
+    effect: &CommandEffect,
+    ctx: &TypeCtx<'_>,
+    let_bindings: &BTreeMap<&str, &Expr>,
+) {
     match effect {
-        CommandEffect::Creates(create) => emit_creates_effect(p, create),
-        CommandEffect::Updates(update) => emit_updates_effect(p, update),
+        CommandEffect::Creates(create) => emit_creates_effect(p, create, let_bindings),
+        CommandEffect::Updates(update) => emit_updates_effect(p, update, let_bindings),
         CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete),
         CommandEffect::Returns(ret) => {
             // `Returns` doesn't fit the side-effect axis; the runtime
@@ -282,7 +293,11 @@ fn emit_effect(p: &mut GoPrinter, effect: &CommandEffect, ctx: &TypeCtx<'_>) {
     }
 }
 
-fn emit_creates_effect(p: &mut GoPrinter, create: &CreateEffect) {
+fn emit_creates_effect(
+    p: &mut GoPrinter,
+    create: &CreateEffect,
+    let_bindings: &BTreeMap<&str, &Expr>,
+) {
     let resource_var = resource_var_for_qname(&create.resource);
     if create.assignments.is_empty() && create.from_input {
         // `creates Customer from input` — bind every input field by
@@ -301,13 +316,17 @@ fn emit_creates_effect(p: &mut GoPrinter, create: &CreateEffect) {
     ));
     p.indent();
     for assignment in &create.assignments {
-        p.line(&format_binding_row(assignment));
+        p.line(&format_binding_row(assignment, let_bindings));
     }
     p.dedent();
     p.line("}),");
 }
 
-fn emit_updates_effect(p: &mut GoPrinter, update: &UpdateEffect) {
+fn emit_updates_effect(
+    p: &mut GoPrinter,
+    update: &UpdateEffect,
+    let_bindings: &BTreeMap<&str, &Expr>,
+) {
     let resource_var = resource_var_for_qname(&update.resource);
     // Lazuli Go lib `Updates` takes (resource, where, bind). For E3 we
     // assume the implicit `id` route slot drives WHERE; if the IR ever
@@ -318,7 +337,7 @@ fn emit_updates_effect(p: &mut GoPrinter, update: &UpdateEffect) {
     p.line("lazuli.Bindings{");
     p.indent();
     for assignment in &update.assignments {
-        p.line(&format_binding_row(assignment));
+        p.line(&format_binding_row(assignment, let_bindings));
     }
     p.dedent();
     p.line("},");
@@ -339,15 +358,15 @@ fn emit_deletes_effect(p: &mut GoPrinter, _delete: &DeleteEffect) {
 
 /// Render one `Bindings` entry from an `Assignment`. Walks the Expr
 /// shape to pick the right Lazuli Go lib `From*` constructor.
-fn format_binding_row(assignment: &Assignment) -> String {
+fn format_binding_row(assignment: &Assignment, let_bindings: &BTreeMap<&str, &Expr>) -> String {
     let column = assignment.field.to_ascii_lowercase();
-    let value_repr = format_binding_source(&assignment.value);
+    let value_repr = format_binding_source(&assignment.value, let_bindings);
     format!("\"{column}\": {value_repr},")
 }
 
-fn format_binding_source(expr: &Expr) -> String {
+fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> String {
     match expr {
-        Expr::Path(path) => format_path_source(&path.segments),
+        Expr::Path(path) => format_path_source(&path.segments, let_bindings),
         Expr::String(s) => format!("lazuli.FromConst(\"{}\")", escape_string(s)),
         Expr::Integer(n) => format!("lazuli.FromConst({n})"),
         Expr::Boolean(b) => format!("lazuli.FromConst({b})"),
@@ -373,7 +392,18 @@ fn format_binding_source(expr: &Expr) -> String {
 
 /// Classify a `Path` (e.g. `input.name`, `ctx.user`, `route.id`) into
 /// the matching Lazuli Go lib source constructor.
-fn format_path_source(segments: &[String]) -> String {
+fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>) -> String {
+    if let [name] = segments {
+        if let Some(target_expr) = let_bindings.get(name.as_str()) {
+            return format!(
+                "lazuli.FromConst(\"{}\") /* let {} = {} */",
+                escape_string(name),
+                name,
+                format_expr(target_expr)
+            );
+        }
+    }
+
     let head = segments.first().map(|s| s.as_str()).unwrap_or("");
     let tail = if segments.len() > 1 {
         segments[1..].join(".")
@@ -837,9 +867,9 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
-        DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, IdempotencyKey, Module,
-        NamedArg, Path, Policies, QualifiedName, Record, Resource, RetryPolicy, RouteSlot, Tenancy,
-        TypeRef, UpdateEffect,
+        DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, IdempotencyKey, LetBinding,
+        Module, NamedArg, Path, Policies, QualifiedName, Record, Resource, RetryPolicy, RouteSlot,
+        Tenancy, TypeRef, UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -1062,7 +1092,9 @@ mod tests {
         assert!(out.contains("`json:\"email\"`"));
         assert!(out.contains("Email lazuli.Email"));
         // Command value shape.
-        assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
+        assert!(
+            out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
+        );
         assert!(out.contains("Name:      \"customer.create\","));
         assert!(out.contains("Resource:  &customerResource,"));
         assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
@@ -1071,6 +1103,33 @@ mod tests {
         assert!(out.contains("Effect: lazuli.Creates(&customerResource, lazuli.Bindings{"));
         assert!(out.contains("\"name\": lazuli.FromInput(\"name\"),"));
         assert!(out.contains("\"email\": lazuli.FromInput(\"email\"),"));
+    }
+
+    #[test]
+    fn bare_identifier_binding_source_traces_command_let() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.input = CommandInput::Typed(vec![typed_slot("tier", BuiltinType::Text, true)]);
+        cmd.lets = vec![LetBinding {
+            name: "new_tier".to_owned(),
+            value: Expr::Path(Path::from_segments(["input", "tier"])),
+        }];
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "tier".to_owned(),
+                value: Expr::Path(Path::from_segments(["new_tier"])),
+            }],
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"
+            )
+        );
     }
 
     #[test]
