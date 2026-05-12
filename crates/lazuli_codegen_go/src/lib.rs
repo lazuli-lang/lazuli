@@ -30,7 +30,13 @@ use lazuli_ir::{BuiltinType, CommandInput, Field, Module, Resource, TypeRef};
 /// Crate-pinned default version constraint emitted in the generated
 /// `go.mod`'s `require lazuli.dev/runtime/lazuli` line. `lazuli
 /// generate go` accepts `--lazuli-go-version` to override; this
-/// constant is the fallback. Bumped together with the Lazuli Go lib.
+/// constant is the fallback.
+///
+/// **Source of truth**: `runtime/go/VERSION` (single line, e.g.
+/// `v0.1.0`). This const must match — bumped together with the Lazuli
+/// Go lib via `version_pin_matches_runtime` in
+/// `tests/version_pin.rs`. The intent is so a Lazuli Go release tag
+/// and the codegen's default `go.mod` requirement move atomically.
 pub const LAZULI_GO_VERSION: &str = "v0.1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
