@@ -13,6 +13,7 @@
 //! EventGroup) land in subsequent cells (E2-E4, G1-G7); their
 //! modules will live as sibling files inside this directory.
 
+pub mod enums;
 pub mod imports;
 pub mod module;
 pub mod printer;

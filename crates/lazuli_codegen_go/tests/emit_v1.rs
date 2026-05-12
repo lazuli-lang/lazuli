@@ -14,7 +14,8 @@
 
 use lazuli_codegen_go::{GoEmitOptions, LAZULI_GO_VERSION, generate_v1};
 use lazuli_ir::{
-    AppManifest, BuiltinType, Defaults, Feature, Field, Module, Policies, Resource, TypeRef,
+    AppManifest, BuiltinType, Defaults, EnumDecl, EnumVariant, Feature, Field, Module, Policies,
+    Resource, StorageValue, TypeRef,
 };
 
 fn empty_feature(name: &str) -> Feature {
@@ -248,6 +249,68 @@ fn resource_kind_skips_file_when_feature_declares_no_resources_or_records() {
             .iter()
             .all(|f| f.path != "customer/resource.gen.go"),
         "expected no resource.gen.go for an empty feature, got files: {:?}",
+        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn enum_kind_emits_typed_alias_and_const_block() {
+    // Cell E2.5 integration smoke: a feature carrying one int-typed
+    // enum surfaces an extra `<feature>/enum.gen.go` alongside the
+    // stub. Typed alias + aligned const block land per proposal §3.
+    let mut module = minimal_module("hostpoint", "customer");
+    module.features[0].enums.push(EnumDecl {
+        name: "CustomerStatus".to_owned(),
+        variants: vec![
+            EnumVariant {
+                name: "lead".to_owned(),
+                storage_value: Some(StorageValue::Integer(10)),
+                previous_names: Vec::new(),
+            },
+            EnumVariant {
+                name: "active".to_owned(),
+                storage_value: Some(StorageValue::Integer(20)),
+                previous_names: Vec::new(),
+            },
+        ],
+        previous_names: Vec::new(),
+        span_ref: None,
+    });
+
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let enum_file = files
+        .iter()
+        .find(|f| f.path == "customer/enum.gen.go")
+        .expect("expected customer/enum.gen.go alongside the stub");
+    assert!(
+        enum_file.contents.contains("type CustomerStatus int64"),
+        "expected typed alias in enum.gen.go:\n{}",
+        enum_file.contents
+    );
+    assert!(
+        enum_file.contents.contains("const ("),
+        "expected const block in enum.gen.go:\n{}",
+        enum_file.contents
+    );
+    assert!(
+        enum_file
+            .contents
+            .contains("CustomerStatusLead   CustomerStatus = 10"),
+        "expected aligned const row in enum.gen.go:\n{}",
+        enum_file.contents
+    );
+}
+
+#[test]
+fn enum_kind_skips_file_when_feature_declares_no_enums() {
+    // A bare feature should not materialise `enum.gen.go`. Mirrors
+    // the resource-side skip rule so the output listing stays
+    // signal-rich.
+    let module = minimal_module("hostpoint", "customer");
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    assert!(
+        files.iter().all(|f| f.path != "customer/enum.gen.go"),
+        "expected no enum.gen.go for an empty feature, got files: {:?}",
         files.iter().map(|f| &f.path).collect::<Vec<_>>()
     );
 }

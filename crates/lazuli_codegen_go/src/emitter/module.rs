@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::Module;
 
+use super::enums::emit_enum_file;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
 use super::resource::emit_resource_file;
@@ -69,6 +70,18 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
             let resource_path = format!("{name}/resource.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: resource_path,
+                contents,
+            });
+        }
+
+        // Cell E2.5 — `EnumDecl` emission. Per-feature typed aliases
+        // plus aligned const blocks land in a sibling `enum.gen.go`.
+        // Skipped entirely when the feature declares no enums so the
+        // output listing stays signal-rich.
+        if let Some(contents) = emit_enum_file(&source_label, feature) {
+            let enum_path = format!("{name}/enum.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: enum_path,
                 contents,
             });
         }
