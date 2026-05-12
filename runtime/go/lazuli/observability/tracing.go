@@ -11,6 +11,16 @@ package observability
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
+	"strings"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 // TracingContract is the lowered `app.tracing` block from `app.lzi`.
@@ -56,6 +66,37 @@ var (
 	ErrTracerNotConfigured = errors.New("lazuli/observability: tracer_not_configured")
 )
 
+// Configure wires the global TracerProvider from the contract. Call
+// once at boot. Returns a shutdown fn the caller defers.
+func Configure(ctx context.Context, contract TracingContract, serviceName string) (shutdown func(context.Context) error, err error) {
+	if isNoopTracingExporter(contract.Exporter) {
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
+		configureTracingPropagation(contract.Propagate)
+		otel.SetTracerProvider(tp)
+		return tp.Shutdown, nil
+	}
+	if !isOTLPHTTPTracingExporter(contract.Exporter) {
+		return nil, fmt.Errorf("%w: %s", ErrTracerNotConfigured, contract.Exporter)
+	}
+
+	exporter, err := otlptracehttp.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(serviceName),
+		)),
+		sdktrace.WithSampler(tracingSampler(contract.SampleRate)),
+	)
+	configureTracingPropagation(contract.Propagate)
+	otel.SetTracerProvider(tp)
+	return tp.Shutdown, nil
+}
+
 // NewTracer materialises a `TracerContract` from a `TracingContract`.
 // Stub: full implementation (resolve adapter slot, build OTel
 // `TracerProvider`, register propagator) lands with the runtime team.
@@ -99,6 +140,50 @@ func Trace(ctx context.Context, tracer TracerContract, name string, fn func(cont
 // Concrete adapters supply their own implementation.
 type noopSpan struct{}
 
-func (noopSpan) End()                       {}
-func (noopSpan) SetError(err error)         { _ = err }
+func (noopSpan) End()                         {}
+func (noopSpan) SetError(err error)           { _ = err }
 func (noopSpan) SetAttribute(_ string, _ any) {}
+
+func configureTracingPropagation(propagate bool) {
+	if !propagate {
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+		return
+	}
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+}
+
+func tracingSampler(sampleRate float64) sdktrace.Sampler {
+	switch {
+	case math.IsNaN(sampleRate) || sampleRate <= 0:
+		return sdktrace.NeverSample()
+	case sampleRate >= 1:
+		return sdktrace.AlwaysSample()
+	default:
+		return sdktrace.TraceIDRatioBased(sampleRate)
+	}
+}
+
+func isNoopTracingExporter(exporter string) bool {
+	switch normalizeTracingExporter(exporter) {
+	case "", "noop":
+		return true
+	default:
+		return false
+	}
+}
+
+func isOTLPHTTPTracingExporter(exporter string) bool {
+	switch normalizeTracingExporter(exporter) {
+	case "otel", "opentelemetry", "otlp", "otlp-http", "otlphttp", "otlptracehttp":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeTracingExporter(exporter string) string {
+	return strings.ToLower(strings.TrimSpace(exporter))
+}
