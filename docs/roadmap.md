@@ -34,8 +34,8 @@ Estado honesto agora:
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Depois da reconciliação c151-c180,
-  este arquivo mostra 101 feitos / 426 totais. Itens compostos parcialmente
+  ainda não tinha acompanhado as batches. Depois da reconciliação c181-c225,
+  este arquivo mostra 132 feitos / 426 totais. Itens compostos parcialmente
   feitos continuam abertos com nota.
 - Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
   c151-c180.
@@ -54,14 +54,22 @@ Estado honesto agora:
   auth, property, service/booking, payment, review, chat e notification estão
   modelados; isso ainda **não** significa que o produto Hostpoint real foi
   migrado.
+- A batch c181-c225 foi deliberadamente de **framework/Lazurite readiness**:
+  45 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
+  jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen.
+  Nenhum trabalho de port do Hostpoint real foi iniciado.
 
-Fronteira imediata antes de mais expansão horizontal:
+Fronteira imediata antes de qualquer port real:
 
-1. Rodar um happy path gerado de Hostpoint-mini contra runtime local
-   (login/session + uma query + um command).
-2. Iniciar Phase 1 do port real: migrar o source Hostpoint para `.lzi`,
-   começando por auth/users/sessions.
-3. Atualizar este roadmap e `docs/hostpoint-port-checklist.md` junto de cada
+1. Estruturar o framework Lazuli/Lazurite em torno dos helpers já criados:
+   decidir quais viram contratos de codegen, quais ficam runtime-only e quais
+   entram em adapter packs.
+2. Rodar um happy path gerado de Hostpoint-mini contra runtime local
+   (login/session + uma query + um command) como prova de framework, não como
+   port do produto.
+3. Adiar Phase 1 do port real até o framework estar coeso; este fluxo não
+   migra o app Hostpoint original.
+4. Atualizar este roadmap e `docs/hostpoint-port-checklist.md` junto de cada
    batch, não só `next-checklist.md`.
 
 Leitura rápida:
@@ -78,7 +86,7 @@ Progresso real por camada:
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
 | Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
-| Runtime Go | 340+ arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2 implementados, incluindo providers Hostpoint-needed. |
+| Runtime Go | 430+ arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
 | Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
@@ -369,7 +377,7 @@ inteira estiver entregue.
 - [ ] mTLS, ACME/Let's Encrypt, HSTS native
 - [x] Streaming / chunked / SSE — SSE helper shipped in runtime Go; chunked behavior rides stdlib `net/http`.
 - [ ] WebSocket server (sem rooms/presence — F)
-- [ ] Multipart parser robusto
+- [x] Multipart parser robusto
 - [ ] Static files com fingerprint + manifest
 - [ ] Reverse proxy + forwarded headers + real IP
 - [x] Compressão gzip native
@@ -377,8 +385,8 @@ inteira estiver entregue.
 - [x] CSRF via `net/http.CrossOriginProtection` (Go 1.26)
 - [ ] Middleware: circuit breaker, retry, body parser, validation, observability, slow request, timeout — chain/recover/request-id/CSRF/security/timeout pieces exist; full set remains open.
 - [x] Panic recovery
-- [ ] Custom error pages (renderiza decorador da linguagem)
-- [ ] Maintenance mode
+- [x] Custom error pages (renderiza decorador da linguagem)
+- [x] Maintenance mode
 
 ### 2.2 Observabilidade (P1 — bloqueia produção)
 
@@ -406,22 +414,22 @@ inteira estiver entregue.
 - [ ] Read replicas + primary/replica routing (consome decoradores da linguagem)
 - [x] Health checks
 - [x] Query logging + slow query log + query comments + query tracing (spans)
-- [ ] Prepared statements automáticos
+- [x] Prepared statements automáticos
 - [x] Nested transactions + savepoints
-- [ ] Unit of work pattern
+- [x] Unit of work pattern
 - [ ] Lazy/preloading mechanics
 - [x] Cursor + offset pagination
-- [ ] Bulk insert / update / upsert
-- [ ] Batch queries
-- [ ] Pessimistic locking (consome decorador)
-- [ ] ULID / Snowflake ID generation
+- [x] Bulk insert / update / upsert
+- [x] Batch queries
+- [x] Pessimistic locking (consome decorador)
+- [x] ULID / Snowflake ID generation
 - [x] Advisory locks
 
 ### 2.4 Migrations (P1)
 
 - [ ] SQL migrations execution (atlas-backed) — runtime SQL runner exists; atlas-backed CLI flow remains open.
 - [x] Transactional + non-transactional modes
-- [ ] Online migrations (zero-downtime helpers)
+- [x] Online migrations (zero-downtime helpers)
 - [x] Migration locking + status + rollback + redo + squashing — lock/status/rollback/reset helpers shipped; redo/squash remain future refinements.
 - [ ] Database create / drop / reset / truncate commands — reset helpers exist; CLI command set remains open.
 - [x] Seed loader
@@ -457,18 +465,18 @@ inteira estiver entregue.
 
 - [ ] Test scaffolding por kind (unit/integration/system/feature/request/controller/model/job/mailer/policy/view/component/golden/API/E2E/benchmark/fuzz)
 - [ ] `testing/synctest` integração (Go 1.26)
-- [ ] Virtualized time helpers
+- [x] Virtualized time helpers
 - [ ] `testing.ArtifactDir` + `T.Attr` + `T.Output` (Go 1.26)
 - [ ] Testcontainers integration
 - [x] Database test transactions + reset
-- [ ] Parallel test isolation
+- [x] Parallel test isolation
 - [x] Fakes: mailer, queue, cache, clock, events, HTTP client
-- [ ] HTTP recorder helpers
+- [x] HTTP recorder helpers
 - [x] Snapshot serializers
 - [ ] Mock / stub / spy codegen
 - [ ] Coverage reports
 - [ ] Race detector wiring
-- [ ] Leak detection
+- [x] Leak detection
 - [ ] Allocation assertions
 - [ ] CI test matrix templates + test sharding
 
@@ -476,10 +484,10 @@ inteira estiver entregue.
 
 - [ ] Native crypto helpers (`crypto/hpke`, `crypto/mlkem`, `crypto/tls` PQ, `crypto/fips140`)
 - [ ] `runtime/secret` integration (Go 1.26)
-- [ ] Password pepper + key derivation
+- [x] Password pepper + key derivation
 - [x] Envelope encryption
 - [ ] HTML escaping automático
-- [ ] SQL injection safeguards (codegen)
+- [x] SQL injection safeguards (codegen)
 - [ ] Safe file serving
 - [ ] Dependency vulnerability scanning hook
 - [ ] SBOM generation
@@ -496,7 +504,7 @@ inteira estiver entregue.
 - [x] Job progress reporting
 - [x] Job metrics
 - [ ] Job dashboard UI
-- [ ] Graceful worker shutdown
+- [x] Graceful worker shutdown
 
 ### 2.9 Eventos (P2)
 
@@ -506,7 +514,7 @@ inteira estiver entregue.
 ### 2.10 Cache (P2)
 
 - [x] HTTP cache
-- [ ] Fragment / query / model / view / template cache
+- [ ] Fragment / query / model / view / template cache — fragment/query helpers shipped; model/view/template cache remains open.
 - [x] Cache warming
 - [x] Cache metrics
 - [x] Two-level cache (local + remote)
@@ -524,25 +532,25 @@ inteira estiver entregue.
 - [ ] Transactional + bulk mail — Sendgrid/SMTP clients, message attachments and localized template renderer exist; bulk orchestration remains open.
 - [x] Attachments + inline attachments
 - [x] Mail previews (dev) + sandbox
-- [ ] Mail retries
-- [ ] Bounce handling
-- [ ] Unsubscribe links
+- [x] Mail retries
+- [x] Bounce handling
+- [x] Unsubscribe links
 
 ### 2.13 Realtime (P3 — Cut realtime gated)
 
 - [ ] WebSocket server completo
 - [x] SSE server
-- [ ] Pub/sub mechanics
-- [ ] Presence tracking + heartbeats
-- [ ] Reconnect handling + backpressure + connection draining
-- [ ] Realtime metrics / tracing
+- [x] Pub/sub mechanics
+- [x] Presence tracking + heartbeats
+- [x] Reconnect handling + backpressure + connection draining
+- [ ] Realtime metrics / tracing — metrics snapshots exist; tracing integration remains open.
 
 ### 2.14 APIs (P2)
 
-- [ ] OpenAPI validation + UI
+- [x] OpenAPI validation + UI
 - [x] Server stubs
 - [ ] gRPC adapter
-- [ ] JSON-RPC
+- [x] JSON-RPC
 - [ ] ConnectRPC
 - [x] Contract tests runner
 - [x] HATEOAS helpers
@@ -568,8 +576,8 @@ inteira estiver entregue.
 
 ### 2.18 Internacionalização (P3 — Cut i18n)
 
-- [ ] ICU message format
-- [ ] Pluralization + gender rules
+- [ ] ICU message format — lightweight `{name}` formatter shipped; full ICU remains open.
+- [ ] Pluralization + gender rules — integer plural helpers shipped for en/pt; gender/full CLDR remains open.
 - [x] Date / time / number / currency localization
 - [x] Timezone propagation (user + tenant)
 
@@ -595,17 +603,17 @@ inteira estiver entregue.
 
 - [x] Local storage adapter
 - [x] Direct uploads + multipart + resumable
-- [ ] File deduplication + versioning + lifecycle policies
+- [ ] File deduplication + versioning + lifecycle policies — dedup/lifecycle planning shipped; versioning remains open.
 
 ### 2.23 Busca (P3)
 
-- [ ] SQL full-text + PostgreSQL tsvector — simple SQL LIKE search helper exists; tsvector remains open.
+- [x] SQL full-text + PostgreSQL tsvector
 - [ ] Async indexing + reindex CLI
 - [ ] Search analytics
 
 ### 2.24 Relatórios (P3)
 
-- [ ] CSV / Excel / JSON / XML export
+- [ ] CSV / Excel / JSON / XML export — CSV/JSON shipped; Excel/XML remain open.
 - [ ] PDF generation
 - [ ] Report builder UI (admin gated)
 - [ ] Dashboard widgets + chart helpers
@@ -613,8 +621,8 @@ inteira estiver entregue.
 
 ### 2.25 Deploy / ops (P2 — Cut deploy)
 
-- [ ] Dockerfile + Docker Compose + Kubernetes manifests + Helm chart + systemd + Procfile generators
-- [ ] Multi-stage + distroless + static binary builds
+- [ ] Dockerfile + Docker Compose + Kubernetes manifests + Helm chart + systemd + Procfile generators — Dockerfile/Compose shipped; Kubernetes/Helm/systemd/Procfile remain open.
+- [x] Multi-stage + distroless + static binary builds
 - [ ] CGO / no-CGO modes + cross compilation
 - [ ] Release + rollback commands
 - [ ] Blue-green + canary deployment
@@ -626,14 +634,14 @@ inteira estiver entregue.
 ### 2.26 Performance (P3)
 
 - [ ] Zero-allocation hot paths
-- [ ] Pooling opt-in (`sync.Pool`)
-- [ ] Buffer pooling
+- [x] Pooling opt-in (`sync.Pool`)
+- [x] Buffer pooling
 - [ ] `sync.OnceValue` / `OnceFunc` / `WaitGroup.Go` (Go 1.26)
 - [ ] `unique` package integration
 - [ ] Fast router + params
 - [ ] Streaming parsers + backpressure
 - [ ] Connection reuse + query batching
-- [ ] N+1 detection (doctor rule)
+- [x] N+1 detection (doctor rule)
 - [ ] GC-aware defaults + Green Tea GC awareness + container-aware GOMAXPROCS
 - [ ] Memory budget config
 
@@ -654,7 +662,7 @@ inteira estiver entregue.
 - [x] Plugin API + extension/generator/middleware/driver/provider registries
 - [x] Semantic versioning + upgrade guides + LTS policy
 - [x] Internal diagnostics
-- [ ] Documentation generator + API reference generator
+- [x] Documentation generator + API reference generator
 
 ---
 

@@ -34,8 +34,11 @@ verde: `go test ./...` em `runtime/go`, `cargo test -p lazuli_codegen_go`,
 `cargo test -p lazuli_cli`, `cargo test -p lazuli_codegen_go --features smoke`
 e `lazuli check examples/hostpoint-mini`. O port real do produto Hostpoint ainda
 não começou; `hostpoint-mini` é playground de forma e smoke, não migração do app.
-Depois desta reconciliação, o checklist mostra 122 feitos / 211 totais, com os
-itens de produto real mantidos abertos quando só existe fixture/runtime.
+Depois da batch c181-c225, o foco continua sendo **framework Lazuli/Lazurite**:
+HTTP/DB/testkit/security/cache/email/jobs/storage/search/realtime/OpenAPI/i18n/
+reports/deploy/perf/authz/docgen ganharam helpers, mas nenhum source real do
+Hostpoint foi portado. Itens de produto real permanecem abertos quando só
+existe fixture/runtime.
 
 ### 1.1 Codegen Lazuli → Go (Gate fechado — ~12-15 cells)
 
@@ -291,14 +294,14 @@ migrados. A migração real começa em §3 Phase 1.
 
 ## §3. Roadmap concreto de port
 
-### Phase Prep (3 semanas, 13-17 cells)
+### Phase Prep (framework antes do port)
 
 - [x] **Codegen real** emite `dist/go/<feature>/*.gen.go` que compila
 - [ ] **Lazuli Go wire** (10+ libs Go): argon2 + pgx + chi + River + S3 + slog + OTEL + sendgrid + oauth2 + totp — all except chi decision are wired/tested
-- [ ] **Smoke test**: `examples/full-capsule/` → `go build` → roda em Docker compose local — `go build` smoke green; Docker/local app run still open
-- [x] **Decision gate**: codegen + Lazuli Go runnable até 2026-06-01? Proceed for Phase 1 planning.
+- [ ] **Smoke test**: `examples/full-capsule/` → `go build` → roda em Docker compose local — `go build` smoke green; Dockerfile/Compose helpers exist; local app run still open
+- [x] **Decision gate**: codegen + Lazuli Go runnable até 2026-06-01? Proceed for framework structuring; product port remains deferred.
 
-### Phase 1 — Auth Port (3 semanas, 6-8 cells)
+### Phase 1 — Auth Port (deferred até Lazurite/framework coeso)
 
 - [ ] Port firebase_auth → Lazuli `auth` block — modeled in `hostpoint-mini`; real source migration open
 - [ ] Port Firestore `auth_users` → `resource User` + `Session` — modeled in `hostpoint-mini`; data migration open
@@ -322,7 +325,7 @@ migrados. A migração real começa em §3 Phase 1.
 - [x] Chat + Message resources modeled in `hostpoint-mini`
 - [ ] send_message command + event_group — command/event modeled; explicit event_group open
 - [x] Notifications (Sendgrid wire)
-- [ ] **MVP polling**, realtime flagged como Phase 6
+- [ ] **MVP polling**, realtime flagged como Phase 6 — realtime pubsub/presence/backpressure helpers now exist, but no product/client wiring
 
 ### Phase 4 — Payment + Reviews (2 semanas, 7-9 cells)
 
@@ -415,10 +418,11 @@ desbloqueada.
 
 ## §7. Próximo passo concreto
 
-**HOJE** (continuação após c151-c180):
+**HOJE** (continuação após c181-c225):
 
-1. Criar/rodar happy path gerado de `examples/hostpoint-mini`: register/login/session + property list/search + MercadoPago webhook verify.
-2. Começar **Phase 1 Auth Port** no source real do Hostpoint: mapear Firebase Auth/Firestore `auth_users` para `.lzi`.
-3. Manter este arquivo e `docs/roadmap.md` atualizados a cada wave, além de `docs/next-checklist.md`.
+1. Estruturar o framework Lazuli/Lazurite: quais helpers viram codegen contracts, quais ficam runtime-only e quais pertencem a adapter packs.
+2. Criar/rodar happy path gerado de `examples/hostpoint-mini`: register/login/session + property list/search + MercadoPago webhook verify.
+3. Manter o port real do Hostpoint pausado até o framework estar coeso; este checklist só guia capacidades necessárias.
+4. Manter este arquivo e `docs/roadmap.md` atualizados a cada wave, além de `docs/next-checklist.md`.
 
-Phase Prep não é mais o gargalo principal; o gargalo agora é produto real + dados + UI.
+Phase Prep/codegen não é mais o gargalo principal; o gargalo agora é consolidar o framework e só depois migrar produto real + dados + UI.
