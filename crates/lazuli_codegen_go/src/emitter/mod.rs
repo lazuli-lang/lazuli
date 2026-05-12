@@ -23,6 +23,7 @@ pub mod events;
 pub mod imports;
 pub mod job;
 pub mod migration;
+pub mod migration_ddl;
 pub mod module;
 pub mod notification;
 pub mod printer;

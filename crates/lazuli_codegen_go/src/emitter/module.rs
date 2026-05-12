@@ -20,6 +20,7 @@ use super::events::emit_events_file;
 use super::imports::ImportSet;
 use super::job::emit_job_file;
 use super::migration::emit_migration_file;
+use super::migration_ddl::emit_migrations;
 use super::notification::emit_notification_file;
 use super::printer::GoPrinter;
 use super::query::emit_query_file;
@@ -268,6 +269,12 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
             });
         }
     }
+
+    // Cell N3 — DDL migration emission. Walks all resources across all
+    // features and emits `migrations/<NNN>_<feature>_<resource>.sql`
+    // files at the module root. Resource-level (not feature-level) so
+    // numbering stays stable across feature reorderings.
+    files.extend(emit_migrations(module, &source_label));
 
     files
 }
