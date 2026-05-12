@@ -261,7 +261,8 @@ fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
         BuiltinType::SemanticEmail
         | BuiltinType::SemanticPhone
         | BuiltinType::SemanticUrl
-        | BuiltinType::SemanticUuid => "TEXT",
+        | BuiltinType::SemanticUuid
+        | BuiltinType::SemanticCurrency => "TEXT",
         BuiltinType::SemanticMoney => "BIGINT",
         BuiltinType::SemanticGeoPoint => {
             return PgType {
@@ -597,6 +598,7 @@ mod tests {
                 builtin("phone", BuiltinType::SemanticPhone, false),
                 builtin("website", BuiltinType::SemanticUrl, false),
                 builtin("uuid", BuiltinType::SemanticUuid, false),
+                builtin("currency", BuiltinType::SemanticCurrency, true),
                 builtin("cents", BuiltinType::SemanticMoney, true),
             ],
         ));
@@ -618,6 +620,7 @@ mod tests {
         assert!(sql.contains("phone TEXT,"));
         assert!(sql.contains("website TEXT,"));
         assert!(sql.contains("uuid TEXT,"));
+        assert!(sql.contains("currency TEXT NOT NULL,"));
         assert!(sql.contains("cents BIGINT NOT NULL"));
     }
 

@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 /// - `CapabilityRef::Hashed/Encrypted/Token` typed variants +
 ///   `HashedCapability`, `HashAlgorithm`, `EncryptedCapability`,
 ///   `TokenCapability`, `TokenStore`.
-/// - `BuiltinType::SemanticPhone`, `SemanticUrl`, `SemanticUuid`.
+/// - `BuiltinType::SemanticPhone`, `SemanticUrl`, `SemanticUuid`,
+///   `SemanticCurrency`.
 /// - `Command.timeout`, `Command.retry`, `Command.idempotency`
 ///   (mirrors of `Job`'s spine).
 ///
@@ -461,6 +462,11 @@ pub enum BuiltinType {
     SemanticUrl,
     /// Phase L Tier 4 follow-up — `@semantic.Uuid`.
     SemanticUuid,
+    /// Hostpoint follow-up — `@semantic.Currency`. ISO 4217 3-letter
+    /// uppercase code (`USD`, `BRL`). Pairs with `SemanticMoney` for
+    /// typed amount-currency tuples; emitter maps to Go `lazuli.Currency`
+    /// alias (already exists in `runtime/go/lazuli/types.go`).
+    SemanticCurrency,
     /// Hostpoint Phase Prep follow-up (2026-05-11) — `@semantic.GeoPoint`.
     /// Closed-catalog single semantic carrying `{ lat, lng }`. Required
     /// by `codegen-lazuli-go.md` §6.3/§9.1 to materialise as

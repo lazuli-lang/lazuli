@@ -582,6 +582,7 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "@semantic.Phone" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPhone),
         "@semantic.Url" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUrl),
         "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
+        "@semantic.Currency" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency),
         "@semantic.GeoPoint" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint),
         "@semantic.Money" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney),
         _ => {}
@@ -3294,6 +3295,15 @@ feature customer
         // the LSP can surface a shape diagnostic.
         let ty = type_ref_from_syntax("@cap.Hashed(algorithm:scrypt)");
         assert!(matches!(ty, ir::TypeRef::UserDefined(_)));
+    }
+
+    #[test]
+    fn type_ref_from_syntax_lifts_semantic_currency() {
+        let ty = type_ref_from_syntax("@semantic.Currency");
+        assert!(matches!(
+            ty,
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency)
+        ));
     }
 
     #[test]

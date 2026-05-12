@@ -170,6 +170,10 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
             "lazuli.UUID".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
+        BuiltinType::SemanticCurrency => (
+            "lazuli.Currency".to_owned(),
+            Some("lazuli.dev/runtime/lazuli"),
+        ),
         // Hostpoint Phase Prep §9.1 — `@semantic.GeoPoint` resolves to
         // `postgis.Point` via the lightweight `cridenour/go-postgis`
         // binding (chosen per `codegen-lazuli-go.md` §10.1; revisit if
@@ -390,6 +394,20 @@ mod tests {
         };
         let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticEmail), &ctx);
         assert_eq!(go, "lazuli.Email");
+        assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
+    }
+
+    #[test]
+    fn semantic_currency_maps_to_lazuli_currency() {
+        let module = cross_ref_module();
+        let index = CrossFeatureIndex::build(&module);
+        let ctx = TypeCtx {
+            current_feature: "customer",
+            module_name: "lazuli/test",
+            cross_index: &index,
+        };
+        let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticCurrency), &ctx);
+        assert_eq!(go, "lazuli.Currency");
         assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
     }
 
