@@ -3,12 +3,10 @@
 //! mapping. Each entry returns `(go_type, optional_import_path)` so the
 //! caller can register the import on the file's `ImportSet`.
 //!
-//! Per proposal §6.3 the `@semantic.GeoPoint` row would map to
-//! `postgis.Point` from `github.com/cridenour/go-postgis`. The IR
-//! currently has no `BuiltinType::SemanticGeoPoint` variant (verified
-//! against `crates/lazuli_ir/src/lib.rs:445-471` on 2026-05-11); the
-//! mapping ships once Hostpoint §9.1 lands the IR slot. See proposal
-//! §10.1 for the binding-library decision still pending.
+//! `@semantic.GeoPoint` maps to `postgis.Point` from
+//! `github.com/cridenour/go-postgis` (Hostpoint §9.1 + proposal
+//! §10.1, resolved 2026-05-11). The IR variant lives at
+//! `lazuli_ir::BuiltinType::SemanticGeoPoint` (commit `97b193d`).
 
 use lazuli_ir::{BuiltinType, CapabilityRef, TypeRef};
 
