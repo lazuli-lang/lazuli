@@ -4,16 +4,13 @@
 //!
 //! Proposal references:
 //! - Section 3.8 - notification contract shape.
-//! - Section 4.4 - digest/throttle are intentionally held as TODOs in
-//!   this v0 spine even though the IR already carries the typed shapes.
+//! - Section 4.4 - digest/throttle typed runtime contract fields.
 //!
 //! Runtime note: the current Lazuli Go notifications package exposes
 //! `TriggerKind` / `TriggerEvent` / `TriggerCron` fields and
 //! `Idempotency *IdempotencyKeySpec`, not the proposal's
 //! `notifications.Trigger` / `IdempotencyBy` surface. The emitter uses
-//! the runtime fields that exist and leaves TODO comments in the value
-//! literal so the mismatch stays visible without emitting uncompilable
-//! Go.
+//! the runtime fields that exist.
 
 use lazuli_ir::{
     BackoffStrategy, Feature, IdempotencyKey, JobTrigger, Notification, PolicyRef, QualifiedName,
@@ -86,9 +83,6 @@ fn emit_notification(p: &mut GoPrinter, feature: &Feature, notification: &Notifi
         "Recipient:",
         go_string(&notification.recipient),
     ));
-    rows.push(LiteralRow::comment(
-        "// TODO(runtime): notifications.Trigger struct is absent; using TriggerKind/TriggerEvent/TriggerCron fields.",
-    ));
     rows.extend(trigger_rows(&notification.trigger));
     rows.push(LiteralRow::field(
         "Template:",
@@ -111,9 +105,6 @@ fn emit_notification(p: &mut GoPrinter, feature: &Feature, notification: &Notifi
         ));
     }
     if let Some(idempotency) = &notification.idempotency {
-        rows.push(LiteralRow::comment(
-            "// TODO(runtime): NotificationContract.IdempotencyBy is absent; using IdempotencyKeySpec.Path.",
-        ));
         rows.push(LiteralRow::field(
             "Idempotency:",
             format!(
@@ -131,15 +122,11 @@ fn emit_notification(p: &mut GoPrinter, feature: &Feature, notification: &Notifi
             string_slice(&notification.emits),
         ));
     }
-    if notification.digest.is_some() {
-        rows.push(LiteralRow::comment(
-            "// TODO(runtime): Notification.digest is not emitted in the v0 spine (proposal section 4.4).",
-        ));
+    if let Some(digest) = &notification.digest {
+        rows.push(LiteralRow::field("Digest:", format_digest(digest)));
     }
-    if notification.throttle.is_some() {
-        rows.push(LiteralRow::comment(
-            "// TODO(runtime): Notification.throttle is not emitted in the v0 spine (proposal section 4.4).",
-        ));
+    if let Some(throttle) = &notification.throttle {
+        rows.push(LiteralRow::field("Throttle:", format_throttle(throttle)));
     }
 
     emit_literal_rows(p, &rows);
@@ -159,7 +146,6 @@ enum LiteralRow {
         body: Vec<LiteralRow>,
         closer: String,
     },
-    Comment(String),
 }
 
 impl LiteralRow {
@@ -178,10 +164,6 @@ impl LiteralRow {
             closer: closer.to_owned(),
         }
     }
-
-    fn comment(text: &str) -> Self {
-        Self::Comment(text.to_owned())
-    }
 }
 
 fn emit_literal_rows(p: &mut GoPrinter, rows: &[LiteralRow]) {
@@ -189,7 +171,6 @@ fn emit_literal_rows(p: &mut GoPrinter, rows: &[LiteralRow]) {
         .iter()
         .filter_map(|row| match row {
             LiteralRow::Field { key, .. } | LiteralRow::Block { key, .. } => Some(key.len()),
-            LiteralRow::Comment(_) => None,
         })
         .max()
         .unwrap_or(0);
@@ -217,23 +198,20 @@ fn emit_literal_rows(p: &mut GoPrinter, rows: &[LiteralRow]) {
                 p.dedent();
                 p.line(closer);
             }
-            LiteralRow::Comment(text) => p.line(text),
         }
     }
 }
 
 fn channel_rows(channels: &[String]) -> Vec<LiteralRow> {
     if channels.is_empty() {
-        return vec![
-            LiteralRow::comment(
-                "// TODO(runtime): notification has no channels; doctor should reject this before codegen.",
-            ),
-            LiteralRow::field("Channels:", "[]notifications.Channel{},".to_owned()),
-        ];
+        return vec![LiteralRow::field(
+            "Channels:",
+            "[]notifications.Channel{},".to_owned(),
+        )];
     }
 
     let literals: Vec<ChannelLiteral> = channels.iter().map(|ch| channel_literal(ch)).collect();
-    if literals.iter().all(|lit| lit.todo.is_none()) {
+    if literals.iter().all(|lit| lit.inline) {
         let joined = literals
             .iter()
             .map(|lit| lit.expr.as_str())
@@ -247,9 +225,6 @@ fn channel_rows(channels: &[String]) -> Vec<LiteralRow> {
 
     let mut body = Vec::new();
     for literal in literals {
-        if let Some(todo) = literal.todo {
-            body.push(LiteralRow::Comment(todo));
-        }
         body.push(LiteralRow::Field {
             key: String::new(),
             value: format!("{},", literal.expr),
@@ -265,7 +240,7 @@ fn channel_rows(channels: &[String]) -> Vec<LiteralRow> {
 
 struct ChannelLiteral {
     expr: String,
-    todo: Option<String>,
+    inline: bool,
 }
 
 fn channel_literal(channel: &str) -> ChannelLiteral {
@@ -276,14 +251,11 @@ fn channel_literal(channel: &str) -> ChannelLiteral {
         "webhook" => supported_channel("notifications.ChannelWebhook"),
         "slack" => supported_channel("notifications.ChannelSlack"),
         "discord" => supported_channel("notifications.ChannelDiscord"),
-        "push" => missing_channel_const(channel, "notifications.ChannelPush"),
-        "sms" => missing_channel_const(channel, "notifications.ChannelSms"),
+        "push" => typed_channel_literal(channel),
+        "sms" => typed_channel_literal(channel),
         _ => ChannelLiteral {
             expr: format!("notifications.Channel({})", go_string_literal(channel)),
-            todo: Some(format!(
-                "// TODO(runtime): unknown notification channel {}; preserving as typed literal.",
-                go_string_literal(channel)
-            )),
+            inline: false,
         },
     }
 }
@@ -291,17 +263,14 @@ fn channel_literal(channel: &str) -> ChannelLiteral {
 fn supported_channel(expr: &str) -> ChannelLiteral {
     ChannelLiteral {
         expr: expr.to_owned(),
-        todo: None,
+        inline: true,
     }
 }
 
-fn missing_channel_const(channel: &str, const_name: &str) -> ChannelLiteral {
+fn typed_channel_literal(channel: &str) -> ChannelLiteral {
     ChannelLiteral {
         expr: format!("notifications.Channel({})", go_string_literal(channel)),
-        todo: Some(format!(
-            "// TODO(runtime): {const_name} constant is missing; preserving {} as typed literal.",
-            go_string_literal(channel)
-        )),
+        inline: false,
     }
 }
 
@@ -323,6 +292,33 @@ fn format_retry(retry: &RetryPolicy) -> String {
         "&notifications.RetryPolicy{{Count: {}, Backoff: {}}},",
         retry.count,
         go_string_literal(backoff_strategy(retry.backoff))
+    )
+}
+
+fn format_digest(digest: &lazuli_ir::NotificationDigest) -> String {
+    format!(
+        "&notifications.NotificationDigest{{Every: {}, GroupBy: {}, MaxSize: {}, TemplateStrategy: {}}},",
+        go_string_literal(&digest.every),
+        go_string_literal(digest.group_by.as_deref().unwrap_or("")),
+        digest.max_size.unwrap_or(0),
+        digest_strategy(digest.template_strategy.unwrap_or(lazuli_ir::DigestStrategy::Merge))
+    )
+}
+
+fn digest_strategy(strategy: lazuli_ir::DigestStrategy) -> &'static str {
+    match strategy {
+        lazuli_ir::DigestStrategy::Merge => "notifications.DigestStrategyMerge",
+        lazuli_ir::DigestStrategy::Append => "notifications.DigestStrategyAppend",
+    }
+}
+
+fn format_throttle(throttle: &lazuli_ir::NotificationThrottle) -> String {
+    format!(
+        "&notifications.NotificationThrottle{{MaxPer: {}, PerRecipient: {}, PerChannel: {}, Burst: {}}},",
+        go_string_literal(&throttle.max_per),
+        throttle.per_recipient,
+        throttle.per_channel,
+        throttle.burst.unwrap_or(0)
     )
 }
 
@@ -402,13 +398,6 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
 
 fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid"
-    )
 }
 
 #[cfg(test)]
@@ -606,21 +595,19 @@ mod tests {
     }
 
     #[test]
-    fn missing_push_and_sms_constants_emit_todo_and_typed_literals() {
+    fn push_and_sms_channels_emit_typed_literals() {
         let mut feature = base_feature("customer_outreach");
         let mut notification = base_notification("mobile_alert");
         notification.channels = vec!["push".to_owned(), "sms".to_owned()];
         feature.notifications.push(notification);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("// TODO(runtime): notifications.ChannelPush constant is missing"));
-        assert!(out.contains("// TODO(runtime): notifications.ChannelSms constant is missing"));
         assert!(out.contains("notifications.Channel(\"push\"),"));
         assert!(out.contains("notifications.Channel(\"sms\"),"));
     }
 
     #[test]
-    fn digest_throttle_are_todo_comments_and_notifications_sort_by_name() {
+    fn digest_throttle_emit_runtime_contract_fields_and_notifications_sort_by_name() {
         let mut feature = base_feature("customer_outreach");
         let mut zebra = base_notification("zebra");
         let mut alpha = base_notification("alpha");
@@ -643,8 +630,10 @@ mod tests {
         let alpha_pos = out.find("Notification: customer_outreach.alpha").unwrap();
         let zebra_pos = out.find("Notification: customer_outreach.zebra").unwrap();
         assert!(alpha_pos < zebra_pos);
-        assert!(out.contains("// TODO(runtime): Notification.digest is not emitted"));
-        assert!(out.contains("// TODO(runtime): Notification.throttle is not emitted"));
+        assert!(out.contains("Digest:       &notifications.NotificationDigest{Every: \"15 minutes\", GroupBy: \"customer_id\", MaxSize: 50, TemplateStrategy: notifications.DigestStrategyMerge},"));
+        assert!(out.contains("Throttle:     &notifications.NotificationThrottle{MaxPer: \"1 hour\", PerRecipient: true, PerChannel: true, Burst: 3},"));
+        assert!(!out.contains("Notification.digest"));
+        assert!(!out.contains("Notification.throttle"));
 
         zebra = base_notification("zebra");
         alpha = base_notification("alpha");
@@ -652,6 +641,31 @@ mod tests {
         feature.notifications.push(zebra);
         feature.notifications.push(alpha);
         let out_again = emit(&feature).expect("must emit");
+        assert!(!out_again.contains("Digest:"));
+        assert!(!out_again.contains("Throttle:"));
         assert_eq!(out_again, emit(&feature).expect("must emit"));
+    }
+
+    #[test]
+    fn digest_defaults_zero_values_and_preserves_append_strategy() {
+        let mut feature = base_feature("customer_outreach");
+        let mut notification = base_notification("append_digest");
+        notification.digest = Some(NotificationDigest {
+            every: "1 day".to_owned(),
+            group_by: None,
+            max_size: None,
+            template_strategy: Some(DigestStrategy::Append),
+        });
+        notification.throttle = Some(NotificationThrottle {
+            max_per: "1 day".to_owned(),
+            per_recipient: false,
+            per_channel: true,
+            burst: None,
+        });
+        feature.notifications.push(notification);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("Digest:       &notifications.NotificationDigest{Every: \"1 day\", GroupBy: \"\", MaxSize: 0, TemplateStrategy: notifications.DigestStrategyAppend},"));
+        assert!(out.contains("Throttle:     &notifications.NotificationThrottle{MaxPer: \"1 day\", PerRecipient: false, PerChannel: true, Burst: 0},"));
     }
 }
