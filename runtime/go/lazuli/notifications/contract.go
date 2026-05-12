@@ -131,6 +131,9 @@ var (
 	ErrNotificationChannelUnsupported = errors.New("notifications: channel not supported by any bound adapter")
 	ErrNotificationDeliveryFailed     = errors.New("notifications: delivery failed after retries")
 	ErrNotificationTenantUnresolved   = errors.New("notifications: tenant_from unresolved")
+	// ErrNotificationIdempotent is returned when an active
+	// idempotency claim already exists for a notification dispatch.
+	ErrNotificationIdempotent = errors.New("notifications: duplicate idempotency key")
 	// ErrDigestFull is returned by `DigestStore.Add` when the
 	// in-window buffer for `<notification, group_by_value>` reaches
 	// `NotificationDigest.MaxSize`. The dispatcher should flush
@@ -142,9 +145,10 @@ var (
 	// a `slog.Info` event for ops; this is NOT a delivery failure.
 	ErrThrottleExceeded = errors.New("notifications: throttle bucket exhausted")
 	// ErrInvalidDuration surfaces when a digest/throttle duration
-	// literal cannot be parsed at runtime. Doctor
-	// (`NOTIF-DIGEST-002` / `NOTIF-THROTTLE-001`) rejects this at
-	// design time; the runtime error is the defence-in-depth path.
+	// literal cannot be parsed at runtime, or when a runtime TTL is
+	// non-positive. Doctor (`NOTIF-DIGEST-002` /
+	// `NOTIF-THROTTLE-001`) rejects malformed literals at design time;
+	// the runtime error is the defence-in-depth path.
 	ErrInvalidDuration = errors.New("notifications: invalid duration literal")
 )
 
