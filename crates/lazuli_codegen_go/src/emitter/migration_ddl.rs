@@ -5,8 +5,11 @@
 
 use std::fmt::Write;
 
-use lazuli_ir::{BuiltinType, CapabilityRef, Feature, Field, Module, Resource, Tenancy, TypeRef};
+use lazuli_ir::{
+    BuiltinType, CapabilityRef, Constraint, Feature, Field, Module, Resource, Tenancy, TypeRef,
+};
 
+use super::cross_feature::CrossFeatureIndex;
 use crate::GeneratedFile;
 
 /// Emit one SQL migration per resource in deterministic, cross-feature
@@ -15,6 +18,7 @@ use crate::GeneratedFile;
 /// The returned paths are relative to the generated Go output root:
 /// `migrations/<NNN>_<feature>_<resource>.sql`.
 pub fn emit_migrations(module: &Module, source_label: &str) -> Vec<GeneratedFile> {
+    let cross_index = CrossFeatureIndex::build(module);
     let mut resources: Vec<(&Feature, &Resource)> = module
         .features
         .iter()
@@ -45,13 +49,25 @@ pub fn emit_migrations(module: &Module, source_label: &str) -> Vec<GeneratedFile
                     feature.name,
                     resource_slug
                 ),
-                contents: emit_resource_migration(feature, resource, source_label),
+                contents: emit_resource_migration(
+                    module,
+                    feature,
+                    resource,
+                    source_label,
+                    &cross_index,
+                ),
             }
         })
         .collect()
 }
 
-fn emit_resource_migration(feature: &Feature, resource: &Resource, source_label: &str) -> String {
+fn emit_resource_migration<'a>(
+    module: &'a Module,
+    feature: &'a Feature,
+    resource: &'a Resource,
+    source_label: &str,
+    cross_index: &CrossFeatureIndex<'a>,
+) -> String {
     let table_name = lower_snake(&resource.name);
     let geo_fields: Vec<&Field> = resource
         .fields
@@ -83,7 +99,7 @@ fn emit_resource_migration(feature: &Feature, resource: &Resource, source_label:
     )
     .unwrap();
 
-    let columns = resource_columns(feature, resource);
+    let columns = resource_columns(module, feature, resource, cross_index);
     for (idx, column) in columns.iter().enumerate() {
         let comma = if idx + 1 == columns.len() { "" } else { "," };
         writeln!(sql, "    {}{}", column.render(), comma).unwrap();
@@ -105,7 +121,12 @@ fn emit_resource_migration(feature: &Feature, resource: &Resource, source_label:
     sql
 }
 
-fn resource_columns(feature: &Feature, resource: &Resource) -> Vec<SqlColumn> {
+fn resource_columns<'a>(
+    module: &'a Module,
+    feature: &'a Feature,
+    resource: &'a Resource,
+    cross_index: &CrossFeatureIndex<'a>,
+) -> Vec<SqlColumn> {
     let mut columns = vec![SqlColumn::raw("id BIGSERIAL PRIMARY KEY")];
 
     if matches!(effective_tenancy(feature, resource), Tenancy::Org) {
@@ -113,7 +134,7 @@ fn resource_columns(feature: &Feature, resource: &Resource) -> Vec<SqlColumn> {
     }
 
     columns.extend(resource.fields.iter().map(|field| {
-        let pg_type = pg_type_for(&field.type_ref);
+        let pg_type = pg_type_for_field(module, feature, field, cross_index);
         SqlColumn::typed(&field.name, &pg_type.sql, field.required)
     }));
 
@@ -129,6 +150,19 @@ fn resource_columns(feature: &Feature, resource: &Resource) -> Vec<SqlColumn> {
     if resource.soft_delete {
         columns.push(SqlColumn::typed("deleted_at", "TIMESTAMPTZ", false));
     }
+
+    columns.extend(
+        resource
+            .constraints
+            .iter()
+            .filter_map(unique_constraint_sql),
+    );
+    columns.extend(foreign_key_constraints(
+        module,
+        feature,
+        resource,
+        cross_index,
+    ));
 
     columns
 }
@@ -196,6 +230,24 @@ fn pg_type_for(type_ref: &TypeRef) -> PgType {
     }
 }
 
+fn pg_type_for_field<'a>(
+    module: &'a Module,
+    feature: &'a Feature,
+    field: &'a Field,
+    cross_index: &CrossFeatureIndex<'a>,
+) -> PgType {
+    if let TypeRef::UserDefined(qname) = &field.type_ref {
+        if foreign_key_owner(module, feature, qname, cross_index).is_some() {
+            return PgType {
+                sql: "BIGINT".to_owned(),
+                uses_postgis: false,
+            };
+        }
+    }
+
+    pg_type_for(&field.type_ref)
+}
+
 fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
     let sql = match builtin {
         BuiltinType::Id => "BIGINT",
@@ -232,6 +284,73 @@ fn pg_type_for_capability(capability: &CapabilityRef) -> PgType {
         sql: "TEXT".to_owned(),
         uses_postgis: false,
     }
+}
+
+fn unique_constraint_sql(constraint: &Constraint) -> Option<SqlColumn> {
+    let Constraint::Unique(unique) = constraint else {
+        return None;
+    };
+    if unique.fields.is_empty() {
+        return None;
+    }
+
+    let mut fields: Vec<String> = unique.fields.iter().map(|field| sql_ident(field)).collect();
+    if let Some(per) = unique.per.as_deref() {
+        fields.push(sql_ident(&format!("{}_id", lower_snake(per))));
+    }
+
+    Some(SqlColumn::raw(&format!("UNIQUE ({})", fields.join(", "))))
+}
+
+fn foreign_key_constraints<'a>(
+    module: &'a Module,
+    feature: &'a Feature,
+    resource: &'a Resource,
+    cross_index: &CrossFeatureIndex<'a>,
+) -> Vec<SqlColumn> {
+    resource
+        .fields
+        .iter()
+        .filter_map(|field| {
+            let TypeRef::UserDefined(qname) = &field.type_ref else {
+                return None;
+            };
+            let owner = foreign_key_owner(module, feature, qname, cross_index)?;
+            let target_table = format!("{}_{}", lower_snake(owner), lower_snake(&qname.name));
+            Some(SqlColumn::raw(&format!(
+                "FOREIGN KEY ({}) REFERENCES {} (id)",
+                sql_ident(&field.name),
+                quote_ident(&target_table)
+            )))
+        })
+        .collect()
+}
+
+fn foreign_key_owner<'a>(
+    module: &'a Module,
+    feature: &'a Feature,
+    qname: &'a lazuli_ir::QualifiedName,
+    cross_index: &CrossFeatureIndex<'a>,
+) -> Option<&'a str> {
+    let owner = match qname.feature.as_deref() {
+        Some(owner) if owner != feature.name => Some(owner),
+        Some(_) => None,
+        None => cross_index
+            .owner(&qname.name)
+            .filter(|owner| *owner != feature.name),
+    }?;
+
+    feature_declares_resource(module, owner, &qname.name).then_some(owner)
+}
+
+fn feature_declares_resource(module: &Module, feature_name: &str, resource_name: &str) -> bool {
+    module.features.iter().any(|feature| {
+        feature.name == feature_name
+            && feature
+                .resources
+                .iter()
+                .any(|resource| resource.name == resource_name)
+    })
 }
 
 fn effective_tenancy(feature: &Feature, resource: &Resource) -> Tenancy {
@@ -337,8 +456,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         CapabilityRef, Defaults, EncryptedCapability, Feature, Field, HashAlgorithm,
-        HashedCapability, Module, Policies, Resource, Tenancy, TokenCapability, TokenStore,
-        TypeRef,
+        HashedCapability, Module, Policies, QualifiedName, Resource, Tenancy, TokenCapability,
+        TokenStore, TypeRef, UniqueConstraint,
     };
 
     fn base_module(features: Vec<Feature>) -> Module {
@@ -538,6 +657,37 @@ mod tests {
     }
 
     #[test]
+    fn emits_unique_resource_constraints_inside_create_table() {
+        let mut feature = base_feature("customer");
+        let mut customer = resource(
+            "Customer",
+            vec![
+                builtin("email", BuiltinType::SemanticEmail, true),
+                builtin("external_id", BuiltinType::Text, true),
+            ],
+        );
+        customer
+            .constraints
+            .push(Constraint::Unique(UniqueConstraint {
+                fields: vec!["email".to_owned()],
+                per: Some("Org".to_owned()),
+            }));
+        customer
+            .constraints
+            .push(Constraint::Unique(UniqueConstraint {
+                fields: vec!["external_id".to_owned()],
+                per: None,
+            }));
+        feature.resources.push(customer);
+
+        let files = emit_migrations(&base_module(vec![feature]), "crm");
+        let sql = &files[0].contents;
+
+        assert!(sql.contains("UNIQUE (email, org_id),"));
+        assert!(sql.contains("UNIQUE (external_id)"));
+    }
+
+    #[test]
     fn emits_postgis_extension_geography_column_and_gist_index() {
         let mut feature = base_feature("places");
         feature.resources.push(resource(
@@ -549,10 +699,46 @@ mod tests {
         let sql = &files[0].contents;
 
         assert!(sql.contains("CREATE EXTENSION IF NOT EXISTS postgis;"));
+        assert_eq!(
+            sql.matches("CREATE EXTENSION IF NOT EXISTS postgis;")
+                .count(),
+            1
+        );
         assert!(sql.contains("coordinates geography(point, 4326) NOT NULL"));
         assert!(sql.contains(
             "CREATE INDEX place_coordinates_gist ON \"place\" USING GIST (coordinates);"
         ));
+    }
+
+    #[test]
+    fn emits_foreign_key_for_cross_feature_resource_ref() {
+        let mut customer = base_feature("customer");
+        customer.resources.push(resource(
+            "Customer",
+            vec![builtin("email", BuiltinType::SemanticEmail, true)],
+        ));
+        let mut orders = base_feature("orders");
+        orders.resources.push(resource(
+            "Order",
+            vec![field(
+                "customer",
+                TypeRef::UserDefined(QualifiedName {
+                    feature: None,
+                    name: "Customer".to_owned(),
+                }),
+                true,
+            )],
+        ));
+
+        let files = emit_migrations(&base_module(vec![orders, customer]), "shop");
+        let order_sql = files
+            .iter()
+            .find(|file| file.path == "migrations/002_orders_order.sql")
+            .map(|file| file.contents.as_str())
+            .unwrap();
+
+        assert!(order_sql.contains("customer BIGINT NOT NULL,"));
+        assert!(order_sql.contains("FOREIGN KEY (customer) REFERENCES \"customer_customer\" (id)"));
     }
 
     #[test]
