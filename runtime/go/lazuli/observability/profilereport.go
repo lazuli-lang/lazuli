@@ -193,24 +193,35 @@ type profileReportOpKey struct {
 }
 
 func profileReportSampleKey(sample ProfileSample) (profileReportOpKey, bool) {
-	key := profileReportOpKey{
-		feature: profileReportLabel(sample, ProfileLabelFeature, sample.Feature),
-		kind:    profileReportLabel(sample, ProfileLabelKind, sample.Kind),
-		op:      profileReportLabel(sample, ProfileLabelOp, sample.Op),
-	}
-	if key.feature == "" || key.kind == "" || key.op == "" {
+	identity, ok := profileReportSampleIdentity(sample)
+	if !ok {
 		return profileReportOpKey{}, false
 	}
-	return key, true
+	return profileReportOpKey{
+		feature: identity.Feature,
+		kind:    identity.Kind,
+		op:      identity.Op,
+	}, true
 }
 
-func profileReportLabel(sample ProfileSample, key, fallback string) string {
-	if sample.Labels != nil {
-		if value := strings.TrimSpace(sample.Labels[key]); value != "" {
-			return value
-		}
+func profileReportSampleIdentity(sample ProfileSample) (ProfileOpIdentity, bool) {
+	identity, _ := ProfileOpIdentityFromLabels(sample.Labels)
+	if identity.Feature == "" {
+		identity.Feature = strings.TrimSpace(sample.Feature)
 	}
-	return strings.TrimSpace(fallback)
+	if identity.Kind == "" {
+		identity.Kind = strings.TrimSpace(sample.Kind)
+	}
+	if identity.Op == "" {
+		identity.Op = strings.TrimSpace(sample.Op)
+	}
+	if identity.PatternID == "" {
+		identity.PatternID = strings.TrimSpace(sample.PatternID)
+	}
+	if identity.PatternVersion == "" {
+		identity.PatternVersion = strings.TrimSpace(sample.PatternVersion)
+	}
+	return identity, profileOpIdentityComplete(identity)
 }
 
 func profileReportAddTotals(total *ProfileTotals, sample ProfileSample) {
@@ -221,8 +232,9 @@ func profileReportAddTotals(total *ProfileTotals, sample ProfileSample) {
 }
 
 func profileReportMergePattern(row *ProfileOpReport, sample ProfileSample) {
-	patternID := profileReportLabel(sample, ProfileLabelPatternID, sample.PatternID)
-	patternVersion := profileReportLabel(sample, ProfileLabelPatternVersion, sample.PatternVersion)
+	identity, _ := profileReportSampleIdentity(sample)
+	patternID := identity.PatternID
+	patternVersion := identity.PatternVersion
 	if patternID == "" && patternVersion == "" {
 		return
 	}
