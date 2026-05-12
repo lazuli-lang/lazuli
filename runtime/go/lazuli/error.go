@@ -13,11 +13,34 @@ type Error struct {
 	Code    string // stable identifier ("policy_denied", "validation_failed")
 	Message string // human-readable
 	Data    any    // optional structured payload exposed as problem extension "data"
+	Base    ErrorBase
 }
 
 // Error implements the error interface.
 func (e *Error) Error() string {
-	return fmt.Sprintf("lazuli/%s: %s", e.Code, e.Message)
+	if e == nil {
+		return "<nil>"
+	}
+	code := e.Code
+	if code == "" {
+		code = e.Base.Code
+	}
+	message := e.Message
+	if message == "" {
+		message = e.Base.Message
+	}
+	if message == "" {
+		return fmt.Sprintf("lazuli/%s", code)
+	}
+	return fmt.Sprintf("lazuli/%s: %s", code, message)
+}
+
+// Unwrap exposes the source-aware envelope cause for errors.Is and errors.As.
+func (e *Error) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Base.Cause
 }
 
 // Common error codes used by the runtime itself. Generated commands or
