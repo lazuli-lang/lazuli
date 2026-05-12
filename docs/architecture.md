@@ -295,7 +295,7 @@ codegen automation.
 | `.lzi` / `.lzx` | The Lazuli source language. `.lzi` is the domain/operational layer; `.lzx` is the experience/view layer. |
 | IR | Internal representation. The typed canonical semantic graph produced by `lazuli_analyzer` and consumed by codegen, doctor, inspect, and future tools. |
 | Runtime | The Go and TypeScript libraries (`runtime/go/lazuli/`, `runtime/web/lazuli/`) that the generated code imports. The runtime executes the contract declared in the DSL. Hand-written and maintained, not generated. |
-| Lazuli Go | Specific qualifier for the Go runtime library when disambiguation is needed (`github.com/lazuli/lazuli/<bucket>`). |
+| Lazuli Go | Specific qualifier for the Go runtime library when disambiguation is needed. Canonical Go module path: `lazuli.dev/runtime/lazuli` with per-bucket subpackages `lazuli.dev/runtime/lazuli/<bucket>` (e.g. `auth`, `storage`, `jobs`). |
 | Lazuli compiler | The Rust toolchain in `crates/` (lazuli_syntax, lazuli_analyzer, lazuli_ir, lazuli_codegen_go, lazuli_lsp, lazuli_cli, …). |
 | `dist/` | Generated code, regen-only, not user-editable. Imports the runtime library; contains no business logic. |
 | Adapter | A concrete provider implementation (HTTP transport, Postgres, OpenAI, etc.) under `@runtime/<adapter>` or `@plugin/<publisher>/<adapter>`. |
