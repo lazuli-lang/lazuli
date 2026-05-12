@@ -12,6 +12,28 @@ mod app_manifest;
 mod doctor;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
+const REGISTRY_TEMPLATE: &str =
+    "registry\n  # capabilities: name typed\n  # integrations: provider-neutral declarations\n";
+const GITIGNORE_TEMPLATE: &str = r#"# Rust
+/target/
+**/*.rs.bk
+
+# Go
+/bin/
+*.exe
+*.test
+*.out
+coverage.out
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+"#;
 
 #[derive(Debug, Parser)]
 #[command(name = "lazuli")]
@@ -50,6 +72,14 @@ enum Commands {
     },
     Init {
         path: PathBuf,
+    },
+    /// Create a new Lazuli project scaffold.
+    New {
+        /// Project directory to create.
+        project_name: PathBuf,
+        /// Skip README.md and .gitignore.
+        #[arg(long)]
+        bare: bool,
     },
     Lsp,
     /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
@@ -393,6 +423,7 @@ fn main() -> Result<()> {
             format,
         } => inspect_command(&input, &expand, format),
         Commands::Init { path } => init_command(&path),
+        Commands::New { project_name, bare } => new_command(&project_name, bare),
         Commands::Lsp => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
@@ -1126,6 +1157,84 @@ fn init_command(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to write {}", path.display()))?;
     println!("created {}", path.display());
     Ok(())
+}
+
+fn new_command(project: &Path, bare: bool) -> Result<()> {
+    if project
+        .try_exists()
+        .with_context(|| format!("failed to inspect {}", project.display()))?
+    {
+        bail!("project path already exists: {}", project.display());
+    }
+
+    let app_name = pascal_case_project_name(project)?;
+    let features_dir = project.join("features");
+    fs::create_dir_all(&features_dir)
+        .with_context(|| format!("failed to create directory {}", features_dir.display()))?;
+
+    write_scaffold_file(&project.join("app.lzi"), &app_template(&app_name))?;
+    write_scaffold_file(&project.join("registry.lzi"), REGISTRY_TEMPLATE)?;
+    write_scaffold_file(&features_dir.join(".gitkeep"), "")?;
+
+    if !bare {
+        write_scaffold_file(&project.join("README.md"), &readme_template(&app_name))?;
+        write_scaffold_file(&project.join(".gitignore"), GITIGNORE_TEMPLATE)?;
+    }
+
+    println!("created {}", project.display());
+    Ok(())
+}
+
+fn app_template(app_name: &str) -> String {
+    format!("app {app_name}\n  urls\n    dev: \"http://localhost:3000\"\n")
+}
+
+fn readme_template(app_name: &str) -> String {
+    format!(
+        "# {app_name}\n\nGenerated with `lazuli new`.\n\nSee the Lazuli docs: https://github.com/lazuli/lazuli/tree/main/docs\n"
+    )
+}
+
+fn write_scaffold_file(path: &Path, contents: &str) -> Result<()> {
+    fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn pascal_case_project_name(project: &Path) -> Result<String> {
+    let Some(name) = project.file_name().and_then(|name| name.to_str()) else {
+        bail!("project path must end in a valid UTF-8 project name");
+    };
+
+    let app_name = pascal_case(name);
+    if app_name.is_empty() {
+        bail!("project name must contain at least one ASCII alphanumeric character");
+    }
+
+    Ok(app_name)
+}
+
+fn pascal_case(value: &str) -> String {
+    let mut output = String::new();
+    let mut capitalize_next = true;
+
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if output.is_empty() && ch.is_ascii_digit() {
+                output.push_str("App");
+            }
+
+            if capitalize_next {
+                output.push(ch.to_ascii_uppercase());
+            } else {
+                output.push(ch.to_ascii_lowercase());
+            }
+            capitalize_next = false;
+        } else {
+            capitalize_next = true;
+        }
+    }
+
+    output
 }
 
 fn lsp_command() -> Result<()> {
@@ -5996,9 +6105,56 @@ fn leading_spaces(line: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{
+        fs,
+        path::Path,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
-    use super::{ExpandSet, expand_canonical_source, inspect_canonical_source, parse_expand_set};
+    use super::{
+        ExpandSet, REGISTRY_TEMPLATE, app_template, expand_canonical_source,
+        inspect_canonical_source, new_command, parse_expand_set, pascal_case,
+    };
+
+    #[test]
+    fn pascal_case_converts_project_names() {
+        assert_eq!(pascal_case("my-app"), "MyApp");
+        assert_eq!(pascal_case("acme_crm"), "AcmeCrm");
+        assert_eq!(pascal_case("123-api"), "App123Api");
+    }
+
+    #[test]
+    fn new_command_writes_scaffold_and_bare_variant() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("lazuli-new-test-{}-{suffix}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        let full = root.join("my-app");
+        new_command(&full, false).unwrap();
+        assert_eq!(
+            fs::read_to_string(full.join("app.lzi")).unwrap(),
+            app_template("MyApp")
+        );
+        assert_eq!(
+            fs::read_to_string(full.join("registry.lzi")).unwrap(),
+            REGISTRY_TEMPLATE
+        );
+        assert!(full.join("features").join(".gitkeep").is_file());
+        assert!(full.join("README.md").is_file());
+        assert!(full.join(".gitignore").is_file());
+
+        let bare = root.join("bare-app");
+        new_command(&bare, true).unwrap();
+        assert!(bare.join("app.lzi").is_file());
+        assert!(!bare.join("README.md").exists());
+        assert!(!bare.join(".gitignore").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn inspect_expand_rewrites_local_sugars() {
