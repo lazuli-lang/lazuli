@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+smoke = []
+
 [dependencies]
 lazuli_ir = { path = "../lazuli_ir" }
 lazuli_codegen_spec = { path = "../lazuli_codegen_spec" }
