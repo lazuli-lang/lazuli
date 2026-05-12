@@ -12,6 +12,7 @@ require (
 	github.com/riverqueue/river/rivertype v0.37.0
 	golang.org/x/crypto v0.51.0
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/time v0.15.0
 )
 
 require (
