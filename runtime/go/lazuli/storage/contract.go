@@ -112,6 +112,24 @@ func (v FileVisibility) String() string {
 // path, GCS object name); generated code never inspects it.
 type Key string
 
+// FileRef is the typed reference stored in a resource row for a
+// field declared with `@cap.File(...)`. Codegen emits resource
+// columns as `storage.FileRef` (pointer when the field is optional)
+// so the row carries the storage `Key` plus the resolved upload
+// metadata. The bound `ObjectStore` resolves the `Key` to bytes on
+// demand; generated code never inspects the payload.
+//
+// `ContentType` is the MIME type recorded at upload after the
+// runtime validated it against `FileContract.Accept`; `Size` is
+// the byte count recorded at upload. Both are persisted alongside
+// the `Key` because callers (download handlers, signed-URL
+// builders) need them without a round-trip to the object store.
+type FileRef struct {
+	Key         Key
+	ContentType string
+	Size        int64
+}
+
 // Metadata carries the uploader-supplied side information that
 // adapters may persist alongside the bytes (filename, declared
 // content-type from the multipart frame, custom headers). The

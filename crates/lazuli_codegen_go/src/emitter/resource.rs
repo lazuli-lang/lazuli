@@ -447,13 +447,17 @@ fn uses_timestamps(feature: &Feature, resource: &Resource) -> bool {
 }
 
 /// Lift a `Tenancy` IR variant onto the `lazuli.Tenancy*` constant
-/// name. Lazuli Go lib (2026-05-11) only declares `TenancyOrg` and
-/// `TenancyNone`; `Team`/`Custom` collapse to `TenancyNone` until the
-/// runtime team widens the catalog. See report-back gap list.
+/// name. The Lazuli Go lib carries `TenancyNone`/`TenancyOrg`/
+/// `TenancyTeam`/`TenancyCustom` (the last is a structural marker
+/// — the per-resource custom axis name is not yet threaded through
+/// `Resource[T]`; the runtime widens this when a pilot product
+/// needs per-row custom-axis scoping).
 fn tenancy_const(tenancy: Tenancy) -> &'static str {
     match tenancy {
         Tenancy::Org => "lazuli.TenancyOrg",
-        Tenancy::None | Tenancy::Team | Tenancy::Custom(_) => "lazuli.TenancyNone",
+        Tenancy::Team => "lazuli.TenancyTeam",
+        Tenancy::Custom(_) => "lazuli.TenancyCustom",
+        Tenancy::None => "lazuli.TenancyNone",
     }
 }
 
