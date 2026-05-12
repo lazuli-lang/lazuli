@@ -4,9 +4,8 @@
 // boundary; the adapter (OTel / file / stdout) consumes.
 //
 // Each payload struct mirrors `crates/lazuli_ir::built_in_trace_events()`
-// field-for-field. The runtime is responsible for buffering,
-// async flushing, and adapter dispatch — these stubs commit to the
-// shape so generated code can compile in parallel.
+// field-for-field. The runtime records recent events in-memory here;
+// async flushing and adapter dispatch remain follow-up work.
 //
 // See `docs/proposals/bucket-observability-cycle.md` §3.5 §6.4 and
 // `docs/proposals/ai-primitives-cut-a-8.md` for the foundational
@@ -23,11 +22,11 @@ import (
 // (commit `ac0241d`) shipped the language slot; this struct is the
 // runtime-side mirror.
 type AgentRunPayload struct {
-	Agent          string   // qualified `<feature>.<agent_name>`
-	Flow           string   // populated when Cut B.flow lands
-	FlowStep       string   // populated when Cut B.flow lands
-	Model          string   // `@llm.<name>` resolved at runtime
-	FinishReason   string   // "stop" | "length" | "tool_calls" | "safety" | ...
+	Agent          string // qualified `<feature>.<agent_name>`
+	Flow           string // populated when Cut B.flow lands
+	FlowStep       string // populated when Cut B.flow lands
+	Model          string // `@llm.<name>` resolved at runtime
+	FinishReason   string // "stop" | "length" | "tool_calls" | "safety" | ...
 	TokensInput    int64
 	TokensOutput   int64
 	TokensTotal    int64
@@ -95,11 +94,11 @@ type WebhookRunPayload struct {
 // dispatch code calls this once per dispatch (or once per `flow`
 // step when Cut B lands).
 //
-// Stub: full implementation (buffer / async flush / adapter
-// dispatch) lands with the runtime team.
+// Adapter dispatch remains follow-up work; the recent-event ring is
+// populated synchronously.
 func EmitAgentRun(ctx context.Context, payload AgentRunPayload) {
 	_ = ctx
-	_ = payload
+	RecordTraceEvent(NewAgentRunTraceEvent(payload))
 	// TODO(runtime): hand off to the configured adapter; never block
 	// the caller's hot path.
 }
@@ -109,7 +108,7 @@ func EmitAgentRun(ctx context.Context, payload AgentRunPayload) {
 // HTTP/RPC/event trigger.
 func EmitCommandRun(ctx context.Context, payload CommandRunPayload) {
 	_ = ctx
-	_ = payload
+	RecordTraceEvent(NewCommandRunTraceEvent(payload))
 	// TODO(runtime): same dispatch as `EmitAgentRun`.
 }
 
@@ -118,7 +117,7 @@ func EmitCommandRun(ctx context.Context, payload CommandRunPayload) {
 // wrapper.
 func EmitJobRun(ctx context.Context, payload JobRunPayload) {
 	_ = ctx
-	_ = payload
+	RecordTraceEvent(NewJobRunTraceEvent(payload))
 	// TODO(runtime): correlate `Attempt` with the retry chain so
 	// observers can reconstruct without a separate join.
 }
@@ -127,7 +126,7 @@ func EmitJobRun(ctx context.Context, payload JobRunPayload) {
 // inbound webhook delivery by the verify-and-dispatch middleware.
 func EmitWebhookRun(ctx context.Context, payload WebhookRunPayload) {
 	_ = ctx
-	_ = payload
+	RecordTraceEvent(NewWebhookRunTraceEvent(payload))
 	// TODO(runtime): `SignatureValid` is populated from the HMAC
 	// verifier; never block the response on adapter flush.
 }
