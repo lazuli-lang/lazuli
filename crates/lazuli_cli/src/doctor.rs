@@ -422,6 +422,8 @@ impl DoctorPackage {
                                         || !feature.commands.is_empty()
                                         || !feature.queries.is_empty()
                                         || !feature.apis.is_empty()
+                                        || !feature.records.is_empty()
+                                        || !feature.enums.is_empty()
                                         || feature.translation.is_some()
                                         || has_text_pattern_api
                                     {
@@ -719,6 +721,11 @@ impl DoctorPackage {
             &self.tier3_facts,
         ));
         diagnostics.extend(agent_eval_diagnostics(&self.agents));
+        diagnostics.extend(cross_feature_type_unresolved_diagnostics(
+            &self.files,
+            &self.tier3_facts,
+            &self.feature_resources,
+        ));
 
         // Cut A.7 — `expose http` cross-feature checks.
         let known_audiences = collect_known_audiences(&self.files);
@@ -5035,6 +5042,184 @@ fn policy_ref_surface_text(p: &ir::PolicyRef) -> Option<String> {
 }
 
 // -----------------------------------------------------------------------------
+// Diagnostic id: cross_feature_type_unresolved
+// -----------------------------------------------------------------------------
+
+fn cross_feature_type_unresolved_diagnostics(
+    files: &[DoctorFile],
+    tier3_facts: &[Tier3FeatureFacts],
+    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
+) -> Vec<DoctorDiagnostic> {
+    let declared_types = build_cross_feature_declared_type_index(tier3_facts, feature_resources);
+    let mut diagnostics = Vec::new();
+    let mut reported: BTreeSet<(PathBuf, String, String)> = BTreeSet::new();
+
+    for (feature_name, resources) in feature_resources {
+        for (resource_name, resource) in resources {
+            for (field_name, field) in &resource.fields {
+                push_unresolved_type_ref_diagnostic(
+                    &mut diagnostics,
+                    &mut reported,
+                    &declared_types,
+                    &field.type_ref,
+                    &resource.path,
+                    field.line.max(resource.line).max(1),
+                    format!("{feature_name}.{resource_name}.{field_name}"),
+                );
+            }
+        }
+    }
+
+    for fact in tier3_facts {
+        for record in &fact.records {
+            for field in &record.fields {
+                push_unresolved_type_ref_diagnostic(
+                    &mut diagnostics,
+                    &mut reported,
+                    &declared_types,
+                    &field.type_ref,
+                    &fact.path,
+                    span_line(files, &fact.path, field.span_ref, fact.feature_line),
+                    format!("{}.{}.{}", fact.feature, record.name, field.name),
+                );
+            }
+        }
+
+        for command in &fact.commands {
+            let command_line = fact
+                .command_lines
+                .get(&command.name)
+                .copied()
+                .unwrap_or_else(|| {
+                    span_line(files, &fact.path, command.span_ref, fact.feature_line)
+                });
+
+            for slot in &command.route {
+                push_unresolved_type_ref_diagnostic(
+                    &mut diagnostics,
+                    &mut reported,
+                    &declared_types,
+                    &slot.type_ref,
+                    &fact.path,
+                    command_line.max(1),
+                    format!("{}.{}.route.{}", fact.feature, command.name, slot.name),
+                );
+            }
+
+            if let ir::CommandInput::Typed(slots) = &command.input {
+                for slot in slots {
+                    push_unresolved_type_ref_diagnostic(
+                        &mut diagnostics,
+                        &mut reported,
+                        &declared_types,
+                        &slot.type_ref,
+                        &fact.path,
+                        command_line.max(1),
+                        format!("{}.{}.input.{}", fact.feature, command.name, slot.name),
+                    );
+                }
+            }
+
+            if let ir::CommandEffect::Returns(returns) = &command.effect {
+                push_unresolved_type_ref_diagnostic(
+                    &mut diagnostics,
+                    &mut reported,
+                    &declared_types,
+                    &returns.return_type,
+                    &fact.path,
+                    command_line.max(1),
+                    format!("{}.{}.returns", fact.feature, command.name),
+                );
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn build_cross_feature_declared_type_index(
+    tier3_facts: &[Tier3FeatureFacts],
+    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
+) -> BTreeSet<String> {
+    let mut declared = BTreeSet::new();
+
+    for resources in feature_resources.values() {
+        declared.extend(resources.keys().cloned());
+    }
+    for fact in tier3_facts {
+        declared.extend(fact.records.iter().map(|record| record.name.clone()));
+        declared.extend(fact.enums.iter().map(|enum_decl| enum_decl.name.clone()));
+    }
+
+    declared
+}
+
+fn push_unresolved_type_ref_diagnostic(
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+    reported: &mut BTreeSet<(PathBuf, String, String)>,
+    declared_types: &BTreeSet<String>,
+    type_ref: &ir::TypeRef,
+    path: &Path,
+    line: usize,
+    site: String,
+) {
+    let Some(name) = unresolved_bare_user_type_name(type_ref, declared_types) else {
+        return;
+    };
+    if !reported.insert((path.to_path_buf(), site.clone(), name.to_owned())) {
+        return;
+    }
+
+    diagnostics.push(DoctorDiagnostic {
+        path: path.to_path_buf(),
+        line,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "cross_feature_type_unresolved".to_owned(),
+        message: format!(
+            "type `{name}` referenced by `{site}` is not declared in any feature. Add a `resource`/`record`/`enum {name}` block, or check for a typo."
+        ),
+    });
+}
+
+fn unresolved_bare_user_type_name<'a>(
+    type_ref: &'a ir::TypeRef,
+    declared_types: &BTreeSet<String>,
+) -> Option<&'a str> {
+    match type_ref {
+        ir::TypeRef::UserDefined(qname) | ir::TypeRef::EnumRef(qname)
+            if qname.feature.is_none()
+                && !declared_types.contains(&qname.name)
+                && !is_trivial_type_ref_name(&qname.name) =>
+        {
+            Some(qname.name.as_str())
+        }
+        _ => None,
+    }
+}
+
+fn is_trivial_type_ref_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    trimmed.len() <= 1 || trimmed.starts_with('@')
+}
+
+fn span_line(
+    files: &[DoctorFile],
+    path: &Path,
+    span_ref: Option<lazuli_ir::SpanRef>,
+    fallback: usize,
+) -> usize {
+    span_ref
+        .and_then(|span| {
+            files
+                .iter()
+                .find(|file| file.path.as_path() == path)
+                .map(|file| line_col_for_offset(&file.source, span.start).0)
+        })
+        .unwrap_or(fallback.max(1))
+}
+
+// -----------------------------------------------------------------------------
 // Diagnostic id: tool_registry_effect_required_diagnostics
 // -----------------------------------------------------------------------------
 
@@ -6655,12 +6840,16 @@ fn populate_feature_resources_from_ir(
         let line = resource_lines.get(&resource.name).copied().unwrap_or(0);
         let mut fields = BTreeMap::new();
         for field in &resource.fields {
+            let field_line = field
+                .span_ref
+                .map(|span| line_col_for_offset(file_source, span.start).0)
+                .unwrap_or(line);
             fields.insert(
                 field.name.clone(),
                 ResourceFieldFact {
                     type_ref: field.type_ref.clone(),
                     unique: field.unique,
-                    line,
+                    line: field_line,
                 },
             );
         }
@@ -8801,6 +8990,8 @@ mod tests {
                                 || !feature.commands.is_empty()
                                 || !feature.queries.is_empty()
                                 || !feature.apis.is_empty()
+                                || !feature.records.is_empty()
+                                || !feature.enums.is_empty()
                                 || feature.translation.is_some()
                                 || has_text_pattern_api
                             {
@@ -10246,6 +10437,98 @@ contract acme.ai.v1
                     == "unknown @semantic type \"@semantic.Range\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT}."
         }));
     }
+
+    const CROSS_FEATURE_TYPE_UNRESOLVED_FIXTURE: &str = r#"
+feature customer
+  domain
+    resource Customer
+      id: ID required
+      owner: User required
+
+    record InviteDraft
+      reviewer: Reviewer required
+"#;
+
+    #[test]
+    fn doctor_reports_unresolved_bare_type_refs_on_resource_and_record_fields() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            CROSS_FEATURE_TYPE_UNRESOLVED_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        let messages: BTreeSet<&str> = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "cross_feature_type_unresolved")
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+
+        assert!(messages.contains(
+            "type `User` referenced by `customer.Customer.owner` is not declared in any feature. Add a `resource`/`record`/`enum User` block, or check for a typo."
+        ));
+        assert!(messages.contains(
+            "type `Reviewer` referenced by `customer.InviteDraft.reviewer` is not declared in any feature. Add a `resource`/`record`/`enum Reviewer` block, or check for a typo."
+        ));
+    }
+
+    #[test]
+    fn doctor_reports_unresolved_bare_type_refs_on_command_input_slots() {
+        let mut package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  command create
+    input
+      email: Text required
+    returns Text
+"#,
+        )]);
+        let command = package
+            .tier3_facts
+            .iter_mut()
+            .flat_map(|fact| fact.commands.iter_mut())
+            .find(|command| command.name == "create")
+            .expect("expected create command fact");
+        let lazuli_ir::CommandInput::Typed(slots) = &mut command.input else {
+            panic!("expected typed command input");
+        };
+        slots[0].type_ref = lazuli_ir::TypeRef::UserDefined(lazuli_ir::QualifiedName {
+            feature: None,
+            name: "EmailAddress".to_owned(),
+        });
+
+        let diagnostics = package.diagnostics();
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "cross_feature_type_unresolved"
+                && diagnostic.message
+                    == "type `EmailAddress` referenced by `customer.create.input.email` is not declared in any feature. Add a `resource`/`record`/`enum EmailAddress` block, or check for a typo."
+        }));
+    }
+
+    #[test]
+    fn doctor_allows_bare_type_refs_declared_in_any_feature() {
+        let package = package_from_sources(vec![(
+            "customer.lzi",
+            r#"
+feature customer
+  domain
+    resource Customer
+      id: ID required
+      owner: User required
+
+feature identity
+  domain
+    resource User
+      id: ID required
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("cross_feature_type_unresolved"),
+            "declared cross-feature type should resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
 
     #[test]
     fn doctor_rejects_tool_with_stricter_policy_than_agent() {
