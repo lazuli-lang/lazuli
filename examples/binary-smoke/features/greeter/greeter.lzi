@@ -1,0 +1,29 @@
+feature greeter
+  uses account
+
+  domain
+    resource Greeting
+      user: User required
+      message: Text required
+      created_at: DateTime required
+
+    query.list by_user
+      params
+        user_id: ID required
+      filters
+        user = params.user_id
+
+  policies
+    public: @scope.public
+
+  command greet
+    input
+      user_id: ID required
+      message: Text required
+    policy @policy.public
+    rate_limit "30 per minute per ip"
+    audit actor, input.user_id
+    creates Greeting
+      user = input.user_id
+      message = input.message
+      created_at = ctx.now

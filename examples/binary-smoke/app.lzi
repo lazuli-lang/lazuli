@@ -1,0 +1,23 @@
+app BinarySmoke
+  targets
+    backend go
+
+  environments
+    local
+
+  urls
+    api local "http://localhost:8081"
+
+  uses
+    account
+    greeter
+
+  runtime
+    unit api
+      serves queries, commands
+      healthcheck "/healthz"
+
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+    strategy rolling
