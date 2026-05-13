@@ -53,6 +53,7 @@ use lazuli_ir::{
 use std::collections::BTreeMap;
 
 use super::cross_feature::CrossFeatureIndex;
+use super::error_envelope::{bucket_names_for_external_calls, emit_wrap_helper, sentinel_buckets};
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::printer::GoPrinter;
@@ -85,6 +86,7 @@ pub fn emit_command_file(
     // the IR `Vec` happened to be populated.
     let mut commands: Vec<&Command> = feature.commands.iter().collect();
     commands.sort_by(|a, b| a.name.cmp(&b.name));
+    let wrap_buckets = command_wrap_buckets(&commands);
 
     // Pre-walk to populate imports. Every command pulls in the
     // top-level `lazuli.dev/runtime/lazuli` package for at minimum
@@ -92,6 +94,11 @@ pub fn emit_command_file(
     // `Bindings`, and `EventEmit`. Input field types may surface extra
     // imports (e.g. `storage.FileRef` for `@cap.File` slots).
     imports.add("lazuli.dev/runtime/lazuli");
+    if !wrap_buckets.is_empty() {
+        imports.add("context");
+        imports.add("errors");
+        imports.add("lazuli.dev/runtime/lazuli/auth");
+    }
     for command in &commands {
         if let CommandInput::Typed(slots) = &command.input {
             for slot in slots {
@@ -109,6 +116,10 @@ pub fn emit_command_file(
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
     p.blank();
+    if !wrap_buckets.is_empty() {
+        emit_wrap_helper(&mut p, &wrap_buckets);
+        p.blank();
+    }
 
     let mut first_block = true;
     for command in &commands {
@@ -120,6 +131,14 @@ pub fn emit_command_file(
     }
 
     Some(p.finish())
+}
+
+fn command_wrap_buckets(commands: &[&Command]) -> std::collections::BTreeSet<&'static str> {
+    let referenced: std::collections::BTreeSet<&str> = commands
+        .iter()
+        .flat_map(|command| bucket_names_for_external_calls(&command.external_calls))
+        .collect();
+    sentinel_buckets(&referenced)
 }
 
 /// Walk a single `Command` — optional Input struct, then the
@@ -1109,9 +1128,7 @@ mod tests {
         assert!(out.contains("`json:\"email\"`"));
         assert!(out.contains("Email lazuli.Email"));
         // Command value shape.
-        assert!(
-            out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
-        );
+        assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
         assert!(out.contains("Name:      \"customer.create\","));
         assert!(out.contains("Resource:  &customerResource,"));
         assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
@@ -1142,11 +1159,8 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(
-            out.contains(
-                "\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"
-            )
-        );
+        assert!(out
+            .contains("\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"));
     }
 
     #[test]
@@ -1307,6 +1321,29 @@ mod tests {
             "Deprecation: &lazuli.Deprecation{Since: \"2026.04\", Replacement: \"customer.command.reassign_v2\", Sunset: \"2026-12-31\"},"
         ));
         assert!(!out.contains("TODO("));
+    }
+
+    #[test]
+    fn emit_handler_wraps_known_sentinel() {
+        let mut feature = base_feature("account");
+        let mut cmd = base_command("login");
+        cmd.effect = CommandEffect::None;
+        cmd.external_calls = vec![lazuli_ir::ExternalCallRef {
+            slot: "auth".to_owned(),
+            op: "verify_password".to_owned(),
+            args: Vec::new(),
+            span_ref: None,
+        }];
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("\"context\""));
+        assert!(out.contains("\"errors\""));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/auth\""));
+        assert!(out.contains("func wrapErrorForHandler(ctx context.Context, err error) error"));
+        assert!(out.contains("errors.Is(err, auth.ErrPasswordMismatch)"));
+        assert!(out.contains("return &lazuli.FieldError{"));
+        assert!(out.contains("Reason:    lazuli.FieldReasonMismatch,"));
     }
 
     #[test]

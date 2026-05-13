@@ -1,6 +1,9 @@
 package lazuli
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // Error is the canonical error envelope returned to clients. It mirrors the
 // DSL error contract (`errors` block + `error <Name> status <code>`).
@@ -39,6 +42,13 @@ type ErrorBase struct {
 	Op      string  // op name within the kind, e.g. "create_customer"
 	Source  string  // ".lzi:line:col" - stripped per app.observability.error_source
 	Cause   error   // wrapped underlying error; participates in errors.Is/As chain
+}
+
+// ErrorBaseFromContext is a constructor helper used by codegen.
+// D5 (WithSource) will extend this to pull SourceTag from ctx.
+// For now, returns the provided base unchanged.
+func ErrorBaseFromContext(_ context.Context, base ErrorBase) ErrorBase {
+	return base
 }
 
 // Surface routes the AI debug response:

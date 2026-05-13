@@ -22,6 +22,7 @@ pub mod command;
 pub mod cross_feature;
 pub mod deps;
 pub mod enums;
+pub mod error_envelope;
 pub mod events;
 pub mod imports;
 pub mod job;

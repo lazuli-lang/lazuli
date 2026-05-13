@@ -20,6 +20,9 @@ use lazuli_ir::{
 };
 
 use super::cross_feature::CrossFeatureIndex;
+use super::error_envelope::{
+    bucket_names_for_external_calls, emit_wrap_helper_named, sentinel_buckets,
+};
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::printer::GoPrinter;
@@ -50,16 +53,27 @@ pub fn emit_job_file(
 
     let mut jobs: Vec<&Job> = feature.jobs.iter().collect();
     jobs.sort_by(|a, b| a.name.cmp(&b.name));
+    let wrap_buckets = job_wrap_buckets(&jobs);
 
     for job in &jobs {
         if timeout_expr(job.timeout.as_deref()).is_some() {
             imports.add("time");
         }
     }
+    if !wrap_buckets.is_empty() {
+        imports.add("context");
+        imports.add("errors");
+        imports.add("lazuli.dev/runtime/lazuli");
+        imports.add("lazuli.dev/runtime/lazuli/auth");
+    }
 
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
     p.blank();
+    if !wrap_buckets.is_empty() {
+        emit_wrap_helper_named(&mut p, "wrapErrorForJobHandler", &wrap_buckets);
+        p.blank();
+    }
 
     let mut first_block = true;
     for job in &jobs {
@@ -71,6 +85,14 @@ pub fn emit_job_file(
     }
 
     Some(p.finish())
+}
+
+fn job_wrap_buckets(jobs: &[&Job]) -> std::collections::BTreeSet<&'static str> {
+    let referenced: std::collections::BTreeSet<&str> = jobs
+        .iter()
+        .flat_map(|job| bucket_names_for_external_calls(&job.external_calls))
+        .collect();
+    sentinel_buckets(&referenced)
 }
 
 fn emit_job(

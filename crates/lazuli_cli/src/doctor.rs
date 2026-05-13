@@ -858,6 +858,7 @@ impl DoctorPackage {
             self.app.as_ref(),
             &self.files,
         ));
+        diagnostics.extend(check_codegen_wrap_001(&self.project_root));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -868,6 +869,89 @@ impl DoctorPackage {
         });
         diagnostics
     }
+}
+
+/// CODEGEN-WRAP-001 - typed-error constructors forbidden in bucket source.
+///
+/// The one-wrap boundary (docs/proposals/bucket-ai-debug-loop-cycle.md §7.2)
+/// requires that *lazuli.FieldError, *lazuli.PolicyError, etc. struct values
+/// are constructed ONLY in codegen-emitted handlers (the .gen.go boundary),
+/// never in hand-written bucket source under runtime/go/lazuli/<bucket>/.
+fn check_codegen_wrap_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let bucket_root = project_root.join("runtime/go/lazuli");
+    if !bucket_root.exists() {
+        return diagnostics;
+    }
+
+    collect_codegen_wrap_001(&bucket_root, &bucket_root, &mut diagnostics);
+    diagnostics
+}
+
+fn collect_codegen_wrap_001(
+    bucket_root: &Path,
+    current: &Path,
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    let Ok(entries) = fs::read_dir(current) else {
+        return;
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_codegen_wrap_001(bucket_root, &path, diagnostics);
+            continue;
+        }
+        if !is_bucket_go_source(bucket_root, &path) {
+            continue;
+        }
+
+        let Ok(source) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (lineno, line) in source.lines().enumerate() {
+            for typed in [
+                "FieldError",
+                "PolicyError",
+                "TenantError",
+                "AdapterError",
+                "LibBugError",
+            ] {
+                let needle = format!("lazuli.{typed}{{");
+                if line.contains(&needle) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: path.clone(),
+                        line: lineno + 1,
+                        column: line.find(&needle).map(|col| col + 1).unwrap_or(1),
+                        severity: DoctorSeverity::Error,
+                        code: "CODEGEN-WRAP-001".to_owned(),
+                        message: format!(
+                            "typed error `{typed}` constructed in bucket source. The one-wrap boundary requires typed errors only at the codegen-emitted handler boundary. Return a bare sentinel from this bucket; codegen will wrap it. See bucket-ai-debug-loop-cycle.md §7.2."
+                        ),
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn is_bucket_go_source(bucket_root: &Path, path: &Path) -> bool {
+    if path.parent() == Some(bucket_root) {
+        return false;
+    }
+    if path.extension().and_then(|ext| ext.to_str()) != Some("go") {
+        return false;
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if name.ends_with("_test.go") {
+        return false;
+    }
+    let rendered = path.to_string_lossy();
+    !rendered.contains(".gen.")
 }
 
 #[derive(Debug)]
@@ -9890,6 +9974,82 @@ fn check_locale_negotiate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_project_root(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("lazuli-{name}-{unique}"));
+        fs::create_dir_all(&root).expect("create temp project root");
+        root
+    }
+
+    fn write_file(path: &Path, source: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dirs");
+        }
+        fs::write(path, source).expect("write test file");
+    }
+
+    #[test]
+    fn codegen_wrap_001_fires_on_field_error_literal_in_bucket() {
+        let root = temp_project_root("codegen-wrap-fires");
+        write_file(
+            &root.join("runtime/go/lazuli/auth/password.go"),
+            "package auth\n\nfunc f() error { return &lazuli.FieldError{} }\n",
+        );
+
+        let diagnostics = check_codegen_wrap_001(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "CODEGEN-WRAP-001");
+        assert_eq!(diagnostics[0].line, 3);
+    }
+
+    #[test]
+    fn codegen_wrap_001_ignores_top_level_runtime_files() {
+        let root = temp_project_root("codegen-wrap-top-level");
+        write_file(
+            &root.join("runtime/go/lazuli/error_field.go"),
+            "package lazuli\n\nvar _ = lazuli.FieldError{}\n",
+        );
+
+        let diagnostics = check_codegen_wrap_001(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
+    }
+
+    #[test]
+    fn codegen_wrap_001_ignores_gen_files() {
+        let root = temp_project_root("codegen-wrap-gen");
+        write_file(
+            &root.join("runtime/go/lazuli/auth/password.gen.go"),
+            "package auth\n\nvar _ = lazuli.FieldError{}\n",
+        );
+
+        let diagnostics = check_codegen_wrap_001(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
+    }
+
+    #[test]
+    fn codegen_wrap_001_ignores_test_files() {
+        let root = temp_project_root("codegen-wrap-test");
+        write_file(
+            &root.join("runtime/go/lazuli/auth/password_test.go"),
+            "package auth\n\nvar _ = lazuli.FieldError{}\n",
+        );
+
+        let diagnostics = check_codegen_wrap_001(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
+    }
 
     fn package_from_sources(sources: Vec<(&str, &str)>) -> DoctorPackage {
         let mut files = Vec::new();
