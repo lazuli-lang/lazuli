@@ -13,6 +13,8 @@
 //! requiring canonical-only constructs will surface as `TypeRef::Unresolved`
 //! or `PolicyRef::Unresolved` rather than fabricated facts.
 
+pub mod source_map;
+
 use std::collections::BTreeSet;
 
 use lazuli_ir as ir;

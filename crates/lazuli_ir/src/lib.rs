@@ -14,33 +14,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Schema version for the IR JSON ABI. See `docs/ir-abi.md`.
-///
-/// Bumped to 0.11.0 for Phase L Tier 4 follow-up — additive minor
-/// bump. New shapes:
-/// - `RouteSlot.from` (`Option<String>`).
-/// - `CapabilityRef::Hashed/Encrypted/Token` typed variants +
-///   `HashedCapability`, `HashAlgorithm`, `EncryptedCapability`,
-///   `TokenCapability`, `TokenStore`.
-/// - `BuiltinType::SemanticPhone`, `SemanticUrl`, `SemanticUuid`,
-///   `SemanticCurrency`.
-/// - `Command.timeout`, `Command.retry`, `Command.idempotency`
-///   (mirrors of `Job`'s spine).
-///
-/// History:
-/// - 0.10.0 — Phase L Tier 4 follow-up partial (capability variants
-///   + semantic types).
-/// - 0.9.0 — Phase L Tier 4 follow-up partial (`RouteSlot.from`).
-/// - 0.8.0 — Cut A.11: `AppManifest.cors`, `AppCors`, `AppCorsOriginRule`.
-/// - 0.7.0 — Cut A.10: `EvalCase.golden`, `GoldenSpec`.
-/// - 0.6.0 — Cut A.8: `BuiltInTraceEvent`, `BuiltInTraceRecord`,
-///   `TraceFiresPer`, registry functions, reserved-name helper.
-/// - 0.5.0 — Cut A.7: `Agent.expose_http`, `HttpExposure`,
-///   `HttpMethod`.
-/// - 0.4.0 — Cut A: `Feature.agents`, `Agent` (+ tools/evals/
-///   output_kind/output_discriminator), `AppRegistry.tools` (+
-///   `RegistryToolEntry`), `Lt`/`Le`/`Gt`/`Ge` on `CompareOp`.
-pub const LZIR_SCHEMA: &str = "0.11.0";
+/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.12.0 by D1
+/// (SourceMap companion). Companion is opt-in sidecar emission, so
+/// `Module` shape itself is unchanged; bump signals the companion
+/// exists for downstream tooling.
+pub const LZIR_SCHEMA: &str = "0.12.0";
+
+pub type FileId = u16;
 
 /// Span back-reference into the source AST. Debug-only; not part of the
 /// published JSON ABI. Consumers must opt in via `--with-spans`.
@@ -48,6 +28,28 @@ pub const LZIR_SCHEMA: &str = "0.11.0";
 pub struct SpanRef {
     pub start: usize,
     pub end: usize,
+}
+
+/// SourceMap is the IR companion that resolves `SpanRef` byte
+/// offsets to (file, line, column). Sidecar to `Module` — passed
+/// alongside in codegen, serialized to `<module>.sourcemap.json`
+/// when `--with-source` is requested. NOT embedded in `Module`
+/// itself per ADR-3 (avoids cascading IR JSON size + snapshot
+/// churn across 30+ SpanRef use sites).
+///
+/// EXPERIMENTAL: shape may grow additive fields before 1.0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceMap {
+    pub files: Vec<SourceFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceFile {
+    pub id: FileId,
+    /// Canonical relative path, e.g. `features/customer.lzi`.
+    pub path: String,
+    /// Byte offset of each line start, plus one EOF sentinel.
+    pub line_offsets: Vec<u32>,
 }
 
 /// A module is the IR root. It groups the optional app operational manifest

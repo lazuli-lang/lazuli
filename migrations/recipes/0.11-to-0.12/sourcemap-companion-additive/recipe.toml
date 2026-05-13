@@ -1,0 +1,11 @@
+[recipe]
+from_version = "0.11.0"
+to_version = "0.12.0"
+kind = "additive"
+summary = "SourceMap sidecar companion added; no Module shape change."
+
+[smoke]
+# No input.lzi -> output.lzi transformation needed - this is
+# additive at the IR ABI level (sidecar emit is opt-in, no
+# author surface change). Recipe presence is the gate.
+applies_to = "lazuli_ir_consumers"
