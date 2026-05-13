@@ -2,79 +2,103 @@
 
 Feature folders are the source of truth. Generated output is disposable.
 
+A Lazurite-scaffolded app (the default produced by `lazuli new`) follows the
+shape below. Bare-mode (`lazuli new --template=bare`) omits `lazurite.toml`
+and the `features/<f>/handlers/` subdirs; everything else applies.
+
 ```txt
-app.lzi
-registry.lzi
-profiles.lzi
-# optional, only for distributed systems
-workspace.lzi
+lazurite.toml                # workspace manifest (Lazurite distro)
+app.lzi                      # app entrypoint: envs, urls, uses, deploy gates
+registry.lzi                 # integrations, packs, capabilities, bindings
+profiles.lzi                 # optional: env-specific overlays
+workspace.lzi                # optional: distributed-system root
 
 contracts/
   acme.ai.v1.lzi
 
 features/
   customer/
-    customer.lzi
-    customer.lzx
-    customer.web.lzx
-    customer.mobile.lzx
-    customer.ctx.md
-    ui/
+    customer.lzi             # DSL surface
+    customer.lzx             # abstract experience
+    customer.web.lzx         # web projection
+    customer.mobile.lzx      # mobile projection
+    customer.ctx.md          # LLM context pack
+    handlers/                # @fn.*/@validator.*/@hook.* extension code
+      hash_password.go
+      before_create.go
+    domain/                  # domain functions, resource-local validators
+      risk_score.go
+      validate_customer.go
+    queries/                 # raw SQL files referenced via query.sql @file.<name>
+      lifetime_value.sql
+    jobs/                    # background job handler extensions
+      recompute_scores.go
+    integrations/            # webhook verifiers, adapter handlers
+      stripe.go
+    templates/               # email/notification templates per locale
+      welcome.en-US.tmpl
+      welcome.pt-BR.tmpl
+    i18n/                    # feature-local catalogs
+      customer.en-US.json
+      customer.pt-BR.json
+    ui/                      # client UI extensions
       status_cell.tsx
       activity_timeline.tsx
-    hooks/
-      before_create.go
-    domain/
-      risk_score.go
-    queries/
-      lifetime_value.sql
-    jobs/
-      recompute_scores.go
-    integrations/
-      stripe.go
-    pages/
+    pages/                   # escape-route pages
       customer_imports.tsx
 
-.lazuli/
-  generated/
-    go/
-      cmd/
-        lazuli/
-          main.go
-      internal/
-        runtime/
-        types/
-      features/
-        customer/
-          types.go
-          queries.go
-          commands.go
-          workflows.go
-          events.go
-          policies.go
-          rules.go
-          jobs.go
-          webhooks.go
-    react/
-      src/
-        App.tsx
-        runtime/
-        features/
-          customer/
-            api.ts
-            types.ts
-            List.tsx
-            Detail.tsx
-    types/
-  graph.json
-  source-map.json
-  manifest.json
+i18n/                        # app-wide translation catalogs
+  common.en-US.json
+  common.pt-BR.json
+
+scripts/                     # custom scripts (CI, deploy, seed, etc.)
+  seed.sh
+
+dist/                        # generated code (regen-only, gitignored by default)
+  go/                        # `lazuli generate go --out dist/go`
+    main.go                  # entrypoint (emit_main=true)
+    go.mod                   # sub-module (submodule=true)
+    customer/
+      resource.gen.go        # structs + repository wire
+      command.gen.go         # handler + middleware
+      query.gen.go           # list/lookup + cache
+      api.gen.go             # route binding (net/http stdlib ServeMux)
+      auth.gen.go            # if feature declares auth
+      job.gen.go             # River worker registration
+      webhook.gen.go         # webhook receiver + HMAC
+      notification.gen.go    # channel dispatcher
+      storage.gen.go         # signed URL handler
+      translation.gen.go     # i18n catalog loader
+    migrations/              # generated SQL DDL per resource
+      20260513_001_customer.up.sql
+      20260513_001_customer.down.sql
+  ts-web/                    # `[frontends.web]` audience-scoped SDK
+    customer/
+      api.ts
+      types.ts
+  ts-mobile/                 # `[frontends.mobile]` audience-scoped SDK
+    customer/
+      api.ts
+      types.ts
+
+go.mod                       # root module (`module <project>`)
+go.work                      # workspace (root + dist/go)
+go.sum
+
+.lazuli/                     # internal cache + manifests (gitignored)
+  graph.json                 # IR snapshot for incremental codegen
+  source-map.json            # IR position ↔ generated line map
+  manifest.json              # extension file registry
+
+.gitignore                   # ignores dist/ .lazuli/ secrets
+README.md
 ```
 
 ## Source
 
 These are authored and committed:
 
+- `lazurite.toml` (Lazurite-scaffolded apps; see §"Lazurite manifest" below)
 - `features/**/<feature>.lzi`
 - `app.lzi`
 - `registry.lzi`
@@ -85,8 +109,9 @@ These are authored and committed:
 - `features/**/<feature>.web.lzx`
 - `features/**/<feature>.mobile.lzx`
 - `features/**/<feature>.ctx.md`
-- extension code under `ui/`, `hooks/`, `domain/`, `queries/`, `jobs/`, `integrations/`, `pages/`
+- extension code under `handlers/`, `domain/`, `queries/`, `jobs/`, `integrations/`, `templates/`, `i18n/`, `ui/`, `pages/`
 - adapter configuration
+- top-level `i18n/`, `scripts/`
 
 `registry.lzi` is a catalog, not an implementation folder. It may list
 available packs, integrations, env schema, and capabilities. A pack entry such
@@ -98,7 +123,7 @@ mechanics remain in the pack/adapters.
 product has multiple apps, external services, shared event contracts, or
 gateway edges. It points at app entrypoints and external contracts; repo URLs,
 branches, local ports, broker providers, proxy implementations, and deploy
-mechanics belong in `lazuli.toml` or adapter config.
+mechanics belong in `lazurite.toml` or adapter config.
 
 `contracts/**/*.lzi` contains external service contracts, not service
 implementations. A contract can import OpenAPI, AsyncAPI, Proto, JSON Schema,
@@ -107,16 +132,48 @@ doctor/codegen. the Lazuli runtime consumes those contracts to wire Go transport
 the external service may be implemented in Python, Java, Node, Rust, or any
 other stack.
 
+## Lazurite manifest
+
+`lazurite.toml` at the project root holds environment glue the DSL doesn't
+own — framework version pin, plugin module resolution, codegen settings,
+frontend topology, migration runner policy, seed policy, local-dev overrides.
+The manifest is owned by the **Lazurite distro** (Lazuli's opinionated
+distribution); other future distros may ship different defaults but the
+schema lives in Lazuli core (`crates/lazuli_cli/src/lazurite_manifest.rs`).
+
+Required sections: `[project]` (name + module + schema), `[lazuli]` (runtime
+version pin). Optional: `[lazurite]`, `[plugins]`, `[generate.go]`,
+`[frontends.*]`, `[migrations]`, `[seeds]`, `[dev]`.
+
+**Boundary:** the manifest never duplicates declarations the DSL owns. App
+environments, URLs, CORS, audiences, and deploy gates stay in `app.lzi` (and
+`profiles.lzi` for overlays); audience scoping per frontend stays in `.lzx`.
+The manifest is the *projection over the IR*, not a parallel source.
+
+Doctor emits `MANIFEST-REQUIRED-001` when `.lzi` references `@plugin/*` but
+the manifest is missing. Fixture suites used only for codegen testing
+(no `@plugin/*` refs) may omit the manifest entirely.
+
+See `docs/proposals/lazurite-scaffold.md` for the full schema and rationale.
+
 ## Generated
 
 These are generated and should be treated as disposable:
 
-- `.lazuli/generated/**`
+- `dist/go/**` (`lazuli generate go --out dist/go`)
+- `dist/ts-<frontend>/**` (per-frontend SDK from `[frontends.*]`)
 - `.lazuli/graph.json`
 - `.lazuli/source-map.json`
 - `.lazuli/manifest.json`
 
-Generated files may be committed or ignored depending on target adapter, but they are not source of truth.
+**Convention:** `dist/` is the canonical output directory (web ecosystem
+default — Vite, esbuild, tsc, etc.). `.lazuli/` is reserved for internal
+**cache** and **manifests** (graph snapshots, source maps, extension file
+registry) — never user-facing generated code.
+
+Generated files in `dist/` are regen-only; do not hand-edit. They may be
+committed (for vendored/deploy builds) or gitignored (default for `lazuli
+new` scaffold); either way, they are not source of truth.
 
 Generated applications are not bundled into one source file. Lazuli emits small entrypoints plus feature-local files grouped by category. Go later links many `.go` files into one binary, and React/TypeScript later bundles many modules for the browser. Lazuli keeps the generated source split so stack traces, diffs, source maps, and future granular regeneration point back to the owning feature.
 
@@ -133,19 +190,26 @@ Avoid both extremes: do not generate one giant `server.go`/`App.tsx` for the who
 
 ## Conventions
 
-Default extension paths:
+Default extension paths (Lazurite-canonical):
 
-- client UI: `features/<feature>/ui/<name>.tsx`
-- hook/validator extensions: `features/<feature>/hooks/<name>.go`
-- resource-local validator: `features/<feature>/domain/validate_<resource>.go`
+- `@fn.<name>` (custom function): `features/<feature>/handlers/<name>.go`
+- `@validator.<name>` (custom validator): `features/<feature>/handlers/<name>.go` or `features/<feature>/domain/validate_<resource>.go` for resource-local validators
+- `@hook.<name>` (workflow lifecycle hook): `features/<feature>/handlers/<name>.go`
 - domain function extensions: `features/<feature>/domain/<name>.go`
 - integration adapter extensions: `features/<feature>/integrations/<name>.go`
 - query modifier extensions: `features/<feature>/queries/<name>.go`
-- SQL query files: `features/<feature>/queries/<name>.sql`
+- SQL query files (referenced via `query.sql @file.<name>`): `features/<feature>/queries/<name>.sql`
 - background job handler: `features/<feature>/jobs/<name>.go`
 - integration/webhook verifier or handler: `features/<feature>/integrations/<name>.go`
+- email/notification template: `features/<feature>/templates/<name>.<locale>.tmpl`
+- feature-local i18n catalog: `features/<feature>/i18n/<name>.<locale>.json`
+- client UI extension: `features/<feature>/ui/<name>.tsx`
 - inline view block: `features/<feature>/ui/<name>.tsx`
 - escape route/page: `features/<feature>/pages/<name>.tsx`
+
+Filenames inside `handlers/`, `domain/`, etc. must match the DSL reference
+name (`@fn.verify_password` → `handlers/verify_password.go` with
+`func VerifyPassword(...)`). Doctor enforces this resolution rule.
 
 Use `at` in `.lzi` only when a file intentionally lives outside convention.
 

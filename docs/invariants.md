@@ -482,3 +482,63 @@ source that only fails later.
   once all supported baselines no longer contain the old identity.
 - `escape_route` is explicit and still declares its route, policy, tenant
   boundary, and source path.
+
+## Lazurite Distro Boundary
+
+The Lazurite distro layer (`lazurite.toml` manifest + `lazuli new` template +
+folder conventions) is a thin opinionated layer **on top of** Lazuli. It
+NEVER adds language mechanisms; it only ships project shape conventions. The
+invariants below pin where the distro's reach starts and stops.
+
+- `lazurite.toml` at the project root holds environment glue the DSL does
+  not own: framework version pin (`[lazuli]`), distro template lineage
+  (`[lazurite]`), plugin module resolution (`[plugins]`), Go codegen
+  settings (`[generate.go]`), frontend topology (`[frontends.*]`),
+  migration runner policy (`[migrations]`), seed policy (`[seeds]`),
+  and local-dev overrides (`[dev]`). Doctor parses the manifest via
+  `crates/lazuli_cli/src/lazurite_manifest.rs` and `lazuli inspect
+  --include=manifest` surfaces it in derived JSON.
+- `lazurite.toml` MUST NOT declare environments, URLs, CORS, deploy gates,
+  audiences, locale settings, or any other slot already owned by
+  `app.lzi`/`profiles.lzi`/`.lzx`. The DSL is the single source of truth
+  for declarations and contracts; the manifest is glue. Doctor enforces:
+  - `[env.*]` blocks in `lazurite.toml` are rejected (use `app.lzi
+    environments`/`urls`/`cors`).
+  - `[deploy]` block is rejected (use `app.lzi deploy { ... }`).
+- `lazurite.toml [plugins]` keys MUST start with `@plugin/`. The
+  `@runtime/<name>` namespace lists OSS commodity infrastructure that
+  lives in the Lazuli core runtime — it is wired automatically and never
+  appears in `[plugins]`. Doctor emits `PLUGIN-NAMESPACE-MISMATCH-001`
+  when a wrong-namespace adapter is declared.
+- A project that uses any `@plugin/*` reference in `.lzi` MUST have a
+  `lazurite.toml` declaring that plugin. Doctor emits
+  `MANIFEST-REQUIRED-001` otherwise. Projects with no `@plugin/*` refs
+  may omit the manifest entirely (advisory mode); fixture suites used
+  by codegen tests (`examples/full-capsule/`, `examples/smoke-hello/`,
+  etc.) continue to pass doctor without one.
+- `lazurite.toml [frontends.<name>]` declares per-frontend audience-scoped
+  SDK projection. Each frontend has `target` (closed enum: `tanstack-vite`
+  | `expo` | `next` | `tauri` | `cli`), `out` (output dir), and
+  `audiences` (list of audience names declared in `.lzx`). Per-frontend
+  SDKs only contain commands/queries the listed audiences are allowed
+  to call.
+- Audience names referenced in `[frontends.*].audiences` MUST be declared
+  in at least one `.lzx audience <name>` block. Doctor emits
+  `FRONTEND-AUDIENCE-UNKNOWN-001` otherwise. Conversely, an audience
+  declared in `.lzx` but listed in no `[frontends.*]` produces
+  `AUDIENCE-NO-FRONTEND-001` (warning: orphan audience = dead view code).
+- Generated code lives in `dist/` (target-specific subdirs: `dist/go/`,
+  `dist/ts-<frontend>/`, etc.). `.lazuli/` is reserved for internal cache
+  + manifests (graph.json, source-map.json, manifest.json); it is NEVER
+  user-editable and contains no user-facing artifacts.
+- `dist/go/go.mod` is a Go sub-module by default
+  (`[generate.go].submodule = true`); the scaffold writes a top-level
+  `go.work` listing both root and `./dist/go` modules. Doctor cross-checks
+  Lazuli runtime version parity between root `go.mod` and `dist/go/go.mod`
+  (`SUBMODULE-DRIFT-001`).
+- A future Lazuli distro (Lazonyx, Lazpipe, etc.) MUST NOT extend the
+  language: no new `@-namespace`, no new `kind` keyword, no shadowing of
+  a Lazuli primitive with a distro-specific resolution path. Distros
+  ship folder conventions + default plugins + scaffold templates only.
+  If a primitive is genuinely needed, it enters Lazuli first (grammar +
+  doctor + codegen) and the distro adopts it.
