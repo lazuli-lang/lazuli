@@ -11,6 +11,7 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 mod app_manifest;
 mod dev;
 mod doctor;
+mod lazurite_manifest;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =
@@ -68,6 +69,8 @@ enum Commands {
         input: PathBuf,
         #[arg(long, default_value = "none")]
         expand: String,
+        #[arg(long, value_enum, value_delimiter = ',')]
+        include: Vec<InspectInclude>,
         #[arg(long, value_enum, default_value_t = InspectFormat::Json)]
         format: InspectFormat,
     },
@@ -218,6 +221,11 @@ enum GenerateKind {
 enum InspectFormat {
     Json,
     Lazuli,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum InspectInclude {
+    Manifest,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -437,8 +445,9 @@ fn main() -> Result<()> {
         Commands::Inspect {
             input,
             expand,
+            include,
             format,
-        } => inspect_command(&input, &expand, format),
+        } => inspect_command(&input, &expand, format, &include),
         Commands::Init { path } => init_command(&path),
         Commands::New { project_name, bare } => new_command(&project_name, bare),
         Commands::Lsp => lsp_command(),
@@ -1151,15 +1160,21 @@ fn compile_command(input: &Path, out: &Path) -> Result<()> {
     Ok(())
 }
 
-fn inspect_command(input: &Path, expand: &str, format: InspectFormat) -> Result<()> {
+fn inspect_command(
+    input: &Path,
+    expand: &str,
+    format: InspectFormat,
+    include: &[InspectInclude],
+) -> Result<()> {
     let expansions = parse_expand_set(expand)?;
-    let source =
-        fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
+    let source_path = inspect_source_path(input);
+    let source = fs::read_to_string(&source_path)
+        .with_context(|| format!("failed to read {}", source_path.display()))?;
 
     match format {
         InspectFormat::Json => {
-            let report = inspect_canonical_source(&source, input, expansions);
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            let output = inspect_json_value(&source, &source_path, expansions, include)?;
+            println!("{}", serde_json::to_string_pretty(&output)?);
         }
         InspectFormat::Lazuli => {
             if expansions.any() {
@@ -1171,6 +1186,58 @@ fn inspect_command(input: &Path, expand: &str, format: InspectFormat) -> Result<
     }
 
     Ok(())
+}
+
+fn inspect_source_path(input: &Path) -> PathBuf {
+    if input.is_dir() {
+        return input.join("app.lzi");
+    }
+
+    input.to_path_buf()
+}
+
+fn inspect_json_value(
+    source: &str,
+    input: &Path,
+    expansions: ExpandSet,
+    include: &[InspectInclude],
+) -> Result<serde_json::Value> {
+    let report = inspect_canonical_source(source, input, expansions);
+    let project_root = project_root_for_input(input);
+    let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+        format!(
+            "failed to read {}",
+            project_root.join("lazurite.toml").display()
+        )
+    })?;
+
+    if let Some(manifest) = manifest {
+        return Ok(serde_json::json!({
+            "ir": report,
+            "manifest": manifest.inspect_view(),
+        }));
+    }
+
+    if include.contains(&InspectInclude::Manifest) {
+        return Ok(serde_json::json!({
+            "ir": report,
+            "manifest": serde_json::Value::Null,
+        }));
+    }
+
+    Ok(serde_json::to_value(report)?)
+}
+
+fn project_root_for_input(input: &Path) -> PathBuf {
+    if input.is_dir() {
+        return input.to_path_buf();
+    }
+
+    input
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
 }
 
 fn init_command(path: &Path) -> Result<()> {
@@ -6141,7 +6208,7 @@ mod tests {
 
     use super::{
         ExpandSet, REGISTRY_TEMPLATE, app_template, expand_canonical_source,
-        inspect_canonical_source, new_command, parse_expand_set, pascal_case,
+        inspect_canonical_source, inspect_json_value, new_command, parse_expand_set, pascal_case,
     };
 
     #[test]
@@ -6463,6 +6530,74 @@ app AcmeCRM
         assert!(json.contains("\"communication\""));
         assert!(json.contains("\"runtime\""));
         assert!(json.contains("\"migrations\":\"before_deploy\""));
+    }
+
+    #[test]
+    fn inspect_emits_manifest_when_present() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-inspect-manifest-test-{}-{suffix}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let app_path = root.join("app.lzi");
+        fs::write(
+            &app_path,
+            r#"
+app Hostpoint
+  title "Hostpoint"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("lazurite.toml"),
+            r#"
+[project]
+name = "hostpoint"
+module = "github.com/acme/hostpoint"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[plugins]
+"@plugin/mercadopago" = { module = "github.com/lazurite/lazuli-plugin-mercadopago", version = "v0.2.0" }
+
+[generate.go]
+out = "dist/go"
+submodule = true
+emit_main = true
+
+[frontends.mobile]
+target = "expo"
+out = "dist/ts-mobile"
+audiences = ["traveler", "host"]
+
+[migrations]
+generated = "dist/go/migrations"
+manual = "migrations"
+strategy = "auto"
+"#,
+        )
+        .unwrap();
+
+        let source = fs::read_to_string(&app_path).unwrap();
+        let json = inspect_json_value(&source, &app_path, ExpandSet::default(), &[]).unwrap();
+
+        assert_eq!(json["manifest"]["origin"], "lazurite.toml");
+        assert_eq!(json["manifest"]["project"]["name"], "hostpoint");
+        assert_eq!(json["manifest"]["plugins"][0]["ref"], "@plugin/mercadopago");
+        assert_eq!(json["manifest"]["plugins"][0]["source"], "remote");
+        assert_eq!(json["manifest"]["frontends"][0]["name"], "mobile");
+        assert_eq!(json["manifest"]["frontends"][0]["target"], "expo");
+        assert_eq!(json["manifest"]["migrations"]["strategy"], "auto");
+        assert!(!json["ir"].is_null());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
