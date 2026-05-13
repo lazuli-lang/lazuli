@@ -1,0 +1,10 @@
+feature minimal_demo
+  domain
+    resource Item
+      name: Text required
+
+  command create_item
+    input
+      name: Text required
+    creates Item
+      name: input.name

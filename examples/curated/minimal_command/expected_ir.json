@@ -1,0 +1,10 @@
+{
+  "expand": [],
+  "features": [
+    {
+      "name": "minimal_demo"
+    }
+  ],
+  "schema": "lazuli.inspect.v0",
+  "source": "examples/curated/minimal_command/minimal_command.lzi"
+}

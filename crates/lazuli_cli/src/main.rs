@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,8 +11,10 @@ use serde::Serialize;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
+mod debug;
 mod dev;
 mod doctor;
+mod examples_bundle;
 mod lazurite_manifest;
 mod migrate;
 mod seed;
@@ -77,6 +80,26 @@ enum Commands {
         include: Vec<InspectInclude>,
         #[arg(long, value_enum, default_value_t = InspectFormat::Json)]
         format: InspectFormat,
+    },
+    /// Reads a typed error envelope and emits a compact AI debug bundle.
+    Debug {
+        /// Path to error envelope JSON. If absent, reads from stdin.
+        #[arg(long)]
+        error: Option<PathBuf>,
+        /// Capsule name; overrides envelope.capsule when present.
+        #[arg(long)]
+        capsule: Option<String>,
+        /// Project root. Defaults to the current directory.
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Output format: json or markdown.
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+    /// Curated examples for AI authoring and CI validation.
+    Examples {
+        #[command(subcommand)]
+        sub: ExamplesCommand,
     },
     Init {
         path: PathBuf,
@@ -239,6 +262,17 @@ enum TranslateCommand {
         #[arg(long)]
         check: bool,
     },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ExamplesCommand {
+    /// Emit deterministic JSONL bundle of curated examples for AI file-load.
+    Bundle {
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Validate that every curated example still compiles and matches frozen IR.
+    Validate,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -502,6 +536,23 @@ fn main() -> Result<()> {
             include,
             format,
         } => inspect_command(&input, &expand, format, &include),
+        Commands::Debug {
+            error,
+            capsule,
+            project,
+            format,
+        } => debug_command(&project, error.as_deref(), capsule, &format),
+        Commands::Examples { sub } => {
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            match sub {
+                ExamplesCommand::Bundle { out } => {
+                    examples_bundle::run_examples_bundle(&project_root, out.as_deref())
+                }
+                ExamplesCommand::Validate => examples_bundle::run_examples_validate(&project_root),
+            }
+            .map_err(|err| anyhow::anyhow!("{err}"))
+        }
         Commands::Init { path } => init_command(&path),
         Commands::New {
             project_name,
@@ -1542,6 +1593,40 @@ fn inspect_command(
                 print!("{source}");
             }
         }
+    }
+
+    Ok(())
+}
+
+fn debug_command(
+    project_root: &Path,
+    error_path: Option<&Path>,
+    capsule: Option<String>,
+    format: &str,
+) -> Result<()> {
+    let input = match error_path {
+        Some(path) => fs::read_to_string(path)
+            .with_context(|| format!("failed to read error envelope {}", path.display()))?,
+        None => {
+            let mut input = String::new();
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .context("failed to read error envelope from stdin")?;
+            input
+        }
+    };
+    let mut envelope: debug::ErrorEnvelopeInput =
+        serde_json::from_str(&input).context("failed to parse error envelope JSON")?;
+    if let Some(capsule) = capsule {
+        envelope.capsule = capsule;
+    }
+
+    let bundle =
+        debug::run_debug(project_root, envelope).map_err(|err| anyhow::anyhow!("{err}"))?;
+    match format {
+        "json" => println!("{}", serde_json::to_string_pretty(&bundle)?),
+        "markdown" => print!("{}", debug::format_markdown(&bundle)),
+        other => bail!("unsupported debug format `{other}`; expected json or markdown"),
     }
 
     Ok(())

@@ -1,0 +1,10 @@
+[example]
+name = "minimal_command"
+intent = "minimal command that creates a resource from typed input"
+
+[provenance]
+pilots = ["docs.example.minimal"]
+last_validated = "2026-05-13"
+
+[common_errors]
+codes = ["field_required", "resource_undefined"]
