@@ -1,0 +1,22 @@
+app AuthRoundtrip
+  uses
+    account
+
+  targets
+    backend go
+
+  environments
+    dev
+
+  urls
+    api dev "http://localhost:8082"
+
+  runtime
+    unit api
+      serves commands, apis
+      healthcheck "/healthz"
+
+  deploy
+    migrations disabled
+    destructive_migrations forbidden
+    rollback disabled
