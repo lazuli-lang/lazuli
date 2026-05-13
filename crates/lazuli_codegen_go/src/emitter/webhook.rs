@@ -19,6 +19,7 @@ use lazuli_ir::{
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
+use super::module::EmitContext;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -29,6 +30,7 @@ pub fn emit_webhook_file(
     feature: &Feature,
     module_name: &str,
     cross_index: &CrossFeatureIndex<'_>,
+    emit_ctx: &EmitContext<'_>,
 ) -> Option<String> {
     if feature.webhooks.is_empty() {
         return None;
@@ -61,13 +63,19 @@ pub fn emit_webhook_file(
             p.blank();
         }
         first_block = false;
-        emit_webhook(&mut p, feature, webhook, &type_ctx);
+        emit_webhook(&mut p, feature, webhook, &type_ctx, emit_ctx);
     }
 
     Some(p.finish())
 }
 
-fn emit_webhook(p: &mut GoPrinter, feature: &Feature, webhook: &Webhook, ctx: &TypeCtx<'_>) {
+fn emit_webhook(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    webhook: &Webhook,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let qualified_name = format!("{}.{}", feature.name, webhook.name);
     let var_name = format!("{}Webhook", lower_camel(&webhook.name));
 
@@ -79,6 +87,7 @@ fn emit_webhook(p: &mut GoPrinter, feature: &Feature, webhook: &Webhook, ctx: &T
         ],
     );
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, webhook.span_ref);
     p.line(&format!("var {var_name} = webhooks.WebhookContract{{"));
     p.indent();
 
@@ -160,6 +169,7 @@ fn emit_webhook(p: &mut GoPrinter, feature: &Feature, webhook: &Webhook, ctx: &T
 
     p.dedent();
     p.line("}");
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
 fn format_verify_spec(verify: &lazuli_ir::VerifySpec) -> String {
@@ -390,7 +400,8 @@ mod tests {
     fn emit(feature: &Feature) -> Option<String> {
         let module = module_with_feature(feature.clone());
         let index = CrossFeatureIndex::build(&module);
-        emit_webhook_file("examples/x.lzi", feature, "lazuli/test", &index)
+        let emit_ctx = EmitContext::no_source("customer/webhook.gen.go");
+        emit_webhook_file("examples/x.lzi", feature, "lazuli/test", &index, &emit_ctx)
     }
 
     fn path(segments: &[&str]) -> Path {

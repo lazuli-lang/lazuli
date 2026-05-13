@@ -23,6 +23,7 @@
 pub mod emitter;
 pub mod runtime;
 
+pub use emitter::module::GoSourceContext;
 pub use runtime::emit_feature_go;
 
 use std::collections::BTreeMap;
@@ -124,7 +125,16 @@ pub fn generate_v1_with_manifest(
     options: &GoEmitOptions,
     manifest: Option<&LazuriteManifest>,
 ) -> Vec<GeneratedFile> {
-    emitter::emit_module(module, options, manifest)
+    emitter::emit_module(module, options, manifest, None)
+}
+
+pub fn generate_v1_with_manifest_and_source(
+    module: &Module,
+    options: &GoEmitOptions,
+    manifest: Option<&LazuriteManifest>,
+    source_context: GoSourceContext<'_>,
+) -> Vec<GeneratedFile> {
+    emitter::emit_module(module, options, manifest, Some(source_context))
 }
 
 /// Legacy Phase J / spike emitter. Produces the hard-coded
@@ -386,7 +396,7 @@ mod tests {
     use lazuli_analyzer::lower_document;
     use lazuli_syntax::parse_document;
 
-    use super::{generate_legacy_demo, generate_v1, GoEmitOptions, LAZULI_GO_VERSION};
+    use super::{GoEmitOptions, LAZULI_GO_VERSION, generate_legacy_demo, generate_v1};
 
     #[test]
     fn legacy_demo_emits_backend_files() {
@@ -395,9 +405,11 @@ mod tests {
         let files = generate_legacy_demo(&module);
 
         assert!(files.iter().any(|file| file.path == "backend/main.go"));
-        assert!(files
-            .iter()
-            .any(|file| file.contents.contains("handleCustomerList")));
+        assert!(
+            files
+                .iter()
+                .any(|file| file.contents.contains("handleCustomerList"))
+        );
     }
 
     #[test]

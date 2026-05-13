@@ -21,6 +21,7 @@ use lazuli_ir::{
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
+use super::module::EmitContext;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -31,6 +32,7 @@ pub fn emit_job_file(
     feature: &Feature,
     module_name: &str,
     cross_index: &CrossFeatureIndex<'_>,
+    emit_ctx: &EmitContext<'_>,
 ) -> Option<String> {
     if feature.jobs.is_empty() {
         return None;
@@ -65,13 +67,19 @@ pub fn emit_job_file(
             p.blank();
         }
         first_block = false;
-        emit_job(&mut p, feature, job, &type_ctx);
+        emit_job(&mut p, feature, job, &type_ctx, emit_ctx);
     }
 
     Some(p.finish())
 }
 
-fn emit_job(p: &mut GoPrinter, feature: &Feature, job: &Job, ctx: &TypeCtx<'_>) {
+fn emit_job(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    job: &Job,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let qualified_name = format!("{}.{}", feature.name, job.name);
 
     write_section_banner(
@@ -82,6 +90,7 @@ fn emit_job(p: &mut GoPrinter, feature: &Feature, job: &Job, ctx: &TypeCtx<'_>) 
         ],
     );
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, job.span_ref);
     p.line(&format!(
         "var {} = jobs.JobContract{{",
         job_var_name(&feature.name, &job.name)
@@ -156,6 +165,7 @@ fn emit_job(p: &mut GoPrinter, feature: &Feature, job: &Job, ctx: &TypeCtx<'_>) 
 
     p.dedent();
     p.line("}");
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
 fn emit_tenant_from(p: &mut GoPrinter, tenant_from: &TenantFromSpec) {
@@ -589,7 +599,8 @@ mod tests {
     fn emit(feature: &Feature) -> Option<String> {
         let module = module_with_feature(feature.clone());
         let index = CrossFeatureIndex::build(&module);
-        emit_job_file("examples/x.lzi", feature, "lazuli/test", &index)
+        let emit_ctx = EmitContext::no_source("customer/job.gen.go");
+        emit_job_file("examples/x.lzi", feature, "lazuli/test", &index, &emit_ctx)
     }
 
     fn event_qname(feature: &str, name: &str) -> QualifiedName {

@@ -41,6 +41,20 @@ impl GoPrinter {
         self.buf.push('\n');
     }
 
+    /// Emit a fully-formed line without applying indentation. Used for
+    /// Go directives that must begin at column 0.
+    pub fn raw_line(&mut self, s: &str) {
+        self.buf.push_str(s);
+        self.buf.push('\n');
+    }
+
+    /// Emit a Go `//line` directive at the current cursor.
+    /// Format: `//line <file>:<line>:<col>` followed by newline.
+    /// Per Go spec, the directive must start at column 0.
+    pub fn line_directive(&mut self, file: &str, line: u32, col: u32) {
+        self.raw_line(&format!("//line {}:{}:{}", file, line, col));
+    }
+
     /// Emit a blank line. Never carries indent prefix.
     pub fn blank(&mut self) {
         self.buf.push('\n');
@@ -84,16 +98,18 @@ impl GoPrinter {
         if rows.is_empty() {
             return;
         }
-        let width = rows
-            .iter()
-            .map(|(left, _)| left.len())
-            .max()
-            .unwrap_or(0);
+        let width = rows.iter().map(|(left, _)| left.len()).max().unwrap_or(0);
         for (left, right) in rows {
             // We hand-build the padded form into a scratch buffer to
             // keep `line` as the only writer that touches `self.buf`.
             let mut scratch = String::with_capacity(left.len() + width + right.len() + 2);
-            let _ = write!(scratch, "{left:<width$} {right}", left = left, width = width, right = right);
+            let _ = write!(
+                scratch,
+                "{left:<width$} {right}",
+                left = left,
+                width = width,
+                right = right
+            );
             self.line(&scratch);
         }
     }
@@ -166,6 +182,23 @@ mod tests {
     }
 
     #[test]
+    fn raw_line_bypasses_indent() {
+        let mut printer = GoPrinter::new();
+        printer.indent();
+        printer.raw_line("//line features/foo.lzi:42:1");
+        printer.line("inside");
+        assert_eq!(printer.finish(), "//line features/foo.lzi:42:1\n\tinside\n");
+    }
+
+    #[test]
+    fn line_directive_uses_go_source_map_format() {
+        let mut printer = GoPrinter::new();
+        printer.indent();
+        printer.line_directive("features/foo.lzi", 42, 1);
+        assert_eq!(printer.finish(), "//line features/foo.lzi:42:1\n");
+    }
+
+    #[test]
     fn banner_includes_source_and_package() {
         let mut printer = GoPrinter::new();
         printer.banner("examples/full-capsule/full-capsule.lzi", "customer");
@@ -178,10 +211,7 @@ mod tests {
     #[test]
     fn aligned_rows_pads_first_column_to_widest() {
         let mut printer = GoPrinter::new();
-        printer.aligned_rows(&[
-            ("ID", "lazuli.ID"),
-            ("CreatedAt", "lazuli.Time"),
-        ]);
+        printer.aligned_rows(&[("ID", "lazuli.ID"), ("CreatedAt", "lazuli.Time")]);
         // CreatedAt is 9 chars, so ID (2 chars) gets 7 trailing spaces.
         assert_eq!(
             printer.finish(),
@@ -202,7 +232,11 @@ mod tests {
         printer.indent();
         printer.aligned_struct_rows(&[
             ("ID", "lazuli.ID", "`db:\"id\"         json:\"id\"`"),
-            ("CreatedAt", "lazuli.Time", "`db:\"created_at\" json:\"created_at\"`"),
+            (
+                "CreatedAt",
+                "lazuli.Time",
+                "`db:\"created_at\" json:\"created_at\"`",
+            ),
         ]);
         let out = printer.finish();
         // CreatedAt = 9 chars name; widest type = "lazuli.Time" = 11 chars.

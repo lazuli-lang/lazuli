@@ -161,6 +161,9 @@ enum Commands {
         /// Mirrors `translate extract --check`.
         #[arg(long)]
         check: bool,
+        /// Emit source-map sidecar data and Go //line directives.
+        #[arg(long)]
+        with_source: bool,
     },
     /// Watch Lazuli source files, regenerate Go output, and optionally run it.
     Dev {
@@ -518,6 +521,7 @@ fn main() -> Result<()> {
             module,
             lazuli_go_version,
             check,
+            with_source,
         } => generate_command(
             kind,
             &input,
@@ -526,6 +530,7 @@ fn main() -> Result<()> {
             module.as_deref(),
             lazuli_go_version.as_deref(),
             check,
+            with_source,
         ),
         Commands::Dev {
             path,
@@ -583,10 +588,13 @@ fn generate_command(
     module: Option<&str>,
     lazuli_go_version: Option<&str>,
     check: bool,
+    with_source: bool,
 ) -> Result<()> {
     match kind {
         GenerateKind::Openapi => generate_openapi(input, output, api_version),
-        GenerateKind::Go => generate_go(input, output, module, lazuli_go_version, check),
+        GenerateKind::Go => {
+            generate_go(input, output, module, lazuli_go_version, check, with_source)
+        }
     }
 }
 
@@ -607,6 +615,7 @@ pub(crate) fn generate_go(
     module: Option<&str>,
     lazuli_go_version: Option<&str>,
     check: bool,
+    with_source: bool,
 ) -> Result<()> {
     let project_root = project_root_for_input(input);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
@@ -615,7 +624,12 @@ pub(crate) fn generate_go(
             project_root.join("lazurite.toml").display()
         )
     })?;
-    let module_ir = build_module_from_path(input)?;
+    let (module_ir, source_context) = if with_source {
+        let (module_ir, source_map, feature_file_ids) = build_module_with_source_from_path(input)?;
+        (module_ir, Some((source_map, feature_file_ids)))
+    } else {
+        (build_module_from_path(input)?, None)
+    };
     let manifest_out = manifest
         .as_ref()
         .and_then(|m| m.generate.go.as_ref())
@@ -638,11 +652,23 @@ pub(crate) fn generate_go(
         lazuli_go_version: go_version,
         check,
     };
-    let files = lazuli_codegen_go::generate_v1_with_manifest(
-        &module_ir,
-        &options,
-        codegen_manifest.as_ref(),
-    );
+    let files = if let Some((source_map, feature_file_ids)) = source_context.as_ref() {
+        lazuli_codegen_go::generate_v1_with_manifest_and_source(
+            &module_ir,
+            &options,
+            codegen_manifest.as_ref(),
+            lazuli_codegen_go::GoSourceContext {
+                source_map,
+                feature_file_ids,
+            },
+        )
+    } else {
+        lazuli_codegen_go::generate_v1_with_manifest(
+            &module_ir,
+            &options,
+            codegen_manifest.as_ref(),
+        )
+    };
 
     if check {
         // Coarse pass/fail signal; the closed §6.2.1 error catalog
@@ -1201,6 +1227,97 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
     }
 
     Ok(module)
+}
+
+fn build_module_with_source_from_path(
+    input: &Path,
+) -> Result<(
+    lazuli_ir::Module,
+    lazuli_ir::SourceMap,
+    BTreeMap<String, lazuli_ir::FileId>,
+)> {
+    use lazuli_analyzer::source_map::SourceMapResolver;
+
+    let mut module = lazuli_ir::Module {
+        workspace: None,
+        contracts: Vec::new(),
+        app: None,
+        registry: None,
+        profiles: Vec::new(),
+        features: Vec::new(),
+    };
+    let mut source_map = lazuli_ir::SourceMap { files: Vec::new() };
+    let mut feature_file_ids = BTreeMap::new();
+
+    let files: Vec<PathBuf> = if input.is_dir() {
+        let mut out = Vec::new();
+        for entry in
+            fs::read_dir(input).with_context(|| format!("reading directory {}", input.display()))?
+        {
+            let entry = entry?;
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("lzi") {
+                out.push(p);
+            }
+        }
+        out.sort();
+        out
+    } else {
+        vec![input.to_path_buf()]
+    };
+
+    let source_root = if input.is_dir() {
+        input
+    } else {
+        input.parent().unwrap_or_else(|| Path::new("."))
+    };
+
+    for (idx, path) in files.iter().enumerate() {
+        let file_id =
+            u16::try_from(idx + 1).context("too many source files for SourceMap FileId")?;
+        let source =
+            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let source_path = path
+            .strip_prefix(source_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        source_map
+            .files
+            .push(lazuli_ir::SourceMap::build_source_file(
+                file_id,
+                source_path,
+                &source,
+            ));
+
+        if module.app.is_none() {
+            module.app = app_manifest::parse_app_manifest(&source);
+        }
+        if module.registry.is_none() {
+            module.registry = app_manifest::parse_app_registry(&source);
+        }
+        if module.workspace.is_none() {
+            module.workspace = app_manifest::parse_app_workspace(&source);
+        }
+        let contracts = app_manifest::parse_app_contracts(&source);
+        if !contracts.is_empty() {
+            module.contracts.extend(contracts);
+        }
+        let profiles = app_manifest::parse_app_profiles(&source);
+        if !profiles.is_empty() {
+            module.profiles.extend(profiles);
+        }
+        if let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(&source) {
+            for ast in skeletons {
+                if let Ok(feature) = lazuli_analyzer::lower_feature_skeleton(&ast) {
+                    feature_file_ids.insert(feature.name.clone(), file_id);
+                    module.features.push(feature);
+                }
+            }
+        }
+    }
+
+    Ok((module, source_map, feature_file_ids))
 }
 
 /// Migrations bucket cycle Route C — `lazuli plan --check <name>`
@@ -6574,9 +6691,9 @@ mod tests {
 
     use super::{
         Cli, Commands, ExpandSet, MigrateCommand, REGISTRY_TEMPLATE, app_template,
-        default_module_name, expand_canonical_source, inspect_canonical_source,
-        inspect_json_value, new_command, parse_expand_set, pascal_case,
-        pascal_case_project_name, scaffold_bare, scaffold_from_template, templates,
+        default_module_name, expand_canonical_source, inspect_canonical_source, inspect_json_value,
+        new_command, parse_expand_set, pascal_case, pascal_case_project_name, scaffold_bare,
+        scaffold_from_template, templates,
     };
 
     #[test]
@@ -7104,7 +7221,10 @@ strategy = "auto"
 
         assert_eq!(json["manifest"]["origin"], "lazurite.toml");
         assert_eq!(json["manifest"]["project"]["name"], "marketplace");
-        assert_eq!(json["manifest"]["plugins"][0]["ref"], "@plugin/example/payment-gateway");
+        assert_eq!(
+            json["manifest"]["plugins"][0]["ref"],
+            "@plugin/example/payment-gateway"
+        );
         assert_eq!(json["manifest"]["plugins"][0]["source"], "remote");
         assert_eq!(json["manifest"]["frontends"][0]["name"], "mobile");
         assert_eq!(json["manifest"]["frontends"][0]["target"], "expo");

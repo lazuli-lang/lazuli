@@ -14,15 +14,17 @@
 
 use std::collections::BTreeMap;
 
+use lazuli_analyzer::source_map::SourceMapResolver;
 use lazuli_codegen_go::{
-    generate_v1, generate_v1_with_manifest, GoEmitOptions, LazuriteDev, LazuriteGenerateGo,
-    LazuriteManifest, LazuritePlugin, LAZULI_GO_VERSION,
+    GoEmitOptions, GoSourceContext, LAZULI_GO_VERSION, LazuriteDev, LazuriteGenerateGo,
+    LazuriteManifest, LazuritePlugin, generate_v1, generate_v1_with_manifest,
+    generate_v1_with_manifest_and_source,
 };
 use lazuli_ir::{
     AppLocale, AppLogging, AppManifest, AppTracing, Assignment, BuiltinType, Command,
     CommandEffect, CommandInput, CommandKind, CreateEffect, Defaults, EnumDecl, EnumVariant, Expr,
-    Feature, Field, Module, Path, Policies, PolicyRef, QualifiedName, Resource, StorageValue,
-    TypeRef, TypedSlot,
+    Feature, Field, Module, Path, Policies, PolicyRef, QualifiedName, Resource, SourceMap, SpanRef,
+    StorageValue, TypeRef, TypedSlot,
 };
 
 fn empty_feature(name: &str) -> Feature {
@@ -113,6 +115,51 @@ fn minimal_module(app_name: &str, feature_name: &str) -> Module {
     }
 }
 
+fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
+    Command {
+        name: name.to_owned(),
+        kind: CommandKind::Create,
+        route: Vec::new(),
+        input: CommandInput::Empty,
+        target: None,
+        lets: Vec::new(),
+        effect: CommandEffect::None,
+        policy: PolicyRef::None,
+        emits: Vec::new(),
+        rate_limit: None,
+        audit: None,
+        approval: None,
+        invalidates: Vec::new(),
+        external_calls: Vec::new(),
+        timeout: None,
+        retry: None,
+        idempotency: None,
+        deprecated: None,
+        tests: None,
+        previous_names: Vec::new(),
+        span_ref,
+    }
+}
+
+fn source_map_context<'a>(
+    source_map: &'a SourceMap,
+    feature_file_ids: &'a BTreeMap<String, lazuli_ir::FileId>,
+) -> GoSourceContext<'a> {
+    GoSourceContext {
+        source_map,
+        feature_file_ids,
+    }
+}
+
+fn command_gen_contents(files: &[lazuli_codegen_go::GeneratedFile], feature: &str) -> String {
+    files
+        .iter()
+        .find(|file| file.path == format!("{feature}/command.gen.go"))
+        .expect("expected command.gen.go")
+        .contents
+        .clone()
+}
+
 fn lazurite_manifest(
     plugins: Vec<(&str, &str)>,
     generate_go: Option<LazuriteGenerateGo>,
@@ -141,6 +188,129 @@ fn lazurite_manifest(
                 .collect::<BTreeMap<_, _>>(),
         }),
     }
+}
+
+#[test]
+fn emit_command_with_span_emits_line_directive() {
+    let mut module = minimal_module("marketplace", "foo");
+    let source = format!("{}command create\n", "\n".repeat(41));
+    let span = SpanRef { start: 41, end: 55 };
+    module.features[0]
+        .commands
+        .push(empty_command("create", Some(span)));
+
+    let source_map = SourceMap {
+        files: vec![SourceMap::build_source_file(7, "features/foo.lzi", &source)],
+    };
+    let feature_file_ids = BTreeMap::from([("foo".to_owned(), 7)]);
+    let files = generate_v1_with_manifest_and_source(
+        &module,
+        &GoEmitOptions::default(),
+        None,
+        source_map_context(&source_map, &feature_file_ids),
+    );
+    let out = command_gen_contents(&files, "foo");
+
+    let directive = out
+        .find("//line features/foo.lzi:42:1")
+        .expect("expected source //line directive");
+    let declaration = out
+        .find("var createResult = lazuli.Command[struct{}, struct{}]{")
+        .expect("expected command declaration");
+    assert!(
+        directive < declaration,
+        "directive must precede command declaration:\n{out}"
+    );
+}
+
+#[test]
+fn emit_command_without_span_emits_no_directive() {
+    let mut module = minimal_module("marketplace", "foo");
+    module.features[0]
+        .commands
+        .push(empty_command("create", None));
+
+    let source_map = SourceMap {
+        files: vec![SourceMap::build_source_file(
+            7,
+            "features/foo.lzi",
+            "command create\n",
+        )],
+    };
+    let feature_file_ids = BTreeMap::from([("foo".to_owned(), 7)]);
+    let files = generate_v1_with_manifest_and_source(
+        &module,
+        &GoEmitOptions::default(),
+        None,
+        source_map_context(&source_map, &feature_file_ids),
+    );
+    let out = command_gen_contents(&files, "foo");
+
+    assert!(
+        !out.contains("//line "),
+        "missing SpanRef should fall back to generated Go locations:\n{out}"
+    );
+}
+
+#[test]
+fn emit_command_resets_to_gen_file_after_body() {
+    let mut module = minimal_module("marketplace", "foo");
+    module.features[0]
+        .commands
+        .push(empty_command("create", Some(SpanRef { start: 0, end: 14 })));
+
+    let source_map = SourceMap {
+        files: vec![SourceMap::build_source_file(
+            7,
+            "features/foo.lzi",
+            "command create\n",
+        )],
+    };
+    let feature_file_ids = BTreeMap::from([("foo".to_owned(), 7)]);
+    let files = generate_v1_with_manifest_and_source(
+        &module,
+        &GoEmitOptions::default(),
+        None,
+        source_map_context(&source_map, &feature_file_ids),
+    );
+    let out = command_gen_contents(&files, "foo");
+
+    assert!(
+        out.contains("}\n//line foo/command.gen.go:1:1\n"),
+        "expected reset directive after command value body:\n{out}"
+    );
+}
+
+#[test]
+fn multiple_handlers_in_same_feature_each_get_directive_pair() {
+    let mut module = minimal_module("marketplace", "foo");
+    module.features[0]
+        .commands
+        .push(empty_command("create", Some(SpanRef { start: 0, end: 14 })));
+    module.features[0].commands.push(empty_command(
+        "update",
+        Some(SpanRef { start: 15, end: 29 }),
+    ));
+
+    let source = "command create\ncommand update\n";
+    let source_map = SourceMap {
+        files: vec![SourceMap::build_source_file(7, "features/foo.lzi", source)],
+    };
+    let feature_file_ids = BTreeMap::from([("foo".to_owned(), 7)]);
+    let files = generate_v1_with_manifest_and_source(
+        &module,
+        &GoEmitOptions::default(),
+        None,
+        source_map_context(&source_map, &feature_file_ids),
+    );
+    let out = command_gen_contents(&files, "foo");
+
+    assert_eq!(out.matches("//line features/foo.lzi:").count(), 2, "{out}");
+    assert_eq!(
+        out.matches("//line foo/command.gen.go:1:1").count(),
+        2,
+        "{out}"
+    );
 }
 
 #[test]

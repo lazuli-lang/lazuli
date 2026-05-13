@@ -91,7 +91,7 @@ pub fn run_dev(opts: DevOptions) -> Result<()> {
 pub(crate) fn regen(opts: &DevOptions) -> Result<()> {
     validate_source(&opts.source_root)?;
     let out_dir = effective_out_dir(opts);
-    crate::generate_go(&opts.source_root, Some(&out_dir), None, None, false)
+    crate::generate_go(&opts.source_root, Some(&out_dir), None, None, false, false)
 }
 
 fn spawn_go(opts: &DevOptions) -> Result<Option<Child>> {

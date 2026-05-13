@@ -20,6 +20,7 @@ use lazuli_ir::{
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
+use super::module::EmitContext;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -30,6 +31,7 @@ pub fn emit_query_file(
     feature: &Feature,
     module_name: &str,
     cross_index: &CrossFeatureIndex<'_>,
+    emit_ctx: &EmitContext<'_>,
 ) -> Option<String> {
     if feature.queries.is_empty() {
         return None;
@@ -66,21 +68,33 @@ pub fn emit_query_file(
             p.blank();
         }
         first_block = false;
-        emit_query(&mut p, feature, query, &type_ctx);
+        emit_query(&mut p, feature, query, &type_ctx, emit_ctx);
     }
 
     Some(p.finish())
 }
 
-fn emit_query(p: &mut GoPrinter, feature: &Feature, query: &Query, ctx: &TypeCtx<'_>) {
+fn emit_query(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    query: &Query,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     match query {
-        Query::List(q) => emit_list_query(p, feature, q, ctx),
-        Query::Lookup(q) => emit_lookup_query(p, feature, q, ctx),
-        Query::Sql(q) => emit_sql_query(p, feature, q, ctx),
+        Query::List(q) => emit_list_query(p, feature, q, ctx, emit_ctx),
+        Query::Lookup(q) => emit_lookup_query(p, feature, q, ctx, emit_ctx),
+        Query::Sql(q) => emit_sql_query(p, feature, q, ctx, emit_ctx),
     }
 }
 
-fn emit_list_query(p: &mut GoPrinter, feature: &Feature, query: &ListQuery, ctx: &TypeCtx<'_>) {
+fn emit_list_query(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    query: &ListQuery,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let resource = resource_for_query(feature, &query.name);
     let resource_type = resource
         .map(|r| pascal_case(&r.name))
@@ -103,6 +117,7 @@ fn emit_list_query(p: &mut GoPrinter, feature: &Feature, query: &ListQuery, ctx:
     emit_args_struct(p, &args_struct, &query.params, ctx);
     p.blank();
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Query[{args_struct}, {resource_type}]{{"
     ));
@@ -122,9 +137,16 @@ fn emit_list_query(p: &mut GoPrinter, feature: &Feature, query: &ListQuery, ctx:
     }
     p.dedent();
     p.line("}");
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
-fn emit_lookup_query(p: &mut GoPrinter, feature: &Feature, query: &LookupQuery, ctx: &TypeCtx<'_>) {
+fn emit_lookup_query(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    query: &LookupQuery,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let resource = resource_for_query(feature, &query.name);
     let resource_type = resource
         .map(|r| pascal_case(&r.name))
@@ -148,6 +170,7 @@ fn emit_lookup_query(p: &mut GoPrinter, feature: &Feature, query: &LookupQuery, 
     emit_args_struct(p, &args_struct, &args, ctx);
     p.blank();
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Query[{args_struct}, {resource_type}]{{"
     ));
@@ -160,9 +183,16 @@ fn emit_lookup_query(p: &mut GoPrinter, feature: &Feature, query: &LookupQuery, 
     emit_lookup_by(p, &query.keys);
     p.dedent();
     p.line("}");
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
-fn emit_sql_query(p: &mut GoPrinter, feature: &Feature, query: &SqlQuery, ctx: &TypeCtx<'_>) {
+fn emit_sql_query(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    query: &SqlQuery,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let qualified_name = format!("{}.query.{}", feature.name, query.name);
     let args_struct = format!("{}Args", pascal_case(&query.name));
     let var_name = lower_camel(&query.name);
@@ -180,6 +210,7 @@ fn emit_sql_query(p: &mut GoPrinter, feature: &Feature, query: &SqlQuery, ctx: &
     emit_args_struct(p, &args_struct, &query.params, ctx);
     p.blank();
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Query[{args_struct}, {return_type}]{{"
     ));
@@ -196,6 +227,7 @@ fn emit_sql_query(p: &mut GoPrinter, feature: &Feature, query: &SqlQuery, ctx: &
     }
     p.dedent();
     p.line("}");
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
 fn emit_query_header(
@@ -833,7 +865,8 @@ mod tests {
     fn emit(feature: &Feature) -> Option<String> {
         let module = module_with_features(vec![feature.clone()]);
         let index = CrossFeatureIndex::build(&module);
-        emit_query_file("examples/x.lzi", feature, "lazuli/test", &index)
+        let emit_ctx = EmitContext::no_source("customer/query.gen.go");
+        emit_query_file("examples/x.lzi", feature, "lazuli/test", &index, &emit_ctx)
     }
 
     fn emit_from_module(module: &Module, feature_name: &str) -> Option<String> {
@@ -843,7 +876,8 @@ mod tests {
             .find(|feature| feature.name == feature_name)
             .expect("feature exists");
         let index = CrossFeatureIndex::build(module);
-        emit_query_file("examples/x.lzi", feature, "lazuli/test", &index)
+        let emit_ctx = EmitContext::no_source("customer/query.gen.go");
+        emit_query_file("examples/x.lzi", feature, "lazuli/test", &index, &emit_ctx)
     }
 
     fn module_with_features(features: Vec<Feature>) -> Module {
@@ -1167,7 +1201,9 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type LifetimeValueArgs struct {"));
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
-        assert!(out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{"));
+        assert!(
+            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
+        );
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
         assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
         assert!(out.contains("Returns: \"CustomerLtv[]\","));

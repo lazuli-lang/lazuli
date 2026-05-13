@@ -54,6 +54,7 @@ use std::collections::BTreeMap;
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
+use super::module::EmitContext;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -65,6 +66,7 @@ pub fn emit_command_file(
     feature: &Feature,
     module_name: &str,
     cross_index: &CrossFeatureIndex<'_>,
+    emit_ctx: &EmitContext<'_>,
 ) -> Option<String> {
     if feature.commands.is_empty() {
         return None;
@@ -114,7 +116,7 @@ pub fn emit_command_file(
             p.blank();
         }
         first_block = false;
-        emit_command(&mut p, feature, command, &type_ctx);
+        emit_command(&mut p, feature, command, &type_ctx, emit_ctx);
     }
 
     Some(p.finish())
@@ -122,7 +124,13 @@ pub fn emit_command_file(
 
 /// Walk a single `Command` — optional Input struct, then the
 /// `lazuli.Command[I, O]` value.
-fn emit_command(p: &mut GoPrinter, feature: &Feature, command: &Command, ctx: &TypeCtx<'_>) {
+fn emit_command(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    command: &Command,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let resource_pascal = effect_resource_pascal(&command.effect);
     let qualified_name = format!("{}.{}", feature.name, command.name);
 
@@ -168,6 +176,7 @@ fn emit_command(p: &mut GoPrinter, feature: &Feature, command: &Command, ctx: &T
 
     let var_name = command_var_name(&command.name, &resource_pascal);
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, command.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Command[{input_type}, {output_type}]{{"
     ));
@@ -231,6 +240,7 @@ fn emit_command(p: &mut GoPrinter, feature: &Feature, command: &Command, ctx: &T
 
     p.dedent();
     p.line("}");
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
 /// Emit the `type <Name>Input struct` block for a typed input list.
@@ -1002,7 +1012,14 @@ mod tests {
         }
         let module = module_with_features(features);
         let index = CrossFeatureIndex::build(&module);
-        emit_command_file("examples/x.lzi", &module.features[0], "lazuli/test", &index)
+        let emit_ctx = EmitContext::no_source("customer/command.gen.go");
+        emit_command_file(
+            "examples/x.lzi",
+            &module.features[0],
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
     }
 
     fn base_command(name: &str) -> Command {
@@ -1365,8 +1382,15 @@ mod tests {
 
         let module = module_with_features(vec![customer.clone(), org]);
         let index = CrossFeatureIndex::build(&module);
-        let out = emit_command_file("examples/x.lzi", &customer, "lazuli/test", &index)
-            .expect("must emit");
+        let emit_ctx = EmitContext::no_source("customer/command.gen.go");
+        let out = emit_command_file(
+            "examples/x.lzi",
+            &customer,
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
+        .expect("must emit");
 
         assert!(out.contains("Owner org.User"));
         assert!(out.contains("\"lazuli/test/org\""));
@@ -1393,10 +1417,11 @@ mod tests {
 
         let module = module_with_features(vec![feature.clone()]);
         let index = CrossFeatureIndex::build(&module);
+        let emit_ctx = EmitContext::no_source("customer/command.gen.go");
 
-        let a = emit_command_file("examples/x.lzi", &feature, "lazuli/test", &index)
+        let a = emit_command_file("examples/x.lzi", &feature, "lazuli/test", &index, &emit_ctx)
             .expect("must emit");
-        let b = emit_command_file("examples/x.lzi", &feature, "lazuli/test", &index)
+        let b = emit_command_file("examples/x.lzi", &feature, "lazuli/test", &index, &emit_ctx)
             .expect("must emit");
         assert_eq!(a, b);
 

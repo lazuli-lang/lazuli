@@ -19,6 +19,7 @@ use lazuli_ir::{
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
+use super::module::EmitContext;
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/auth.gen.go` for a feature, or `None` when the
@@ -28,6 +29,7 @@ pub fn emit_auth_file(
     feature: &Feature,
     module_name: &str,
     cross_index: &CrossFeatureIndex<'_>,
+    emit_ctx: &EmitContext<'_>,
 ) -> Option<String> {
     let auth = feature.auth.as_ref()?;
 
@@ -50,12 +52,12 @@ pub fn emit_auth_file(
     imports.emit(&mut p);
     p.blank();
 
-    emit_auth(&mut p, feature, auth);
+    emit_auth(&mut p, feature, auth, emit_ctx);
 
     Some(p.finish())
 }
 
-fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth) {
+fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: &EmitContext<'_>) {
     let feature_camel = lower_camel(&feature.name);
     let identity_var = format!("{feature_camel}AuthIdentity");
 
@@ -67,6 +69,7 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth) {
         ],
     );
 
+    let line_directive_emitted = emit_ctx.emit_line_directive(p, auth_block.span_ref);
     emit_identity(p, &identity_var, auth_block);
 
     if let Some(password) = &auth_block.password {
@@ -100,6 +103,7 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth) {
         p.blank();
         emit_auth_routes(p, feature, &routes);
     }
+    emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
 fn emit_identity(p: &mut GoPrinter, identity_var: &str, auth_block: &Auth) {
@@ -511,7 +515,8 @@ mod tests {
             features: vec![feature.clone()],
         };
         let index = CrossFeatureIndex::build(&module);
-        emit_auth_file("examples/x.lzi", feature, "lazuli/test", &index)
+        let emit_ctx = EmitContext::no_source("customer/auth.gen.go");
+        emit_auth_file("examples/x.lzi", feature, "lazuli/test", &index, &emit_ctx)
     }
 
     fn minimal_app() -> AppManifest {

@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::Module;
+use lazuli_ir::{FileId, Module, SourceMap, SpanRef};
 
 use super::api::emit_api_file;
 use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
@@ -47,6 +47,96 @@ const DEFAULT_MODULE_NAME: &str = "lazuli/app";
 /// enhancements depended on across `runtime/go/lazuli/http.go`.
 const DEFAULT_GO_TOOLCHAIN: &str = "go 1.26.0";
 
+pub struct GoSourceContext<'a> {
+    pub source_map: &'a SourceMap,
+    pub feature_file_ids: &'a BTreeMap<String, FileId>,
+}
+
+pub struct EmitContext<'a> {
+    pub source_map: Option<&'a SourceMap>,
+    pub current_file_id: Option<FileId>,
+    pub generated_path: &'a str,
+}
+
+impl<'a> EmitContext<'a> {
+    pub fn no_source(generated_path: &'a str) -> Self {
+        Self {
+            source_map: None,
+            current_file_id: None,
+            generated_path,
+        }
+    }
+
+    pub fn for_feature(
+        source_context: Option<&'a GoSourceContext<'a>>,
+        feature_name: &str,
+        generated_path: &'a str,
+    ) -> Self {
+        Self {
+            source_map: source_context.map(|ctx| ctx.source_map),
+            current_file_id: source_context
+                .and_then(|ctx| ctx.feature_file_ids.get(feature_name))
+                .copied(),
+            generated_path,
+        }
+    }
+
+    pub fn emit_line_directive(&self, p: &mut GoPrinter, span: Option<SpanRef>) -> bool {
+        let (Some(source_map), Some(file_id), Some(span)) =
+            (self.source_map, self.current_file_id, span)
+        else {
+            return false;
+        };
+        let Some(loc) = resolve_source_loc(source_map, file_id, span) else {
+            return false;
+        };
+        p.line_directive(&loc.file, loc.line, loc.column);
+        true
+    }
+
+    pub fn reset_line_directive(&self, p: &mut GoPrinter, emitted: bool) {
+        if emitted {
+            p.line_directive(self.generated_path, 1, 1);
+        }
+    }
+}
+
+struct ResolvedLoc {
+    file: String,
+    line: u32,
+    column: u32,
+}
+
+fn resolve_source_loc(
+    source_map: &SourceMap,
+    file_id: FileId,
+    span: SpanRef,
+) -> Option<ResolvedLoc> {
+    let file = source_map.files.iter().find(|file| file.id == file_id)?;
+    let source_len = file.line_offsets.last().copied()?;
+    let start = u32::try_from(span.start).ok()?;
+    if start > source_len {
+        return None;
+    }
+
+    let searchable_offsets = if file.line_offsets.len() > 1 {
+        &file.line_offsets[..file.line_offsets.len() - 1]
+    } else {
+        &file.line_offsets[..]
+    };
+
+    let line_idx = match searchable_offsets.binary_search(&start) {
+        Ok(i) => i,
+        Err(i) => i.saturating_sub(1),
+    };
+    let line_start = searchable_offsets.get(line_idx)?;
+    Some(ResolvedLoc {
+        file: file.path.clone(),
+        line: (line_idx + 1) as u32,
+        column: start - line_start + 1,
+    })
+}
+
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds
 /// land in subsequent cells.
@@ -54,6 +144,7 @@ pub fn emit_module(
     module: &Module,
     options: &GoEmitOptions,
     manifest: Option<&LazuriteManifest>,
+    source_context: Option<GoSourceContext<'_>>,
 ) -> Vec<GeneratedFile> {
     let base_module_name = resolve_module_name(module, options, manifest);
     let submodule = manifest
@@ -146,6 +237,8 @@ pub fn emit_module(
         });
     }
 
+    let source_context = source_context.as_ref();
+
     for feature in features.values() {
         let path = format!("{name}/{name}.gen.go", name = feature.name);
         let contents = emit_feature_stub(&source_label, &feature.name);
@@ -181,71 +274,119 @@ pub fn emit_module(
         // feature into a sibling `command.gen.go`. Features without
         // commands skip the file entirely (mirrors the resource /
         // enum skip rule so the output listing stays signal-rich).
-        if let Some(contents) =
-            emit_command_file(&source_label, feature, &module_name, &cross_index)
         {
             let command_path = format!("{name}/command.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: command_path,
-                contents,
-            });
+            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &command_path);
+            if let Some(contents) = emit_command_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
+                files.push(GeneratedFile {
+                    path: command_path,
+                    contents,
+                });
+            }
         }
 
         // Cell E4 — Query.{List, Lookup, Sql} emission. Per-feature
         // typed Args struct + `lazuli.Query[A, R]` value per query
         // into `query.gen.go`.
-        if let Some(contents) = emit_query_file(&source_label, feature, &module_name, &cross_index)
         {
             let query_path = format!("{name}/query.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: query_path,
-                contents,
-            });
+            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &query_path);
+            if let Some(contents) = emit_query_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
+                files.push(GeneratedFile {
+                    path: query_path,
+                    contents,
+                });
+            }
         }
 
         // Cell G1 — Auth emission. Per-feature `auth` block lowered
         // to `auth.PasswordContract` / `SessionsContract` / `MfaContract`
         // / `OAuthContract` typed values in `auth.gen.go`.
-        if let Some(contents) = emit_auth_file(&source_label, feature, &module_name, &cross_index) {
+        {
             let auth_path = format!("{name}/auth.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: auth_path,
-                contents,
-            });
+            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &auth_path);
+            if let Some(contents) = emit_auth_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
+                files.push(GeneratedFile {
+                    path: auth_path,
+                    contents,
+                });
+            }
         }
 
         // Cell G2a — Job emission. Per-feature `lazuli.JobContract`
         // values in `job.gen.go`.
-        if let Some(contents) = emit_job_file(&source_label, feature, &module_name, &cross_index) {
+        {
             let job_path = format!("{name}/job.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: job_path,
-                contents,
-            });
+            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &job_path);
+            if let Some(contents) = emit_job_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
+                files.push(GeneratedFile {
+                    path: job_path,
+                    contents,
+                });
+            }
         }
 
         // Cell G2b — Webhook v0 spine emission. Per-feature
         // `lazuli.WebhookContract` values in `webhook.gen.go`.
-        if let Some(contents) =
-            emit_webhook_file(&source_label, feature, &module_name, &cross_index)
         {
             let webhook_path = format!("{name}/webhook.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: webhook_path,
-                contents,
-            });
+            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &webhook_path);
+            if let Some(contents) = emit_webhook_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
+                files.push(GeneratedFile {
+                    path: webhook_path,
+                    contents,
+                });
+            }
         }
 
         // Cell G2c — Notification v0 spine emission. Per-feature
         // `lazuli.NotificationContract` values in `notification.gen.go`.
-        if let Some(contents) =
-            emit_notification_file(&source_label, feature, &module_name, &cross_index)
         {
             let notification_path = format!("{name}/notification.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: notification_path,
-                contents,
-            });
+            let emit_ctx =
+                EmitContext::for_feature(source_context, &feature.name, &notification_path);
+            if let Some(contents) = emit_notification_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
+                files.push(GeneratedFile {
+                    path: notification_path,
+                    contents,
+                });
+            }
         }
 
         // Cell G3a — Translation emission. Per-feature `i18n.Catalog`
