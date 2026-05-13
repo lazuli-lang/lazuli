@@ -9,10 +9,10 @@
 > port do produto Hostpoint (`Phase 1+`). Depois das batches c21-c180, a infra
 > Lazuli avançou muito e o smoke do codegen Go está verde, mas o produto
 > Hostpoint real ainda não foi portado. Use `docs/next-checklist.md` rows
-> 60-80 como ledger de execução. Gate atual: `cargo test -p
+> 60-81 como ledger de execução. Gate atual: `cargo test -p
 > lazuli_codegen_go --features smoke` passa; próximo gate é rodar um happy
 > path gerado de `examples/hostpoint-mini/` e iniciar Phase 1 no source real.
-> Rows 78-80 registram 135 helpers adicionais de framework/Lazurite; continuam
+> Rows 78-81 registram 180 helpers adicionais de framework/Lazurite; continuam
 > fora do escopo de port do produto Hostpoint.
 
 ## Princípio fundador
@@ -36,11 +36,11 @@ verde: `go test ./...` em `runtime/go`, `cargo test -p lazuli_codegen_go`,
 `cargo test -p lazuli_cli`, `cargo test -p lazuli_codegen_go --features smoke`
 e `lazuli check examples/hostpoint-mini`. O port real do produto Hostpoint ainda
 não começou; `hostpoint-mini` é playground de forma e smoke, não migração do app.
-Depois das batches c181-c315, o foco continua sendo **framework Lazuli/Lazurite**:
+Depois das batches c181-c360, o foco continua sendo **framework Lazuli/Lazurite**:
 HTTP/DB/testkit/security/cache/email/jobs/storage/search/realtime/OpenAPI/i18n/
-reports/deploy/perf/authz/docgen/auth/events/admin/deploy/billing hardening
-ganharam helpers, mas nenhum source real do Hostpoint foi portado. Itens de
-produto real permanecem abertos quando só existe fixture/runtime.
+reports/deploy/perf/authz/docgen/auth/events/admin/deploy/billing/views/rpc
+hardening ganharam helpers, mas nenhum source real do Hostpoint foi portado.
+Itens de produto real permanecem abertos quando só existe fixture/runtime.
 
 ### 1.1 Codegen Lazuli → Go (Gate fechado — ~12-15 cells)
 
@@ -189,8 +189,8 @@ migrados. A migração real começa em §3 Phase 1.
   - [x] Codegen emite `GEOGRAPHY(POINT, 4326)` para `GeoPoint` columns
   - [x] Runtime helper emite `ST_DWithin` predicate; query.codegen dedicado `search_by_radius` ainda fica para Phase 2
 - [x] Adapter `@runtime/google_maps` (geocoding endereço → coords; uma operation): wire `googlemaps.github.io/maps-services-go` (~20 LOC)
-- [ ] Adapter alternativo `@runtime/mapbox` (mesmo contract)
-- [ ] Adapter alternativo `@runtime/nominatim` (OpenStreetMap, gratuito; ~30 LOC)
+- [ ] Adapter alternativo `@runtime/mapbox` (mesmo contract) — request/normalization helpers exist; full adapter wiring remains open
+- [ ] Adapter alternativo `@runtime/nominatim` (OpenStreetMap, gratuito; ~30 LOC) — request/normalization helpers exist; full adapter wiring remains open
 - [x] `requires integration maps: MapsProvider` em features que precisam geocoding
 - [x] **Não** wirar map rendering — isso é client-side (Flutter `google_maps_flutter` ou Expo `react-native-maps`); Lazuli core não toca UI rendering
 
@@ -420,7 +420,7 @@ desbloqueada.
 
 ## §7. Próximo passo concreto
 
-**HOJE** (continuação após c271-c315):
+**HOJE** (continuação após c316-c360):
 
 1. Estruturar o framework Lazuli/Lazurite: quais helpers viram codegen contracts, quais ficam runtime-only e quais pertencem a adapter packs.
 2. Criar/rodar happy path gerado de `examples/hostpoint-mini`: register/login/session + property list/search + MercadoPago webhook verify.

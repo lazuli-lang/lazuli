@@ -34,11 +34,11 @@ Estado honesto agora:
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Depois da reconciliação c271-c315,
-  este arquivo mostra 147 feitos / 426 totais. Itens compostos parcialmente
+  ainda não tinha acompanhado as batches. Depois da reconciliação c316-c360,
+  este arquivo mostra 160 feitos / 426 totais. Itens compostos parcialmente
   feitos continuam abertos com nota.
 - Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
-  c271-c315.
+  c316-c360.
 - `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli` e
   `cargo test -p lazuli_codegen_go --features smoke` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
@@ -54,10 +54,10 @@ Estado honesto agora:
   auth, property, service/booking, payment, review, chat e notification estão
   modelados; isso ainda **não** significa que o produto Hostpoint real foi
   migrado.
-- As batches c181-c315 foram deliberadamente de **framework/Lazurite readiness**:
-  135 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
+- As batches c181-c360 foram deliberadamente de **framework/Lazurite readiness**:
+  180 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
   jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen/
-  auth/events/admin/billing hardening.
+  auth/events/admin/billing/views/rpc hardening.
   Nenhum trabalho de port do Hostpoint real foi iniciado.
 
 Fronteira imediata antes de qualquer port real:
@@ -87,7 +87,7 @@ Progresso real por camada:
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
 | Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
-| Runtime Go | 625 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
+| Runtime Go | 715 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
 | Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
@@ -206,15 +206,15 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 - [x] `auth` kind explícito — shipped via Phase L Tier 1 (commit `e1d8521`). v0 cobre `password` + `oauth` + `mfa totp` + `sessions` + `identity`. SPECULATIVE deferred: `passkeys`/`webauthn`, `magic_link` como kind, `saml`, `ldap`.
 - [x] `mfa` decorator (totp shipado; `recovery_codes` deferred — não está no fixture canônico)
 - [ ] `device_session` kind (SPECULATIVE — runtime helpers exist; language surface still open)
-- [ ] `service_account` kind (SPECULATIVE)
+- [ ] `service_account` kind (SPECULATIVE — runtime helpers exist; language surface still open)
 - [ ] `api_token` kind (`@cap.Token` ampliado: scopes, rotation, revocation, refresh) — runtime scoped-token helpers exist; language surface still open
 - [ ] `impersonation` kind — runtime helpers exist; language surface still open
 
 ### 1.9 Autorização
 
-- [ ] `role_inherits` kind
+- [ ] `role_inherits` kind — runtime role-inheritance helpers exist; language surface still open
 - [ ] `audit_log` kind (formalizar evento existente)
-- [ ] `impersonation_policy` kind
+- [ ] `impersonation_policy` kind — runtime policy helpers exist; language surface still open
 
 ### 1.10 Segurança
 
@@ -268,7 +268,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 - [x] **`notification` kind tipado** — shipped via Phase L Tier 3 (commit `e89ff27`). IR struct `Notification` com `trigger_event`/`channel`/`recipient`/`template`/`retry`/`tenant_from`. Closed-catalog `channel ∈ {email,in_app,sms,push,slack,discord,webhook}`. `NOTIF-CHANNEL-001` doctor diagnostic.
 - [ ] `digest` decorator em notification (SPECULATIVE — segunda onda)
 - [ ] `throttle` decorator em notification (SPECULATIVE — segunda onda)
-- [ ] `delivery_receipt` / `read_receipt` decoradores (SPECULATIVE)
+- [ ] `delivery_receipt` / `read_receipt` decoradores — runtime receipt helpers exist; language surface still open
 
 ### 1.18 Realtime
 
@@ -355,8 +355,8 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.29 Qualidade
 
-- [ ] `error_code` namespace
-- [ ] `compatibility_layer` kind
+- [ ] `error_code` namespace — runtime error-code registry helpers exist; language surface still open
+- [ ] `compatibility_layer` kind — runtime compatibility helpers exist; language surface still open
 - [ ] Doctor rule: deprecation warning — runtime deprecation helpers exist; doctor wiring still open.
 
 ---
@@ -464,7 +464,7 @@ inteira estiver entregue.
 
 ### 2.6 Testes (P1)
 
-- [ ] Test scaffolding por kind (unit/integration/system/feature/request/controller/model/job/mailer/policy/view/component/golden/API/E2E/benchmark/fuzz)
+- [ ] Test scaffolding por kind (unit/integration/system/feature/request/controller/model/job/mailer/policy/view/component/golden/API/E2E/benchmark/fuzz) — scaffold planning helpers exist; file/codegen emission remains open.
 - [ ] `testing/synctest` integração (Go 1.26)
 - [x] Virtualized time helpers
 - [ ] `testing.ArtifactDir` + `T.Attr` + `T.Output` (Go 1.26)
@@ -475,11 +475,11 @@ inteira estiver entregue.
 - [x] HTTP recorder helpers
 - [x] Snapshot serializers
 - [ ] Mock / stub / spy codegen
-- [ ] Coverage reports
-- [ ] Race detector wiring
+- [x] Coverage reports
+- [x] Race detector wiring
 - [x] Leak detection
-- [ ] Allocation assertions
-- [ ] CI test matrix templates + test sharding
+- [x] Allocation assertions
+- [ ] CI test matrix templates + test sharding — matrix/sharding helpers exist; provider templates remain open.
 
 ### 2.7 Segurança (P2)
 
@@ -490,11 +490,11 @@ inteira estiver entregue.
 - [x] HTML escaping automático
 - [x] SQL injection safeguards (codegen)
 - [x] Safe file serving
-- [ ] Dependency vulnerability scanning hook
+- [x] Dependency vulnerability scanning hook
 - [x] SBOM generation
-- [ ] SLSA / provenance hooks
+- [x] SLSA / provenance hooks
 - [x] Request body redaction
-- [ ] At-rest encryption helpers
+- [x] At-rest encryption helpers
 
 ### 2.8 Jobs / filas (P2 — River-based)
 
@@ -504,7 +504,7 @@ inteira estiver entregue.
 - [x] Job cancellation
 - [x] Job progress reporting
 - [x] Job metrics
-- [ ] Job dashboard UI
+- [ ] Job dashboard UI — dashboard summary helpers exist; UI remains open.
 - [x] Graceful worker shutdown
 
 ### 2.9 Eventos (P2)
@@ -529,8 +529,8 @@ inteira estiver entregue.
 
 ### 2.12 Email / notificações (P2)
 
-- [ ] SMTP server
-- [ ] Transactional + bulk mail — Sendgrid/SMTP clients, message attachments and localized template renderer exist; bulk orchestration remains open.
+- [ ] SMTP server — server descriptors exist; socket/server implementation remains open.
+- [ ] Transactional + bulk mail — Sendgrid/SMTP clients, message attachments, localized templates, and bulk planning exist; delivery orchestration remains open.
 - [x] Attachments + inline attachments
 - [x] Mail previews (dev) + sandbox
 - [x] Mail retries
@@ -544,24 +544,24 @@ inteira estiver entregue.
 - [x] Pub/sub mechanics
 - [x] Presence tracking + heartbeats
 - [x] Reconnect handling + backpressure + connection draining
-- [ ] Realtime metrics / tracing — metrics snapshots exist; tracing integration remains open.
+- [x] Realtime metrics / tracing
 
 ### 2.14 APIs (P2)
 
 - [x] OpenAPI validation + UI
 - [x] Server stubs
-- [ ] gRPC adapter
+- [ ] gRPC adapter — descriptors exist; transport adapter remains open.
 - [x] JSON-RPC
-- [ ] ConnectRPC
+- [ ] ConnectRPC — descriptors exist; transport adapter remains open.
 - [x] Contract tests runner
 - [x] HATEOAS helpers
 - [x] API analytics
 
 ### 2.15 Views / templates (P2)
 
-- [ ] Template inheritance / layouts / partials (atrás de `.lzx`)
-- [ ] Markdown rendering
-- [ ] Syntax highlighting
+- [ ] Template inheritance / layouts / partials (atrás de `.lzx`) — layout manifest helpers exist; renderer integration remains open.
+- [ ] Markdown rendering — policy/frontmatter helpers exist; renderer remains open.
+- [ ] Syntax highlighting — descriptors exist; renderer remains open.
 - [x] Asset fingerprinting + manifest
 - [x] Source maps
 
@@ -604,13 +604,13 @@ inteira estiver entregue.
 
 - [x] Local storage adapter
 - [x] Direct uploads + multipart + resumable
-- [ ] File deduplication + versioning + lifecycle policies — dedup/lifecycle/signed-URL/bucket policy helpers shipped; versioning remains open.
+- [x] File deduplication + versioning + lifecycle policies
 
 ### 2.23 Busca (P3)
 
 - [x] SQL full-text + PostgreSQL tsvector
-- [ ] Async indexing + reindex CLI
-- [ ] Search analytics
+- [ ] Async indexing + reindex CLI — indexing plan helpers exist; CLI/runtime worker remains open.
+- [x] Search analytics
 
 ### 2.24 Relatórios (P3)
 
@@ -622,12 +622,12 @@ inteira estiver entregue.
 
 ### 2.25 Deploy / ops (P2 — Cut deploy)
 
-- [ ] Dockerfile + Docker Compose + Kubernetes manifests + Helm chart + systemd + Procfile generators — Dockerfile/Compose/Kubernetes/systemd/Procfile shipped; Helm remains open.
+- [x] Dockerfile + Docker Compose + Kubernetes manifests + Helm chart + systemd + Procfile generators
 - [x] Multi-stage + distroless + static binary builds
-- [ ] CGO / no-CGO modes + cross compilation
+- [x] CGO / no-CGO modes + cross compilation
 - [ ] Release + rollback commands — rollback planning helpers shipped; CLI commands remain open.
-- [ ] Blue-green + canary deployment — rollout evaluation helpers shipped; deploy execution remains open.
-- [ ] Migrations on deploy + pre/post hooks — migration hook runner shipped; deploy integration remains open.
+- [x] Blue-green + canary deployment
+- [x] Migrations on deploy + pre/post hooks
 - [x] Health gates + smoke tests
 - [x] Runtime config + secrets injection
 - [x] Autoscaling metrics
@@ -688,8 +688,8 @@ Registry-driven, plugados via `registry.lzi`. **Pick-one-primary** por categoria
 - [x] **Email**: Sendgrid (primário)
 - [ ] **LLM**: OpenAI + Anthropic (alvo; depende de runtime de agent dispatch)
 - [x] **Observability backend**: Sentry (errors) + OTEL collector
-- [ ] **Search**: Meilisearch
-- [ ] **Billing**: Stripe
+- [ ] **Search**: Meilisearch — search indexing/analytics helpers exist; Meilisearch adapter remains open.
+- [ ] **Billing**: Stripe — descriptor helpers exist; SDK/wire adapter remains open.
 - [ ] **Bundler**: esbuild
 - [ ] **Frontend**: React (web) + Expo (mobile)
 
@@ -705,7 +705,7 @@ Registry-driven, plugados via `registry.lzi`. **Pick-one-primary** por categoria
 - [ ] **Payment extras**: Paddle, PayPal
 - [x] **Auth providers**: Google
 - [ ] **Auth providers**: GitHub, Microsoft, Apple
-- [x] **Maps**: Google Maps geocoding
+- [x] **Maps**: Google Maps geocoding — Mapbox/Nominatim request helpers also exist; full alternative adapter wiring remains open.
 - [ ] **Search extras**: Typesense, Elasticsearch, OpenSearch, Algolia
 - [ ] **Queues alternativos**: SQS, Pub/Sub, NATS, Kafka, RabbitMQ
 - [ ] **Cache extras**: Memcached, Valkey
