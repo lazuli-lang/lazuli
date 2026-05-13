@@ -21,11 +21,10 @@ type Channel string
 const (
 	ChannelEmail   Channel = "email"
 	ChannelInApp   Channel = "in_app"
+	ChannelPush    Channel = "push"
 	ChannelSlack   Channel = "slack"
 	ChannelDiscord Channel = "discord"
 	ChannelWebhook Channel = "webhook"
-	// ChannelPush / ChannelSms are SPECULATIVE — gated on
-	// `@adapter.notification.push` / `.sms` adapter bindings landing.
 )
 
 // TenantFromSpec mirrors the jobs/webhooks shape.
