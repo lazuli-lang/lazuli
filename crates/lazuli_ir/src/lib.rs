@@ -462,12 +462,12 @@ pub enum BuiltinType {
     SemanticUrl,
     /// Phase L Tier 4 follow-up — `@semantic.Uuid`.
     SemanticUuid,
-    /// Hostpoint follow-up — `@semantic.Currency`. ISO 4217 3-letter
+    /// Currency follow-up — `@semantic.Currency`. ISO 4217 3-letter
     /// uppercase code (`USD`, `BRL`). Pairs with `SemanticMoney` for
     /// typed amount-currency tuples; emitter maps to Go `lazuli.Currency`
     /// alias (already exists in `runtime/go/lazuli/types.go`).
     SemanticCurrency,
-    /// Hostpoint Phase Prep follow-up (2026-05-11) — `@semantic.GeoPoint`.
+    /// GeoPoint follow-up (2026-05-11) — `@semantic.GeoPoint`.
     /// Closed-catalog single semantic carrying `{ lat, lng }`. Required
     /// by `codegen-lazuli-go.md` §6.3/§9.1 to materialise as
     /// `postgis.Point` in generated Go + drive the `GIST` index

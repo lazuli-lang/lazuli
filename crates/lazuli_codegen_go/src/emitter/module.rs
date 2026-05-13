@@ -508,12 +508,12 @@ mod tests {
 
     #[test]
     fn to_kebab_lower_passthrough() {
-        assert_eq!(to_kebab("hostpoint"), "hostpoint");
+        assert_eq!(to_kebab("marketplace"), "marketplace");
     }
 
     #[test]
     fn to_kebab_pascal_inserts_dashes() {
-        assert_eq!(to_kebab("HostPoint"), "host-point");
+        assert_eq!(to_kebab("MarketPlace"), "market-place");
     }
 
     #[test]

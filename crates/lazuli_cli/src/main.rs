@@ -7062,8 +7062,8 @@ app AcmeCRM
         fs::write(
             &app_path,
             r#"
-app Hostpoint
-  title "Hostpoint"
+app Marketplace
+  title "Marketplace"
 "#,
         )
         .unwrap();
@@ -7071,15 +7071,15 @@ app Hostpoint
             root.join("lazurite.toml"),
             r#"
 [project]
-name = "hostpoint"
-module = "github.com/acme/hostpoint"
+name = "marketplace"
+module = "github.com/acme/marketplace"
 schema = 1
 
 [lazuli]
 runtime = "0.1.0"
 
 [plugins]
-"@plugin/mercadopago" = { module = "github.com/lazurite/lazuli-plugin-mercadopago", version = "v0.2.0" }
+"@plugin/example/payment-gateway" = { module = "github.com/lazurite/lazuli-plugin-example-payment", version = "v0.2.0" }
 
 [generate.go]
 out = "dist/go"
@@ -7089,7 +7089,7 @@ emit_main = true
 [frontends.mobile]
 target = "expo"
 out = "dist/ts-mobile"
-audiences = ["traveler", "host"]
+audiences = ["buyer", "seller"]
 
 [migrations]
 generated = "dist/go/migrations"
@@ -7103,8 +7103,8 @@ strategy = "auto"
         let json = inspect_json_value(&source, &app_path, ExpandSet::default(), &[]).unwrap();
 
         assert_eq!(json["manifest"]["origin"], "lazurite.toml");
-        assert_eq!(json["manifest"]["project"]["name"], "hostpoint");
-        assert_eq!(json["manifest"]["plugins"][0]["ref"], "@plugin/mercadopago");
+        assert_eq!(json["manifest"]["project"]["name"], "marketplace");
+        assert_eq!(json["manifest"]["plugins"][0]["ref"], "@plugin/example/payment-gateway");
         assert_eq!(json["manifest"]["plugins"][0]["source"], "remote");
         assert_eq!(json["manifest"]["frontends"][0]["name"], "mobile");
         assert_eq!(json["manifest"]["frontends"][0]["target"], "expo");

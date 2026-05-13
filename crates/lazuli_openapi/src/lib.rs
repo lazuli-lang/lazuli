@@ -766,7 +766,7 @@ fn builtin_to_openapi(b: ir::BuiltinType) -> (&'static str, Option<&'static str>
         SemanticUuid => ("string", Some("uuid")),
         SemanticMoney => ("number", None),
         SemanticCurrency => ("string", None),
-        // Hostpoint Phase Prep §9.1 — `@semantic.GeoPoint` carries
+        // GeoPoint follow-up — `@semantic.GeoPoint` carries
         // `{ lat, lng }`. OpenAPI does not have a `geography` format,
         // so we surface it as a generic `object` here; codegen-go is
         // the consumer that materialises the PostGIS-aware shape.

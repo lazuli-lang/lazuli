@@ -217,7 +217,7 @@ fn module_name_override_wins_over_app_name() {
 
 #[test]
 fn deterministic_output_across_runs() {
-    let module = minimal_module("hostpoint", "customer");
+    let module = minimal_module("marketplace", "customer");
     let a = generate_v1(&module, &GoEmitOptions::default());
     let b = generate_v1(&module, &GoEmitOptions::default());
     assert_eq!(a.len(), b.len());
@@ -233,7 +233,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
     // surfaces an extra `<feature>/resource.gen.go` alongside the
     // stub. Typed struct + `lazuli.Resource[T]` value land per
     // proposal §3.1.
-    let mut module = minimal_module("hostpoint", "customer");
+    let mut module = minimal_module("marketplace", "customer");
     let resource = Resource {
         name: "customer".to_owned(),
         tenancy: None,
@@ -283,7 +283,7 @@ fn resource_kind_skips_file_when_feature_declares_no_resources_or_records() {
     // don't materialise an empty `resource.gen.go` because a single
     // `package <feature>` line provides no signal and would clutter
     // the listing.
-    let module = minimal_module("hostpoint", "customer");
+    let module = minimal_module("marketplace", "customer");
     let files = generate_v1(&module, &GoEmitOptions::default());
     assert!(
         files.iter().all(|f| f.path != "customer/resource.gen.go"),
@@ -297,7 +297,7 @@ fn enum_kind_emits_typed_alias_and_const_block() {
     // Cell E2.5 integration smoke: a feature carrying one int-typed
     // enum surfaces an extra `<feature>/enum.gen.go` alongside the
     // stub. Typed alias + aligned const block land per proposal §3.
-    let mut module = minimal_module("hostpoint", "customer");
+    let mut module = minimal_module("marketplace", "customer");
     module.features[0].enums.push(EnumDecl {
         name: "CustomerStatus".to_owned(),
         variants: vec![
@@ -345,7 +345,7 @@ fn enum_kind_skips_file_when_feature_declares_no_enums() {
     // A bare feature should not materialise `enum.gen.go`. Mirrors
     // the resource-side skip rule so the output listing stays
     // signal-rich.
-    let module = minimal_module("hostpoint", "customer");
+    let module = minimal_module("marketplace", "customer");
     let files = generate_v1(&module, &GoEmitOptions::default());
     assert!(
         files.iter().all(|f| f.path != "customer/enum.gen.go"),
@@ -356,7 +356,7 @@ fn enum_kind_skips_file_when_feature_declares_no_enums() {
 
 #[test]
 fn lazuli_go_version_override_lands_in_go_mod() {
-    let module = minimal_module("hostpoint", "customer");
+    let module = minimal_module("marketplace", "customer");
     let options = GoEmitOptions {
         module_name: None,
         lazuli_go_version: "v9.9.9".to_owned(),
@@ -477,7 +477,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
     // by the runtime spike). Per proposal §3.2 we land the typed
     // `<Verb><Resource>Input` struct plus the
     // `lazuli.Command[I, O]` value with `Effect: lazuli.Creates(...)`.
-    let mut module = minimal_module("hostpoint", "customer");
+    let mut module = minimal_module("marketplace", "customer");
 
     // Resource the command targets — same feature.
     module.features[0].resources.push(Resource {
@@ -644,7 +644,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
 fn command_kind_skips_file_when_feature_declares_no_commands() {
     // Mirrors the resource / enum skip rule — a feature without
     // commands should not materialise `command.gen.go`.
-    let module = minimal_module("hostpoint", "customer");
+    let module = minimal_module("marketplace", "customer");
     let files = generate_v1(&module, &GoEmitOptions::default());
     assert!(
         files.iter().all(|f| f.path != "customer/command.gen.go"),
@@ -698,7 +698,7 @@ fn root_main_go_sorts_feature_imports_lexicographically() {
     // Cell I2 invariant — feature side-effect imports walk the IR via
     // a `BTreeMap`, so the prelude is byte-stable regardless of how
     // the IR `Vec` happened to be populated.
-    let mut module = minimal_module("hostpoint", "zebra");
+    let mut module = minimal_module("marketplace", "zebra");
     module.features.push(empty_feature("alpha"));
     module.features.push(empty_feature("mango"));
     let files = generate_v1(&module, &GoEmitOptions::default());
@@ -709,15 +709,15 @@ fn root_main_go_sorts_feature_imports_lexicographically() {
 
     let alpha = main
         .contents
-        .find("\"lazuli/hostpoint/alpha\"")
+        .find("\"lazuli/marketplace/alpha\"")
         .expect("alpha import present");
     let mango = main
         .contents
-        .find("\"lazuli/hostpoint/mango\"")
+        .find("\"lazuli/marketplace/mango\"")
         .expect("mango import present");
     let zebra = main
         .contents
-        .find("\"lazuli/hostpoint/zebra\"")
+        .find("\"lazuli/marketplace/zebra\"")
         .expect("zebra import present");
     assert!(
         alpha < mango && mango < zebra,
@@ -880,7 +880,7 @@ fn emit_go_mod_with_plugins_emits_require_lines() {
 
 #[test]
 fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
-    let mut module = minimal_module("hostpoint", "listing");
+    let mut module = minimal_module("marketplace", "listing");
     module.features[0].resources.push(Resource {
         name: "Listing".to_owned(),
         tenancy: None,

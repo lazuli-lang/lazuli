@@ -324,8 +324,8 @@ runtime = "0.1.0"
         let manifest = parse_manifest(
             r#"
 [project]
-name = "hostpoint"
-module = "github.com/acme/hostpoint"
+name = "marketplace"
+module = "github.com/acme/marketplace"
 schema = 1
 
 [lazuli]
@@ -334,12 +334,12 @@ runtime = "0.1.0"
 [frontends.mobile]
 target = "expo"
 out = "dist/ts-mobile"
-audiences = ["traveler", "host"]
+audiences = ["buyer", "seller"]
 
-[frontends.web-host]
+[frontends.web-seller]
 target = "tanstack-vite"
-out = "dist/ts-web-host"
-audiences = ["host"]
+out = "dist/ts-web-seller"
+audiences = ["seller"]
 
 [frontends.admin]
 target = "tanstack-vite"
@@ -354,7 +354,7 @@ audiences = ["admin"]
             manifest.frontends["mobile"].target,
             FrontendTarget::Expo
         ));
-        assert_eq!(manifest.frontends["web-host"].out, "dist/ts-web-host");
+        assert_eq!(manifest.frontends["web-seller"].out, "dist/ts-web-seller");
     }
 
     #[test]

@@ -27,7 +27,7 @@ The runtime in `runtime/go/lazuli/<bucket>/` **does not reimplement** primitives
 
 The negative reference is **Aerocoding/Orion Studio** (the lead's prior attempt at the same problem) which became unmaintainable precisely because templates carried implementations rather than wiring a runtime. Lazuli exists to NOT repeat that.
 
-See: `docs/architecture.md` lines 26-55, `docs/hostpoint-port-checklist.md` lines 6-13.
+See: `docs/architecture.md` lines 26-55 (founding principle + Aerocoding negative reference).
 
 ---
 
@@ -37,9 +37,9 @@ Two namespaces, strict separation:
 
 - **`@runtime/<name>`** — OSS commodity infrastructure. Postgres, Redis, S3-protocol signing, SMTP, Kafka, NATS, RabbitMQ, webpush (W3C). Lives in this repo at `runtime/go/lazuli/<bucket>/`. Public.
 
-- **`@plugin/<name>`** — Proprietary or opinionated providers. **Vendor SaaS, paid APIs, or specific named tools/products** (even if open-source). Stripe, MercadoPago, Sendgrid, Mailgun, Twilio, Datadog, Sentry, LaunchDarkly, Algolia, Meilisearch, Discord, Slack, PagerDuty, Expo Push, Google Maps, Mapbox, FCM, MinIO client, Prometheus exporter, OpenFeature SDK, Atlas migrations, gh-ost-style migrators, etc. Lives in **separate (often private) repos** at `github.com/lazurite/lazuli-plugin-<name>` (or under user's own org for hostpoint-specific ones).
+- **`@plugin/<name>`** — Proprietary or opinionated providers. **Vendor SaaS, paid APIs, or specific named tools/products** (even if open-source). Stripe, MercadoPago, Sendgrid, Mailgun, Twilio, Datadog, Sentry, LaunchDarkly, Algolia, Meilisearch, Discord, Slack, PagerDuty, Expo Push, Google Maps, Mapbox, FCM, MinIO client, Prometheus exporter, OpenFeature SDK, Atlas migrations, gh-ost-style migrators, etc. Lives in **separate (often private) repos** at `github.com/lazurite/lazuli-plugin-<name>` (or under the user's own org for proprietary providers).
 
-- **NEVER** `@plugin/<product>/<name>` (retired 2026-05-11). MercadoPago is `@plugin/mercadopago`, not `@plugin/hostpoint/mercadopago`.
+- **NEVER** `@plugin/<consumer-product>/<name>` (retired 2026-05-11). The adapter is named after the *provider*, not the consuming product. MercadoPago is `@plugin/mercadopago` (generic), not `@plugin/<app>/mercadopago` (product-scoped).
 
 **Before writing a new adapter file, ask: "is this commodity infrastructure (open spec or de-facto-OSS layer) or is it a specific named product/service?"** If it's a named product, **do not put it in `runtime/go/lazuli/`**. Either it belongs in a separate `@plugin/<name>` repo, OR the user should write it as a regular Go module in their app.
 
@@ -81,7 +81,7 @@ Before merging ANY Codex/agent batch:
 
 2. **`git -C <worktree> log -1 --format='%s'`** — does the commit subject match the spec? If Codex went off-spec, the subject line drifts; that's a signal to read the diff carefully.
 
-3. **`go -C runtime/go test ./lazuli/...`** in the orchestrator's main worktree after cherry-pick — fixtures must keep passing. Pre-existing doctor checks for `examples/full-capsule/`, `examples/auth-roundtrip/`, `examples/smoke-hello/`, `examples/hostpoint-mini/`, `examples/auth-multi-tenant/`, `examples/binary-smoke/` must remain green.
+3. **`go -C runtime/go test ./lazuli/...`** in the orchestrator's main worktree after cherry-pick — fixtures must keep passing. Pre-existing doctor checks for `examples/full-capsule/`, `examples/auth-roundtrip/`, `examples/smoke-hello/`, `examples/marketplace-mini/`, `examples/auth-multi-tenant/`, `examples/binary-smoke/`, `examples/lazurite-multifrontend/` must remain green.
 
 4. **`cargo check --all-targets`** — Rust crates must remain green.
 
@@ -97,13 +97,13 @@ See: memory `feedback_review_codex_batches.md`.
 
 When choosing what to build:
 
-- **Hostpoint port checklist** (`docs/hostpoint-port-checklist.md`) is the active source of truth for "what does the real product need?". Cross-reference against it before any new framework work.
-- **Phase Prep** items only — finishing the runtime/codegen for the Hostpoint port to start.
+- **The current product-port checklist** (kept in the user's private workspace, not in this open-source repo) is the active source of truth for "what does the real product need?". Cross-reference against it before any new framework work.
+- **Phase Prep** items only — finishing the runtime/codegen for the first downstream product port to start.
 - **DO NOT** generate batches of "framework readiness" cells from the roadmap without checking that they (a) honor the wire principle, (b) are actually consumed by something, (c) aren't already covered by stdlib + an existing library.
 
 If a roadmap item exists but the implementation would be 300+ LOC of stdlib-only code reimplementing a known library, the right move is **delete the roadmap item** or **rewrite it as wire-of-X** with the specific library named.
 
-See: `docs/roadmap.md` (treat as advisory), `docs/hostpoint-port-checklist.md` (treat as authoritative).
+See: `docs/roadmap.md` (treat as advisory). The authoritative product-port checklist lives in the user's private workspace, not in this open-source repo.
 
 ---
 
@@ -258,10 +258,10 @@ Avoid relitigating these. Each has a memory entry with the rationale.
 | Decision | Resolution | Source |
 |---|---|---|
 | DSL syntax style | Indentation-based, PascalCase kinds (NOT Ruby do/end + :symbols) | `project_lzi_syntax.md` |
-| GeoPoint representation | `@semantic.GeoPoint { lat, lng }` — single semantic type | `project_hostpoint_decisions_2026-05-11.md` |
+| GeoPoint representation | `@semantic.GeoPoint { lat, lng }` — single semantic type | memory `project_product_decisions_2026-05-11.md` (private) |
 | Geospatial search backend | PostGIS in Postgres (NOT Algolia) | same |
 | Maps provider | Google Maps direct (NOT Nominatim fallback) | same |
-| Payment provider | `@plugin/mercadopago` (separate repo, generic — not hostpoint-specific) | same + `project_plugin_namespace_policy.md` |
+| Payment provider | `@plugin/mercadopago` (separate repo, generic — adapter named after the provider, not any consumer product) | `project_plugin_namespace_policy.md` |
 | Push notifications | Expo Push (NOT FCM direct) | same |
 | DB driver | `pgx/v5` + `RowToStructByName[T]` (NOT sqlx, NOT pgxscan/scany) | `project_db_driver_choice.md` |
 | HTTP routing | `net/http` Go 1.22+ enhanced ServeMux (NOT chi) | runtime/go/lazuli/http.go usage |

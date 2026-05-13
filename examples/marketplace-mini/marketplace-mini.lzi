@@ -1,5 +1,5 @@
 feature account
-  purpose "User identity for the Hostpoint mini fixture."
+  purpose "User identity for the marketplace mini fixture."
 
   domain
     resource User
@@ -16,59 +16,59 @@ feature account
         read: @scope.self, @role.admin
         write: @scope.self, @role.admin
 
-feature property
-  purpose "Host properties with owner, pricing, and geo coordinates."
+feature listing
+  purpose "Seller listings with pricing and geo coordinates."
 
   uses account
 
   domain
-    resource Property
-      owner: User required
+    resource Listing
+      seller: User required
       title: Text required
       price: @semantic.Money required
       currency: @semantic.Currency required
       location: @semantic.GeoPoint required
       created_at: DateTime required
 
-feature service
-  purpose "Booking service for a guest, property, stay window, and amount."
+feature order
+  purpose "Buyer order for a listing, including payment amount."
 
-  uses account, property
+  uses account, listing
 
   domain
-    resource Service
-      guest: User required
-      property: Property required
-      check_in: Date required
-      check_out: Date required
+    resource Order
+      buyer: User required
+      listing: Listing required
+      placed_at: DateTime required
+      fulfilled_at: DateTime optional
       amount: @semantic.Money required
       currency: @semantic.Currency required
       payment_reference: Text optional
 
 feature payment
-  purpose "Mercado Pago payment callback handling for bookings."
+  purpose "Generic payment gateway callback handling for orders."
 
   defaults
     policy_for webhooks: @actor.system
 
-  uses service
+  uses order
 
-  requires integration mercadopago: PaymentGateway
+  requires integration payment_gateway: PaymentGateway
 
   domain
     event payment_received
-      service_id: ID
+      order_id: ID
       external_reference: Text
       amount: @semantic.Money
       currency: @semantic.Currency
 
-  webhook mercadopago_callback
-    path "/webhooks/mercadopago"
-    payload from webhook_events.mercadopago_payment
+  webhook payment_callback
+    path "/webhooks/payment"
+    payload from webhook_events.payment_event
     verify hmac sha256
-      secret env.MERCADOPAGO_WEBHOOK_SECRET
+      secret env.PAYMENT_WEBHOOK_SECRET
       header "X-Signature"
     tenant_from payload.external_reference
     idempotency by payload.id
-    handler "./webhooks/mercadopago_callback.go"
+    handler "./webhooks/payment_callback.go"
     emits payment_received

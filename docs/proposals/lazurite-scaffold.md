@@ -22,7 +22,7 @@ Today the gap is concrete:
 
 Lazurite resolves all five gaps by being the **rails** Lazuli was missing — opinionated shapes that turn the framework primitives into a productive starter, with the project manifest (`lazurite.toml`) carrying *only* what `.lzi` doesn't already own.
 
-**Why now:** Hostpoint port can't start until the rails exist. Phase Prep §1.1/§1.2/§1.3 closed; the bottleneck is no longer "can Lazuli codegen?" but "what shape does a Lazuli app take?". Lazurite is that answer.
+**Why now:** first product port can't start until the rails exist. Phase Prep §1.1/§1.2/§1.3 closed; the bottleneck is no longer "can Lazuli codegen?" but "what shape does a Lazuli app take?". Lazurite is that answer.
 
 **Boundary discipline (the §5 determinism guard):** Per `docs/invariants.md:14-15`, `app.lzi` owns environments, URLs, deploy gates. Per this proposal, `lazurite.toml` owns the framework version pin, plugin module resolution, codegen settings, migration runner policy, distro template lineage. **There is no overlap.** Doctor enforces. See §13.6 for the explicit rejection of `[env.*]` in the manifest.
 
@@ -271,7 +271,7 @@ TypeScript codegen is **not** a single `[generate.ts]` block — it's driven by 
 
 ### §4.4 Frontend topology — `[frontends.*]`
 
-A Lazuli app can have **multiple frontends sharing one backend**, with different audiences and platforms. Hostpoint is the canonical example: Expo mobile (traveler + host audiences) + web view for host management + admin web for internal staff. Three frontends, one Go backend.
+A Lazuli app can have **multiple frontends sharing one backend**, with different audiences and platforms. A marketplace app is the canonical example: Expo mobile (buyer + seller audiences) + web view for seller management + admin web for internal staff. Three frontends, one Go backend.
 
 `.lzx` already supports this via audience declarations (`audience host`) and platform projections (`*.web.lzx`, `*.mobile.lzx`). The manifest **declares which frontends exist** and codegen emits **one SDK per frontend, audience-scoped**.
 
@@ -416,7 +416,7 @@ Proposed behavior:
 ```bash
 lazuli new myapp                       # default Lazurite template
 lazuli new myapp --template=bare       # minimal — just app.lzi (current behavior)
-lazuli new myapp --template=hostpoint  # opinionated Hostpoint-style starter (future)
+lazuli new myapp --template=marketplace  # opinionated marketplace-style starter (future)
 lazuli new myapp --no-git              # skip git init
 lazuli new myapp --module=github.com/foo/myapp  # explicit module path
 ```
@@ -663,9 +663,9 @@ CLI integration: `crates/lazuli_cli/src/main.rs` reads templates from `../../laz
 
 This phase ships first. All learning happens here.
 
-### §11.2 Phase L1 — Lazurite split out (after Hostpoint port stabilizes)
+### §11.2 Phase L1 — Lazurite split out (after first product port stabilizes)
 
-Once Lazurite is exercised against 2+ real apps (Hostpoint port + at least one other), split:
+Once Lazurite is exercised against 2+ real apps (first product port + at least one other), split:
 - New repo: `github.com/lazurite/lazurite`.
 - Templates published as a Go module dependency of `lazuli_cli`.
 - Or: templates fetched at `lazuli new` time from a tagged release (offline cache).
@@ -697,7 +697,7 @@ Sequenced for parallel-friendly execution. Each ≤ ~200 LOC. Sizing/sequencing 
 | **L7** | Codegen Go reads `[plugins]` → emits anonymous `_ "<module>"` imports in `main.go`. Codegen reads `[generate.go].submodule` → emits `dist/go/go.mod` + root `go.work`. | `crates/lazuli_codegen_go/src/emitter/root.rs`, `module.rs` | Rust | L1 |
 | **L7b** | `[frontends.*]` parsing + doctor diagnostics (`FRONTEND-AUDIENCE-UNKNOWN`, `FRONTEND-TARGET-MISSING`, `FRONTEND-OUT-COLLISION`). **TS codegen itself is post-v0** — this cell ships the manifest surface + validation only. | `crates/lazuli_cli/src/lazurite_manifest.rs` (extend L1), `crates/lazuli_cli/src/doctor.rs` | Rust | L1 |
 | **L8** | Update `docs/project-structure.md` to reflect `dist/` decision + Lazurite shape + manifest name (`lazurite.toml`). **Must wait for L1's final schema** to avoid lying. | `docs/project-structure.md`, `docs/invariants.md` (add Lazurite/manifest invariants) | Doc | **L1, L7** (needs final schema decisions) |
-| **L9** | Migrate `examples/hostpoint-mini/` to Lazurite shape; verify Hostpoint port works against new shape. Acts as gate — if migration reveals schema gap, **rerun L1-L8**. | `examples/hostpoint-mini/**`, add `lazurite.toml`, restructure to `features/<f>/` | Fixture | All prior |
+| **L9** | Migrate `examples/marketplace-mini/` to Lazurite shape; verify first product port works against new shape. Acts as gate — if migration reveals schema gap, **rerun L1-L8**. | `examples/marketplace-mini/**`, add `lazurite.toml`, restructure to `features/<f>/` | Fixture | All prior |
 | **L10** | (post-L9 if needed) Schema refinement based on L9 findings. May be no-op if Lazurite shape survives migration. | TBD | — | L9 |
 
 **Sequencing rules** (post-grade fixes):
@@ -706,7 +706,7 @@ Sequenced for parallel-friendly execution. Each ≤ ~200 LOC. Sizing/sequencing 
 - **L3 is parallel to L1**: template files don't depend on the manifest schema (placeholders are independent).
 - **L4 depends on both L1 and L3**: needs parser to substitute, template to read.
 - **L8 sequentially after L1+L7**: docs must reflect the *final* schema (avoids the lying-doc anti-pattern flagged in v0.1 grade).
-- **L9 is a gate**, not a closing cell. If `hostpoint-mini` migration uncovers a missing slot, the proposal goes to v0.3 and L1 reships. The cell is designed to be a feedback loop.
+- **L9 is a gate**, not a closing cell. If `marketplace-mini` migration uncovers a missing slot, the proposal goes to v0.3 and L1 reships. The cell is designed to be a feedback loop.
 
 **Parallel kickoff (3 Codex agents):** L0, L1, L3 simultaneously. L2/L5/L6/L7 in second wave once L1 merges. L4 in third wave. L8 just before L9. L9 as gate (validation by Claude orchestrator, not Codex).
 
@@ -807,11 +807,11 @@ PP3's file watcher (`crates/lazuli_cli/src/dev.rs`) watches `*.lzi`/`*.lzx` toda
 
 ## §14.7 L9 gate results (2026-05-13)
 
-The end-to-end validation against `examples/hostpoint-mini/` ran post Wave 1 + Wave 2 cherry-picks. Findings:
+The end-to-end validation against `examples/marketplace-mini/` ran post Wave 1 + Wave 2 cherry-picks. Findings:
 
 **What worked:**
-- `lazuli generate go examples/hostpoint-mini --out examples/hostpoint-mini/dist/go` emits 20 files including `main.go`, `go.mod`, `go.work`, per-feature `*.gen.go`, and migrations. Codegen reads `lazurite.toml` (L7 wiring) and `[generate.go].submodule` defaults to sub-module emission.
-- `doctor` passes hostpoint-mini once `lazurite.toml` is added (resolves `MANIFEST-REQUIRED-001` from L2).
+- `lazuli generate go examples/marketplace-mini --out examples/marketplace-mini/dist/go` emits 20 files including `main.go`, `go.mod`, `go.work`, per-feature `*.gen.go`, and migrations. Codegen reads `lazurite.toml` (L7 wiring) and `[generate.go].submodule` defaults to sub-module emission.
+- `doctor` passes marketplace-mini once `lazurite.toml` is added (resolves `MANIFEST-REQUIRED-001` from L2).
 - Workspace resolution: `go work sync` + `use ../../runtime/go` makes `lazuli.dev/runtime` (and all bucket sub-packages) resolvable locally without a published v0.1.0 tag. Transitive deps (`pgx`, `river`, etc.) auto-populate from runtime's `go.mod`.
 - `[frontends.*]` topology validated independently via the `lazurite-multifrontend` fixture (3 frontends, 4 audiences).
 
@@ -824,9 +824,9 @@ The end-to-end validation against `examples/hostpoint-mini/` ran post Wave 1 + W
 | L12 | Generated code referenced `github.com/cridenour/go-postgis` (when resource has `@semantic.GeoPoint`) but codegen did NOT add it to `require`. | SHIPPED commit `2b68edd`: new `emitter/deps.rs` static registry of "transitive Go dep" mappings. Detection: any `BuiltinType::SemanticGeoPoint` triggers the go-postgis require. Extensible for future transitive deps (e.g., `@cap.Hashed argon2id` → `golang.org/x/crypto`). |
 | Toolchain bug | `DEFAULT_GO_TOOLCHAIN = "go 1.25"` but runtime requires `go 1.25.0`; `go work sync` rejected the workspace. | FIXED commit (this section's commit): const updated to `"go 1.25.0"`. |
 
-**Remaining fixture limitation (not codegen):** `examples/hostpoint-mini/` declares `@plugin/hostpoint/mini` and `@plugin/hostpoint/mercadopago` in `registry.lzi` — these are placeholder names; no real Go modules exist for them at `github.com/lazuli/example-hostpoint-*`. `go build ./dist/go/...` cannot complete until either (a) real plugin repos exist, or (b) the manifest switches to `path = "..."` mode pointing to local stub plugin packages. This is a fixture-scope issue (Hostpoint Phase 1 work), not a codegen gap.
+**Remaining fixture limitation (not codegen):** `examples/marketplace-mini/` declares `@plugin/example/marketplace-pack` and `@plugin/example/payment-gateway` in `registry.lzi` — these are placeholder names; no real Go modules exist at `github.com/lazuli/example-*`. `go build ./dist/go/...` cannot complete until either (a) real plugin repos exist, or (b) the manifest switches to `path = "..."` mode pointing to local stub plugin packages. This is a fixture-scope issue (downstream product port work), not a codegen gap.
 
-**Gate verdict:** PASS — all 3 codegen gaps closed; Lazurite scaffold v0 ready for Hostpoint Phase 1 (Auth port). Codegen now emits a complete `dist/go/go.mod` + `go.work` setup that resolves the Lazuli runtime locally in the monorepo without any manual `replace` directives.
+**Gate verdict:** PASS — all 3 codegen gaps closed; Lazurite scaffold v0 ready for Product Phase 1 (Auth port). Codegen now emits a complete `dist/go/go.mod` + `go.work` setup that resolves the Lazuli runtime locally in the monorepo without any manual `replace` directives.
 
 ## §15. Decision gate
 
@@ -836,11 +836,11 @@ Approve to proceed with Cell L0 → L9 implementation. Suggested order (post-gra
 2. **L2 + L5 + L6 + L7 in parallel** after L1 lands (4 cells; doctor diagnostics, migrate verb, seed verb, codegen plugin imports).
 3. **L4** (scaffold verb) — needs L1 + L3.
 4. **L8** (docs) — sequential after L1+L7 to avoid lying-doc.
-5. **L9** (hostpoint-mini migration as gate) — Claude orchestrator validates e2e; if it surfaces a schema gap, the proposal goes to v0.3 and L1 reships.
+5. **L9** (marketplace-mini migration as gate) — Claude orchestrator validates e2e; if it surfaces a schema gap, the proposal goes to v0.3 and L1 reships.
 
 Estimated total: **~8-10 cells, 2-3 days at 4 parallel Codex agents** assuming this proposal grades ≥ 9.0 with no major redesigns.
 
-After L9 lands clean, Lazurite v0 is **shipped** and we kick **Hostpoint Phase 1 (Auth port)**.
+After L9 lands clean, Lazurite v0 is **shipped** and we kick **Product Phase 1 (Auth port)**.
 
 ---
 
@@ -848,11 +848,11 @@ After L9 lands clean, Lazurite v0 is **shipped** and we kick **Hostpoint Phase 1
 
 | Risk | P | Impact | Mitigation |
 |---|---|---|---|
-| `lazurite.toml` shape needs a v2 before Hostpoint port lands | 30% | Re-template all existing fixtures | Keep schema additive; only add sections, never rename in v1 |
+| `lazurite.toml` shape needs a v2 before first product port lands | 30% | Re-template all existing fixtures | Keep schema additive; only add sections, never rename in v1 |
 | Plugin registry causes confusion vs `go.mod` deps | 40% | Doctor friction | Doctor cross-checks: plugin in toml but not go.mod = error; vice versa = warn |
 | `dist/` regen on every `lazuli dev` change feels slow (full feature regen) | 50% | DX hit | Incremental codegen via `.lazuli/graph.json` snapshot — future cut, not v0 |
 | Bootstrap-in-repo (L0) makes Lazurite/Lazuli boundary fuzzy | 25% | Drift | Hard rule in CLAUDE.md: nothing in `lazurite/` may import Lazuli internals |
-| Hostpoint port reveals missing convention (e.g. how multi-tenant orgs scaffold) | 35% | Re-template default | Iterate; L0 is meant to absorb this |
+| first product port reveals missing convention (e.g. how multi-tenant orgs scaffold) | 35% | Re-template default | Iterate; L0 is meant to absorb this |
 
 ---
 

@@ -1,0 +1,34 @@
+registry
+  env
+    group payment
+      server PAYMENT_ACCESS_TOKEN: Secret required in production
+      server PAYMENT_WEBHOOK_SECRET: Secret required in production
+
+  capabilities
+    payment_gateway payment_gateway
+
+  packs
+    marketplace from @plugin/example/marketplace-pack
+      version "0.1.0"
+      provides feature account
+      provides feature listing
+      provides feature order
+      provides feature payment
+      requires integration payment_gateway: PaymentGateway
+
+  integrations
+    payment_gateway: PaymentGateway
+      adapter @plugin/example/payment-gateway
+      environments sandbox, production
+      credentials platform
+        access_token env.PAYMENT_ACCESS_TOKEN
+        webhook_secret env.PAYMENT_WEBHOOK_SECRET
+
+  webhook_events
+    payment_event
+      id: Text required
+      external_reference: Text required
+      status: Text required
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      received_at: Timestamp required

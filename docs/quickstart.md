@@ -47,7 +47,7 @@ Visit http://localhost:8080/healthz.
 
 - `examples/crm.lzi` - smallest single-file fixture.
 - `examples/full-capsule/` - generated Go build smoke fixture.
-- `examples/hostpoint-mini/` - slim Hostpoint shape.
+- `examples/marketplace-mini/` - slim marketplace shape (account / listing / order / payment).
 
 ## Layout of generated code
 

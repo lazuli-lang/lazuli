@@ -4,7 +4,7 @@
 //! caller can register the import on the file's `ImportSet`.
 //!
 //! `@semantic.GeoPoint` maps to `postgis.Point` from
-//! `github.com/cridenour/go-postgis` (Hostpoint §9.1 + proposal
+//! `github.com/cridenour/go-postgis` (GeoPoint follow-up + proposal
 //! §10.1, resolved 2026-05-11). The IR variant lives at
 //! `lazuli_ir::BuiltinType::SemanticGeoPoint` (commit `97b193d`).
 //!
@@ -174,7 +174,7 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
             "lazuli.Currency".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
-        // Hostpoint Phase Prep §9.1 — `@semantic.GeoPoint` resolves to
+        // GeoPoint follow-up — `@semantic.GeoPoint` resolves to
         // `postgis.Point` via the lightweight `cridenour/go-postgis`
         // binding (chosen per `codegen-lazuli-go.md` §10.1; revisit if
         // a future bucket needs `twpayne/go-geom`'s broader WKT/WKB
@@ -578,7 +578,7 @@ mod tests {
 
     #[test]
     fn semantic_geopoint_maps_to_postgis_point() {
-        // Hostpoint §9.1 — geo codegen materialises via cridenour/go-postgis.
+        // GeoPoint follow-up — geo codegen materialises via cridenour/go-postgis.
         let module = cross_ref_module();
         let index = CrossFeatureIndex::build(&module);
         let ctx = TypeCtx {
