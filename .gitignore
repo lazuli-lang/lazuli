@@ -4,7 +4,6 @@
 /editors/vscode/node_modules/
 *.vsix
 **/*.rs.bk
-/CLAUDE.md
 
 # Go build artifacts inside the spike `dist/` and `runtime/`. The Go source
 # files are versioned; binaries and test caches are not.
