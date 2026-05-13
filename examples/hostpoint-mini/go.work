@@ -1,13 +1,7 @@
-// Hostpoint-mini is a dev playground for Lazurite shape validation. The
-// go.work below makes the local Lazuli Go runtime resolvable without a
-// published v0.1.0 tag (the runtime ships in-repo under runtime/go).
-// Real apps using a released Lazuli will pull `lazuli.dev/runtime` from
-// the registry and won't need this workspace file.
-
 go 1.25.0
 
 use (
 	.
-	../../runtime/go
 	./dist/go
+	../../runtime/go
 )

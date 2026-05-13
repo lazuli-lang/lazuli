@@ -43,7 +43,7 @@ const DEFAULT_MODULE_NAME: &str = "lazuli/app";
 /// `runtime/go/go.mod` (currently `go 1.25.0`) so the generated
 /// module shares the same toolchain expectation as the hand-written
 /// Lazuli Go library.
-const DEFAULT_GO_TOOLCHAIN: &str = "go 1.25";
+const DEFAULT_GO_TOOLCHAIN: &str = "go 1.25.0";
 
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds

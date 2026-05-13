@@ -815,15 +815,18 @@ The end-to-end validation against `examples/hostpoint-mini/` ran post Wave 1 + W
 - Workspace resolution: `go work sync` + `use ../../runtime/go` makes `lazuli.dev/runtime` (and all bucket sub-packages) resolvable locally without a published v0.1.0 tag. Transitive deps (`pgx`, `river`, etc.) auto-populate from runtime's `go.mod`.
 - `[frontends.*]` topology validated independently via the `lazurite-multifrontend` fixture (3 frontends, 4 audiences).
 
-**Gaps surfaced (follow-up cells, not blockers):**
+**Gaps surfaced (follow-up cells L10/L11/L12 — all SHIPPED 2026-05-13):**
 
-| # | Issue | Surface |
+| # | Issue | Resolution |
 |---|---|---|
-| L10 | Codegen does NOT auto-emit `replace lazuli.dev/runtime => <relative-path>` for in-repo fixture builds. Test suite (`smoke_go_build.rs` and `auth_*_flow.rs`) appends it manually; `lazuli new` should append it when scaffolding inside the Lazuli monorepo or when `[generate.go].dev_replace = true`. | `crates/lazuli_codegen_go/src/emitter/module.rs` |
-| L11 | Codegen emits `require <plugin-module>` in `dist/go/go.mod` for every `[plugins]` entry, but the placeholder modules in hostpoint-mini's manifest don't exist on github. Plugins listed with `path = "..."` should emit a corresponding `replace` directive; plugins with `module = "..."` should add a require with the correct version, AND doctor should warn if the plugin repo isn't accessible during `go work sync`. | same |
-| L12 | Generated code that uses `@semantic.GeoPoint` imports `github.com/cridenour/go-postgis` but codegen does NOT add it to `dist/go/go.mod` `require` block. `go work sync` cannot resolve it. Codegen should track which Go packages it emits imports for and add corresponding `require` entries. | same |
+| L10 | Codegen did NOT auto-emit `replace lazuli.dev/runtime => <relative-path>` for in-repo fixture builds. | SHIPPED commit `2b68edd`: codegen auto-detects monorepo (walks parents for `runtime/go/go.mod`) and emits `replace` + appends path to `go.work use(...)`. Manual opt-in via `[generate.go].dev_replace = "<path>"`. |
+| L11 | Codegen emitted `_ "<plugin-module>"` imports in `main.go` (from L7) but did NOT add the corresponding `require <plugin-module> <version>` in `dist/go/go.mod`. | SHIPPED commit `2b68edd`: codegen emits sorted `require` lines for every `[plugins]` entry. `path` mode uses `v0.0.0-local` sentinel; `module + version` mode uses the declared version. |
+| L12 | Generated code referenced `github.com/cridenour/go-postgis` (when resource has `@semantic.GeoPoint`) but codegen did NOT add it to `require`. | SHIPPED commit `2b68edd`: new `emitter/deps.rs` static registry of "transitive Go dep" mappings. Detection: any `BuiltinType::SemanticGeoPoint` triggers the go-postgis require. Extensible for future transitive deps (e.g., `@cap.Hashed argon2id` → `golang.org/x/crypto`). |
+| Toolchain bug | `DEFAULT_GO_TOOLCHAIN = "go 1.25"` but runtime requires `go 1.25.0`; `go work sync` rejected the workspace. | FIXED commit (this section's commit): const updated to `"go 1.25.0"`. |
 
-**Gate verdict:** PASS with 3 documented follow-ups. The Lazurite shape (folder + manifest + frontend topology) is structurally sound; the gaps are codegen polish, not architectural redesigns. Hostpoint Phase 1 (Auth port) can proceed in parallel with L10-L12.
+**Remaining fixture limitation (not codegen):** `examples/hostpoint-mini/` declares `@plugin/hostpoint/mini` and `@plugin/hostpoint/mercadopago` in `registry.lzi` — these are placeholder names; no real Go modules exist for them at `github.com/lazuli/example-hostpoint-*`. `go build ./dist/go/...` cannot complete until either (a) real plugin repos exist, or (b) the manifest switches to `path = "..."` mode pointing to local stub plugin packages. This is a fixture-scope issue (Hostpoint Phase 1 work), not a codegen gap.
+
+**Gate verdict:** PASS — all 3 codegen gaps closed; Lazurite scaffold v0 ready for Hostpoint Phase 1 (Auth port). Codegen now emits a complete `dist/go/go.mod` + `go.work` setup that resolves the Lazuli runtime locally in the monorepo without any manual `replace` directives.
 
 ## §15. Decision gate
 
