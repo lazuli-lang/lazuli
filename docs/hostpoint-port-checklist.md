@@ -9,10 +9,10 @@
 > port do produto Hostpoint (`Phase 1+`). Depois das batches c21-c180, a infra
 > Lazuli avançou muito e o smoke do codegen Go está verde, mas o produto
 > Hostpoint real ainda não foi portado. Use `docs/next-checklist.md` rows
-> 60-79 como ledger de execução. Gate atual: `cargo test -p
+> 60-80 como ledger de execução. Gate atual: `cargo test -p
 > lazuli_codegen_go --features smoke` passa; próximo gate é rodar um happy
 > path gerado de `examples/hostpoint-mini/` e iniciar Phase 1 no source real.
-> Rows 78-79 registram 90 helpers adicionais de framework/Lazurite; continuam
+> Rows 78-80 registram 135 helpers adicionais de framework/Lazurite; continuam
 > fora do escopo de port do produto Hostpoint.
 
 ## Princípio fundador
@@ -36,11 +36,11 @@ verde: `go test ./...` em `runtime/go`, `cargo test -p lazuli_codegen_go`,
 `cargo test -p lazuli_cli`, `cargo test -p lazuli_codegen_go --features smoke`
 e `lazuli check examples/hostpoint-mini`. O port real do produto Hostpoint ainda
 não começou; `hostpoint-mini` é playground de forma e smoke, não migração do app.
-Depois das batches c181-c270, o foco continua sendo **framework Lazuli/Lazurite**:
+Depois das batches c181-c315, o foco continua sendo **framework Lazuli/Lazurite**:
 HTTP/DB/testkit/security/cache/email/jobs/storage/search/realtime/OpenAPI/i18n/
-reports/deploy/perf/authz/docgen/auth/events/admin/deploy hardening ganharam
-helpers, mas nenhum source real do Hostpoint foi portado. Itens de produto real
-permanecem abertos quando só existe fixture/runtime.
+reports/deploy/perf/authz/docgen/auth/events/admin/deploy/billing hardening
+ganharam helpers, mas nenhum source real do Hostpoint foi portado. Itens de
+produto real permanecem abertos quando só existe fixture/runtime.
 
 ### 1.1 Codegen Lazuli → Go (Gate fechado — ~12-15 cells)
 
@@ -420,7 +420,7 @@ desbloqueada.
 
 ## §7. Próximo passo concreto
 
-**HOJE** (continuação após c226-c270):
+**HOJE** (continuação após c271-c315):
 
 1. Estruturar o framework Lazuli/Lazurite: quais helpers viram codegen contracts, quais ficam runtime-only e quais pertencem a adapter packs.
 2. Criar/rodar happy path gerado de `examples/hostpoint-mini`: register/login/session + property list/search + MercadoPago webhook verify.

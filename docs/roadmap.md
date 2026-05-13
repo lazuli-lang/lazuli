@@ -34,11 +34,11 @@ Estado honesto agora:
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Depois da reconciliação c226-c270,
-  este arquivo mostra 145 feitos / 426 totais. Itens compostos parcialmente
+  ainda não tinha acompanhado as batches. Depois da reconciliação c271-c315,
+  este arquivo mostra 147 feitos / 426 totais. Itens compostos parcialmente
   feitos continuam abertos com nota.
 - Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
-  c226-c270.
+  c271-c315.
 - `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli` e
   `cargo test -p lazuli_codegen_go --features smoke` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
@@ -54,10 +54,10 @@ Estado honesto agora:
   auth, property, service/booking, payment, review, chat e notification estão
   modelados; isso ainda **não** significa que o produto Hostpoint real foi
   migrado.
-- As batches c181-c270 foram deliberadamente de **framework/Lazurite readiness**:
-  90 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
+- As batches c181-c315 foram deliberadamente de **framework/Lazurite readiness**:
+  135 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
   jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen/
-  auth/events/admin hardening.
+  auth/events/admin/billing hardening.
   Nenhum trabalho de port do Hostpoint real foi iniciado.
 
 Fronteira imediata antes de qualquer port real:
@@ -87,7 +87,7 @@ Progresso real por camada:
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
 | Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
-| Runtime Go | 536 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
+| Runtime Go | 625 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
 | Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
@@ -152,10 +152,10 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 ### 1.2 HTTP / cookies / headers / errors
 
-- [ ] `cookie` decorator (`signed`, `encrypted`, `secure`, `same_site`)
-- [ ] `proxy` block em `app.lzi` (trusted proxies, real IP, forwarded headers)
-- [ ] `limits` block em `app.lzi` (body, header, upload globais)
-- [ ] `session` kind explícito (declarar store, TTL, rotation)
+- [ ] `cookie` decorator (`signed`, `encrypted`, `secure`, `same_site`) — runtime signed-cookie helpers exist; language surface still open.
+- [ ] `proxy` block em `app.lzi` (trusted proxies, real IP, forwarded headers) — runtime reverse proxy/real-IP helpers exist; language surface still open.
+- [ ] `limits` block em `app.lzi` (body, header, upload globais) — runtime body/multipart limits exist; language surface still open.
+- [ ] `session` kind explícito (declarar store, TTL, rotation) — runtime stores/renewal/rotation helpers exist; language surface still open.
 - [ ] `error_page` kind (custom 404/405/500/maintenance)
 - [ ] `problem` shape padrão (Problem Details automático)
 - [ ] `maintenance` kind
@@ -174,7 +174,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 ### 1.5 Database / persistence
 
 - [ ] `lock` decorator (optimistic/pessimistic/row-level)
-- [ ] `view` kind (materialized + database views)
+- [ ] `view` kind (materialized + database views) — runtime view DDL helpers exist; language surface still open.
 - [ ] `outbox` / `inbox` kinds — runtime outbox helpers exist; language surface still open
 - [ ] `event_store` kind
 - [ ] `read_model` kind
@@ -182,7 +182,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 - [ ] `composite_key` block em resource
 - [ ] `polymorphic` decorator em relation
 - [ ] `inheritance` (STI) decorator em resource
-- [ ] `shard_by` decorator
+- [ ] `shard_by` decorator — runtime shard router helpers exist; language surface still open.
 - [ ] `replica` / `primary` routing decorator
 - [ ] `tenant_database` / `tenant_schema` decorator
 
@@ -190,7 +190,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 - [ ] `tenant_migration` kind
 - [ ] `index` / `foreign_key` / `constraint` / `enum_column` / `extension` / `trigger` / `generated_column` / `partition` decoradores em resource
-- [ ] Doctor rule: schema drift detection
+- [ ] Doctor rule: schema drift detection — runtime schema-drift diff helpers exist; doctor wiring still open.
 
 ### 1.7 Models / domínio
 
@@ -357,7 +357,7 @@ A linguagem já é compacta e estável. O crescimento aqui é **horizontal** (ma
 
 - [ ] `error_code` namespace
 - [ ] `compatibility_layer` kind
-- [ ] Doctor rule: deprecation warning
+- [ ] Doctor rule: deprecation warning — runtime deprecation helpers exist; doctor wiring still open.
 
 ---
 
@@ -374,12 +374,12 @@ inteira estiver entregue.
 
 ### 2.1 HTTP / servidor (P1 — bloqueia produção)
 
-- [ ] HTTP/1.1 + HTTP/2 + keep-alive + timeouts
-- [ ] mTLS, ACME/Let's Encrypt, HSTS native — HSTS middleware shipped; mTLS/ACME remain open.
+- [x] HTTP/1.1 + HTTP/2 + keep-alive + timeouts
+- [ ] mTLS, ACME/Let's Encrypt, HSTS native — HSTS, mTLS policy, and ACME HTTP-01 challenge helpers shipped; certificate issuance flow remains open.
 - [x] Streaming / chunked / SSE — SSE helper shipped in runtime Go; chunked behavior rides stdlib `net/http`.
-- [ ] WebSocket server (sem rooms/presence — F)
+- [ ] WebSocket server (sem rooms/presence — F) — handshake/policy helpers shipped; full server loop remains open.
 - [x] Multipart parser robusto
-- [ ] Static files com fingerprint + manifest
+- [x] Static files com fingerprint + manifest
 - [x] Reverse proxy + forwarded headers + real IP
 - [x] Compressão gzip native
 - [x] ETag + conditional requests + Cache-Control + Range
@@ -515,7 +515,7 @@ inteira estiver entregue.
 ### 2.10 Cache (P2)
 
 - [x] HTTP cache
-- [ ] Fragment / query / model / view / template cache — fragment/query helpers shipped; model/view/template cache remains open.
+- [ ] Fragment / query / model / view / template cache — fragment/query helpers plus tag/SWR/sliding-TTL/lock policies shipped; model/view/template cache remains open.
 - [x] Cache warming
 - [x] Cache metrics
 - [x] Two-level cache (local + remote)
@@ -577,26 +577,26 @@ inteira estiver entregue.
 
 ### 2.18 Internacionalização (P3 — Cut i18n)
 
-- [ ] ICU message format — lightweight `{name}` formatter shipped; full ICU remains open.
+- [ ] ICU message format — lightweight `{name}` formatter and catalog validators shipped; full ICU remains open.
 - [ ] Pluralization + gender rules — integer plural helpers shipped for en/pt; gender/full CLDR remains open.
 - [x] Date / time / number / currency localization
 - [x] Timezone propagation (user + tenant)
 
 ### 2.19 Admin (P3 — Cut admin)
 
-- [ ] Admin generator + CRUD + dashboards UI
-- [ ] Admin forms / tables / filters / search / sorting / pagination
+- [ ] Admin generator + CRUD + dashboards UI — metadata/action/dashboard/resource-schema helpers exist; UI/codegen remains open.
+- [ ] Admin forms / tables / filters / search / sorting / pagination — resource schema helpers exist; generated UI remains open.
 - [ ] Bulk actions + export / import
 - [ ] Admin notifications + charts + custom pages + theme + menu builder + breadcrumbs
 
 ### 2.20 SaaS / multi-tenant (P2)
 
-- [ ] Tenant analytics dashboards
+- [ ] Tenant analytics dashboards — tenant quota/limit helpers exist; dashboards remain open.
 
 ### 2.21 Pagamentos / billing (P3 — Cut billing)
 
-- [ ] Trials, coupons, receipts, taxes mechanics
-- [ ] Usage / metered billing
+- [ ] Trials, coupons, receipts, taxes mechanics — provider-neutral plan/entitlement helpers exist; commercial mechanics remain open.
+- [ ] Usage / metered billing — entitlement/quota helpers exist; metering pipeline remains open.
 - [ ] Payment methods, dunning, billing portal
 - [ ] Webhook verification, plan changes, cancellation, grace periods, refunds — generic payment contract, idempotency, MercadoPago webhook verify/client/capture/refund helpers exist; billing lifecycle remains open.
 
@@ -604,7 +604,7 @@ inteira estiver entregue.
 
 - [x] Local storage adapter
 - [x] Direct uploads + multipart + resumable
-- [ ] File deduplication + versioning + lifecycle policies — dedup/lifecycle planning shipped; versioning remains open.
+- [ ] File deduplication + versioning + lifecycle policies — dedup/lifecycle/signed-URL/bucket policy helpers shipped; versioning remains open.
 
 ### 2.23 Busca (P3)
 
@@ -615,7 +615,7 @@ inteira estiver entregue.
 ### 2.24 Relatórios (P3)
 
 - [ ] CSV / Excel / JSON / XML export — CSV/JSON/XML shipped; Excel remains open.
-- [ ] PDF generation
+- [ ] PDF generation — report/PDF planning helpers exist; renderer remains open.
 - [ ] Report builder UI (admin gated)
 - [ ] Dashboard widgets + chart helpers
 - [ ] CSV / Excel / JSON import + validation reports + rollback — CSV import validation shipped; Excel/JSON/rollback remain open.
