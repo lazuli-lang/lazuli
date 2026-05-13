@@ -19,6 +19,7 @@ mod lazurite_manifest;
 mod migrate;
 mod seed;
 mod templates;
+mod upgrade;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =
@@ -66,6 +67,9 @@ enum Commands {
         input: PathBuf,
         #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
         security_profile: CheckSecurityProfile,
+        /// Run release-gate checks only.
+        #[arg(long)]
+        check_release: bool,
     },
     Compile {
         input: PathBuf,
@@ -208,6 +212,18 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         sub: MigrateCommand,
+    },
+    /// Apply Lazuli authoring migration recipes.
+    Upgrade {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        /// Project root with .lzi files to upgrade.
+        target: PathBuf,
+        /// Show what would happen without applying.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Run seed scripts from lazurite.toml [seeds].dir.
     Seed {
@@ -528,7 +544,8 @@ fn main() -> Result<()> {
         Commands::Doctor {
             input,
             security_profile,
-        } => doctor::doctor_command(&input, security_profile.into()),
+            check_release,
+        } => doctor::doctor_command(&input, security_profile.into(), check_release),
         Commands::Compile { input, out } => compile_command(&input, &out),
         Commands::Inspect {
             input,
@@ -608,6 +625,27 @@ fn main() -> Result<()> {
                 }
             }
             .map_err(|err| anyhow::anyhow!("{err}"))
+        }
+        Commands::Upgrade {
+            from,
+            to,
+            target,
+            dry_run,
+        } => {
+            let project_root = std::env::current_dir().context("reading current directory")?;
+            let report = upgrade::run_upgrade(&project_root, &from, &to, &target, dry_run)
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            for recipe in &report.applied {
+                println!("applied {}", recipe.display());
+            }
+            for (recipe, error) in &report.failed {
+                println!("failed {}: {}", recipe.display(), error);
+            }
+            if !report.failed.is_empty() {
+                bail!("lazuli upgrade failed");
+            }
+            println!("lazuli upgrade applied {} recipe(s)", report.applied.len());
+            Ok(())
         }
         Commands::Seed { only, force } => {
             let project_root =
@@ -1045,7 +1083,6 @@ fn translate_extract_command(
                 }
             }
         }
-
         for locale in &supported {
             if let Some(filter) = locale_filter {
                 if filter != locale.as_str() {
@@ -1820,7 +1857,7 @@ fn run_go_mod_tidy(project: &Path) -> Result<()> {
 }
 
 fn run_doctor_sanity_check(project: &Path) -> Result<()> {
-    doctor::doctor_command(project, SecurityProfile::Strict)
+    doctor::doctor_command(project, SecurityProfile::Strict, false)
 }
 
 fn run_command(project: &Path, program: &str, args: &[&str]) -> Result<()> {

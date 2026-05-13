@@ -145,6 +145,7 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         name: app.name.clone(),
         title: app.title.clone(),
         version: app.version.clone(),
+        lazuli_version: None,
         targets: app.targets.clone(),
         default_locale: app.default_locale.clone(),
         default_timezone: app.default_timezone.clone(),

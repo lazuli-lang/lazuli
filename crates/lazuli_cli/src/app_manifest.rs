@@ -330,6 +330,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         name,
         title: None,
         version: None,
+        lazuli_version: None,
         targets: Vec::new(),
         default_locale: None,
         default_timezone: None,
@@ -388,6 +389,9 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     current_child = None;
                 } else if let Some(rest) = trimmed.strip_prefix("version ") {
                     app.version = Some(unquote(rest.trim()).to_owned());
+                    current_child = None;
+                } else if let Some(rest) = trimmed.strip_prefix("lazuli_version ") {
+                    app.lazuli_version = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
                 } else if let Some(rest) = trimmed.strip_prefix("default_locale ") {
                     app.default_locale = Some(unquote(rest.trim()).to_owned());

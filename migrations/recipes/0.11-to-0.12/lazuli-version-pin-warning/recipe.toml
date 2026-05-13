@@ -1,0 +1,8 @@
+[recipe]
+from_version = "0.11.0"
+to_version = "0.12.0"
+kind = "additive"
+summary = "app.lzi lazuli_version pin warning added; no automatic source rewrite."
+
+[smoke]
+applies_to = "app_lzi_authoring"

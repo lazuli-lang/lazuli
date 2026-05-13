@@ -524,6 +524,7 @@ mod tests {
             name: "test".to_owned(),
             title: None,
             version: None,
+        lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,

@@ -1649,6 +1649,11 @@ pub struct AppManifest {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Pinned Lazuli runtime version. Format: "<major>.<minor>" string,
+    /// e.g. "0.12". Compared against LZIR_SCHEMA at doctor time.
+    /// Missing pin is warning in 0.x, error in 1.0+.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lazuli_version: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

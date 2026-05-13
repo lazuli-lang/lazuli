@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use lazuli_analyzer::lower_feature_skeleton;
 use lazuli_ir::{
-    self as ir, Agent, AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace,
+    self as ir, Agent, AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace, LZIR_SCHEMA,
 };
 use lazuli_lsp::SecurityProfile;
 use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView, parse_feature_skeletons};
@@ -17,7 +17,15 @@ use crate::app_manifest::{
 };
 use crate::lazurite_manifest::{self, Manifest, MigrationStrategy};
 
-pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
+pub fn doctor_command(
+    input: &Path,
+    security_profile: SecurityProfile,
+    check_release: bool,
+) -> Result<()> {
+    if check_release {
+        return doctor_release_command(input);
+    }
+
     let package = DoctorPackage::load(input, security_profile)?;
     let diagnostics = package.diagnostics();
     let has_error = diagnostics
@@ -33,6 +41,27 @@ pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result
     }
 
     println!("{} passed Lazuli doctor checks", input.display());
+    Ok(())
+}
+
+fn doctor_release_command(input: &Path) -> Result<()> {
+    let project_root = doctor_project_root(input);
+    let mut diagnostics = Vec::new();
+    diagnostics.extend(check_migration_recipe_001(&project_root, LZIR_SCHEMA));
+    diagnostics.extend(check_migration_recipe_002(&project_root));
+    let has_error = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DoctorSeverity::Error);
+
+    for diagnostic in &diagnostics {
+        diagnostic.print();
+    }
+
+    if has_error {
+        bail!("{} failed Lazuli release checks", project_root.display());
+    }
+
+    println!("{} passed Lazuli release checks", project_root.display());
     Ok(())
 }
 
@@ -286,6 +315,7 @@ impl DoctorPackage {
                     if app.is_none() {
                         app = Some(DoctorAppManifest {
                             path: file.path.clone(),
+                            source: file.source.clone(),
                             manifest,
                         });
                     } else {
@@ -709,6 +739,16 @@ impl DoctorPackage {
             diagnostics.extend(file.local_diagnostics.clone());
         }
 
+        diagnostics.extend(lazuli_version_001_diagnostics(
+            self.app.as_ref(),
+            LZIR_SCHEMA,
+        ));
+        diagnostics.extend(lazuli_version_002_diagnostics(
+            self.app.as_ref(),
+            LZIR_SCHEMA,
+            &self.project_root,
+        ));
+
         diagnostics.extend(policy_reachability_diagnostics(
             &self.files,
             &self.experiences,
@@ -969,6 +1009,7 @@ struct DoctorAppContract {
 #[derive(Debug)]
 struct DoctorAppManifest {
     path: PathBuf,
+    source: String,
     manifest: AppManifest,
 }
 
@@ -1377,6 +1418,230 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_audience_no_frontend(manifest, package));
     diagnostics.extend(check_frontend_out_collision(manifest, package));
     diagnostics
+}
+
+fn lazuli_version_001_diagnostics(
+    app: Option<&DoctorAppManifest>,
+    schema: &str,
+) -> Vec<DoctorDiagnostic> {
+    let Some(app) = app else { return Vec::new() };
+    let current_major_minor = major_minor(schema);
+
+    match app.manifest.lazuli_version.as_deref() {
+        None => {
+            let severity = if is_one_dot_zero_plus(schema) {
+                DoctorSeverity::Error
+            } else {
+                DoctorSeverity::Warning
+            };
+            vec![DoctorDiagnostic {
+                path: app.path.clone(),
+                line: 1,
+                column: 1,
+                severity,
+                code: "LAZULI-VERSION-001".to_owned(),
+                message: format!(
+                    "lazuli_version pin missing. Expected: lazuli_version \"{}\". expected_value = \"{}\". Add this to app.lzi to lock the runtime/IR ABI version.",
+                    current_major_minor, current_major_minor
+                ),
+            }]
+        }
+        Some(pinned) => {
+            let pinned_major_minor = major_minor(pinned);
+            if pinned_major_minor == current_major_minor {
+                Vec::new()
+            } else {
+                vec![DoctorDiagnostic {
+                    path: app.path.clone(),
+                    line: lazuli_version_line(&app.source).unwrap_or(1),
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "LAZULI-VERSION-001".to_owned(),
+                    message: format!(
+                        "lazuli_version pin \"{}\" does not match current LZIR_SCHEMA \"{}\". Run: lazuli upgrade --from {} --to {} <project>. See migrations/recipes/{}-to-{}/.",
+                        pinned,
+                        schema,
+                        pinned_major_minor,
+                        current_major_minor,
+                        pinned_major_minor,
+                        current_major_minor
+                    ),
+                }]
+            }
+        }
+    }
+}
+
+fn lazuli_version_002_diagnostics(
+    app: Option<&DoctorAppManifest>,
+    schema: &str,
+    project_root: &Path,
+) -> Vec<DoctorDiagnostic> {
+    let Some(app) = app else { return Vec::new() };
+    let Some(pinned) = app.manifest.lazuli_version.as_deref() else {
+        return Vec::new();
+    };
+    let pinned_major_minor = major_minor(pinned);
+    let current_major_minor = major_minor(schema);
+    if pinned_major_minor == current_major_minor {
+        return Vec::new();
+    }
+
+    let recipe_dir = project_root
+        .join("migrations/recipes")
+        .join(format!("{}-to-{}", pinned_major_minor, current_major_minor));
+    if recipe_dir.exists() {
+        return Vec::new();
+    }
+
+    vec![DoctorDiagnostic {
+        path: app.path.clone(),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "LAZULI-VERSION-002".to_owned(),
+        message: format!(
+            "lazuli_version pin \"{}\" has no migration recipe to current \"{}\". No recipe directory at {}. This may indicate a stale pin or a release that shipped without a recipe - file an issue.",
+            pinned,
+            schema,
+            recipe_dir.display()
+        ),
+    }]
+}
+
+fn major_minor(version: &str) -> String {
+    let mut parts = version.split('.');
+    let Some(major) = parts.next() else {
+        return version.to_owned();
+    };
+    let Some(minor) = parts.next() else {
+        return version.to_owned();
+    };
+    format!("{major}.{minor}")
+}
+
+fn is_one_dot_zero_plus(version: &str) -> bool {
+    version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u64>().ok())
+        .is_some_and(|major| major >= 1)
+}
+
+fn lazuli_version_line(source: &str) -> Option<usize> {
+    source
+        .lines()
+        .position(|line| {
+            leading_spaces(line) == 2 && line.trim_start().starts_with("lazuli_version ")
+        })
+        .map(|line| line + 1)
+}
+
+fn check_migration_recipe_001(project_root: &Path, lzir_schema: &str) -> Vec<DoctorDiagnostic> {
+    let Ok(output) = std::process::Command::new("git")
+        .args(["show", "HEAD~1:crates/lazuli_ir/src/lib.rs"])
+        .current_dir(project_root)
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let previous_source = String::from_utf8_lossy(&output.stdout);
+    let Some(previous_schema) = extract_lzir_schema(&previous_source) else {
+        return Vec::new();
+    };
+    if previous_schema == lzir_schema {
+        return Vec::new();
+    }
+
+    let previous_major_minor = major_minor(&previous_schema);
+    let current_major_minor = major_minor(lzir_schema);
+    let transition_dir = project_root.join("migrations/recipes").join(format!(
+        "{}-to-{}",
+        previous_major_minor, current_major_minor
+    ));
+    let recipe_count = fs::read_dir(&transition_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().is_dir())
+                .count()
+        })
+        .unwrap_or(0);
+
+    if recipe_count > 0 {
+        return Vec::new();
+    }
+
+    vec![DoctorDiagnostic {
+        path: transition_dir,
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "MIGRATION-RECIPE-001".to_owned(),
+        message: format!(
+            "LZIR_SCHEMA changed from {} to {}, but no recipe directory exists under migrations/recipes/{}-to-{}/.",
+            previous_schema, lzir_schema, previous_major_minor, current_major_minor
+        ),
+    }]
+}
+
+fn check_migration_recipe_002(project_root: &Path) -> Vec<DoctorDiagnostic> {
+    let recipe_root = project_root.join("migrations/recipes");
+    let mut recipe_dirs = Vec::new();
+    collect_recipe_dirs(&recipe_root, &mut recipe_dirs);
+
+    let mut diagnostics = Vec::new();
+    for recipe_dir in recipe_dirs {
+        let input = recipe_dir.join("input.lzi");
+        let output = recipe_dir.join("output.lzi");
+        if !input.exists() && !output.exists() {
+            continue;
+        }
+        if let Err(error) = crate::upgrade::smoke_recipe(&recipe_dir) {
+            diagnostics.push(DoctorDiagnostic {
+                path: recipe_dir,
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "MIGRATION-RECIPE-002".to_owned(),
+                message: format!("migration recipe smoke failed: {error}"),
+            });
+        }
+    }
+    diagnostics
+}
+
+fn collect_recipe_dirs(root: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if path.join("recipe.toml").is_file() {
+            out.push(path);
+        } else {
+            collect_recipe_dirs(&path, out);
+        }
+    }
+}
+
+fn extract_lzir_schema(source: &str) -> Option<String> {
+    source.lines().find_map(|line| {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("pub const LZIR_SCHEMA") {
+            return None;
+        }
+        let (_, rest) = trimmed.split_once('"')?;
+        let (value, _) = rest.split_once('"')?;
+        Some(value.to_owned())
+    })
 }
 
 fn check_plugin_not_declared(
@@ -10098,6 +10363,7 @@ mod tests {
                 if let Some(manifest) = parse_app_manifest(&file.source) {
                     app = Some(DoctorAppManifest {
                         path: file.path.clone(),
+                        source: file.source.clone(),
                         manifest,
                     });
                 }
@@ -10497,7 +10763,7 @@ runtime = "v0.1.0"
         fs::create_dir_all(&root).expect("create temp doctor project");
         fs::write(root.join("app.lzi"), "app NoManifest\n").expect("write app.lzi");
 
-        let result = doctor_command(&root, SecurityProfile::Strict);
+        let result = doctor_command(&root, SecurityProfile::Strict, false);
         let _ = fs::remove_dir_all(&root);
 
         result.expect("doctor should pass without lazurite.toml when no @plugin/* refs");
@@ -10506,14 +10772,14 @@ runtime = "v0.1.0"
     #[test]
     fn doctor_passes_full_capsule_without_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/full-capsule");
-        doctor_command(&root, SecurityProfile::Strict)
+        doctor_command(&root, SecurityProfile::Strict, false)
             .expect("full-capsule should pass without lazurite.toml");
     }
 
     #[test]
     fn doctor_passes_auth_roundtrip_without_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/auth-roundtrip");
-        doctor_command(&root, SecurityProfile::Strict)
+        doctor_command(&root, SecurityProfile::Strict, false)
             .expect("auth-roundtrip should pass without lazurite.toml");
     }
 
@@ -10535,7 +10801,7 @@ feature billing
         )
         .expect("write app.lzi");
 
-        let result = doctor_command(&root, SecurityProfile::Strict);
+        let result = doctor_command(&root, SecurityProfile::Strict, false);
         let _ = fs::remove_dir_all(&root);
 
         let error = result.expect_err("doctor should fail when @plugin refs lack lazurite.toml");
@@ -11877,6 +12143,88 @@ contract acme.ai.v1
 
     fn codes(diagnostics: &[DoctorDiagnostic]) -> BTreeSet<&str> {
         diagnostics.iter().map(|d| d.code.as_str()).collect()
+    }
+
+    fn temp_project(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "lazuli-doctor-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn lazuli_version_001_warns_when_missing_in_0_x() {
+        let package = package_from_sources(vec![("app.lzi", "app Acme\n")]);
+        let diagnostics = lazuli_version_001_diagnostics(package.app.as_ref(), "0.12.0");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "LAZULI-VERSION-001");
+        assert_eq!(diagnostics[0].severity, DoctorSeverity::Warning);
+        assert!(diagnostics[0].message.contains("expected_value = \"0.12\""));
+    }
+
+    #[test]
+    fn lazuli_version_001_errors_when_missing_in_1_0() {
+        let package = package_from_sources(vec![("app.lzi", "app Acme\n")]);
+        let diagnostics = lazuli_version_001_diagnostics(package.app.as_ref(), "1.0.0");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, DoctorSeverity::Error);
+    }
+
+    #[test]
+    fn lazuli_version_001_errors_when_mismatched_with_recipe_path() {
+        let package =
+            package_from_sources(vec![("app.lzi", "app Acme\n  lazuli_version \"0.11\"\n")]);
+        let diagnostics = lazuli_version_001_diagnostics(package.app.as_ref(), "0.12.0");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, DoctorSeverity::Error);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("migrations/recipes/0.11-to-0.12")
+        );
+        assert_eq!(diagnostics[0].line, 2);
+    }
+
+    #[test]
+    fn lazuli_version_001_no_diagnostic_when_pin_matches() {
+        let package =
+            package_from_sources(vec![("app.lzi", "app Acme\n  lazuli_version \"0.12\"\n")]);
+        let diagnostics = lazuli_version_001_diagnostics(package.app.as_ref(), "0.12.0");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn lazuli_version_002_errors_when_no_recipe_dir() {
+        let mut package =
+            package_from_sources(vec![("app.lzi", "app Acme\n  lazuli_version \"0.5\"\n")]);
+        package.project_root = temp_project("version-no-recipe");
+        let diagnostics =
+            lazuli_version_002_diagnostics(package.app.as_ref(), "0.12.0", &package.project_root);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "LAZULI-VERSION-002");
+        assert_eq!(diagnostics[0].severity, DoctorSeverity::Error);
+    }
+
+    #[test]
+    fn lazuli_version_002_silent_when_recipe_exists() {
+        let mut package =
+            package_from_sources(vec![("app.lzi", "app Acme\n  lazuli_version \"0.11\"\n")]);
+        package.project_root = temp_project("version-recipe");
+        fs::create_dir_all(
+            package
+                .project_root
+                .join("migrations/recipes/0.11-to-0.12/sample"),
+        )
+        .unwrap();
+        let diagnostics =
+            lazuli_version_002_diagnostics(package.app.as_ref(), "0.12.0", &package.project_root);
+        assert!(diagnostics.is_empty());
     }
 
     const APP_URLS_MISSING_FIXTURE: &str = "app MyApp\n";
@@ -13977,6 +14325,7 @@ feature customer_auth
         if let Some(manifest) = parse_app_manifest(&source) {
             package.app = Some(DoctorAppManifest {
                 path: manifest_path,
+                source,
                 manifest,
             });
         }
