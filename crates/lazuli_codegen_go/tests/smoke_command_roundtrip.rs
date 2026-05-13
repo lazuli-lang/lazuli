@@ -86,26 +86,26 @@ mod smoke_e2e {
     }
 
     #[test]
-    fn hostpoint_mini_command_round_trips_over_http() {
+    fn marketplace_mini_command_round_trips_over_http() {
         let repo_root = repo_root();
         let tempdir = TempDir::new(&repo_root);
 
-        generate_hostpoint_mini(&repo_root, tempdir.path());
+        generate_marketplace_mini(&repo_root, tempdir.path());
         append_runtime_replace(&repo_root, tempdir.path());
-        let binary = build_hostpoint_mini_binary(tempdir.path());
+        let binary = build_marketplace_mini_binary(tempdir.path());
 
         let commands = generated_commands(tempdir.path());
         if commands.is_empty() {
             // TODO(smoke_e2e): keep this gate non-failing if the fixture stops
             // exposing commands; switch to a command-bearing fixture instead.
             eprintln!(
-                "TODO(smoke_e2e): hostpoint-mini generated zero HTTP-exposed commands; skipping command round-trip assertion"
+                "TODO(smoke_e2e): marketplace-mini generated zero HTTP-exposed commands; skipping command round-trip assertion"
             );
             return;
         }
         assert!(
             commands.iter().any(|command| command == REGISTER_COMMAND),
-            "hostpoint-mini does not expose {REGISTER_COMMAND}; available commands: {commands:?}"
+            "marketplace-mini does not expose {REGISTER_COMMAND}; available commands: {commands:?}"
         );
 
         let db_url = smoke_db_url();
@@ -141,7 +141,7 @@ mod smoke_e2e {
         assert_json_user_shape(&response.body);
     }
 
-    fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
+    fn generate_marketplace_mini(repo_root: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
             .current_dir(repo_root)
@@ -155,17 +155,17 @@ mod smoke_e2e {
                 "--",
                 "generate",
                 "go",
-                "examples/hostpoint-mini",
+                "examples/marketplace-mini",
                 "--out",
             ])
             .arg(out_dir)
             .output()
             .expect("failed to run `cargo run -p lazuli_cli --bin lazuli -- generate go`");
-        assert_success("lazuli generate go examples/hostpoint-mini", &generate);
+        assert_success("lazuli generate go examples/marketplace-mini", &generate);
     }
 
-    fn build_hostpoint_mini_binary(out_dir: &Path) -> PathBuf {
-        let binary = out_dir.join(format!("hostpoint-mini-smoke{}", env::consts::EXE_SUFFIX));
+    fn build_marketplace_mini_binary(out_dir: &Path) -> PathBuf {
+        let binary = out_dir.join(format!("marketplace-mini-smoke{}", env::consts::EXE_SUFFIX));
         let build = Command::new("go")
             .current_dir(out_dir)
             .env("GOFLAGS", "-mod=mod")
@@ -174,7 +174,7 @@ mod smoke_e2e {
             .arg(".")
             .output()
             .expect("failed to run `go build`");
-        assert_success("go build -o hostpoint-mini-smoke .", &build);
+        assert_success("go build -o marketplace-mini-smoke .", &build);
         binary
     }
 

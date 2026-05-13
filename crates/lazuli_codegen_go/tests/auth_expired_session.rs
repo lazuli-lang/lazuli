@@ -22,11 +22,11 @@ mod smoke_e2e {
         let out_dir = tempdir.path().join("generated");
 
         copy_dir(
-            &repo_root.join("examples").join("hostpoint-mini"),
+            &repo_root.join("examples").join("marketplace-mini"),
             &source_dir,
         );
-        rewrite_session_ttl(&source_dir.join("hostpoint-mini.lzi"), "\"2 seconds\"");
-        generate_hostpoint_mini(&repo_root, &source_dir, &out_dir);
+        rewrite_session_ttl(&source_dir.join("marketplace-mini.lzi"), "\"2 seconds\"");
+        generate_marketplace_mini(&repo_root, &source_dir, &out_dir);
         append_runtime_replace(&repo_root, &out_dir);
         write_smoke_support(&out_dir);
 
@@ -87,7 +87,7 @@ mod smoke_e2e {
         );
     }
 
-    fn generate_hostpoint_mini(repo_root: &Path, source_dir: &Path, out_dir: &Path) {
+    fn generate_marketplace_mini(repo_root: &Path, source_dir: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
             .current_dir(repo_root)
@@ -106,8 +106,8 @@ mod smoke_e2e {
             .arg("--out")
             .arg(out_dir)
             .output()
-            .expect("failed to run `lazuli generate go <patched hostpoint-mini>`");
-        assert_success("lazuli generate go <patched hostpoint-mini>", &generate);
+            .expect("failed to run `lazuli generate go <patched marketplace-mini>`");
+        assert_success("lazuli generate go <patched marketplace-mini>", &generate);
     }
 
     fn rewrite_session_ttl(path: &Path, ttl: &str) {
@@ -116,7 +116,7 @@ mod smoke_e2e {
         let patched = source.replace("ttl \"30 days\"", &format!("ttl {ttl}"));
         assert_ne!(
             source, patched,
-            "hostpoint-mini fixture did not contain the auth sessions ttl"
+            "marketplace-mini fixture did not contain the auth sessions ttl"
         );
         fs::write(path, patched).unwrap_or_else(|err| panic!("writing {}: {err}", path.display()));
     }
@@ -468,7 +468,7 @@ import (
 	"lazuli.dev/runtime/lazuli"
 	"lazuli.dev/runtime/lazuli/auth"
 
-	"lazuli/hostpoint-mini/account"
+	"github.com/lazuli/example-marketplace-mini/generated/account"
 )
 
 type signupInput struct {
@@ -524,7 +524,7 @@ func signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := lazuli.DB().Exec(r.Context(),
-		`INSERT INTO "user" (email, name, role, password_hash) VALUES ($1, $2, 'guest', $3)`,
+		`INSERT INTO "user" (email, name, role, password_hash) VALUES ($1, $2, 'buyer', $3)`,
 		input.Email, input.Name, input.Password)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "signup_failed"})

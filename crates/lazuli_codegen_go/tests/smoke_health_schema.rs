@@ -15,13 +15,13 @@ mod smoke_e2e {
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
     #[test]
-    fn hostpoint_mini_healthz_matches_canonical_schema() {
+    fn marketplace_mini_healthz_matches_canonical_schema() {
         let repo_root = repo_root();
         let tempdir = TempDir::new(&repo_root);
 
-        generate_hostpoint_mini(&repo_root, tempdir.path());
+        generate_marketplace_mini(&repo_root, tempdir.path());
         append_runtime_replace(tempdir.path());
-        let binary = build_hostpoint_mini(tempdir.path());
+        let binary = build_marketplace_mini(tempdir.path());
 
         let port = free_tcp_port();
         let addr = format!("127.0.0.1:{port}");
@@ -38,7 +38,7 @@ mod smoke_e2e {
         assert_health_schema(&json, &response);
     }
 
-    fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
+    fn generate_marketplace_mini(repo_root: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
             .current_dir(repo_root)
@@ -52,13 +52,13 @@ mod smoke_e2e {
                 "--",
                 "generate",
                 "go",
-                "examples/hostpoint-mini",
+                "examples/marketplace-mini",
                 "--out",
             ])
             .arg(out_dir)
             .output()
-            .expect("failed to run `lazuli generate go examples/hostpoint-mini`");
-        assert_success("lazuli generate go examples/hostpoint-mini", &generate);
+            .expect("failed to run `lazuli generate go examples/marketplace-mini`");
+        assert_success("lazuli generate go examples/marketplace-mini", &generate);
     }
 
     fn append_runtime_replace(out_dir: &Path) {
@@ -79,8 +79,8 @@ mod smoke_e2e {
         });
     }
 
-    fn build_hostpoint_mini(out_dir: &Path) -> PathBuf {
-        let binary = out_dir.join(binary_name("hostpoint-mini"));
+    fn build_marketplace_mini(out_dir: &Path) -> PathBuf {
+        let binary = out_dir.join(binary_name("marketplace-mini"));
         let build = Command::new("go")
             .current_dir(out_dir)
             .env("GOFLAGS", "-mod=mod")
@@ -88,8 +88,8 @@ mod smoke_e2e {
             .arg(&binary)
             .arg(".")
             .output()
-            .expect("failed to run `go build` for Hostpoint Mini");
-        assert_success("go build -o hostpoint-mini .", &build);
+            .expect("failed to run `go build` for Marketplace Mini");
+        assert_success("go build -o marketplace-mini .", &build);
         binary
     }
 
@@ -100,14 +100,14 @@ mod smoke_e2e {
         loop {
             if let Some(status) = server.try_wait() {
                 panic!(
-                    "hostpoint-mini exited before /healthz responded; status={status}\n{}",
+                    "marketplace-mini exited before /healthz responded; status={status}\n{}",
                     server.logs()
                 );
             }
 
             if Instant::now() >= deadline {
                 panic!(
-                    "timed out waiting for hostpoint-mini /healthz at http://{addr}/healthz; last_error={}\n{}",
+                    "timed out waiting for marketplace-mini /healthz at http://{addr}/healthz; last_error={}\n{}",
                     last_error,
                     server.logs()
                 );
@@ -273,7 +273,7 @@ mod smoke_e2e {
 
     fn free_tcp_port() -> u16 {
         let listener = TcpListener::bind(("127.0.0.1", 0))
-            .expect("failed to reserve a local TCP port for hostpoint-mini");
+            .expect("failed to reserve a local TCP port for marketplace-mini");
         listener
             .local_addr()
             .expect("reserved listener should have a local address")
@@ -337,8 +337,8 @@ mod smoke_e2e {
 
     impl ProcessGuard {
         fn spawn(binary: &Path, out_dir: &Path, addr: &str) -> Self {
-            let stdout = out_dir.join("hostpoint-mini.stdout.log");
-            let stderr = out_dir.join("hostpoint-mini.stderr.log");
+            let stdout = out_dir.join("marketplace-mini.stdout.log");
+            let stderr = out_dir.join("marketplace-mini.stderr.log");
             let stdout_file = fs::File::create(&stdout)
                 .unwrap_or_else(|err| panic!("creating {}: {err}", stdout.display()));
             let stderr_file = fs::File::create(&stderr)
@@ -366,7 +366,7 @@ mod smoke_e2e {
         fn try_wait(&mut self) -> Option<std::process::ExitStatus> {
             self.child
                 .try_wait()
-                .expect("failed to poll hostpoint-mini process")
+                .expect("failed to poll marketplace-mini process")
         }
 
         fn logs(&self) -> String {

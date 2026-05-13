@@ -55,14 +55,14 @@ struct RunningApp {
 impl RunningApp {
     fn spawn(binary: &Path, workdir: &Path, pprof: bool) -> Self {
         let stdout = workdir.join(if pprof {
-            "hostpoint-mini-pprof.stdout.log"
+            "marketplace-mini-pprof.stdout.log"
         } else {
-            "hostpoint-mini-no-pprof.stdout.log"
+            "marketplace-mini-no-pprof.stdout.log"
         });
         let stderr = workdir.join(if pprof {
-            "hostpoint-mini-pprof.stderr.log"
+            "marketplace-mini-pprof.stderr.log"
         } else {
-            "hostpoint-mini-no-pprof.stderr.log"
+            "marketplace-mini-no-pprof.stderr.log"
         });
 
         let mut command = Command::new(binary);
@@ -99,10 +99,10 @@ impl RunningApp {
             if let Some(status) = self
                 .child
                 .try_wait()
-                .expect("checking hostpoint-mini process")
+                .expect("checking marketplace-mini process")
             {
                 panic!(
-                    "hostpoint-mini exited before /healthz became ready with status {status}\nstdout:\n{}\nstderr:\n{}",
+                    "marketplace-mini exited before /healthz became ready with status {status}\nstdout:\n{}\nstderr:\n{}",
                     read_lossy(&self.stdout),
                     read_lossy(&self.stderr)
                 );
@@ -116,7 +116,7 @@ impl RunningApp {
 
             if Instant::now() >= deadline {
                 panic!(
-                    "timed out waiting for hostpoint-mini on port {PORT}; last probe: {probe}\nstdout:\n{}\nstderr:\n{}",
+                    "timed out waiting for marketplace-mini on port {PORT}; last probe: {probe}\nstdout:\n{}\nstderr:\n{}",
                     read_lossy(&self.stdout),
                     read_lossy(&self.stderr)
                 );
@@ -144,9 +144,9 @@ fn lazuli_pprof_mount_is_opt_in() {
     let repo_root = repo_root();
     let tempdir = TempDir::new(&repo_root);
 
-    generate_hostpoint_mini(&repo_root, tempdir.path());
+    generate_marketplace_mini(&repo_root, tempdir.path());
     append_runtime_replace(&repo_root, tempdir.path());
-    let binary = build_hostpoint_mini(tempdir.path());
+    let binary = build_marketplace_mini(tempdir.path());
 
     {
         let mut app = RunningApp::spawn(&binary, tempdir.path(), true);
@@ -186,7 +186,7 @@ fn lazuli_pprof_mount_is_opt_in() {
     }
 }
 
-fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
+fn generate_marketplace_mini(repo_root: &Path, out_dir: &Path) {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let generate = Command::new(cargo)
         .current_dir(repo_root)
@@ -200,20 +200,20 @@ fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
             "--",
             "generate",
             "go",
-            "examples/hostpoint-mini",
+            "examples/marketplace-mini",
             "--out",
         ])
         .arg(out_dir)
         .output()
         .expect("failed to run `cargo run -p lazuli_cli --bin lazuli -- generate go`");
-    assert_success("lazuli generate go examples/hostpoint-mini", &generate);
+    assert_success("lazuli generate go examples/marketplace-mini", &generate);
 }
 
-fn build_hostpoint_mini(out_dir: &Path) -> PathBuf {
+fn build_marketplace_mini(out_dir: &Path) -> PathBuf {
     let binary = out_dir.join(if cfg!(windows) {
-        "hostpoint-mini-smoke.exe"
+        "marketplace-mini-smoke.exe"
     } else {
-        "hostpoint-mini-smoke"
+        "marketplace-mini-smoke"
     });
     let build = Command::new("go")
         .current_dir(out_dir)
@@ -223,7 +223,7 @@ fn build_hostpoint_mini(out_dir: &Path) -> PathBuf {
         .arg(".")
         .output()
         .expect("failed to run `go build`");
-    assert_success("go build -o hostpoint-mini-smoke .", &build);
+    assert_success("go build -o marketplace-mini-smoke .", &build);
     binary
 }
 

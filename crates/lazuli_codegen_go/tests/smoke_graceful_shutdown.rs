@@ -79,13 +79,13 @@ mod smoke_e2e {
     }
 
     #[test]
-    fn hostpoint_mini_releases_port_after_shutdown_signal() {
+    fn marketplace_mini_releases_port_after_shutdown_signal() {
         let repo_root = repo_root();
         let tempdir = TempDir::new(&repo_root);
 
-        assert_port_refused(SMOKE_PORT, "before starting hostpoint-mini smoke server");
+        assert_port_refused(SMOKE_PORT, "before starting marketplace-mini smoke server");
 
-        generate_hostpoint_mini(&repo_root, tempdir.path());
+        generate_marketplace_mini(&repo_root, tempdir.path());
         append_runtime_replace(&repo_root, tempdir.path());
 
         let binary = tempdir.path().join(binary_name());
@@ -99,7 +99,7 @@ mod smoke_e2e {
         wait_for_port_refused(SMOKE_PORT);
     }
 
-    fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
+    fn generate_marketplace_mini(repo_root: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
             .current_dir(repo_root)
@@ -113,13 +113,13 @@ mod smoke_e2e {
                 "--",
                 "generate",
                 "go",
-                "examples/hostpoint-mini",
+                "examples/marketplace-mini",
                 "--out",
             ])
             .arg(out_dir)
             .output()
             .expect("failed to run `cargo run -p lazuli_cli --bin lazuli -- generate go`");
-        assert_success("lazuli generate go examples/hostpoint-mini", &generate);
+        assert_success("lazuli generate go examples/marketplace-mini", &generate);
     }
 
     fn build_server(out_dir: &Path, binary: &Path) {
@@ -131,7 +131,7 @@ mod smoke_e2e {
             .arg(".")
             .output()
             .expect("failed to run `go build`");
-        assert_success("go build -o <hostpoint-mini> .", &build);
+        assert_success("go build -o <marketplace-mini> .", &build);
     }
 
     fn spawn_server(out_dir: &Path, binary: &Path, log_path: &Path) -> Child {
@@ -158,10 +158,10 @@ mod smoke_e2e {
         loop {
             if let Some(status) = child
                 .try_wait()
-                .expect("checking hostpoint-mini server status")
+                .expect("checking marketplace-mini server status")
             {
                 panic!(
-                    "hostpoint-mini server exited before /healthz reached 200: {status}\nserver log:\n{}",
+                    "marketplace-mini server exited before /healthz reached 200: {status}\nserver log:\n{}",
                     read_log(log_path)
                 );
             }
@@ -205,7 +205,7 @@ mod smoke_e2e {
                 .expect("failed to send SIGINT with kill");
             assert!(
                 status.success(),
-                "failed to send SIGINT to hostpoint-mini server process {}: {status}",
+                "failed to send SIGINT to marketplace-mini server process {}: {status}",
                 child.id()
             );
         }
@@ -214,7 +214,7 @@ mod smoke_e2e {
         {
             child
                 .kill()
-                .expect("failed to terminate hostpoint-mini server process");
+                .expect("failed to terminate marketplace-mini server process");
         }
     }
 
@@ -264,9 +264,9 @@ mod smoke_e2e {
 
     fn binary_name() -> &'static str {
         if cfg!(windows) {
-            "hostpoint-mini-smoke.exe"
+            "marketplace-mini-smoke.exe"
         } else {
-            "hostpoint-mini-smoke"
+            "marketplace-mini-smoke"
         }
     }
 

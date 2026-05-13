@@ -139,11 +139,11 @@ mod smoke_e2e {
     }
 
     #[test]
-    fn hostpoint_mini_binary_starts_and_serves_healthz() {
+    fn marketplace_mini_binary_starts_and_serves_healthz() {
         let repo_root = repo_root();
         let tempdir = TempDir::new(&repo_root);
 
-        generate_hostpoint_mini(&repo_root, tempdir.path());
+        generate_marketplace_mini(&repo_root, tempdir.path());
         append_runtime_replace(&repo_root, tempdir.path());
         go_mod_tidy(tempdir.path());
         go_build_all(tempdir.path());
@@ -164,7 +164,7 @@ mod smoke_e2e {
         let _ = server.shutdown_and_collect();
     }
 
-    fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
+    fn generate_marketplace_mini(repo_root: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
             .current_dir(repo_root)
@@ -178,13 +178,13 @@ mod smoke_e2e {
                 "--",
                 "generate",
                 "go",
-                "examples/hostpoint-mini",
+                "examples/marketplace-mini",
                 "--out",
             ])
             .arg(out_dir)
             .output()
             .expect("failed to run `cargo run -p lazuli_cli --bin lazuli -- generate go`");
-        assert_success("lazuli generate go examples/hostpoint-mini", &generate);
+        assert_success("lazuli generate go examples/marketplace-mini", &generate);
     }
 
     fn append_runtime_replace(repo_root: &Path, out_dir: &Path) {

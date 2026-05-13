@@ -23,9 +23,9 @@ mod smoke_e2e {
         let repo_root = repo_root();
         let tempdir = TempDir::new(&repo_root);
 
-        generate_hostpoint_mini(&repo_root, tempdir.path());
+        generate_marketplace_mini(&repo_root, tempdir.path());
         append_runtime_replace(tempdir.path());
-        let binary = build_hostpoint_mini(tempdir.path());
+        let binary = build_marketplace_mini(tempdir.path());
 
         let db_url = smoke_db_url();
         if let Err(err) = apply_generated_migrations(tempdir.path(), &db_url) {
@@ -162,7 +162,7 @@ mod smoke_e2e {
         }
     }
 
-    fn generate_hostpoint_mini(repo_root: &Path, out_dir: &Path) {
+    fn generate_marketplace_mini(repo_root: &Path, out_dir: &Path) {
         let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let generate = Command::new(cargo)
             .current_dir(repo_root)
@@ -176,13 +176,13 @@ mod smoke_e2e {
                 "--",
                 "generate",
                 "go",
-                "examples/hostpoint-mini",
+                "examples/marketplace-mini",
                 "--out",
             ])
             .arg(out_dir)
             .output()
-            .expect("failed to run `lazuli generate go examples/hostpoint-mini`");
-        assert_success("lazuli generate go examples/hostpoint-mini", &generate);
+            .expect("failed to run `lazuli generate go examples/marketplace-mini`");
+        assert_success("lazuli generate go examples/marketplace-mini", &generate);
     }
 
     fn append_runtime_replace(out_dir: &Path) {
@@ -203,8 +203,8 @@ mod smoke_e2e {
         });
     }
 
-    fn build_hostpoint_mini(out_dir: &Path) -> PathBuf {
-        let binary = out_dir.join(binary_name("hostpoint-mini-auth-wrong-password"));
+    fn build_marketplace_mini(out_dir: &Path) -> PathBuf {
+        let binary = out_dir.join(binary_name("marketplace-mini-auth-wrong-password"));
         let build = Command::new("go")
             .current_dir(out_dir)
             .env("GOFLAGS", "-mod=mod")
@@ -212,8 +212,8 @@ mod smoke_e2e {
             .arg(&binary)
             .arg(".")
             .output()
-            .expect("failed to run `go build` for Hostpoint Mini");
-        assert_success("go build -o hostpoint-mini-auth-wrong-password .", &build);
+            .expect("failed to run `go build` for Marketplace Mini");
+        assert_success("go build -o marketplace-mini-auth-wrong-password .", &build);
         binary
     }
 
