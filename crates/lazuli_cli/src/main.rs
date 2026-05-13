@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -84,9 +85,18 @@ enum Commands {
     New {
         /// Project directory to create.
         project_name: PathBuf,
-        /// Skip README.md and .gitignore.
+        /// Template to scaffold. Supports `default` and `bare`.
+        #[arg(long, default_value = "default")]
+        template: String,
+        /// Use the minimal bare template.
         #[arg(long)]
         bare: bool,
+        /// Skip git initialization and initial commit.
+        #[arg(long)]
+        no_git: bool,
+        /// Go module path to write into template files.
+        #[arg(long)]
+        module: Option<String>,
     },
     Lsp,
     /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
@@ -490,7 +500,13 @@ fn main() -> Result<()> {
             format,
         } => inspect_command(&input, &expand, format, &include),
         Commands::Init { path } => init_command(&path),
-        Commands::New { project_name, bare } => new_command(&project_name, bare),
+        Commands::New {
+            project_name,
+            template,
+            bare,
+            no_git,
+            module,
+        } => new_command(&project_name, &template, bare, no_git, module),
         Commands::Lsp => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
@@ -604,7 +620,7 @@ pub(crate) fn generate_go(
 
     let module_name = match module {
         Some(name) => name.to_owned(),
-        None => default_module_name(&module_ir),
+        None => default_go_module_name(&module_ir),
     };
     let go_version = lazuli_go_version
         .map(|s| s.to_owned())
@@ -704,7 +720,7 @@ fn codegen_lazurite_manifest(
 /// Derive the Go module name from the IR's `app.name` (kebab-cased,
 /// per proposal §1.1). Falls back to `lazuli/app` when no manifest
 /// surfaces a name.
-fn default_module_name(module: &lazuli_ir::Module) -> String {
+fn default_go_module_name(module: &lazuli_ir::Module) -> String {
     let name = module
         .app
         .as_ref()
@@ -1379,7 +1395,13 @@ fn init_command(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn new_command(project: &Path, bare: bool) -> Result<()> {
+fn new_command(
+    project: &Path,
+    template: &str,
+    bare: bool,
+    no_git: bool,
+    module: Option<String>,
+) -> Result<()> {
     if project
         .try_exists()
         .with_context(|| format!("failed to inspect {}", project.display()))?
@@ -1388,21 +1410,137 @@ fn new_command(project: &Path, bare: bool) -> Result<()> {
     }
 
     let app_name = pascal_case_project_name(project)?;
-    let features_dir = project.join("features");
-    fs::create_dir_all(&features_dir)
-        .with_context(|| format!("failed to create directory {}", features_dir.display()))?;
+    let bare = bare || template == "bare";
+    if !bare && template != "default" {
+        bail!("unknown template `{template}`; supported templates: default, bare");
+    }
 
-    write_scaffold_file(&project.join("app.lzi"), &app_template(&app_name))?;
-    write_scaffold_file(&project.join("registry.lzi"), REGISTRY_TEMPLATE)?;
-    write_scaffold_file(&features_dir.join(".gitkeep"), "")?;
+    if bare {
+        scaffold_bare(project, &app_name)?;
+    } else {
+        let module = module.unwrap_or_else(|| default_module_name(project));
+        scaffold_from_template(&templates::DEFAULT_TEMPLATE, project, &app_name, &module)?;
 
-    if !bare {
-        write_scaffold_file(&project.join("README.md"), &readme_template(&app_name))?;
-        write_scaffold_file(&project.join(".gitignore"), GITIGNORE_TEMPLATE)?;
+        if let Err(err) = run_go_mod_tidy(project) {
+            eprintln!("warning: failed to run `go mod tidy`: {err:#}");
+        }
+        if let Err(err) = run_doctor_sanity_check(project) {
+            eprintln!("warning: failed to run `lazuli doctor`: {err:#}");
+        }
+    }
+
+    if !no_git {
+        run_git_init(project)?;
     }
 
     println!("created {}", project.display());
     Ok(())
+}
+
+fn scaffold_bare(project: &Path, app_name: &str) -> Result<()> {
+    let features_dir = project.join("features");
+    fs::create_dir_all(&features_dir)
+        .with_context(|| format!("failed to create directory {}", features_dir.display()))?;
+
+    write_scaffold_file(&project.join("app.lzi"), &app_template(app_name))?;
+    write_scaffold_file(&project.join("registry.lzi"), REGISTRY_TEMPLATE)?;
+    write_scaffold_file(&project.join("README.md"), &readme_template(app_name))?;
+    write_scaffold_file(&project.join(".gitignore"), GITIGNORE_TEMPLATE)?;
+    write_scaffold_file(&features_dir.join(".gitkeep"), "")?;
+    Ok(())
+}
+
+fn scaffold_from_template(
+    template: &include_dir::Dir<'_>,
+    target: &Path,
+    app_name: &str,
+    module: &str,
+) -> Result<()> {
+    for entry in template.entries() {
+        match entry {
+            include_dir::DirEntry::File(file) => {
+                let mut out_path = target.join(file.path());
+                let contents = if out_path.extension().and_then(|ext| ext.to_str()) == Some("tmpl")
+                {
+                    out_path.set_extension("");
+                    file.contents_utf8()
+                        .with_context(|| {
+                            format!(
+                                "template file is not valid UTF-8: {}",
+                                file.path().display()
+                            )
+                        })?
+                        .replace("{{app_name}}", app_name)
+                        .replace("{{module}}", module)
+                        .into_bytes()
+                } else {
+                    file.contents().to_vec()
+                };
+
+                if let Some(parent) = out_path.parent() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!("failed to create directory {}", parent.display())
+                    })?;
+                }
+                fs::write(&out_path, contents)
+                    .with_context(|| format!("failed to write {}", out_path.display()))?;
+            }
+            include_dir::DirEntry::Dir(dir) => {
+                let out_path = target.join(dir.path());
+                fs::create_dir_all(&out_path).with_context(|| {
+                    format!("failed to create directory {}", out_path.display())
+                })?;
+                scaffold_from_template(dir, target, app_name, module)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn default_module_name(project: &Path) -> String {
+    let name = project
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("app");
+    format!("lazuli/{}", to_kebab_case(name))
+}
+
+fn run_git_init(project: &Path) -> Result<()> {
+    run_command(project, "git", &["init"])?;
+    run_command(project, "git", &["add", "-A"])?;
+    run_command(project, "git", &["commit", "-m", "initial: lazuli new"])?;
+    Ok(())
+}
+
+fn run_go_mod_tidy(project: &Path) -> Result<()> {
+    run_command(project, "go", &["mod", "tidy"])
+}
+
+fn run_doctor_sanity_check(project: &Path) -> Result<()> {
+    doctor::doctor_command(project, SecurityProfile::Strict)
+}
+
+fn run_command(project: &Path, program: &str, args: &[&str]) -> Result<()> {
+    let status = Command::new(program)
+        .args(args)
+        .current_dir(project)
+        .status()
+        .with_context(|| format!("failed to start `{}`", command_display(program, args)))?;
+    if !status.success() {
+        bail!(
+            "`{}` exited with status {}",
+            command_display(program, args),
+            status
+        );
+    }
+    Ok(())
+}
+
+fn command_display(program: &str, args: &[&str]) -> String {
+    std::iter::once(program)
+        .chain(args.iter().copied())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn app_template(app_name: &str) -> String {
@@ -6335,8 +6473,9 @@ mod tests {
 
     use super::{
         Cli, Commands, ExpandSet, MigrateCommand, REGISTRY_TEMPLATE, app_template,
-        expand_canonical_source, inspect_canonical_source, inspect_json_value, new_command,
-        parse_expand_set, pascal_case,
+        default_module_name, expand_canonical_source, inspect_canonical_source,
+        inspect_json_value, new_command, parse_expand_set, pascal_case,
+        pascal_case_project_name, scaffold_bare, scaffold_from_template, templates,
     };
 
     #[test]
@@ -6368,34 +6507,159 @@ mod tests {
     }
 
     #[test]
-    fn new_command_writes_scaffold_and_bare_variant() {
+    fn pascal_case_project_name_handles_kebab_and_snake() {
+        assert_eq!(
+            pascal_case_project_name(Path::new("my-app")).unwrap(),
+            "MyApp"
+        );
+        assert_eq!(
+            pascal_case_project_name(Path::new("acme_crm")).unwrap(),
+            "AcmeCrm"
+        );
+    }
+
+    #[test]
+    fn default_module_name_derives_from_project_name() {
+        assert_eq!(default_module_name(Path::new("my-app")), "lazuli/my-app");
+        assert_eq!(
+            default_module_name(Path::new("acme_crm")),
+            "lazuli/acme-crm"
+        );
+        assert_eq!(default_module_name(Path::new("AcmeCRM")), "lazuli/acme-crm");
+    }
+
+    #[test]
+    fn scaffold_bare_writes_minimal_files() {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let root =
-            std::env::temp_dir().join(format!("lazuli-new-test-{}-{suffix}", std::process::id()));
+            std::env::temp_dir().join(format!("lazuli-bare-test-{}-{suffix}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
 
-        let full = root.join("my-app");
-        new_command(&full, false).unwrap();
+        let bare = root.join("bare-app");
+        scaffold_bare(&bare, "BareApp").unwrap();
         assert_eq!(
-            fs::read_to_string(full.join("app.lzi")).unwrap(),
-            app_template("MyApp")
+            fs::read_to_string(bare.join("app.lzi")).unwrap(),
+            app_template("BareApp")
         );
         assert_eq!(
-            fs::read_to_string(full.join("registry.lzi")).unwrap(),
+            fs::read_to_string(bare.join("registry.lzi")).unwrap(),
             REGISTRY_TEMPLATE
         );
-        assert!(full.join("features").join(".gitkeep").is_file());
-        assert!(full.join("README.md").is_file());
-        assert!(full.join(".gitignore").is_file());
+        assert!(bare.join("README.md").is_file());
+        assert!(bare.join(".gitignore").is_file());
+        assert!(bare.join("features").join(".gitkeep").is_file());
+        assert!(!bare.join("lazurite.toml").exists());
+        assert!(!bare.join("features").join("account").exists());
 
-        let bare = root.join("bare-app");
-        new_command(&bare, true).unwrap();
-        assert!(bare.join("app.lzi").is_file());
-        assert!(!bare.join("README.md").exists());
-        assert!(!bare.join(".gitignore").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scaffold_from_template_substitutes_placeholders() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-template-substitute-test-{}-{suffix}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        scaffold_from_template(
+            &templates::DEFAULT_TEMPLATE,
+            &root,
+            "MyApp",
+            "github.com/me/myapp",
+        )
+        .unwrap();
+        assert!(
+            fs::read_to_string(root.join("app.lzi"))
+                .unwrap()
+                .contains("app MyApp")
+        );
+        assert!(
+            fs::read_to_string(root.join("go.mod"))
+                .unwrap()
+                .contains("module github.com/me/myapp")
+        );
+        assert!(
+            fs::read_to_string(root.join("README.md"))
+                .unwrap()
+                .contains("# MyApp")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scaffold_from_template_strips_tmpl_extension() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-template-extension-test-{}-{suffix}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        scaffold_from_template(
+            &templates::DEFAULT_TEMPLATE,
+            &root,
+            "MyApp",
+            "lazuli/my-app",
+        )
+        .unwrap();
+        assert!(root.join("app.lzi").is_file());
+        assert!(!root.join("app.lzi.tmpl").exists());
+        assert!(root.join("features/account/account.lzi").is_file());
+        assert!(!root.join("features/account/account.lzi.tmpl").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[ignore = "smoke test for the complete embedded Lazurite scaffold tree"]
+    fn scaffold_from_template_smoke_tree_matches_expected() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-template-smoke-test-{}-{suffix}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        scaffold_from_template(
+            &templates::DEFAULT_TEMPLATE,
+            &root,
+            "MyApp",
+            "lazuli/my-app",
+        )
+        .unwrap();
+        for relative in [
+            ".gitignore",
+            "README.md",
+            "app.lzi",
+            "go.mod",
+            "go.work",
+            "lazurite.toml",
+            "registry.lzi",
+            "features/account/account.lzi",
+            "features/account/handlers/hash_password.go",
+            "features/account/handlers/verify_password.go",
+            "features/account/templates/welcome.en-US",
+            "features/account/templates/welcome.pt-BR",
+            "i18n/common.en-US.json",
+            "scripts/seed.sh",
+        ] {
+            assert!(root.join(relative).is_file(), "missing {relative}");
+        }
 
         let _ = fs::remove_dir_all(root);
     }
