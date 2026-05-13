@@ -1,0 +1,8 @@
+feature account
+  domain
+    resource User
+      email: @semantic.Email required unique
+      name: Text required
+
+  auth
+    identity User.email
