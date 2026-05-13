@@ -7,6 +7,7 @@ authors.workspace = true
 
 [features]
 smoke = []
+smoke_e2e = []
 
 [dependencies]
 lazuli_ir = { path = "../lazuli_ir" }
