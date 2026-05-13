@@ -12,6 +12,7 @@ mod app_manifest;
 mod dev;
 mod doctor;
 mod lazurite_manifest;
+mod migrate;
 mod templates;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
@@ -166,6 +167,11 @@ enum Commands {
         #[arg(long, default_value_t = 300)]
         debounce: u64,
     },
+    /// Apply, roll back, or inspect SQL migrations from lazurite.toml.
+    Migrate {
+        #[command(subcommand)]
+        sub: MigrateCommand,
+    },
     /// OpenAPI bucket cycle — diff two `lazuli inspect --format=json`
     /// payloads and emit a markdown changelog covering added / removed /
     /// deprecated / breaking / non-breaking operations.
@@ -210,6 +216,30 @@ enum TranslateCommand {
         #[arg(long)]
         check: bool,
     },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum MigrateCommand {
+    /// Apply pending migrations.
+    Up {
+        /// Apply migrations up to and including this version.
+        #[arg(long)]
+        target: Option<String>,
+        /// Skip confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Roll back applied migrations.
+    Down {
+        /// Number of migrations to roll back.
+        #[arg(long, default_value_t = 1)]
+        steps: u32,
+        /// Skip confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Show current version and pending migrations.
+    Status,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -482,6 +512,21 @@ fn main() -> Result<()> {
             no_run,
             debounce: std::time::Duration::from_millis(debounce),
         }),
+        Commands::Migrate { sub } => {
+            let project_root = std::env::current_dir().context("reading current directory")?;
+            match sub {
+                MigrateCommand::Up { target, yes } => {
+                    migrate::run_migrate(&project_root, migrate::MigrateAction::Up { target, yes })
+                }
+                MigrateCommand::Down { steps, yes } => {
+                    migrate::run_migrate(&project_root, migrate::MigrateAction::Down { steps, yes })
+                }
+                MigrateCommand::Status => {
+                    migrate::run_migrate(&project_root, migrate::MigrateAction::Status)
+                }
+            }
+            .map_err(|err| anyhow::anyhow!("{err}"))
+        }
         Commands::Changelog { from, to, output } => {
             changelog_command(&from, &to, output.as_deref())
         }
@@ -6270,10 +6315,34 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use clap::Parser;
+
     use super::{
-        ExpandSet, REGISTRY_TEMPLATE, app_template, expand_canonical_source,
-        inspect_canonical_source, inspect_json_value, new_command, parse_expand_set, pascal_case,
+        Cli, Commands, ExpandSet, MigrateCommand, REGISTRY_TEMPLATE, app_template,
+        expand_canonical_source, inspect_canonical_source, inspect_json_value, new_command,
+        parse_expand_set, pascal_case,
     };
+
+    #[test]
+    fn migrate_action_up_parses_target_flag() {
+        let cli = Cli::try_parse_from([
+            "lazuli",
+            "migrate",
+            "up",
+            "--target",
+            "20260513_001_account_user",
+            "--yes",
+        ])
+        .unwrap();
+
+        let Commands::Migrate {
+            sub: MigrateCommand::Up { target, yes: true },
+        } = cli.command
+        else {
+            panic!("expected migrate up command");
+        };
+        assert_eq!(target.as_deref(), Some("20260513_001_account_user"));
+    }
 
     #[test]
     fn pascal_case_converts_project_names() {
