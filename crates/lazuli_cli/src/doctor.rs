@@ -904,12 +904,15 @@ struct AgentFacts {
     line: usize,
 }
 
-/// Phase L — typed `auth` block facts harvested per feature for the four
-/// cross-feature diagnostics:
+/// Phase L — typed `auth` block facts harvested per feature for auth
+/// contract diagnostics:
 ///   - `auth_password_algorithm_hash_mismatch`
+///   - `auth_password_no_session`
 ///   - `auth_sessions_resource_unknown`
 ///   - `auth_identity_field_unknown`
 ///   - `auth_oauth_adapter_unbound`
+///   - `auth_oauth_no_password_alt`
+///   - `auth_session_ttl_too_short`
 ///
 /// The IR carries the lowered shape; the auxiliary `*_line` fields map
 /// each subblock back to the source so diagnostics point at the exact
@@ -6894,11 +6897,14 @@ fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
 // =============================================================================
 // Phase L — auth block cross-feature diagnostics.
 //
-// Four ids per `docs/proposals/bucket-auth-cycle.md` §Doctor/LSP:
+// Auth ids per `docs/proposals/bucket-auth-cycle.md` §Doctor/LSP:
 //   - `auth_password_algorithm_hash_mismatch`
+//   - `auth_password_no_session`
 //   - `auth_sessions_resource_unknown`
 //   - `auth_identity_field_unknown`
 //   - `auth_oauth_adapter_unbound`
+//   - `auth_oauth_no_password_alt`
+//   - `auth_session_ttl_too_short`
 //
 // The lowered `ir::Auth` block arrives via `lower_feature_skeleton`
 // (Phase L Tier 1). This module owns the text-pattern collection of
@@ -7399,7 +7405,45 @@ fn auth_diagnostics(
             },
         }
 
-        // 2. `auth_sessions_resource_unknown` — sessions resource must
+        // 2. `auth_password_no_session` — password login without an
+        //    `auth.sessions` block can validate credentials but cannot
+        //    issue durable sessions.
+        if fact.auth.password.is_some() && fact.auth.sessions.is_none() {
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line: fact.password_line.unwrap_or(fact.line),
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "auth_password_no_session".to_owned(),
+                message:
+                    "auth.password is declared but auth.sessions is missing; login will not issue sessions."
+                        .to_owned(),
+            });
+        }
+
+        // 3. `auth_oauth_no_password_alt` — OAuth-only signin is a
+        //    valid contract, but many apps want password fallback for
+        //    break-glass administration.
+        if !fact.auth.oauth.is_empty() && fact.auth.password.is_none() {
+            let line = fact
+                .auth
+                .oauth
+                .first()
+                .and_then(|provider| fact.oauth_lines.get(provider.provider.as_str()).copied())
+                .unwrap_or(fact.line);
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Info,
+                code: "auth_oauth_no_password_alt".to_owned(),
+                message:
+                    "auth.oauth is declared without auth.password; signin is OAuth-only with no password fallback for break-glass access."
+                        .to_owned(),
+            });
+        }
+
+        // 4. `auth_sessions_resource_unknown` — sessions resource must
         //    resolve in the same feature (or one it `uses`).
         if let Some(sessions) = fact.auth.sessions.as_ref() {
             let sessions_name = sessions.resource.name.as_str();
@@ -7421,9 +7465,24 @@ fn auth_diagnostics(
                     ),
                 });
             }
+
+            if auth_session_ttl_seconds(&sessions.ttl)
+                .map(|seconds| seconds < 60 * 60)
+                .unwrap_or(false)
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.sessions_line.unwrap_or(fact.line),
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "auth_session_ttl_too_short".to_owned(),
+                    message: "session TTL <1h forces frequent re-login; ensure intentional."
+                        .to_owned(),
+                });
+            }
         }
 
-        // 3. `auth_password_algorithm_hash_mismatch` — when both
+        // 5. `auth_password_algorithm_hash_mismatch` — when both
         //    `auth.password.algorithm` and the session resource carry
         //    a `@cap.Hashed(algorithm:…)` field, the two axes must
         //    match.
@@ -7473,7 +7532,7 @@ fn auth_diagnostics(
             }
         }
 
-        // 4. `auth_oauth_adapter_unbound` — each oauth provider's
+        // 6. `auth_oauth_adapter_unbound` — each oauth provider's
         //    adapter must resolve in the feature's `extensions
         //    adapter <name>` list or `registry.integrations`.
         let feature_adapter_names = feature_adapters.get(feature);
@@ -7507,6 +7566,29 @@ fn auth_diagnostics(
         }
     }
     diagnostics
+}
+
+fn auth_session_ttl_seconds(raw: &str) -> Option<u64> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let digit_end = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(trimmed.len());
+    if digit_end == 0 {
+        return None;
+    }
+    let value = trimmed[..digit_end].parse::<u64>().ok()?;
+    let unit = trimmed[digit_end..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "s" | "sec" | "secs" | "second" | "seconds" => 1,
+        "m" | "min" | "mins" | "minute" | "minutes" => 60,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
+        "d" | "day" | "days" => 24 * 60 * 60,
+        _ => return None,
+    };
+    value.checked_mul(multiplier)
 }
 
 // -----------------------------------------------------------------------------
@@ -12401,11 +12483,14 @@ feature customer
     // -------------------------------------------------------------------------
     // Phase L — `auth` block cross-feature diagnostics.
     //
-    // Four ids per docs/proposals/bucket-auth-cycle.md §Doctor/LSP:
+    // Auth ids per docs/proposals/bucket-auth-cycle.md §Doctor/LSP:
     //   - auth_password_algorithm_hash_mismatch
+    //   - auth_password_no_session
     //   - auth_sessions_resource_unknown
     //   - auth_identity_field_unknown
     //   - auth_oauth_adapter_unbound
+    //   - auth_oauth_no_password_alt
+    //   - auth_session_ttl_too_short
     // -------------------------------------------------------------------------
 
     #[test]
@@ -12485,6 +12570,120 @@ feature x
             codes(&diagnostics).contains("auth_sessions_resource_unknown"),
             "expected auth_sessions_resource_unknown; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_warns_auth_password_no_session() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Account
+      email: @semantic.Email required
+
+  auth
+    identity Account.email
+    password
+      algorithm argon2id
+      hash @fn.h
+      verify @fn.v
+      rate_limit "5 per 10 minutes"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "auth_password_no_session")
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected exactly one auth_password_no_session; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Warning);
+        assert!(hits[0].message.contains("login will not issue sessions"));
+    }
+
+    #[test]
+    fn doctor_infos_auth_oauth_no_password_alt() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    oauth google
+      adapter @adapter.google_oauth
+
+    sessions
+      resource Session
+      ttl "1 day"
+      refresh false
+
+  extensions
+    adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./oauth.go"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "auth_oauth_no_password_alt")
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected exactly one auth_oauth_no_password_alt; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Info);
+        assert!(hits[0].message.contains("OAuth-only"));
+    }
+
+    #[test]
+    fn doctor_warns_auth_session_ttl_too_short() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature x
+  domain
+    resource Session
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      email: @semantic.Email required
+
+  auth
+    identity Session.email
+    sessions
+      resource Session
+      ttl "30 minutes"
+      refresh false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "auth_session_ttl_too_short")
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected exactly one auth_session_ttl_too_short; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Warning);
+        assert!(
+            hits[0]
+                .message
+                .contains("session TTL <1h forces frequent re-login")
         );
     }
 
@@ -12649,9 +12848,12 @@ feature x
         let surfaced = codes(&diagnostics);
         for code in [
             "auth_password_algorithm_hash_mismatch",
+            "auth_password_no_session",
             "auth_sessions_resource_unknown",
             "auth_identity_field_unknown",
             "auth_oauth_adapter_unbound",
+            "auth_oauth_no_password_alt",
+            "auth_session_ttl_too_short",
         ] {
             assert!(
                 !surfaced.contains(code),
