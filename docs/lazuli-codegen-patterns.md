@@ -98,6 +98,32 @@ for the worktree + Codex `exec` flow. Key rules:
 - Codex plans via ChatGPT; Claude orchestrates dispatch, merge, and
   final verification.
 
+### Agent effort policy
+
+Do not rely on the local `~/.codex/config.toml` defaults for parallel
+execution. The user's machine may be configured for `gpt-5.5` with
+`model_reasoning_effort = "xhigh"`, which is appropriate for hard
+architecture/debugging work but too expensive for mechanical runtime cells.
+
+For `codex exec` batches, pass effort explicitly:
+
+```powershell
+codex exec -c model_reasoning_effort='"medium"' ...
+```
+
+Use this budget ladder:
+
+- `low`: very small additive helpers, mechanical tests, docs-only edits.
+- `medium`: default for isolated worker cells with a clear prompt, owned files,
+  and commit message.
+- `high`: parser/codegen/IR changes, broad shared files, likely merge
+  conflicts, or subtle API design.
+- `xhigh`: Lazurite architecture planning, hard debugging, or tasks where the
+  worker must discover the plan rather than execute a supplied one.
+
+Keep `fast_default_opt_out = true` if configured; the cheaper lever for this
+pipeline is effort selection, not enabling fast mode.
+
 ## 8. Boundary discipline
 
 The emitter consumes typed `lazuli_ir::Module` data directly. Do not add
