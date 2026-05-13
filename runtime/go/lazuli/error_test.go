@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -111,6 +112,49 @@ func TestErrorHierarchy(t *testing.T) {
 		err := &LibBugError{Component: "lazuli.dev/runtime/lazuli/auth", Invariant: "token parser returned nil"}
 		if got, want := err.Error(), "lib_bug: component=lazuli.dev/runtime/lazuli/auth invariant=token parser returned nil"; got != want {
 			t.Fatalf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("error_base_from_context_populates_from_source_tag", func(t *testing.T) {
+		ctx := WithSource(context.Background(), SourceTag{
+			Capsule: "crm",
+			Feature: "customer",
+			Kind:    "command",
+			Op:      "create_customer",
+			Source:  "features/customer.lzi:42:1",
+		})
+
+		got := ErrorBaseFromContext(ctx, ErrorBase{Code: "field_invalid"})
+		if got.Capsule != "crm" || got.Feature != "customer" || got.Kind != "command" || got.Op != "create_customer" || got.Source != "features/customer.lzi:42:1" {
+			t.Fatalf("ErrorBaseFromContext() = %#v, want source fields populated", got)
+		}
+	})
+
+	t.Run("error_base_from_context_preserves_existing_base_fields", func(t *testing.T) {
+		ctx := WithSource(context.Background(), SourceTag{
+			Capsule: "crm",
+			Feature: "customer",
+			Kind:    "command",
+			Op:      "create_customer",
+			Source:  "features/customer.lzi:42:1",
+		})
+		base := ErrorBase{
+			Capsule: "billing",
+			Feature: "invoice",
+			Kind:    "job",
+			Op:      "settle",
+			Source:  "features/invoice.lzi:7:1",
+		}
+
+		if got := ErrorBaseFromContext(ctx, base); got != base {
+			t.Fatalf("ErrorBaseFromContext() = %#v, want %#v", got, base)
+		}
+	})
+
+	t.Run("error_base_from_context_with_empty_context_leaves_fields_empty", func(t *testing.T) {
+		got := ErrorBaseFromContext(context.Background(), ErrorBase{Code: "internal"})
+		if got.Capsule != "" || got.Feature != "" || got.Kind != "" || got.Op != "" || got.Source != "" {
+			t.Fatalf("ErrorBaseFromContext() = %#v, want source fields empty", got)
 		}
 	})
 }

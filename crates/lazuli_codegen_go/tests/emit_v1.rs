@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 
 use lazuli_analyzer::source_map::SourceMapResolver;
 use lazuli_codegen_go::{
-    GoEmitOptions, GoSourceContext, LAZULI_GO_VERSION, LazuriteDev, LazuriteGenerateGo,
-    LazuriteManifest, LazuritePlugin, generate_v1, generate_v1_with_manifest,
-    generate_v1_with_manifest_and_source,
+    generate_v1, generate_v1_with_manifest, generate_v1_with_manifest_and_source, GoEmitOptions,
+    GoSourceContext, LazuriteDev, LazuriteGenerateGo, LazuriteManifest, LazuritePlugin,
+    LAZULI_GO_VERSION,
 };
 use lazuli_ir::{
     AppLocale, AppLogging, AppManifest, AppTracing, Assignment, BuiltinType, Command,
@@ -223,6 +223,18 @@ fn emit_command_with_span_emits_line_directive() {
         directive < declaration,
         "directive must precede command declaration:\n{out}"
     );
+    assert!(
+        out.contains("ctx = lazuli.WithSource(ctx, lazuli.SourceTag{"),
+        "command handler source hook must stamp SourceTag:\n{out}"
+    );
+    assert!(
+        out.contains("Capsule: \"marketplace\",")
+            && out.contains("Feature: \"foo\",")
+            && out.contains("Kind:    \"command\",")
+            && out.contains("Op:      \"create\",")
+            && out.contains("Source:  \"features/foo.lzi:42:1\","),
+        "command handler source hook must carry the originating op:\n{out}"
+    );
 }
 
 #[test]
@@ -380,11 +392,9 @@ fn module_name_override_wins_over_app_name() {
         .iter()
         .find(|f| f.path == "go.mod")
         .expect("go.mod missing");
-    assert!(
-        go_mod
-            .contents
-            .contains("module github.com/acme/custom-name")
-    );
+    assert!(go_mod
+        .contents
+        .contains("module github.com/acme/custom-name"));
 }
 
 #[test]
@@ -934,10 +944,9 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
         .find("_ \"github.com/lazurite/lazuli-plugin-mercadopago\"")
         .expect("mercadopago plugin import");
     assert!(expo < mercado, "expected plugin imports sorted by ref");
-    assert!(
-        main.contents
-            .contains("// Plugin imports - registered at init time via lazuli.RegisterAdapter.")
-    );
+    assert!(main
+        .contents
+        .contains("// Plugin imports - registered at init time via lazuli.RegisterAdapter."));
 }
 
 #[test]
@@ -1013,11 +1022,9 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
         .find(|f| f.path == "go.work")
         .expect("expected top-level go.work companion");
 
-    assert!(
-        go_mod
-            .contents
-            .contains("module github.com/acme/test-app/generated")
-    );
+    assert!(go_mod
+        .contents
+        .contains("module github.com/acme/test-app/generated"));
     assert!(go_mod.contents.contains(
         "replace github.com/lazurite/lazuli-plugin-mercadopago => ../lazuli-plugin-mercadopago"
     ));
@@ -1043,11 +1050,9 @@ fn emit_go_mod_with_plugins_emits_require_lines() {
         .find(|f| f.path == "go.mod")
         .expect("expected generated go.mod");
 
-    assert!(
-        go_mod
-            .contents
-            .contains("github.com/lazurite/lazuli-plugin-foo v0.1.0")
-    );
+    assert!(go_mod
+        .contents
+        .contains("github.com/lazurite/lazuli-plugin-foo v0.1.0"));
 }
 
 #[test]
@@ -1082,11 +1087,9 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         .find(|f| f.path == "go.mod")
         .expect("expected generated go.mod");
 
-    assert!(
-        go_mod
-            .contents
-            .contains("github.com/cridenour/go-postgis v1.0.2")
-    );
+    assert!(go_mod
+        .contents
+        .contains("github.com/cridenour/go-postgis v1.0.2"));
 }
 
 #[test]
@@ -1108,11 +1111,9 @@ fn emit_go_mod_with_dev_replace_emits_replace_directive() {
         .find(|f| f.path == "go.mod")
         .expect("expected generated go.mod");
 
-    assert!(
-        go_mod
-            .contents
-            .contains("replace lazuli.dev/runtime => ../../runtime/go")
-    );
+    assert!(go_mod
+        .contents
+        .contains("replace lazuli.dev/runtime => ../../runtime/go"));
 }
 
 #[test]
@@ -1148,11 +1149,9 @@ fn emit_go_mod_without_manifest_falls_back_to_legacy_behavior() {
 
     assert!(go_mod.contents.contains("lazuli.dev/runtime"));
     assert!(!go_mod.contents.contains("replace lazuli.dev/runtime"));
-    assert!(
-        !go_mod
-            .contents
-            .contains("github.com/lazurite/lazuli-plugin")
-    );
+    assert!(!go_mod
+        .contents
+        .contains("github.com/lazurite/lazuli-plugin"));
     assert!(!go_mod.contents.contains("github.com/cridenour/go-postgis"));
 }
 

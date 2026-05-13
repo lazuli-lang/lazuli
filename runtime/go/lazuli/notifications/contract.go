@@ -49,6 +49,7 @@ type RetryPolicy struct {
 type NotificationContract struct {
 	Feature      string
 	Name         string
+	WithSource   func(context.Context) context.Context
 	Channels     []Channel
 	Recipient    string
 	TriggerKind  string

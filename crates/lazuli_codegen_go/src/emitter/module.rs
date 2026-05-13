@@ -56,6 +56,8 @@ pub struct EmitContext<'a> {
     pub source_map: Option<&'a SourceMap>,
     pub current_file_id: Option<FileId>,
     pub generated_path: &'a str,
+    pub capsule_name: &'a str,
+    pub current_feature: &'a str,
 }
 
 impl<'a> EmitContext<'a> {
@@ -64,12 +66,15 @@ impl<'a> EmitContext<'a> {
             source_map: None,
             current_file_id: None,
             generated_path,
+            capsule_name: "",
+            current_feature: "",
         }
     }
 
     pub fn for_feature(
         source_context: Option<&'a GoSourceContext<'a>>,
-        feature_name: &str,
+        capsule_name: &'a str,
+        feature_name: &'a str,
         generated_path: &'a str,
     ) -> Self {
         Self {
@@ -78,6 +83,8 @@ impl<'a> EmitContext<'a> {
                 .and_then(|ctx| ctx.feature_file_ids.get(feature_name))
                 .copied(),
             generated_path,
+            capsule_name,
+            current_feature: feature_name,
         }
     }
 
@@ -98,6 +105,50 @@ impl<'a> EmitContext<'a> {
         if emitted {
             p.line_directive(self.generated_path, 1, 1);
         }
+    }
+
+    pub fn source_tag_literal(&self, kind: &str, op: &str, span: Option<SpanRef>) -> String {
+        let source = self.source_loc_string(span).unwrap_or_else(String::new);
+        format!(
+            "lazuli.SourceTag{{Capsule: {:?}, Feature: {:?}, Kind: {:?}, Op: {:?}, Source: {:?}}}",
+            self.capsule_name, self.current_feature, kind, op, source
+        )
+    }
+
+    pub fn emit_with_source_field(
+        &self,
+        p: &mut GoPrinter,
+        kind: &str,
+        op: &str,
+        span: Option<SpanRef>,
+    ) {
+        p.line("WithSource: func(ctx context.Context) context.Context {");
+        p.indent();
+        p.line("ctx = lazuli.WithSource(ctx, lazuli.SourceTag{");
+        p.indent();
+        p.line(&format!("Capsule: {:?},", self.capsule_name));
+        p.line(&format!("Feature: {:?},", self.current_feature));
+        p.line(&format!("Kind:    {:?},", kind));
+        p.line(&format!("Op:      {:?},", op));
+        p.line(&format!(
+            "Source:  {:?},",
+            self.source_loc_string(span).unwrap_or_else(String::new)
+        ));
+        p.dedent();
+        p.line("})");
+        p.line("return ctx");
+        p.dedent();
+        p.line("},");
+    }
+
+    fn source_loc_string(&self, span: Option<SpanRef>) -> Option<String> {
+        let (Some(source_map), Some(file_id), Some(span)) =
+            (self.source_map, self.current_file_id, span)
+        else {
+            return None;
+        };
+        let loc = resolve_source_loc(source_map, file_id, span)?;
+        Some(format!("{}:{}:{}", loc.file, loc.line, loc.column))
     }
 }
 
@@ -276,7 +327,12 @@ pub fn emit_module(
         // enum skip rule so the output listing stays signal-rich).
         {
             let command_path = format!("{name}/command.gen.go", name = feature.name);
-            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &command_path);
+            let emit_ctx = EmitContext::for_feature(
+                source_context,
+                &source_label,
+                &feature.name,
+                &command_path,
+            );
             if let Some(contents) = emit_command_file(
                 &source_label,
                 feature,
@@ -296,7 +352,8 @@ pub fn emit_module(
         // into `query.gen.go`.
         {
             let query_path = format!("{name}/query.gen.go", name = feature.name);
-            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &query_path);
+            let emit_ctx =
+                EmitContext::for_feature(source_context, &source_label, &feature.name, &query_path);
             if let Some(contents) = emit_query_file(
                 &source_label,
                 feature,
@@ -316,7 +373,8 @@ pub fn emit_module(
         // / `OAuthContract` typed values in `auth.gen.go`.
         {
             let auth_path = format!("{name}/auth.gen.go", name = feature.name);
-            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &auth_path);
+            let emit_ctx =
+                EmitContext::for_feature(source_context, &source_label, &feature.name, &auth_path);
             if let Some(contents) = emit_auth_file(
                 &source_label,
                 feature,
@@ -335,7 +393,8 @@ pub fn emit_module(
         // values in `job.gen.go`.
         {
             let job_path = format!("{name}/job.gen.go", name = feature.name);
-            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &job_path);
+            let emit_ctx =
+                EmitContext::for_feature(source_context, &source_label, &feature.name, &job_path);
             if let Some(contents) = emit_job_file(
                 &source_label,
                 feature,
@@ -354,7 +413,12 @@ pub fn emit_module(
         // `lazuli.WebhookContract` values in `webhook.gen.go`.
         {
             let webhook_path = format!("{name}/webhook.gen.go", name = feature.name);
-            let emit_ctx = EmitContext::for_feature(source_context, &feature.name, &webhook_path);
+            let emit_ctx = EmitContext::for_feature(
+                source_context,
+                &source_label,
+                &feature.name,
+                &webhook_path,
+            );
             if let Some(contents) = emit_webhook_file(
                 &source_label,
                 feature,
@@ -373,8 +437,12 @@ pub fn emit_module(
         // `lazuli.NotificationContract` values in `notification.gen.go`.
         {
             let notification_path = format!("{name}/notification.gen.go", name = feature.name);
-            let emit_ctx =
-                EmitContext::for_feature(source_context, &feature.name, &notification_path);
+            let emit_ctx = EmitContext::for_feature(
+                source_context,
+                &source_label,
+                &feature.name,
+                &notification_path,
+            );
             if let Some(contents) = emit_notification_file(
                 &source_label,
                 feature,

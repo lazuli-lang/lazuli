@@ -85,6 +85,8 @@ type JobContract struct {
 	Feature string
 	// Name is the job identifier.
 	Name string
+	// WithSource stamps the originating .lzi job onto a request context.
+	WithSource func(context.Context) context.Context
 	// Trigger discriminates reactor vs scheduled.
 	Trigger JobTrigger
 	// Queue is the queue lane for event-triggered jobs. Empty means

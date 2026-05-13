@@ -184,8 +184,8 @@ type RiverDispatcher struct {
 	// the first time a contract is registered.
 	Workers *river.Workers
 
-	mu             sync.Mutex
-	handlers       map[string]HandlerFunc
+	mu              sync.Mutex
+	handlers        map[string]HandlerFunc
 	workerInstalled bool
 }
 
@@ -256,6 +256,12 @@ func (d *RiverDispatcher) EnqueueSchedule(_ context.Context, contract JobContrac
 // per-contract handler map (River would panic on a duplicate
 // `AddWorker` for the same kind).
 func (d *RiverDispatcher) RegisterHandler(contract JobContract, handler HandlerFunc) error {
+	if contract.WithSource != nil {
+		next := handler
+		handler = func(ctx context.Context, envelope JobEnvelope) error {
+			return next(contract.WithSource(ctx), envelope)
+		}
+	}
 	kind := jobKindFor(contract)
 	d.mu.Lock()
 	if _, dup := d.handlers[kind]; dup {

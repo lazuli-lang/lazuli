@@ -42,6 +42,7 @@ pub fn emit_auth_file(
     let mut imports = ImportSet::new();
     imports.add("lazuli.dev/runtime/lazuli/auth");
     if has_auth_routes(auth) {
+        imports.add("context");
         imports.add("lazuli.dev/runtime/lazuli");
     }
     if auth.sessions.is_some() {
@@ -101,7 +102,7 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
     let routes = auth_routes(auth_block);
     if !routes.is_empty() {
         p.blank();
-        emit_auth_routes(p, feature, &routes);
+        emit_auth_routes(p, feature, &routes, emit_ctx);
     }
     emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
@@ -297,7 +298,12 @@ fn auth_routes(auth_block: &Auth) -> Vec<AuthRoute> {
     routes
 }
 
-fn emit_auth_routes(p: &mut GoPrinter, feature: &Feature, routes: &[AuthRoute]) {
+fn emit_auth_routes(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    routes: &[AuthRoute],
+    emit_ctx: &EmitContext<'_>,
+) {
     write_section_banner(
         p,
         &[
@@ -336,6 +342,7 @@ fn emit_auth_routes(p: &mut GoPrinter, feature: &Feature, routes: &[AuthRoute]) 
                 ("Handler:".to_owned(), format!("{},", route.handler)),
             ],
         );
+        emit_ctx.emit_with_source_field(p, "auth", &route.name_suffix, None);
         p.dedent();
         p.line("})");
     }
@@ -524,7 +531,7 @@ mod tests {
             name: "test".to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,

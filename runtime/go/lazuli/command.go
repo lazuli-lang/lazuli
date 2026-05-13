@@ -1,6 +1,10 @@
 package lazuli
 
-import "lazuli.dev/runtime/lazuli/jobs"
+import (
+	"context"
+
+	"lazuli.dev/runtime/lazuli/jobs"
+)
 
 // ExternalCallRef is the lowered `calls <slot>.<op>` reference shared with
 // jobs so integration adapters see one shape across command and job bodies.
@@ -48,6 +52,11 @@ type Command[I, O any] struct {
 	// Name is the canonical command name as written in the DSL
 	// (e.g. "customer.create"). Always qualified by feature.
 	Name string
+
+	// WithSource stamps the originating .lzi command onto a request context.
+	// Codegen emits this hook so runtime error constructors can recover source
+	// metadata without bucket adapters manually threading it.
+	WithSource func(context.Context) context.Context
 
 	// Resource is the resource the command primarily mutates. The runtime
 	// uses it for tenancy enforcement, soft-delete handling, and audit
@@ -115,6 +124,7 @@ type Command[I, O any] struct {
 func (c *Command[I, O]) erased() *commandErased {
 	return &commandErased{
 		Name:          c.Name,
+		WithSource:    c.WithSource,
 		Resource:      c.Resource,
 		Policy:        c.Policy,
 		RateLimit:     c.RateLimit,
@@ -136,6 +146,7 @@ func (c *Command[I, O]) erased() *commandErased {
 // commandErased is the runtime's view of any Command[I, O].
 type commandErased struct {
 	Name          string
+	WithSource    func(context.Context) context.Context
 	Resource      any
 	Policy        Policy
 	RateLimit     RateLimit

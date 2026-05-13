@@ -79,6 +79,9 @@ func (c *Command[I, O]) register() {
 // dispatch on Command[I, O] decodes raw JSON into I and forwards to Handle.
 // Implements `commandHandler` for the dispatcher.
 func (c *Command[I, O]) dispatch(ctx *Ctx, raw json.RawMessage) (any, error) {
+	if ctx != nil && c.WithSource != nil {
+		ctx.Context = c.WithSource(ctx.Context)
+	}
 	var input I
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &input); err != nil {
@@ -105,6 +108,9 @@ func (q *Query[A, R]) register() {
 // dispatch on Query[A, R] decodes args and delegates to RunList / RunLookup
 // based on Kind. Implements `queryHandler`.
 func (q *Query[A, R]) dispatch(ctx *Ctx, raw json.RawMessage) (any, error) {
+	if ctx != nil && q.WithSource != nil {
+		ctx.Context = q.WithSource(ctx.Context)
+	}
 	var args A
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {

@@ -93,6 +93,7 @@ pub fn emit_command_file(
     // `Command[I,O]`, `Policy`, `AuditDefault`, `Creates/Updates/Deletes`,
     // `Bindings`, and `EventEmit`. Input field types may surface extra
     // imports (e.g. `storage.FileRef` for `@cap.File` slots).
+    imports.add("context");
     imports.add("lazuli.dev/runtime/lazuli");
     if !wrap_buckets.is_empty() {
         imports.add("context");
@@ -232,6 +233,7 @@ fn emit_command(
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
+    emit_ctx.emit_with_source_field(p, "command", &command.name, command.span_ref);
 
     // Effect block — multi-line. Emitted unaligned (independent
     // formatting from the kv block above).
@@ -949,7 +951,7 @@ mod tests {
             name: "test".to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,

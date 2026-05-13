@@ -50,6 +50,9 @@ func handleOne(
 	w http.ResponseWriter,
 	req *http.Request,
 ) {
+	if contract.WithSource != nil {
+		ctx = contract.WithSource(ctx)
+	}
 	_ = ctx
 	_ = contract
 	_ = handler

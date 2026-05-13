@@ -43,6 +43,8 @@ pub fn emit_job_file(
 
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
+    imports.add("context");
+    imports.add("lazuli.dev/runtime/lazuli");
     imports.add("lazuli.dev/runtime/lazuli/jobs");
 
     let type_ctx = TypeCtx {
@@ -61,9 +63,7 @@ pub fn emit_job_file(
         }
     }
     if !wrap_buckets.is_empty() {
-        imports.add("context");
         imports.add("errors");
-        imports.add("lazuli.dev/runtime/lazuli");
         imports.add("lazuli.dev/runtime/lazuli/auth");
     }
 
@@ -158,6 +158,7 @@ fn emit_job(
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
+    emit_ctx.emit_with_source_field(p, "job", &job.name, job.span_ref);
 
     if let Some(tenant_from) = &job.tenant_from {
         emit_tenant_from(p, tenant_from);
@@ -581,7 +582,7 @@ mod tests {
             name: "test".to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,

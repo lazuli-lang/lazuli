@@ -48,6 +48,8 @@ pub fn emit_webhook_file(
     let mut webhooks: Vec<&Webhook> = feature.webhooks.iter().collect();
     webhooks.sort_by(|a, b| a.name.cmp(&b.name));
 
+    imports.add("context");
+    imports.add("lazuli.dev/runtime/lazuli");
     imports.add("lazuli.dev/runtime/lazuli/webhooks");
     if webhooks.iter().any(|webhook| webhook.retry.is_some()) {
         imports.add("lazuli.dev/runtime/lazuli/jobs");
@@ -164,6 +166,7 @@ fn emit_webhook(
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
+    emit_ctx.emit_with_source_field(p, "webhook", &webhook.name, webhook.span_ref);
 
     emit_runtime_gaps(p, webhook);
 
@@ -367,7 +370,7 @@ mod tests {
                 name: "test".to_owned(),
                 title: None,
                 version: None,
-        lazuli_version: None,
+                lazuli_version: None,
                 targets: Vec::new(),
                 default_locale: None,
                 default_timezone: None,

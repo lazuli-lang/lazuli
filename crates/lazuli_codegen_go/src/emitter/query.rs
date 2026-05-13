@@ -53,6 +53,7 @@ pub fn emit_query_file(
             .then_with(|| query_kind_rank(a).cmp(&query_kind_rank(b)))
     });
 
+    imports.add("context");
     imports.add("lazuli.dev/runtime/lazuli");
     for query in &queries {
         register_imports_for_query(query, feature, &type_ctx, &mut imports);
@@ -122,7 +123,16 @@ fn emit_list_query(
         "var {var_name} = lazuli.Query[{args_struct}, {resource_type}]{{"
     ));
     p.indent();
-    emit_query_header(p, feature, &qualified_name, resource, "lazuli.QueryList");
+    emit_query_header(
+        p,
+        feature,
+        &qualified_name,
+        resource,
+        "lazuli.QueryList",
+        emit_ctx,
+        &query.name,
+        query.span_ref,
+    );
     emit_scope_gaps(p, &query.scope, query.scope_override);
     if query.modifier.is_some() {
         p.line("// TODO(runtime): ListQuery.modifier is not yet in Lazuli Go lib.");
@@ -175,7 +185,16 @@ fn emit_lookup_query(
         "var {var_name} = lazuli.Query[{args_struct}, {resource_type}]{{"
     ));
     p.indent();
-    emit_query_header(p, feature, &qualified_name, resource, "lazuli.QueryLookup");
+    emit_query_header(
+        p,
+        feature,
+        &qualified_name,
+        resource,
+        "lazuli.QueryLookup",
+        emit_ctx,
+        &query.name,
+        query.span_ref,
+    );
     emit_scope_gaps(p, &query.scope, query.scope_override);
     if !query.filters.is_empty() {
         p.line("// TODO(runtime): LookupQuery.filters are not applied by Lazuli Go RunLookup yet.");
@@ -215,7 +234,16 @@ fn emit_sql_query(
         "var {var_name} = lazuli.Query[{args_struct}, {return_type}]{{"
     ));
     p.indent();
-    emit_query_header(p, feature, &qualified_name, None, "lazuli.QuerySQL");
+    emit_query_header(
+        p,
+        feature,
+        &qualified_name,
+        None,
+        "lazuli.QuerySQL",
+        emit_ctx,
+        &query.name,
+        query.span_ref,
+    );
     emit_scope_gaps(p, &query.scope, query.scope_override);
     p.line(&format!(
         "SQL:     \"./queries/{}.sql\",",
@@ -236,6 +264,9 @@ fn emit_query_header(
     qualified_name: &str,
     resource: Option<&Resource>,
     kind_const: &str,
+    emit_ctx: &EmitContext<'_>,
+    op: &str,
+    span: Option<lazuli_ir::SpanRef>,
 ) {
     let mut kv_rows: Vec<(String, String)> = Vec::new();
     kv_rows.push(("Name:".to_owned(), format!("\"{qualified_name}\",")));
@@ -259,6 +290,7 @@ fn emit_query_header(
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
+    emit_ctx.emit_with_source_field(p, "query", op, span);
 }
 
 fn emit_args_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &TypeCtx<'_>) {
@@ -888,7 +920,7 @@ mod tests {
                 name: "test".to_owned(),
                 title: None,
                 version: None,
-        lazuli_version: None,
+                lazuli_version: None,
                 targets: Vec::new(),
                 default_locale: None,
                 default_timezone: None,
@@ -1203,9 +1235,7 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type LifetimeValueArgs struct {"));
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
-        assert!(
-            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
-        );
+        assert!(out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{"));
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
         assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
         assert!(out.contains("Returns: \"CustomerLtv[]\","));

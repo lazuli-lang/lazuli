@@ -95,6 +95,7 @@ type DlqSpec struct {
 type WebhookContract struct {
 	Feature       string
 	Name          string
+	WithSource    func(context.Context) context.Context
 	Route         string
 	Verify        VerifySpec
 	TenantFrom    *TenantFromSpec

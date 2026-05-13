@@ -46,6 +46,9 @@ func Send(
 	contract NotificationContract,
 	payload map[string]any,
 ) error {
+	if contract.WithSource != nil {
+		ctx = contract.WithSource(ctx)
+	}
 	_ = ctx
 	_ = registry
 	_ = contract

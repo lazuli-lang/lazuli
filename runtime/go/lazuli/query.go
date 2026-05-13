@@ -1,5 +1,7 @@
 package lazuli
 
+import "context"
+
 // QueryKind names which canonical query shape a `Query[A, R]` represents.
 // Mirrors the DSL `query.list`, `query.lookup`, `query.sql` distinction.
 type QueryKind int
@@ -19,6 +21,11 @@ type Query[A, R any] struct {
 	// Name is the canonical name as written in the DSL (qualified with the
 	// owning feature). Examples: "customer.query.list", "customer.query.by_id".
 	Name string
+
+	// WithSource stamps the originating .lzi query onto a request context.
+	// Codegen emits this hook so runtime error constructors can recover source
+	// metadata without bucket adapters manually threading it.
+	WithSource func(context.Context) context.Context
 
 	// Resource is the resource the query reads from. Stored as `any` so the
 	// registry can hold queries with different row types side-by-side.
@@ -124,35 +131,37 @@ const (
 // erased returns the type-erased view used by the dispatcher and registry.
 func (q *Query[A, R]) erased() *queryErased {
 	return &queryErased{
-		Name:     q.Name,
-		Resource: q.Resource,
-		Kind:     q.Kind,
-		Policy:   q.Policy,
-		Audit:    q.Audit,
-		Filters:  q.Filters,
-		Order:    q.Order,
-		Search:   q.Search,
-		Paginate: q.Paginate,
-		LookupBy: q.LookupBy,
-		SQL:      q.SQL,
-		Returns:  q.Returns,
-		Cache:    q.Cache,
+		Name:       q.Name,
+		WithSource: q.WithSource,
+		Resource:   q.Resource,
+		Kind:       q.Kind,
+		Policy:     q.Policy,
+		Audit:      q.Audit,
+		Filters:    q.Filters,
+		Order:      q.Order,
+		Search:     q.Search,
+		Paginate:   q.Paginate,
+		LookupBy:   q.LookupBy,
+		SQL:        q.SQL,
+		Returns:    q.Returns,
+		Cache:      q.Cache,
 	}
 }
 
 // queryErased is the runtime's view of any Query[A, R].
 type queryErased struct {
-	Name     string
-	Resource any
-	Kind     QueryKind
-	Policy   Policy
-	Audit    *AuditSpec
-	Filters  []FilterRule
-	Order    []OrderClause
-	Search   *SearchSpec
-	Paginate int
-	LookupBy []LookupKey
-	SQL      string
-	Returns  string
-	Cache    *CacheSpec
+	Name       string
+	WithSource func(context.Context) context.Context
+	Resource   any
+	Kind       QueryKind
+	Policy     Policy
+	Audit      *AuditSpec
+	Filters    []FilterRule
+	Order      []OrderClause
+	Search     *SearchSpec
+	Paginate   int
+	LookupBy   []LookupKey
+	SQL        string
+	Returns    string
+	Cache      *CacheSpec
 }

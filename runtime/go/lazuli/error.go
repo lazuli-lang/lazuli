@@ -44,10 +44,29 @@ type ErrorBase struct {
 	Cause   error   // wrapped underlying error; participates in errors.Is/As chain
 }
 
-// ErrorBaseFromContext is a constructor helper used by codegen.
-// D5 (WithSource) will extend this to pull SourceTag from ctx.
-// For now, returns the provided base unchanged.
-func ErrorBaseFromContext(_ context.Context, base ErrorBase) ErrorBase {
+// ErrorBaseFromContext constructs an ErrorBase, populating the
+// Capsule/Feature/Kind/Op/Source fields from any SourceTag attached to ctx via
+// WithSource. Codegen-emitted error wrap helpers call this.
+//
+// If ctx has no SourceTag, the fields are left empty. If base already carries
+// values, caller-provided values win.
+func ErrorBaseFromContext(ctx context.Context, base ErrorBase) ErrorBase {
+	tag := SourceTagFromContext(ctx)
+	if base.Capsule == "" {
+		base.Capsule = tag.Capsule
+	}
+	if base.Feature == "" {
+		base.Feature = tag.Feature
+	}
+	if base.Kind == "" {
+		base.Kind = tag.Kind
+	}
+	if base.Op == "" {
+		base.Op = tag.Op
+	}
+	if base.Source == "" {
+		base.Source = tag.Source
+	}
 	return base
 }
 
