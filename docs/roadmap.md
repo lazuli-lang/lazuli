@@ -1,6 +1,6 @@
 # Lazuli Roadmap
 
-**Última revisão**: 2026-05-12
+**Última revisão**: 2026-05-13
 **Source audit**: [`docs/audit/framework-coverage-1400.md`](audit/framework-coverage-1400.md)
 **Near-term execution**: [`docs/next-checklist.md`](next-checklist.md)
 **Language backlog**: [`docs/language-backlog.md`](language-backlog.md)
@@ -20,10 +20,10 @@ Cada checkbox cobre 1 a N features da lista original; o agrupamento foi feito qu
 
 ---
 
-## Status atual — 2026-05-12
+## Status atual — 2026-05-13
 
 Este arquivo ficou atrasado durante a execução paralela c21-c180. O progresso
-foi registrado em `docs/next-checklist.md` rows 72-77, mas o roadmap-mestre
+foi registrado em `docs/next-checklist.md` rows 72-82, mas o roadmap-mestre
 não estava sendo reconciliado a cada batch. A sensação visual era correta:
 havia muito commit e pouca indicação de "onde estamos". Este checkpoint
 reconcilia os itens verificáveis e mantém abertos os itens compostos ou de
@@ -34,11 +34,11 @@ Estado honesto agora:
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Depois da reconciliação c316-c360,
+  ainda não tinha acompanhado as batches. Depois da reconciliação c361-c375,
   este arquivo mostra 160 feitos / 426 totais. Itens compostos parcialmente
   feitos continuam abertos com nota.
 - Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
-  c316-c360.
+  c361-c375.
 - `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli` e
   `cargo test -p lazuli_codegen_go --features smoke` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
@@ -54,10 +54,10 @@ Estado honesto agora:
   auth, property, service/booking, payment, review, chat e notification estão
   modelados; isso ainda **não** significa que o produto Hostpoint real foi
   migrado.
-- As batches c181-c360 foram deliberadamente de **framework/Lazurite readiness**:
-  180 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
+- As batches c181-c375 foram deliberadamente de **framework/Lazurite readiness**:
+  195 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
   jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen/
-  auth/events/admin/billing/views/rpc hardening.
+  auth/events/admin/billing/views/rpc/adapters hardening.
   Nenhum trabalho de port do Hostpoint real foi iniciado.
 
 Fronteira imediata antes de qualquer port real:
@@ -83,11 +83,11 @@ Leitura rápida:
 
 Progresso real por camada:
 
-| Camada | Estado em 2026-05-12 |
+| Camada | Estado em 2026-05-13 |
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
 | Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
-| Runtime Go | 715 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
+| Runtime Go | 745 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
 | Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
