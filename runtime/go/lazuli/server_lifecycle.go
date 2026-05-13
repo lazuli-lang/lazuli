@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const defaultServerShutdownTimeout = 30 * time.Second
+const defaultServerShutdownTimeout = DefaultGracePeriod
 
 var (
 	errNilHTTPServer = errors.New("lazuli: nil http server")
