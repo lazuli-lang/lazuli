@@ -1,0 +1,32 @@
+app LazuriteMultifrontend
+  title "Multi-frontend Lazurite fixture"
+  version "0.1.0"
+
+  uses
+    property
+
+  targets
+    backend go
+    web react
+    mobile expo
+
+  environments
+    local
+    production
+
+  urls
+    api local "http://localhost:8080"
+    api production "https://api.example.com"
+
+  runtime
+    unit api
+      serves queries
+      healthcheck "/healthz"
+
+    unit web
+      serves surfaces web
+
+  deploy
+    migrations before_deploy
+    destructive_migrations forbidden
+    rollback disabled

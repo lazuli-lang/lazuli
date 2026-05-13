@@ -1,0 +1,12 @@
+feature property
+  domain
+    resource Property
+      name: Text required
+      address: Text required
+      created_at: DateTime required
+
+  policies
+    public: @scope.public
+
+  query.list all
+    policy @policy.public

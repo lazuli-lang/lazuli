@@ -1,0 +1,6 @@
+surface property web
+  uses experience property
+
+  audience host
+    view list List
+      fields name, address

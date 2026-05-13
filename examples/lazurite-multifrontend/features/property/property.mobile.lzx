@@ -1,0 +1,10 @@
+surface property mobile
+  uses experience property
+
+  audience traveler
+    view list List
+      fields name, address
+
+  audience host
+    view list List
+      fields name, address

@@ -1,0 +1,6 @@
+surface property web
+  uses experience property
+
+  audience admin
+    view list Table
+      fields name, address, created_at
