@@ -12,6 +12,7 @@ mod app_manifest;
 mod dev;
 mod doctor;
 mod lazurite_manifest;
+mod templates;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =

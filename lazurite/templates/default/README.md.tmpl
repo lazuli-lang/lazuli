@@ -1,0 +1,27 @@
+# {{app_name}}
+
+Lazuli app scaffolded with `lazuli new`.
+
+## Getting started
+
+```bash
+lazuli doctor .
+lazuli generate go --out dist/go
+go work sync
+go run ./dist/go
+```
+
+## Development loop
+
+```bash
+lazuli dev .
+```
+
+Watches `.lzi` and `lazurite.toml` for changes; regenerates `dist/` and restarts the server.
+
+## Layout
+
+- `app.lzi` - app-wide config (envs, urls).
+- `features/` - domain features. Each is a Lazuli capability bundle.
+- `lazurite.toml` - workspace manifest (Lazuli framework pin, plugins, codegen settings).
+- `dist/` - generated code (regen-only; do not edit).

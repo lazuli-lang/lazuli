@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+include_dir = "0.7"
 lazuli_analyzer = { path = "../lazuli_analyzer" }
 lazuli_changelog = { path = "../lazuli_changelog" }
 lazuli_codegen_go = { path = "../lazuli_codegen_go" }
