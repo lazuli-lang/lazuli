@@ -1,0 +1,26 @@
+feature hello
+  domain
+    record GreetInput
+      name: Text required
+
+    record GreetOutput
+      message: Text required
+
+  policies
+    public: @scope.public
+
+  command greet
+    input
+      name: Text required
+    returns GreetOutput
+    policy @policy.public
+    rate_limit "60 per minute per ip"
+    handler @fn.greet
+
+  api greet_http
+    method POST
+    path "/hello"
+    output GreetOutput
+    policy @policy.public
+    rate_limit "60 per minute per ip"
+    handler @fn.greet
