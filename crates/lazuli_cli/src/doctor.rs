@@ -37,6 +37,7 @@ pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result
 
 #[derive(Debug)]
 struct DoctorPackage {
+    project_root: PathBuf,
     files: Vec<DoctorFile>,
     workspace: Option<DoctorAppWorkspace>,
     contracts: Vec<DoctorAppContract>,
@@ -207,6 +208,7 @@ impl DoctorPackage {
         if paths.is_empty() {
             bail!("no .lzi or .lzx files found for {}", input.display());
         }
+        let project_root = doctor_project_root(input);
 
         let mut files = Vec::new();
         let mut workspace = None;
@@ -666,6 +668,7 @@ impl DoctorPackage {
         populate_feature_symbols_from_ir(&tier3_facts, &mut feature_symbols);
 
         Ok(Self {
+            project_root,
             files,
             workspace,
             contracts,
@@ -689,6 +692,8 @@ impl DoctorPackage {
 
     fn diagnostics(&self) -> Vec<DoctorDiagnostic> {
         let mut diagnostics = Vec::new();
+
+        diagnostics.extend(manifest_required_diagnostics(&self.project_root));
 
         for file in &self.files {
             diagnostics.extend(file.local_diagnostics.clone());
@@ -1211,6 +1216,40 @@ fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
     }
     paths.sort();
     Ok(paths)
+}
+
+fn doctor_project_root(input: &Path) -> PathBuf {
+    if input.is_dir() {
+        return input.to_path_buf();
+    }
+
+    input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
+fn project_has_lazurite_manifest(project_root: &Path) -> bool {
+    project_root.join("lazurite.toml").is_file()
+}
+
+fn project_uses_plugin_refs(_project_root: &Path) -> bool {
+    false
+}
+
+fn manifest_required_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
+    if !project_uses_plugin_refs(project_root) || project_has_lazurite_manifest(project_root) {
+        return Vec::new();
+    }
+
+    vec![DoctorDiagnostic {
+        path: project_root.join("lazurite.toml"),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "MANIFEST-REQUIRED-001".to_owned(),
+        message: "project uses @plugin/* references but is missing lazurite.toml.".to_owned(),
+    }]
 }
 
 fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
@@ -9740,6 +9779,7 @@ mod tests {
         populate_feature_symbols_from_ir(&tier3_facts, &mut feature_symbols);
 
         DoctorPackage {
+            project_root: PathBuf::from("."),
             files,
             workspace,
             contracts,
@@ -9759,6 +9799,31 @@ mod tests {
             feature_uses,
             tier3_facts,
         }
+    }
+
+    #[test]
+    fn doctor_manifest_required_skipped_when_no_plugin_refs() {
+        let package = package_from_sources(vec![("app.lzi", "app NoManifest\n")]);
+        let diagnostics = package.diagnostics();
+
+        assert!(
+            !codes(&diagnostics).contains("MANIFEST-REQUIRED-001"),
+            "MANIFEST-REQUIRED-001 should not fire without @plugin/* refs"
+        );
+    }
+
+    #[test]
+    fn doctor_runs_on_project_without_manifest() {
+        let root =
+            std::env::temp_dir().join(format!("lazuli-doctor-no-manifest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp doctor project");
+        fs::write(root.join("app.lzi"), "app NoManifest\n").expect("write app.lzi");
+
+        let result = doctor_command(&root, SecurityProfile::Strict);
+        let _ = fs::remove_dir_all(&root);
+
+        result.expect("doctor should pass without lazurite.toml when no @plugin/* refs");
     }
 
     #[test]
