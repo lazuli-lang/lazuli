@@ -1,0 +1,52 @@
+feature account
+  defaults
+    tenancy org
+
+  uses org
+
+  domain
+    resource User
+      org: Org required
+      email: @semantic.Email required unique
+      name: Text required
+
+    resource UserSession
+      org: Org required
+      user: User required
+      token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+
+    query.list mine
+      filters
+        org_id = ctx.actor.org_id
+
+  policies
+    authenticated: @scope.authenticated
+
+    fields UserSession
+      token_hash
+        read: @actor.system
+        write: @actor.system
+
+  auth identity User.email
+  auth password
+    algorithm: argon2id
+    hash @fn.hash_password
+    verify @fn.verify_password
+  auth sessions
+    resource UserSession
+    ttl "7 days"
+
+  command me
+    returns User
+    policy @policy.authenticated
+
+  api me_http
+    method GET
+    path "/me"
+    output User
+    policy @policy.authenticated
+    handler @fn.me
+
+  extensions
+    fn me: Function[ActorContext, User] at "./account/me.go"
