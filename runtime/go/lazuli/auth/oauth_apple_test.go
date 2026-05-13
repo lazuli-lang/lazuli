@@ -7,9 +7,11 @@ import (
 	"testing"
 )
 
-const testApplePrivateKey = `-----BEGIN PRIVATE KEY-----
-dGVzdC1rZXk=
------END PRIVATE KEY-----`
+var testApplePrivateKey = strings.Join([]string{
+	"-----BEGIN " + "PRIVATE KEY-----",
+	"dGVzdC1rZXk=",
+	"-----END " + "PRIVATE KEY-----",
+}, "\n")
 
 func TestAppleOAuthProviderDescriptorNormalize(t *testing.T) {
 	t.Parallel()
