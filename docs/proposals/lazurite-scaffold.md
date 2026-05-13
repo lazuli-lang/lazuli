@@ -296,8 +296,31 @@ audiences = ["admin"]                 # admin staff frontend
 
 Doctor diagnostics:
 - `FRONTEND-AUDIENCE-UNKNOWN-001` — `[frontends.<x>].audiences` lists an audience not declared in any `.lzx`.
-- `FRONTEND-TARGET-MISSING-001` — `target = "expo"` but codegen for `expo` isn't shipped yet (v0 may ship `tanstack-vite` first, `expo` later).
+- `FRONTEND-TARGET-UNKNOWN-001` — `target = "<X>"` not in the closed enum (see below). Parser rejects at TOML parse time via serde `#[serde(rename_all = "kebab-case")]`.
+- `FRONTEND-TARGET-MISSING-001` — `target` is in the catalog but codegen for it isn't shipped yet (v0 ships `tanstack-vite`; `expo` is a follow-up). Warning, not error.
 - `FRONTEND-OUT-COLLISION-001` — two `[frontends.*]` blocks declare the same `out` path.
+- `AUDIENCE-NO-FRONTEND-001` — `.lzx audience <X>` declared but no `[frontends.*]` lists `<X>` in `audiences`. Warning: orphan audience = dead view code; either ship a frontend that consumes it or remove the `.lzx audience` block.
+
+**Closed enum for `target`** (closed set, doctor + parser enforce):
+
+| Value | Codegen | Status |
+|---|---|---|
+| `tanstack-vite` | TS+React+Vite+TanStack Router/Query/Form | v0 candidate (post-Lazurite-bootstrap) |
+| `expo` | TS+React Native via Expo Router | v0 candidate (post-Lazurite-bootstrap) |
+| `next` | TS+Next.js (SSR-first) | reserved; not shipped |
+| `tauri` | TS+Tauri (desktop) | reserved; not shipped |
+| `cli` | Go CLI binary with command surface | reserved; for apps that ship CLI tools |
+
+A future distro can extend this catalog only via Lazuli core PR (the catalog lives in `crates/lazuli_cli/src/lazurite_manifest.rs::FrontendTarget` enum + closed `serde` rename).
+
+**Projection-to-target mapping rule:** `.lzx` platform projections compose with `[frontends.<name>].target` as follows:
+- `target = "tanstack-vite"` consumes `<feature>.web.lzx` (preferred) or `<feature>.lzx` (fallback if no platform-specific projection exists).
+- `target = "expo"` consumes `<feature>.mobile.lzx` (preferred) or `<feature>.lzx` (fallback).
+- `target = "next"` consumes `<feature>.web.lzx` (same as tanstack-vite).
+- `target = "tauri"` consumes `<feature>.web.lzx` (same; renders in webview).
+- `target = "cli"` consumes only `<feature>.lzi` (no `.lzx`).
+
+Doctor diagnostic `PROJECTION-MISSING-001` warns when a frontend's audience views can't be projected (e.g., `target = "expo"` but no `<feature>.mobile.lzx` and no fallback `<feature>.lzx` exists).
 
 **v0 scope**: codegen TS is **not in v0**; `[frontends.*]` parsing + doctor diagnostics ship in v0, actual TS/Expo codegen is a follow-up. The schema is forward-compatible.
 
@@ -782,6 +805,26 @@ PP3's file watcher (`crates/lazuli_cli/src/dev.rs`) watches `*.lzi`/`*.lzx` toda
 
 ---
 
+## §14.7 L9 gate results (2026-05-13)
+
+The end-to-end validation against `examples/hostpoint-mini/` ran post Wave 1 + Wave 2 cherry-picks. Findings:
+
+**What worked:**
+- `lazuli generate go examples/hostpoint-mini --out examples/hostpoint-mini/dist/go` emits 20 files including `main.go`, `go.mod`, `go.work`, per-feature `*.gen.go`, and migrations. Codegen reads `lazurite.toml` (L7 wiring) and `[generate.go].submodule` defaults to sub-module emission.
+- `doctor` passes hostpoint-mini once `lazurite.toml` is added (resolves `MANIFEST-REQUIRED-001` from L2).
+- Workspace resolution: `go work sync` + `use ../../runtime/go` makes `lazuli.dev/runtime` (and all bucket sub-packages) resolvable locally without a published v0.1.0 tag. Transitive deps (`pgx`, `river`, etc.) auto-populate from runtime's `go.mod`.
+- `[frontends.*]` topology validated independently via the `lazurite-multifrontend` fixture (3 frontends, 4 audiences).
+
+**Gaps surfaced (follow-up cells, not blockers):**
+
+| # | Issue | Surface |
+|---|---|---|
+| L10 | Codegen does NOT auto-emit `replace lazuli.dev/runtime => <relative-path>` for in-repo fixture builds. Test suite (`smoke_go_build.rs` and `auth_*_flow.rs`) appends it manually; `lazuli new` should append it when scaffolding inside the Lazuli monorepo or when `[generate.go].dev_replace = true`. | `crates/lazuli_codegen_go/src/emitter/module.rs` |
+| L11 | Codegen emits `require <plugin-module>` in `dist/go/go.mod` for every `[plugins]` entry, but the placeholder modules in hostpoint-mini's manifest don't exist on github. Plugins listed with `path = "..."` should emit a corresponding `replace` directive; plugins with `module = "..."` should add a require with the correct version, AND doctor should warn if the plugin repo isn't accessible during `go work sync`. | same |
+| L12 | Generated code that uses `@semantic.GeoPoint` imports `github.com/cridenour/go-postgis` but codegen does NOT add it to `dist/go/go.mod` `require` block. `go work sync` cannot resolve it. Codegen should track which Go packages it emits imports for and add corresponding `require` entries. | same |
+
+**Gate verdict:** PASS with 3 documented follow-ups. The Lazurite shape (folder + manifest + frontend topology) is structurally sound; the gaps are codegen polish, not architectural redesigns. Hostpoint Phase 1 (Auth port) can proceed in parallel with L10-L12.
+
 ## §15. Decision gate
 
 Approve to proceed with Cell L0 → L9 implementation. Suggested order (post-grade fixes):
@@ -839,7 +882,7 @@ Lazurite occupies the same slot as the rightmost convention layer in each row, w
 
 For existing fixtures (full-capsule, auth-roundtrip) to become Lazurite-shaped:
 
-1. Add `lazurite.toml` at root (minimal: `[lazurite] version="1"; [lazuli] runtime="0.1.0"; [env.dev] url=...`).
+1. Add `lazurite.toml` at root (minimal: `[project] name="..." module="..." schema=1`; `[lazuli] runtime="0.1.0"`). Per §13.6, `[env.*]` blocks are NOT in the manifest — environments stay in `app.lzi environments`/`urls`.
 2. Move feature `.lzi` files into `features/<name>/<name>.lzi` if currently flat.
 3. Move handler files into `features/<name>/handlers/`.
 4. Update doctor invocation to use the project root.
