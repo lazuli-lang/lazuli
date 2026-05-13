@@ -531,6 +531,14 @@ pub(crate) fn generate_go(
     lazuli_go_version: Option<&str>,
     check: bool,
 ) -> Result<()> {
+    let project_root = project_root_for_input(input);
+    let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+        format!(
+            "failed to read {}",
+            project_root.join("lazurite.toml").display()
+        )
+    })?;
+    let codegen_manifest = manifest.as_ref().map(codegen_lazurite_manifest);
     let module_ir = build_module_from_path(input)?;
 
     let module_name = match module {
@@ -546,7 +554,11 @@ pub(crate) fn generate_go(
         lazuli_go_version: go_version,
         check,
     };
-    let files = lazuli_codegen_go::generate_v1(&module_ir, &options);
+    let files = lazuli_codegen_go::generate_v1_with_manifest(
+        &module_ir,
+        &options,
+        codegen_manifest.as_ref(),
+    );
 
     if check {
         // Coarse pass/fail signal; the closed §6.2.1 error catalog
@@ -560,7 +572,11 @@ pub(crate) fn generate_go(
         return Ok(());
     }
 
-    let out_dir = output.ok_or_else(|| {
+    let manifest_out = manifest
+        .as_ref()
+        .and_then(|m| m.generate.go.as_ref())
+        .map(|go| project_root.join(&go.out));
+    let out_dir = output.or(manifest_out.as_deref()).ok_or_else(|| {
         anyhow::anyhow!(
             "`lazuli generate go` requires --out <dir>; the emitter writes multiple files"
         )
@@ -570,11 +586,58 @@ pub(crate) fn generate_go(
         .with_context(|| format!("creating output directory {}", out_dir.display()))?;
 
     for file in &files {
-        write_generated_file(out_dir, &file.path, &file.contents)?;
+        if file.path == "go.work" {
+            write_generated_file(&project_root, &file.path, &file.contents)?;
+        } else {
+            write_generated_file(out_dir, &file.path, &file.contents)?;
+        }
     }
 
     println!("wrote {} file(s) to {}", files.len(), out_dir.display());
     Ok(())
+}
+
+fn codegen_lazurite_manifest(
+    manifest: &lazurite_manifest::Manifest,
+) -> lazuli_codegen_go::LazuriteManifest {
+    use std::collections::BTreeMap;
+
+    let plugins = manifest
+        .plugins
+        .iter()
+        .map(|(plugin_ref, plugin)| {
+            let module = match plugin {
+                lazurite_manifest::Plugin::Remote { module, .. } => Some(module.clone()),
+                lazurite_manifest::Plugin::Local { .. } => None,
+            };
+            (
+                plugin_ref.clone(),
+                lazuli_codegen_go::LazuritePlugin { module },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let generate_go =
+        manifest
+            .generate
+            .go
+            .as_ref()
+            .map(|go| lazuli_codegen_go::LazuriteGenerateGo {
+                emit_main: go.emit_main,
+                submodule: go.submodule,
+            });
+    let dev = manifest
+        .dev
+        .as_ref()
+        .map(|dev| lazuli_codegen_go::LazuriteDev {
+            plugin_paths: dev.plugin_paths.clone(),
+        });
+
+    lazuli_codegen_go::LazuriteManifest {
+        project_module: manifest.project.module.clone(),
+        plugins,
+        generate_go,
+        dev,
+    }
 }
 
 /// Derive the Go module name from the IR's `app.name` (kebab-cased,

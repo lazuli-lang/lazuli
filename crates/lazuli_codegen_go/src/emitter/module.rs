@@ -30,7 +30,7 @@ use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PA
 use super::storage::emit_storage_file;
 use super::translation::emit_translation_files;
 use super::webhook::emit_webhook_file;
-use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION};
+use crate::{GeneratedFile, GoEmitOptions, LazuriteManifest, LAZULI_GO_VERSION};
 
 /// Default Go module path used when the caller did not supply one and
 /// the IR exposes no `app.name`. Matches proposal §1.1's "fallback
@@ -46,8 +46,21 @@ const DEFAULT_GO_TOOLCHAIN: &str = "go 1.25";
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds
 /// land in subsequent cells.
-pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFile> {
-    let module_name = resolve_module_name(module, options);
+pub fn emit_module(
+    module: &Module,
+    options: &GoEmitOptions,
+    manifest: Option<&LazuriteManifest>,
+) -> Vec<GeneratedFile> {
+    let base_module_name = resolve_module_name(module, options, manifest);
+    let submodule = manifest
+        .and_then(|m| m.generate_go.as_ref())
+        .map(|g| g.submodule)
+        .unwrap_or(true);
+    let module_name = if manifest.is_some() && submodule {
+        format!("{}/generated", base_module_name.trim_end_matches('/'))
+    } else {
+        base_module_name
+    };
     let lazuli_go_version = if options.lazuli_go_version.is_empty() {
         LAZULI_GO_VERSION.to_owned()
     } else {
@@ -67,12 +80,22 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
     // keeps the common case allocation-free.
     let mut files = Vec::with_capacity(features.len() * 4 + 3);
 
-    // Root `go.mod` first so byte-comparison fixtures find it at
-    // index 0.
-    files.push(GeneratedFile {
-        path: "go.mod".to_owned(),
-        contents: emit_go_mod(&module_name, &lazuli_go_version),
-    });
+    if manifest.is_none() || submodule {
+        // Root `go.mod` first so byte-comparison fixtures find it at
+        // index 0. In Lazurite sub-module mode this is the generated
+        // module's `dist/go/go.mod`; the CLI writes top-level
+        // companions such as `go.work` at the project root.
+        files.push(GeneratedFile {
+            path: "go.mod".to_owned(),
+            contents: emit_go_mod(&module_name, &lazuli_go_version, manifest),
+        });
+    }
+    if manifest.is_some() && submodule {
+        files.push(GeneratedFile {
+            path: "go.work".to_owned(),
+            contents: emit_go_work(),
+        });
+    }
 
     // Phase Prep §1.1 mini-cell pré-E3 — build the cross-feature
     // resolver index once per run, before any per-feature walker
@@ -84,14 +107,20 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
 
     let source_label = resolve_source_label(module);
 
-    // Cell I2 — root `main.go` (always emitted) + `lazuli_app.gen.go`
+    // Cell I2 — root `main.go` (emitted unless Lazurite disables it) + `lazuli_app.gen.go`
     // (skipped when `module.app == None` and no observable surface).
     // Ordered after `go.mod` and before per-feature files so reading
     // the output listing top-down surfaces the binary entry first.
-    files.push(GeneratedFile {
-        path: MAIN_GO_PATH.to_owned(),
-        contents: emit_main_go(module, &module_name, &source_label),
-    });
+    let emit_main = manifest
+        .and_then(|m| m.generate_go.as_ref())
+        .map(|g| g.emit_main)
+        .unwrap_or(true);
+    if emit_main {
+        files.push(GeneratedFile {
+            path: MAIN_GO_PATH.to_owned(),
+            contents: emit_main_go(module, &module_name, &source_label, manifest),
+        });
+    }
     if let Some(contents) = emit_lazuli_app_gen(module, &source_label) {
         files.push(GeneratedFile {
             path: LAZULI_APP_PATH.to_owned(),
@@ -147,8 +176,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         // Cell E4 — Query.{List, Lookup, Sql} emission. Per-feature
         // typed Args struct + `lazuli.Query[A, R]` value per query
         // into `query.gen.go`.
-        if let Some(contents) =
-            emit_query_file(&source_label, feature, &module_name, &cross_index)
+        if let Some(contents) = emit_query_file(&source_label, feature, &module_name, &cross_index)
         {
             let query_path = format!("{name}/query.gen.go", name = feature.name);
             files.push(GeneratedFile {
@@ -160,9 +188,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         // Cell G1 — Auth emission. Per-feature `auth` block lowered
         // to `auth.PasswordContract` / `SessionsContract` / `MfaContract`
         // / `OAuthContract` typed values in `auth.gen.go`.
-        if let Some(contents) =
-            emit_auth_file(&source_label, feature, &module_name, &cross_index)
-        {
+        if let Some(contents) = emit_auth_file(&source_label, feature, &module_name, &cross_index) {
             let auth_path = format!("{name}/auth.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: auth_path,
@@ -172,9 +198,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
 
         // Cell G2a — Job emission. Per-feature `lazuli.JobContract`
         // values in `job.gen.go`.
-        if let Some(contents) =
-            emit_job_file(&source_label, feature, &module_name, &cross_index)
-        {
+        if let Some(contents) = emit_job_file(&source_label, feature, &module_name, &cross_index) {
             let job_path = format!("{name}/job.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: job_path,
@@ -199,8 +223,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         if let Some(contents) =
             emit_notification_file(&source_label, feature, &module_name, &cross_index)
         {
-            let notification_path =
-                format!("{name}/notification.gen.go", name = feature.name);
+            let notification_path = format!("{name}/notification.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: notification_path,
                 contents,
@@ -220,8 +243,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
 
         // Cell G3b — EventGroup emission. Per-feature `lazuli.EventGroup`
         // values + payload structs in `events.gen.go`.
-        if let Some(contents) =
-            emit_events_file(&source_label, feature, &module_name, &cross_index)
+        if let Some(contents) = emit_events_file(&source_label, feature, &module_name, &cross_index)
         {
             let events_path = format!("{name}/events.gen.go", name = feature.name);
             files.push(GeneratedFile {
@@ -245,9 +267,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         // Cell G5 — Api emission. Per-feature `lazuli.Api[I, O]`
         // values in `api.gen.go` (Lazuli Go lib gap §4.2 — emitter
         // ships TODO comments inside the value literal).
-        if let Some(contents) =
-            emit_api_file(&source_label, feature, &module_name, &cross_index)
-        {
+        if let Some(contents) = emit_api_file(&source_label, feature, &module_name, &cross_index) {
             let api_path = format!("{name}/api.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: api_path,
@@ -260,8 +280,7 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
         if let Some(contents) =
             emit_migration_file(&source_label, feature, &module_name, &cross_index)
         {
-            let migration_path =
-                format!("{name}/migration.gen.go", name = feature.name);
+            let migration_path = format!("{name}/migration.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: migration_path,
                 contents,
@@ -285,7 +304,17 @@ pub fn emit_module(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
     files
 }
 
-fn resolve_module_name(module: &Module, options: &GoEmitOptions) -> String {
+fn resolve_module_name(
+    module: &Module,
+    options: &GoEmitOptions,
+    manifest: Option<&LazuriteManifest>,
+) -> String {
+    if let Some(module_name) = manifest
+        .map(|m| m.project_module.trim())
+        .filter(|module_name| !module_name.is_empty())
+    {
+        return module_name.to_owned();
+    }
     if let Some(name) = options
         .module_name
         .as_ref()
@@ -307,7 +336,11 @@ fn resolve_source_label(module: &Module) -> String {
     }
 }
 
-fn emit_go_mod(module_name: &str, lazuli_go_version: &str) -> String {
+fn emit_go_mod(
+    module_name: &str,
+    lazuli_go_version: &str,
+    manifest: Option<&LazuriteManifest>,
+) -> String {
     let mut p = GoPrinter::new();
     p.line(&format!("module {}", module_name));
     p.blank();
@@ -322,6 +355,39 @@ fn emit_go_mod(module_name: &str, lazuli_go_version: &str) -> String {
     // imports reference `lazuli.dev/runtime/lazuli` and
     // `lazuli.dev/runtime/lazuli/<bucket>` paths against that module.
     p.line(&format!("lazuli.dev/runtime {}", lazuli_go_version));
+    p.dedent();
+    p.line(")");
+    if let Some(manifest) = manifest {
+        if let Some(dev) = manifest.dev.as_ref() {
+            let mut replacements = Vec::new();
+            for (ref_str, path) in &dev.plugin_paths {
+                let Some(plugin) = manifest.plugins.get(ref_str) else {
+                    continue;
+                };
+                let Some(module) = plugin.module.as_deref() else {
+                    continue;
+                };
+                replacements.push((module, path.as_str()));
+            }
+            if !replacements.is_empty() {
+                p.blank();
+                for (module, path) in replacements {
+                    p.line(&format!("replace {} => {}", module, path));
+                }
+            }
+        }
+    }
+    p.finish()
+}
+
+fn emit_go_work() -> String {
+    let mut p = GoPrinter::new();
+    p.line(DEFAULT_GO_TOOLCHAIN);
+    p.blank();
+    p.line("use (");
+    p.indent();
+    p.line(".");
+    p.line("./dist/go");
     p.dedent();
     p.line(")");
     p.finish()

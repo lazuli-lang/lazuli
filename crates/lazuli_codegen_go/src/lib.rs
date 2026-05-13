@@ -25,6 +25,8 @@ pub mod runtime;
 
 pub use runtime::emit_feature_go;
 
+use std::collections::BTreeMap;
+
 use lazuli_ir::{BuiltinType, CommandInput, Field, Module, Resource, TypeRef};
 
 /// Crate-pinned default version constraint emitted in the generated
@@ -43,6 +45,34 @@ pub const LAZULI_GO_VERSION: &str = "v0.1.0";
 pub struct GeneratedFile {
     pub path: String,
     pub contents: String,
+}
+
+/// Lazurite manifest subset consumed by the Go emitter. The CLI owns
+/// TOML parsing/validation and translates its full manifest into this
+/// narrow codegen contract so this library does not depend on the CLI
+/// crate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LazuriteManifest {
+    pub project_module: String,
+    pub plugins: BTreeMap<String, LazuritePlugin>,
+    pub generate_go: Option<LazuriteGenerateGo>,
+    pub dev: Option<LazuriteDev>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LazuritePlugin {
+    pub module: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LazuriteGenerateGo {
+    pub emit_main: bool,
+    pub submodule: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LazuriteDev {
+    pub plugin_paths: BTreeMap<String, String>,
 }
 
 /// Options accepted by `generate_v1`. Mirrors the CLI surface described
@@ -79,7 +109,18 @@ impl Default for GoEmitOptions {
 /// downstream. Output: root `go.mod` plus one `.gen.go` stub per
 /// feature.
 pub fn generate_v1(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFile> {
-    emitter::emit_module(module, options)
+    generate_v1_with_manifest(module, options, None)
+}
+
+/// Lazurite-aware Go emitter entry point. When `manifest` is absent the
+/// output intentionally matches `generate_v1`'s legacy single-module
+/// behavior so bare projects and fixtures do not need a manifest.
+pub fn generate_v1_with_manifest(
+    module: &Module,
+    options: &GoEmitOptions,
+    manifest: Option<&LazuriteManifest>,
+) -> Vec<GeneratedFile> {
+    emitter::emit_module(module, options, manifest)
 }
 
 /// Legacy Phase J / spike emitter. Produces the hard-coded
@@ -341,7 +382,7 @@ mod tests {
     use lazuli_analyzer::lower_document;
     use lazuli_syntax::parse_document;
 
-    use super::{GoEmitOptions, LAZULI_GO_VERSION, generate_legacy_demo, generate_v1};
+    use super::{generate_legacy_demo, generate_v1, GoEmitOptions, LAZULI_GO_VERSION};
 
     #[test]
     fn legacy_demo_emits_backend_files() {
@@ -350,11 +391,9 @@ mod tests {
         let files = generate_legacy_demo(&module);
 
         assert!(files.iter().any(|file| file.path == "backend/main.go"));
-        assert!(
-            files
-                .iter()
-                .any(|file| file.contents.contains("handleCustomerList"))
-        );
+        assert!(files
+            .iter()
+            .any(|file| file.contents.contains("handleCustomerList")));
     }
 
     #[test]
