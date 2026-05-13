@@ -16,22 +16,23 @@ use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
 use super::auth::emit_auth_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
-use super::deps::{TransitiveDep, GO_POSTGIS_DEP};
+use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
 use super::enums::emit_enum_file;
 use super::events::emit_events_file;
 use super::imports::ImportSet;
 use super::job::emit_job_file;
+use super::lint::check_generated_file;
 use super::migration::emit_migration_file;
 use super::migration_ddl::emit_migrations;
 use super::notification::emit_notification_file;
 use super::printer::GoPrinter;
 use super::query::emit_query_file;
 use super::resource::emit_resource_file;
-use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PATH};
+use super::root::{LAZULI_APP_PATH, MAIN_GO_PATH, emit_lazuli_app_gen, emit_main_go};
 use super::storage::emit_storage_file;
 use super::translation::emit_translation_files;
 use super::webhook::emit_webhook_file;
-use crate::{GeneratedFile, GoEmitOptions, LazuriteManifest, LAZULI_GO_VERSION};
+use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION, LazuriteManifest};
 use lazuli_ir::{BuiltinType, TypeRef};
 
 /// Default Go module path used when the caller did not supply one and
@@ -527,6 +528,12 @@ pub fn emit_module(
     // command.gen.go when the command declares `audit default`.
     files.push(emit_audit_log_ddl());
     files.extend(emit_audit_metadata(module));
+
+    for file in &files {
+        if let Err(err) = check_generated_file(&file.contents, &file.path) {
+            panic!("{err}");
+        }
+    }
 
     files
 }

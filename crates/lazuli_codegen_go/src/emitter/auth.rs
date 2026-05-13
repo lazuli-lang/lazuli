@@ -20,6 +20,7 @@ use lazuli_ir::{
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
+use super::patterns::{PATTERN_AUTH_LOGIN, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/auth.gen.go` for a feature, or `None` when the
@@ -70,6 +71,7 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
         ],
     );
 
+    emit_pattern_header(p, PATTERN_AUTH_LOGIN);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, auth_block.span_ref);
     emit_identity(p, &identity_var, auth_block);
 
@@ -311,6 +313,7 @@ fn emit_auth_routes(
             "  canonical auth auto-mounts".to_owned(),
         ],
     );
+    emit_pattern_header(p, PATTERN_AUTH_LOGIN);
     p.line("func init() {");
     p.indent();
     for route in routes {

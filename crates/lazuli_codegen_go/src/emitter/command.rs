@@ -56,6 +56,9 @@ use super::cross_feature::CrossFeatureIndex;
 use super::error_envelope::{bucket_names_for_external_calls, emit_wrap_helper, sentinel_buckets};
 use super::imports::ImportSet;
 use super::module::EmitContext;
+use super::patterns::{
+    PATTERN_COMMAND_PGX_INSERT, PATTERN_COMMAND_PGX_UPDATE, emit_pattern_header,
+};
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -95,6 +98,7 @@ pub fn emit_command_file(
     // imports (e.g. `storage.FileRef` for `@cap.File` slots).
     imports.add("context");
     imports.add("lazuli.dev/runtime/lazuli");
+    imports.add("lazuli.dev/runtime/lazuli/observability");
     if !wrap_buckets.is_empty() {
         imports.add("context");
         imports.add("errors");
@@ -196,6 +200,11 @@ fn emit_command(
 
     let var_name = command_var_name(&command.name, &resource_pascal);
 
+    let pattern = match command.effect {
+        CommandEffect::Updates(_) => PATTERN_COMMAND_PGX_UPDATE,
+        _ => PATTERN_COMMAND_PGX_INSERT,
+    };
+    emit_pattern_header(p, pattern);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, command.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Command[{input_type}, {output_type}]{{"
@@ -262,6 +271,51 @@ fn emit_command(
     p.dedent();
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
+    p.blank();
+    emit_command_handler_wrapper(
+        p,
+        feature,
+        command,
+        &var_name,
+        &input_type,
+        &output_type,
+        pattern,
+    );
+}
+
+fn emit_command_handler_wrapper(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    command: &Command,
+    var_name: &str,
+    input_type: &str,
+    output_type: &str,
+    pattern: (&str, &str),
+) {
+    emit_pattern_header(p, pattern);
+    p.line(&format!(
+        "func {}(ctx *lazuli.Ctx, input {input_type}) ({output_type}, error) {{",
+        command_handler_func_name(&command.name)
+    ));
+    p.indent();
+    p.line("if ctx.Context == nil {");
+    p.indent();
+    p.line("ctx.Context = context.Background()");
+    p.dedent();
+    p.line("}");
+    p.line("ctx.Context = lazuli.WithSource(ctx.Context, lazuli.SourceTag{");
+    p.indent();
+    p.line(&format!("Feature: \"{}\",", escape_string(&feature.name)));
+    p.line("Kind:    \"command\",");
+    p.line(&format!("Op:      \"{}\",", escape_string(&command.name)));
+    p.dedent();
+    p.line("})");
+    p.line("var endOp func()");
+    p.line("ctx.Context, endOp = observability.StartOp(ctx.Context)");
+    p.line("defer endOp()");
+    p.line(&format!("return {var_name}.Handle(ctx, input)"));
+    p.dedent();
+    p.line("}");
 }
 
 /// Emit the `type <Name>Input struct` block for a typed input list.
@@ -841,6 +895,10 @@ fn command_var_name(short_name: &str, resource_pascal: &str) -> String {
     out
 }
 
+fn command_handler_func_name(short_name: &str) -> String {
+    format!("Handle{}", pascal_case(short_name))
+}
+
 fn pascal_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for word in s.split(|c: char| c == '_' || c == '-') {
@@ -1132,7 +1190,9 @@ mod tests {
         assert!(out.contains("`json:\"email\"`"));
         assert!(out.contains("Email lazuli.Email"));
         // Command value shape.
-        assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
+        assert!(
+            out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
+        );
         assert!(out.contains("Name:      \"customer.create\","));
         assert!(out.contains("Resource:  &customerResource,"));
         assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
@@ -1163,8 +1223,11 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out
-            .contains("\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"));
+        assert!(
+            out.contains(
+                "\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"
+            )
+        );
     }
 
     #[test]
@@ -1341,6 +1404,9 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
+        assert!(out.contains("//lazuli:pattern command_pgx_insert v1"));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/observability\""));
+        assert!(out.contains("ctx.Context, endOp = observability.StartOp(ctx.Context)"));
         assert!(out.contains("\"context\""));
         assert!(out.contains("\"errors\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/auth\""));

@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 
 use lazuli_ir::ExternalCallRef;
 
+use super::patterns::{PATTERN_ERROR_WRAP_HELPER, emit_pattern_header};
 use super::printer::GoPrinter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,6 +170,7 @@ pub fn emit_wrap_helper_named(p: &mut GoPrinter, helper_name: &str, buckets: &BT
         "// {helper_name} wraps known bucket sentinels into typed errors."
     ));
     p.line("// One-wrap boundary per bucket-ai-debug-loop-cycle.md §7.2.");
+    emit_pattern_header(p, PATTERN_ERROR_WRAP_HELPER);
     p.line(&format!(
         "func {helper_name}(ctx context.Context, err error) error {{"
     ));

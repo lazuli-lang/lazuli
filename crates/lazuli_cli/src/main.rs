@@ -17,6 +17,7 @@ mod doctor;
 mod examples_bundle;
 mod lazurite_manifest;
 mod migrate;
+mod profile;
 mod seed;
 mod templates;
 mod upgrade;
@@ -98,6 +99,16 @@ enum Commands {
         project: PathBuf,
         /// Output format: json or markdown.
         #[arg(long, default_value = "json")]
+        format: String,
+    },
+    /// Read a pprof profile and report top-N ops by .lzi semantics.
+    Profile {
+        profile: PathBuf,
+        #[arg(long, default_value = "10")]
+        top: usize,
+        #[arg(long, default_value = "cpu")]
+        by: String,
+        #[arg(long, default_value = "text")]
         format: String,
     },
     /// Curated examples for AI authoring and CI validation.
@@ -559,6 +570,12 @@ fn main() -> Result<()> {
             project,
             format,
         } => debug_command(&project, error.as_deref(), capsule, &format),
+        Commands::Profile {
+            profile,
+            top,
+            by,
+            format,
+        } => profile_command(&profile, top, &by, &format),
         Commands::Examples { sub } => {
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
@@ -684,6 +701,32 @@ fn generate_command(
         GenerateKind::Go => {
             generate_go(input, output, module, lazuli_go_version, check, with_source)
         }
+    }
+}
+
+fn profile_command(profile_path: &Path, top: usize, by: &str, format: &str) -> Result<()> {
+    let axis = match by {
+        "cpu" => profile::ProfileAxis::Cpu,
+        "alloc" => profile::ProfileAxis::Alloc,
+        "block" => profile::ProfileAxis::Block,
+        other => bail!("unknown profile axis `{other}`; expected cpu, alloc, or block"),
+    };
+    let report = profile::run_profile(profile_path, top, axis)
+        .map_err(|err| anyhow::anyhow!("failed to read profile: {err}"))?;
+    match format {
+        "text" => {
+            print!("{}", profile::format_report(&report));
+            Ok(())
+        }
+        "json" => {
+            let payload = serde_json::json!({
+                "top_ops": report.top_ops,
+                "top_patterns": report.top_patterns,
+            });
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+            Ok(())
+        }
+        other => bail!("unknown profile format `{other}`; expected text or json"),
     }
 }
 

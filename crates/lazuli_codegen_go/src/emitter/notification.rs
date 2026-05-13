@@ -20,6 +20,7 @@ use lazuli_ir::{
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
+use super::patterns::{PATTERN_NOTIFICATION_DISPATCH, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/notification.gen.go` for a feature, or `None` when
@@ -79,6 +80,7 @@ fn emit_notification(
         ],
     );
 
+    emit_pattern_header(p, PATTERN_NOTIFICATION_DISPATCH);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, notification.span_ref);
     p.line(&format!(
         "var {var_name} = notifications.NotificationContract{{"

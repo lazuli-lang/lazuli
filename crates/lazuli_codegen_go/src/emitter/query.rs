@@ -21,6 +21,9 @@ use lazuli_ir::{
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
+use super::patterns::{
+    PATTERN_QUERY_PGX_LIST, PATTERN_QUERY_PGX_LOOKUP, PATTERN_QUERY_PGX_SQL, emit_pattern_header,
+};
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -118,6 +121,7 @@ fn emit_list_query(
     emit_args_struct(p, &args_struct, &query.params, ctx);
     p.blank();
 
+    emit_pattern_header(p, PATTERN_QUERY_PGX_LIST);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Query[{args_struct}, {resource_type}]{{"
@@ -180,6 +184,7 @@ fn emit_lookup_query(
     emit_args_struct(p, &args_struct, &args, ctx);
     p.blank();
 
+    emit_pattern_header(p, PATTERN_QUERY_PGX_LOOKUP);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Query[{args_struct}, {resource_type}]{{"
@@ -229,6 +234,7 @@ fn emit_sql_query(
     emit_args_struct(p, &args_struct, &query.params, ctx);
     p.blank();
 
+    emit_pattern_header(p, PATTERN_QUERY_PGX_SQL);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
     p.line(&format!(
         "var {var_name} = lazuli.Query[{args_struct}, {return_type}]{{"

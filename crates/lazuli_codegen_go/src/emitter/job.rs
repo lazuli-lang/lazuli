@@ -25,6 +25,7 @@ use super::error_envelope::{
 };
 use super::imports::ImportSet;
 use super::module::EmitContext;
+use super::patterns::{PATTERN_JOB_HANDLER, emit_pattern_header};
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -112,6 +113,7 @@ fn emit_job(
         ],
     );
 
+    emit_pattern_header(p, PATTERN_JOB_HANDLER);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, job.span_ref);
     p.line(&format!(
         "var {} = jobs.JobContract{{",

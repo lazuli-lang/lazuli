@@ -43,6 +43,7 @@ use std::collections::BTreeMap;
 use lazuli_ir::{AppLocale, AppLogging, AppObservability, AppTracing, Module};
 
 use super::imports::ImportSet;
+use super::patterns::{PATTERN_MAIN_ENTRYPOINT, emit_pattern_header};
 use super::printer::GoPrinter;
 use crate::LazuriteManifest;
 
@@ -92,6 +93,7 @@ pub fn emit_main_go(
     // `Boot(ctx, lazuliApp)`; until then we read the DB URL from
     // `LAZULI_DB` and fall back to a local Postgres default to keep the
     // smoke-test workflow ergonomic.
+    emit_pattern_header(&mut p, PATTERN_MAIN_ENTRYPOINT);
     p.line("func main() {");
     p.indent();
     p.line("ctx := context.Background()");
@@ -525,7 +527,7 @@ mod tests {
             name: name.to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,
@@ -590,8 +592,11 @@ mod tests {
         assert!(out.contains(
             "// Feature packages are imported above for init-time registry registration."
         ));
-        assert!(out
-            .contains("// MountAll walks that registry and attaches API, command, and agent HTTP"));
+        assert!(
+            out.contains(
+                "// MountAll walks that registry and attaches API, command, and agent HTTP"
+            )
+        );
         assert!(out.contains("// handlers before the process starts accepting requests."));
     }
 

@@ -20,6 +20,7 @@ use lazuli_ir::{
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
+use super::patterns::{PATTERN_WEBHOOK_RECEIVER, emit_pattern_header};
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -89,6 +90,7 @@ fn emit_webhook(
         ],
     );
 
+    emit_pattern_header(p, PATTERN_WEBHOOK_RECEIVER);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, webhook.span_ref);
     p.line(&format!("var {var_name} = webhooks.WebhookContract{{"));
     p.indent();

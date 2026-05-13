@@ -24,6 +24,8 @@ use lazuli_ir::{
 
 use crate::GeneratedFile;
 
+use super::patterns::PATTERN_EXTENSION_STUB;
+
 const DIST_GO_PREFIX: &str = "dist/go";
 
 /// Emit starter stubs for every `@fn.*` and `@hook.*` reference in the IR.
@@ -1235,27 +1237,45 @@ import (
 	"errors"
 
 	"lazuli.dev/runtime/lazuli"
+	"lazuli.dev/runtime/lazuli/observability"
 )
 
 // {fn_name} is the user-authored implementation of `{escaped_literal}`.
 //   Site: {escaped_site}
 // IMPLEMENT ME
+//lazuli:pattern {pattern_id} {pattern_version}
 func {fn_name}(ctx *lazuli.Ctx, input {input_type}) ({output_type}, error) {{
+	if ctx.Context == nil {{
+		ctx.Context = context.Background()
+	}}
+	ctx.Context = lazuli.WithSource(ctx.Context, lazuli.SourceTag{{
+		Feature: "{feature}",
+		Kind:    "handler",
+		Op:      "{op}",
+	}})
+	var endOp func()
+	ctx.Context, endOp = observability.StartOp(ctx.Context)
+	defer endOp()
 	_ = ctx
 	_ = input
 	_ = context.Background
 	return zero[{output_type}](), errors.New("{escaped_error}")
 }}
 
+//lazuli:pattern {pattern_id} {pattern_version}
 func zero[T any]() T {{
 	var z T
 	return z
 }}
 "#,
         package = stub.feature,
+        feature = escape_string(&stub.feature),
         fn_name = fn_name,
         escaped_literal = escaped_literal,
         escaped_site = escaped_site,
+        pattern_id = PATTERN_EXTENSION_STUB.0,
+        pattern_version = PATTERN_EXTENSION_STUB.1,
+        op = escape_string(&stub.name),
         input_type = stub.input_type,
         output_type = stub.output_type,
         escaped_error = escaped_error,
@@ -1609,6 +1629,15 @@ mod tests {
         assert!(hash.contents.contains(
             "return zero[lazuli.HashedRef](), errors.New(\"hash_password not yet implemented\")"
         ));
+        assert!(hash.contents.contains("//lazuli:pattern extension_stub v1"));
+        assert!(
+            hash.contents
+                .contains("ctx.Context = lazuli.WithSource(ctx.Context, lazuli.SourceTag{")
+        );
+        assert!(
+            hash.contents
+                .contains("ctx.Context, endOp = observability.StartOp(ctx.Context)")
+        );
         assert_eq!(hash.contents.matches("func zero[T any]() T").count(), 1);
     }
 
