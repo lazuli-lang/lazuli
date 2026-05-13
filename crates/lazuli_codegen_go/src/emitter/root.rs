@@ -143,10 +143,9 @@ pub fn emit_main_go(
     p.line(")");
     p.blank();
     p.line("// Feature packages are imported above for init-time registry registration.");
-    p.line("// MountAll walks that registry and attaches API, command, and agent HTTP");
-    p.line("// handlers before the process starts accepting requests.");
-    p.line("mux := lazuli.Mux()");
-    p.line("lazuli.MountAll(mux)");
+    p.line("// lazuli.Mux() walks that registry and attaches command, query, and");
+    p.line("// healthz routes before the process starts accepting requests.");
+    p.line("handler := lazuli.Mux()");
     p.blank();
     p.line("addr := os.Getenv(\"LAZULI_ADDR\")");
     p.line("if addr == \"\" {");
@@ -155,7 +154,7 @@ pub fn emit_main_go(
     p.dedent();
     p.line("}");
     p.line("slog.Info(\"lazuli http listening\", \"addr\", addr)");
-    p.line("if err := http.ListenAndServe(addr, mux); err != nil {");
+    p.line("if err := http.ListenAndServe(addr, handler); err != nil {");
     p.indent();
     p.line("slog.Error(\"lazuli http server exited\", \"error\", err)");
     p.line("os.Exit(1)");
@@ -576,9 +575,8 @@ mod tests {
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("func main() {"));
         assert!(out.contains("lazuli.Boot(ctx, dbURL)"));
-        assert!(out.contains("mux := lazuli.Mux()"));
-        assert!(out.contains("lazuli.MountAll(mux)"));
-        assert!(out.contains("http.ListenAndServe(addr, mux)"));
+        assert!(out.contains("handler := lazuli.Mux()"));
+        assert!(out.contains("http.ListenAndServe(addr, handler)"));
         assert!(!out.contains("http.ListenAndServe(addr, lazuli.Mux())"));
         // No feature side-effect imports when the module has no features.
         assert!(!out.contains("_ \"lazuli/"));
@@ -594,10 +592,10 @@ mod tests {
         ));
         assert!(
             out.contains(
-                "// MountAll walks that registry and attaches API, command, and agent HTTP"
+                "// lazuli.Mux() walks that registry and attaches command, query, and"
             )
         );
-        assert!(out.contains("// handlers before the process starts accepting requests."));
+        assert!(out.contains("// healthz routes before the process starts accepting requests."));
     }
 
     #[test]
