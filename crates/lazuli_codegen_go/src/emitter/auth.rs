@@ -39,6 +39,9 @@ pub fn emit_auth_file(
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
     imports.add("lazuli.dev/runtime/lazuli/auth");
+    if has_auth_routes(auth) {
+        imports.add("lazuli.dev/runtime/lazuli");
+    }
     if auth.sessions.is_some() {
         imports.add("time");
     }
@@ -90,6 +93,12 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth) {
     if let Some(mfa) = &auth_block.mfa {
         p.blank();
         emit_mfa(p, &feature_camel, mfa);
+    }
+
+    let routes = auth_routes(auth_block);
+    if !routes.is_empty() {
+        p.blank();
+        emit_auth_routes(p, feature, &routes);
     }
 }
 
@@ -214,6 +223,122 @@ fn emit_mfa(p: &mut GoPrinter, feature_camel: &str, mfa: &AuthMfa) {
     p.line("}");
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AuthRoute {
+    name_suffix: String,
+    method: &'static str,
+    path: String,
+    handler: &'static str,
+    verify_handler_name: bool,
+}
+
+fn has_auth_routes(auth_block: &Auth) -> bool {
+    auth_block.password.is_some() || auth_block.sessions.is_some() || !auth_block.oauth.is_empty()
+}
+
+fn auth_routes(auth_block: &Auth) -> Vec<AuthRoute> {
+    let mut routes = Vec::new();
+
+    if auth_block.password.is_some() {
+        routes.push(AuthRoute {
+            name_suffix: "login".to_owned(),
+            method: "lazuli.MethodPost",
+            path: "/auth/login".to_owned(),
+            handler: "auth.LoginHandler",
+            verify_handler_name: false,
+        });
+        routes.push(AuthRoute {
+            name_suffix: "signup".to_owned(),
+            method: "lazuli.MethodPost",
+            path: "/auth/signup".to_owned(),
+            handler: "auth.SignupHandler",
+            verify_handler_name: false,
+        });
+    }
+
+    if auth_block.password.is_some() || auth_block.sessions.is_some() {
+        routes.push(AuthRoute {
+            name_suffix: "logout".to_owned(),
+            method: "lazuli.MethodPost",
+            path: "/auth/logout".to_owned(),
+            handler: "auth.LogoutHandler",
+            verify_handler_name: false,
+        });
+    }
+
+    let mut oauth: Vec<&AuthOAuthProvider> = auth_block.oauth.iter().collect();
+    oauth.sort_by(|a, b| {
+        a.provider
+            .cmp(&b.provider)
+            .then_with(|| a.adapter.cmp(&b.adapter))
+    });
+    for provider in oauth {
+        let provider_path = escape_route_segment(&provider.provider);
+        routes.push(AuthRoute {
+            name_suffix: format!("oauth.{}", provider.provider),
+            method: "lazuli.MethodGet",
+            path: format!("/auth/oauth/{provider_path}"),
+            handler: "auth.OAuthHandler",
+            verify_handler_name: true,
+        });
+        routes.push(AuthRoute {
+            name_suffix: format!("oauth.{}.callback", provider.provider),
+            method: "lazuli.MethodGet",
+            path: format!("/auth/oauth/{provider_path}/callback"),
+            handler: "auth.OAuthCallbackHandler",
+            verify_handler_name: true,
+        });
+    }
+
+    routes
+}
+
+fn emit_auth_routes(p: &mut GoPrinter, feature: &Feature, routes: &[AuthRoute]) {
+    write_section_banner(
+        p,
+        &[
+            format!("Auth HTTP routes: {}", feature.name),
+            "  canonical auth auto-mounts".to_owned(),
+        ],
+    );
+    p.line("func init() {");
+    p.indent();
+    for route in routes {
+        if route.verify_handler_name {
+            p.line("// TODO(runtime): handler name verification");
+        }
+        p.line("lazuli.RegisterApi(&lazuli.Api[any, any]{");
+        p.indent();
+        write_aligned_kv_rows(
+            p,
+            &[
+                (
+                    "Name:".to_owned(),
+                    format!(
+                        "\"{}.auth.{}\",",
+                        escape_string(&feature.name),
+                        escape_string(&route.name_suffix)
+                    ),
+                ),
+                (
+                    "Feature:".to_owned(),
+                    format!("\"{}\",", escape_string(&feature.name)),
+                ),
+                ("Method:".to_owned(), format!("{},", route.method)),
+                (
+                    "Path:".to_owned(),
+                    format!("\"{}\",", escape_string(&route.path)),
+                ),
+                ("Handler:".to_owned(), format!("{},", route.handler)),
+            ],
+        );
+        p.dedent();
+        p.line("})");
+    }
+    p.dedent();
+    p.line("}");
+}
+
 fn write_aligned_kv_rows(p: &mut GoPrinter, rows: &[(String, String)]) {
     let key_width = rows.iter().map(|(key, _)| key.len()).max().unwrap_or(0);
     for (key, value) in rows {
@@ -318,6 +443,13 @@ fn scale_duration(value: u64, unit: &str) -> String {
     } else {
         format!("{value} * {unit}")
     }
+}
+
+fn escape_route_segment(raw: &str) -> String {
+    raw.split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn pascal_case(s: &str) -> String {
@@ -519,6 +651,7 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("package customer_auth"));
         assert!(out.contains("\"time\""));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/auth\""));
         assert!(out.contains(
             "var customerAuthAuthIdentity = auth.FieldRef{Resource: \"Customer\", Field: \"email\"}"
@@ -535,6 +668,22 @@ mod tests {
         assert!(out.contains("AdapterRef: \"@adapter.google_oauth\","));
         assert!(out.contains("var customerAuthAuthMfa = auth.MfaContract{"));
         assert!(out.contains("Method:   auth.MfaMethodTOTP,"));
+        assert!(out.contains("func init() {"));
+        assert!(out.contains("Name:    \"customer_auth.auth.login\","));
+        assert!(out.contains("Method:  lazuli.MethodPost,"));
+        assert!(out.contains("Path:    \"/auth/login\","));
+        assert!(out.contains("Handler: auth.LoginHandler,"));
+        assert!(out.contains("Path:    \"/auth/signup\","));
+        assert!(out.contains("Handler: auth.SignupHandler,"));
+        assert!(out.contains("Path:    \"/auth/logout\","));
+        assert!(out.contains("Handler: auth.LogoutHandler,"));
+        assert!(out.contains("Name:    \"customer_auth.auth.oauth.google\","));
+        assert!(out.contains("Method:  lazuli.MethodGet,"));
+        assert!(out.contains("Path:    \"/auth/oauth/google\","));
+        assert!(out.contains("Handler: auth.OAuthHandler,"));
+        assert!(out.contains("Path:    \"/auth/oauth/google/callback\","));
+        assert!(out.contains("Handler: auth.OAuthCallbackHandler,"));
+        assert!(out.contains("// TODO(runtime): handler name verification"));
     }
 
     #[test]
@@ -547,6 +696,8 @@ mod tests {
         assert!(!out.contains("SessionsContract"));
         assert!(!out.contains("MfaContract"));
         assert!(!out.contains("OAuthContract"));
+        assert!(!out.contains("RegisterApi"));
+        assert!(!out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(!out.contains("\"time\""));
     }
 
@@ -570,6 +721,36 @@ mod tests {
         let google_pos = a.find("AuthOAuthGoogle").expect("google contract");
         let microsoft_pos = a.find("AuthOAuthMicrosoft").expect("microsoft contract");
         assert!(google_pos < microsoft_pos);
+        let google_route_pos = a
+            .find("Name:    \"customer.auth.oauth.google\",")
+            .expect("google route");
+        let microsoft_route_pos = a
+            .find("Name:    \"customer.auth.oauth.microsoft\",")
+            .expect("microsoft route");
+        assert!(google_route_pos < microsoft_route_pos);
+        assert!(a.contains("Path:    \"/auth/oauth/google\","));
+        assert!(a.contains("Path:    \"/auth/oauth/google/callback\","));
+        assert!(a.contains("Path:    \"/auth/oauth/microsoft\","));
+        assert!(a.contains("Path:    \"/auth/oauth/microsoft/callback\","));
+    }
+
+    #[test]
+    fn sessions_only_auth_mounts_logout_route() {
+        let mut feature = base_feature("portal");
+        let mut auth = auth_with_identity("User", "email");
+        auth.sessions = Some(AuthSessions {
+            resource: qname("UserSession"),
+            ttl: "1 hour".to_owned(),
+            refresh: true,
+        });
+        feature.auth = Some(auth);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("Name:    \"portal.auth.logout\","));
+        assert!(out.contains("Path:    \"/auth/logout\","));
+        assert!(out.contains("Handler: auth.LogoutHandler,"));
+        assert!(!out.contains("portal.auth.login"));
+        assert!(!out.contains("portal.auth.signup"));
     }
 
     #[test]
