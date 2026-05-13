@@ -216,7 +216,12 @@ fn resource_columns<'a>(
 
     columns.extend(resource.fields.iter().map(|field| {
         let pg_type = pg_type_for_field(module, feature, field, cross_index);
-        SqlColumn::typed(&field.name, &pg_type.sql, field.required)
+        SqlColumn::typed_generated(
+            &field.name,
+            &pg_type.sql,
+            field.required,
+            field.derived_from.clone(),
+        )
     }));
 
     if uses_timestamps(feature, resource) {
@@ -254,6 +259,7 @@ enum SqlColumn {
         name: String,
         pg_type: String,
         required: bool,
+        generated_as: Option<String>,
     },
 }
 
@@ -267,6 +273,21 @@ impl SqlColumn {
             name: name.to_owned(),
             pg_type: pg_type.to_owned(),
             required,
+            generated_as: None,
+        }
+    }
+
+    fn typed_generated(
+        name: &str,
+        pg_type: &str,
+        required: bool,
+        generated_as: Option<String>,
+    ) -> Self {
+        Self::Typed {
+            name: name.to_owned(),
+            pg_type: pg_type.to_owned(),
+            required,
+            generated_as,
         }
     }
 
@@ -277,10 +298,16 @@ impl SqlColumn {
                 name,
                 pg_type,
                 required,
+                generated_as,
             } => {
                 let mut rendered = format!("{} {}", sql_ident(name), pg_type);
                 if *required {
                     rendered.push_str(" NOT NULL");
+                }
+                if let Some(expr) = generated_as {
+                    rendered.push_str(" GENERATED ALWAYS AS (");
+                    rendered.push_str(expr);
+                    rendered.push_str(") STORED");
                 }
                 rendered
             }
@@ -754,6 +781,23 @@ DROP TABLE IF EXISTS \"customer\";
         assert!(sql.contains("uuid TEXT,"));
         assert!(sql.contains("currency TEXT NOT NULL,"));
         assert!(sql.contains("cents BIGINT NOT NULL"));
+    }
+
+    #[test]
+    fn emits_generated_always_stored_for_derived_field() {
+        let mut feature = base_feature("invoice");
+        let mut total = builtin("total", BuiltinType::Integer, true);
+        total.derived_from = Some("subtotal + tax".to_owned());
+        feature.resources.push(resource(
+            "Invoice",
+            vec![builtin("subtotal", BuiltinType::Integer, true), total],
+        ));
+
+        let files = emit_migrations(&base_module(vec![feature]), "billing");
+        let sql = &files[0].contents;
+
+        assert!(sql.contains("subtotal BIGINT NOT NULL,"));
+        assert!(sql.contains("total BIGINT NOT NULL GENERATED ALWAYS AS (subtotal + tax) STORED"));
     }
 
     #[test]
