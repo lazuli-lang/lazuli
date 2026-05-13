@@ -148,7 +148,7 @@ Rules:
 
 - Core runtime refs import `lazuli.dev/runtime/lazuli/...`.
 - Private plugin refs import separate plugin modules such as
-  `github.com/lazurite/lazuli-plugin-<name>`.
+  `github.com/lazuli-lang/lazuli-plugin-<name>`.
 - Codegen never emits `@plugin/<product>/<name>`; that namespace form is
   retired.
 - Adapter and function refs may remain string literals only when the

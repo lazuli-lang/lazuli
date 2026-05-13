@@ -70,7 +70,7 @@ pub fn recommended_action_for_surface(surface: &str) -> &'static str {
     match surface {
         "user_dsl" => "Read the `.lzi` block above and the IR snippet. Modify the .lzi source.",
         "lib_internal" => {
-            "This is a Lazuli runtime bug. File an issue at https://github.com/lazuli/lazuli/issues/new with this bundle."
+            "This is a Lazuli runtime bug. File an issue at https://github.com/lazuli-lang/lazuli/issues/new with this bundle."
         }
         "codegen_bug" => {
             "This is a codegen bug. Reproduce, then file an issue against crates/lazuli_codegen_go."

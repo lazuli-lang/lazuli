@@ -37,7 +37,7 @@ Two namespaces, strict separation:
 
 - **`@runtime/<name>`** — OSS commodity infrastructure. Postgres, Redis, S3-protocol signing, SMTP, Kafka, NATS, RabbitMQ, webpush (W3C). Lives in this repo at `runtime/go/lazuli/<bucket>/`. Public.
 
-- **`@plugin/<name>`** — Proprietary or opinionated providers. **Vendor SaaS, paid APIs, or specific named tools/products** (even if open-source). Stripe, MercadoPago, Sendgrid, Mailgun, Twilio, Datadog, Sentry, LaunchDarkly, Algolia, Meilisearch, Discord, Slack, PagerDuty, Expo Push, Google Maps, Mapbox, FCM, MinIO client, Prometheus exporter, OpenFeature SDK, Atlas migrations, gh-ost-style migrators, etc. Lives in **separate (often private) repos** at `github.com/lazurite/lazuli-plugin-<name>` (or under the user's own org for proprietary providers).
+- **`@plugin/<name>`** — Proprietary or opinionated providers. **Vendor SaaS, paid APIs, or specific named tools/products** (even if open-source). Stripe, MercadoPago, Sendgrid, Mailgun, Twilio, Datadog, Sentry, LaunchDarkly, Algolia, Meilisearch, Discord, Slack, PagerDuty, Expo Push, Google Maps, Mapbox, FCM, MinIO client, Prometheus exporter, OpenFeature SDK, Atlas migrations, gh-ost-style migrators, etc. Lives in **separate (often private) repos** at `github.com/lazuli-lang/lazuli-plugin-<name>` (or under the user's own org for proprietary providers).
 
 - **NEVER** `@plugin/<consumer-product>/<name>` (retired 2026-05-11). The adapter is named after the *provider*, not the consuming product. MercadoPago is `@plugin/mercadopago` (generic), not `@plugin/<app>/mercadopago` (product-scoped).
 

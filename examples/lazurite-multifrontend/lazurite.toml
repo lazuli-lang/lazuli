@@ -1,6 +1,6 @@
 [project]
 name = "lazurite-multifrontend"
-module = "github.com/lazuli/example-multifrontend"
+module = "github.com/lazuli-lang/example-multifrontend"
 schema = 1
 
 [lazuli]

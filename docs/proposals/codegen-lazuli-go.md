@@ -534,7 +534,7 @@ require (
 User customisation:
 - `--module github.com/acme/marketplace` overrides the derived module name.
 - `lazuli generate go` does **not** run `go mod tidy` — that is a build-step concern, called out in the dist `README.md` as a one-liner.
-- the downstream product plugin dependencies (e.g. `@plugin/mercadopago` → `github.com/lazurite/lazuli-plugin-mercadopago`) appear automatically when used. See §6 for resolution.
+- the downstream product plugin dependencies (e.g. `@plugin/mercadopago` → `github.com/lazuli-lang/lazuli-plugin-mercadopago`) appear automatically when used. See §6 for resolution.
 
 ### 5.3 Incrementality
 
@@ -560,9 +560,9 @@ Rules from `c:/Users/lucas/.claude/projects/c--Users-lucas-lazuli/memory/project
 | `@runtime/postgres` | `lazuli.dev/runtime/lazuli/db` | Commodity platform adapter; ships in core repo |
 | `@runtime/s3` | `lazuli.dev/runtime/lazuli/storage/s3` | Commodity; lives in core |
 | `@runtime/google_oauth` | `lazuli.dev/runtime/lazuli/auth/oauth/google` | Commodity adapter for OAuth providers |
-| `@plugin/mercadopago` | `github.com/lazurite/lazuli-plugin-mercadopago` (private repo) | Proprietary; opinionated provider; private repo per policy |
-| `@plugin/google-maps` | `github.com/lazurite/lazuli-plugin-google-maps` (private repo) | the downstream product §9.3 — proprietary SLA provider |
-| `@plugin/expo-push` | `github.com/lazurite/lazuli-plugin-expo-push` (private repo) | the downstream product §9.5 |
+| `@plugin/mercadopago` | `github.com/lazuli-lang/lazuli-plugin-mercadopago` (private repo) | Proprietary; opinionated provider; private repo per policy |
+| `@plugin/google-maps` | `github.com/lazuli-lang/lazuli-plugin-google-maps` (private repo) | the downstream product §9.3 — proprietary SLA provider |
+| `@plugin/expo-push` | `github.com/lazuli-lang/lazuli-plugin-expo-push` (private repo) | the downstream product §9.5 |
 | `@adapter.<name>` | string literal at codegen time | Resolved at runtime via `RegisterAdapter(name, impl)` from user-authored `main.go` extensions |
 | `@fn.<name>` | string literal `"@fn.<name>"` | Resolved at runtime via extension-points registry |
 | `@semantic.<Type>` | maps to Go type (see §6.3) | Closed catalog; some semantics need plugin imports (GeoPoint → postgis) |
@@ -574,14 +574,14 @@ Rules from `c:/Users/lucas/.claude/projects/c--Users-lucas-lazuli/memory/project
 ```rust
 pub enum ResolvedRef {
     CoreRuntime { go_path: &'static str },           // lazuli.dev/runtime/lazuli/...
-    PluginPrivate { go_module: String },             // github.com/lazurite/lazuli-plugin-<name>
+    PluginPrivate { go_module: String },             // github.com/lazuli-lang/lazuli-plugin-<name>
     AdapterString { literal: String },                // @adapter.* — emitted as Go string
     FnString { literal: String },                     // @fn.* — emitted as Go string
     Unresolved { name: String },                      // surfaces a codegen error (or --check warning)
 }
 ```
 
-The mapping is **data, not code** — a static table keyed by reference prefix. Adding a new core runtime adapter (e.g. `@runtime/valkey`) extends the table; private plugins are user-configurable through `registry.lzi` once that surface lands. Until then, every `@plugin/<name>` resolves through a hard-coded `LAZURITE_PRIVATE_HOST = "github.com/lazurite/"` constant and codegen errors if the plugin isn't declared in `app.lzi` `registry`.
+The mapping is **data, not code** — a static table keyed by reference prefix. Adding a new core runtime adapter (e.g. `@runtime/valkey`) extends the table; private plugins are user-configurable through `registry.lzi` once that surface lands. Until then, every `@plugin/<name>` resolves through a hard-coded `LAZURITE_PRIVATE_HOST = "github.com/lazuli-lang/"` constant and codegen errors if the plugin isn't declared in `app.lzi` `registry`.
 
 ### 6.2.1 Error code catalog
 
@@ -615,7 +615,7 @@ failures; `warn` codes surface in stdout but do not fail.
 
 ### 6.4 Privacy / repo policy
 
-Codegen NEVER emits a plugin import nested under the core module path (no `lazuli.dev/runtime/lazuli/plugins/<name>`, no `github.com/lazuli/lazuli/plugins/<name>`). The core repo (`github.com/lazuli/lazuli`) and core module (`lazuli.dev/runtime`) hold **only** the language + `@runtime/` commodity adapters. Every `@plugin/` reference resolves to a **separate private repo** owned by Lazurite or the plugin author (canonical example: `github.com/lazurite/lazuli-plugin-<name>`).
+Codegen NEVER emits a plugin import nested under the core module path (no `lazuli.dev/runtime/lazuli/plugins/<name>`, no `github.com/lazuli-lang/lazuli/plugins/<name>`). The core repo (`github.com/lazuli-lang/lazuli`) and core module (`lazuli.dev/runtime`) hold **only** the language + `@runtime/` commodity adapters. Every `@plugin/` reference resolves to a **separate private repo** owned by Lazurite or the plugin author (canonical example: `github.com/lazuli-lang/lazuli-plugin-<name>`).
 
 `--check` mode: if any `@plugin/<name>` lacks a corresponding entry in `app.lzi`'s `registry.integrations.<name>`, codegen exits non-zero with `CODEGEN-GO-PLUGIN-001: plugin reference @plugin/<name> not declared in app.lzi registry`.
 
@@ -719,20 +719,20 @@ The 5 decisions resolved 2026-05-11. Each row shows how the emitter wires it.
 ### 9.3 Google Maps for production geocoding
 
 - Reference shape: `requires integration maps: MapsProvider` in feature → `app.lzi` binds `maps = integrations.google_maps` → `registry.lzi` declares `integrations.google_maps adapter @plugin/google-maps`.
-- **Codegen side**: `@plugin/google-maps` resolves to `github.com/lazurite/lazuli-plugin-google-maps` (private repo per §6). Emitted as `import` in `main.go` + a `RegisterAdapter("@plugin/google-maps", googleMaps.New(env.GOOGLE_MAPS_API_KEY))` line.
+- **Codegen side**: `@plugin/google-maps` resolves to `github.com/lazuli-lang/lazuli-plugin-google-maps` (private repo per §6). Emitted as `import` in `main.go` + a `RegisterAdapter("@plugin/google-maps", googleMaps.New(env.GOOGLE_MAPS_API_KEY))` line.
 - **Dev / MVP** uses `@plugin/nominatim` instead, same shape, different repo. Switch is a one-line app.lzi binding change — no code change.
 
 ### 9.4 MercadoPago as `@plugin/mercadopago`
 
 - Webhook + payment-gateway integration. Per `c:/Users/lucas/.claude/projects/c--Users-lucas-lazuli/memory/project_plugin_namespace_policy.md`, MercadoPago is `@plugin/mercadopago` (NOT `@plugin/marketplace/mercadopago` — that nested form is retired).
-- **Codegen side**: Webhook emission for `mercadopago_callback` produces the `webhooks.WebhookContract` value (shape in §3.7); the `verify @validator.mercadopago_hmac` reference resolves to a string the runtime adapter dereferences. The HMAC verifier itself ships in `github.com/lazurite/lazuli-plugin-mercadopago` and registers via `RegisterValidator("@validator.mercadopago_hmac", impl)` in plugin init.
+- **Codegen side**: Webhook emission for `mercadopago_callback` produces the `webhooks.WebhookContract` value (shape in §3.7); the `verify @validator.mercadopago_hmac` reference resolves to a string the runtime adapter dereferences. The HMAC verifier itself ships in `github.com/lazuli-lang/lazuli-plugin-mercadopago` and registers via `RegisterValidator("@validator.mercadopago_hmac", impl)` in plugin init.
 - Codegen NEVER emits HMAC verification code inline; it emits the reference string + the contract.
 
 ### 9.5 Expo Push Notifications (replaces FCM)
 
 - **Notification block** with `channel push` resolves the push adapter through `@adapter.notification.push` → `@plugin/expo-push` binding in `app.lzi`.
 - **Codegen side**: identical `notifications.NotificationContract` shape (§3.8). The `Channels: []notifications.Channel{notifications.ChannelPush}` enum value is the same regardless of provider. Provider swap is an `app.lzi` binding change.
-- **Plugin import**: `github.com/lazurite/lazuli-plugin-expo-push` in `main.go` boot block. Same resolution rule as §9.3.
+- **Plugin import**: `github.com/lazuli-lang/lazuli-plugin-expo-push` in `main.go` boot block. Same resolution rule as §9.3.
 
 ---
 

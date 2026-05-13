@@ -240,8 +240,8 @@ Replaces the implicit "plugins live in go.mod" pattern with an explicit declarat
 # Adapter contracts live in @plugin/<name>; codegen emits an anonymous
 # `_ "<module>"` import in main.go to trigger the plugin's init().
 
-"@plugin/mercadopago" = { module = "github.com/lazurite/lazuli-plugin-mercadopago", version = "v0.2.0" }
-"@plugin/expo_push"   = { module = "github.com/lazurite/lazuli-plugin-expo-push", version = "v0.1.0" }
+"@plugin/mercadopago" = { module = "github.com/lazuli-lang/lazuli-plugin-mercadopago", version = "v0.2.0" }
+"@plugin/expo_push"   = { module = "github.com/lazuli-lang/lazuli-plugin-expo-push", version = "v0.1.0" }
 "@plugin/google_maps" = { module = "github.com/myorg/lazuli-plugin-google-maps", version = "v0.0.1" }
 
 # Local development override (rare; doctor warns if used in env=prod):
@@ -395,7 +395,7 @@ Resolution: `lazuli inspect --include=manifest` (and the default `lazuli inspect
     "lazuli": { "runtime": "0.1.0" },
     "lazurite": { "template": "lazurite-default", "template_version": "0.1.0" },
     "plugins": [
-      { "ref": "@plugin/mercadopago", "module": "github.com/lazurite/lazuli-plugin-mercadopago", "version": "v0.2.0", "source": "remote" }
+      { "ref": "@plugin/mercadopago", "module": "github.com/lazuli-lang/lazuli-plugin-mercadopago", "version": "v0.2.0", "source": "remote" }
     ],
     "generate": { "go": { "out": "dist/go", "submodule": true, "emit_main": true } },
     "migrations": { "strategy": "auto", "generated": "dist/go/migrations", "manual": "migrations" }
@@ -536,8 +536,8 @@ Lazurite tightens this:
 package main
 
 import (
-    _ "github.com/lazurite/lazuli-plugin-mercadopago"   // init() registers @plugin/mercadopago
-    _ "github.com/lazurite/lazuli-plugin-expo-push"     // init() registers @plugin/expo_push
+    _ "github.com/lazuli-lang/lazuli-plugin-mercadopago"   // init() registers @plugin/mercadopago
+    _ "github.com/lazuli-lang/lazuli-plugin-expo-push"     // init() registers @plugin/expo_push
     "lazuli.dev/runtime/lazuli"
     // ... feature imports
 )
@@ -554,7 +554,7 @@ Doctor diagnostics:
 
 ### §7.2 Plugin authoring contract
 
-A `@plugin/<name>` repo (e.g. `github.com/lazurite/lazuli-plugin-mercadopago`):
+A `@plugin/<name>` repo (e.g. `github.com/lazuli-lang/lazuli-plugin-mercadopago`):
 - Go module path matches `lazurite.toml` `[plugins].<ref>.module`.
 - `init()` calls `lazuli.RegisterAdapter("@plugin/<name>", &MyAdapter{})`.
 - Adapter type implements the bucket-specific interface (e.g. `payments.PaymentGateway`).
@@ -666,7 +666,7 @@ This phase ships first. All learning happens here.
 ### §11.2 Phase L1 — Lazurite split out (after first product port stabilizes)
 
 Once Lazurite is exercised against 2+ real apps (first product port + at least one other), split:
-- New repo: `github.com/lazurite/lazurite`.
+- New repo: `github.com/lazuli-lang/lazurite`.
 - Templates published as a Go module dependency of `lazuli_cli`.
 - Or: templates fetched at `lazuli new` time from a tagged release (offline cache).
 
@@ -752,7 +752,7 @@ Operational env-specific values (secrets, db urls) come from env vars at runtime
 
 ### §13.7 `lazuli new` clones from a GitHub template (rejected for v0)
 
-Considered: skip `include_dir!`, instead `git clone github.com/lazurite/template-default` at scaffold time.
+Considered: skip `include_dir!`, instead `git clone github.com/lazuli-lang/template-default` at scaffold time.
 
 Rejected:
 - Offline failure mode.
@@ -824,7 +824,7 @@ The end-to-end validation against `examples/marketplace-mini/` ran post Wave 1 +
 | L12 | Generated code referenced `github.com/cridenour/go-postgis` (when resource has `@semantic.GeoPoint`) but codegen did NOT add it to `require`. | SHIPPED commit `2b68edd`: new `emitter/deps.rs` static registry of "transitive Go dep" mappings. Detection: any `BuiltinType::SemanticGeoPoint` triggers the go-postgis require. Extensible for future transitive deps (e.g., `@cap.Hashed argon2id` → `golang.org/x/crypto`). |
 | Toolchain bug | `DEFAULT_GO_TOOLCHAIN = "go 1.25"` but runtime requires `go 1.25.0`; `go work sync` rejected the workspace. | FIXED commit (this section's commit): const updated to `"go 1.25.0"`. |
 
-**Remaining fixture limitation (not codegen):** `examples/marketplace-mini/` declares `@plugin/example/marketplace-pack` and `@plugin/example/payment-gateway` in `registry.lzi` — these are placeholder names; no real Go modules exist at `github.com/lazuli/example-*`. `go build ./dist/go/...` cannot complete until either (a) real plugin repos exist, or (b) the manifest switches to `path = "..."` mode pointing to local stub plugin packages. This is a fixture-scope issue (downstream product port work), not a codegen gap.
+**Remaining fixture limitation (not codegen):** `examples/marketplace-mini/` declares `@plugin/example/marketplace-pack` and `@plugin/example/payment-gateway` in `registry.lzi` — these are placeholder names; no real Go modules exist at `github.com/lazuli-lang/example-*`. `go build ./dist/go/...` cannot complete until either (a) real plugin repos exist, or (b) the manifest switches to `path = "..."` mode pointing to local stub plugin packages. This is a fixture-scope issue (downstream product port work), not a codegen gap.
 
 **Gate verdict:** PASS — all 3 codegen gaps closed; Lazurite scaffold v0 ready for Product Phase 1 (Auth port). Codegen now emits a complete `dist/go/go.mod` + `go.work` setup that resolves the Lazuli runtime locally in the monorepo without any manual `replace` directives.
 

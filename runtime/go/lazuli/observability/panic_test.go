@@ -58,14 +58,14 @@ func TestRecoverHTTPWithLibBugEmitsInternalPanicTraceEvent(t *testing.T) {
 				Message: "invariant failed",
 			},
 			Component: "lazuli.dev/runtime/lazuli/auth",
-			IssueURL:  "https://github.com/lazurite/lazuli/issues/new",
+			IssueURL:  "https://github.com/lazuli-lang/lazuli/issues/new",
 		})
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 
 	for _, event := range events {
 		if event.Name == "lazuli_internal_panic" {
-			if event.Payload["issue_url"] != "https://github.com/lazurite/lazuli/issues/new" {
+			if event.Payload["issue_url"] != "https://github.com/lazuli-lang/lazuli/issues/new" {
 				t.Fatalf("issue_url = %#v", event.Payload["issue_url"])
 			}
 			return

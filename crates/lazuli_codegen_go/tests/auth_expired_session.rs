@@ -468,7 +468,7 @@ import (
 	"lazuli.dev/runtime/lazuli"
 	"lazuli.dev/runtime/lazuli/auth"
 
-	"github.com/lazuli/example-marketplace-mini/generated/account"
+	"github.com/lazuli-lang/example-marketplace-mini/generated/account"
 )
 
 type signupInput struct {

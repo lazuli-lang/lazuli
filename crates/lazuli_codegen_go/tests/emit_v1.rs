@@ -914,11 +914,11 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
         vec![
             (
                 "@plugin/mercadopago",
-                "github.com/lazurite/lazuli-plugin-mercadopago",
+                "github.com/lazuli-lang/lazuli-plugin-mercadopago",
             ),
             (
                 "@plugin/expo_push",
-                "github.com/lazurite/lazuli-plugin-expo-push",
+                "github.com/lazuli-lang/lazuli-plugin-expo-push",
             ),
         ],
         Some(LazuriteGenerateGo {
@@ -937,11 +937,11 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
 
     let expo = main
         .contents
-        .find("_ \"github.com/lazurite/lazuli-plugin-expo-push\"")
+        .find("_ \"github.com/lazuli-lang/lazuli-plugin-expo-push\"")
         .expect("expo push plugin import");
     let mercado = main
         .contents
-        .find("_ \"github.com/lazurite/lazuli-plugin-mercadopago\"")
+        .find("_ \"github.com/lazuli-lang/lazuli-plugin-mercadopago\"")
         .expect("mercadopago plugin import");
     assert!(expo < mercado, "expected plugin imports sorted by ref");
     assert!(main
@@ -1002,7 +1002,7 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
     let manifest = lazurite_manifest(
         vec![(
             "@plugin/mercadopago",
-            "github.com/lazurite/lazuli-plugin-mercadopago",
+            "github.com/lazuli-lang/lazuli-plugin-mercadopago",
         )],
         Some(LazuriteGenerateGo {
             emit_main: true,
@@ -1026,7 +1026,7 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
         .contents
         .contains("module github.com/acme/test-app/generated"));
     assert!(go_mod.contents.contains(
-        "replace github.com/lazurite/lazuli-plugin-mercadopago => ../lazuli-plugin-mercadopago"
+        "replace github.com/lazuli-lang/lazuli-plugin-mercadopago => ../lazuli-plugin-mercadopago"
     ));
     assert!(go_work.contents.contains("./dist/go"));
 }
@@ -1035,7 +1035,7 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
 fn emit_go_mod_with_plugins_emits_require_lines() {
     let module = minimal_module("test_app", "customer");
     let manifest = lazurite_manifest(
-        vec![("@plugin/foo", "github.com/lazurite/lazuli-plugin-foo")],
+        vec![("@plugin/foo", "github.com/lazuli-lang/lazuli-plugin-foo")],
         Some(LazuriteGenerateGo {
             emit_main: true,
             submodule: true,
@@ -1052,7 +1052,7 @@ fn emit_go_mod_with_plugins_emits_require_lines() {
 
     assert!(go_mod
         .contents
-        .contains("github.com/lazurite/lazuli-plugin-foo v0.1.0"));
+        .contains("github.com/lazuli-lang/lazuli-plugin-foo v0.1.0"));
 }
 
 #[test]
@@ -1151,7 +1151,7 @@ fn emit_go_mod_without_manifest_falls_back_to_legacy_behavior() {
     assert!(!go_mod.contents.contains("replace lazuli.dev/runtime"));
     assert!(!go_mod
         .contents
-        .contains("github.com/lazurite/lazuli-plugin"));
+        .contains("github.com/lazuli-lang/lazuli-plugin"));
     assert!(!go_mod.contents.contains("github.com/cridenour/go-postgis"));
 }
 

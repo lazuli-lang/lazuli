@@ -443,8 +443,8 @@ package customer
 import (
     "time"
 
-    "github.com/lazuli/runtime/go/lazuli"
-    "github.com/lazuli/runtime/go/lazuli/cache"
+    "github.com/lazuli-lang/runtime/go/lazuli"
+    "github.com/lazuli-lang/runtime/go/lazuli/cache"
 )
 
 // ListCacheSpec is the lowered `cache` block on customer.query.list

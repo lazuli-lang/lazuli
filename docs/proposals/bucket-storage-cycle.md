@@ -348,8 +348,8 @@ Generated when a feature's resource declares a `@cap.File` field.
 package customer_import
 
 import (
-    "github.com/lazuli/runtime/go/lazuli"
-    "github.com/lazuli/runtime/go/lazuli/storage"
+    "github.com/lazuli-lang/runtime/go/lazuli"
+    "github.com/lazuli-lang/runtime/go/lazuli/storage"
 )
 
 // UploadContract is the lowered `@cap.File` shape on
@@ -387,8 +387,8 @@ Generated when a feature's `api` declares a `@cap.File` output.
 package customer
 
 import (
-    "github.com/lazuli/runtime/go/lazuli"
-    "github.com/lazuli/runtime/go/lazuli/storage"
+    "github.com/lazuli-lang/runtime/go/lazuli"
+    "github.com/lazuli-lang/runtime/go/lazuli/storage"
 )
 
 // CustomerExportOutputContract is the lowered `@cap.File` shape on

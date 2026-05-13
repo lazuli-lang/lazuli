@@ -1938,7 +1938,7 @@ fn app_template(app_name: &str) -> String {
 
 fn readme_template(app_name: &str) -> String {
     format!(
-        "# {app_name}\n\nGenerated with `lazuli new`.\n\nSee the Lazuli docs: https://github.com/lazuli/lazuli/tree/main/docs\n"
+        "# {app_name}\n\nGenerated with `lazuli new`.\n\nSee the Lazuli docs: https://github.com/lazuli-lang/lazuli/tree/main/docs\n"
     )
 }
 
@@ -7367,7 +7367,7 @@ schema = 1
 runtime = "0.1.0"
 
 [plugins]
-"@plugin/example/payment-gateway" = { module = "github.com/lazurite/lazuli-plugin-example-payment", version = "v0.2.0" }
+"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/lazuli-plugin-example-payment", version = "v0.2.0" }
 
 [generate.go]
 out = "dist/go"
