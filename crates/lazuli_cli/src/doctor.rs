@@ -15,6 +15,7 @@ use crate::app_manifest::{
     RegistryParseOutput, RegistryToolDefectReason, parse_app_contracts, parse_app_manifest,
     parse_app_profiles, parse_app_registry_with_defects, parse_app_workspace,
 };
+use crate::lazurite_manifest::{self, Manifest, MigrationStrategy};
 
 pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result<()> {
     let package = DoctorPackage::load(input, security_profile)?;
@@ -38,6 +39,7 @@ pub fn doctor_command(input: &Path, security_profile: SecurityProfile) -> Result
 #[derive(Debug)]
 struct DoctorPackage {
     project_root: PathBuf,
+    lazurite_manifest: Option<Manifest>,
     files: Vec<DoctorFile>,
     workspace: Option<DoctorAppWorkspace>,
     contracts: Vec<DoctorAppContract>,
@@ -209,6 +211,12 @@ impl DoctorPackage {
             bail!("no .lzi or .lzx files found for {}", input.display());
         }
         let project_root = doctor_project_root(input);
+        let lazurite_manifest = lazurite_manifest::load(&project_root).with_context(|| {
+            format!(
+                "failed to load {}",
+                project_root.join("lazurite.toml").display()
+            )
+        })?;
 
         let mut files = Vec::new();
         let mut workspace = None;
@@ -669,6 +677,7 @@ impl DoctorPackage {
 
         Ok(Self {
             project_root,
+            lazurite_manifest,
             files,
             workspace,
             contracts,
@@ -694,6 +703,7 @@ impl DoctorPackage {
         let mut diagnostics = Vec::new();
 
         diagnostics.extend(manifest_required_diagnostics(&self.project_root));
+        diagnostics.extend(lazurite_manifest_diagnostics(self));
 
         for file in &self.files {
             diagnostics.extend(file.local_diagnostics.clone());
@@ -1233,8 +1243,20 @@ fn project_has_lazurite_manifest(project_root: &Path) -> bool {
     project_root.join("lazurite.toml").is_file()
 }
 
-fn project_uses_plugin_refs(_project_root: &Path) -> bool {
-    false
+fn project_uses_plugin_refs(project_root: &Path) -> bool {
+    let mut paths = Vec::new();
+    if collect_lazuli_paths_recursive(project_root, &mut paths).is_err() {
+        return false;
+    }
+
+    paths
+        .into_iter()
+        .filter(|path| is_lzi_path(path))
+        .any(|path| {
+            fs::read_to_string(&path)
+                .map(|source| !collect_plugin_references_in_source(&path, &source).is_empty())
+                .unwrap_or(false)
+        })
 }
 
 fn manifest_required_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
@@ -1250,6 +1272,298 @@ fn manifest_required_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
         code: "MANIFEST-REQUIRED-001".to_owned(),
         message: "project uses @plugin/* references but is missing lazurite.toml.".to_owned(),
     }]
+}
+
+fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+    if !project_has_lazurite_manifest(&package.project_root) {
+        return Vec::new();
+    }
+
+    let Some(manifest) = package.lazurite_manifest.as_ref() else {
+        return Vec::new();
+    };
+
+    let mut diagnostics = Vec::new();
+    diagnostics.extend(check_plugin_not_declared(manifest, package));
+    diagnostics.extend(check_plugin_unused(manifest, package));
+    diagnostics.extend(check_plugin_namespace_mismatch(manifest, package));
+    diagnostics.extend(check_submodule_drift(manifest, package));
+    diagnostics.extend(check_migration_strategy_conflict(manifest, package));
+    diagnostics.extend(check_frontend_audience_unknown(manifest, package));
+    diagnostics.extend(check_audience_no_frontend(manifest, package));
+    diagnostics.extend(check_frontend_out_collision(manifest, package));
+    diagnostics
+}
+
+fn check_plugin_not_declared(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let declared: BTreeSet<&str> = manifest.plugins.keys().map(|key| key.as_str()).collect();
+    collect_package_plugin_references(package)
+        .into_iter()
+        .filter(|reference| !declared.contains(reference.reference.as_str()))
+        .map(|reference| DoctorDiagnostic {
+            path: reference.path,
+            line: reference.line,
+            column: reference.column,
+            severity: DoctorSeverity::Error,
+            code: "PLUGIN-NOT-DECLARED-001".to_owned(),
+            message: format!(
+                "`.lzi` references `{}`, but lazurite.toml does not declare it in `[plugins]`.",
+                reference.reference
+            ),
+        })
+        .collect()
+}
+
+fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+    let used: BTreeSet<String> = collect_package_plugin_references(package)
+        .into_iter()
+        .map(|reference| reference.reference)
+        .collect();
+
+    manifest
+        .plugins
+        .keys()
+        .filter(|plugin_ref| !used.contains(*plugin_ref))
+        .map(|plugin_ref| DoctorDiagnostic {
+            path: package.project_root.join("lazurite.toml"),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "PLUGIN-UNUSED-001".to_owned(),
+            message: format!(
+                "lazurite.toml declares `{plugin_ref}`, but no `.lzi` file references it."
+            ),
+        })
+        .collect()
+}
+
+fn check_plugin_namespace_mismatch(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let declared_short: BTreeSet<String> = manifest
+        .plugins
+        .keys()
+        .filter_map(|key| key.strip_prefix("@plugin/").map(|name| name.to_owned()))
+        .collect();
+
+    for key in manifest.plugins.keys() {
+        if let Some(namespace) = reference_namespace(key) {
+            if namespace != "plugin" {
+                diagnostics.push(DoctorDiagnostic {
+                    path: package.project_root.join("lazurite.toml"),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
+                    message: format!(
+                        "manifest plugin key `{key}` uses namespace `@{namespace}`, but plugins must use `@plugin/<name>`."
+                    ),
+                });
+            }
+        }
+    }
+
+    for file in &package.files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        for reference in collect_at_references_in_source(&file.path, &file.source) {
+            if reference.namespace == "adapter" && declared_short.contains(&reference.name) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: reference.path,
+                    line: reference.line,
+                    column: reference.column,
+                    severity: DoctorSeverity::Error,
+                    code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
+                    message: format!(
+                        "`{}` uses the local adapter namespace, but lazurite.toml declares `@plugin/{}`; use the plugin reference.",
+                        reference.reference, reference.name
+                    ),
+                });
+            } else if reference.namespace != "plugin"
+                && !is_allowed_reference_namespace_for_doctor(&reference.namespace)
+                && declared_short.contains(&reference.name)
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: reference.path,
+                    line: reference.line,
+                    column: reference.column,
+                    severity: DoctorSeverity::Error,
+                    code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
+                    message: format!(
+                        "`{}` uses unknown namespace `@{}`, but lazurite.toml declares `@plugin/{}`; use the plugin reference.",
+                        reference.reference, reference.namespace, reference.name
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn check_submodule_drift(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+    if !manifest
+        .generate
+        .go
+        .as_ref()
+        .map(|go| go.submodule)
+        .unwrap_or(false)
+    {
+        return Vec::new();
+    }
+
+    let root_go_mod = package.project_root.join("go.mod");
+    let dist_go_mod = package.project_root.join("dist/go/go.mod");
+    if !dist_go_mod.is_file() {
+        return Vec::new();
+    }
+
+    let Ok(root_source) = fs::read_to_string(&root_go_mod) else {
+        return Vec::new();
+    };
+    let Ok(dist_source) = fs::read_to_string(&dist_go_mod) else {
+        return Vec::new();
+    };
+    let Some(root_version) = go_mod_lazuli_runtime_version(&root_source) else {
+        return Vec::new();
+    };
+    let Some(dist_version) = go_mod_lazuli_runtime_version(&dist_source) else {
+        return Vec::new();
+    };
+
+    if root_version == dist_version {
+        return Vec::new();
+    }
+
+    vec![DoctorDiagnostic {
+        path: dist_go_mod,
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "SUBMODULE-DRIFT-001".to_owned(),
+        message: format!(
+            "`dist/go/go.mod` requires lazuli.dev/runtime {dist_version}, but root go.mod requires {root_version}."
+        ),
+    }]
+}
+
+fn check_migration_strategy_conflict(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    if !matches!(
+        manifest
+            .migrations
+            .as_ref()
+            .map(|migrations| &migrations.strategy),
+        Some(MigrationStrategy::Manual)
+    ) {
+        return Vec::new();
+    }
+
+    let Some(app) = package.app.as_ref() else {
+        return Vec::new();
+    };
+    if app
+        .manifest
+        .deploy
+        .as_ref()
+        .and_then(|deploy| deploy.migrations.as_deref())
+        != Some("before_deploy")
+    {
+        return Vec::new();
+    }
+
+    vec![DoctorDiagnostic {
+        path: app.path.clone(),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Warning,
+        code: "MIGRATION-STRATEGY-CONFLICT-001".to_owned(),
+        message: "`[migrations].strategy = \"manual\"` conflicts with `app.lzi deploy migrations before_deploy`."
+            .to_owned(),
+    }]
+}
+
+fn check_frontend_audience_unknown(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let known = collect_known_audiences(&package.files);
+    let mut diagnostics = Vec::new();
+    for (frontend_name, frontend) in &manifest.frontends {
+        for audience in &frontend.audiences {
+            if !known.contains(audience) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: package.project_root.join("lazurite.toml"),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "FRONTEND-AUDIENCE-UNKNOWN-001".to_owned(),
+                    message: format!(
+                        "`[frontends.{frontend_name}]` ships audience `{audience}`, but no `.lzx` surface declares it."
+                    ),
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
+fn check_audience_no_frontend(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let shipped: BTreeSet<&str> = manifest
+        .frontends
+        .values()
+        .flat_map(|frontend| frontend.audiences.iter().map(|audience| audience.as_str()))
+        .collect();
+
+    collect_known_audiences(&package.files)
+        .into_iter()
+        .filter(|audience| !shipped.contains(audience.as_str()))
+        .map(|audience| DoctorDiagnostic {
+            path: package.project_root.join("lazurite.toml"),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "AUDIENCE-NO-FRONTEND-001".to_owned(),
+            message: format!(
+                "`.lzx` declares audience `{audience}`, but no `[frontends.*]` block ships it."
+            ),
+        })
+        .collect()
+}
+
+fn check_frontend_out_collision(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let mut first_by_out: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    for (name, frontend) in &manifest.frontends {
+        if let Some(first) = first_by_out.insert(frontend.out.as_str(), name.as_str()) {
+            diagnostics.push(DoctorDiagnostic {
+                path: package.project_root.join("lazurite.toml"),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "FRONTEND-OUT-COLLISION-001".to_owned(),
+                message: format!(
+                    "`[frontends.{name}]` and `[frontends.{first}]` both declare output path `{}`.",
+                    frontend.out
+                ),
+            });
+        }
+    }
+    diagnostics
 }
 
 fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
@@ -4519,6 +4833,172 @@ fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     }
 
     references
+}
+
+#[derive(Debug, Clone)]
+struct PluginReferenceFact {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    reference: String,
+}
+
+#[derive(Debug, Clone)]
+struct AtReferenceFact {
+    path: PathBuf,
+    line: usize,
+    column: usize,
+    reference: String,
+    namespace: String,
+    name: String,
+}
+
+fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<PluginReferenceFact> {
+    package
+        .files
+        .iter()
+        .filter(|file| is_lzi_path(&file.path))
+        .flat_map(|file| collect_plugin_references_in_source(&file.path, &file.source))
+        .collect()
+}
+
+fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginReferenceFact> {
+    let mut references = Vec::new();
+    let mut offset = 0;
+    while let Some(relative_start) = source[offset..].find("@plugin/") {
+        let start = offset + relative_start;
+        let after_prefix = &source[start + "@plugin/".len()..];
+        let name_len = plugin_reference_name_len(after_prefix);
+        if name_len > 0 {
+            let (line, column) = line_col_for_offset(source, start);
+            references.push(PluginReferenceFact {
+                path: path.to_path_buf(),
+                line,
+                column,
+                reference: source[start..start + "@plugin/".len() + name_len].to_owned(),
+            });
+        }
+        offset = start + "@plugin/".len() + name_len.max(1);
+    }
+    references
+}
+
+fn collect_at_references_in_source(path: &Path, source: &str) -> Vec<AtReferenceFact> {
+    let mut references = Vec::new();
+    let bytes = source.as_bytes();
+    let mut offset = 0;
+
+    while let Some(relative_start) = source[offset..].find('@') {
+        let start = offset + relative_start;
+        if start > 0 {
+            let previous = bytes[start - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'_' {
+                offset = start + 1;
+                continue;
+            }
+        }
+
+        let after_at = &source[start + 1..];
+        let namespace_len = after_at
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+            .count();
+        if namespace_len == 0 {
+            offset = start + 1;
+            continue;
+        }
+
+        let namespace = &after_at[..namespace_len];
+        let separator = after_at.as_bytes().get(namespace_len).copied();
+        if separator != Some(b'.') && separator != Some(b'/') {
+            offset = start + 1 + namespace_len;
+            continue;
+        }
+
+        let name_start = start + 1 + namespace_len + 1;
+        let name_len = reference_name_len(&source[name_start..]);
+        if name_len == 0 {
+            offset = name_start;
+            continue;
+        }
+
+        let (line, column) = line_col_for_offset(source, start);
+        references.push(AtReferenceFact {
+            path: path.to_path_buf(),
+            line,
+            column,
+            reference: source[start..name_start + name_len].to_owned(),
+            namespace: namespace.to_owned(),
+            name: source[name_start..name_start + name_len].to_owned(),
+        });
+        offset = name_start + name_len;
+    }
+
+    references
+}
+
+fn plugin_reference_name_len(source: &str) -> usize {
+    source
+        .bytes()
+        .take_while(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'-' | b'.' | b'/')
+        })
+        .count()
+}
+
+fn reference_name_len(source: &str) -> usize {
+    source
+        .bytes()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'-' | b'/'))
+        .count()
+}
+
+fn reference_namespace(reference: &str) -> Option<&str> {
+    let after_at = reference.strip_prefix('@')?;
+    let end = after_at.find(['.', '/']).unwrap_or(after_at.len());
+    (end > 0).then_some(&after_at[..end])
+}
+
+fn is_allowed_reference_namespace_for_doctor(namespace: &str) -> bool {
+    matches!(
+        namespace,
+        "role"
+            | "scope"
+            | "actor"
+            | "policy"
+            | "semantic"
+            | "cap"
+            | "pii"
+            | "key"
+            | "fn"
+            | "hook"
+            | "validator"
+            | "adapter"
+            | "client"
+            | "query_modifier"
+            | "anchor"
+            | "llm"
+            | "tool"
+            | "trace"
+    )
+}
+
+fn go_mod_lazuli_runtime_version(source: &str) -> Option<String> {
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || !trimmed.contains("lazuli.dev/runtime") {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        while let Some(part) = parts.next() {
+            if part == "lazuli.dev/runtime" {
+                return parts
+                    .next()
+                    .map(|version| version.trim_matches('"').to_owned());
+            }
+        }
+    }
+    None
 }
 
 const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
@@ -9780,6 +10260,7 @@ mod tests {
 
         DoctorPackage {
             project_root: PathBuf::from("."),
+            lazurite_manifest: None,
             files,
             workspace,
             contracts,
@@ -9799,6 +10280,42 @@ mod tests {
             feature_uses,
             tier3_facts,
         }
+    }
+
+    fn package_from_sources_with_manifest(
+        sources: Vec<(&str, &str)>,
+        manifest_source: &str,
+    ) -> DoctorPackage {
+        let mut package = package_from_sources(sources);
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-doctor-manifest-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temp manifest project");
+        fs::write(root.join("lazurite.toml"), manifest_source).expect("write lazurite.toml");
+        package.project_root = root;
+        package.lazurite_manifest = Some(toml::from_str(manifest_source).unwrap());
+        package
+    }
+
+    fn minimal_manifest(extra: &str) -> String {
+        format!(
+            r#"
+[project]
+name = "demo"
+module = "example.com/demo"
+schema = 1
+
+[lazuli]
+runtime = "v0.1.0"
+
+{extra}
+"#
+        )
     }
 
     #[test]
@@ -9824,6 +10341,230 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
 
         result.expect("doctor should pass without lazurite.toml when no @plugin/* refs");
+    }
+
+    #[test]
+    fn doctor_passes_full_capsule_without_manifest() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/full-capsule");
+        doctor_command(&root, SecurityProfile::Strict)
+            .expect("full-capsule should pass without lazurite.toml");
+    }
+
+    #[test]
+    fn doctor_passes_auth_roundtrip_without_manifest() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/auth-roundtrip");
+        doctor_command(&root, SecurityProfile::Strict)
+            .expect("auth-roundtrip should pass without lazurite.toml");
+    }
+
+    #[test]
+    fn doctor_emits_manifest_required_when_lzi_refs_plugin_without_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-doctor-manifest-required-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp doctor project");
+        fs::write(
+            root.join("app.lzi"),
+            r#"
+feature billing
+  command charge
+    policy @plugin/payments
+"#,
+        )
+        .expect("write app.lzi");
+
+        let result = doctor_command(&root, SecurityProfile::Strict);
+        let _ = fs::remove_dir_all(&root);
+
+        let error = result.expect_err("doctor should fail when @plugin refs lack lazurite.toml");
+        assert!(
+            error.to_string().contains("failed Lazuli doctor checks"),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_emits_plugin_not_declared_when_lzi_refs_undeclared_plugin() {
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "app.lzi",
+                r#"
+feature billing
+  command charge
+    policy @plugin/payments
+"#,
+            )],
+            &minimal_manifest(""),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("PLUGIN-NOT-DECLARED-001"));
+    }
+
+    #[test]
+    fn doctor_emits_plugin_unused_when_manifest_declares_unreferenced_plugin() {
+        let package = package_from_sources_with_manifest(
+            vec![("app.lzi", "app Demo\n")],
+            &minimal_manifest(
+                r#"
+[plugins]
+"@plugin/payments" = { module = "example.com/payments", version = "v0.1.0" }
+"#,
+            ),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("PLUGIN-UNUSED-001"));
+    }
+
+    #[test]
+    fn doctor_emits_plugin_namespace_mismatch_for_known_plugin_adapter_ref() {
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "app.lzi",
+                r#"
+app Demo
+  integrations
+    payments adapter @adapter.payments
+"#,
+            )],
+            &minimal_manifest(
+                r#"
+[plugins]
+"@plugin/payments" = { module = "example.com/payments", version = "v0.1.0" }
+"#,
+            ),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("PLUGIN-NAMESPACE-MISMATCH-001"));
+    }
+
+    #[test]
+    fn doctor_emits_submodule_drift_when_generated_go_runtime_differs() {
+        let package = package_from_sources_with_manifest(
+            vec![("app.lzi", "app Demo\n")],
+            &minimal_manifest(
+                r#"
+[generate.go]
+submodule = true
+"#,
+            ),
+        );
+        fs::write(
+            package.project_root.join("go.mod"),
+            "module example.com/demo\n\nrequire lazuli.dev/runtime v0.1.0\n",
+        )
+        .unwrap();
+        fs::create_dir_all(package.project_root.join("dist/go")).unwrap();
+        fs::write(
+            package.project_root.join("dist/go/go.mod"),
+            "module example.com/demo/dist\n\nrequire lazuli.dev/runtime v0.2.0\n",
+        )
+        .unwrap();
+
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("SUBMODULE-DRIFT-001"));
+    }
+
+    #[test]
+    fn doctor_emits_migration_strategy_conflict_for_manual_before_deploy() {
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "app.lzi",
+                r#"
+app Demo
+  deploy
+    migrations before_deploy
+"#,
+            )],
+            &minimal_manifest(
+                r#"
+[migrations]
+generated = "migrations/generated"
+manual = "migrations/manual"
+strategy = "manual"
+"#,
+            ),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("MIGRATION-STRATEGY-CONFLICT-001"));
+    }
+
+    #[test]
+    fn doctor_emits_frontend_audience_unknown_for_manifest_only_audience() {
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "app.web.lzx",
+                r#"
+surface demo web
+  audience admin
+    view dashboard Page
+"#,
+            )],
+            &minimal_manifest(
+                r#"
+[frontends.web]
+target = "tanstack-vite"
+out = "dist/ts-web"
+audiences = ["unknown"]
+"#,
+            ),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("FRONTEND-AUDIENCE-UNKNOWN-001"));
+    }
+
+    #[test]
+    fn doctor_emits_audience_no_frontend_for_unshipped_lzx_audience() {
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "app.web.lzx",
+                r#"
+surface demo web
+  audience admin
+    view dashboard Page
+"#,
+            )],
+            &minimal_manifest(
+                r#"
+[frontends.web]
+target = "tanstack-vite"
+out = "dist/ts-web"
+audiences = []
+"#,
+            ),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("AUDIENCE-NO-FRONTEND-001"));
+    }
+
+    #[test]
+    fn doctor_emits_frontend_out_collision_defensively() {
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "app.web.lzx",
+                r#"
+surface demo web
+  audience admin
+    view dashboard Page
+"#,
+            )],
+            &minimal_manifest(
+                r#"
+[frontends.admin]
+target = "tanstack-vite"
+out = "dist/ts"
+audiences = ["admin"]
+
+[frontends.web]
+target = "tanstack-vite"
+out = "dist/ts"
+audiences = ["admin"]
+"#,
+            ),
+        );
+        let diagnostics = package.diagnostics();
+        assert!(codes(&diagnostics).contains("FRONTEND-OUT-COLLISION-001"));
     }
 
     #[test]
