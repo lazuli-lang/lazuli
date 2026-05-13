@@ -41,6 +41,8 @@ Two namespaces, strict separation:
 
 - **NEVER** `@plugin/<consumer-product>/<name>` (retired 2026-05-11). The adapter is named after the *provider*, not the consuming product. MercadoPago is `@plugin/mercadopago` (generic), not `@plugin/<app>/mercadopago` (product-scoped).
 
+- **Plugins are multi-language by nature.** Most plugins have a Go server adapter (imported by `dist/go/main.go` via anonymous import + `init()` self-registration) plus optionally TS web (`web/`) and TS mobile (`mobile/`) sides for client-rendered widgets. Same repo, subdirs by target language — Stripe / Mapbox / MercadoPago all do this. Don't pre-create empty `web/`/`mobile/` dirs; ship each face when a product port needs it. **See `docs/plugin-authoring.md`** for the canonical repo shape + adapter patterns + scaffold pipeline.
+
 **Before writing a new adapter file, ask: "is this commodity infrastructure (open spec or de-facto-OSS layer) or is it a specific named product/service?"** If it's a named product, **do not put it in `runtime/go/lazuli/`**. Either it belongs in a separate `@plugin/<name>` repo, OR the user should write it as a regular Go module in their app.
 
 The 2026-05-12 incident shipped Stripe / MercadoPago / Sendgrid / Mailgun / Postmark / Resend / SES / Pagarme / PayPal / Pix / Google Maps / HERE / Mapbox / MapTiler / Nominatim / Datadog / Sentry / LaunchDarkly / GrowthBook / Unleash / Discord / Slack / Twilio / PagerDuty / Expo / Algolia / Meilisearch / Typesense / Opensearch — every single one of those was a namespace violation. ~25k LOC of vendor code in core. All extracted in Wave A/B/C cleanup. **Don't do this again.**
