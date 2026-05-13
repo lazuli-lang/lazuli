@@ -100,6 +100,7 @@ fn minimal_app_manifest(name: &str) -> AppManifest {
         deploy: None,
         logging: None,
         tracing: None,
+        observability: None,
         locale: None,
         span_ref: None,
     }

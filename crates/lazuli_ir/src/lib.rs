@@ -1700,6 +1700,10 @@ pub struct AppManifest {
     /// Observability bucket cycle row 36 — `app.tracing` block.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracing: Option<AppTracing>,
+    /// App observability policy for panic recovery and typed error
+    /// projection. Optional; runtime defaults apply when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observability: Option<AppObservability>,
     /// i18n bucket cycle — typed `locale` block. Supersedes the bare
     /// scalar `default_locale` when both are present; the analyzer
     /// copies `locale.default` into `default_locale` for back-compat.
@@ -2201,6 +2205,36 @@ pub struct AppTracing {
     pub exporter: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// AppObservability — authoring surface for runtime panic + error
+/// projection policies. Sibling of AppLogging / AppTracing.
+/// Authored as `app.observability { error_source dev,staging; panic_recover true }`.
+///
+/// EXPERIMENTAL: structure may grow additive fields before 1.0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppObservability {
+    /// Environments where `*lazuli.Error.Source` is included in HTTP 500
+    /// response bodies. Closed catalog: any subset of {"dev","staging","prod"}.
+    /// Default: ["dev", "staging"] (production strips Source).
+    pub error_source: Vec<String>,
+
+    /// Whether `observability.RecoverHTTP` / `RecoverScope` swallow panics.
+    /// Default: true. Setting to false outside `dev` raises a doctor warning.
+    pub panic_recover: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+impl Default for AppObservability {
+    fn default() -> Self {
+        Self {
+            error_source: vec!["dev".to_string(), "staging".to_string()],
+            panic_recover: true,
+            span_ref: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

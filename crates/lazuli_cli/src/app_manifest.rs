@@ -1,9 +1,9 @@
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCors,
     AppCorsOriginRule, AppDeploy, AppEnvVar, AppIntegration, AppIntegrationCredentialBinding,
-    AppIntegrationCredentials, AppLocale, AppLogging, AppManifest, AppPack, AppPackProvide,
-    AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppRegistry,
-    AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
+    AppIntegrationCredentials, AppLocale, AppLogging, AppManifest, AppObservability, AppPack,
+    AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl,
+    AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
     ContractRecord, DeployCheckpoint, FeatureRequirement, LocaleFallback, LocaleNegotiate,
     QualifiedName, RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp,
@@ -352,6 +352,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         deploy: None,
         logging: None,
         tracing: None,
+        observability: None,
         locale: None,
         span_ref: None,
     };
@@ -637,6 +638,22 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         }
                     } else if let Some(rest) = trimmed.strip_prefix("exporter ") {
                         tracing.exporter = Some(rest.trim().to_owned());
+                    }
+                }
+                Some("observability") => {
+                    let observability = app
+                        .observability
+                        .get_or_insert_with(AppObservability::default);
+                    if let Some(rest) = trimmed.strip_prefix("error_source ") {
+                        observability.error_source = split_items(rest)
+                            .into_iter()
+                            .map(|item| item.trim().to_owned())
+                            .filter(|item| !item.is_empty())
+                            .collect();
+                    } else if let Some(rest) = trimmed.strip_prefix("panic_recover ") {
+                        if let Some(value) = parse_bool(rest.trim()) {
+                            observability.panic_recover = value;
+                        }
                     }
                 }
                 // i18n bucket cycle — `app.locale` block. `default`
@@ -1436,6 +1453,7 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         // Observability bucket cycle row 36.
         "logging" => Some("logging"),
         "tracing" => Some("tracing"),
+        "observability" => Some("observability"),
         // i18n bucket cycle — `locale` block at app indent-2.
         "locale" => Some("locale"),
         _ => None,
@@ -1920,6 +1938,20 @@ app AcmeCRM
                 .and_then(|deploy| deploy.rollback.as_deref()),
             Some("on_failed_healthcheck")
         );
+    }
+
+    #[test]
+    fn parse_app_observability_block() {
+        let source = r#"
+app crm
+  observability
+    error_source dev,staging
+    panic_recover false
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let observability = manifest.observability.expect("observability block");
+        assert_eq!(observability.error_source, ["dev", "staging"]);
+        assert!(!observability.panic_recover);
     }
 
     #[test]

@@ -344,6 +344,7 @@ mod tests {
             deploy: None,
             logging: None,
             tracing: None,
+            observability: None,
             locale: None,
             span_ref: None,
         }

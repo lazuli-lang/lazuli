@@ -837,6 +837,7 @@ impl DoctorPackage {
             self.app.as_ref(),
             self.registry.as_ref().map(|reg| &reg.manifest),
         ));
+        diagnostics.extend(app_observability_diagnostics(self.app.as_ref()));
 
         // Phase L — auth block cross-feature diagnostics.
         diagnostics.extend(auth_diagnostics(
@@ -7281,6 +7282,7 @@ const LOG_FORMAT_CATALOG: &[&str] = &["json", "text"];
 /// Closed catalog for `app.logging.redact`. `pii` consumes `@pii.*`
 /// tags; `none` opts out entirely.
 const LOG_REDACT_CATALOG: &[&str] = &["pii", "none"];
+const OBSERVABILITY_ERROR_SOURCE_CATALOG: &[&str] = &["dev", "staging", "prod"];
 
 fn app_logging_tracing_diagnostics(
     app: Option<&DoctorAppManifest>,
@@ -7406,6 +7408,81 @@ fn catalog_list(items: &[&str]) -> String {
         .map(|i| format!("`{i}`"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn app_observability_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    diagnostics.extend(
+        check_observability_source_tokens(&app_manifest.manifest)
+            .into_iter()
+            .map(|mut diagnostic| {
+                diagnostic.path = app_manifest.path.clone();
+                diagnostic
+            }),
+    );
+    diagnostics.extend(
+        check_observability_panic_recover(&app_manifest.manifest)
+            .into_iter()
+            .map(|mut diagnostic| {
+                diagnostic.path = app_manifest.path.clone();
+                diagnostic
+            }),
+    );
+    diagnostics
+}
+
+/// OBSERVABILITY-SOURCE-001 — error_source token outside closed catalog.
+/// Allowed values: "dev", "staging", "prod".
+fn check_observability_source_tokens(app: &AppManifest) -> Vec<DoctorDiagnostic> {
+    let Some(observability) = app.observability.as_ref() else {
+        return Vec::new();
+    };
+    observability
+        .error_source
+        .iter()
+        .filter(|token| !OBSERVABILITY_ERROR_SOURCE_CATALOG.contains(&token.as_str()))
+        .map(|token| DoctorDiagnostic {
+            path: PathBuf::new(),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "OBSERVABILITY-SOURCE-001".to_owned(),
+            message: format!(
+                "`app.observability.error_source {token}` is not in the closed catalog. Allowed values: {}.",
+                catalog_list(OBSERVABILITY_ERROR_SOURCE_CATALOG),
+            ),
+        })
+        .collect()
+}
+
+/// OBSERVABILITY-PANIC-001 — panic_recover=false outside `dev` environment.
+/// Loud opt-out for prod; require explicit override.
+fn check_observability_panic_recover(app: &AppManifest) -> Vec<DoctorDiagnostic> {
+    let Some(observability) = app.observability.as_ref() else {
+        return Vec::new();
+    };
+    if observability.panic_recover {
+        return Vec::new();
+    }
+    let has_non_dev = app.environments.is_empty()
+        || app
+            .environments
+            .iter()
+            .any(|environment| environment != "dev");
+    if !has_non_dev {
+        return Vec::new();
+    }
+    vec![DoctorDiagnostic {
+        path: PathBuf::new(),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Warning,
+        code: "OBSERVABILITY-PANIC-001".to_owned(),
+        message: "`app.observability.panic_recover false` disables the runtime panic guard outside `dev`. Keep recovery enabled for staging/prod unless this is an explicit debug override.".to_owned(),
+    }]
 }
 
 // -----------------------------------------------------------------------------
@@ -14333,6 +14410,44 @@ feature customer_auth
         assert!(
             codes(&diagnostics).contains("DEPLOY-CHECKPOINT-002"),
             "expected DEPLOY-CHECKPOINT-002 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_observability_source_001_fires_on_unknown_token() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app crm
+  observability
+    error_source dev,qa
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("OBSERVABILITY-SOURCE-001"),
+            "expected OBSERVABILITY-SOURCE-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_observability_panic_001_warns_when_recover_disabled_outside_dev() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app crm
+  environments
+    prod
+  observability
+    panic_recover false
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("OBSERVABILITY-PANIC-001"),
+            "expected OBSERVABILITY-PANIC-001 in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

@@ -40,7 +40,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::{AppLocale, AppLogging, AppTracing, Module};
+use lazuli_ir::{AppLocale, AppLogging, AppObservability, AppTracing, Module};
 
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
@@ -95,6 +95,27 @@ pub fn emit_main_go(
     p.line("func main() {");
     p.indent();
     p.line("ctx := context.Background()");
+    let default_observability = AppObservability::default();
+    let error_sources = module
+        .app
+        .as_ref()
+        .and_then(|app| app.observability.as_ref())
+        .map(|observability| observability.error_source.as_slice())
+        .unwrap_or(default_observability.error_source.as_slice());
+    let panic_recover = module
+        .app
+        .as_ref()
+        .and_then(|app| app.observability.as_ref())
+        .map(|observability| observability.panic_recover)
+        .unwrap_or(default_observability.panic_recover);
+    p.line("ctx = lazuli.SetEnvironment(ctx, os.Getenv(\"LAZULI_ENV\"))");
+    p.line(&format!(
+        "ctx = lazuli.SetObservabilityPolicy(ctx, []string{{{}}})",
+        format_string_slice(error_sources)
+    ));
+    p.line(&format!(
+        "ctx = lazuli.SetPanicRecoverPolicy(ctx, {panic_recover})"
+    ));
     p.line("slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))");
     p.blank();
     p.line("dbURL := os.Getenv(\"LAZULI_DB\")");
@@ -440,6 +461,14 @@ fn format_f64(value: f64) -> String {
     }
 }
 
+fn format_string_slice(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| format!("{value:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,6 +547,7 @@ mod tests {
             deploy: None,
             logging: None,
             tracing: None,
+            observability: None,
             locale: None,
             span_ref: None,
         }

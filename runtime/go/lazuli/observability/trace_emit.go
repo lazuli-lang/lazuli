@@ -16,6 +16,7 @@ package observability
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -23,11 +24,11 @@ import (
 // (commit `ac0241d`) shipped the language slot; this struct is the
 // runtime-side mirror.
 type AgentRunPayload struct {
-	Agent          string   // qualified `<feature>.<agent_name>`
-	Flow           string   // populated when Cut B.flow lands
-	FlowStep       string   // populated when Cut B.flow lands
-	Model          string   // `@llm.<name>` resolved at runtime
-	FinishReason   string   // "stop" | "length" | "tool_calls" | "safety" | ...
+	Agent          string // qualified `<feature>.<agent_name>`
+	Flow           string // populated when Cut B.flow lands
+	FlowStep       string // populated when Cut B.flow lands
+	Model          string // `@llm.<name>` resolved at runtime
+	FinishReason   string // "stop" | "length" | "tool_calls" | "safety" | ...
 	TokensInput    int64
 	TokensOutput   int64
 	TokensTotal    int64
@@ -89,6 +90,37 @@ type WebhookRunPayload struct {
 	ErrorCode      string
 	RequestID      string
 	TraceID        string
+}
+
+// TraceEvent is the generic structured event shape used by runtime
+// boundaries that do not yet have a dedicated payload type.
+type TraceEvent struct {
+	Name    string
+	Payload map[string]interface{}
+}
+
+var (
+	traceEventSinkMu sync.Mutex
+	traceEventSink   func(context.Context, TraceEvent)
+)
+
+// SetTraceEventSink installs a process-local trace sink. It exists for
+// tests and early adapters while the full observability dispatcher is
+// still a no-op.
+func SetTraceEventSink(sink func(context.Context, TraceEvent)) {
+	traceEventSinkMu.Lock()
+	defer traceEventSinkMu.Unlock()
+	traceEventSink = sink
+}
+
+// EmitTraceEvent emits a generic structured trace event.
+func EmitTraceEvent(ctx context.Context, name string, payload map[string]interface{}) {
+	traceEventSinkMu.Lock()
+	sink := traceEventSink
+	traceEventSinkMu.Unlock()
+	if sink != nil {
+		sink(ctx, TraceEvent{Name: name, Payload: payload})
+	}
 }
 
 // EmitAgentRun emits an `agent_run` trace event. Generated agent
