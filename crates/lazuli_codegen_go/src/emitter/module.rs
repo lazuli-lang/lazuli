@@ -40,10 +40,12 @@ use lazuli_ir::{BuiltinType, TypeRef};
 const DEFAULT_MODULE_NAME: &str = "lazuli/app";
 
 /// Default Go toolchain pin emitted into `go.mod`. Matches
-/// `runtime/go/go.mod` (currently `go 1.25.0`) so the generated
+/// `runtime/go/go.mod` (currently `go 1.26.0`) so the generated
 /// module shares the same toolchain expectation as the hand-written
-/// Lazuli Go library.
-const DEFAULT_GO_TOOLCHAIN: &str = "go 1.25.0";
+/// Lazuli Go library. Go 1.26 ships `net/http.CrossOriginProtection`
+/// (used by `runtime/go/lazuli/http_csrf.go`) plus the routing
+/// enhancements depended on across `runtime/go/lazuli/http.go`.
+const DEFAULT_GO_TOOLCHAIN: &str = "go 1.26.0";
 
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds
