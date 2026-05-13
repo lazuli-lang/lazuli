@@ -9,6 +9,7 @@ use serde::Serialize;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
+mod dev;
 mod doctor;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
@@ -144,6 +145,22 @@ enum Commands {
         /// Mirrors `translate extract --check`.
         #[arg(long)]
         check: bool,
+    },
+    /// Watch Lazuli source files, regenerate Go output, and optionally run it.
+    Dev {
+        /// Path to a `.lzi` file or a directory containing one.
+        path: PathBuf,
+        /// Output directory for generated Go files. Relative paths are
+        /// resolved under `<path>` when `<path>` is a directory, or its
+        /// parent when `<path>` is a file.
+        #[arg(long, default_value = "dist/go")]
+        out: PathBuf,
+        /// Watch and regenerate only; do not run the generated Go server.
+        #[arg(long)]
+        no_run: bool,
+        /// Debounce window in milliseconds.
+        #[arg(long, default_value_t = 300)]
+        debounce: u64,
     },
     /// OpenAPI bucket cycle — diff two `lazuli inspect --format=json`
     /// payloads and emit a markdown changelog covering added / removed /
@@ -444,6 +461,17 @@ fn main() -> Result<()> {
             lazuli_go_version.as_deref(),
             check,
         ),
+        Commands::Dev {
+            path,
+            out,
+            no_run,
+            debounce,
+        } => dev::run_dev(dev::DevOptions {
+            source_root: path,
+            out,
+            no_run,
+            debounce: std::time::Duration::from_millis(debounce),
+        }),
         Commands::Changelog { from, to, output } => {
             changelog_command(&from, &to, output.as_deref())
         }
@@ -486,7 +514,7 @@ fn generate_command(
 /// when the emitter surfaces unresolved references. The §6.2.1 error
 /// catalog is wired in cell I4; this cell ships the coarse pass/fail
 /// signal.
-fn generate_go(
+pub(crate) fn generate_go(
     input: &Path,
     output: Option<&Path>,
     module: Option<&str>,
