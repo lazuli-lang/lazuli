@@ -1,0 +1,27 @@
+[project]
+name = "hostpoint-mini"
+module = "github.com/lazuli/example-hostpoint-mini"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[lazurite]
+template = "lazurite-default"
+template_version = "0.1.0"
+
+[plugins]
+"@plugin/hostpoint/mini" = { module = "github.com/lazuli/example-hostpoint-mini-pack", version = "v0.1.0" }
+"@plugin/hostpoint/mercadopago" = { module = "github.com/lazuli/example-hostpoint-mercadopago", version = "v0.1.0" }
+
+[generate.go]
+out = "dist/go"
+gofmt = true
+strict = true
+emit_main = true
+submodule = true
+
+[migrations]
+generated = "dist/go/migrations"
+manual = "migrations"
+strategy = "auto"
