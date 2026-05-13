@@ -900,6 +900,7 @@ impl DoctorPackage {
             &self.files,
         ));
         diagnostics.extend(check_codegen_wrap_001(&self.project_root));
+        diagnostics.extend(check_pattern_draft_stale_001(&self.project_root));
 
         diagnostics.sort_by(|left, right| {
             left.path
@@ -927,6 +928,91 @@ fn check_codegen_wrap_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
 
     collect_codegen_wrap_001(&bucket_root, &bucket_root, &mut diagnostics);
     diagnostics
+}
+
+/// PATTERN-DRAFT-STALE-001 - a `//lazuli:pattern <id> draft`
+/// annotation has been on main for more than 7 days.
+///
+/// The check bounds the draft escape hatch for in-progress codegen
+/// patterns. It focuses on the Rust-side pattern catalog because
+/// generated `dist/` output is regen-only and often absent in source
+/// checkouts. If git/blame data is unavailable, the check is a no-op.
+fn check_pattern_draft_stale_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    check_pattern_draft_stale_001_at(project_root, now)
+}
+
+fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<DoctorDiagnostic> {
+    let pattern_file = project_root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs");
+    let Ok(source) = fs::read_to_string(&pattern_file) else {
+        return Vec::new();
+    };
+
+    let mut diagnostics = Vec::new();
+    let seven_days_seconds: u64 = 7 * 24 * 60 * 60;
+    for (lineno, line) in source.lines().enumerate() {
+        if !is_pattern_draft_line(line) {
+            continue;
+        }
+
+        let Some(author_time) = git_blame_author_time(project_root, &pattern_file, lineno + 1)
+        else {
+            continue;
+        };
+        let age = now.saturating_sub(author_time);
+        if age <= seven_days_seconds {
+            continue;
+        }
+
+        diagnostics.push(DoctorDiagnostic {
+            path: pattern_file.clone(),
+            line: lineno + 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "PATTERN-DRAFT-STALE-001".to_owned(),
+            message: format!(
+                "pattern annotation marked `draft` on main for {} days (> 7). Promote to a numbered version (v1, v2, ...) or remove. See docs/proposals/bucket-ai-debug-loop-cycle.md §6.3.",
+                age / (24 * 60 * 60)
+            ),
+        });
+    }
+
+    diagnostics
+}
+
+fn is_pattern_draft_line(line: &str) -> bool {
+    if !line.contains("draft") {
+        return false;
+    }
+    (line.contains("PATTERN_") && line.contains("\"draft\"")) || line.contains("//lazuli:pattern")
+}
+
+fn git_blame_author_time(project_root: &Path, path: &Path, line: usize) -> Option<u64> {
+    let blame_path = path.strip_prefix(project_root).unwrap_or(path);
+    let output = std::process::Command::new("git")
+        .args([
+            "blame",
+            "-L",
+            &format!("{line},{line}"),
+            "--porcelain",
+            "--",
+        ])
+        .arg(blame_path)
+        .current_dir(project_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let blame_text = String::from_utf8_lossy(&output.stdout);
+    blame_text.lines().find_map(|line| {
+        line.strip_prefix("author-time ")
+            .and_then(|rest| rest.trim().parse::<u64>().ok())
+    })
 }
 
 fn collect_codegen_wrap_001(
@@ -10391,6 +10477,77 @@ mod tests {
         fs::remove_dir_all(&root).ok();
 
         assert!(diagnostics.is_empty(), "got {diagnostics:?}");
+    }
+
+    #[test]
+    fn pattern_draft_stale_001_skips_when_no_drafts() {
+        let root = temp_project_root("pattern-draft-no-drafts");
+        write_file(
+            &root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs"),
+            "pub const PATTERN_COMMAND: (&str, &str) = (\"command\", \"v1\");\n",
+        );
+
+        let diagnostics = check_pattern_draft_stale_001_at(&root, 1_800_000_000);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
+    }
+
+    #[test]
+    fn pattern_draft_stale_001_skips_when_recent() {
+        let root = temp_project_root("pattern-draft-recent");
+        let pattern_file = root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs");
+        write_file(
+            &pattern_file,
+            "pub const PATTERN_COMMAND: (&str, &str) = (\"command\", \"draft\");\n",
+        );
+        let recent = 1_800_000_000_u64;
+        if !init_git_repo_with_commit(&root, recent) {
+            fs::remove_dir_all(&root).ok();
+            return;
+        }
+
+        let diagnostics = check_pattern_draft_stale_001_at(&root, recent + 60);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
+    }
+
+    fn init_git_repo_with_commit(root: &Path, timestamp: u64) -> bool {
+        let init = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(root)
+            .output();
+        if !init.map(|output| output.status.success()).unwrap_or(false) {
+            return false;
+        }
+
+        for args in [
+            ["config", "user.email", "test@example.com"],
+            ["config", "user.name", "Lazuli Test"],
+        ] {
+            let _ = std::process::Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .output();
+        }
+
+        let add = std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(root)
+            .output();
+        if !add.map(|output| output.status.success()).unwrap_or(false) {
+            return false;
+        }
+
+        std::process::Command::new("git")
+            .args(["commit", "-m", "fixture"])
+            .env("GIT_AUTHOR_DATE", format!("@{timestamp} +0000"))
+            .env("GIT_COMMITTER_DATE", format!("@{timestamp} +0000"))
+            .current_dir(root)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
     }
 
     fn package_from_sources(sources: Vec<(&str, &str)>) -> DoctorPackage {

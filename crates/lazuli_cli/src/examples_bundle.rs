@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
@@ -36,18 +37,37 @@ pub fn run_examples_bundle(
     Ok(())
 }
 
-pub fn run_examples_validate(project_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_examples_validate(
+    project_root: &Path,
+    check_decay: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let curated_dir = curated_dir(project_root);
     if !curated_dir.exists() {
         return Err("examples/curated/ does not exist; run from project root".into());
     }
 
+    let mut warnings = Vec::new();
+    let today_epoch_day = if check_decay {
+        Some(current_epoch_day()?)
+    } else {
+        None
+    };
     for entry in fs::read_dir(&curated_dir)? {
         let path = entry?.path();
         if !path.is_dir() {
             continue;
         }
         validate_curated_example(project_root, &path)?;
+        if let Some(today_epoch_day) = today_epoch_day {
+            warnings.extend(decay_warnings_for_example(&path, today_epoch_day)?);
+        }
+    }
+
+    if !warnings.is_empty() {
+        eprintln!("Decay warnings:");
+        for warning in warnings {
+            eprintln!("  {warning}");
+        }
     }
 
     Ok(())
@@ -141,6 +161,62 @@ fn curated_dir(project_root: &Path) -> PathBuf {
     project_root.join("examples").join("curated")
 }
 
+fn decay_warnings_for_example(
+    path: &Path,
+    today_epoch_day: i64,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let manifest_path = path.join("manifest.toml");
+    let manifest: toml::Value = fs::read_to_string(&manifest_path)?.parse()?;
+    let Some(last_validated_str) = manifest
+        .get("provenance")
+        .and_then(|provenance| provenance.get("last_validated"))
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(last_validated_day) = parse_epoch_day(last_validated_str) else {
+        return Ok(Vec::new());
+    };
+
+    let age_days = today_epoch_day.saturating_sub(last_validated_day);
+    if age_days <= 90 {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![format!(
+        "{}: provenance.last_validated = {} ({} days ago, > 90). Re-validate or rotate to docs/recipes/ per INCLUSION_POLICY.md.",
+        path.display(),
+        last_validated_str,
+        age_days
+    )])
+}
+
+fn current_epoch_day() -> Result<i64, Box<dyn std::error::Error>> {
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64 / 86_400)
+}
+
+fn parse_epoch_day(date: &str) -> Option<i64> {
+    let mut parts = date.split('-');
+    let year = parts.next()?.parse::<i32>().ok()?;
+    let month = parts.next()?.parse::<u32>().ok()?;
+    let day = parts.next()?.parse::<u32>().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    Some(days_from_civil(year, month, day))
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
+    let year = year - (month <= 2) as i32;
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = year - era * 400;
+    let month = month as i32;
+    let day = day as i32;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    (era * 146_097 + doe - 719_468) as i64
+}
+
 fn normalize_snapshot(mut value: serde_json::Value) -> serde_json::Value {
     if let Some(source) = value.get_mut("source").and_then(|source| source.as_str()) {
         let normalized = source.replace('\\', "/");
@@ -152,7 +228,6 @@ fn normalize_snapshot(mut value: serde_json::Value) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn bundle_emits_deterministic_jsonl() {
@@ -209,7 +284,35 @@ mod tests {
         )
         .unwrap();
 
-        run_examples_validate(&root).unwrap();
+        run_examples_validate(&root, false).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn examples_validate_check_decay_warns_for_old_provenance() {
+        let root = temp_root("bundle_decay_old");
+        let example_dir = write_example(&root, "minimal_command", "minimal command");
+        rewrite_last_validated(&example_dir, "2026-01-01");
+
+        let warnings =
+            decay_warnings_for_example(&example_dir, parse_epoch_day("2026-05-13").unwrap())
+                .unwrap();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("provenance.last_validated = 2026-01-01"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn examples_validate_check_decay_silent_for_recent_provenance() {
+        let root = temp_root("bundle_decay_recent");
+        let example_dir = write_example(&root, "minimal_command", "minimal command");
+
+        let warnings =
+            decay_warnings_for_example(&example_dir, parse_epoch_day("2026-05-13").unwrap())
+                .unwrap();
+
+        assert!(warnings.is_empty(), "got {warnings:?}");
         let _ = fs::remove_dir_all(root);
     }
 
@@ -240,5 +343,17 @@ mod tests {
         .unwrap();
         fs::write(dir.join("expected_ir.json"), "{}").unwrap();
         dir
+    }
+
+    fn rewrite_last_validated(dir: &Path, date: &str) {
+        let manifest = fs::read_to_string(dir.join("manifest.toml")).unwrap();
+        fs::write(
+            dir.join("manifest.toml"),
+            manifest.replace(
+                "last_validated = \"2026-05-13\"",
+                &format!("last_validated = \"{date}\""),
+            ),
+        )
+        .unwrap();
     }
 }

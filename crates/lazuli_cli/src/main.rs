@@ -299,7 +299,11 @@ enum ExamplesCommand {
         out: Option<PathBuf>,
     },
     /// Validate that every curated example still compiles and matches frozen IR.
-    Validate,
+    Validate {
+        /// Also check provenance.last_validated freshness (warn if > 90 days).
+        #[arg(long)]
+        check_decay: bool,
+    },
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -583,7 +587,9 @@ fn main() -> Result<()> {
                 ExamplesCommand::Bundle { out } => {
                     examples_bundle::run_examples_bundle(&project_root, out.as_deref())
                 }
-                ExamplesCommand::Validate => examples_bundle::run_examples_validate(&project_root),
+                ExamplesCommand::Validate { check_decay } => {
+                    examples_bundle::run_examples_validate(&project_root, check_decay)
+                }
             }
             .map_err(|err| anyhow::anyhow!("{err}"))
         }

@@ -153,6 +153,21 @@ Post-1.0 we may relax this to MINOR+ only once we have observed
 zero false-negative slips in 12+ months of releases. Until then,
 universal review is the contract.
 
+## Bucket cycle wave ordering
+
+When a bucket cycle dispatches multi-cell waves to Codex workers, cells
+that touch the same shared file should be sequenced within the wave, not
+parallelised. Recurring pattern from the AI Debug Loop bucket (2026-05-13):
+
+- Wave 2 of bucket-cycle-pattern had D3, D4, D6, D7, D10 fanned out in
+  parallel. D3 and D6 both touched the error-envelope contract
+  (`runtime/go/lazuli/error.go` + `observability/panic.go`); ordering
+  D3 before D6 within the wave avoided a rebase round.
+
+Codex prompts that touch shared files should call this out explicitly
+in the "Constraints" section so the orchestrator knows to land them in
+sequence rather than full parallel.
+
 ## Stability surfacing in `inspect`
 
 `lazuli inspect --format=json` includes a `"stability"` field on every
