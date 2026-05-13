@@ -62,12 +62,16 @@ pub struct LazuriteManifest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LazuritePlugin {
     pub module: Option<String>,
+    pub version: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LazuriteGenerateGo {
     pub emit_main: bool,
     pub submodule: bool,
+    pub dev_replace: Option<String>,
+    pub dev_work_replace: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

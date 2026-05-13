@@ -64,6 +64,8 @@ pub struct GenerateGo {
     pub emit_main: bool,
     #[serde(default = "default_true")]
     pub submodule: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dev_replace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

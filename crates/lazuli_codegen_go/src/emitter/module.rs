@@ -16,6 +16,7 @@ use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
 use super::auth::emit_auth_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
+use super::deps::{TransitiveDep, GO_POSTGIS_DEP};
 use super::enums::emit_enum_file;
 use super::events::emit_events_file;
 use super::imports::ImportSet;
@@ -31,6 +32,7 @@ use super::storage::emit_storage_file;
 use super::translation::emit_translation_files;
 use super::webhook::emit_webhook_file;
 use crate::{GeneratedFile, GoEmitOptions, LazuriteManifest, LAZULI_GO_VERSION};
+use lazuli_ir::{BuiltinType, TypeRef};
 
 /// Default Go module path used when the caller did not supply one and
 /// the IR exposes no `app.name`. Matches proposal §1.1's "fallback
@@ -66,6 +68,14 @@ pub fn emit_module(
     } else {
         options.lazuli_go_version.clone()
     };
+    let transitive_deps = collect_transitive_deps(module);
+    let dev_replace_runtime = manifest
+        .and_then(|m| m.generate_go.as_ref())
+        .and_then(|g| g.dev_replace.as_deref());
+    let dev_work_runtime = manifest
+        .and_then(|m| m.generate_go.as_ref())
+        .and_then(|g| g.dev_work_replace.as_deref())
+        .or(dev_replace_runtime);
 
     // BTreeMap so the iteration order is deterministic regardless of
     // how features were inserted into the IR `Vec`. Feature names
@@ -87,13 +97,19 @@ pub fn emit_module(
         // companions such as `go.work` at the project root.
         files.push(GeneratedFile {
             path: "go.mod".to_owned(),
-            contents: emit_go_mod(&module_name, &lazuli_go_version, manifest),
+            contents: emit_go_mod(
+                &module_name,
+                &lazuli_go_version,
+                manifest,
+                &transitive_deps,
+                dev_replace_runtime,
+            ),
         });
     }
     if manifest.is_some() && submodule {
         files.push(GeneratedFile {
             path: "go.work".to_owned(),
-            contents: emit_go_work(),
+            contents: emit_go_work(dev_work_runtime),
         });
     }
 
@@ -340,6 +356,8 @@ fn emit_go_mod(
     module_name: &str,
     lazuli_go_version: &str,
     manifest: Option<&LazuriteManifest>,
+    transitive_deps: &[&'static TransitiveDep],
+    dev_replace_runtime: Option<&str>,
 ) -> String {
     let mut p = GoPrinter::new();
     p.line(&format!("module {}", module_name));
@@ -355,8 +373,33 @@ fn emit_go_mod(
     // imports reference `lazuli.dev/runtime/lazuli` and
     // `lazuli.dev/runtime/lazuli/<bucket>` paths against that module.
     p.line(&format!("lazuli.dev/runtime {}", lazuli_go_version));
+    if let Some(manifest) = manifest {
+        for (ref_str, plugin) in &manifest.plugins {
+            let Some(module) = plugin.module.as_deref() else {
+                if plugin.path.is_some() {
+                    eprintln!(
+                        "warning: plugin `{}` has a local path but no module; skipping go.mod require",
+                        ref_str
+                    );
+                }
+                continue;
+            };
+            let version = plugin.version.as_deref().unwrap_or("v0.0.0-local");
+            p.line(&format!("{} {}", module, version));
+        }
+    }
+    let mut sorted_deps = transitive_deps.to_vec();
+    sorted_deps.sort_by_key(|dep| dep.module);
+    sorted_deps.dedup_by_key(|dep| dep.module);
+    for dep in sorted_deps {
+        p.line(&format!("{} {}", dep.module, dep.version));
+    }
     p.dedent();
     p.line(")");
+    if let Some(path) = dev_replace_runtime {
+        p.blank();
+        p.line(&format!("replace lazuli.dev/runtime => {}", path));
+    }
     if let Some(manifest) = manifest {
         if let Some(dev) = manifest.dev.as_ref() {
             let mut replacements = Vec::new();
@@ -380,7 +423,7 @@ fn emit_go_mod(
     p.finish()
 }
 
-fn emit_go_work() -> String {
+fn emit_go_work(dev_runtime_path: Option<&str>) -> String {
     let mut p = GoPrinter::new();
     p.line(DEFAULT_GO_TOOLCHAIN);
     p.blank();
@@ -388,9 +431,34 @@ fn emit_go_work() -> String {
     p.indent();
     p.line(".");
     p.line("./dist/go");
+    if let Some(path) = dev_runtime_path {
+        p.line(path);
+    }
     p.dedent();
     p.line(")");
     p.finish()
+}
+
+fn collect_transitive_deps(module: &Module) -> Vec<&'static TransitiveDep> {
+    let mut deps = Vec::new();
+    if module
+        .features
+        .iter()
+        .flat_map(|feature| feature.resources.iter())
+        .flat_map(|resource| resource.fields.iter())
+        .any(|field| type_ref_contains_geopoint(&field.type_ref))
+    {
+        deps.push(&GO_POSTGIS_DEP);
+    }
+    deps
+}
+
+fn type_ref_contains_geopoint(type_ref: &TypeRef) -> bool {
+    match type_ref {
+        TypeRef::Builtin(BuiltinType::SemanticGeoPoint) => true,
+        TypeRef::Many(inner) => type_ref_contains_geopoint(inner),
+        _ => false,
+    }
 }
 
 fn emit_feature_stub(source: &str, feature_name: &str) -> String {

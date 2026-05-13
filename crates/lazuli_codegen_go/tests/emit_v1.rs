@@ -127,6 +127,8 @@ fn lazurite_manifest(
                     plugin_ref.to_owned(),
                     LazuritePlugin {
                         module: Some(module.to_owned()),
+                        version: Some("v0.1.0".to_owned()),
+                        path: None,
                     },
                 )
             })
@@ -206,9 +208,11 @@ fn module_name_override_wins_over_app_name() {
         .iter()
         .find(|f| f.path == "go.mod")
         .expect("go.mod missing");
-    assert!(go_mod
-        .contents
-        .contains("module github.com/acme/custom-name"));
+    assert!(
+        go_mod
+            .contents
+            .contains("module github.com/acme/custom-name")
+    );
 }
 
 #[test]
@@ -738,6 +742,8 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
         Some(LazuriteGenerateGo {
             emit_main: true,
             submodule: true,
+            dev_replace: None,
+            dev_work_replace: None,
         }),
         Vec::new(),
     );
@@ -756,9 +762,10 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
         .find("_ \"github.com/lazurite/lazuli-plugin-mercadopago\"")
         .expect("mercadopago plugin import");
     assert!(expo < mercado, "expected plugin imports sorted by ref");
-    assert!(main
-        .contents
-        .contains("// Plugin imports - registered at init time via lazuli.RegisterAdapter."));
+    assert!(
+        main.contents
+            .contains("// Plugin imports - registered at init time via lazuli.RegisterAdapter.")
+    );
 }
 
 #[test]
@@ -769,6 +776,8 @@ fn emit_v1_with_submodule_false_skips_dist_go_mod() {
         Some(LazuriteGenerateGo {
             emit_main: true,
             submodule: false,
+            dev_replace: None,
+            dev_work_replace: None,
         }),
         Vec::new(),
     );
@@ -793,6 +802,8 @@ fn emit_v1_with_emit_main_false_skips_main_go() {
         Some(LazuriteGenerateGo {
             emit_main: false,
             submodule: true,
+            dev_replace: None,
+            dev_work_replace: None,
         }),
         Vec::new(),
     );
@@ -815,6 +826,8 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
         Some(LazuriteGenerateGo {
             emit_main: true,
             submodule: true,
+            dev_replace: None,
+            dev_work_replace: None,
         }),
         vec![("@plugin/mercadopago", "../lazuli-plugin-mercadopago")],
     );
@@ -828,13 +841,147 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
         .find(|f| f.path == "go.work")
         .expect("expected top-level go.work companion");
 
-    assert!(go_mod
-        .contents
-        .contains("module github.com/acme/test-app/generated"));
+    assert!(
+        go_mod
+            .contents
+            .contains("module github.com/acme/test-app/generated")
+    );
     assert!(go_mod.contents.contains(
         "replace github.com/lazurite/lazuli-plugin-mercadopago => ../lazuli-plugin-mercadopago"
     ));
     assert!(go_work.contents.contains("./dist/go"));
+}
+
+#[test]
+fn emit_go_mod_with_plugins_emits_require_lines() {
+    let module = minimal_module("test_app", "customer");
+    let manifest = lazurite_manifest(
+        vec![("@plugin/foo", "github.com/lazurite/lazuli-plugin-foo")],
+        Some(LazuriteGenerateGo {
+            emit_main: true,
+            submodule: true,
+            dev_replace: None,
+            dev_work_replace: None,
+        }),
+        Vec::new(),
+    );
+    let files = generate_v1_with_manifest(&module, &GoEmitOptions::default(), Some(&manifest));
+    let go_mod = files
+        .iter()
+        .find(|f| f.path == "go.mod")
+        .expect("expected generated go.mod");
+
+    assert!(
+        go_mod
+            .contents
+            .contains("github.com/lazurite/lazuli-plugin-foo v0.1.0")
+    );
+}
+
+#[test]
+fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
+    let mut module = minimal_module("hostpoint", "listing");
+    module.features[0].resources.push(Resource {
+        name: "Listing".to_owned(),
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields: vec![Field {
+            name: "location".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::SemanticGeoPoint),
+            required: true,
+            unique: false,
+            default: None,
+            derived_from: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }],
+        constraints: Vec::new(),
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    });
+
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let go_mod = files
+        .iter()
+        .find(|f| f.path == "go.mod")
+        .expect("expected generated go.mod");
+
+    assert!(
+        go_mod
+            .contents
+            .contains("github.com/cridenour/go-postgis v1.0.2")
+    );
+}
+
+#[test]
+fn emit_go_mod_with_dev_replace_emits_replace_directive() {
+    let module = minimal_module("test_app", "customer");
+    let manifest = lazurite_manifest(
+        Vec::new(),
+        Some(LazuriteGenerateGo {
+            emit_main: true,
+            submodule: true,
+            dev_replace: Some("../../runtime/go".to_owned()),
+            dev_work_replace: None,
+        }),
+        Vec::new(),
+    );
+    let files = generate_v1_with_manifest(&module, &GoEmitOptions::default(), Some(&manifest));
+    let go_mod = files
+        .iter()
+        .find(|f| f.path == "go.mod")
+        .expect("expected generated go.mod");
+
+    assert!(
+        go_mod
+            .contents
+            .contains("replace lazuli.dev/runtime => ../../runtime/go")
+    );
+}
+
+#[test]
+fn emit_go_work_with_dev_replace_includes_runtime_path() {
+    let module = minimal_module("test_app", "customer");
+    let manifest = lazurite_manifest(
+        Vec::new(),
+        Some(LazuriteGenerateGo {
+            emit_main: true,
+            submodule: true,
+            dev_replace: Some("../../runtime/go".to_owned()),
+            dev_work_replace: None,
+        }),
+        Vec::new(),
+    );
+    let files = generate_v1_with_manifest(&module, &GoEmitOptions::default(), Some(&manifest));
+    let go_work = files
+        .iter()
+        .find(|f| f.path == "go.work")
+        .expect("expected generated go.work");
+
+    assert!(go_work.contents.contains("../../runtime/go"));
+}
+
+#[test]
+fn emit_go_mod_without_manifest_falls_back_to_legacy_behavior() {
+    let module = minimal_module("test_app", "customer");
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let go_mod = files
+        .iter()
+        .find(|f| f.path == "go.mod")
+        .expect("expected generated go.mod");
+
+    assert!(go_mod.contents.contains("lazuli.dev/runtime"));
+    assert!(!go_mod.contents.contains("replace lazuli.dev/runtime"));
+    assert!(
+        !go_mod
+            .contents
+            .contains("github.com/lazurite/lazuli-plugin")
+    );
+    assert!(!go_mod.contents.contains("github.com/cridenour/go-postgis"));
 }
 
 #[test]

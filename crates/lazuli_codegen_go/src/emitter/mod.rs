@@ -20,6 +20,7 @@ pub mod casing;
 pub mod check;
 pub mod command;
 pub mod cross_feature;
+pub mod deps;
 pub mod enums;
 pub mod events;
 pub mod imports;

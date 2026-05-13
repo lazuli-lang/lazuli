@@ -615,8 +615,15 @@ pub(crate) fn generate_go(
             project_root.join("lazurite.toml").display()
         )
     })?;
-    let codegen_manifest = manifest.as_ref().map(codegen_lazurite_manifest);
     let module_ir = build_module_from_path(input)?;
+    let manifest_out = manifest
+        .as_ref()
+        .and_then(|m| m.generate.go.as_ref())
+        .map(|go| project_root.join(&go.out));
+    let out_dir = output.or(manifest_out.as_deref());
+    let codegen_manifest = manifest
+        .as_ref()
+        .map(|manifest| codegen_lazurite_manifest(manifest, &project_root, out_dir));
 
     let module_name = match module {
         Some(name) => name.to_owned(),
@@ -649,11 +656,7 @@ pub(crate) fn generate_go(
         return Ok(());
     }
 
-    let manifest_out = manifest
-        .as_ref()
-        .and_then(|m| m.generate.go.as_ref())
-        .map(|go| project_root.join(&go.out));
-    let out_dir = output.or(manifest_out.as_deref()).ok_or_else(|| {
+    let out_dir = out_dir.ok_or_else(|| {
         anyhow::anyhow!(
             "`lazuli generate go` requires --out <dir>; the emitter writes multiple files"
         )
@@ -676,6 +679,8 @@ pub(crate) fn generate_go(
 
 fn codegen_lazurite_manifest(
     manifest: &lazurite_manifest::Manifest,
+    project_root: &Path,
+    out_dir: Option<&Path>,
 ) -> lazuli_codegen_go::LazuriteManifest {
     use std::collections::BTreeMap;
 
@@ -683,25 +688,38 @@ fn codegen_lazurite_manifest(
         .plugins
         .iter()
         .map(|(plugin_ref, plugin)| {
-            let module = match plugin {
-                lazurite_manifest::Plugin::Remote { module, .. } => Some(module.clone()),
-                lazurite_manifest::Plugin::Local { .. } => None,
+            let (module, version, path) = match plugin {
+                lazurite_manifest::Plugin::Remote { module, version } => {
+                    (Some(module.clone()), Some(version.clone()), None)
+                }
+                lazurite_manifest::Plugin::Local { path } => (None, None, Some(path.clone())),
             };
             (
                 plugin_ref.clone(),
-                lazuli_codegen_go::LazuritePlugin { module },
+                lazuli_codegen_go::LazuritePlugin {
+                    module,
+                    version,
+                    path,
+                },
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let generate_go =
-        manifest
-            .generate
-            .go
-            .as_ref()
-            .map(|go| lazuli_codegen_go::LazuriteGenerateGo {
-                emit_main: go.emit_main,
-                submodule: go.submodule,
-            });
+    let generate_go = manifest.generate.go.as_ref().map(|go| {
+        let detected =
+            out_dir.and_then(|out_dir| detect_runtime_dev_replace(project_root, out_dir));
+        lazuli_codegen_go::LazuriteGenerateGo {
+            emit_main: go.emit_main,
+            submodule: go.submodule,
+            dev_replace: go
+                .dev_replace
+                .clone()
+                .or_else(|| detected.as_ref().map(|paths| paths.go_mod.clone())),
+            dev_work_replace: go
+                .dev_replace
+                .clone()
+                .or_else(|| detected.map(|paths| paths.go_work)),
+        }
+    });
     let dev = manifest
         .dev
         .as_ref()
@@ -714,6 +732,89 @@ fn codegen_lazurite_manifest(
         plugins,
         generate_go,
         dev,
+    }
+}
+
+struct RuntimeDevReplace {
+    go_mod: String,
+    go_work: String,
+}
+
+fn detect_runtime_dev_replace(project_root: &Path, out_dir: &Path) -> Option<RuntimeDevReplace> {
+    let project_abs = absolutize_project_root(project_root);
+    let out_abs = absolutize_for_codegen(project_root, out_dir);
+    for parent in out_abs.ancestors() {
+        let runtime_dir = parent.join("runtime").join("go");
+        let go_mod = runtime_dir.join("go.mod");
+        let Ok(contents) = std::fs::read_to_string(&go_mod) else {
+            continue;
+        };
+        if !contents
+            .lines()
+            .any(|line| line.trim() == "module lazuli.dev/runtime")
+        {
+            continue;
+        }
+        return Some(RuntimeDevReplace {
+            go_mod: relative_path(&out_abs, &runtime_dir),
+            go_work: relative_path(&project_abs, &runtime_dir),
+        });
+    }
+    None
+}
+
+fn absolutize_project_root(project_root: &Path) -> std::path::PathBuf {
+    if project_root.is_absolute() {
+        project_root.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| Path::new(".").to_path_buf())
+            .join(project_root)
+    }
+}
+
+fn absolutize_for_codegen(project_root: &Path, path: &Path) -> std::path::PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else if path.starts_with(project_root) {
+        std::env::current_dir()
+            .unwrap_or_else(|_| project_root.to_path_buf())
+            .join(path)
+    } else {
+        project_root.join(path)
+    }
+}
+
+fn relative_path(from_dir: &Path, to_dir: &Path) -> String {
+    let from_components = from_dir
+        .components()
+        .map(|component| component.as_os_str().to_owned())
+        .collect::<Vec<_>>();
+    let to_components = to_dir
+        .components()
+        .map(|component| component.as_os_str().to_owned())
+        .collect::<Vec<_>>();
+
+    let mut common = 0;
+    while common < from_components.len()
+        && common < to_components.len()
+        && from_components[common] == to_components[common]
+    {
+        common += 1;
+    }
+
+    let mut parts = Vec::new();
+    for _ in common..from_components.len() {
+        parts.push("..".to_owned());
+    }
+    for component in &to_components[common..] {
+        parts.push(component.to_string_lossy().into_owned());
+    }
+
+    if parts.is_empty() {
+        ".".to_owned()
+    } else {
+        parts.join("/")
     }
 }
 
