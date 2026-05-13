@@ -34,11 +34,11 @@ Estado honesto agora:
 - Auditoria de checkboxes: antes deste checkpoint, este arquivo mostrava 421
   itens, com apenas 18 marcados como feitos. Isso **não** representava o
   progresso real do código; representava que a reconciliação linha-a-linha
-  ainda não tinha acompanhado as batches. Depois da reconciliação c376-c405,
+  ainda não tinha acompanhado as batches. Depois da reconciliação c406-c420,
   este arquivo mostra 160 feitos / 426 totais. Itens compostos parcialmente
   feitos continuam abertos com nota.
 - Runtime Go está verde: `go test ./...` em `runtime/go` passou após a batch
-  c376-c405.
+  c406-c420.
 - `cargo test -p lazuli_codegen_go`, `cargo test -p lazuli_cli` e
   `cargo test -p lazuli_codegen_go --features smoke` passam.
 - A execução paralela já levou o runtime Go bem além dos stubs iniciais:
@@ -54,8 +54,8 @@ Estado honesto agora:
   auth, property, service/booking, payment, review, chat e notification estão
   modelados; isso ainda **não** significa que o produto Hostpoint real foi
   migrado.
-- As batches c181-c405 foram deliberadamente de **framework/Lazurite readiness**:
-  225 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
+- As batches c181-c420 foram deliberadamente de **framework/Lazurite readiness**:
+  240 helpers de runtime Go em HTTP/DB/migrations/testkit/security/cache/email/
   jobs/storage/search/realtime/OpenAPI/i18n/reports/deploy/perf/authz/docgen/
   auth/events/admin/billing/views/rpc/adapters/search/maps/payments hardening.
   Nenhum trabalho de port do Hostpoint real foi iniciado.
@@ -87,7 +87,7 @@ Progresso real por camada:
 |---|---|
 | Linguagem / IR / doctor / LSP | Bem avançado. Phase L + buckets piloto fechados no lado da linguagem. |
 | Codegen Go | CLI + emitters amplos existem; 187 testes unitários passam; full-capsule `go build` smoke e gofmt smoke passam. |
-| Runtime Go | 805 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
+| Runtime Go | 835 arquivos sob `runtime/go/lazuli`; `go test ./...` verde; muitos helpers P1/P2/P3 implementados, incluindo providers Hostpoint-needed e foundation Lazurite. |
 | Hostpoint produto | Ainda não portado; `examples/hostpoint-mini/` cobre o shape do MVP como playground, mas Phase 1 do produto real não começou. |
 
 ---
