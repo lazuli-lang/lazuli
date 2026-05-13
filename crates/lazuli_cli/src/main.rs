@@ -13,6 +13,7 @@ mod dev;
 mod doctor;
 mod lazurite_manifest;
 mod migrate;
+mod seed;
 mod templates;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
@@ -171,6 +172,15 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         sub: MigrateCommand,
+    },
+    /// Run seed scripts from lazurite.toml [seeds].dir.
+    Seed {
+        /// Run only one seed file by filename.
+        #[arg(long)]
+        only: Option<String>,
+        /// Allow seeding when LAZULI_ENV=production.
+        #[arg(long)]
+        force: bool,
     },
     /// OpenAPI bucket cycle — diff two `lazuli inspect --format=json`
     /// payloads and emit a markdown changelog covering added / removed /
@@ -526,6 +536,12 @@ fn main() -> Result<()> {
                 }
             }
             .map_err(|err| anyhow::anyhow!("{err}"))
+        }
+        Commands::Seed { only, force } => {
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            seed::run_seed(&project_root, only.as_deref(), force)
+                .map_err(|err| anyhow::anyhow!("{err}"))
         }
         Commands::Changelog { from, to, output } => {
             changelog_command(&from, &to, output.as_deref())
