@@ -28,6 +28,10 @@ type Resource[T any] struct {
 	// Nil means "rows soft-deleted stay soft-deleted forever".
 	Retention *RetentionSpec
 
+	// PIIFields names columns that hold personally identifiable data. Retention
+	// anonymization sets these columns to NULL after the retention window.
+	PIIFields []string
+
 	// Validators are extension validators that run on every create/update.
 	// Order matches the order in `extensions.validator <name>`.
 	Validators []ValidatorRef
@@ -55,6 +59,7 @@ func (r *Resource[T]) erased() *resourceErased {
 		Tenancy:    r.Tenancy,
 		SoftDelete: r.SoftDelete,
 		Retention:  r.Retention,
+		PIIFields:  r.PIIFields,
 		Validators: r.Validators,
 		Indexes:    r.Indexes,
 		HasMany:    r.HasMany,
@@ -69,6 +74,7 @@ type resourceErased struct {
 	Tenancy    TenancyMode
 	SoftDelete bool
 	Retention  *RetentionSpec
+	PIIFields  []string
 	Validators []ValidatorRef
 	Indexes    []Index
 	HasMany    []HasMany
