@@ -14,6 +14,7 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 mod app_manifest;
 mod cmd_design;
 mod cmd_generate_feature;
+mod cmd_generate_handler;
 mod cmd_new_frontends;
 mod debug;
 mod dev;
@@ -375,6 +376,7 @@ enum GenerateKind {
     Openapi,
     Go,
     Feature,
+    Handler,
     Ts,
 }
 
@@ -785,6 +787,12 @@ fn generate_command(
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
             cmd_generate_feature::run(name, &project_root)
+        }
+        GenerateKind::Handler => {
+            let ident = input.to_str().context("handler ident must be valid UTF-8")?;
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            cmd_generate_handler::run(ident, &project_root)
         }
         GenerateKind::Ts => generate_ts(input, output, check),
     }

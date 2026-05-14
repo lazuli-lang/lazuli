@@ -1,6 +1,6 @@
 # Proposal — `lifecycle` Resource Vocabulary (Named State Machines)
 
-**Status:** L0 v0.2 PASS @ 8.86/10 — 2026-05-14 (self-graded against the architect rubric in `docs/grading-rubric.md` + `.claude/agents/lazuli-language-architect.md`; v0.1 hit BLOCK 8.36/10 with C5 Determinism = 6.8 + C9 Testability = 7.0; v0.2 resolves both blockers — §2.1 declares `lifecycle` canonical and `workflow` deprecated, §3.3 lifts `tests` from `Workflow.Transition.tests` 1:1, §3.4 makes invariant catalog forms explicit grammar. **NOTE: not architect-graded — this subagent's environment lacks the Task tool to dispatch `lazuli-language-architect`. Orchestrator should re-grade post-handoff to confirm.**)
+**Status:** L0 v0.3 — 2026-05-14. Orchestrator (Lucas) decided **full-replace, not gradual deprecation** after reading v0.2: "não parsear mais workflow, remover existencia dela pra não acumular lixo no core da linguagem." v0.3 thus drops the "workflow continues to parse" branch and treats `Workflow` IR struct purely as an internal lowering target during the migration wave (deleted from IR once the wave's fixture migrations complete). v0.2 was self-graded PASS 8.86/10 (not architect-graded — subagent lacked the Task tool). **Re-grade gate before commit-of-implementation cells: ≥ 8.5/10 with no dimension < 7.**
 **Author:** Claude Opus 4.7 (orchestrator)
 **Audit-ready target:** ≥ 9.0 via `lazuli-language-architect`
 **Depends on:** existing `Workflow` IR (`crates/lazuli_ir/src/lib.rs:1533-1570`), existing `audit` / `emits` / `policy` / `previous_names` vocabulary on commands and transitions.
@@ -51,38 +51,36 @@ Every primitive in §3 is tested against that table. If a child would force a pr
 
 This is the same closed-catalog discipline that already governs `notification.throttle` (`docs/invariants.md:181-188`), `audit` (`docs/invariants.md:93-97`), `retention` (`docs/invariants.md` §Security And Crypto), and `agent.evals` (`docs/invariants.md:120-130`). Lifecycle is a fifth instance of "this product pattern repeated; we named its closed shape; doctor enforces the catalog."
 
-### §2.1 Lifecycle vs workflow — the canonical-form rule
+### §2.1 Lifecycle replaces workflow — the canonical-form rule
 
-This is the determinism question that v0.1 fluffed and v0.2 nails down. Lazuli's rubric (criterion 5) hard-deducts when two surface forms express the same intent with no rule for choosing. Both `workflow` and `lifecycle` describe state machines; if v0.2 doesn't fix one canonical form, the proposal blocks.
+Lazuli's rubric (criterion 5) hard-deducts when two surface forms express the same intent. Both `workflow` and `lifecycle` describe single-resource state machines, and **the orchestrator's directive is to keep the vocabulary closed — no parser entry for legacy forms.** v0.3 therefore removes `workflow` from the surface grammar entirely.
 
-**The rule (canonical from v0.2 forward):**
+**The rule (canonical from v0.3 forward):**
 
-> **A state machine bound to one discriminator field of one resource MUST be expressed as `lifecycle`. `workflow` is reserved for the deprecated existing form and accepts the same shape but emits a warning suggesting the lifecycle rewrite.**
+> **A state machine bound to one discriminator field of one resource MUST be expressed as `lifecycle`. The `workflow` keyword is removed from the parser. The `Workflow` IR struct stays only as a transient lowering target during the migration wave and is deleted as soon as fixtures clear.**
 
 Concretely:
 
-1. **Lifecycle is the only canonical form for new code.** `lazuli new` templates and proposal scaffolds emit `lifecycle`. `docs/quickref.md` documents lifecycle; the workflow entry becomes a "legacy form" pointer.
-2. **`workflow` continues to parse**, but doctor emits `WORKFLOW-DEPRECATED-001` (warning, strict; warning, prod — does NOT escalate to error) with a verbatim lifecycle rewrite suggestion. Existing fixtures (`examples/full-capsule/full-capsule.lzi:379-403`) get migrated in the same wave that lands this proposal (cell L.F.0).
-3. **The IR `Workflow` struct stays** — the deprecated parser path lowers to it, and `Workflow` itself is now lowered downstream of `Lifecycle` (lifecycle → workflow IR view + lowered commands). Existing snapshot tests stay green by construction.
-4. **`workflow` and `lifecycle` are not *both* allowed on the same discriminator field** — doctor `LIFECYCLE-WORKFLOW-CONFLICT-001` errors if a resource has both pointing at the same field.
-5. **Cross-resource state machines do NOT become `lifecycle`.** That was the v0.1 fluff. Cross-resource is OUT of both lifecycle AND workflow scope (§9); event_group + job remains the canonical form. There is no "cross-cutting workflow" use case that survives this rule — re-read `examples/full-capsule/full-capsule.lzi:379-403`, that workflow IS single-resource (`on Customer.lifecycle_stage`), so lifecycle subsumes it.
+1. **Lifecycle is the only authoring form.** `lazuli new` templates, `docs/quickref.md`, proposal scaffolds, and every fixture under `examples/` emit `lifecycle`. The `workflow` keyword is retired from the syntax — a `.lzi` containing `workflow <name> on <Resource>.<field>` is a parse error after this proposal lands.
+2. **In-wave migration is mandatory.** All existing `workflow` declarations refactor to `lifecycle` in the same wave that ships the parser. Catalog:
+   - `examples/full-capsule/full-capsule.lzi:379-403` (Customer workflow → Customer.lifecycle).
+   - Any of the three dogfood products that authored `workflow` (none confirmed today, but greppable pre-commit).
+   - Any `.lzx` call sites like `customer.workflow.lifecycle.archive` → `customer.lifecycle.archive`.
+3. **The IR `Workflow` struct survives only as a transient internal target.** Lifecycle lowering still produces a `Workflow` IR view temporarily so existing snapshot tests + inspect projections keep working without churn during the migration. Once every consumer (`lazuli inspect`, `audit_event_health_diagnostics`, codegen Go) is repointed at `Lifecycle`, the `Workflow` struct is deleted in a follow-up cell.
+4. **`WORKFLOW-DEPRECATED-001` is replaced by a parser error** (no more graceful "warning with rewrite"). Any `workflow` token after this lands → `error[E-WORKFLOW-RETIRED]: keyword \`workflow\` was retired in favor of \`lifecycle\` (proposal: docs/proposals/lifecycle-vocab.md). Refactor to \`lifecycle <field>\` inside the resource block.` Diagnostic body includes the verbatim suggested rewrite.
+5. **Cross-resource state machines do NOT become `lifecycle`.** Cross-resource is OUT of lifecycle scope (§9); `event_group + job` remains the canonical form for cross-cutting orchestration. The four motivating textbook examples plus the existing `customer.lifecycle_stage` workflow are ALL single-resource; there is no surviving cross-cutting use case that needed the old vocabulary.
 
-**The four motivating textbook examples and the existing `customer.lifecycle_stage` example are ALL resource-bound to a single field. There is no surviving cross-cutting `workflow` example in the codebase or in any of the three v2 dogfood products.** That's the empirical evidence that `workflow` can be deprecated cleanly: the cross-cutting case that justified two surfaces simply doesn't exist.
+**Why a clean cut now beats a deprecation period:**
 
-**Naming polysemy note.** The existing `examples/full-capsule/full-capsule.lzx:70` carries `customer.workflow.lifecycle.archive` — `workflow` is the IR namespace, `lifecycle` is the workflow's name. After this proposal, the migrated form addresses the same archive transition as `customer.lifecycle.archive` (the resource's `lifecycle` block has a single canonical reference path; the `workflow.` infix disappears). Doctor's `WORKFLOW-DEPRECATED-001` flags the .lzx call site too with the rename suggestion.
-
-**Why this clean cut works and doesn't force a v0 break:**
-
-| Concern | Why it's fine |
+| Concern | Resolution |
 |---|---|
-| "Existing fixtures break." | They don't — `workflow` continues to parse and lower to the same IR `Workflow` struct. The proposal adds `lifecycle` as the canonical authoring form and ages out `workflow` over one wave. |
-| "Snapshot tests churn." | `Workflow` IR struct stays as a lowering target. Lowering: `lifecycle` → both `Lifecycle` (new) AND `Workflow` (compat view) IR until the deprecation completes. Then `Workflow` becomes a derived projection. |
-| "Authors who learned `workflow` are confused." | Doctor's `WORKFLOW-DEPRECATED-001` diagnostic is the migration script. Diagnostic text includes the verbatim refactor. Cold-readers see ONE primary form. |
-| "What about transition tests?" | Mirror them onto `LifecycleTransition.tests` (§3.3 below; v0.1 deferred this — v0.2 promotes). |
-| "What about asymmetric `requires @policy.*` per transition?" | Lifecycle supports `requires` per transition (§3.3). Workflow had no monopoly on that. |
-| "What if Lucas later finds a real cross-resource state machine?" | Different proposal (OQ-4). It does not resurrect `workflow`. |
+| "Existing fixtures break." | They migrate in the wave (cell L.F.0). Each `workflow` block has a 1:1 lifecycle rewrite — same states, same transitions, same audit/emits/policy. The migration is mechanical. |
+| "Snapshot tests churn." | `Workflow` IR struct survives lowering during the wave. Lifecycle → `Workflow` (compat view) keeps existing snapshots green until consumers are repointed; THEN the struct disappears + snapshots regen once. |
+| "Cold-reader confusion." | Cold-readers see ONE form — `lifecycle`. No legacy entry in the parser to discover. `docs/quickref.md` documents lifecycle only. The grep `workflow` in `examples/` returns zero after migration. |
+| "Transition tests / per-transition policies." | Lifecycle supports both (§3.3). Workflow had no monopoly. |
+| "What if a real cross-resource state machine appears later?" | Different proposal (OQ-4). It does not resurrect `workflow`; it names a NEW vocabulary for cross-resource orchestration. |
 
-OQ-2 in §12 retitled accordingly: tracks the schedule of `Workflow` IR full removal once `WORKFLOW-DEPRECATED-001` is `error` in production and all known consumers migrate. Earliest removal: 3 months post-landing, gated on zero remaining `workflow` declarations across the three dogfood products + first downstream product port.
+OQ-2 in §12 retitled: tracks the cell that deletes the `Workflow` IR struct after migration completes. Earliest deletion: same wave as this proposal lands, conditional on (a) all `workflow` declarations migrated, (b) `lazuli inspect --expand=workflow` consumers repointed at `lifecycle`, (c) codegen Go state-machine emitter switched to read `Lifecycle`.
 
 ---
 

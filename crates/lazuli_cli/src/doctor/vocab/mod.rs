@@ -1,9 +1,23 @@
 //! Vocabulary lint rules (`VOCAB-*`).
 //!
-//! Each rule is a sub-module exposing a `check` function. The orchestrator
-//! wires each `check` into `DoctorPackage::diagnostics()` post-merge.
+//! Each rule is a sub-module exposing a `check` function. Full dispatch
+//! into `DoctorPackage::diagnostics()` is a separate cell (~+500 LOC of
+//! IR loading + Finding → DoctorDiagnostic adapter). Until that ships,
+//! each rule's inline `#[cfg(test)] mod tests` exercises the logic.
+//!
+//! v0.1 (4 rules): audit, derived_read, event_payload, union.
+//! v0.2 catalog (3 rules): cap_missing, grammar_form, union_002.
+//! v0.3 catalog (4 rules): event_orphan, event_producer, audit_002,
+//! json_typed.
 
 pub mod vocab_audit_001;
+pub mod vocab_audit_002;
+pub mod vocab_cap_missing_001;
 pub mod vocab_derived_read_001;
+pub mod vocab_event_orphan_001;
 pub mod vocab_event_payload_001;
+pub mod vocab_event_producer_001;
+pub mod vocab_grammar_form_001;
+pub mod vocab_json_typed_001;
 pub mod vocab_union_001;
+pub mod vocab_union_002;

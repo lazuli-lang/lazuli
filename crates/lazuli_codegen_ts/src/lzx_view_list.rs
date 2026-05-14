@@ -1012,7 +1012,7 @@ mod tests {
         let audience = minimal_audience(view.clone());
         let surface = minimal_surface(audience.clone());
 
-        let out = emit_view_list(&surface, &audience, &view);
+        let out = emit_view_list(&surface, &audience, &view, "");
 
         // useFilterState imported from runtime.
         assert!(out.contains("useFilterState,"));
@@ -1067,7 +1067,7 @@ mod tests {
         let audience = minimal_audience(view.clone());
         let surface = minimal_surface(audience.clone());
 
-        let out = emit_view_list(&surface, &audience, &view);
+        let out = emit_view_list(&surface, &audience, &view, "");
 
         // search-query-parser pulled in.
         assert!(out.contains(
@@ -1098,7 +1098,7 @@ mod tests {
         let audience = minimal_audience(view.clone());
         let surface = minimal_surface(audience.clone());
 
-        let out = emit_view_list(&surface, &audience, &view);
+        let out = emit_view_list(&surface, &audience, &view, "");
 
         // Feature SDK import block includes the enum VALUES constant.
         assert!(out.contains("  ITEM_TYPE_VALUES,"));
@@ -1128,7 +1128,7 @@ mod tests {
         let audience = minimal_audience(view.clone());
         let surface = minimal_surface(audience.clone());
 
-        let out = emit_view_list(&surface, &audience, &view);
+        let out = emit_view_list(&surface, &audience, &view, "");
 
         // useLazuliQuery receives the filter values in declaration order.
         assert!(out.contains(

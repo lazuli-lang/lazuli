@@ -325,6 +325,124 @@ The catalog above lists 6 rules; only the ones whose destination vocabulary **al
 
 ---
 
+## Active subset for v0.2 (catalog v2)
+
+Cells A1-A4 from the 2026-05-14 wave (16-worker batch).
+
+| Rule | Status | Ships in v0.2? | Cell |
+|---|---|---|---|
+| `VOCAB-CAP-MISSING-001` | active (capability vocabulary exists) | ✅ | A1 |
+| `VOCAB-GRAMMAR-FORM-001` | active (canonical indentation is law) | ✅ | A2 |
+| `VOCAB-UNION-002` | active (union vocabulary exists; polymorphic-FK variant of UNION-001) | ✅ | A3 |
+| `HOOK-TARGET-001` | active (extension-points vocabulary exists; correctness, not vocab) | ✅ | A4 |
+
+**v0.2 adds 4 rules** — three vocabulary lints + one correctness rule (`HOOK-TARGET-001`). All ship with the same diagnostic shape + severity-override knob as v0.1.
+
+### `VOCAB-CAP-MISSING-001` — PII-shaped field without `@cap.*`
+
+Closed PII-name catalog: `ssn`, `cpf`, `cnpj`, `tax_id`, `tax_number`, `vat`, `vat_id`, `national_id`, `passport`, `passport_number`, `credit_card`, `card_number`, `iban`, `bank_account`, `annual_revenue`, `salary`, `income`, `date_of_birth`, `birth_date`, `dob`, `drivers_license`, `license_number`, `email`, `phone`, `phone_number`, `mobile`, `address_line`, `street_address`, `ip_address`.
+
+Detection: case-insensitive exact or `_<token>` suffix match. False-positive guards: fields with `TypeRef::Capability(_)` of any tier skip; `@semantic.Email` / `@semantic.Phone` (semantic-typed) skip; FK-shape `user: User`, `owner: User` does not match the catalog.
+
+Severity: `warning` (strict), `error` (production).
+
+### `VOCAB-GRAMMAR-FORM-001` — legacy curly-brace dialect
+
+Walks raw source, not IR (lowering strips the dialect signal). Closed catalog of top-level keywords: `aggregate`, `resource`, `feature`, `domain`, `policies`, `command`, `query.list`, `query.lookup`, `query.sql`, `job`, `webhook`, `notification`. Fires when `<keyword> ... {` is the last non-whitespace token on a line. Per-line state machine for string literals; comment-line skip.
+
+Severity: `warning` (strict), `warning` (production).
+
+### `VOCAB-UNION-002` — polymorphic FK (enum discriminator + untyped id)
+
+Sibling of `VOCAB-UNION-001`. Closed discriminator-name catalog: `target`, `subject`, `attachment_target`, `parent_target`. Fires when resource has `<name>: <Enum>` + sibling `<name>_id: ID` AND enum has ≥2 variants AND the FK is `BuiltinType::Id`/`Text` (untyped). Suggests discriminated union OR typed-FK sibling resources.
+
+Severity: `warning` (strict), `error` (production).
+
+### `HOOK-TARGET-001` — extension hook references undefined target
+
+Correctness rule, not vocab. Fires when `hook x: Hook[Foo]` references `Foo` and no command/query/job/record/event/resource of that name exists in the same feature. Cross-feature references (`other.Foo`) skipped (different rule).
+
+Severity: `error` (strict and production). Dangling references are correctness bugs.
+
+---
+
+## Active subset for v0.3 (catalog v3)
+
+Cells A5-A8 from the same wave. Driven by triple-dogfood NEW rule candidates surfaced in `project_product_vocab_audits_2026-05-14.md`.
+
+| Rule | Status | Ships in v0.3? | Cell |
+|---|---|---|---|
+| `VOCAB-EVENT-ORPHAN-001` | active (event/payload vocab exists; inverse of EVENT-PAYLOAD-001) | ✅ | A5 |
+| `VOCAB-EVENT-PRODUCER-001` | active (emits/event vocab exists) | ✅ | A6 |
+| `VOCAB-AUDIT-002` | active (audit + @cap.* vocab exists; sibling of AUDIT-001) | ✅ | A7 |
+| `VOCAB-JSON-TYPED-001` | active (record/union vocab exists) | ✅ | A8 |
+| `COMMAND-INPUT-SHADOWS-FIELD-001` | correctness rule (paired with HOOK-TARGET-001 in `correctness/`) | ✅ | A12 |
+
+### `VOCAB-EVENT-ORPHAN-001` — event declared but never emitted
+
+Inverse of `VOCAB-EVENT-PAYLOAD-001`. Walks `Feature.events` + `Feature.commands.iter().flat_map(|c| &c.emits)`. Fires when an event with `payload_none: false` has no emitter in the same feature. Cross-feature emission out of scope; `EventKind::External` (where applicable) skipped.
+
+Severity: `warning` (strict), `warning` (production).
+
+### `VOCAB-EVENT-PRODUCER-001` — mutating command without IR-visible emits
+
+Walks `Feature.commands` looking for `c.emits.is_empty()` AND non-Returns effect AND ≥1 matching event-name on the targeted resource (`<resource_lower>.*`). Surfaces handler-side event emission that the IR can't see. Audit-none commands skipped.
+
+Severity: `warning` (strict), `warning` (production).
+
+### `VOCAB-AUDIT-002` — handler-only command on `@cap.*` fields lacks audit
+
+Sibling of `VOCAB-AUDIT-001` (which catches mutation-effect commands without audit). This variant catches Returns/None-effect commands whose `invalidates` list touches a resource carrying `@cap.Encrypted`/`@cap.Token`/`@cap.Hashed`/`@cap.PII` fields.
+
+Severity: `warning` (strict), `error` (production).
+
+### `VOCAB-JSON-TYPED-001` — untyped JSON bag + sibling closed-catalog enum
+
+Fires when a resource has `field: JSON` (untyped bag) with a sibling enum that thematically matches (heuristic: enum name contains field name OR `<resource>Type`) but is referenced nowhere else. Surfaces documenting-but-not-constraining shapes.
+
+Severity: `warning` (strict), `warning` (production).
+
+### `COMMAND-INPUT-SHADOWS-FIELD-001` — input slot shadows resource field with different type
+
+Correctness rule. Fires when a typed command input has the same name as a field on the command's `creates`/`updates` target resource but a different declared `TypeRef`. Surfaces silent type narrowing in handlers. Walks `CommandInput::Typed(slots)`; skips `Short`/`Empty`/`Returns`/cross-feature.
+
+Severity: `warning` (strict), `error` (production).
+
+---
+
+## Implementation status (post-wave)
+
+After the 2026-05-14 16-worker wave, the rule MODULES are registered (`crates/lazuli_cli/src/doctor/vocab/mod.rs`, `crates/lazuli_cli/src/doctor/correctness/mod.rs`) and each rule's `#[cfg(test)] mod tests` exercises the logic. **Full dispatch into `DoctorPackage::diagnostics()` is a separate follow-up cell** (~+500 LOC of IR loading + Finding → DoctorDiagnostic adapter) — none of the 4 v0.1 rules nor the 7 new ones currently surface in `lazuli check` output. The pre-existing v0.1 rules had the same gap; this wave doesn't widen it but doesn't close it either.
+
+The follow-up cell shape (when it ships):
+
+```rust
+fn vocab_diagnostics(features: &[(PathBuf, &Feature)], severity: SecurityProfile) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for (path, feature) in features {
+        diagnostics.extend(adapt(vocab_audit_001::check(feature, path), DoctorSeverity::Warning));
+        diagnostics.extend(adapt(vocab_union_001::check(feature, path), DoctorSeverity::Warning));
+        // …all 11 rules…
+    }
+    diagnostics
+}
+
+fn adapt(findings: Vec<impl FindingLike>, severity: DoctorSeverity) -> Vec<DoctorDiagnostic> {
+    findings.into_iter().map(|f| DoctorDiagnostic {
+        path: f.path(),
+        line: 0,  // until source-map landing, line/col stay 0
+        column: 0,
+        severity,
+        code: f.code().to_owned(),
+        message: f.message(),
+    }).collect()
+}
+```
+
+This is mechanical — a separate Codex cell can ship it once the IR-loading site is decided (probably reusing `Tier3FeatureFacts` walk).
+
+---
+
 ## Implementation shape
 
 ### File layout

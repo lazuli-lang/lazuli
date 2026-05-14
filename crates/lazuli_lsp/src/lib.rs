@@ -15,6 +15,8 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
+mod lzx_completion;
+
 pub fn server_name() -> &'static str {
     "lazuli-lsp"
 }
@@ -163,6 +165,19 @@ impl LanguageServer for Backend {
         }
 
         let position = params.text_document_position.position;
+
+        // L0 #6 — `.lzx` v2 grammar completions (indent-aware: cells/
+        // drawer/filters/search/sort/selection/bulk_actions/settings).
+        if is_lzx_uri(&uri) {
+            let documents = self.documents.read().await;
+            if let Some(source) = documents.get(&uri) {
+                return Ok(Some(CompletionResponse::Array(
+                    lzx_completion::completions_for_lzx(source, position),
+                )));
+            }
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        }
+
         let documents = self.documents.read().await;
         if let Some(source) = documents.get(&uri) {
             if let Some(items) = cap_file_value_completions(source, position) {
@@ -11544,6 +11559,10 @@ fn is_word_byte(byte: u8) -> bool {
 
 fn is_design_lzi_uri(uri: &Url) -> bool {
     uri.path().ends_with("design.lzi")
+}
+
+fn is_lzx_uri(uri: &Url) -> bool {
+    uri.path().ends_with(".lzx")
 }
 
 fn design_keyword_completion_items() -> Vec<CompletionItem> {

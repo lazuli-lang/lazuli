@@ -1,4 +1,5 @@
 pub mod design;
+pub mod correctness;
 pub mod folder;
 pub mod lzx;
 pub mod vocab;
