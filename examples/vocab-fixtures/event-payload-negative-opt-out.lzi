@@ -1,0 +1,40 @@
+# VOCAB-EVENT-PAYLOAD-001 negative case
+# Expected: rule SHOULD NOT fire.
+# The liveness event is intentionally payload-less and uses the explicit
+# catalog sentinel `payload none`, so the missing-payload lint must skip it.
+
+feature event_payload_negative_opt_out
+  domain
+    record HeartbeatInput
+      probe_id: Text required
+      region: Text optional
+
+    record HeartbeatAck
+      ok: Boolean required
+      probe_id: Text required
+      checked_at: DateTime required
+      note: Text optional
+
+    event liveness
+      payload none
+
+  policies
+    public: @scope.public
+
+  command heartbeat
+    input
+      probe_id: Text required
+      region: Text optional
+    returns HeartbeatAck
+    policy @policy.public
+    rate_limit "60 per minute per ip"
+    audit none
+    emits liveness
+
+  api heartbeat
+    method POST
+    path "/heartbeat"
+    output HeartbeatAck
+    policy @policy.public
+    rate_limit "60 per minute per ip"
+    handler @fn.heartbeat
