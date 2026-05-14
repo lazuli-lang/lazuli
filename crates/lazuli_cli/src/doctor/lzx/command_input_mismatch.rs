@@ -188,6 +188,9 @@ mod tests {
                 feature: None,
                 name: "mine".into(),
             },
+            render: ListRender::Table {
+                columns: vec!["whatever".into()],
+            },
             columns: vec!["whatever".into()],
             search: vec![],
             filter: vec![],

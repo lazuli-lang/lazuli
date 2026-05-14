@@ -141,12 +141,24 @@ pub struct ViewList {
     pub name: String,
     pub at: Option<String>,
     pub source: QueryRef,
+    /// How this list renders its rows. `Table` is the v1 columns form;
+    /// `Cells` is the L0 #6 grid-row slot form (`cells @client.<slot>`).
+    pub render: ListRender,
+    /// Legacy table columns kept for the existing v1 doctor rules while the
+    /// stub remains in use.
     pub columns: Vec<String>,
     pub search: Vec<String>,
     pub filter: Vec<String>,
     pub cells: Vec<CellBinding>,
     pub actions: Vec<CommandRef>,
     pub line: usize,
+}
+
+/// `view list` render discriminator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListRender {
+    Table { columns: Vec<String> },
+    Cells { slot: String },
 }
 
 /// `view detail <name> at "<route>"` body.

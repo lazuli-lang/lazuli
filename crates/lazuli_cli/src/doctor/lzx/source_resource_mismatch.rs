@@ -154,6 +154,9 @@ mod tests {
                 feature: None,
                 name: source.to_owned(),
             },
+            render: ListRender::Table {
+                columns: columns.iter().map(|s| (*s).to_owned()).collect(),
+            },
             columns: columns.iter().map(|s| (*s).to_owned()).collect(),
             search: search.iter().map(|s| (*s).to_owned()).collect(),
             filter: filter.iter().map(|s| (*s).to_owned()).collect(),

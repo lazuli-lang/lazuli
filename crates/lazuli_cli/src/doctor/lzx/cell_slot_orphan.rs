@@ -136,6 +136,9 @@ mod tests {
                 feature: None,
                 name: "mine".into(),
             },
+            render: ListRender::Table {
+                columns: columns.iter().map(|s| (*s).to_owned()).collect(),
+            },
             columns: columns.iter().map(|s| (*s).to_owned()).collect(),
             search: vec![],
             filter: vec![],

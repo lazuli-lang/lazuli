@@ -20,6 +20,8 @@
 //!   `:X` in the path string.
 //! - [`cell_slot_orphan`] — `cells <field> @client.<slot>` references a
 //!   field NOT in `columns`/`fields`/`sections`.
+//! - [`cells_mixed_form`] — `view list` declares both grid-row
+//!   `cells @client.<slot>` and per-column `cells <field> @client.<slot>`.
 //! - [`audience_empty_sdk`] — audience's `requires` set produces an
 //!   empty command/query intersection.
 //!
@@ -48,6 +50,7 @@ pub mod action_not_in_audience;
 pub mod audience_empty_sdk;
 pub mod cells_or_columns;
 pub mod cell_slot_orphan;
+pub mod cells_mixed_form;
 pub mod command_input_mismatch;
 pub mod route_param_missing_binding;
 pub mod route_param_orphan;
