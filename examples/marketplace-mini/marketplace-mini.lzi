@@ -40,10 +40,33 @@ feature order
       buyer: User required
       listing: Listing required
       placed_at: DateTime required
-      fulfilled_at: DateTime optional
       amount: @semantic.Money required
       currency: @semantic.Currency required
       payment_reference: Text optional
+
+      lifecycle status
+        state pending initial
+        state paid
+        state fulfilled terminal
+        state cancelled terminal
+
+        transition confirm_payment
+          from pending
+          to paid
+          timestamps paid_at
+          emits order_paid
+
+        transition fulfill
+          from paid
+          to fulfilled
+          timestamps fulfilled_at
+          emits order_fulfilled
+
+        transition cancel
+          from pending, paid
+          to cancelled
+          timestamps cancelled_at
+          emits order_cancelled
 
 feature payment
   purpose "Generic payment gateway callback handling for orders."
