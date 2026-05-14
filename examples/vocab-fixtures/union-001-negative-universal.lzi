@@ -1,0 +1,44 @@
+# VOCAB-UNION-001 negative: enum + universally optional fields.
+# Expected: rule SHOULD NOT fire.
+# Optional notes/tags apply to every status, with no enum-tag correlation.
+# This guards against treating any optional field beside an enum as a union.
+
+feature union_001_negative_universal
+  domain
+    enum TaskStatus
+      draft
+      active
+      archived
+
+    enum TaskPriority
+      low
+      medium
+      high
+      urgent
+
+    resource Task
+      title: Text required
+      status: TaskStatus required
+      priority: TaskPriority required
+      summary: Text optional
+      notes: Text optional
+      tags: Text optional
+      external_ref: Text optional
+      color: Text optional
+      reminder_at: DateTime optional
+      due_at: DateTime optional
+      is_pinned: Boolean optional
+      created_at: DateTime required
+
+    query.list list
+      params
+        status: TaskStatus optional
+        priority: TaskPriority optional
+        tags: Text optional
+
+      filters
+        status when params.status
+        priority when params.priority
+        tags when params.tags
+
+      paginate 25
