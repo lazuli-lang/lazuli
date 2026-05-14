@@ -1287,3 +1287,164 @@ mod tests {
         assert!(alpha_pos < zebra_pos);
     }
 }
+
+#[cfg(test)]
+mod feature_emit {
+    use super::*;
+    use lazuli_ir::{AppManifest, Defaults, Field, Module, Policies};
+
+    fn emit(feature: &Feature) -> Option<String> {
+        let module = Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: Some(AppManifest {
+                name: "test".to_owned(),
+                title: None,
+                version: None,
+                lazuli_version: None,
+                targets: Vec::new(),
+                default_locale: None,
+                default_timezone: None,
+                auth_failed_redirect: None,
+                not_found: None,
+                uses: Vec::new(),
+                packs: Vec::new(),
+                bindings: Vec::new(),
+                architecture: None,
+                services: Vec::new(),
+                communication: None,
+                environments: Vec::new(),
+                urls: Vec::new(),
+                cors: None,
+                env: Vec::new(),
+                integrations: Vec::new(),
+                capabilities: Vec::new(),
+                runtime: Vec::new(),
+                deploy: None,
+                logging: None,
+                tracing: None,
+                observability: None,
+                locale: None,
+                span_ref: None,
+            }),
+            registry: None,
+            profiles: Vec::new(),
+            features: vec![feature.clone()],
+        };
+        let index = CrossFeatureIndex::build(&module);
+        let emit_ctx = EmitContext::no_source("customer/query.gen.go");
+        emit_query_file("features/customer/customer.lzi", feature, "lazuli/test", &index, &emit_ctx)
+    }
+
+    fn base_feature(name: &str) -> Feature {
+        Feature {
+            name: name.to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: Defaults {
+                tenancy: None,
+                timestamps: false,
+                policy: None,
+            },
+            uses: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies: Policies {
+                categories: Vec::new(),
+                fields: Vec::new(),
+                span_ref: None,
+            },
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn field(name: &str, type_ref: TypeRef, required: bool) -> Field {
+        Field {
+            name: name.to_owned(),
+            type_ref,
+            required,
+            unique: false,
+            default: None,
+            derived_from: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn resource(name: &str, fields: Vec<Field>) -> Resource {
+        Resource {
+            name: name.to_owned(),
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields,
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn slot(name: &str, type_ref: TypeRef, required: bool) -> TypedSlot {
+        TypedSlot {
+            name: name.to_owned(),
+            type_ref,
+            required,
+        }
+    }
+
+    #[test]
+    fn entry_point_emits_representative_query_file_shape() {
+        let mut feature = base_feature("customer");
+        feature.resources.push(resource(
+            "Customer",
+            vec![field("name", TypeRef::Builtin(BuiltinType::Text), true)],
+        ));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            params: vec![slot("search", TypeRef::Builtin(BuiltinType::Text), false)],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: Some(25),
+            modifier: None,
+            cache: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("query feature entry point must emit non-empty output");
+
+        assert!(!out.is_empty());
+        assert!(out.contains("// Code generated by lazuli; DO NOT EDIT."));
+        assert!(out.contains("package customer"));
+        assert!(out.contains("type ListCustomersArgs struct {"));
+        assert!(out.contains("Search *string `json:\"search,omitempty\"`"));
+        assert!(out.contains("var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{"));
+        assert!(out.contains("Paginate: 25,"));
+    }
+}
