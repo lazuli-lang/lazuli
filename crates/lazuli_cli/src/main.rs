@@ -126,7 +126,7 @@ enum Commands {
     /// Create a new Lazuli project scaffold.
     New {
         /// Project directory to create.
-        project_name: PathBuf,
+        project_name: Option<PathBuf>,
         /// Template to scaffold. Supports `default` and `bare`.
         #[arg(long, default_value = "default")]
         template: String,
@@ -142,6 +142,9 @@ enum Commands {
         /// Frontend skeletons to add: `web`, `mobile`, or `web,mobile`.
         #[arg(long)]
         frontends: Option<String>,
+        /// Add frontend scaffold to an existing Lazurite project.
+        #[arg(long)]
+        in_place: bool,
     },
     Lsp,
     /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
@@ -652,7 +655,16 @@ fn main() -> Result<()> {
             no_git,
             module,
             frontends,
-        } => new_command(&project_name, &template, bare, no_git, module, frontends),
+            in_place,
+        } => new_command(
+            project_name.as_deref(),
+            &template,
+            bare,
+            no_git,
+            module,
+            frontends,
+            in_place,
+        ),
         Commands::Lsp => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
@@ -2440,7 +2452,11 @@ fn attach_lzx_surfaces(input: &Path, module: &mut lazuli_ir::Module) {
             let source = match fs::read_to_string(&path) {
                 Ok(s) => s,
                 Err(err) => {
-                    eprintln!("lazuli: skipping {}: read failed: {:?}", path.display(), err);
+                    eprintln!(
+                        "lazuli: skipping {}: read failed: {:?}",
+                        path.display(),
+                        err
+                    );
                     continue;
                 }
             };
@@ -2910,6 +2926,25 @@ fn init_command(path: &Path) -> Result<()> {
 }
 
 fn new_command(
+    project: Option<&Path>,
+    template: &str,
+    bare: bool,
+    no_git: bool,
+    module: Option<String>,
+    frontends: Option<String>,
+    in_place: bool,
+) -> Result<()> {
+    if in_place {
+        return new_in_place_command(project, template, bare, no_git, module, frontends);
+    }
+
+    let project = project.ok_or_else(|| {
+        anyhow::anyhow!("missing project directory; pass a project name or use --in-place")
+    })?;
+    new_project_command(project, template, bare, no_git, module, frontends)
+}
+
+fn new_project_command(
     project: &Path,
     template: &str,
     bare: bool,
@@ -2962,6 +2997,157 @@ fn new_command(
     }
 
     println!("created {}", project.display());
+    Ok(())
+}
+
+fn new_in_place_command(
+    project: Option<&Path>,
+    template: &str,
+    bare: bool,
+    _no_git: bool,
+    module: Option<String>,
+    frontends: Option<String>,
+) -> Result<()> {
+    if bare || template != "default" || module.is_some() {
+        bail!("--in-place only supports --frontends on an existing Lazurite project");
+    }
+
+    let project_root = match project {
+        Some(project) => project.to_path_buf(),
+        None => std::env::current_dir().context("failed to determine current directory")?,
+    };
+    let manifest = project_root.join("lazurite.toml");
+    if !manifest
+        .try_exists()
+        .with_context(|| format!("failed to inspect {}", manifest.display()))?
+    {
+        bail!(
+            "no Lazurite project in {}; run without --in-place to scaffold a new project",
+            project_root.display()
+        );
+    }
+
+    let frontends = frontends.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("--in-place requires --frontends web, mobile, or web,mobile")
+    })?;
+    let app_name = pascal_case_project_name(&project_root)?;
+
+    for frontend in parse_frontends(frontends)? {
+        match frontend {
+            FrontendScaffold::Web => {
+                let package_json = project_root.join("package.json");
+                let package_json_exists = package_json
+                    .try_exists()
+                    .with_context(|| format!("failed to inspect {}", package_json.display()))?;
+                log_user_owned_frontend_skips(&project_root)?;
+                cmd_new_frontends::scaffold_frontend_web(&project_root, &app_name)?;
+                if package_json_exists {
+                    merge_or_write_package_json(&package_json, templates::FRONTEND_PACKAGE_JSON)?;
+                }
+            }
+            FrontendScaffold::Mobile => {
+                cmd_new_frontends::scaffold_frontend_mobile(&project_root, &app_name)?
+            }
+        }
+    }
+
+    println!("updated {}", project_root.display());
+    Ok(())
+}
+
+fn log_user_owned_frontend_skips(project_root: &Path) -> Result<()> {
+    for relative in ["tailwind.config.ts", "tsconfig.json", "vite.config.ts"] {
+        let path = project_root.join(relative);
+        if path
+            .try_exists()
+            .with_context(|| format!("failed to inspect {}", path.display()))?
+        {
+            eprintln!("skipping {relative}: already exists; user-owned");
+        }
+    }
+    Ok(())
+}
+
+fn merge_or_write_package_json(path: &Path, template: &str) -> Result<()> {
+    if !path
+        .try_exists()
+        .with_context(|| format!("failed to inspect {}", path.display()))?
+    {
+        fs::write(path, template).with_context(|| format!("writing {}", path.display()))?;
+        return Ok(());
+    }
+
+    let existing_text =
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut existing: serde_json::Value = serde_json::from_str(&existing_text)
+        .with_context(|| format!("parsing {}", path.display()))?;
+    let template: serde_json::Value =
+        serde_json::from_str(template).context("parsing frontend package.json template")?;
+
+    merge_package_json_object(&mut existing, &template)?;
+
+    let mut out = serde_json::to_string_pretty(&existing)?;
+    out.push('\n');
+    fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+fn merge_package_json_object(
+    existing: &mut serde_json::Value,
+    template: &serde_json::Value,
+) -> Result<()> {
+    let existing_obj = existing
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("package.json root must be a JSON object"))?;
+    let template_obj = template
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("package.json template root must be a JSON object"))?;
+
+    for key in ["name", "private", "type"] {
+        if !existing_obj.contains_key(key) {
+            if let Some(value) = template_obj.get(key) {
+                existing_obj.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+
+    for key in ["scripts", "dependencies", "devDependencies"] {
+        merge_package_json_section(existing_obj, template_obj, key)?;
+    }
+
+    Ok(())
+}
+
+fn merge_package_json_section(
+    existing_obj: &mut serde_json::Map<String, serde_json::Value>,
+    template_obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<()> {
+    let Some(template_section) = template_obj.get(key) else {
+        return Ok(());
+    };
+    let Some(template_section) = template_section.as_object() else {
+        bail!("package.json template section `{key}` must be an object");
+    };
+
+    if !existing_obj.contains_key(key) {
+        existing_obj.insert(
+            key.to_string(),
+            serde_json::Value::Object(template_section.clone()),
+        );
+        return Ok(());
+    }
+
+    let existing_section = existing_obj
+        .get_mut(key)
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| anyhow::anyhow!("package.json section `{key}` must be an object"))?;
+    for (dep, version) in template_section {
+        existing_section
+            .entry(dep.clone())
+            .or_insert_with(|| version.clone());
+    }
+
     Ok(())
 }
 
@@ -8029,12 +8215,14 @@ mod tests {
     };
 
     use clap::Parser;
+    use tempfile::TempDir;
 
     use super::{
         Cli, Commands, DesignCommand, DesignExportTarget, DesignImportFormat, ExpandSet,
         GenerateKind, MigrateCommand, REGISTRY_TEMPLATE, app_template, default_module_name,
-        expand_canonical_source, inspect_canonical_source, inspect_json_value, parse_expand_set,
-        pascal_case, pascal_case_project_name, scaffold_bare, scaffold_from_template, templates,
+        expand_canonical_source, inspect_canonical_source, inspect_json_value, new_command,
+        parse_expand_set, pascal_case, pascal_case_project_name, scaffold_bare,
+        scaffold_from_template, templates,
     };
 
     #[test]
@@ -8081,6 +8269,19 @@ mod tests {
             panic!("expected new command with frontends");
         };
         assert_eq!(frontends, "web,mobile");
+
+        let cli =
+            Cli::try_parse_from(["lazuli", "new", "--frontends", "web", "--in-place"]).unwrap();
+        let Commands::New {
+            project_name: None,
+            frontends: Some(frontends),
+            in_place: true,
+            ..
+        } = cli.command
+        else {
+            panic!("expected in-place new command without project name");
+        };
+        assert_eq!(frontends, "web");
 
         let cli = Cli::try_parse_from([
             "lazuli",
@@ -8135,6 +8336,163 @@ mod tests {
             panic!("expected design diff command");
         };
         assert_eq!(against, PathBuf::from("tokens.sd.json"));
+    }
+
+    #[test]
+    fn in_place_appends_manifest_block() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::write(
+            root.join("lazurite.toml"),
+            "[lazuli]\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        new_command(
+            Some(root),
+            "default",
+            false,
+            true,
+            None,
+            Some("web".to_string()),
+            true,
+        )
+        .unwrap();
+
+        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        assert!(manifest.contains("[lazuli]"));
+        assert!(manifest.contains("[frontends.web]"));
+        assert!(manifest.contains("target = \"vite-react\""));
+    }
+
+    #[test]
+    fn in_place_preserves_existing_files() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::write(
+            root.join("lazurite.toml"),
+            "[lazuli]\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("tailwind.config.ts"), "// custom tailwind\n").unwrap();
+
+        new_command(
+            Some(root),
+            "default",
+            false,
+            true,
+            None,
+            Some("web".to_string()),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("tailwind.config.ts")).unwrap(),
+            "// custom tailwind\n"
+        );
+    }
+
+    #[test]
+    fn in_place_writes_missing_files() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::write(
+            root.join("lazurite.toml"),
+            "[lazuli]\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        new_command(
+            Some(root),
+            "default",
+            false,
+            true,
+            None,
+            Some("web".to_string()),
+            true,
+        )
+        .unwrap();
+
+        assert!(root.join("app/shell/web/root.tsx").is_file());
+        assert!(root.join("app/shell/web/layout.tsx").is_file());
+        assert!(root.join("app/theme/theme_provider.tsx").is_file());
+        assert!(root.join("app/theme/globals.css").is_file());
+        assert!(root.join("tailwind.config.ts").is_file());
+        assert!(root.join("tsconfig.json").is_file());
+        assert!(root.join("vite.config.ts").is_file());
+    }
+
+    #[test]
+    fn in_place_without_manifest_errors() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        let err = new_command(
+            Some(root),
+            "default",
+            false,
+            true,
+            None,
+            Some("web".to_string()),
+            true,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("no Lazurite project in")
+                && err
+                    .to_string()
+                    .contains("run without --in-place to scaffold a new project"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn in_place_merges_package_json() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::write(
+            root.join("lazurite.toml"),
+            "[lazuli]\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{
+  "name": "custom-app",
+  "dependencies": {
+    "left-pad": "1.3.0",
+    "react": "18.0.0"
+  },
+  "devDependencies": {
+    "custom-dev-tool": "0.1.0"
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        new_command(
+            Some(root),
+            "default",
+            false,
+            true,
+            None,
+            Some("web".to_string()),
+            true,
+        )
+        .unwrap();
+
+        let package_json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join("package.json")).unwrap()).unwrap();
+        assert_eq!(package_json["name"], "custom-app");
+        assert_eq!(package_json["dependencies"]["left-pad"], "1.3.0");
+        assert_eq!(package_json["dependencies"]["react"], "18.0.0");
+        assert_eq!(package_json["devDependencies"]["custom-dev-tool"], "0.1.0");
+        assert!(package_json["dependencies"]["@tanstack/react-query"].is_string());
+        assert!(package_json["dependencies"]["@lazuli/runtime"].is_string());
+        assert!(package_json["devDependencies"]["vite"].is_string());
     }
 
     #[test]
