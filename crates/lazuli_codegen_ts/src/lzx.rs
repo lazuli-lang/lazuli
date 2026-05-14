@@ -298,7 +298,6 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
-        span_ref: None,
             },
             columns: vec![
                 "key".to_owned(),
@@ -323,6 +322,7 @@ pub(crate) mod test_fixtures {
                     name: "delete".to_owned(),
                 },
             ],
+            span_ref: None,
         }
     }
 
@@ -334,7 +334,6 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 kind: QueryKind::Lookup,
                 name: "by_key".to_owned(),
-        span_ref: None,
             },
             route_params: vec![RouteParam {
                 name: "key".to_owned(),
@@ -356,6 +355,7 @@ pub(crate) mod test_fixtures {
                     name: "delete".to_owned(),
                 },
             ],
+            span_ref: None,
         }
     }
 
@@ -366,7 +366,6 @@ pub(crate) mod test_fixtures {
             submit: CommandRef {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
-        span_ref: None,
             },
             fields: vec![
                 "key".to_owned(),
@@ -375,6 +374,7 @@ pub(crate) mod test_fixtures {
                 "tags".to_owned(),
             ],
             cells: vec![type_badge_cell()],
+            span_ref: None,
         }
     }
 
@@ -386,13 +386,13 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
-        span_ref: None,
             },
             columns: vec!["key".to_owned(), "title".to_owned()],
             search: vec!["key".to_owned(), "title".to_owned()],
             filter: vec![],
             cells: vec![],
             actions: vec![],
+            span_ref: None,
         }
     }
 
@@ -402,13 +402,13 @@ pub(crate) mod test_fixtures {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
-        span_ref: None,
             }],
             views: vec![
                 View::List(slug_list_view()),
                 View::Detail(slug_detail_view()),
                 View::Create(slug_create_view()),
             ],
+            span_ref: None,
         }
     }
 
@@ -418,9 +418,9 @@ pub(crate) mod test_fixtures {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_member".to_owned(),
-        span_ref: None,
             }],
             views: vec![View::List(public_slug_list_view())],
+            span_ref: None,
         }
     }
 
@@ -429,7 +429,7 @@ pub(crate) mod test_fixtures {
             feature: "slug".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![admin_audience(), public_audience()],
-        span_ref: None,
+            span_ref: None,
         }
     }
 }

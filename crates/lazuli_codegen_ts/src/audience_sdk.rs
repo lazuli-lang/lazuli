@@ -334,9 +334,9 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
-        span_ref: None,
             }],
             views: Vec::<View>::new(),
+            span_ref: None,
         }
     }
 
@@ -346,9 +346,9 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_member".to_owned(),
-        span_ref: None,
             }],
             views: Vec::<View>::new(),
+            span_ref: None,
         }
     }
 

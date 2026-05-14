@@ -508,7 +508,6 @@ mod tests {
                 feature: "slug".to_owned(),
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
-            span_ref: None,
             },
             columns: vec!["key".to_owned(), "tags".to_owned()],
             search: vec![],
@@ -518,6 +517,7 @@ mod tests {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
             }],
+            span_ref: None,
         })
     }
 
@@ -529,7 +529,6 @@ mod tests {
                 feature: "slug".to_owned(),
                 kind: QueryKind::Lookup,
                 name: "by_key".to_owned(),
-            span_ref: None,
             },
             route_params: vec![RouteParam {
                 name: "key".to_owned(),
@@ -538,6 +537,7 @@ mod tests {
             sections,
             cells,
             actions: vec![],
+            span_ref: None,
         })
     }
 
@@ -548,10 +548,10 @@ mod tests {
             submit: CommandRef {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
-            span_ref: None,
             },
             fields: vec!["key".to_owned(), "tags".to_owned()],
             cells,
+            span_ref: None,
         })
     }
 
@@ -561,9 +561,9 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
-        span_ref: None,
             }],
             views,
+            span_ref: None,
         }
     }
 
@@ -572,7 +572,7 @@ mod tests {
             feature: "slug".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience],
-        span_ref: None,
+            span_ref: None,
         }
     }
 
@@ -723,7 +723,6 @@ mod tests {
                         feature: "widget".to_owned(),
                         kind: QueryKind::List,
                         name: "all".to_owned(),
-            span_ref: None,
                     },
                     columns: vec!["name".to_owned()],
                     search: vec![],
@@ -733,8 +732,11 @@ mod tests {
                         slot: "badge".to_owned(),
                     }],
                     actions: vec![],
+                    span_ref: None,
                 })],
+                span_ref: None,
             }],
+            span_ref: None,
         };
 
         let output = emit_slot_interface(&surface, &feature_without_matching_resource(), "badge");

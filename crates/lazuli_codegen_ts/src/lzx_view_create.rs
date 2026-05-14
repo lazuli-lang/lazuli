@@ -194,10 +194,10 @@ mod tests {
             submit: CommandRef {
                 feature: "thing".to_owned(),
                 name: "create".to_owned(),
-        span_ref: None,
             },
             fields: vec!["id".to_owned()],
             cells: vec![],
+            span_ref: None,
         }
     }
 
@@ -206,7 +206,7 @@ mod tests {
             name: "viewer".to_owned(),
             requires: vec![],
             views: vec![View::Create(view)],
-        span_ref: None,
+            span_ref: None,
         }
     }
 
@@ -215,7 +215,7 @@ mod tests {
             feature: "thing".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience],
-        span_ref: None,
+            span_ref: None,
         }
     }
 

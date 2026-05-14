@@ -230,13 +230,13 @@ mod tests {
                 feature: "thing".to_owned(),
                 kind: QueryKind::List,
                 name: "list".to_owned(),
-        span_ref: None,
             },
             columns: vec!["id".to_owned()],
             search: vec![],
             filter: vec![],
             cells: vec![],
             actions: vec![],
+            span_ref: None,
         }
     }
 
@@ -245,7 +245,7 @@ mod tests {
             name: "viewer".to_owned(),
             requires: vec![],
             views: vec![View::List(view)],
-        span_ref: None,
+            span_ref: None,
         }
     }
 
@@ -254,7 +254,7 @@ mod tests {
             feature: "thing".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience],
-        span_ref: None,
+            span_ref: None,
         }
     }
 
