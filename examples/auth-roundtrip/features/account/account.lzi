@@ -60,7 +60,7 @@ feature account
       password: Text required
     policy @policy.public
     rate_limit "5 per 10 minutes per ip"
-    returns AuthSession
+    returns Text
 
   command me
     returns User

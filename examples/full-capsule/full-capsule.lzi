@@ -554,7 +554,7 @@ feature customer_auth
       password: Text
     policy @policy.login
     rate_limit "5 per 10 minutes per ip"
-    returns AuthSession
+    returns Text
     emits customer_logged_in
 
   command enable_mfa
