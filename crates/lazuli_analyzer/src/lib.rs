@@ -54,6 +54,53 @@ pub enum AnalyzeError {
     /// registry adapter binding, not the verifier surface.
     #[error("unsupported webhook verify scheme `{scheme}` (use `hmac`)")]
     UnsupportedVerifyScheme { scheme: String },
+
+    /// L0 #2 — `design <X>` declared `extends <Y>`. Cut B (post-pilot).
+    /// v0 keeps the keyword reserved at parse time but rejects at
+    /// lowering. See `docs/proposals/design-tokens.md` §3.6.
+    #[error(
+        "DESIGN-EXTENDS-CUT-B: theme inheritance via `extends` ships in Cut B (post-pilot); for v0 declare a standalone `design <X>` block with full token values (got `extends {target}`)"
+    )]
+    DesignExtendsCutB { target: String },
+
+    /// L0 #2 — a `shadow <name> "<value>"` entry carried a top-level
+    /// comma, indicating multi-layer composition. Closed v0 grammar
+    /// accepts only single-layer shadows; declare separate tokens
+    /// (`shadow.elevated_outer`, `shadow.elevated_inner`) and compose
+    /// at component level. See `docs/proposals/design-tokens.md` §4.6.
+    #[error(
+        "DESIGN-SHADOW-MULTI-LAYER: shadow `{name}` is multi-layer (top-level comma); v0 accepts single-layer only — declare separate tokens and compose at component level"
+    )]
+    DesignShadowMultiLayer { name: String },
+
+    /// L0 #2 — a color hex value did not match `#[0-9a-fA-F]{3,8}`.
+    /// Covers all four color-state slots plus flat-form entries.
+    #[error(
+        "DESIGN-COLOR-HEX-INVALID: color `{token}` state `{state}` carries invalid hex `{value}` (expected `#RGB`, `#RRGGBB`, or `#RRGGBBAA`)"
+    )]
+    DesignColorHexInvalid {
+        token: String,
+        state: String,
+        value: String,
+    },
+
+    /// L0 #2 — a color sub-block named a state outside the closed
+    /// catalog `{base, hover, active, foreground}`. Adding new states
+    /// requires a Lazuli core proposal (Rule Zero).
+    #[error(
+        "DESIGN-COLOR-STATE-UNKNOWN: color `{token}` declared unknown state `{state}` (allowed: `base`, `hover`, `active`, `foreground`)"
+    )]
+    DesignColorStateUnknown { token: String, state: String },
+
+    /// L0 #2 — `typography.weight` value did not parse as a `u16`.
+    #[error(
+        "DESIGN-WEIGHT-INVALID: typography.weight `{name}` has non-integer value `{value}` (expected 100-1000)"
+    )]
+    DesignWeightInvalid { name: String, value: String },
+
+    /// L0 #2 — `z <name> <value>` value did not parse as `i32`.
+    #[error("DESIGN-Z-INVALID: z token `{name}` has non-integer value `{value}`")]
+    DesignZInvalid { name: String, value: String },
 }
 
 pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
@@ -123,6 +170,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         app: None,
         registry: None,
         profiles: Vec::new(),
+        design: None,
         features: vec![feature],
     })
 }
@@ -2348,6 +2396,263 @@ fn type_ref_from_text(text: &str) -> ir::TypeRef {
     // matched `"Json"` only, lost `"JSON"`; always lowered `@semantic.*`
     // to `SemanticEmail`). Delegating fixes both at the source.
     type_ref_from_syntax(text.trim())
+}
+
+// =============================================================================
+// L0 #2 — Design tokens lowering.
+//
+// `lower_design` validates each closed-catalog group:
+//   * color states map to `ir::ColorStateKind` (closed catalog of 4).
+//   * hex literals match `#[0-9a-fA-F]{3,8}` (3, 4, 6, or 8 hex digits).
+//   * shadow values reject top-level commas (multi-layer composition).
+//   * weight values parse as `u16`.
+//   * z values parse as `i32`.
+//   * `extends` is reserved for Cut B — v0 always rejects.
+// =============================================================================
+
+pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeError> {
+    if let Some(target) = ast.extends.as_deref() {
+        return Err(AnalyzeError::DesignExtendsCutB {
+            target: target.to_owned(),
+        });
+    }
+
+    let colors = ast
+        .colors
+        .iter()
+        .map(lower_design_color_token)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let typography = ir::Typography {
+        families: ast
+            .typography
+            .families
+            .iter()
+            .map(|f| ir::FamilyToken {
+                name: f.name.clone(),
+                value: f.value.clone(),
+            })
+            .collect(),
+        scale: ast
+            .typography
+            .scale
+            .iter()
+            .map(|s| ir::TextScaleToken {
+                name: s.name.clone(),
+                size: s.size.clone(),
+                line_height: s.line_height.clone(),
+            })
+            .collect(),
+        weights: ast
+            .typography
+            .weights
+            .iter()
+            .map(lower_design_weight)
+            .collect::<Result<Vec<_>, _>>()?,
+        tracking: ast
+            .typography
+            .tracking
+            .iter()
+            .map(|t| ir::TrackingToken {
+                name: t.name.clone(),
+                value: t.value.clone(),
+            })
+            .collect(),
+    };
+
+    let spaces = ast
+        .spaces
+        .iter()
+        .map(|s| ir::ScaleToken {
+            name: s.name.clone(),
+            value: s.value.clone(),
+        })
+        .collect();
+    let radii = ast
+        .radii
+        .iter()
+        .map(|s| ir::ScaleToken {
+            name: s.name.clone(),
+            value: s.value.clone(),
+        })
+        .collect();
+    let shadows = ast
+        .shadows
+        .iter()
+        .map(lower_design_shadow)
+        .collect::<Result<Vec<_>, _>>()?;
+    let motion = ir::Motion {
+        durations: ast
+            .motion
+            .durations
+            .iter()
+            .map(|s| ir::ScaleToken {
+                name: s.name.clone(),
+                value: s.value.clone(),
+            })
+            .collect(),
+        easings: ast
+            .motion
+            .easings
+            .iter()
+            .map(|e| ir::EasingToken {
+                name: e.name.clone(),
+                value: e.value.clone(),
+            })
+            .collect(),
+    };
+    let breakpoints = ast
+        .breakpoints
+        .iter()
+        .map(|s| ir::ScaleToken {
+            name: s.name.clone(),
+            value: s.value.clone(),
+        })
+        .collect();
+    let z_indices = ast
+        .z_indices
+        .iter()
+        .map(lower_design_z)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ir::Design {
+        name: ast.name.clone(),
+        extends: None,
+        colors,
+        typography,
+        spaces,
+        radii,
+        shadows,
+        motion,
+        breakpoints,
+        z_indices,
+        span_ref: Some(span_of(ast.span)),
+    })
+}
+
+fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorToken, AnalyzeError> {
+    let mut states = Vec::with_capacity(token.states.len());
+    for state in &token.states {
+        let kind = match state.kind.as_str() {
+            "base" => ir::ColorStateKind::Base,
+            "hover" => ir::ColorStateKind::Hover,
+            "active" => ir::ColorStateKind::Active,
+            "foreground" => ir::ColorStateKind::Foreground,
+            other => {
+                return Err(AnalyzeError::DesignColorStateUnknown {
+                    token: token.name.clone(),
+                    state: other.to_owned(),
+                });
+            }
+        };
+        if !is_valid_design_hex(&state.value) {
+            return Err(AnalyzeError::DesignColorHexInvalid {
+                token: token.name.clone(),
+                state: state.kind.clone(),
+                value: state.value.clone(),
+            });
+        }
+        if let Some(dark) = state.dark.as_deref() {
+            if !is_valid_design_hex(dark) {
+                return Err(AnalyzeError::DesignColorHexInvalid {
+                    token: token.name.clone(),
+                    state: format!("{}.dark", state.kind),
+                    value: dark.to_owned(),
+                });
+            }
+        }
+        states.push(ir::ColorState {
+            kind,
+            value: state.value.clone(),
+            dark: state.dark.clone(),
+        });
+    }
+    Ok(ir::ColorToken {
+        name: token.name.clone(),
+        states,
+        span_ref: Some(span_of(token.span)),
+    })
+}
+
+fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
+    let parsed = weight
+        .value
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| AnalyzeError::DesignWeightInvalid {
+            name: weight.name.clone(),
+            value: weight.value.clone(),
+        })?;
+    Ok(ir::WeightToken {
+        name: weight.name.clone(),
+        value: parsed,
+    })
+}
+
+fn lower_design_shadow(shadow: &syntax::ShadowTokenAst) -> Result<ir::ShadowToken, AnalyzeError> {
+    if has_top_level_comma(&shadow.value) {
+        return Err(AnalyzeError::DesignShadowMultiLayer {
+            name: shadow.name.clone(),
+        });
+    }
+    Ok(ir::ShadowToken {
+        name: shadow.name.clone(),
+        value: shadow.value.clone(),
+    })
+}
+
+fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
+    let parsed = z
+        .value
+        .trim()
+        .parse::<i32>()
+        .map_err(|_| AnalyzeError::DesignZInvalid {
+            name: z.name.clone(),
+            value: z.value.clone(),
+        })?;
+    Ok(ir::ZToken {
+        name: z.name.clone(),
+        value: parsed,
+    })
+}
+
+/// Match `^#[0-9a-fA-F]{3,8}$` without pulling in a regex dependency.
+/// 3-digit (`#fff`), 4-digit (`#ffff` rgba shorthand), 6-digit (`#ffffff`),
+/// and 8-digit (`#ffffffff` rgba) are all valid CSS hex notations.
+fn is_valid_design_hex(text: &str) -> bool {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('#') {
+        return false;
+    }
+    let rest = &trimmed[1..];
+    let len = rest.len();
+    if !(len == 3 || len == 4 || len == 6 || len == 8) {
+        return false;
+    }
+    rest.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Detect a top-level comma in a CSS box-shadow value, signaling
+/// multi-layer composition. Commas inside `(...)` or `[...]` (e.g.
+/// `rgb(0, 0, 0)`) do NOT count. Strings inside quoted regions also
+/// don't count (a hypothetical `content: ","` would not trigger).
+fn has_top_level_comma(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut depth = 0i32;
+    let mut in_quote = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            b'"' | b'\'' => in_quote = !in_quote,
+            b'(' | b'[' if !in_quote => depth += 1,
+            b')' | b']' if !in_quote => depth -= 1,
+            b',' if !in_quote && depth == 0 => return true,
+            _ => {}
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]

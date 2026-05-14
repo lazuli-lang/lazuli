@@ -1345,8 +1345,35 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         app: None,
         registry: None,
         profiles: Vec::new(),
+        design: None,
         features: Vec::new(),
     };
+
+    // L0 #2 — `design.lzi` lives at project root, peer to `app.lzi` /
+    // `registry.lzi`. Only parse when we're building from a directory;
+    // single-file input mode skips the design pipeline.
+    if input.is_dir() {
+        let design_path = input.join("design.lzi");
+        if design_path.is_file() {
+            let source = fs::read_to_string(&design_path)
+                .with_context(|| format!("reading {}", design_path.display()))?;
+            match lazuli_syntax::parse_design_document(&source) {
+                Ok(ast) => match lazuli_analyzer::lower_design(&ast) {
+                    Ok(design) => module.design = Some(design),
+                    Err(err) => eprintln!(
+                        "lazuli: skipping {}: design lower failed: {:?}",
+                        design_path.display(),
+                        err
+                    ),
+                },
+                Err(err) => eprintln!(
+                    "lazuli: skipping {}: design parse failed: {:?}",
+                    design_path.display(),
+                    err
+                ),
+            }
+        }
+    }
 
     let files: Vec<PathBuf> = if input.is_dir() {
         let mut out = Vec::new();
@@ -1418,10 +1445,27 @@ fn build_module_with_source_from_path(
         app: None,
         registry: None,
         profiles: Vec::new(),
+        design: None,
         features: Vec::new(),
     };
     let mut source_map = lazuli_ir::SourceMap { files: Vec::new() };
     let mut feature_file_ids = BTreeMap::new();
+
+    // L0 #2 — Optional `design.lzi` at the input root. Mirrors
+    // `build_module_from_path`; emitters and SDK projections consume
+    // `module.design` when present.
+    if input.is_dir() {
+        let design_path = input.join("design.lzi");
+        if design_path.is_file() {
+            let source = fs::read_to_string(&design_path)
+                .with_context(|| format!("reading {}", design_path.display()))?;
+            if let Ok(ast) = lazuli_syntax::parse_design_document(&source) {
+                if let Ok(design) = lazuli_analyzer::lower_design(&ast) {
+                    module.design = Some(design);
+                }
+            }
+        }
+    }
 
     let files: Vec<PathBuf> = if input.is_dir() {
         let mut out = Vec::new();
