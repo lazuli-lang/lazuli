@@ -17,6 +17,7 @@ use lazuli_ir::{
 
 use super::casing::pascal_case;
 use super::imports::ImportSet;
+use super::patterns::{PATTERN_REPORT_RUN, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/reports.gen.go` for a feature, or `None` when the
@@ -137,6 +138,7 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
         "// responsibility (typically `{}.List(ctx, args)`).",
         feature.name
     ));
+    emit_pattern_header(p, PATTERN_REPORT_RUN);
     p.line(&format!(
         "func Run{}(ctx *lazuli.Ctx, format report.Format, source report.SourceFn, store storage.ObjectStore) (string, error) {{",
         pascal_case(&report.name)
@@ -222,7 +224,9 @@ fn render_duration(literal: &str) -> Option<String> {
 
 fn policy_atom(policy: &PolicyRef) -> String {
     match policy {
-        PolicyRef::Atom(s) => s.clone(),
+        // `lower_policy_atom` strips the leading `@`; re-prepend it so
+        // generated code carries the canonical authored form.
+        PolicyRef::Atom(s) => format!("@{}", s),
         PolicyRef::Local(name) => format!("@policy.{}", name),
         PolicyRef::External { feature, name } => format!("{}.@policy.{}", feature, name),
         PolicyRef::Unresolved(s) => s.clone(),

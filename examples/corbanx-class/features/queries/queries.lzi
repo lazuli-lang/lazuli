@@ -182,28 +182,25 @@ feature queries
     invalidates
       query.list_queries
 
-  command download_results
-    route id: ID
-    input
-      format: Text required
-    target query.query_by_id(id: route.id)
+  # Tabular export of provider results for one query. The static-columns
+  # half of corbanx's multi-bank report (docs/proposals/report-vocab.md
+  # v0.2 anchor). Dynamic per-bank columns remain `api + handler` until
+  # the v0.2 `expand` extension ships.
+  report download_results
+    source query.results_for_query
+    columns
+      provider from row.provider
+      status from row.status
+      margin_cents from row.margin_cents label "Margem (cents)"
+      external_consult_id from row.external_consult_id label "External consult ID"
+    formats csv, xlsx
+    storage object_storage.files
+    visibility signed
+    signed_ttl 1h
+    filename "query_results_{ctx.now:yyyymmdd}.{format}"
     policy @policy.download_results
     rate_limit "10 per hour per user"
-    audit default
-    # ---------------------------------------------------------------
-    # GAP: CSV / XLSX EXPORT
-    # The desired surface is something like:
-    #
-    #   output @cap.File(max_size:10mb,visibility:signed,signed_ttl:1h)
-    #   export
-    #     format csv, xlsx
-    #     source query.results_for_query(query_id: route.id)
-    #     columns provider, status, margin_cents, external_consult_id
-    #
-    # Today the only way is `api ... handler "./api/download.go"` with
-    # 60+ LOC of `encoding/csv` + `excelize/v2`. See GAPS.md.
-    # ---------------------------------------------------------------
-    returns Text
+    audit actor, ctx.now
 
   # L0 #8 — `kind poller` makes the V8-style async resolution loop
   # declarative. The dispatcher SELECTs pending rows on `next_check_at`,
@@ -247,6 +244,6 @@ feature queries
     emits provider_result_recorded
 
   extensions
-    fn export_results_csv: Function[QueryExport, Text] at "./handlers/export_results_csv.go"
-    fn export_results_xlsx: Function[QueryExport, Text] at "./handlers/export_results_xlsx.go"
+    # Export handlers (`fn export_results_csv` / `fn export_results_xlsx`)
+    # removed: `report download_results` (above) replaces them declaratively.
     fn poll_provider_b: Function[PendingResolution, JSON] at "./handlers/poll_provider_b.go"

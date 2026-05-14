@@ -18,6 +18,7 @@ pub const PATTERN_NOTIFICATION_DISPATCH: (&str, &str) = ("notification_dispatch"
 pub const PATTERN_ERROR_WRAP_HELPER: (&str, &str) = ("error_wrap_helper", "v1");
 pub const PATTERN_MAIN_ENTRYPOINT: (&str, &str) = ("main_entrypoint", "v1");
 pub const PATTERN_EXTENSION_STUB: (&str, &str) = ("extension_stub", "v1");
+pub const PATTERN_REPORT_RUN: (&str, &str) = ("report_run", "v1");
 
 pub fn emit_pattern_header(p: &mut GoPrinter, pattern: (&str, &str)) {
     p.line(&format!("//lazuli:pattern {} {}", pattern.0, pattern.1));

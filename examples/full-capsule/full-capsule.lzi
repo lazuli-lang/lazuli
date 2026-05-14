@@ -367,13 +367,22 @@ feature customer
       query.list
       query.by_id(id: route.id)
 
-  api customer_export
-    method GET
-    path "/api/customers/export"
-    output @cap.File(max_size:100mb,accept:text/csv,visibility:signed,signed_ttl:1h)
+  report monthly_audit
+    source customer.query.list
+    columns
+      id from row.id
+      name from row.name
+      tier from row.tier label "Plano"
+      ltv from @fn.lifetime_value(row.id) label "Valor de vida"
+      created_at from row.created_at format "yyyy-mm-dd"
+    formats csv, xlsx
+    storage object_storage.files
+    visibility signed
+    signed_ttl 1h
+    filename "monthly_audit_{ctx.now:yyyymm}.{format}"
     policy @policy.global_read
     rate_limit "10 per hour per user"
-    handler "./api/export_customers.go"
+    audit actor, ctx.now, source.params
 
   agent summarize_customer
     input
@@ -460,6 +469,7 @@ feature customer
     hook before_create: Hook[CreateCustomer]
     hook after_archive: Hook[ArchiveCustomer]
     fn risk_score: Function[Customer, Integer]
+    fn lifetime_value: Function[ID, Integer] at "./domain/lifetime_value.go"
     query_modifier query_scope_modifier: QueryModifier[Customer]
 
     validator tier_check: Validator[Customer.tier] at "./hooks/validate_tier.go"
