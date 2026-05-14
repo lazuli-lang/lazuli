@@ -2388,7 +2388,10 @@ mod tests {
 
     #[test]
     fn lowers_valid_document_to_ir() {
-        let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
+        let document = parse_document(include_str!(
+            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
+        ))
+        .unwrap();
         let module = lower_document(&document).unwrap();
 
         assert_eq!(module.features.len(), 1);

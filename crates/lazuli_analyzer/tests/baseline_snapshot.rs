@@ -9,7 +9,8 @@
 use lazuli_analyzer::lower_document;
 use lazuli_syntax::parse_document;
 
-const CRM_SOURCE: &str = include_str!("../../../examples/crm.lzi");
+const CRM_SOURCE: &str =
+    include_str!("../../../examples/anti-patterns/crm-aggregate-dialect.lzi");
 
 #[test]
 fn crm_ast_baseline() {

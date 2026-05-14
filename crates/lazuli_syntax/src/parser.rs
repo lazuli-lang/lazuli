@@ -6625,7 +6625,7 @@ mod tests {
 
     #[test]
     fn parses_aggregate_fields_commands_queries_and_surfaces() {
-        let source = include_str!("../../../examples/crm.lzi");
+        let source = include_str!("../../../examples/anti-patterns/crm-aggregate-dialect.lzi");
         let document = parse_document(source).expect("valid document");
 
         assert_eq!(document.app.as_deref(), Some("CRM"));

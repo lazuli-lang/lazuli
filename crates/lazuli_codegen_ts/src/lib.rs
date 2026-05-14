@@ -587,7 +587,10 @@ mod tests {
 
     #[test]
     fn generates_react_frontend_files() {
-        let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
+        let document = parse_document(include_str!(
+            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
+        ))
+        .unwrap();
         let module = lower_document(&document).unwrap();
         let files = generate(&module);
 
