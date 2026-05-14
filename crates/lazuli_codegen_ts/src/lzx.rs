@@ -37,6 +37,9 @@ pub mod lzx_aux;
 #[path = "lzx_filters.rs"]
 pub mod lzx_filters;
 
+#[path = "lzx_search.rs"]
+pub mod lzx_search;
+
 #[path = "lzx_view_list.rs"]
 pub mod lzx_view_list;
 
@@ -60,7 +63,7 @@ pub mod ir {
     pub use lazuli_ir::{
         Surface, SurfaceTarget, Audience, View, ViewList, ViewDetail, ViewCreate,
         QueryRef, QueryKind, CommandRef, CellBinding, RouteParam, PolicyAtom,
-        ListRender, SearchDecl, SearchMode, FilterDecl, FilterCardinality,
+        ListRender, SearchDecl, SearchMode, SearchField, BindingRef, FilterDecl, FilterCardinality,
         DrawerSubView, DrawerTrigger, DrawerRouteBinding, DrawerBindingSource,
         SortDecl, SortDir, SelectionDecl, SelectionMode, SettingDecl,
         SettingValueSpace, SettingPersistence,
