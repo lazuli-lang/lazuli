@@ -5,10 +5,10 @@ surface customer web
 
   audience admin
     view list Table
-      columns name, email, lifecycle_stage, tier, score, owner, created_at
+      columns name, email, status, tier, score, owner, created_at
       search name, email
-      filter lifecycle_stage, tier, owner
-      cells lifecycle_stage @client.status_cell, score @client.score_cell, owner @client.owner_cell
+      filter status, tier, owner
+      cells status @client.status_cell, score @client.score_cell, owner @client.owner_cell
 
     view detail SidePanel
       sections header, activity_timeline

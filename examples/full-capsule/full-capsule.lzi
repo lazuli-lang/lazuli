@@ -47,8 +47,6 @@ feature customer
       owner: User optional
       name: Text required
       email: @semantic.Email @pii.contact required
-      lifecycle_stage: CustomerStatus = lead
-        previously migrated status
       tier: CustomerTier = free
       source: CustomerSource = manual
       score: Integer @pii.derived = 0
@@ -60,6 +58,57 @@ feature customer
       retention 7y then anonymize
 
       validates @validator.tier_check
+
+      lifecycle status
+        state lead initial
+        state active
+        state paused
+        state archived terminal
+
+        transition activate
+          from lead
+          to active
+          policy @policy.update
+          emits customer_activated, customer_status_changed
+          tests
+            allows from lead
+            denies from active
+            denies from archived
+            denies from paused
+            denies as @role.viewer
+
+        transition pause
+          from active
+          to paused
+          policy @policy.update
+          emits customer_paused, customer_status_changed
+          tests
+            allows from active
+            denies from lead
+            denies from archived
+
+        transition resume
+          from paused
+          to active
+          policy @policy.update
+          emits customer_status_changed
+          tests
+            allows from paused
+            denies from active
+            denies from lead
+
+        transition archive
+          from active
+          to archived
+          policy @policy.update
+          requires @policy.delete
+          emits customer_archived, customer_status_changed
+          previously migrated deactivate
+          tests
+            allows from active as @role.admin
+            denies from active as @role.sales
+            denies from paused
+            denies from lead
 
     resource CustomerNote
       customer: Customer required
@@ -84,13 +133,13 @@ feature customer
       modifier @query_modifier.query_scope_modifier
 
       params
-        lifecycle_stage: CustomerStatus optional
+        status: CustomerStatus optional
         tier: CustomerTier optional
         owner: User optional
         search: Text optional
 
       filters
-        lifecycle_stage when params.lifecycle_stage
+        status when params.status
         tier when params.tier
         owner when params.owner
 
@@ -145,14 +194,14 @@ feature customer
       sql "./queries/customer_churn_risk.sql"
 
     rule "archived customers cannot be reassigned"
-      deny Customer.reassign when self.lifecycle_stage = CustomerStatus.archived
+      deny Customer.reassign when self.status = CustomerStatus.archived
       message @translation.archive_archived_blocked
 
       tests
-        denies when self.lifecycle_stage = archived
-        allows when self.lifecycle_stage = active
-        allows when self.lifecycle_stage = paused
-        allows when self.lifecycle_stage = lead
+        denies when self.status = archived
+        allows when self.status = active
+        allows when self.status = paused
+        allows when self.status = lead
 
     rule "deleted customers cannot be archived"
       deny Customer.archive when self.deleted_at != nil
@@ -249,7 +298,7 @@ feature customer
     creates Customer
       name = input.name
       email = input.email
-      lifecycle_stage = CustomerStatus.lead
+      status = CustomerStatus.lead
       tier = CustomerTier.free
       source = CustomerSource.manual
       owner = nil
@@ -302,9 +351,9 @@ feature customer
       query.by_id(id: route.id)
 
     tests
-      denies when target.lifecycle_stage = archived
-      allows when target.lifecycle_stage = active
-      allows when target.lifecycle_stage = paused
+      denies when target.status = archived
+      allows when target.status = active
+      allows when target.status = paused
 
   command update_tier
     route id: ID
@@ -350,7 +399,7 @@ feature customer
       route customer_id: Customer.ID
     evals
       case mentions_active_when_active
-        requires customer.lifecycle_stage = active
+        requires customer.status = active
         requires output contains "active"
 
       case redacts_email
@@ -375,38 +424,6 @@ feature customer
     seed 42
     max_tokens 16
     prompt "./prompts/classify_intent.md"
-
-  workflow lifecycle on Customer.lifecycle_stage
-    policy @policy.update
-    emits customer_status_changed
-
-    activate: lead -> active emits customer_activated
-      tests
-        allows from lead
-        denies from active
-        denies from archived
-        denies from paused
-        denies as @role.viewer
-
-    pause: active -> paused emits customer_paused
-      tests
-        allows from active
-        denies from lead
-        denies from archived
-
-    resume: paused -> active
-      tests
-        allows from paused
-        denies from active
-        denies from lead
-
-    archive: active -> archived requires @policy.delete emits customer_archived
-      previously migrated deactivate
-      tests
-        allows from active as @role.admin
-        denies from active as @role.sales
-        denies from paused
-        denies from lead
 
   job recompute_score_after_invoice
     trigger event billing.invoice_paid

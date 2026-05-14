@@ -67,7 +67,7 @@ experience customer
     block @client.activity_timeline
     extensible_by customer_tags, customer_import
     action reassign -> customer.command.reassign(id: route.id)
-    action archive -> customer.workflow.lifecycle.archive(id: route.id)
+    action archive -> customer.lifecycle.archive(id: route.id)
 
     tests
       accepted by customer_tags
