@@ -275,6 +275,9 @@ pub struct ViewListAst {
     pub columns: Vec<String>,
     pub search: Vec<String>,
     pub filter: Vec<String>,
+    /// `cells @client.<slot>` grid-row slot. `None` means the view either
+    /// uses per-column `cells <field> @client.<slot>` bindings or no cells.
+    pub cells_slot: Option<String>,
     pub cells: Vec<CellBindingAst>,
     /// `actions <cmd>, <cmd>` — comma-separated short names or qualified
     /// `<feature>.command.<name>` references. Analyzer normalizes.

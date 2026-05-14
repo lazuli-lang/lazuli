@@ -1187,14 +1187,10 @@ fn parse_view_block(
             source: state.source.ok_or_else(|| {
                 line_error(header, "view list requires a `source <feature>.query.<name>` line")
             })?,
-            columns: {
-                if state.columns.is_empty() {
-                    return Err(line_error(header, "view list requires `columns <field>, ...`"));
-                }
-                state.columns
-            },
+            columns: state.columns,
             search: state.search,
             filter: state.filter,
+            cells_slot: state.cells_slot,
             cells: state.cells,
             actions: state.actions,
             span,
@@ -1238,6 +1234,7 @@ struct ViewBodyState {
     filter: Vec<String>,
     fields: Vec<String>,
     sections: Vec<String>,
+    cells_slot: Option<String>,
     cells: Vec<CellBindingAst>,
     actions: Vec<String>,
     route_params: Vec<RouteParamAst>,
@@ -1344,9 +1341,43 @@ fn parse_view_cells_line(
     rest: &str,
     state: &mut ViewBodyState,
 ) -> Result<(), ParseError> {
-    let binding = parse_cell_binding(line, rest)?;
-    state.cells.push(binding);
-    Ok(())
+    let rest = rest.trim();
+    if let Some(slot_rest) = rest.strip_prefix("@client.") {
+        let slot = slot_rest.trim();
+        if slot.is_empty() {
+            return Err(line_error(
+                line,
+                "`cells @client.<slot>` requires a slot identifier after `@client.`",
+            ));
+        }
+        if slot.split_whitespace().count() > 1 {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "`cells @client.<slot>` accepts only one slot identifier (got `{}`); per-column form is `cells <field> @client.<slot>` and binds a single field",
+                    slot
+                ),
+            ));
+        }
+        if state.cells_slot.is_some() {
+            return Err(line_error(
+                line,
+                "view declares `cells @client.<slot>` (grid form) at most once",
+            ));
+        }
+        if !is_kebab_or_snake_ident(slot) {
+            return Err(line_error_owned(
+                line,
+                format!("cell slot `{}` must be a kebab/snake identifier", slot),
+            ));
+        }
+        state.cells_slot = Some(slot.to_owned());
+        Ok(())
+    } else {
+        let binding = parse_cell_binding(line, rest)?;
+        state.cells.push(binding);
+        Ok(())
+    }
 }
 
 fn parse_view_route_line(
@@ -10077,10 +10108,15 @@ surface slug web
     }
 
     #[test]
-    fn view_list_requires_columns() {
+    fn view_list_no_columns_is_not_parse_time_error() {
         let source = "surface slug web\n  audience admin\n    view list bad\n      source slug.query.mine\n";
-        let err = parse_surface_document(source).unwrap_err();
-        assert!(err.to_string().contains("`columns"));
+        let surface = parse_surface_document(source).expect("parses without columns");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        assert!(view.columns.is_empty());
+        assert!(view.cells_slot.is_none());
     }
 
     #[test]
@@ -10122,6 +10158,74 @@ surface slug web
         assert_eq!(view.cells.len(), 1);
         assert_eq!(view.cells[0].field, "tags");
         assert_eq!(view.cells[0].slot, "type_badge");
+    }
+
+    #[test]
+    fn view_list_accepts_cells_at_client_slot_grid_form() {
+        let source = "surface item web\n  audience admin\n    view list foo at \"/\"\n      source f.query.q\n      cells @client.item_card\n";
+        let surface = parse_surface_document(source).expect("parses cells grid form");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        assert_eq!(view.cells_slot.as_deref(), Some("item_card"));
+        assert!(view.columns.is_empty());
+        assert!(view.cells.is_empty());
+    }
+
+    #[test]
+    fn view_list_rejects_cells_at_client_slot_with_trailing_tokens() {
+        let source = "surface item web\n  audience admin\n    view list foo\n      source f.query.q\n      cells @client.foo extra\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("accepts only one slot identifier"));
+    }
+
+    #[test]
+    fn view_list_rejects_double_cells_grid_form() {
+        let source = "surface item web\n  audience admin\n    view list foo\n      source f.query.q\n      cells @client.item_card\n      cells @client.other_card\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("at most once"));
+    }
+
+    #[test]
+    fn view_list_v1_per_column_cells_still_works() {
+        let source = "surface slug web\n  audience admin\n    view list slug_list\n      source slug.query.mine\n      cells tags @client.type_badge\n      columns key, title\n";
+        let surface = parse_surface_document(source).expect("parses per-column cells");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        assert_eq!(view.cells_slot, None);
+        assert_eq!(view.columns, vec!["key", "title"]);
+        assert_eq!(view.cells.len(), 1);
+        assert_eq!(view.cells[0].field, "tags");
+        assert_eq!(view.cells[0].slot, "type_badge");
+    }
+
+    #[test]
+    fn view_list_no_longer_requires_columns_if_cells_slot_present() {
+        let source = "surface item web\n  audience admin\n    view list foo\n      source f.query.q\n      cells @client.item_card\n";
+        let surface = parse_surface_document(source).expect("parses without columns");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        assert_eq!(view.cells_slot.as_deref(), Some("item_card"));
+        assert!(view.columns.is_empty());
+    }
+
+    #[test]
+    fn view_list_empty_grid_and_no_columns_does_not_error_at_parse_time() {
+        let source = "surface item web\n  audience admin\n    view list foo\n      source f.query.q\n";
+        let surface = parse_surface_document(source).expect("parses without render declaration");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        assert!(view.cells_slot.is_none());
+        assert!(view.columns.is_empty());
     }
 
     #[test]
