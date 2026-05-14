@@ -1,0 +1,39 @@
+# VOCAB-UNION-001 positive: correlated-prefix optional fields.
+# Expected: rule SHOULD fire.
+# Resource keeps `kind: LearningNodeKind` plus optional `bridge_*` fields.
+# The `bridge_` prefix is meaningful only when `kind = bridge`, so union fits.
+
+feature union_001_positive_correlated
+  purpose "Fixture for VOCAB-UNION-001 correlated optional fields."
+
+  domain
+    enum LearningNodeKind
+      deepening = 10
+      bridge = 20
+
+    resource Topic
+      title: Text required
+
+    resource LearningNode
+      title: Text required
+      kind: LearningNodeKind required
+      bridge_justification: Text
+      bridge_target_topic: Topic
+
+  policies
+    public: @scope.public
+
+  command create_learning_node
+    input
+      title: Text required
+      kind: LearningNodeKind required
+      bridge_justification: Text
+      bridge_target_topic: Topic
+    policy @policy.public
+    rate_limit "60 per hour per actor"
+    audit default
+    creates LearningNode
+      title = input.title
+      kind = input.kind
+      bridge_justification = input.bridge_justification
+      bridge_target_topic = input.bridge_target_topic
