@@ -1,7 +1,17 @@
-# Tabular Report Vocab (CSV + XLSX) — v0.1
+# Tabular Report Vocab (CSV + XLSX) — v0.2
 
-**Status**: draft (v0.1, ungraded). Cell #3 of the corbanx-class-readiness
-meta-roadmap. Pairs with runtime cells `cdx-report-csv` / `cdx-report-xlsx`
+**Status**: draft (v0.2). v0.1 graded BLOCK at 7.85/10 with 4 blockers:
+(B1) two coexisting surfaces violated Rule Zero with no pilot pressure for
+Surface A; (B2) `ReportColumnSource::Constant(String)` widened the column
+grammar without justification; (B3) the proposal claimed to replace the
+corbanx 277-LOC handler while explicitly deferring dynamic columns; (B4)
+`audit ... emit_to audit_log` invented a sub-verb already covered by the
+canonical `audit` block. v0.2 commits to **Surface B only**, drops the
+`Constant` column source, reframes pilot grounding around the
+static-columns gap, and removes the polysemous `emit_to`.
+
+Cell #3 of the corbanx-class-readiness meta-roadmap. Pairs with runtime
+cells `cdx-report-csv` / `cdx-report-xlsx`
 (`runtime/go/lazuli/report/{csv,xlsx}.go`) shipping in parallel.
 
 **Audience**: language team (Lazuli core), Lazuli Go runtime team.
@@ -15,92 +25,59 @@ meta-roadmap. Pairs with runtime cells `cdx-report-csv` / `cdx-report-xlsx`
   storage primitive this proposal composes onto).
 - `docs/design-principles.md` Rule Zero.
 - `docs/invariants.md` (closed grammar, capability catalog, namespace catalog,
-  events/locator spaces).
+  events/locator spaces; **§93-97 canonical `audit` block syntax**).
 - `examples/full-capsule/full-capsule.lzi:370-376` — `api customer_export` with
   `output @cap.File(...)` + opaque `handler "./api/export_customers.go"`. This
   is the closest expression of "an export endpoint" today; the export bytes
-  are *invisible to the language*.
+  are *invisible to the language*. **Primary v0.1 anchor.**
 - `c:/Users/lucas/dev-trabalho/corbanx/apps/api/src/features/multi-bank/multi-bank-report.service.ts`
-  — real-world anchor: dynamic per-bank columns, date-range filter,
-  `format: csv|xlsx`, upload to storage, return signed URL. 277 LOC of hand-rolled
-  ExcelJS + CSV string building + storage glue.
+  — partial anchor: the *static-columns half* of this handler (header row,
+  fixed columns, format dispatch, storage upload, signed URL) is in scope for
+  v0.1. The *dynamic per-bank columns half* is out of scope — covered by a
+  future v0.2 `expand` extension. See §Out of scope and §Risks.
 
 ## Contexto
 
-Two distinct shapes show up under the banner "tabular export":
+Today, "give me this list as a file" is expressed as an `api` block with an
+opaque `handler "./path.go"` whose body re-runs a query, hand-writes CSV
+or XLSX bytes, uploads to storage, signs the URL, and returns the URL.
+The full-capsule fixture demonstrates exactly this pattern at
+`full-capsule.lzi:370-376`:
 
-1. **One-off downloads** — a list query that should also be downloadable
-   "as CSV". Same projection as the on-screen list, same filter, same policy.
-   Today authors duplicate the query into an `api` with an opaque handler.
-   That handler re-runs the query, re-checks policy by hand, writes CSV
-   bytes, uploads, signs. Nothing in the language sees the columns; nothing
-   in doctor checks the policy parity; nothing in inspect lists the export.
-2. **Genuine reports** — multi-format artifacts with their own header,
-   own column definitions (often a *superset* or *subset* of the source
-   record), a date-range or scope filter that is **not** the list filter,
-   and downstream needs (scheduling, recurrence, retention). The corbanx
-   `multi-bank-report` is the canonical example: 1 source query → 2
-   formats (`.csv` + `.xlsx`) → uploaded to storage → signed URL → emailed
-   or returned inline → columns vary per *run* depending on which banks
-   the user has credentials for.
+    api customer_export
+      output @cap.File(...)
+      handler "./api/export_customers.go"
 
-Both shapes share a runtime mechanism: stream rows through a writer, push
-bytes to `object_storage`, return a signed URL. They diverge in *intent*:
-the first reuses the query's contract; the second declares a new contract.
+The 50-200 LOC inside that handler is invisible to the language. Doctor
+cannot check policy parity. Inspect cannot list the export among the
+feature's surfaces. The columns are not declared anywhere a cold-reader
+can find them; they live in `for col := range cols { writer.Write(...) }`
+loops in `.go` files. LSP cannot complete `from row.<field>`. Renames
+silently break exports.
 
-Folding both into one keyword loses information. Folding neither produces
-a `kind report` that nobody uses for the easy case.
+Across pilots, the **dominant shape** is: a fixed column list, a fixed
+filter (or none), one or two formats, upload, signed URL. That's the
+static-columns case. v0.1 of this proposal **declares that shape as a
+first-class artifact** — `report <name>` with explicit `columns from
+row.<field> | @fn.<name>(...)`. After v0.1 lands, the `api +
+opaque-handler` pattern is the *escape hatch*, not the default expression.
 
-This proposal **recommends a split**: extend `query.list` with an `export`
-slot for the one-off case (Surface A), and introduce a new `kind report`
-for the report-as-contract case (Surface B). The two coexist; doctor
-disambiguates; codegen and runtime share the writer machinery.
+There is a second pressure — **dynamic columns**, where the column set is
+discovered at runtime (corbanx multi-bank: which banks does the requesting
+user have credentials for? expand columns accordingly). v0.1 does **not**
+cover that case; §Out of scope and §Risks describe the v0.2 path.
 
-## Surface candidates
+v0.1 of this proposal explicitly **does not extend `query.list`** with an
+`export` slot. An earlier draft proposed a Surface A (`query.list ...
+export csv, xlsx`) for the trivial "download the current list" case
+alongside Surface B. v0.1 drops Surface A: it has no pilot pressure
+(corbanx anchor is a contract-export with a discrete name, audit, and
+policy — not a list-export); it created a second way to say the same
+thing; and doctor disambiguation machinery was needed only because the
+language was offering two surfaces for one intent. **See §Surface A —
+v0.2 candidate** for the gate that would unlock it later.
 
-### Surface A — `query.list ... export csv,xlsx`
-
-    query.list list
-      params
-        status: CustomerStatus optional
-        tier: CustomerTier optional
-      filters
-        status when params.status
-        tier when params.tier
-      paginate 50
-      export
-        formats csv, xlsx
-        storage object_storage.files
-        signed_ttl 1h
-        filename "customers_{ctx.now:yyyymmdd}.{format}"
-
-Generates `GET /api/customers.csv` and `GET /api/customers.xlsx` alongside
-the JSON `GET /api/customers`. The export inherits:
-
-- `params` (same filters as the list).
-- `policy` (the query's effective policy from the feature `policies` table).
-- `scope` (tenant + soft-delete).
-- The list projection (the columns are the resource record fields the
-  query naturally returns — same shape the JSON endpoint emits).
-
-What it cannot express:
-
-- A separate set of columns from the on-screen list.
-- A header row in pt-BR while keys are in English.
-- A column that's *derived* per row at export time but not part of the
-  resource (`row.banks[bank].margem` style).
-- Scheduling (run nightly, deliver to S3).
-- A range filter that's only meaningful at export time (not on the list
-  page).
-
-**Pros**: terse — three new lines on an existing block; zero new IR kinds,
-zero new namespaces; most "download as CSV" buttons in real apps map 1:1.
-
-**Cons**: polysemy creep on `query`; "just one more thing" is how queries
-become unreadable; cannot express the corbanx multi-bank report (dynamic
-columns).
-
-### Surface B — `report <name>` kind
+## Surface — `report <name>` kind
 
     feature customer
       report monthly_audit
@@ -119,43 +96,51 @@ columns).
         policy @policy.global_read
         rate_limit "10 per hour per user"
         audit actor, ctx.now, source.params
-          emit_to audit_log
 
-What it adds:
+What `report` adds over `api + handler`:
 
 - **Explicit column list**: declared at compile time, doctor cross-checks
-  every `from row.<field>` against the source query's projection. Labels,
-  formats, and per-cell transforms are first-class.
+  every `from row.<field>` against the source query's projection. Labels
+  and formats are first-class.
 - **Source decoupling**: `source customer.query.list` reuses a query but
   the report is its own contract — it may carry stricter policy, its own
   rate limit, its own audit.
 - **Multi-format from one source**: `formats csv, xlsx` produces both
   endpoints under one declaration.
-- **Surface for the dynamic case (deferred — see §Out of scope below)**:
-  one column declaration can stand for a runtime-discovered set of
-  columns via an `expand` modifier we *do not* ship in v0.1.
+- **Audit block**: uses the canonical `audit` block from
+  `docs/invariants.md:93-97`, same as `command` / `query` / `job` /
+  `webhook`. No new sub-verb.
 
-**Pros**: clean separation of concerns; cold-readable; reasonable home
-for scheduling/recurrence if/when pressure arrives.
+What `report` deliberately does NOT add:
 
-**Cons**: another `kind` to learn; for "download this list" the
-boilerplate ratio is bad.
+- **Dynamic columns** — runtime-discovered column sets (corbanx
+  multi-bank). v0.2 candidate; see §Out of scope.
+- **Scheduling / recurrence** — use `job trigger schedule` for nightly
+  runs.
+- **Email delivery** — use `notification` + plugin adapter; report
+  returns a signed URL, delivery is downstream.
 
-### Recommended split — both coexist
+### Surface A — v0.2 candidate (deferred)
 
-| Pressure | Surface | Why |
-|---|---|---|
-| "Download the current list as CSV" — same columns, same filter, same policy. | **A** (`query.list ... export`) | One block, zero ceremony. The list *is* the export. |
-| "Monthly audit report with custom columns / labels / formats" — separate contract, separate policy, often multiple formats. | **B** (`report <name>`) | A report is its own product surface, not a view of a list. |
-| "Per-bank column expansion at runtime" (corbanx multi-bank). | **B** (`report ... columns expand`) | **Deferred** out of v0.1. v0.1 says: declare static columns; for runtime-dynamic columns, fall through to `handler "./..."` with a documented escape hatch. |
+An earlier draft considered `query.list <name> ... export csv, xlsx` as a
+terse path for "download the current list with the list's columns,
+filter, and policy". v0.1 **does not ship Surface A**.
 
-Doctor refuses overlap: a `query.list` carrying `export` and a `report`
-whose `source` points at the same `query.list` is a
-`REPORT-EXPORT-DUPLICATE-001` warning — pick one.
+**Gate to revisit**: 2+ independent pilots express download-this-list
+pressure where (a) the export columns must equal the list projection,
+(b) the export filter must equal the list filter, (c) the export policy
+must equal the list policy. Until then, `report <name> source <q>` is the
+single surface; the cost is ~6 extra lines per export, which is
+acceptable given there's only one way to say it.
+
+If the gate trips, Surface A re-enters as a follow-up proposal. It will
+**not** coexist with Surface B without a doctor lint disambiguating
+duplicates — and the design will revisit whether B can be re-derived
+from A with column overrides instead of being a parallel surface.
 
 ## Boundary discipline
 
-What stays in Lazuli core: grammar (the two surfaces above), IR shape,
+What stays in Lazuli core: grammar (`report <name>` kind only), IR shape,
 inspect projection, doctor diagnostics, codegen. Closed catalog: `formats`
 is `csv` or `xlsx`. JSON / Parquet / Avro / PDF are **not v0**.
 
@@ -178,34 +163,7 @@ column expansion (v0.2 candidate); email delivery / cron scheduling
 
 ## Linguagem (Stage 3)
 
-### Surface A — extension to `query.list`
-
-```ebnf
-query_list_child   = ... | export_block ;
-
-export_block       = "export" NEWLINE INDENT
-                       export_formats
-                       [ export_storage ]
-                       [ export_signed_ttl ]
-                       [ export_visibility ]
-                       [ export_filename ]
-                     DEDENT ;
-
-export_formats     = "formats" format_list ;
-format_list        = format_id ( "," format_id )* ;
-format_id          = "csv" | "xlsx" ;
-
-export_storage     = "storage" capability_ref ;
-export_signed_ttl  = "signed_ttl" duration_literal ;
-export_visibility  = "visibility" file_visibility ;
-export_filename    = "filename" string_literal ;
-```
-
-Filename interpolation is closed: `{format}`, `{ctx.now:<strftime>}`
-(only `yyyy`, `mm`, `dd`, `HH`, `MM`, `ss` tokens), `{ctx.user.id}`,
-`{ctx.tenant.id}`. Any other token is `REPORT-FILENAME-TOKEN-UNKNOWN-001`.
-
-### Surface B — `report <name>` kind
+### `report <name>` grammar
 
 ```ebnf
 report_decl        = "report" IDENT NEWLINE INDENT
@@ -233,42 +191,43 @@ report_column      = IDENT
                      NEWLINE ;
 
 column_source      = "row" "." IDENT
-                   | fn_call
-                   | string_literal ;
+                   | fn_call ;
+
+report_audit       = audit_block ;  (* canonical audit block,
+                                       docs/invariants.md:93-97 *)
 ```
 
-### Slot inventory (Surface B)
+`column_source` is intentionally narrow: only `row.<field>` (project a
+field from the source query's record) or `@fn.<name>(args)` (call a
+user-defined or capability function). String literals as column values
+are not in the grammar — there is no pilot evidence for a "constant
+column" pattern; if one arises, it can be expressed via `@fn.const_xyz()`
+without widening the surface.
+
+Filename interpolation is closed: `{format}`, `{ctx.now:<strftime>}`
+(only `yyyy`, `mm`, `dd`, `HH`, `MM`, `ss` tokens), `{ctx.user.id}`,
+`{ctx.tenant.id}`. Any other token is `REPORT-FILENAME-TOKEN-UNKNOWN-001`.
+
+### Slot inventory
 
 | Slot | Required | Type | Closed catalog | Notes |
 |---|---|---|---|---|
-| `source <ref>` | yes | qualified query ref | must resolve to `query.list` or `query.sql` in same package | drives row cursor |
+| `source <ref>` | yes | qualified query ref | must resolve to `query.list` or `query.sql` in same package | `query.lookup` rejected by `REPORT-SOURCE-KIND-001` |
 | `columns <list>` | yes | indent block of `<name> from <expr>` | at least one column | empty block is `REPORT-COLUMNS-EMPTY-001` |
 | `formats <ids>` | yes | comma-list of format ids | **closed**: `csv`, `xlsx` | future via catalog |
-| `storage <ref>` | no (defaults to feature's first `object_storage` cap) | capability ref | must resolve in `registry.lzi` | reuses `APP-CAP-001` |
-| `signed_ttl <duration>` | optional unless `visibility:signed` | duration literal `s|m|h|d` | mirrors `@cap.File(signed_ttl)` | doctor refuses pairing with public/private |
+| `storage <ref>` | conditional | capability ref | must resolve in `registry.lzi` | **default rule**: if the package declares **exactly one** `object_storage` capability, omit and it binds to that. If **zero or two-plus** capabilities exist and `storage` is omitted, doctor emits `REPORT-STORAGE-AMBIGUOUS-001`. The previous "first declared" tiebreak is rejected — order-dependent. |
+| `signed_ttl <duration>` | required when `visibility = signed` | duration literal `s|m|h|d` | mirrors `@cap.File(signed_ttl)` | doctor refuses pairing with `public` / `private` |
 | `visibility <mode>` | no, defaults to `signed` | identifier | **closed**: `public`, `private`, `signed` | reports are downloadable artifacts |
 | `filename <pattern>` | no | template string | closed token catalog | default: `<feature>.<report_name>_<ts>.<format>` |
 | `policy @policy.<name>` | yes | policy ref | must resolve in feature `policies` | reports always declare policy explicitly |
-| `rate_limit <expr>` | required when policy includes `@scope.public` | rate-limit literal | mirrors command rate_limit | |
-| `audit <fields>` | optional | audit fields | same closed catalog as command audit | reports are first-class audit subjects |
+| `rate_limit <expr>` | required when policy includes `@scope.public` | rate-limit literal | mirrors command rate_limit | enforced by `REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001` |
+| `audit <fields>` | optional | canonical audit block | same closed catalog as command audit (`docs/invariants.md:93-97`) | `audit`, `audit <field>, <field>`, or `audit none`. **No `emit_to` sub-verb** — audit-log routing is fixed by the audit catalog. |
 
 ### Worked example
 
 Today, `examples/full-capsule/full-capsule.lzi:370-376` declares a
-file-output api with an opaque handler. Stage 3 replaces the handler.
-
-Surface A (list export):
-
-    query.list list
-      ...
-      export
-        formats csv, xlsx
-        storage object_storage.files
-        visibility signed
-        signed_ttl 1h
-        filename "customers_{ctx.now:yyyymmdd}.{format}"
-
-Surface B (separate audit report):
+file-output api with an opaque handler. v0.1 replaces the handler with a
+declared report:
 
     report monthly_audit
       source customer.query.list
@@ -286,7 +245,16 @@ Surface B (separate audit report):
       policy @policy.global_read
       rate_limit "10 per hour per user"
       audit actor, ctx.now, source.params
-        emit_to audit_log
+
+**Note on the corbanx anchor**: this worked example covers the
+static-columns case — a fixed column list, format dispatch, storage
+upload, signed URL. The corbanx multi-bank-report's
+*dynamic per-bank columns* (each user's set of authorized banks expands
+into per-bank columns at request time) is **not expressible in v0.1**.
+That handler stays in the corbanx pilot as an `api + handler` until a
+v0.2 `expand` modifier ships (see §Open questions). v0.1 covers the
+static half of corbanx exports (header generation, format dispatch,
+upload, signing) and the entirety of full-capsule's export.
 
 ## IR (Stage 4)
 
@@ -323,7 +291,6 @@ pub struct ReportColumn {
 pub enum ReportColumnSource {
     RowField(String),
     Fn(FnInvocation),
-    Constant(String),
 }
 
 pub enum ReportFormat { Csv, Xlsx }
@@ -341,41 +308,35 @@ pub enum FilenameToken {
 }
 ```
 
-For Surface A, the `query.list` IR gets an optional `export` field
-carrying a reduced `Report`-shaped struct (no `columns` — derived from
-the list projection):
+`ReportColumnSource` has exactly two variants. The earlier
+`Constant(String)` variant is removed: it had no grammar production (no
+`column from "literal"` rule) and would have widened the IR without a
+corresponding language surface. Constants, if ever needed, route through
+`@fn.<name>()`.
 
-```rust
-pub struct QueryExport {
-    pub formats: Vec<ReportFormat>,
-    pub storage: Option<QualifiedName>,
-    pub visibility: FileVisibility,
-    pub signed_ttl: Option<Duration>,
-    pub filename: Option<ReportFilenamePattern>,
-    pub origin: Origin,
-}
-```
+There is no `QueryExport` IR type. Surface A is not in v0.1; its IR is a
+v0.2 concern and will be designed at that time.
 
 ### Inspect JSON shape
 
 New `--expand=reports` flag in `ExpandSet`. Projection emits `reports[]`
-+ `query_exports[]` under each feature.
+under each feature.
 
 ### Cross-refs registered by analyzer
 
 | Edge | Source | Target | Resolution |
 |---|---|---|---|
-| `report.source` | `report <name>` | `query.list` or `query.sql` in same package | feature-local + cross-feature refs |
+| `report.source` | `report <name>` | `query.list` or `query.sql` in same package | feature-local + cross-feature refs; `query.lookup` rejected by `REPORT-SOURCE-KIND-001` |
 | `report.column.source.row_field` | each `from row.<field>` | field on `report.source` projection | analyzer-time `REPORT-COLUMN-MISMATCH-001` |
 | `report.column.source.fn` | each `from @fn.<name>(...)` | `@fn.*` declaration | reuses `fn_unresolved` analyzer |
-| `report.storage` | `storage <ref>` | capability in `registry.lzi` | reuses `APP-CAP-001` |
+| `report.storage` | `storage <ref>` (or implicit single-cap binding) | capability in `registry.lzi` | reuses `APP-CAP-001`; `REPORT-STORAGE-AMBIGUOUS-001` on count ≠ 1 without explicit `storage` |
 | `report.visibility = signed` | `visibility signed` | requires `signed_ttl` | `REPORT-SIGNED-TTL-MISSING-001` |
-| `query_export` | `query.list X ... export` | requires `object_storage` capability | `REPORT-SIGNED-NO-STORAGE-001` |
+| `report.policy public + rate_limit missing` | `policy` includes `@scope.public`, no `rate_limit` | doctor cross-check | `REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001` |
 | `report.policy` | `policy @policy.<name>` | feature `policies` | reuses command policy resolution |
 
 ## Codegen (Stage 5)
 
-One generated file per feature carrying any report or query export.
+One generated file per feature carrying any report.
 
 ### `dist/go/customer/reports.gen.go`
 
@@ -418,9 +379,8 @@ func RunMonthlyAudit(ctx *lazuli.Ctx, format report.Format) (string, error) {
 lives in `report.Run` inside the runtime library. **No** CSV/XLSX
 byte-level code is emitted by codegen.
 
-For Surface A, the generated wiring lives in `dist/go/customer/list.gen.go`
-alongside the existing list query and reuses the same `report.Run`
-entrypoint — `CustomerList` is the existing generated list-query function.
+`report.Column.From` exposes exactly two constructors —
+`report.RowField` and `report.FnCall` — mirroring the IR enum.
 
 ## Runtime (Stage 6)
 
@@ -429,8 +389,9 @@ Codex cells in parallel; pipeline wired by orchestrator).
 
 ### `runtime/go/lazuli/report/contract.go`
 
-Typed `Contract`, `Column`, `Format`, `RowField`, `FnCall`, `Constant`,
-`Pattern`. Pure types consumed by generated code and the writers.
+Typed `Contract`, `Column`, `Format`, `RowField`, `FnCall`, `Pattern`.
+Pure types consumed by generated code and the writers. No `Constant`
+column constructor.
 
 ### `runtime/go/lazuli/report/csv.go` (Codex cell `cdx-report-csv`)
 
@@ -476,8 +437,9 @@ Runtime invariant — not enforced by doctor/LSP.
 `crates/lazuli_cli/tests/fixtures/report/` — one minimal fixture per
 diagnostic: `column_mismatch.lzi`, `signed_no_storage.lzi`,
 `format_unknown.lzi`, `filename_token_unknown.lzi`,
-`signed_ttl_missing.lzi`, `signed_ttl_forbidden.lzi`,
-`export_duplicate.lzi`, `columns_empty.lzi`.
+`signed_ttl_missing.lzi`, `signed_ttl_forbidden.lzi`, `columns_empty.lzi`,
+`source_kind_lookup.lzi`, `storage_ambiguous.lzi`,
+`policy_public_no_rate_limit.lzi`.
 
 ### Go integration test — round-trip via local adapter
 
@@ -500,7 +462,7 @@ diagnostic: `column_mismatch.lzi`, `signed_no_storage.lzi`,
 - Hover on `visibility` shows `public | private | signed`.
 - Completion at `formats |` offers `csv`, `xlsx`.
 - Completion at `source |` offers all `query.list` / `query.sql`
-  declarations.
+  declarations (no `query.lookup`).
 - Completion at `from row.|` offers fields of the resolved source.
 
 ### Inspect contract test
@@ -521,15 +483,19 @@ projection.
 | `REPORT-SIGNED-TTL-FORBIDDEN-001` | error | report `<name>` has `signed_ttl` but `visibility:<public|private>`. | `visibility != Signed` + `signed_ttl = Some(_)` | `signed_ttl_forbidden.lzi` |
 | `REPORT-FORMAT-UNKNOWN-001` | error | report `<name>` declares `formats <id>` outside `{csv, xlsx}`. | parsed format outside closed catalog | `format_unknown.lzi` |
 | `REPORT-FILENAME-TOKEN-UNKNOWN-001` | error | report `<name>` filename pattern uses `{<token>}` which is not recognised. | unknown token | `filename_token_unknown.lzi` |
-| `REPORT-EXPORT-DUPLICATE-001` | warning | `query.list <q>` declares `export {...}` and `report <r>` references `<q>` as source; pick one. | analyzer-time overlap | `export_duplicate.lzi` |
 | `REPORT-COLUMNS-EMPTY-001` | error | report `<name>` declares no columns. | parsed `columns` block has 0 entries | `columns_empty.lzi` |
+| `REPORT-SOURCE-KIND-001` | error | report `<name>` source `<ref>` resolves to `query.lookup`; only `query.list` and `query.sql` may be report sources. | analyzer-time kind check | `source_kind_lookup.lzi` |
+| `REPORT-STORAGE-AMBIGUOUS-001` | error | report `<name>` omits `storage` and package declares N ≠ 1 `object_storage` capabilities; declare `storage <ref>` explicitly. | analyzer-time cap count | `storage_ambiguous.lzi` |
+| `REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001` | error | report `<name>` policy includes `@scope.public` but no `rate_limit` declared. | analyzer-time policy scan | `policy_public_no_rate_limit.lzi` |
 
-All codes register under `is_security_enforcement_code`.
+All codes register under `is_security_enforcement_code` where they
+involve auth/quota; the rest under generic doctor catalog.
 
 ### LSP hovers
 
 Add to `KEYWORD_HOVER`: `report`, `formats`, `columns`, `source` (under
-report), `export` (under query.list), `filename`.
+report), `filename`. The `audit` keyword reuses the existing command
+audit hover.
 
 Closed-catalog completions: `formats <|` → `csv`, `xlsx`; `visibility <|`
 → `public`, `private`, `signed`; `signed_ttl <int>` → `s`, `m`, `h`,
@@ -543,24 +509,22 @@ No new namespace. `report` is a new top-level kind alongside `command`,
 ### Highlighting
 
 Add `report` to keyword scope; report-child keywords (`columns`, `from`,
-`label`, `source`, `export`, `filename`, `signed_ttl`) use existing
-argument scope.
+`label`, `source`, `filename`, `signed_ttl`) use existing argument scope.
 
 ## Critério de "ciclo fechado"
 
-- [ ] Fixture exercises both Surface A and Surface B in
+- [ ] Fixture exercises `report` in
   `examples/full-capsule/full-capsule.lzi`, replacing the opaque `api
   customer_export` handler.
 - [ ] `lazuli check examples/full-capsule` accepts the syntax with no
   diagnostics.
 - [ ] `lazuli inspect --format=json --expand=reports examples/full-capsule`
   emits the projection.
-- [ ] `lazuli doctor` emits the 8 named diagnostics on matching fixtures.
-- [ ] `lazuli generate` produces `dist/go/customer/reports.gen.go` and
-  updated `list.gen.go`.
+- [ ] `lazuli doctor` emits the 10 named diagnostics on matching fixtures.
+- [ ] `lazuli generate` produces `dist/go/customer/reports.gen.go`.
 - [ ] `runtime/go/lazuli/report/report_test.go` round-trip passes for
   CSV (1k rows) and XLSX (1k rows via excelize streaming).
-- [ ] LSP hovers + completion cover 6 new keywords + 4 closed catalogs.
+- [ ] LSP hovers + completion cover 5 new keywords + 4 closed catalogs.
 - [ ] `runtime/go/lazuli/report/` total LOC < 250 across
   `contract.go`, `csv.go`, `xlsx.go`, `pipeline.go`.
 
@@ -568,19 +532,27 @@ argument scope.
 
 ### Biggest risk
 
-**Surface A + Surface B coexistence creates two ways to express
-"download this list as CSV"**, and Lazuli's Rule Zero says one way to
-say each thing. Mitigation: `REPORT-EXPORT-DUPLICATE-001` doctor warning
-when the same query is both `export`-extended and the source of a
-report. If the lint is not shippable on day one, recommend shipping
-only Surface B and treating `query.list ... export` as a v0.2 addition.
+**Dynamic columns are the corbanx anchor's defining trait, and v0.1
+explicitly does not cover them.** v0.1 covers the static-columns half —
+header rows, fixed column lists, format dispatch, upload, signing —
+which is the dominant shape across pilots and the entirety of the
+full-capsule fixture. The dynamic-columns half (per-bank column
+expansion at request time) remains an `api + handler` until v0.2 ships
+an `expand` modifier. Mitigation: §Open questions sketches two candidate
+v0.2 shapes; pilot pressure beyond corbanx will resolve which one. v0.1
+is **not** marketed as "replaces the corbanx 277-LOC handler" — it
+establishes the surface and replaces the static-columns scaffold inside
+that handler (50-100 LOC of header generation, format dispatch, upload,
+signing — the part least worth hand-rolling). The dynamic-columns
+business logic is what makes the corbanx handler 277 LOC; that piece
+survives v0.1 untouched. v0.2 dynamic-columns will fully replace the
+corbanx-shape handler.
 
-### Biggest open question
+### Biggest open question — dynamic columns (v0.2)
 
-**Dynamic columns** — the corbanx multi-bank case where the column set
-is determined at runtime by which banks the requesting user has
-credentials for. v0.1 deliberately does **not** support this; it falls
-through to a handler. Two candidate v0.2 shapes:
+The corbanx multi-bank case: the column set is determined at runtime by
+which banks the requesting user has credentials for. Two candidate v0.2
+shapes:
 
     columns
       cpf       from row.cpf
@@ -594,27 +566,39 @@ vs:
       cpf  from row.cpf
       + dynamic from @fn.bank_columns(ctx.user)   ! returns []report.Column
 
-The first is more declarative but extends the column-source grammar;
-the second leans on `@fn.*` returning a slice and is a smaller language
-change. Decision deferred until a second site beyond corbanx demands it.
+The first is more declarative but extends the column-source grammar with
+nested `expand` blocks; the second leans on `@fn.*` returning a slice
+and is a smaller language change. Decision deferred until a second site
+beyond corbanx demands it.
 
 ### Smaller open questions
 
-- `format "yyyy-mm-dd"` / `format "currency:BRL"` — closed catalog vs free
-  string? v0.1 is **closed**: `yyyy-mm-dd`, `yyyy-mm-dd HH:MM:SS`,
+- **Surface A revisit** — terse `query.list ... export csv, xlsx`
+  shorthand. Gated on 2+ independent pilots expressing
+  download-this-list pressure (see §Surface A). If shipped, it must
+  re-derive the report contract from the list, not duplicate the
+  surface.
+- **`audit` semantics on `report`** — v0.1 reuses the canonical `audit`
+  block from `docs/invariants.md:93-97`. No new sub-verb is introduced
+  in v0.1; audit-log routing is fixed by the existing command audit
+  catalog. If reports surface a need for a distinct audit channel,
+  that's a framework-wide change to the audit catalog, not a
+  `report`-local one.
+- **Format catalog** — `format "yyyy-mm-dd"` / `format "currency:BRL"`.
+  v0.1 is **closed**: `yyyy-mm-dd`, `yyyy-mm-dd HH:MM:SS`,
   `currency:BRL|USD|EUR`, `percent`, `integer`, `boolean:yes|no`. New
   entries require pilot evidence.
-- Auto-mount HTTP endpoints (`GET /api/reports/<name>.csv`) vs explicit
-  `api`-style block? v0.1: **auto-mount**.
-- `audit` block required by default? v0.1: optional; strict profile may
-  upgrade to "required when `@scope.*` other than `@role.admin`" once
-  pilot evidence shows the bar.
+- **Auto-mount HTTP endpoints** (`GET /api/reports/<name>.csv`) vs
+  explicit `api`-style block? v0.1: **auto-mount**.
+- **`audit` block required by default?** v0.1: optional; strict profile
+  may upgrade to "required when `@scope.*` other than `@role.admin`"
+  once pilot evidence shows the bar.
 
 ## Próximo passo
 
-1. Grade this proposal v0.1 with `lazuli-language-architect`. Target ≥
+1. Grade this proposal v0.2 with `lazuli-language-architect`. Target ≥
    8.5; gate at ≥ 8.5 with no individual criterion < 7.
-2. Apply blockers; ship v0.2 if necessary.
+2. Apply remaining blockers if any; ship v0.3 if necessary.
 3. After PASS:
    - Codex cells `cdx-report-csv` and `cdx-report-xlsx` shipped the
      writers (commit `5e2138e`).
@@ -624,12 +608,12 @@ change. Decision deferred until a second site beyond corbanx demands it.
      `crates/lazuli_cli/src/doctor.rs` cross-feature checks,
      `crates/lazuli_codegen_go` emission.
    - Fixture extension: rewrite `examples/full-capsule/full-capsule.lzi:370-376`
-     from `api customer_export` to either Surface A or Surface B.
+     from `api customer_export` to `report monthly_audit`.
 
 ## Rows sugeridas para `docs/next-checklist.md`
 
 ```
-| 32 | Report vocab — `query.list ... export` + `report` kind | planned | Add `Report`, `ReportColumn`, `ReportSource`, `ReportFormat`, `QueryExport` to IR. Extend grammar with `report <name>` kind and `query.list.export` child. New `--expand=reports` projection. |
-| 33 | Report vocab — 8 doctor diagnostics + LSP coverage | planned | 8 codes + LSP hovers for 6 keywords + closed-catalog completions. Depends on row 32. |
+| 32 | Report vocab — `report <name>` kind | planned | Add `Report`, `ReportColumn`, `ReportSource`, `ReportFormat` to IR. Extend grammar with `report <name>` kind. New `--expand=reports` projection. |
+| 33 | Report vocab — 10 doctor diagnostics + LSP coverage | planned | 10 codes + LSP hovers for 5 keywords + closed-catalog completions. Depends on row 32. |
 | 34 | Report runtime — pipeline.go + CSV/XLSX writers | shipped (writers) | Writers shipped at commit 5e2138e. Pipeline + contract.go pending. Wire-thin: total < 250 LOC. Depends on row 32 + bucket-storage cycle. |
 ```
