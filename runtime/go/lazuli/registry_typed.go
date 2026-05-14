@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"errors"
 	"strings"
 	"sync"
 )
@@ -125,6 +126,25 @@ func (r *Registry) Apis() map[string]apiRegistration {
 		out[name] = api
 	}
 	return out
+}
+
+// QueryContract is the public descriptor of a registered query.
+type QueryContract struct {
+	Name    string
+	Feature string
+}
+
+// ErrQueryNotFound is returned by LookupQuery when no query is registered under that name.
+var ErrQueryNotFound = errors.New("lazuli: query not found")
+
+// LookupQuery returns the QueryContract registered under name n, or ErrQueryNotFound.
+func (r *Registry) LookupQuery(n string) (*QueryContract, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if q, ok := r.queries[n]; ok {
+		return &QueryContract{Name: q.Name, Feature: q.Feature}, nil
+	}
+	return nil, ErrQueryNotFound
 }
 
 // RegisterResource registers a Resource in the typed registry and the legacy
