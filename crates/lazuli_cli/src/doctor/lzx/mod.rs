@@ -23,6 +23,10 @@
 //! - [`audience_empty_sdk`] — audience's `requires` set produces an
 //!   empty command/query intersection.
 //!
+//! L0 #6 Terminal grammar:
+//! - [`cells_or_columns`] — `view list` declares exactly one row rendering
+//!   form: `columns <field>, ...` or grid-form `cells @client.<slot>`.
+//!
 //! ## IR stub
 //!
 //! The richer `.lzx` IR shape (Audience, ViewList, ViewDetail, ViewCreate,
@@ -42,6 +46,7 @@ pub mod ir_stub;
 
 pub mod action_not_in_audience;
 pub mod audience_empty_sdk;
+pub mod cells_or_columns;
 pub mod cell_slot_orphan;
 pub mod command_input_mismatch;
 pub mod route_param_missing_binding;

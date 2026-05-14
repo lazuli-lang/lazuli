@@ -1,5 +1,6 @@
 pub mod design;
 pub mod folder;
+pub mod lzx;
 pub mod vocab;
 
 use std::collections::{BTreeMap, BTreeSet};
