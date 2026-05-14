@@ -40,7 +40,10 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::{AppLocale, AppLogging, AppObservability, AppTracing, Module};
+use lazuli_ir::{
+    AppLocale, AppLogging, AppObservability, AppTracing, EncryptionAlgorithm, EncryptionBinding,
+    EncryptionRotation, EncryptionSource, EncryptionTemplateAxis, Module,
+};
 
 use super::imports::ImportSet;
 use super::patterns::{PATTERN_MAIN_ENTRYPOINT, emit_pattern_header};
@@ -232,8 +235,20 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     let emit_name = !manifest.name.trim().is_empty();
     let emit_cors_todo = manifest.cors.is_some();
     let emit_routes_todo = false; // `Module.app.routes` is on `ExperienceModule`, not `AppManifest`.
+    // Encryption bucket cycle — emit `var EncryptionBindings = ...`
+    // when the capsule declares one or more `encryption.key @key.<scope>`
+    // bindings. Each binding wires to the runtime registry via an
+    // `init()` block calling `encryption.Register(...)`. See
+    // `docs/proposals/encryption-vocab.md` §Codegen.
+    let emit_encryption = !manifest.encryption_bindings.is_empty();
 
-    if !emit_locale && !emit_logging && !emit_tracing && !emit_name && !emit_cors_todo {
+    if !emit_locale
+        && !emit_logging
+        && !emit_tracing
+        && !emit_name
+        && !emit_cors_todo
+        && !emit_encryption
+    {
         return None;
     }
 
@@ -244,6 +259,9 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     }
     if emit_logging || emit_tracing {
         imports.add("lazuli.dev/runtime/lazuli/observability");
+    }
+    if emit_encryption {
+        imports.add("lazuli.dev/runtime/lazuli/encryption");
     }
 
     p.banner(source_label, "main");
@@ -285,6 +303,10 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     if let Some(tracing) = manifest.tracing.as_ref() {
         maybe_blank(&mut p, &mut first_block);
         emit_tracing_contract(&mut p, tracing);
+    }
+    if emit_encryption {
+        maybe_blank(&mut p, &mut first_block);
+        emit_encryption_bindings(&mut p, &manifest.encryption_bindings);
     }
     if emit_cors_todo {
         maybe_blank(&mut p, &mut first_block);
@@ -400,6 +422,105 @@ fn emit_tracing_contract(p: &mut GoPrinter, tracing: &AppTracing) {
     p.line("}");
 }
 
+/// Encryption bucket cycle — emit `var EncryptionBindings = ...` plus
+/// the `init()` that registers each binding with the runtime
+/// registry. The runtime side
+/// (`runtime/go/lazuli/encryption/registry.go`) supplies
+/// `encryption.Binding`, `encryption.Register`, and the closed
+/// catalogs (`SourceEnv`/`SourceSecrets`, `AxisTenantID`/
+/// `AxisUserID`/`AxisRecordID`, `AlgorithmAES256GCM`,
+/// `RotationManual`).
+///
+/// Codegen never names AES, GCM, or any concrete crypto primitive —
+/// the runtime resolves the cipher behind the `encryption.Binding`
+/// catalog token. Per `docs/proposals/encryption-vocab.md` §Codegen,
+/// the wire-thin principle: this emitter is ~50 LOC of `import + call`,
+/// not a homegrown crypto envelope.
+fn emit_encryption_bindings(p: &mut GoPrinter, bindings: &[EncryptionBinding]) {
+    p.line(
+        "// EncryptionBindings is the lowered `app.encryption` catalog from app.lzi.",
+    );
+    p.line(
+        "// One entry per `@key.<scope>` referenced by any `@cap.Encrypted` /",
+    );
+    p.line("// `@cap.E2ee` field. The `init()` below registers each binding with");
+    p.line("// the runtime registry so `encryption.For(ctx, \"@key.<scope>\")` resolves");
+    p.line("// the per-tenant cipher on demand.");
+    p.line("var EncryptionBindings = []encryption.Binding{");
+    p.indent();
+    for binding in bindings {
+        emit_encryption_binding_literal(p, binding);
+    }
+    p.dedent();
+    p.line("}");
+    p.blank();
+    p.line("func init() {");
+    p.indent();
+    p.line("for _, b := range EncryptionBindings {");
+    p.indent();
+    p.line("encryption.Register(b)");
+    p.dedent();
+    p.line("}");
+    p.dedent();
+    p.line("}");
+}
+
+fn emit_encryption_binding_literal(p: &mut GoPrinter, binding: &EncryptionBinding) {
+    p.line("{");
+    p.indent();
+    let mut rows: Vec<(String, String)> = Vec::new();
+    rows.push(("Scope:".to_owned(), format!("{:?},", binding.scope)));
+    let (source_const, template) = match &binding.source {
+        EncryptionSource::Env(t) => ("encryption.SourceEnv", t),
+        EncryptionSource::Secrets(t) => ("encryption.SourceSecrets", t),
+    };
+    rows.push(("Source:".to_owned(), format!("{},", source_const)));
+    rows.push((
+        "Template:".to_owned(),
+        format!("{:?},", template.literal),
+    ));
+    let axis_consts: Vec<&'static str> = template
+        .axes
+        .iter()
+        .map(|axis| encryption_axis_const(*axis))
+        .collect();
+    rows.push((
+        "Axes:".to_owned(),
+        format!("[]encryption.TemplateAxis{{{}}},", axis_consts.join(", ")),
+    ));
+    rows.push((
+        "Algorithm:".to_owned(),
+        format!("{},", encryption_algorithm_const(binding.algorithm)),
+    ));
+    rows.push((
+        "Rotation:".to_owned(),
+        format!("{},", encryption_rotation_const(binding.rotation)),
+    ));
+    emit_aligned_struct_value_rows(p, &rows);
+    p.dedent();
+    p.line("},");
+}
+
+fn encryption_axis_const(axis: EncryptionTemplateAxis) -> &'static str {
+    match axis {
+        EncryptionTemplateAxis::TenantId => "encryption.AxisTenantID",
+        EncryptionTemplateAxis::UserId => "encryption.AxisUserID",
+        EncryptionTemplateAxis::RecordId => "encryption.AxisRecordID",
+    }
+}
+
+fn encryption_algorithm_const(algorithm: EncryptionAlgorithm) -> &'static str {
+    match algorithm {
+        EncryptionAlgorithm::Aes256Gcm => "encryption.AlgorithmAES256GCM",
+    }
+}
+
+fn encryption_rotation_const(rotation: EncryptionRotation) -> &'static str {
+    match rotation {
+        EncryptionRotation::Manual => "encryption.RotationManual",
+    }
+}
+
 /// Render `Key: value,` struct-literal rows with the keys padded to
 /// the widest key in the block. Matches `gofmt`'s alignment rule for
 /// composite-literal initialisers so the emitter output passes a
@@ -474,8 +595,9 @@ fn format_string_slice(values: &[String]) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppCors, AppLocale, AppLogging, AppManifest, AppTracing, Defaults, Feature, LocaleFallback,
-        Module, Policies,
+        AppCors, AppLocale, AppLogging, AppManifest, AppTracing, Defaults, EncryptionAlgorithm,
+        EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate, Feature,
+        LocaleFallback, Module, Policies,
     };
 
     fn empty_feature(name: &str) -> Feature {
@@ -796,5 +918,54 @@ mod tests {
         // file always compiles. Doctor surfaces the structural smell.
         // The block only has one key here, so no padding is needed.
         assert!(out.contains("Level: observability.LogLevelInfo,"));
+    }
+
+    // Encryption bucket cycle — `var EncryptionBindings` + `init()`
+    // registers each binding with the runtime registry. The emitter
+    // never names AES or any concrete crypto; it threads catalog
+    // tokens (`encryption.AlgorithmAES256GCM`, etc.) through to the
+    // runtime so the wire-thin principle holds.
+    #[test]
+    fn lazuli_app_gen_emits_encryption_bindings() {
+        let mut app = manifest("AcmeCRM");
+        app.encryption_bindings.push(EncryptionBinding {
+            scope: "@key.tenant".to_owned(),
+            source: EncryptionSource::Env(EncryptionTemplate::parse(
+                "CRYPT_KEY_TENANT_{tenant_id}",
+            )),
+            algorithm: EncryptionAlgorithm::Aes256Gcm,
+            rotation: EncryptionRotation::Manual,
+            span_ref: None,
+        });
+        let module = module_with(Vec::new(), Some(app));
+        let out = emit_lazuli_app_gen(&module, "AcmeCRM").expect("must emit");
+
+        // Import shows up.
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/encryption\""),
+            "expected encryption runtime import in lazuli_app.gen.go:\n{out}"
+        );
+        // Catalog declared.
+        assert!(out.contains("var EncryptionBindings = []encryption.Binding{"));
+        // Closed-catalog tokens — codegen never names AES, GCM, nonces.
+        assert!(out.contains("Source:    encryption.SourceEnv,"));
+        assert!(out.contains("Algorithm: encryption.AlgorithmAES256GCM,"));
+        assert!(out.contains("Rotation:  encryption.RotationManual,"));
+        // Template axis lifted from the literal.
+        assert!(out.contains("Axes:      []encryption.TemplateAxis{encryption.AxisTenantID},"));
+        // Template literal preserved verbatim for runtime substitution.
+        assert!(out.contains("Template:  \"CRYPT_KEY_TENANT_{tenant_id}\","));
+        // `init()` walks the catalog so registration happens at boot.
+        assert!(out.contains("func init() {"));
+        assert!(out.contains("encryption.Register(b)"));
+    }
+
+    #[test]
+    fn lazuli_app_gen_no_bindings_omits_encryption_import() {
+        let module = module_with(Vec::new(), Some(manifest("AcmeCRM")));
+        let out = emit_lazuli_app_gen(&module, "AcmeCRM").expect("must emit");
+        assert!(!out.contains("encryption.Binding"));
+        assert!(!out.contains("encryption.Register"));
+        assert!(!out.contains("lazuli/encryption"));
     }
 }
