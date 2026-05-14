@@ -847,6 +847,10 @@ impl DoctorPackage {
             &self.feature_uses,
             self.registry.as_ref(),
         ));
+        diagnostics.extend(check_auth_session_callsite_001(
+            &self.auth_facts,
+            &self.project_root,
+        ));
 
         // Row 30 — Storage bucket cycle: 5 typed `@cap.File`
         // diagnostics. See `docs/proposals/bucket-storage-cycle.md`
@@ -981,6 +985,81 @@ fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<Doctor
     }
 
     diagnostics
+}
+
+/// AUTH-SESSION-CALLSITE-001 — direct `auth.IssueSession` call inside a
+/// user-authored handler for a feature whose session resource has extra columns.
+///
+/// The v1 shim emits a per-resource `Issue<Resource>` wrapper that threads
+/// the tenant-pin columns automatically; callers must use that wrapper, not
+/// the base `auth.IssueSession` function, so the extra columns are always
+/// supplied.
+fn check_auth_session_callsite_001(
+    auth_facts: &[AuthFacts],
+    project_root: &Path,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let features_root = project_root.join("features");
+    if !features_root.exists() {
+        return diagnostics;
+    }
+    for fact in auth_facts {
+        let sessions = match fact.auth.sessions.as_ref() {
+            Some(s) if !s.extra_columns.is_empty() => s,
+            _ => continue,
+        };
+        let feature_dir = features_root.join(&fact.feature);
+        if !feature_dir.exists() {
+            continue;
+        }
+        let resource_name = sessions.resource.name.as_str();
+        collect_issue_session_callsites(&feature_dir, resource_name, &mut diagnostics);
+    }
+    diagnostics
+}
+
+fn collect_issue_session_callsites(
+    dir: &Path,
+    resource_name: &str,
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_issue_session_callsites(&path, resource_name, diagnostics);
+            continue;
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if !file_name.ends_with(".go")
+            || file_name.ends_with(".gen.go")
+            || file_name.ends_with("_test.go")
+        {
+            continue;
+        }
+        let Ok(source) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (idx, line) in source.lines().enumerate() {
+            if line.contains("auth.IssueSession(") {
+                diagnostics.push(DoctorDiagnostic {
+                    path: path.clone(),
+                    line: idx + 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "AUTH-SESSION-CALLSITE-001".to_owned(),
+                    message: format!(
+                        "direct call to `auth.IssueSession` in a feature with extra session columns; use `auth.Issue{resource_name}` instead so the tenant-pin column is always supplied.",
+                    ),
+                });
+            }
+        }
+    }
 }
 
 fn is_pattern_draft_line(line: &str) -> bool {
@@ -8511,6 +8590,43 @@ fn auth_diagnostics(
                         .to_owned(),
                 });
             }
+
+            // AUTH-SESSION-TENANT-001 — every extra column must map to
+            // `lazuli.ID`; non-ID Go types cannot be tenant-pinned by the
+            // v1 shim.
+            for col in &sessions.extra_columns {
+                if col.go_type != "lazuli.ID" {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: fact.path.clone(),
+                        line: fact.sessions_resource_line.unwrap_or(fact.line),
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "AUTH-SESSION-TENANT-001".to_owned(),
+                        message: format!(
+                            "session resource `{sessions_name}` extra column `{}` has Go type `{}` but only `lazuli.ID` is allowed; declare the field as a resource reference.",
+                            col.field_name, col.go_type,
+                        ),
+                    });
+                }
+            }
+
+            // AUTH-SESSION-EXTRA-001 — more than one extra column means
+            // the generated shim has positional parameters whose order
+            // matches DSL declaration; reordering silently changes tenant
+            // scope.
+            if sessions.extra_columns.len() > 1 {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.sessions_resource_line.unwrap_or(fact.line),
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "AUTH-SESSION-EXTRA-001".to_owned(),
+                    message: format!(
+                        "session resource `{sessions_name}` declares {} extra columns; v1 emits them positionally in DSL order — reordering silently changes tenant scope. Reduce to at most 1, or verify caller argument order carefully.",
+                        sessions.extra_columns.len(),
+                    ),
+                });
+            }
         }
 
         // 5. `auth_password_algorithm_hash_mismatch` — when both
@@ -15314,6 +15430,267 @@ feature customer_outreach
         assert!(
             codes.contains(&"NOTIF-THROTTLE-003"),
             "expected NOTIF-THROTTLE-003, got {codes:?}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // AUTH-SESSION-* doctor codes — tenant-pin shim validation
+    // -------------------------------------------------------------------------
+
+    fn auth_fact_with_extra_columns(
+        feature: &str,
+        sessions_resource: &str,
+        extra_columns: Vec<ir::SessionExtraColumn>,
+    ) -> AuthFacts {
+        AuthFacts {
+            feature: feature.to_owned(),
+            auth: ir::Auth {
+                identity: ir::AuthIdentity {
+                    field: ir::FieldRef {
+                        resource: ir::QualifiedName {
+                            feature: None,
+                            name: "User".to_owned(),
+                        },
+                        field: "email".to_owned(),
+                    },
+                },
+                password: None,
+                sessions: Some(ir::AuthSessions {
+                    resource: ir::QualifiedName {
+                        feature: None,
+                        name: sessions_resource.to_owned(),
+                    },
+                    ttl: "7 days".to_owned(),
+                    refresh: false,
+                    extra_columns,
+                }),
+                mfa: None,
+                oauth: vec![],
+                span_ref: None,
+            },
+            path: PathBuf::from(format!("features/{feature}/{feature}.lzi")),
+            line: 1,
+            identity_line: 1,
+            password_line: None,
+            password_algorithm_line: None,
+            sessions_line: Some(5),
+            sessions_resource_line: Some(6),
+            mfa_line: None,
+            oauth_lines: BTreeMap::new(),
+        }
+    }
+
+    fn extra_id_column(field_name: &str) -> ir::SessionExtraColumn {
+        ir::SessionExtraColumn {
+            field_name: field_name.to_owned(),
+            column_name: format!("{field_name}_id"),
+            go_type: "lazuli.ID".to_owned(),
+            references: Some("Org".to_owned()),
+            required: true,
+        }
+    }
+
+    fn extra_non_id_column(field_name: &str) -> ir::SessionExtraColumn {
+        ir::SessionExtraColumn {
+            field_name: field_name.to_owned(),
+            column_name: field_name.to_owned(),
+            go_type: "string".to_owned(),
+            references: None,
+            required: true,
+        }
+    }
+
+    fn call_auth_diagnostics(facts: &[AuthFacts]) -> Vec<DoctorDiagnostic> {
+        let mut feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>> =
+            BTreeMap::new();
+        for fact in facts {
+            if let Some(sessions) = fact.auth.sessions.as_ref() {
+                let mut resources: BTreeMap<String, ResourceFact> = BTreeMap::new();
+                resources.insert(
+                    sessions.resource.name.clone(),
+                    ResourceFact {
+                        path: fact.path.clone(),
+                        line: 1,
+                        fields: BTreeMap::new(),
+                    },
+                );
+                feature_resources.insert(fact.feature.clone(), resources);
+            }
+        }
+        auth_diagnostics(
+            facts,
+            &feature_resources,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            None,
+        )
+    }
+
+    #[test]
+    fn auth_session_tenant_001_fires_on_non_id_go_type() {
+        let fact = auth_fact_with_extra_columns(
+            "auth_feature",
+            "TenantSession",
+            vec![extra_non_id_column("region")],
+        );
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains("AUTH-SESSION-TENANT-001"),
+            "expected AUTH-SESSION-TENANT-001, got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_session_tenant_001_does_not_fire_on_id_type() {
+        let fact = auth_fact_with_extra_columns(
+            "auth_feature",
+            "TenantSession",
+            vec![extra_id_column("org")],
+        );
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-SESSION-TENANT-001"),
+            "AUTH-SESSION-TENANT-001 must not fire for lazuli.ID columns; got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_session_extra_001_fires_on_two_extra_columns() {
+        let fact = auth_fact_with_extra_columns(
+            "auth_feature",
+            "TenantSession",
+            vec![extra_id_column("org"), extra_id_column("workspace")],
+        );
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains("AUTH-SESSION-EXTRA-001"),
+            "expected AUTH-SESSION-EXTRA-001 for 2 extra columns; got {codes:?}"
+        );
+        let errors: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "AUTH-SESSION-EXTRA-001")
+            .collect();
+        assert_eq!(
+            errors[0].severity,
+            DoctorSeverity::Error,
+            "AUTH-SESSION-EXTRA-001 must be error severity"
+        );
+    }
+
+    #[test]
+    fn auth_session_extra_001_does_not_fire_on_one_extra_column() {
+        let fact = auth_fact_with_extra_columns(
+            "auth_feature",
+            "TenantSession",
+            vec![extra_id_column("org")],
+        );
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-SESSION-EXTRA-001"),
+            "AUTH-SESSION-EXTRA-001 must not fire for a single extra column; got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_session_extra_001_does_not_fire_when_no_extra_columns() {
+        let fact = auth_fact_with_extra_columns("auth_feature", "TenantSession", vec![]);
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-SESSION-EXTRA-001"),
+            "AUTH-SESSION-EXTRA-001 must not fire when extra_columns is empty; got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_session_callsite_001_fires_on_issue_session_call_in_handler() {
+        let root = temp_project_root("callsite-001-fires");
+        let handler_path = root
+            .join("features")
+            .join("auth_feature")
+            .join("handlers")
+            .join("login.go");
+        write_file(
+            &handler_path,
+            r#"package handlers
+
+import "github.com/lazuli-lang/lazuli/runtime/go/lazuli/auth"
+
+func Login(ctx *lazuli.Ctx, input LoginInput) (string, error) {
+    token, _, err := auth.IssueSession(ctx, db, userID, auth.SessionAttrs{})
+    return token, err
+}
+"#,
+        );
+
+        let fact = auth_fact_with_extra_columns(
+            "auth_feature",
+            "TenantSession",
+            vec![extra_id_column("org")],
+        );
+        let diagnostics = check_auth_session_callsite_001(&[fact], &root);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains("AUTH-SESSION-CALLSITE-001"),
+            "expected AUTH-SESSION-CALLSITE-001 for auth.IssueSession in user handler; got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_session_callsite_001_does_not_fire_when_no_extra_columns() {
+        let root = temp_project_root("callsite-001-no-extra");
+        let handler_path = root
+            .join("features")
+            .join("auth_feature")
+            .join("handlers")
+            .join("login.go");
+        write_file(
+            &handler_path,
+            r#"package handlers
+
+func Login(ctx *lazuli.Ctx, input LoginInput) (string, error) {
+    token, _, err := auth.IssueSession(ctx, db, userID, auth.SessionAttrs{})
+    return token, err
+}
+"#,
+        );
+
+        let fact = auth_fact_with_extra_columns("auth_feature", "TenantSession", vec![]);
+        let diagnostics = check_auth_session_callsite_001(&[fact], &root);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-SESSION-CALLSITE-001"),
+            "AUTH-SESSION-CALLSITE-001 must not fire when session has no extra columns; got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_session_callsite_001_skips_gen_go_files() {
+        let root = temp_project_root("callsite-001-skip-gen");
+        let gen_path = root
+            .join("features")
+            .join("auth_feature")
+            .join("handlers")
+            .join("login.gen.go");
+        write_file(
+            &gen_path,
+            "func Login() { auth.IssueSession(ctx, db, id, auth.SessionAttrs{}) }\n",
+        );
+
+        let fact = auth_fact_with_extra_columns(
+            "auth_feature",
+            "TenantSession",
+            vec![extra_id_column("org")],
+        );
+        let diagnostics = check_auth_session_callsite_001(&[fact], &root);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-SESSION-CALLSITE-001"),
+            "AUTH-SESSION-CALLSITE-001 must not fire for .gen.go files; got {codes:?}"
         );
     }
 }
