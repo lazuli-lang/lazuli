@@ -167,7 +167,7 @@ fn mobile_lzx_stub(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use self::tempfile::TempDir;
 
     mod tempfile {
         use std::fs;

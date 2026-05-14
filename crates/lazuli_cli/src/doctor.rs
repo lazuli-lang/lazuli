@@ -1,3 +1,4 @@
+pub mod folder;
 pub mod vocab;
 
 use std::collections::{BTreeMap, BTreeSet};
