@@ -2542,7 +2542,7 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
     // `registry.lzi`. Only parse when we're building from a directory;
     // single-file input mode skips the design pipeline.
     if input.is_dir() {
-        let design_path = input.join("design.lzi");
+        let design_path = lazurite_manifest::resolve_in_app_dir(input, "design.lzi");
         if design_path.is_file() {
             let source = fs::read_to_string(&design_path)
                 .with_context(|| format!("reading {}", design_path.display()))?;
@@ -2717,7 +2717,7 @@ fn build_module_with_source_from_path(
     // `build_module_from_path`; emitters and SDK projections consume
     // `module.design` when present.
     if input.is_dir() {
-        let design_path = input.join("design.lzi");
+        let design_path = lazurite_manifest::resolve_in_app_dir(input, "design.lzi");
         if design_path.is_file() {
             let source = fs::read_to_string(&design_path)
                 .with_context(|| format!("reading {}", design_path.display()))?;
@@ -2816,7 +2816,7 @@ fn plan_command(input: &Path, check: Option<&str>) -> Result<()> {
 
     // Locate `app.lzi` — accept either a direct path or a directory.
     let app_path = if input.is_dir() {
-        input.join("app.lzi")
+        lazurite_manifest::resolve_in_app_dir(input, "app.lzi")
     } else {
         input.to_path_buf()
     };
@@ -3061,7 +3061,7 @@ fn debug_command(
 
 fn inspect_source_path(input: &Path) -> PathBuf {
     if input.is_dir() {
-        return input.join("app.lzi");
+        return lazurite_manifest::resolve_in_app_dir(input, "app.lzi");
     }
 
     input.to_path_buf()

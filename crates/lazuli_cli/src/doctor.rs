@@ -11705,7 +11705,7 @@ surface customer_auth web
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     customer
   targets
@@ -11776,7 +11776,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     customer
   targets
@@ -11877,7 +11877,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     customer
   targets
@@ -11941,7 +11941,7 @@ feature customer
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   auth_failed_redirect public_login
   not_found public_not_found
   uses
@@ -12001,7 +12001,7 @@ route public_login
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     payments
   bindings
@@ -12048,7 +12048,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     payments
   packs
@@ -12097,7 +12097,7 @@ registry
             "app.lzi",
             r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     payments
   packs
@@ -12132,7 +12132,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     customer
   targets
@@ -12188,7 +12188,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     payments
   targets
@@ -12224,7 +12224,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     payments
   bindings
@@ -12274,7 +12274,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     imports
   bindings
@@ -12330,7 +12330,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     imports
   targets
@@ -12377,7 +12377,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     imports
   bindings
@@ -12443,7 +12443,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     imports
   targets
@@ -12508,7 +12508,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.12"
+  lazuli_version "0.13"
   uses
     customer
     billing

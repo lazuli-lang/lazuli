@@ -37,6 +37,12 @@ pub struct Lazurite {
     pub template: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_version: Option<String>,
+    /// Optional subdir (relative to project root) holding `app.lzi`,
+    /// `design.lzi`, and `registry.lzi`. Defaults to the project root.
+    /// Set to `"app"` to group Lazuli sources under an `app/` subdir
+    /// alongside the shell/UI code already conventional there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -169,7 +175,34 @@ pub fn load(project_root: &Path) -> Result<Option<Manifest>, ManifestError> {
     Ok(Some(manifest))
 }
 
+/// Resolve `<project_root>/<app_dir>/<file>`, where `<app_dir>` comes
+/// from `lazurite.toml`'s `[lazurite] app_dir` field. Falls back to
+/// `<project_root>/<file>` when no manifest exists or no `app_dir` is
+/// set — preserving the original convention where Lazuli sources lived
+/// at the project root.
+///
+/// Used by source-loaders (generate, inspect, doctor) that need to find
+/// `app.lzi`, `design.lzi`, or `registry.lzi` without each callsite
+/// re-implementing manifest-aware resolution.
+pub fn resolve_in_app_dir(project_root: &Path, file: &str) -> std::path::PathBuf {
+    match load(project_root).ok().flatten() {
+        Some(manifest) => manifest.app_root(project_root).join(file),
+        None => project_root.join(file),
+    }
+}
+
 impl Manifest {
+    /// Resolved path to the directory containing `app.lzi`, `design.lzi`,
+    /// and `registry.lzi`. Returns `project_root.join(app_dir)` when
+    /// `[lazurite] app_dir` is set, otherwise `project_root` itself
+    /// (backwards-compatible default).
+    pub fn app_root(&self, project_root: &Path) -> std::path::PathBuf {
+        match self.lazurite.as_ref().and_then(|l| l.app_dir.as_deref()) {
+            Some(subdir) => project_root.join(subdir),
+            None => project_root.to_path_buf(),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.project.schema != 1 {
             return Err(ManifestError::UnsupportedSchema(self.project.schema));

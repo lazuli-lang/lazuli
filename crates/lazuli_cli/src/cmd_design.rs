@@ -1067,10 +1067,12 @@ fn compute_diff(current: &Design, incoming: &Design) -> DiffReport {
 // Convenience for orchestrator wiring (used by main.rs post-merge)
 // =============================================================================
 
-/// Canonical `design.lzi` path under `project_root`. Exists for the
-/// orchestrator wire-up; the CLI parses `--out` / `--from` directly.
+/// Canonical `design.lzi` path under `project_root`. Honors
+/// `lazurite.toml [lazurite] app_dir` when present (default: project
+/// root). Exists for the orchestrator wire-up; the CLI parses `--out`
+/// / `--from` directly.
 pub fn default_design_path(project_root: &Path) -> PathBuf {
-    project_root.join("design.lzi")
+    crate::lazurite_manifest::resolve_in_app_dir(project_root, "design.lzi")
 }
 
 // =============================================================================
