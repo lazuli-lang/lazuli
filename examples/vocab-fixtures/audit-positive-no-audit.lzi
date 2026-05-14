@@ -1,0 +1,37 @@
+# VOCAB-AUDIT-001 - positive fixture.
+# Rule SHOULD fire for a command with a write effect and no audit child.
+# The `rename_project` command updates Project but intentionally omits
+# `audit default`, `audit <fields>`, and `audit none`.
+
+feature audit_positive_no_audit
+  domain
+    resource Project
+      name: Text required
+      slug: Text required unique
+      description: Text required
+      owner_email: @semantic.Email required
+      visibility: Text required
+      revised_by: Text required
+      updated_at: DateTime required
+
+  policies
+    maintainer: @scope.authenticated
+
+  command rename_project
+    route id: ID
+    input
+      name: Text required
+      slug: Text required
+      description: Text required
+      owner_email: @semantic.Email required
+      visibility: Text required
+    policy @policy.maintainer
+    rate_limit "60 per hour per actor"
+    updates Project
+      name = input.name
+      slug = input.slug
+      description = input.description
+      owner_email = input.owner_email
+      visibility = input.visibility
+      revised_by = ctx.user
+      updated_at = ctx.now
