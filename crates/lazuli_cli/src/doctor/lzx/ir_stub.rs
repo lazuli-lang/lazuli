@@ -46,6 +46,9 @@ pub struct Feature {
 #[derive(Debug, Clone)]
 pub struct Resource {
     pub name: String,
+    /// Canonical ID type for selection bindings. Examples: `ID`,
+    /// `Item.ID`, `ItemID`.
+    pub id_type: String,
     pub fields: Vec<String>,
 }
 
@@ -55,7 +58,14 @@ pub struct Resource {
 #[derive(Debug, Clone)]
 pub struct ListQuery {
     pub name: String,
+    pub input_slots: Vec<QueryInput>,
     pub backs_resource: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryInput {
+    pub name: String,
+    pub type_label: String,
 }
 
 /// Sub-shape of `lazuli_ir::Command` carrying the input slot names + the
@@ -151,6 +161,7 @@ pub struct ViewList {
     pub filter: Vec<String>,
     pub cells: Vec<CellBinding>,
     pub actions: Vec<CommandRef>,
+    pub drawer: Option<DrawerSubView>,
     pub line: usize,
 }
 
@@ -227,4 +238,24 @@ pub struct RouteParam {
     /// rules; the lowering pass enforces a closed catalog.
     pub type_label: String,
     pub line: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DrawerSubView {
+    pub name: String,
+    pub source: QueryRef,
+    pub route_binding: Option<DrawerRouteBinding>,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DrawerRouteBinding {
+    pub target: String,
+    pub source: DrawerBindingSource,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawerBindingSource {
+    Selection,
 }

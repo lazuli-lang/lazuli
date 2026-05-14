@@ -52,6 +52,7 @@ pub mod cells_or_columns;
 pub mod cell_slot_orphan;
 pub mod cells_mixed_form;
 pub mod command_input_mismatch;
+pub mod drawer_source;
 pub mod route_param_missing_binding;
 pub mod route_param_orphan;
 pub mod source_resource_mismatch;
@@ -74,10 +75,7 @@ pub fn find_resource_for_query<'a>(
     feature: &'a Feature,
     query_ref: &QueryRef,
 ) -> Option<&'a Resource> {
-    let query = feature
-        .queries
-        .iter()
-        .find(|q| q.name == query_ref.name)?;
+    let query = feature.queries.iter().find(|q| q.name == query_ref.name)?;
     let resource_name = query.backs_resource.as_deref()?;
     feature.resources.iter().find(|r| r.name == resource_name)
 }
@@ -174,20 +172,24 @@ mod helper_tests {
             resources: vec![
                 Resource {
                     name: "Slug".into(),
+                    id_type: "ID".into(),
                     fields: vec!["key".into(), "title".into(), "tags".into()],
                 },
                 Resource {
                     name: "Other".into(),
+                    id_type: "ID".into(),
                     fields: vec!["id".into()],
                 },
             ],
             queries: vec![
                 ListQuery {
                     name: "mine".into(),
+                    input_slots: vec![],
                     backs_resource: Some("Slug".into()),
                 },
                 ListQuery {
                     name: "orphaned".into(),
+                    input_slots: vec![],
                     backs_resource: None,
                 },
             ],
@@ -301,8 +303,14 @@ mod helper_tests {
         };
         let r = audience_reachable_commands(&aud, &f);
         let names: Vec<&str> = r.iter().map(|c| c.name.as_str()).collect();
-        assert!(!names.contains(&"create"), "scoped command must be excluded");
-        assert!(names.contains(&"public_ping"), "public command always included");
+        assert!(
+            !names.contains(&"create"),
+            "scoped command must be excluded"
+        );
+        assert!(
+            names.contains(&"public_ping"),
+            "public command always included"
+        );
     }
 
     #[test]

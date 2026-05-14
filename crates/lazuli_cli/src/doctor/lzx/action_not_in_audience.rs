@@ -127,11 +127,17 @@ mod tests {
             filter: vec![],
             cells: vec![],
             actions,
+            drawer: None,
             line,
         })
     }
 
-    fn mk_module(audience_name: &str, requires: Vec<&str>, views: Vec<View>, commands: Vec<Command>) -> Module {
+    fn mk_module(
+        audience_name: &str,
+        requires: Vec<&str>,
+        views: Vec<View>,
+        commands: Vec<Command>,
+    ) -> Module {
         Module {
             features: vec![Feature {
                 name: "slug".into(),
@@ -233,11 +239,7 @@ mod tests {
         let module = mk_module(
             "admin",
             vec!["@scope.workspace_admin"],
-            vec![list_with_actions(
-                "slug_list",
-                30,
-                vec![cref("ghost", 31)],
-            )],
+            vec![list_with_actions("slug_list", 30, vec![cref("ghost", 31)])],
             vec![],
         );
         assert!(

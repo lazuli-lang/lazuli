@@ -41,7 +41,14 @@ pub fn check(module: &Module) -> Vec<Finding> {
             for audience in &surface.audiences {
                 for view in &audience.views {
                     if let View::Create(create) = view {
-                        check_create(feature, &create.name, create.line, &create.submit, &create.fields, &mut out);
+                        check_create(
+                            feature,
+                            &create.name,
+                            create.line,
+                            &create.submit,
+                            &create.fields,
+                            &mut out,
+                        );
                     }
                 }
             }
@@ -81,11 +88,7 @@ fn find_command<'a>(feature: &'a Feature, cref: &CommandRef) -> Option<&'a Comma
     // Cross-feature command references are out of scope for this rule —
     // resolving them needs the full module index; the analyzer pass handles
     // those upstream.
-    if cref
-        .feature
-        .as_deref()
-        .is_some_and(|f| f != feature.name)
-    {
+    if cref.feature.as_deref().is_some_and(|f| f != feature.name) {
         return None;
     }
     feature.commands.iter().find(|c| c.name == cref.name)
@@ -196,6 +199,7 @@ mod tests {
             filter: vec![],
             cells: vec![],
             actions: vec![],
+            drawer: None,
             line: 30,
         });
         let c = mk_command("create", &["key"]);

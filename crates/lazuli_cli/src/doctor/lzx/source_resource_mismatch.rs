@@ -25,13 +25,7 @@ pub struct Finding {
 impl Finding {
     pub const CODE: &'static str = "lzx-source-resource-mismatch";
 
-    pub fn message(
-        feature: &str,
-        view: &str,
-        clause: &str,
-        field: &str,
-        resource: &str,
-    ) -> String {
+    pub fn message(feature: &str, view: &str, clause: &str, field: &str, resource: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: {clause} field `{field}` is not \
              declared on resource `{resource}` (the resource backing `source`). \
@@ -68,26 +62,25 @@ fn check_feature(feature: &Feature) -> Vec<Finding> {
 fn check_view(feature: &Feature, view: &View, out: &mut Vec<Finding>) {
     // Only list and detail views have source/columns/search/filter; create
     // views go through `command_input_mismatch` instead.
-    let (name, line, source, columns, search, filter): (&str, usize, _, &[String], &[String], &[String]) =
-        match view {
-            View::List(v) => (
-                v.name.as_str(),
-                v.line,
-                &v.source,
-                v.columns.as_slice(),
-                v.search.as_slice(),
-                v.filter.as_slice(),
-            ),
-            View::Detail(v) => (
-                v.name.as_str(),
-                v.line,
-                &v.source,
-                &[],
-                &[],
-                &[],
-            ),
-            View::Create(_) => return,
-        };
+    let (name, line, source, columns, search, filter): (
+        &str,
+        usize,
+        _,
+        &[String],
+        &[String],
+        &[String],
+    ) = match view {
+        View::List(v) => (
+            v.name.as_str(),
+            v.line,
+            &v.source,
+            v.columns.as_slice(),
+            v.search.as_slice(),
+            v.filter.as_slice(),
+        ),
+        View::Detail(v) => (v.name.as_str(), v.line, &v.source, &[], &[], &[]),
+        View::Create(_) => return,
+    };
 
     let resource = match find_resource_for_query(feature, source) {
         Some(r) => r,
@@ -96,24 +89,14 @@ fn check_view(feature: &Feature, view: &View, out: &mut Vec<Finding>) {
     };
 
     let resource_fields = &resource.fields;
-    for (clause, fields) in [
-        ("columns", columns),
-        ("search", search),
-        ("filter", filter),
-    ] {
+    for (clause, fields) in [("columns", columns), ("search", search), ("filter", filter)] {
         for field in fields {
             if !resource_fields.iter().any(|f| f == field) {
                 out.push(Finding {
                     feature: feature.name.clone(),
                     view: name.to_owned(),
                     line,
-                    message: Finding::message(
-                        &feature.name,
-                        name,
-                        clause,
-                        field,
-                        &resource.name,
-                    ),
+                    message: Finding::message(&feature.name, name, clause, field, &resource.name),
                 });
             }
         }
@@ -128,6 +111,7 @@ mod tests {
     fn mk_resource(name: &str, fields: &[&str]) -> Resource {
         Resource {
             name: name.to_owned(),
+            id_type: "ID".to_owned(),
             fields: fields.iter().map(|s| (*s).to_owned()).collect(),
         }
     }
@@ -135,6 +119,7 @@ mod tests {
     fn mk_query(name: &str, backs: Option<&str>) -> ListQuery {
         ListQuery {
             name: name.to_owned(),
+            input_slots: vec![],
             backs_resource: backs.map(str::to_owned),
         }
     }
@@ -162,6 +147,7 @@ mod tests {
             filter: filter.iter().map(|s| (*s).to_owned()).collect(),
             cells: vec![],
             actions: vec![],
+            drawer: None,
             line,
         })
     }
@@ -170,10 +156,7 @@ mod tests {
         Feature {
             name: "slug".into(),
             resources: vec![mk_resource("Slug", &["key", "title", "tags", "created_at"])],
-            queries: vec![
-                mk_query("mine", Some("Slug")),
-                mk_query("nobacking", None),
-            ],
+            queries: vec![mk_query("mine", Some("Slug")), mk_query("nobacking", None)],
             commands: vec![],
             surfaces: vec![Surface {
                 feature: "slug".into(),

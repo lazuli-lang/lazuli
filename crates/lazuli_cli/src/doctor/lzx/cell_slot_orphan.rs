@@ -144,16 +144,12 @@ mod tests {
             filter: vec![],
             cells,
             actions: vec![],
+            drawer: None,
             line,
         })
     }
 
-    fn detail_view(
-        name: &str,
-        line: usize,
-        sections: &[&str],
-        cells: Vec<CellBinding>,
-    ) -> View {
+    fn detail_view(name: &str, line: usize, sections: &[&str], cells: Vec<CellBinding>) -> View {
         View::Detail(ViewDetail {
             name: name.to_owned(),
             at: None,
@@ -239,12 +235,7 @@ mod tests {
     /// Edge — orphan rules differ per view kind (sections vs fields vs columns).
     #[test]
     fn edge_per_view_kind_anchors() {
-        let list = list_view(
-            "L",
-            10,
-            &["a"],
-            vec![cell("zzz", "@client.x", 11)],
-        );
+        let list = list_view("L", 10, &["a"], vec![cell("zzz", "@client.x", 11)]);
         let detail = detail_view(
             "D",
             20,

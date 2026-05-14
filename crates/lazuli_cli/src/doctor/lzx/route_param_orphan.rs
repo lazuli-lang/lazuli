@@ -81,7 +81,12 @@ mod tests {
     use super::super::ir_stub::*;
     use super::*;
 
-    fn detail(name: &str, line: usize, at: Option<&str>, route_params: Vec<(&str, &str, usize)>) -> View {
+    fn detail(
+        name: &str,
+        line: usize,
+        at: Option<&str>,
+        route_params: Vec<(&str, &str, usize)>,
+    ) -> View {
         View::Detail(ViewDetail {
             name: name.to_owned(),
             at: at.map(str::to_owned),

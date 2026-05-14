@@ -127,12 +127,7 @@ mod tests {
     /// Negative — every placeholder has a matching `route` binding.
     #[test]
     fn negative_all_placeholders_bound_no_finding() {
-        let v = detail(
-            "slug_detail",
-            10,
-            "/slugs/:key",
-            vec![("key", "Text")],
-        );
+        let v = detail("slug_detail", 10, "/slugs/:key", vec![("key", "Text")]);
         let module = mk_module(vec![v]);
         assert!(check(&module).is_empty());
     }

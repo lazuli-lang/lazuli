@@ -3325,7 +3325,7 @@ fn pascal_case(value: &str) -> String {
         }
         if matches!(
             word.to_ascii_lowercase().as_str(),
-            "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl"
+            "id" | "url" | "uri" | "html" | "json" | "sql" | "ttl"
         ) {
             out.push_str(&word.to_ascii_uppercase());
             continue;
