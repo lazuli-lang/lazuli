@@ -114,7 +114,11 @@ pub fn compute_audience_projection(
     // `(namespace, name)` tuples).
     let required: BTreeSet<String> = audiences
         .iter()
-        .flat_map(|a| a.requires.iter().map(PolicyAtom::to_qualified))
+        .flat_map(|a| {
+            a.requires
+                .iter()
+                .map(|p| format!("@{}.{}", p.namespace, p.name))
+        })
         .collect();
 
     // Walk commands. Empty required set with non-empty audiences (an
@@ -330,6 +334,7 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
+        span_ref: None,
             }],
             views: Vec::<View>::new(),
         }
@@ -341,6 +346,7 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_member".to_owned(),
+        span_ref: None,
             }],
             views: Vec::<View>::new(),
         }

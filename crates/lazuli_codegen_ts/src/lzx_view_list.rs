@@ -230,6 +230,7 @@ mod tests {
                 feature: "thing".to_owned(),
                 kind: QueryKind::List,
                 name: "list".to_owned(),
+        span_ref: None,
             },
             columns: vec!["id".to_owned()],
             search: vec![],
@@ -244,6 +245,7 @@ mod tests {
             name: "viewer".to_owned(),
             requires: vec![],
             views: vec![View::List(view)],
+        span_ref: None,
         }
     }
 
@@ -252,6 +254,7 @@ mod tests {
             feature: "thing".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience],
+        span_ref: None,
         }
     }
 
@@ -330,11 +333,13 @@ mod tests {
             name: "workspace-admin".to_owned(),
             requires: vec![],
             views: vec![View::List(view.clone())],
+            span_ref: None,
         };
         let surface = Surface {
             feature: "slug".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience.clone()],
+            span_ref: None,
         };
 
         let out = emit_view_list(&surface, &audience, &view);

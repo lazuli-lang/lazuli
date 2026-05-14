@@ -508,6 +508,7 @@ mod tests {
                 feature: "slug".to_owned(),
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
+            span_ref: None,
             },
             columns: vec!["key".to_owned(), "tags".to_owned()],
             search: vec![],
@@ -528,6 +529,7 @@ mod tests {
                 feature: "slug".to_owned(),
                 kind: QueryKind::Lookup,
                 name: "by_key".to_owned(),
+            span_ref: None,
             },
             route_params: vec![RouteParam {
                 name: "key".to_owned(),
@@ -546,6 +548,7 @@ mod tests {
             submit: CommandRef {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
+            span_ref: None,
             },
             fields: vec!["key".to_owned(), "tags".to_owned()],
             cells,
@@ -558,6 +561,7 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
+        span_ref: None,
             }],
             views,
         }
@@ -568,6 +572,7 @@ mod tests {
             feature: "slug".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience],
+        span_ref: None,
         }
     }
 
@@ -718,6 +723,7 @@ mod tests {
                         feature: "widget".to_owned(),
                         kind: QueryKind::List,
                         name: "all".to_owned(),
+            span_ref: None,
                     },
                     columns: vec!["name".to_owned()],
                     search: vec![],

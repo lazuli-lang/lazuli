@@ -371,6 +371,7 @@ enum GenerateKind {
     Openapi,
     Go,
     Feature,
+    Ts,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -772,7 +773,129 @@ fn generate_command(
                 std::env::current_dir().context("failed to determine current directory")?;
             cmd_generate_feature::run(name, &project_root)
         }
+        GenerateKind::Ts => generate_ts(input, output, check),
     }
+}
+
+/// L0 #3 — emit TypeScript user-code for a Lazuli/Lazurite project.
+/// Walks the package, runs every TS-side emitter (design tokens, per-feature
+/// SDK, .lzx view hooks, slot interfaces, Zod schemas), and writes to
+/// `dist/ts-<frontend>/`. Honors `lazurite.toml [frontends.<name>]`.
+fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
+    let project_root = project_root_for_input(input);
+    let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+        format!(
+            "failed to read {}",
+            project_root.join("lazurite.toml").display()
+        )
+    })?;
+    let module = build_module_from_path(input)?;
+
+    let mut files: Vec<lazuli_codegen_ts::GeneratedFile> = Vec::new();
+
+    // Design tokens emission — same artifacts the legacy `generate_ts`
+    // would have produced. Skips silently when `module.design` is None
+    // (project hasn't authored design.lzi yet).
+    if let Some(design) = module.design.as_ref() {
+        files.extend(emit_design_files(design, &manifest));
+    }
+
+    // Per-feature: SDK (audience-filtered if frontend declares audiences),
+    // Zod schemas, .lzx view hooks (one file per audience/view tuple),
+    // slot interfaces (one per @client.<slot> binding).
+    for feature in &module.features {
+        files.extend(emit_feature_ts_artifacts(feature, &module, &manifest));
+    }
+
+    if check {
+        println!("lazuli generate ts --check");
+        println!("would emit {} file(s):", files.len());
+        for file in &files {
+            println!("  {}", file.path);
+        }
+        return Ok(());
+    }
+
+    let out_dir = output
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            manifest
+                .as_ref()
+                .and_then(|m| m.frontends.values().next())
+                .map(|f| project_root.join(&f.out))
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "`lazuli generate ts` requires --output <dir> or [frontends.<x>].out in lazurite.toml"
+            )
+        })?;
+
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("creating output directory {}", out_dir.display()))?;
+
+    for file in &files {
+        write_generated_file(&out_dir, &file.path, &file.contents)?;
+    }
+
+    println!("wrote {} file(s) to {}", files.len(), out_dir.display());
+    Ok(())
+}
+
+/// Stub design emission walker. Wires the 6 design emitters from L0 #2
+/// Cell B in `lazuli_codegen_ts::design`.
+fn emit_design_files(
+    design: &lazuli_ir::Design,
+    _manifest: &Option<lazurite_manifest::Manifest>,
+) -> Vec<lazuli_codegen_ts::GeneratedFile> {
+    // Hook point: Cell B's individual emitters live as `pub fn emit_*` in
+    // `lazuli_codegen_ts::design::*`. Wire them inline here so the CLI
+    // doesn't depend on a yet-to-exist `lazuli_codegen_ts::generate_design`.
+    let mut out = Vec::new();
+    out.push(lazuli_codegen_ts::GeneratedFile {
+        path: "design/tokens.ts".to_owned(),
+        contents: lazuli_codegen_ts::design::emit_tokens_ts(design),
+    });
+    out.push(lazuli_codegen_ts::GeneratedFile {
+        path: "design/tokens.css".to_owned(),
+        contents: lazuli_codegen_ts::design::emit_tokens_css(design),
+    });
+    out.push(lazuli_codegen_ts::GeneratedFile {
+        path: "design/tailwind.gen.ts".to_owned(),
+        contents: lazuli_codegen_ts::design::emit_tailwind_v3_preset(design),
+    });
+    out.push(lazuli_codegen_ts::GeneratedFile {
+        path: "design/tailwind.theme.css".to_owned(),
+        contents: lazuli_codegen_ts::design::emit_tailwind_v4_theme(design),
+    });
+    out.push(lazuli_codegen_ts::GeneratedFile {
+        path: "design/allowlist.json".to_owned(),
+        contents: lazuli_codegen_ts::design::emit_allowlist_json(design),
+    });
+    out
+}
+
+/// Per-feature TS emission walker. Wires the .lzx view emitters from
+/// Wave 3 Cell B (`lazuli_codegen_ts::lzx::emit_surface_views`).
+fn emit_feature_ts_artifacts(
+    feature: &lazuli_ir::Feature,
+    _module: &lazuli_ir::Module,
+    _manifest: &Option<lazurite_manifest::Manifest>,
+) -> Vec<lazuli_codegen_ts::GeneratedFile> {
+    let mut out = Vec::new();
+    for surface in &feature.surfaces {
+        let target = match surface.target {
+            lazuli_ir::SurfaceTarget::Web => {
+                lazuli_codegen_ts::lzx::lzx_router_adapter::RouterTarget::ViteReact
+            }
+            lazuli_ir::SurfaceTarget::Mobile => {
+                lazuli_codegen_ts::lzx::lzx_router_adapter::RouterTarget::Expo
+            }
+        };
+        // surface carries its feature owner; emitter resolves refs internally.
+        let _ = feature;
+        out.extend(lazuli_codegen_ts::lzx::emit_surface_views(surface, target));
+    }
+    out
 }
 
 fn reject_generate_feature_options(

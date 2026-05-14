@@ -254,6 +254,7 @@ mod tests {
                 feature: "thing".to_owned(),
                 kind: QueryKind::Lookup,
                 name: "by_id".to_owned(),
+        span_ref: None,
             },
             route_params: vec![],
             sections: vec![],
@@ -267,6 +268,7 @@ mod tests {
             name: "viewer".to_owned(),
             requires: vec![],
             views: vec![View::Detail(view)],
+        span_ref: None,
         }
     }
 
@@ -275,6 +277,7 @@ mod tests {
             feature: "thing".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![audience],
+        span_ref: None,
         }
     }
 
@@ -347,6 +350,7 @@ mod tests {
             name: "admin".to_owned(),
             requires: vec![],
             views: vec![View::Detail(view.clone())],
+            span_ref: None,
         };
         let surface = minimal_surface(audience.clone());
 

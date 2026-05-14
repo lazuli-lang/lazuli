@@ -49,158 +49,12 @@ use lzx_router_adapter::RouterTarget;
 // ---------------------------------------------------------------------------
 
 pub mod ir {
-    //! Local stub of the `.lzx` IR. The real producers (parser/analyzer)
-    //! emit types of identical shape into `lazuli_ir`; this module is
-    //! deleted once those land. Until then, downstream code in this
-    //! crate consumes these types via `crate::lzx::ir::*`.
-
-    /// A `.lzx` surface — one file per (feature, target) tuple. Lives at
-    /// `features/<feature>/<feature>.web.lzx` or `.mobile.lzx`.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct Surface {
-        /// Feature name (matches `surface <feature> web|mobile` header).
-        pub feature: String,
-        /// Web or mobile.
-        pub target: SurfaceTarget,
-        /// Audience blocks declared on the surface.
-        pub audiences: Vec<Audience>,
-    }
-
-    /// Surface target — selects between web and mobile codegen pipelines.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum SurfaceTarget {
-        Web,
-        Mobile,
-    }
-
-    impl SurfaceTarget {
-        /// Dist prefix used in `dist/ts-<prefix>` per L0 #1 §4.
-        pub fn dist_prefix(self) -> &'static str {
-            match self {
-                SurfaceTarget::Web => "ts-web",
-                SurfaceTarget::Mobile => "ts-mobile",
-            }
-        }
-    }
-
-    /// `audience <name>` block — names map verbatim to the dist subpath
-    /// (`dist/ts-web/<feat>/views/<audience>/...`). Kebab-case and
-    /// snake_case are both legal in source; pascalization happens when
-    /// emitting hook identifiers.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct Audience {
-        pub name: String,
-        /// `requires @scope.<name>` atoms — OR semantics per §7.2.
-        pub requires: Vec<PolicyAtom>,
-        /// View kinds nested inside the audience block.
-        pub views: Vec<View>,
-    }
-
-    /// Three closed view kinds per §5. New kinds enter via a Lazuli
-    /// language proposal — distros cannot extend.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum View {
-        List(ViewList),
-        Detail(ViewDetail),
-        Create(ViewCreate),
-    }
-
-    impl View {
-        pub fn name(&self) -> &str {
-            match self {
-                View::List(v) => &v.name,
-                View::Detail(v) => &v.name,
-                View::Create(v) => &v.name,
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ViewList {
-        pub name: String,
-        pub route: Option<String>,
-        pub source: QueryRef,
-        pub columns: Vec<String>,
-        pub search: Vec<String>,
-        pub filter: Vec<String>,
-        pub cells: Vec<CellBinding>,
-        pub actions: Vec<CommandRef>,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ViewDetail {
-        pub name: String,
-        pub route: Option<String>,
-        pub source: QueryRef,
-        pub route_params: Vec<RouteParam>,
-        pub sections: Vec<String>,
-        pub cells: Vec<CellBinding>,
-        pub actions: Vec<CommandRef>,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ViewCreate {
-        pub name: String,
-        pub route: Option<String>,
-        pub submit: CommandRef,
-        pub fields: Vec<String>,
-        pub cells: Vec<CellBinding>,
-    }
-
-    /// Reference to a feature query. The emitter resolves this to the
-    /// SDK identifier (`listMineSlugs` / `lookupSlugByKey`) per §6.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct QueryRef {
-        pub feature: String,
-        pub kind: QueryKind,
-        pub name: String,
-    }
-
-    /// Query kind — distinguishes list-shaped queries (return arrays)
-    /// from lookup-shaped (return single records) and raw SQL.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum QueryKind {
-        List,
-        Lookup,
-        Sql,
-    }
-
-    /// Reference to a feature command. The short name (last segment) is
-    /// used as the action-map KEY; the SDK identifier (verb +
-    /// pascal(feature)) is the action-map VALUE.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct CommandRef {
-        pub feature: String,
-        pub name: String,
-    }
-
-    /// `cells <field> @client.<slot>` binding — links a column/field to
-    /// a slot component file under `features/<feat>/<target>/cells/`.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct CellBinding {
-        pub field: String,
-        pub slot: String,
-    }
-
-    /// `route <name>: <Type> from path` — typed path parameter binding.
-    /// `type_ref` is the surface type label (`Text`, `Integer`, ...);
-    /// the emitter maps it to a TS type via `field_kind_ts` at use
-    /// site, but for `.lzx` the only currently-emitted shape is `Text`
-    /// (path segments are always strings in the URL).
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct RouteParam {
-        pub name: String,
-        pub type_ref: String,
-    }
-
-    /// `@<namespace>.<name>` atom — currently always `@scope.<...>`
-    /// inside audience `requires` blocks. Kept structured for forward
-    /// compatibility with `@policy.X` and `@role.X` namespaces.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct PolicyAtom {
-        pub namespace: String,
-        pub name: String,
-    }
+    //! Canonical .lzx IR types — re-exported from lazuli_ir.
+    //! (Original stubs replaced after Cell A.1+A.2+A.3 landed in 235d7a7.)
+    pub use lazuli_ir::{
+        Surface, SurfaceTarget, Audience, View, ViewList, ViewDetail, ViewCreate,
+        QueryRef, QueryKind, CommandRef, CellBinding, RouteParam, PolicyAtom,
+    };
 }
 
 pub use ir::*;
@@ -325,12 +179,13 @@ pub(crate) fn view_file_path(
     audience: &str,
     view_name: &str,
 ) -> String {
+    let prefix = match target {
+        SurfaceTarget::Web => "ts-web",
+        SurfaceTarget::Mobile => "ts-mobile",
+    };
     format!(
         "dist/{}/{}/views/{}/{}.gen.ts",
-        target.dist_prefix(),
-        feature,
-        audience,
-        view_name
+        prefix, feature, audience, view_name
     )
 }
 
@@ -443,6 +298,7 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
+        span_ref: None,
             },
             columns: vec![
                 "key".to_owned(),
@@ -478,6 +334,7 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 kind: QueryKind::Lookup,
                 name: "by_key".to_owned(),
+        span_ref: None,
             },
             route_params: vec![RouteParam {
                 name: "key".to_owned(),
@@ -509,6 +366,7 @@ pub(crate) mod test_fixtures {
             submit: CommandRef {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
+        span_ref: None,
             },
             fields: vec![
                 "key".to_owned(),
@@ -528,6 +386,7 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
+        span_ref: None,
             },
             columns: vec!["key".to_owned(), "title".to_owned()],
             search: vec!["key".to_owned(), "title".to_owned()],
@@ -543,6 +402,7 @@ pub(crate) mod test_fixtures {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
+        span_ref: None,
             }],
             views: vec![
                 View::List(slug_list_view()),
@@ -558,6 +418,7 @@ pub(crate) mod test_fixtures {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_member".to_owned(),
+        span_ref: None,
             }],
             views: vec![View::List(public_slug_list_view())],
         }
@@ -568,6 +429,7 @@ pub(crate) mod test_fixtures {
             feature: "slug".to_owned(),
             target: SurfaceTarget::Web,
             audiences: vec![admin_audience(), public_audience()],
+        span_ref: None,
         }
     }
 }
