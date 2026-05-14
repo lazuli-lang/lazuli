@@ -14,6 +14,12 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod encryption;
+pub use encryption::{
+    E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope,
+    EncryptionRotation, EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
+};
+
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.13.0 by L.B.1
 /// (SourceMap companion). Companion is opt-in sidecar emission, so
 /// `Module` shape itself is unchanged; bump signals the companion
@@ -2272,6 +2278,12 @@ pub struct AppManifest {
     /// copies `locale.default` into `default_locale` for back-compat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<AppLocale>,
+    /// Encryption bucket cycle — typed `encryption` block. One
+    /// `EncryptionBinding` per `@key.<scope>` referenced by any
+    /// `@cap.Encrypted` / `@cap.E2ee` field site in the capsule.
+    /// See `docs/proposals/encryption-vocab.md` §Lowering.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub encryption_bindings: Vec<EncryptionBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

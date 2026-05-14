@@ -279,6 +279,7 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         tracing: None,
         observability: None,
         locale: None,
+        encryption_bindings: Vec::new(),
         span_ref: Some(span_of(app.span)),
     }
 }

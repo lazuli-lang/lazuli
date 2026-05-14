@@ -5,7 +5,8 @@ use lazuli_ir::{
     AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl,
     AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
-    ContractRecord, DeployCheckpoint, FeatureRequirement, LocaleFallback, LocaleNegotiate,
+    ContractRecord, DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation,
+    EncryptionSource, EncryptionTemplate, FeatureRequirement, LocaleFallback, LocaleNegotiate,
     QualifiedName, RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp,
     WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
 };
@@ -354,6 +355,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         tracing: None,
         observability: None,
         locale: None,
+        encryption_bindings: Vec::new(),
         span_ref: None,
     };
     let mut current_child: Option<&str> = None;
@@ -367,6 +369,11 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let mut current_env_group: Option<String> = None;
     let mut current_integration: Option<usize> = None;
     let mut current_integration_child: Option<&str> = None;
+    // Encryption bucket cycle — tracks the open
+    // `encryption.key @key.<scope>` binding. Indent-6 lines (`source`,
+    // `algorithm`, `rotation`) populate this index. `None` when no
+    // binding is currently open.
+    let mut current_encryption_binding: Option<usize> = None;
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -385,6 +392,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 current_env_group = None;
                 current_integration = None;
                 current_integration_child = None;
+                current_encryption_binding = None;
                 if let Some(rest) = trimmed.strip_prefix("title ") {
                     app.title = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
@@ -684,6 +692,34 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         }
                     }
                 }
+                // Encryption bucket cycle — `encryption.key @key.<scope>`
+                // header at indent 4 opens a binding. The verbatim
+                // `@key.<scope>` reference is stored on
+                // `EncryptionBinding.scope`. Source/algorithm/rotation
+                // children land below at indent 6.
+                Some("encryption") => {
+                    if let Some(rest) = trimmed.strip_prefix("key ") {
+                        let scope = rest.trim().to_owned();
+                        if scope.starts_with("@key.") {
+                            app.encryption_bindings.push(EncryptionBinding {
+                                scope,
+                                source: EncryptionSource::Env(EncryptionTemplate {
+                                    literal: String::new(),
+                                    axes: Vec::new(),
+                                }),
+                                algorithm: EncryptionAlgorithm::Aes256Gcm,
+                                rotation: EncryptionRotation::Manual,
+                                span_ref: None,
+                            });
+                            current_encryption_binding =
+                                app.encryption_bindings.len().checked_sub(1);
+                        } else {
+                            current_encryption_binding = None;
+                        }
+                    } else {
+                        current_encryption_binding = None;
+                    }
+                }
                 _ => {}
             },
             6 => {
@@ -754,6 +790,40 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     } else if let Some(rest) = trimmed.strip_prefix("consumes ") {
                         service.consumes.extend(split_items(rest));
                         current_service_child = None;
+                    }
+                } else if current_child == Some("encryption") {
+                    // Encryption bucket cycle — `source`, `algorithm`,
+                    // `rotation` children at indent 6 populate the
+                    // currently open binding. Unknown algorithm/rotation
+                    // tokens are silently kept at the default; doctor
+                    // diagnostics (`ENC-TEMPLATE-AXIS-001` etc.) surface
+                    // shape errors.
+                    let Some(binding_index) = current_encryption_binding else {
+                        continue;
+                    };
+                    let binding = &mut app.encryption_bindings[binding_index];
+                    if let Some(rest) = trimmed.strip_prefix("source ") {
+                        let raw = rest.trim();
+                        let template = if let Some(literal) = raw.strip_prefix("env.") {
+                            Some(EncryptionSource::Env(EncryptionTemplate::parse(literal)))
+                        } else if let Some(literal) = raw.strip_prefix("secrets.") {
+                            Some(EncryptionSource::Secrets(EncryptionTemplate::parse(
+                                literal,
+                            )))
+                        } else {
+                            None
+                        };
+                        if let Some(source) = template {
+                            binding.source = source;
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("algorithm ") {
+                        if let Some(alg) = EncryptionAlgorithm::parse(rest.trim()) {
+                            binding.algorithm = alg;
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("rotation ") {
+                        if let Some(rot) = EncryptionRotation::parse(rest.trim()) {
+                            binding.rotation = rot;
+                        }
                     }
                 }
             }
@@ -1456,6 +1526,9 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         "observability" => Some("observability"),
         // i18n bucket cycle — `locale` block at app indent-2.
         "locale" => Some("locale"),
+        // Encryption bucket cycle — `encryption` block at app indent-2.
+        // See `docs/proposals/encryption-vocab.md`.
+        "encryption" => Some("encryption"),
         _ => None,
     }
 }
@@ -2169,5 +2242,89 @@ profile production
                 .and_then(|deploy| deploy.topology.as_deref()),
             Some("split_services")
         );
+    }
+
+    // Encryption bucket cycle — parses an `encryption` block with one
+    // binding per `@key.<scope>`. Indent-2 `encryption` opens the
+    // block; indent-4 `key @key.<scope>` opens a binding; indent-6
+    // `source` / `algorithm` / `rotation` populates the binding.
+    // See `docs/proposals/encryption-vocab.md` §Lowering.
+    #[test]
+    fn parses_encryption_block_with_one_tenant_binding() {
+        use lazuli_ir::{EncryptionAlgorithm, EncryptionRotation, EncryptionTemplateAxis};
+
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+  encryption
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+      rotation manual
+"#;
+
+        let manifest = parse_app_manifest(source).unwrap();
+        assert_eq!(manifest.encryption_bindings.len(), 1);
+        let binding = &manifest.encryption_bindings[0];
+        assert_eq!(binding.scope, "@key.tenant");
+        assert_eq!(binding.algorithm, EncryptionAlgorithm::Aes256Gcm);
+        assert_eq!(binding.rotation, EncryptionRotation::Manual);
+        let template = binding.source.template();
+        assert_eq!(template.literal, "CRYPT_KEY_TENANT_{tenant_id}");
+        assert_eq!(template.axes, vec![EncryptionTemplateAxis::TenantId]);
+    }
+
+    #[test]
+    fn parses_encryption_block_with_multiple_bindings() {
+        let source = r#"
+app AcmeCRM
+  encryption
+    key @key.app
+      source env.CRYPT_KEY_APP
+      algorithm aes_256_gcm
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+"#;
+
+        let manifest = parse_app_manifest(source).unwrap();
+        assert_eq!(manifest.encryption_bindings.len(), 2);
+        assert_eq!(manifest.encryption_bindings[0].scope, "@key.app");
+        assert_eq!(manifest.encryption_bindings[1].scope, "@key.tenant");
+        assert!(manifest.encryption_bindings[0]
+            .source
+            .template()
+            .axes
+            .is_empty());
+        assert_eq!(
+            manifest.encryption_bindings[1].source.template().literal,
+            "CRYPT_KEY_TENANT_{tenant_id}"
+        );
+    }
+
+    #[test]
+    fn encryption_block_absent_yields_empty_catalog() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        assert!(manifest.encryption_bindings.is_empty());
+    }
+
+    #[test]
+    fn encryption_block_rejects_non_at_key_scope() {
+        let source = r#"
+app AcmeCRM
+  encryption
+    key tenant
+      source env.CRYPT_KEY_TENANT
+      algorithm aes_256_gcm
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        // Header without `@key.` prefix is silently dropped; doctor
+        // surfaces this as a separate diagnostic. The block parser
+        // only records well-shaped bindings.
+        assert!(manifest.encryption_bindings.is_empty());
     }
 }

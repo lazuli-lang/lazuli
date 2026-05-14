@@ -102,6 +102,7 @@ fn minimal_app_manifest(name: &str) -> AppManifest {
         tracing: None,
         observability: None,
         locale: None,
+        encryption_bindings: Vec::new(),
         span_ref: None,
     }
 }
