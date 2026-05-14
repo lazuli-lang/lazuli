@@ -74,3 +74,12 @@ app CorbanxClass
   tracing
     propagate true
     sample_rate 0.1
+
+  # Encryption bucket cycle — bind every `@cap.Encrypted(key:@key.tenant)`
+  # field on `Credential` (and any other tenant-keyed field) to a per-
+  # tenant env var template. See `docs/proposals/encryption-vocab.md`.
+  encryption
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+      rotation manual

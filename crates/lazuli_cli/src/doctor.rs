@@ -5689,9 +5689,37 @@ fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
 
     while let Some(start) = rest.find(prefix) {
         let after_prefix = &rest[start + prefix.len()..];
-        let end = after_prefix
-            .find(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
-            .unwrap_or(after_prefix.len());
+        // Walk the reference char-by-char so embedded `{axis}` segments
+        // (e.g. `env.CRYPT_KEY_TENANT_{tenant_id}` from the encryption
+        // bucket cycle) are captured as part of the canonical reference
+        // name. Outside braces, only `_` / alphanumerics belong to a
+        // reference; inside braces, every character up to `}` is
+        // captured verbatim.
+        let bytes = after_prefix.as_bytes();
+        let mut end = 0;
+        let mut in_brace = false;
+        while end < bytes.len() {
+            let ch = bytes[end] as char;
+            if in_brace {
+                if ch == '}' {
+                    in_brace = false;
+                    end += 1;
+                    continue;
+                }
+                end += 1;
+                continue;
+            }
+            if ch == '{' {
+                in_brace = true;
+                end += 1;
+                continue;
+            }
+            if ch == '_' || ch.is_ascii_alphanumeric() {
+                end += 1;
+                continue;
+            }
+            break;
+        }
         if end > 0 {
             references.push(&after_prefix[..end]);
         }

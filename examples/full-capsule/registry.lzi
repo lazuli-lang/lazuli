@@ -8,6 +8,13 @@ registry
     group public_clients
       client PUBLIC_APP_URL: Url required
       mobile EXPO_PUBLIC_API_URL: Url required
+    # Encryption bucket cycle — per-tenant key envelope. The
+    # `{tenant_id}` template marker declares the registry pattern; the
+    # runtime substitutes the active tenant id at resolution time so
+    # each tenant resolves to its own env var (e.g.
+    # `CRYPT_KEY_TENANT_42`). One env-schema entry covers all tenants.
+    group encryption
+      server CRYPT_KEY_TENANT_{tenant_id}: Secret required
 
   capabilities
     database postgres

@@ -21,8 +21,12 @@ registry
       server PROVIDER_B_WEBHOOK_SECRET: Secret required in production
       server PROVIDER_C_WEBHOOK_SECRET: Secret required in production
 
+    # Encryption bucket cycle — per-tenant key envelope. The
+    # `{tenant_id}` template marker declares the registry pattern;
+    # the runtime substitutes the active tenant id at resolution
+    # time so each Company resolves to its own env var.
     group encryption
-      server CREDENTIALS_ENCRYPTION_KEY: Secret required in production
+      server CRYPT_KEY_TENANT_{tenant_id}: Secret required in production
 
   capabilities
     database postgres
