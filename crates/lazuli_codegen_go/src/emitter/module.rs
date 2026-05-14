@@ -25,6 +25,7 @@ use super::lint::check_generated_file;
 use super::migration::emit_migration_file;
 use super::migration_ddl::emit_migrations;
 use super::notification::emit_notification_file;
+use super::poller::emit_poller_file;
 use super::printer::GoPrinter;
 use super::query::emit_query_file;
 use super::resource::emit_resource_file;
@@ -469,6 +470,17 @@ pub fn emit_module(
                     contents,
                 });
             }
+        }
+
+        // Cell P.C — Poller v0 spine emission. Per-feature
+        // `RegisterPollers(*poller.Registry)` with `poller.Spec[...]`
+        // literals in `poller.gen.go`. Per docs/proposals/poller-vocab.md §6.1.
+        if let Some(contents) = emit_poller_file(&source_label, feature) {
+            let poller_path = format!("{name}/poller.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: poller_path,
+                contents,
+            });
         }
 
         // Cell G3a — Translation emission. Per-feature `i18n.Catalog`
