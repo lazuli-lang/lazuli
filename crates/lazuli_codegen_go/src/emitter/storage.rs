@@ -407,6 +407,7 @@ mod tests {
             retention: None,
             previous_names: Vec::new(),
             span_ref: None,
+            lifecycle: None,
         }
     }
 
@@ -727,6 +728,7 @@ mod feature_emit_tests {
             retention: None,
             previous_names: Vec::new(),
             span_ref: None,
+            lifecycle: None,
         });
 
         let out = emit_entry_point(&feature).expect("typed file field must emit storage.gen.go");

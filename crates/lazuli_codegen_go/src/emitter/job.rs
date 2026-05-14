@@ -743,6 +743,7 @@ mod feature_emit_tests {
             retention: None,
             previous_names: Vec::new(),
             span_ref: None,
+            lifecycle: None,
         });
         let mut job = handler_job("recompute_score_after_invoice");
         job.body = JobBody::Declarative(JobDeclarative {

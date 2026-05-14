@@ -973,6 +973,7 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
         retention: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(aggregate.span)),
+        lifecycle: None,
     };
 
     let commands = aggregate
@@ -1769,6 +1770,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
             .map(|p| strip_previously_mode(p))
             .collect(),
         span_ref: Some(span_of(r.span)),
+        lifecycle: None,
     })
 }
 

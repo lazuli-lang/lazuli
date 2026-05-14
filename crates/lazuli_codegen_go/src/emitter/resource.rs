@@ -680,6 +680,7 @@ mod tests {
             retention: None,
             previous_names: Vec::new(),
             span_ref: None,
+            lifecycle: None,
         }
     }
 
@@ -978,6 +979,7 @@ mod tests {
             retention: None,
             previous_names: Vec::new(),
             span_ref: None,
+            lifecycle: None,
         });
 
         let module = Module {
@@ -1074,6 +1076,7 @@ mod feature_emit_tests {
                 retention: None,
                 previous_names: Vec::new(),
                 span_ref: None,
+                lifecycle: None,
             }],
             events: Vec::new(),
             rules: Vec::new(),

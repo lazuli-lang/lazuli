@@ -178,6 +178,7 @@ mod tests {
             retention: None,
             previous_names: vec![],
             span_ref: None,
+            lifecycle: None,
         }
     }
 

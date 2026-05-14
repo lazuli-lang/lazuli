@@ -14,11 +14,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.12.0 by D1
+/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.13.0 by L.B.1
 /// (SourceMap companion). Companion is opt-in sidecar emission, so
 /// `Module` shape itself is unchanged; bump signals the companion
 /// exists for downstream tooling.
-pub const LZIR_SCHEMA: &str = "0.12.0";
+pub const LZIR_SCHEMA: &str = "0.13.0";
 
 pub type FileId = u16;
 
@@ -369,6 +369,12 @@ pub struct Resource {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+    /// Lifecycle vocabulary (L0 #7 / lifecycle-vocab.md). When `Some`,
+    /// the resource declares a state machine bound to a discriminator
+    /// field; the lowering emits N commands + an auto-generated enum.
+    /// `None` when the resource has no lifecycle (the vast majority).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<Lifecycle>,
 }
 
 /// Phase L Tier 4c — retention policy lifted from
@@ -1542,6 +1548,115 @@ pub struct Workflow {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Lifecycle {
+    /// Name of the discriminator field on the parent Resource.
+    pub discriminator_field: String,
+
+    /// Auto-generated enum name (e.g. "PublicationStatus" for
+    /// `resource Publication { lifecycle status }`). Doctor enforces no
+    /// sibling `enum` of the same name.
+    pub generated_enum: String,
+
+    /// One per `state <name> [initial|terminal]` child. Order preserved
+    /// from source so doctor can reason about "linear chain" for
+    /// no_jump_more_than_one.
+    pub states: Vec<LifecycleState>,
+
+    /// One per `transition <name> ... ` child.
+    pub transitions: Vec<LifecycleTransition>,
+
+    /// One per `invariant <form>` child — closed catalog (§3.4).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariants: Vec<LifecycleInvariant>,
+
+    /// One per `invariant_handler @fn.<name>` escape-hatch child.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariant_handlers: Vec<HandlerRef>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandlerRef {
+    /// Extension namespace, e.g. `fn` for `@fn.<name>`.
+    pub namespace: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleState {
+    pub name: String,
+    pub kind: LifecycleStateKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LifecycleStateKind {
+    Initial,
+    Intermediate,
+    Terminal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleTransition {
+    pub name: String,
+    /// One or more source state names. Multi = fan-in.
+    pub from: Vec<String>,
+    pub to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<AuditSpec>,
+    /// Name of the DateTime resource field stamped by this transition.
+    /// Lowering auto-emits the field on the parent resource if missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamps: Option<String>,
+    /// Emitted events — same shape as Command.emits (verbatim strings;
+    /// the existing emit-string lowering handles `<event>` /
+    /// `<event> payload <fields>` / `<event> from updates`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    /// `requires @policy.<name>` — raises the bar above the lifecycle
+    /// default, mirrors Transition::requires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<PolicyRef>,
+    /// `tests` block — mirrors Transition::tests (v0.2 §3.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog (§3.4). `serde(tag = "kind", content = "value")` keeps
+/// the JSON projection self-describing for inspect consumers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum LifecycleInvariant {
+    /// `invariant terminal_immutable`
+    #[serde(rename = "terminal_immutable")]
+    TerminalImmutable,
+    /// `invariant single <state> per <scope_field>`
+    #[serde(rename = "single_state_per_scope")]
+    SingleStatePerScope {
+        state: String,
+        scope_field: String,
+    },
+    /// `invariant no_jump_more_than_one`
+    #[serde(rename = "no_jump_more_than_one")]
+    NoJumpMoreThanOne,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4103,6 +4218,87 @@ pub struct EasingToken {
 pub struct ZToken {
     pub name: String,
     pub value: i32,
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn lifecycle_round_trips_through_json() {
+        let lc = Lifecycle {
+            discriminator_field: "status".to_owned(),
+            generated_enum: "PublicationStatus".to_owned(),
+            states: vec![
+                LifecycleState {
+                    name: "scheduled".to_owned(),
+                    kind: LifecycleStateKind::Initial,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "published".to_owned(),
+                    kind: LifecycleStateKind::Terminal,
+                    span_ref: None,
+                },
+            ],
+            transitions: vec![LifecycleTransition {
+                name: "publish".to_owned(),
+                from: vec!["scheduled".to_owned()],
+                to: "published".to_owned(),
+                policy: None,
+                audit: None,
+                timestamps: Some("published_at".to_owned()),
+                emits: vec!["publication_published".to_owned()],
+                requires: None,
+                tests: None,
+                previous_names: vec![],
+                span_ref: None,
+            }],
+            invariants: vec![LifecycleInvariant::TerminalImmutable],
+            invariant_handlers: vec![],
+            previous_names: vec![],
+            span_ref: None,
+        };
+        let json = serde_json::to_string(&lc).unwrap();
+        let back: Lifecycle = serde_json::from_str(&json).unwrap();
+        assert_eq!(lc, back);
+        assert!(json.contains("\"kind\":\"terminal_immutable\""));
+    }
+
+    #[test]
+    fn lifecycle_invariant_single_state_per_scope_tagged_correctly() {
+        let inv = LifecycleInvariant::SingleStatePerScope {
+            state: "gold".to_owned(),
+            scope_field: "item_id".to_owned(),
+        };
+        let json = serde_json::to_string(&inv).unwrap();
+        assert!(json.contains("\"kind\":\"single_state_per_scope\""));
+        assert!(json.contains("\"state\":\"gold\""));
+        assert!(json.contains("\"scope_field\":\"item_id\""));
+    }
+
+    #[test]
+    fn resource_with_no_lifecycle_omits_field_in_json() {
+        let r = Resource {
+            name: "Publication".to_owned(),
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![],
+            constraints: vec![],
+            validate: None,
+            validates: vec![],
+            retention: None,
+            previous_names: vec![],
+            span_ref: None,
+            lifecycle: None,
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(
+            !json.contains("\"lifecycle\""),
+            "skip_serializing_if = Option::is_none should drop the field"
+        );
+    }
 }
 
 #[cfg(test)]
