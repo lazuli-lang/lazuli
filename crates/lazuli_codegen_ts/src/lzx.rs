@@ -257,15 +257,23 @@ pub(crate) fn format_string_array(items: &[String]) -> String {
 /// Walk a `Surface` and emit one `<view>.gen.ts` per (audience, view)
 /// tuple. The `router_target` parameter feeds the per-target
 /// `useParams` import for `view detail` hooks (per §6.2 table); list
-/// and create views ignore it.
-pub fn emit_surface_views(surface: &Surface, router_target: RouterTarget) -> Vec<GeneratedFile> {
+/// and create views ignore it. `app_name` is the project name from
+/// `lazurite.toml [project] name` — used as the localStorage namespace
+/// prefix for `settings ... persist local` so two apps don't collide
+/// on the same view name (proposal §3.7). Empty string falls back to
+/// the feature name.
+pub fn emit_surface_views(
+    surface: &Surface,
+    router_target: RouterTarget,
+    app_name: &str,
+) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
     for audience in &surface.audiences {
         for view in &audience.views {
             let (view_name, contents) = match view {
                 View::List(v) => (
                     v.name.clone(),
-                    lzx_view_list::emit_view_list(surface, audience, v),
+                    lzx_view_list::emit_view_list(surface, audience, v, app_name),
                 ),
                 View::Detail(v) => (
                     v.name.clone(),
@@ -573,7 +581,7 @@ mod tests {
         // emitted files land at the right paths with the right
         // top-level identifiers.
         let surface = test_fixtures::slug_web_surface();
-        let files = emit_surface_views(&surface, RouterTarget::ViteReact);
+        let files = emit_surface_views(&surface, RouterTarget::ViteReact, "");
 
         // Four (audience, view) tuples: admin × {list, detail, create}
         // plus public × list.
@@ -614,8 +622,8 @@ mod tests {
     fn emit_surface_views_switches_router_target_for_detail() {
         let surface = test_fixtures::slug_web_surface();
 
-        let vite_files = emit_surface_views(&surface, RouterTarget::ViteReact);
-        let nextjs_files = emit_surface_views(&surface, RouterTarget::NextJs);
+        let vite_files = emit_surface_views(&surface, RouterTarget::ViteReact, "");
+        let nextjs_files = emit_surface_views(&surface, RouterTarget::NextJs, "");
 
         let vite_detail = vite_files
             .iter()

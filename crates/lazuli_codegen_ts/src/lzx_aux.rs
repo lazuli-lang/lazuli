@@ -6,9 +6,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use crate::lzx::{
-    command_action_key, command_ident, lower_camel, pascal_case, CommandRef, SelectionDecl,
-    SelectionMode, SettingDecl, SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface,
-    ViewList,
+    command_ident, lower_camel, pascal_case, CommandRef, SelectionDecl, SelectionMode, SettingDecl,
+    SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, ViewList,
 };
 
 pub(crate) fn needs_use_state(view: &ViewList) -> bool {
@@ -48,17 +47,33 @@ pub(crate) fn needs_bulk_commands(view: &ViewList) -> bool {
     !bulk_actions(view).is_empty()
 }
 
-pub(crate) fn write_setting_keys(s: &mut String, surface: &Surface, view: &ViewList) {
+pub(crate) fn write_setting_keys(
+    s: &mut String,
+    surface: &Surface,
+    view: &ViewList,
+    app_name: &str,
+) {
     if view.settings.is_empty() {
         return;
     }
+
+    // Per proposal §3.7 the localStorage namespace is `<app>:<view>:<setting>`
+    // so two different apps don't collide on the same view name. If the
+    // codegen entry didn't thread an app name (tests / ad-hoc callers), fall
+    // back to the feature name — preserves the previous behaviour so the
+    // key stays stable for in-tree consumers that haven't been updated yet.
+    let app = if app_name.is_empty() {
+        surface.feature.as_str()
+    } else {
+        app_name
+    };
 
     for setting in &view.settings {
         writeln!(
             s,
             "const SETTING_KEY_{} = \"{}:{}:{}\";",
             upper_snake(&setting.name),
-            surface.feature,
+            app,
             kebab_case(&view.name),
             setting.name
         )
@@ -83,9 +98,13 @@ pub(crate) fn write_hook_state(s: &mut String, surface: &Surface, view: &ViewLis
 
 pub(crate) fn write_return_fields(s: &mut String, view: &ViewList) {
     if view.sort.is_some() {
+        // `SortField` is emitted by `write_sort_state`. Annotating `field`
+        // and `dir` here keeps the closure free of implicit-any (TS7006) and
+        // makes `dir` a proper `"asc" | "desc"` union instead of narrowing to
+        // the literal `"desc"` default (TS2322).
         writeln!(
             s,
-            "    sort: {{ field: sort.field, dir: sort.dir, set: (field, dir = \"desc\") => setSort({{ field, dir }}) }},"
+            "    sort: {{ field: sort.field, dir: sort.dir, set: (field: SortField, dir: \"asc\" | \"desc\" = \"desc\") => setSort({{ field, dir }}) }},"
         )
         .ok();
     }
@@ -116,11 +135,14 @@ pub(crate) fn bulk_command_ident(cmd: &CommandRef) -> String {
 }
 
 fn write_sort_state(s: &mut String, sort: &SortDecl) {
+    // Emit a named `SortField` literal-union alias so the `sort.set` closure
+    // in `write_return_fields` can annotate its `field` parameter — without
+    // it, `field` defaults to `any` (TS7006).
     let union = string_union(&sort.allowed);
+    writeln!(s, "  type SortField = {};", union).ok();
     writeln!(
         s,
-        "  const [sort, setSort] = useState<{{ field: {}; dir: \"asc\" | \"desc\" }}>({{",
-        union
+        "  const [sort, setSort] = useState<{{ field: SortField; dir: \"asc\" | \"desc\" }}>({{",
     )
     .ok();
     writeln!(
@@ -144,9 +166,14 @@ fn write_selection_state(s: &mut String, selection: &SelectionDecl, feature: &st
             .ok();
         }
         SelectionMode::Multi => {
+            // Thread the SDK resource's ID type via indexed-access — `Item["id"]`
+            // — instead of hardcoding `string`. The resource interface (emitted
+            // by the per-feature SDK) owns the truth: callers that have number
+            // ids no longer need defensive `String()/Number()` casts.
             writeln!(
                 s,
-                "  const selection = useMultiSelection<string>(query.data ?? []);"
+                "  const selection = useMultiSelection<{}[\"id\"]>(query.data ?? []);",
+                pascal_case(feature)
             )
             .ok();
             for cmd in &selection.bulk_actions {
@@ -228,7 +255,7 @@ fn write_selection_return(s: &mut String, selection: &SelectionDecl) {
                 let parts: Vec<String> = selection
                     .bulk_actions
                     .iter()
-                    .map(|cmd| format!("{}: {}", command_action_key(cmd), bulk_binding_name(cmd)))
+                    .map(|cmd| format!("{}: {}", bulk_return_key(cmd), bulk_binding_name(cmd)))
                     .collect();
                 writeln!(s, "      bulk: {{ {} }},", parts.join(", ")).ok();
             }
@@ -269,6 +296,16 @@ fn sort_dir_literal(dir: SortDir) -> &'static str {
 
 fn bulk_binding_name(cmd: &CommandRef) -> String {
     format!("bulk{}", pascal_case(&cmd.name))
+}
+
+/// Return-object key inside `selection.bulk` — the SHORT action name with
+/// the `bulk_` prefix stripped if present, so callers write
+/// `selection.bulk.delete(items)` not `selection.bulk.bulkDelete(items)`.
+/// The SDK import identifier still preserves the full command name (see
+/// `bulk_command_ident`); only the consumer-facing key drops the prefix.
+fn bulk_return_key(cmd: &CommandRef) -> String {
+    let short = cmd.name.strip_prefix("bulk_").unwrap_or(&cmd.name);
+    lower_camel(short)
 }
 
 fn upper_snake(value: &str) -> String {
@@ -370,14 +407,17 @@ mod tests {
 
         let mut state = String::new();
         write_hook_state(&mut state, &surface(), &view);
-        assert!(
-            state.contains("useState<{ field: \"title\" | \"updated\"; dir: \"asc\" | \"desc\" }>")
-        );
+        // The `SortField` alias holds the literal union; the useState
+        // generic now references it instead of inlining the union, so the
+        // closure typed signature below can reuse the same name.
+        assert!(state.contains("type SortField = \"title\" | \"updated\";"));
+        assert!(state.contains("useState<{ field: SortField; dir: \"asc\" | \"desc\" }>"));
         assert!(state.contains("field: \"updated\", dir: \"desc\""));
 
         let mut ret = String::new();
         write_return_fields(&mut ret, &view);
-        assert!(ret.contains("sort: { field: sort.field, dir: sort.dir, set: (field, dir = \"desc\") => setSort({ field, dir }) }"));
+        // `field: SortField, dir: "asc" | "desc"` — fixes TS7006 + TS2322.
+        assert!(ret.contains("sort: { field: sort.field, dir: sort.dir, set: (field: SortField, dir: \"asc\" | \"desc\" = \"desc\") => setSort({ field, dir }) }"));
     }
 
     #[test]
@@ -391,8 +431,11 @@ mod tests {
 
         let mut state = String::new();
         write_hook_state(&mut state, &surface(), &view);
-        assert!(state.contains("const selection = useMultiSelection<string>(query.data ?? []);"));
-        assert!(state.contains("const bulkDelete = useLazuliCommand(bulkDeleteItems);"));
+        // Resource ID type is threaded via indexed-access (`Item["id"]`)
+        // so number / string / branded IDs flow without casts.
+        assert!(state
+            .contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
+        assert!(state.contains("const bulkDelete = useLazuliCommand(deleteItem);"));
 
         let mut ret = String::new();
         write_return_fields(&mut ret, &view);
@@ -451,7 +494,10 @@ mod tests {
         });
 
         let mut out = String::new();
-        write_setting_keys(&mut out, &surface(), &view);
+        // Empty app_name → falls back to surface.feature ("item") — preserves
+        // the pre-fix behaviour for legacy callers; the app-scoped key path is
+        // exercised by `settings_namespace_is_app_scoped` below.
+        write_setting_keys(&mut out, &surface(), &view, "");
         write_hook_state(&mut out, &surface(), &view);
         write_return_fields(&mut out, &view);
         assert!(out.contains("const SETTING_KEY_GRID_SIZE = \"item:item-terminal:grid_size\";"));
@@ -544,6 +590,119 @@ mod tests {
         assert!(needs_multi_selection(&view));
         assert!(needs_local_setting(&view));
         assert!(needs_bulk_commands(&view));
-        assert_eq!(unique_bulk_command_imports(&view), vec!["bulkDeleteItems"]);
+        // SDK import identifier preserves the canonical command name
+        // (`deleteItem`); only the return-object key strips a `bulk_`
+        // prefix (asserted in `bulk_action_key_strips_command_prefix`).
+        assert_eq!(unique_bulk_command_imports(&view), vec!["deleteItem"]);
+    }
+
+    // -----------------------------------------------------------------
+    // Bug-fix regression tests (Pleiades dogfood, 2026-05-14).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn bulk_action_key_strips_command_prefix() {
+        // Bug #1: `selection.bulk.bulkDelete` instead of
+        // `selection.bulk.delete`. The bulk command was named
+        // `bulk_delete` upstream — Pleiades' real-world shape — and the
+        // return-object key was prefix-duplicating the `bulk_` token.
+        let mut view = view();
+        view.selection = Some(SelectionDecl {
+            mode: SelectionMode::Multi,
+            bulk_actions: vec![command("bulk_delete")],
+            span_ref: None,
+        });
+
+        let mut ret = String::new();
+        write_return_fields(&mut ret, &view);
+        // KEY drops the `bulk_` prefix → `delete`.
+        assert!(
+            ret.contains("bulk: { delete: bulkBulkDelete }"),
+            "got: {ret}"
+        );
+        // No stutter — never `bulk: { bulkDelete:` (the previous shape).
+        assert!(
+            !ret.contains("bulk: { bulkDelete:"),
+            "should strip bulk_ prefix; got: {ret}"
+        );
+
+        // SDK import identifier is unchanged (full canonical name).
+        let import = bulk_command_ident(&command("bulk_delete"));
+        assert_eq!(import, "bulkItemDelete");
+    }
+
+    #[test]
+    fn multi_selection_threads_resource_id_type() {
+        // Bug #2: `useMultiSelection<string>` was hardcoded. The
+        // resource interface (`Item`) is the source of truth — emit
+        // indexed-access `Item["id"]` so number ids flow without casts.
+        let mut view = view();
+        view.selection = Some(SelectionDecl {
+            mode: SelectionMode::Multi,
+            bulk_actions: vec![],
+            span_ref: None,
+        });
+
+        let mut state = String::new();
+        write_hook_state(&mut state, &surface(), &view);
+        assert!(state
+            .contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
+        // No `<string>` literal anywhere in the multi-selection state.
+        assert!(!state.contains("useMultiSelection<string>"));
+    }
+
+    #[test]
+    fn sort_set_emits_typed_signature() {
+        // Bug #3: `sort.set: (field, dir = "desc") => ...` was emitted
+        // without type annotations — TS7006 implicit-any on `field`,
+        // TS2322 narrowed `dir` to the literal `"desc"`.
+        let mut view = view();
+        view.sort = Some(SortDecl {
+            allowed: vec!["updated_at".into(), "name".into()],
+            default_field: "updated_at".into(),
+            default_dir: SortDir::Desc,
+            span_ref: None,
+        });
+
+        let mut state = String::new();
+        write_hook_state(&mut state, &surface(), &view);
+        // SortField alias precedes the useState call.
+        assert!(state.contains("type SortField = \"updated_at\" | \"name\";"));
+
+        let mut ret = String::new();
+        write_return_fields(&mut ret, &view);
+        assert!(
+            ret.contains("set: (field: SortField, dir: \"asc\" | \"desc\" = \"desc\") => setSort"),
+            "typed sort.set signature missing; got: {ret}"
+        );
+    }
+
+    #[test]
+    fn settings_namespace_is_app_scoped() {
+        // Bug #4: localStorage key was `<feature>:<view>:<setting>` —
+        // collision risk across apps that share a feature/view name.
+        // Per proposal §3.7 the namespace should be the app/project
+        // name from `lazurite.toml`.
+        let mut view = view();
+        view.settings.push(SettingDecl {
+            name: "grid_size".to_owned(),
+            value_space: SettingValueSpace::Enum {
+                values: vec!["sm".into(), "md".into(), "lg".into()],
+            },
+            default: "sm".to_owned(),
+            persistence: SettingPersistence::Local,
+            span_ref: None,
+        });
+
+        let mut out = String::new();
+        write_setting_keys(&mut out, &surface(), &view, "pleiades");
+        assert!(
+            out.contains(
+                "const SETTING_KEY_GRID_SIZE = \"pleiades:item-terminal:grid_size\";"
+            ),
+            "expected `pleiades:` prefix; got: {out}"
+        );
+        // No legacy feature-scoped prefix.
+        assert!(!out.contains("\"item:item-terminal:"));
     }
 }

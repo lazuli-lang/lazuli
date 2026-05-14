@@ -909,6 +909,10 @@ fn emit_feature_ts_artifacts(
             });
         }
     }
+    let app_name = manifest
+        .as_ref()
+        .map(|m| m.project.name.as_str())
+        .unwrap_or("");
     for surface in &feature.surfaces {
         let target = match surface.target {
             lazuli_ir::SurfaceTarget::Web => {
@@ -920,7 +924,9 @@ fn emit_feature_ts_artifacts(
         };
         // surface carries its feature owner; emitter resolves refs internally.
         let _ = feature;
-        out.extend(lazuli_codegen_ts::lzx::emit_surface_views(surface, target));
+        out.extend(lazuli_codegen_ts::lzx::emit_surface_views(
+            surface, target, app_name,
+        ));
     }
     out
 }
