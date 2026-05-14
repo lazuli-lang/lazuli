@@ -20,6 +20,7 @@
 
 pub mod design;
 pub mod lzx;
+pub mod lzx_audience_slot;
 pub mod runtime;
 pub mod zod_constraints;
 
