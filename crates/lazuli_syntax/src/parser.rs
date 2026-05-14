@@ -11,8 +11,9 @@ use crate::ast::{
     AuthPassword, AuthSessions, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
     CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
     CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
-    ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document, EasingTokenAst,
-    EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
+    ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
+    DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
+    EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
     FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl, FieldPolicyDecl,
     HttpMethod, InvalidatesDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
@@ -1158,6 +1159,20 @@ fn parse_view_block(
         }
         let trimmed = strip_inline_comment(raw).trim_end();
 
+        if let Some(rest) = trimmed.strip_prefix("drawer ") {
+            if kind != "list" {
+                return Err(line_error(line, "`drawer` is only valid in `view list` bodies"));
+            }
+            if state.drawer.is_some() {
+                return Err(line_error(line, "view list declares at most one `drawer` block"));
+            }
+            let (drawer, next) = parse_drawer_block(lines, i, body_indent, rest.trim())?;
+            last_end = drawer.span.end;
+            state.drawer = Some(drawer);
+            i = next;
+            continue;
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -1192,6 +1207,7 @@ fn parse_view_block(
             filter: state.filter,
             cells_slot: state.cells_slot,
             cells: state.cells,
+            drawer: state.drawer,
             actions: state.actions,
             span,
         }),
@@ -1238,6 +1254,7 @@ struct ViewBodyState {
     cells: Vec<CellBindingAst>,
     actions: Vec<String>,
     route_params: Vec<RouteParamAst>,
+    drawer: Option<DrawerSubViewAst>,
 }
 
 type ViewBodyLineHandler =
@@ -1388,6 +1405,165 @@ fn parse_view_route_line(
     let param = parse_route_param(line, rest)?;
     state.route_params.push(param);
     Ok(())
+}
+
+fn parse_drawer_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    drawer_indent: usize,
+    header_rest: &str,
+) -> Result<(DrawerSubViewAst, usize), ParseError> {
+    let header = &lines[start];
+    let parts: Vec<_> = header_rest.split_whitespace().collect();
+    if parts.len() != 3 || parts[1] != "on" {
+        return Err(line_error(
+            header,
+            "drawer blocks use `drawer <name> on select|open`",
+        ));
+    }
+    let name = parts[0].to_owned();
+    if !is_kebab_or_snake_ident(&name) {
+        return Err(line_error_owned(
+            header,
+            format!("drawer name `{}` must be kebab/snake identifier", name),
+        ));
+    }
+    let trigger = match parts[2] {
+        "select" => DrawerTriggerAst::Select,
+        "open" => DrawerTriggerAst::ManualOpen,
+        _ => {
+            return Err(line_error(
+                header,
+                "drawer trigger must be `select` or `open`",
+            ))
+        }
+    };
+
+    let child_indent = drawer_indent + 2;
+    let mut state = ViewBodyState::default();
+    let mut route_binding = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= drawer_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "drawer body lines use one indentation level deeper than the `drawer` header",
+            ));
+        }
+        if raw.contains("+=") || raw.contains("-=") {
+            return Err(line_error(
+                line,
+                "partial overrides are not valid in `.lzx`; redeclare the whole drawer",
+            ));
+        }
+
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if trimmed.starts_with("drawer ") {
+            return Err(line_error(line, "drawer cannot be nested"));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("source ") {
+            parse_view_source_line(line, rest.trim(), &mut state)?;
+        } else if let Some(rest) = trimmed.strip_prefix("route ") {
+            if route_binding.is_some() {
+                return Err(line_error(line, "drawer declares `route` at most once"));
+            }
+            route_binding = Some(parse_drawer_route_binding(line, rest.trim())?);
+        } else if let Some(rest) = trimmed.strip_prefix("sections ") {
+            parse_view_sections_line(line, rest.trim(), &mut state)?;
+        } else if let Some(rest) = trimmed.strip_prefix("cells ") {
+            parse_drawer_cells_line(line, rest.trim(), &mut state)?;
+        } else if let Some(rest) = trimmed.strip_prefix("actions ") {
+            parse_view_actions_line(line, rest.trim(), &mut state)?;
+        } else {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "drawer body lines are `source`, `route <key> from selection`, `sections`, `cells <field> @client.<slot>`, or `actions` declarations (got `{}`)",
+                    trimmed
+                ),
+            ));
+        }
+
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        DrawerSubViewAst {
+            name,
+            trigger,
+            source: state.source.ok_or_else(|| {
+                line_error(
+                    header,
+                    "drawer requires a `source <feature>.query.<name>` line",
+                )
+            })?,
+            route_binding,
+            sections: state.sections,
+            cells: state.cells,
+            actions: state.actions,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_drawer_cells_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    if rest.split_whitespace().count() != 2 {
+        return Err(line_error(
+            line,
+            "drawer cells use `cells <field> @client.<slot>`",
+        ));
+    }
+    parse_view_cells_line(line, rest, state)
+}
+
+fn parse_drawer_route_binding(
+    line: &SourceLine<'_>,
+    value: &str,
+) -> Result<DrawerRouteBindingAst, ParseError> {
+    let (target, source) = value.rsplit_once(" from ").ok_or_else(|| {
+        line_error(
+            line,
+            "drawer route binding must be `route <key> from selection`",
+        )
+    })?;
+    let target = target.trim();
+    if target.is_empty() {
+        return Err(line_error(line, "drawer route binding requires a target key"));
+    }
+    if !is_kebab_or_snake_ident(target) {
+        return Err(line_error_owned(
+            line,
+            format!("drawer route target `{}` must be kebab/snake identifier", target),
+        ));
+    }
+    if source.trim() != "selection" {
+        return Err(line_error(
+            line,
+            "drawer route binding source must be `from selection`",
+        ));
+    }
+    Ok(DrawerRouteBindingAst {
+        target: target.to_owned(),
+        source: DrawerBindingSourceAst::Selection,
+    })
 }
 
 /// Split the `<name> [at "<path>"]` tail of a view header. The optional
@@ -9968,7 +10144,7 @@ feature slug
 #[cfg(test)]
 mod surface_parser_tests {
     use super::parse_surface_document;
-    use crate::{SurfaceTargetAst, ViewAst};
+    use crate::{DrawerBindingSourceAst, DrawerTriggerAst, SurfaceTargetAst, ViewAst};
 
     #[test]
     fn minimal_surface_one_audience_one_view_list() {
@@ -10233,6 +10409,118 @@ surface slug web
         let source = "surface slug web\n  audience admin\n    view list slug_list\n      source slug.query.mine\n      columns tags\n      cells tags @server.type_badge\n";
         let err = parse_surface_document(source).unwrap_err();
         assert!(err.to_string().contains("cell slot must be `@client."));
+    }
+
+    #[test]
+    fn view_list_with_drawer_parses() {
+        let source = r#"surface item web
+  audience admin
+    view list item_terminal at "/"
+      source item.query.search
+      columns key, title
+      drawer item_detail on select
+        source item.query.by_id
+        route key from selection
+        sections header, content, metadata
+        cells related @client.related_items
+        actions update, delete
+"#;
+        let surface = parse_surface_document(source).expect("parses drawer");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        let drawer = view.drawer.as_ref().expect("drawer populated");
+        assert_eq!(drawer.name, "item_detail");
+        assert_eq!(drawer.trigger, DrawerTriggerAst::Select);
+        assert_eq!(drawer.source, "item.query.by_id");
+        let route = drawer.route_binding.as_ref().expect("route binding");
+        assert_eq!(route.target, "key");
+        assert_eq!(route.source, DrawerBindingSourceAst::Selection);
+        assert_eq!(drawer.sections, vec!["header", "content", "metadata"]);
+        assert_eq!(drawer.cells.len(), 1);
+        assert_eq!(drawer.cells[0].field, "related");
+        assert_eq!(drawer.cells[0].slot, "related_items");
+        assert_eq!(drawer.actions, vec!["update", "delete"]);
+    }
+
+    #[test]
+    fn drawer_rejects_unknown_trigger() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on hover\n        source item.query.by_id\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("drawer trigger must be `select` or `open`"));
+    }
+
+    #[test]
+    fn drawer_rejects_columns_inside() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n        columns a, b\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("drawer body lines are"));
+    }
+
+    #[test]
+    fn drawer_rejects_filters_inside() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n        filters status\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("drawer body lines are"));
+    }
+
+    #[test]
+    fn drawer_rejects_nested() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n        drawer bar on select\n          source item.query.by_id\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("drawer cannot be nested"));
+    }
+
+    #[test]
+    fn view_list_at_most_one_drawer() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n      drawer bar on open\n        source item.query.by_id\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("at most one `drawer`"));
+    }
+
+    #[test]
+    fn drawer_grid_form_cells_rejected() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n        cells @client.item_card\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("drawer cells use `cells <field> @client.<slot>`"));
+    }
+
+    #[test]
+    fn view_detail_rejects_drawer() {
+        let source = "surface item web\n  audience admin\n    view detail item_detail\n      source item.query.by_id\n      route key: Text from path\n      drawer foo on select\n        source item.query.by_id\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("`drawer` is only valid in `view list` bodies"));
+    }
+
+    #[test]
+    fn route_key_from_selection_parses() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n        route key from selection\n";
+        let surface = parse_surface_document(source).expect("parses drawer route");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        let route = view
+            .drawer
+            .as_ref()
+            .and_then(|drawer| drawer.route_binding.as_ref())
+            .expect("route binding");
+        assert_eq!(route.target, "key");
+        assert_eq!(route.source, DrawerBindingSourceAst::Selection);
+    }
+
+    #[test]
+    fn route_key_from_path_inside_drawer_rejected() {
+        let source = "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer foo on select\n        source item.query.by_id\n        route key from path\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("drawer route binding source must be `from selection`"));
     }
 
     #[test]

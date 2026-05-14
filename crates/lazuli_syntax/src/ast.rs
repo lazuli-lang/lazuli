@@ -279,6 +279,7 @@ pub struct ViewListAst {
     /// uses per-column `cells <field> @client.<slot>` bindings or no cells.
     pub cells_slot: Option<String>,
     pub cells: Vec<CellBindingAst>,
+    pub drawer: Option<DrawerSubViewAst>,
     /// `actions <cmd>, <cmd>` — comma-separated short names or qualified
     /// `<feature>.command.<name>` references. Analyzer normalizes.
     pub actions: Vec<String>,
@@ -306,6 +307,37 @@ pub struct ViewCreateAst {
     pub fields: Vec<String>,
     pub cells: Vec<CellBindingAst>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawerSubViewAst {
+    pub name: String,
+    pub trigger: DrawerTriggerAst,
+    pub source: String,
+    pub route_binding: Option<DrawerRouteBindingAst>,
+    pub sections: Vec<String>,
+    pub cells: Vec<CellBindingAst>,
+    pub actions: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrawerTriggerAst {
+    Select,
+    ManualOpen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawerRouteBindingAst {
+    pub target: String,
+    pub source: DrawerBindingSourceAst,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrawerBindingSourceAst {
+    Selection,
 }
 
 /// `cells <field> @client.<slot>` parsed binding.
