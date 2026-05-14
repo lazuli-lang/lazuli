@@ -336,7 +336,20 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
         } else {
             slot.name.clone()
         };
-        let tag = format!("`json:\"{}\"`", json_suffix);
+        // L0 #3 §10 — pick up inline constraints (Cells D.1+D.3). The
+        // tag chain stays deterministic: `json:"…"` then optional
+        // `validate:"…"` (only when the slot is required OR carries
+        // at least one constraint).
+        let validate_body =
+            super::validator_tag_body(&slot.constraints, slot.required);
+        let tag = if validate_body.is_empty() {
+            format!("`json:\"{}\"`", json_suffix)
+        } else {
+            format!(
+                "`json:\"{}\" validate:\"{}\"`",
+                json_suffix, validate_body
+            )
+        };
         rows.push((pascal_case(&slot.name), final_type, tag));
     }
     let row_refs: Vec<(&str, &str, &str)> = rows
@@ -1051,6 +1064,7 @@ mod feature_emit_tests {
             name: name.to_owned(),
             type_ref: TypeRef::Builtin(builtin),
             required,
+            constraints: lazuli_ir::FieldConstraints::default(),
         }
     }
 
@@ -1248,6 +1262,7 @@ mod tests {
             name: name.to_owned(),
             type_ref: TypeRef::Builtin(builtin),
             required,
+            constraints: lazuli_ir::FieldConstraints::default(),
         }
     }
 
@@ -1365,8 +1380,10 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         // Input struct shape.
         assert!(out.contains("type CreateCustomerInput struct {"));
-        assert!(out.contains("`json:\"name\"`"));
-        assert!(out.contains("`json:\"email\"`"));
+        // L0 #3 §10 (D.3) — required slots now stack a `validate:"required"`
+        // alongside the json tag; both pieces ship in the same backtick block.
+        assert!(out.contains("json:\"name\" validate:\"required\""));
+        assert!(out.contains("json:\"email\" validate:\"required\""));
         assert!(out.contains("Email lazuli.Email"));
         // Command value shape.
         assert!(
@@ -1656,6 +1673,7 @@ mod tests {
                 name: "User".to_owned(),
             }),
             required: true,
+            constraints: lazuli_ir::FieldConstraints::default(),
         }]);
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Customer"),

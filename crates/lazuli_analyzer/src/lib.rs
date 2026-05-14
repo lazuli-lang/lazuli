@@ -4827,3 +4827,115 @@ mod surface_lowering_tests {
         assert_eq!(names, vec!["b", "a"]);
     }
 }
+
+// =============================================================================
+// L0 #3 §10 — inline field constraint analyzer tests (Cells D.1+D.2+D.3).
+//
+// Combination rules per §10.2 (length / between / in conflicts) plus
+// default-value compatibility per §10.3.
+// =============================================================================
+#[cfg(test)]
+mod field_constraint_lowering_tests {
+    use super::AnalyzeError;
+    use lazuli_syntax::parse_feature_skeletons;
+
+    /// `length 120 min 100` — § 10.2 rejects `length + min`.
+    #[test]
+    fn length_plus_min_emits_constraint_conflict() {
+        let source = r#"
+feature post
+  domain
+    resource Post
+      title: Text length 120 min 100
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::ConstraintConflict { field, combo }) => {
+                assert_eq!(field, "title");
+                assert_eq!(combo, "length+min");
+            }
+            other => panic!("expected ConstraintConflict, got: {:?}", other.err()),
+        }
+    }
+
+    /// `between 0 and 100 max 50` — §10.2 rejects `between + max`.
+    #[test]
+    fn between_plus_max_emits_constraint_conflict() {
+        let source = r#"
+feature score
+  domain
+    resource Score
+      points: Integer between 0 and 100 max 50
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::ConstraintConflict { field, combo }) => {
+                assert_eq!(field, "points");
+                assert_eq!(combo, "between+max");
+            }
+            other => panic!("expected ConstraintConflict, got: {:?}", other.err()),
+        }
+    }
+
+    /// `in ["a", "b"] pattern "^a"` — §10.2 says use enum instead.
+    #[test]
+    fn in_plus_pattern_emits_constraint_conflict() {
+        let source = r#"
+feature acl
+  domain
+    resource Member
+      role: Text in ["a", "b"] pattern "^a"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::ConstraintConflict { field, combo }) => {
+                assert_eq!(field, "role");
+                assert_eq!(combo, "in+pattern");
+            }
+            other => panic!("expected ConstraintConflict, got: {:?}", other.err()),
+        }
+    }
+
+    /// `Text required min 2 default ""` — §10.3 rejects empty default
+    /// because the empty string has length 0 < 2.
+    #[test]
+    fn empty_default_violates_min_constraint() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      handle: Text required min 2 = ""
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::DefaultViolatesConstraint { field, rule, .. }) => {
+                assert_eq!(field, "handle");
+                assert!(rule.starts_with("min="), "expected min rule, got {}", rule);
+            }
+            other => panic!(
+                "expected DefaultViolatesConstraint, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// Valid combination: `min N max M` (without between/length) passes.
+    #[test]
+    fn min_max_combination_passes_lowering() {
+        let source = r#"
+feature post
+  domain
+    resource Post
+      title: Text required min 2 max 80
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = super::lower_feature_skeleton(&features[0]).expect("lowers");
+        let field = &feature.resources[0].fields[0];
+        assert_eq!(field.constraints.min, Some(2));
+        assert_eq!(field.constraints.max, Some(80));
+    }
+}

@@ -21,8 +21,10 @@
 pub mod design;
 pub mod lzx;
 pub mod runtime;
+pub mod zod_constraints;
 
 pub use runtime::emit_feature_ts;
+pub use zod_constraints::{is_numeric, zod_constraint_chain, zod_enum_replacement};
 
 use lazuli_ir::Module;
 

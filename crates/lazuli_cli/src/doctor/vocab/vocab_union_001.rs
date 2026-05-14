@@ -157,6 +157,7 @@ mod tests {
             unique: false,
             default: None,
             derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
             previous_names: vec![],
             span_ref: None,
         }

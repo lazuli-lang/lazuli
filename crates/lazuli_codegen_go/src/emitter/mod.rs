@@ -40,6 +40,8 @@ pub mod root;
 pub mod storage;
 pub mod translation;
 pub mod types;
+pub mod validator_tags;
 pub mod webhook;
 
 pub use module::emit_module;
+pub use validator_tags::validator_tag_body;

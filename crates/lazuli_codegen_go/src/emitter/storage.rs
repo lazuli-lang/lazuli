@@ -418,6 +418,7 @@ mod tests {
             unique: false,
             default: None,
             derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -716,6 +717,7 @@ mod feature_emit_tests {
                 unique: false,
                 default: None,
                 derived_from: None,
+                constraints: lazuli_ir::FieldConstraints::default(),
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
