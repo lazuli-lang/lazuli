@@ -15,6 +15,17 @@ source that only fails later.
   environments, URLs, runtime units, provider-neutral deploy gates, and logical
   service boundaries. It is not a product feature and should not hide domain
   behavior.
+- The word "gate" appears at two unrelated scopes in Lazuli and authors must
+  not conflate them. **App-level deploy gates** are free-form English in
+  `app.lzi deploy { ... }` and `lazurite.toml` prose (release-promotion
+  policy: migrations, destructive_migrations, rollback). **Callable-scope
+  `gate` directives** (`gate behind plan.feature: ...` /
+  `gate quota plan.limit: ...`) are children of a single
+  command/query/job/webhook/poller/api block and bind to the package-wide
+  `plan` catalog. The two never collide syntactically: `gate` is a child
+  keyword of a callable, never of `deploy`; `deploy` does not accept a
+  `gate` child. Doctor `PLAN-FEATURE-UNDECLARED-001` and friends only fire
+  inside callable bodies. See `docs/proposals/plan-and-gate-vocab.md`.
 - Top-level `.lzi workspace` is optional and owns distributed-system contracts:
   local app entrypoints, external service contracts, shared registry path,
   event publication/consumption edges, context propagation defaults, and public
