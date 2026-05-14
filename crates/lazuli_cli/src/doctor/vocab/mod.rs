@@ -7,3 +7,4 @@ pub mod vocab_audit_001;
 pub mod vocab_derived_read_001;
 pub mod vocab_event_payload_001;
 pub mod vocab_union_001;
+pub mod vocab_union_002;
