@@ -15,12 +15,13 @@ feature customer_sensitive
     resource CustomerSensitiveProfile
       tenancy org
       customer: Customer required
-      legal_name: Text required
-      tax_id: Text required
-      annual_revenue: @semantic.Money optional
-      internal_notes: Text optional
+      legal_name: Text @pii.contact required
+      tax_id: @cap.Encrypted(key:@key.tenant) @pii.identifier required
+      annual_revenue: @cap.Encrypted(key:@key.tenant) @pii.financial optional
+      internal_notes: @cap.Encrypted(key:@key.tenant) @pii.derived optional
 
       soft_delete
+      retention 7y then anonymize
       timestamps
 
     query.lookup by_customer
@@ -60,6 +61,7 @@ feature customer_sensitive
     target query.by_customer(customer_id: route.customer_id)
     policy @policy.update
     rate_limit "30 per minute per user"
+    audit default
     updates CustomerSensitiveProfile
       legal_name = input.legal_name
       tax_id = input.tax_id

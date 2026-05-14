@@ -1,46 +1,181 @@
-app CRM
+# Canonical CRM fixture.
+# Exercises customer lifecycle, ownership, project relationship, audit, PII, and tenancy.
+# Uses indentation-based form per docs/invariants.md.
+# For the retired `aggregate { ... }` dialect, see examples/anti-patterns/crm-aggregate-dialect.lzi.
 
-aggregate Customer {
-  name: Text required
-  email: Email required unique
-  status: CustomerStatus default Lead
+feature crm
+  purpose "Minimal CRM — customers with lead-to-won lifecycle, owning projects."
 
-  command Create {
-    input name, email
-    policy customer.create
-    emits CustomerCreated
-  }
+  defaults
+    tenancy org
+    timestamps
 
-  query List {
-    search name, email
-    filter status
-  }
+  uses org, user
 
-  surface App {
-    list columns name, email, status
-    form fields name, email
-    detail fields name, email, status
-  }
-}
+  domain
+    enum CustomerStatus
+      lead = 10
+      qualified = 20
+      opportunity = 30
+      won = 40
+      lost = 50
 
-aggregate Project {
-  title: Text required
-  ownerEmail: Email required
-  active: Boolean default true
+    resource Customer
+      owner: User required
+      name: Text @pii.contact required
+      email: @semantic.Email @pii.contact required
+      status: CustomerStatus = lead
+      has_many projects: Project inverse customer
 
-  command Create {
-    input title, ownerEmail
-    policy project.create
-    emits ProjectCreated
-  }
+      soft_delete
+      retention 7y then anonymize
 
-  query List {
-    search title, ownerEmail
-    filter active
-  }
+    resource Project
+      customer: Customer required
+      title: Text required
+      active: Boolean = true
 
-  surface App {
-    list columns title, ownerEmail, active
-    form fields title, ownerEmail, active
-  }
-}
+    constraints
+      unique email per org
+
+    query.list list_customers
+      params
+        status: CustomerStatus optional
+        search: Text optional
+
+      filters
+        status when params.status
+
+      search params.search over name, email
+        mode contains
+
+      paginate 50
+
+    query.lookup customer_by_id by id: ID
+
+    query.list list_projects
+      params
+        customer: Customer optional
+        active: Boolean optional
+
+      filters
+        customer when params.customer
+        active when params.active
+
+      paginate 50
+
+    event_group customer_* on Customer
+      payload
+        customer_id = id
+        org_id = org.id
+        by_id = ctx.user.id when @actor.user
+
+      event created
+        email: @semantic.Email @pii.contact
+
+      event qualified
+      event opportunity_opened
+      event won
+      event lost
+
+    event_group project_* on Project
+      payload
+        project_id = id
+        customer_id = customer.id
+        org_id = org.id
+
+      event created
+        title: Text
+
+  policies
+    create: @role.admin, @role.sales
+    update: @role.admin, @role.sales
+    delete: @role.admin
+    read: @scope.same_org
+
+    fields Customer
+      name
+        read: @scope.same_org
+        write: @role.admin, @role.sales
+      email
+        read: @scope.same_org
+        write: @role.admin, @role.sales
+
+  command create_customer
+    input
+      name: Text required
+      email: @semantic.Email @pii.contact required
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    audit default
+    creates Customer
+      name = input.name
+      email = input.email
+      owner = ctx.user
+      status = CustomerStatus.lead
+    emits customer_created from creates
+    invalidates
+      query.list_customers
+
+  command qualify_customer
+    route id: ID
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    audit default
+    updates Customer
+      status = CustomerStatus.qualified
+    emits customer_qualified
+    invalidates
+      query.list_customers
+      query.customer_by_id(id: route.id)
+
+  command open_opportunity
+    route id: ID
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    audit default
+    updates Customer
+      status = CustomerStatus.opportunity
+    emits customer_opportunity_opened
+    invalidates
+      query.list_customers
+      query.customer_by_id(id: route.id)
+
+  command mark_won
+    route id: ID
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    audit default
+    updates Customer
+      status = CustomerStatus.won
+    emits customer_won
+    invalidates
+      query.list_customers
+      query.customer_by_id(id: route.id)
+
+  command mark_lost
+    route id: ID
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    audit default
+    updates Customer
+      status = CustomerStatus.lost
+    emits customer_lost
+    invalidates
+      query.list_customers
+      query.customer_by_id(id: route.id)
+
+  command create_project
+    input
+      customer_id: Customer.ID required
+      title: Text required
+    policy @policy.create
+    rate_limit "60 per hour per user"
+    audit default
+    creates Project
+      customer = input.customer_id
+      title = input.title
+      active = true
+    emits project_created from creates
+    invalidates
+      query.list_projects

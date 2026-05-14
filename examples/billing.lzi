@@ -1,9 +1,10 @@
 # Billing pressure test.
 # Exercises inbound webhooks, invoices, retries, and scheduled jobs.
+# Provider-neutral: payment gateways are wired through an abstract integration slot.
 # Design fixture only; parser and codegen coverage may lag this surface.
 
 feature billing
-  purpose "Invoices, Stripe payment webhooks, retryable billing events, and invoice status."
+  purpose "Invoices, payment-gateway webhooks, retryable billing events, and invoice status."
 
   non_goals
     delegated_to
@@ -15,6 +16,8 @@ feature billing
     policy_for jobs, webhooks: @actor.system
 
   uses org, customer
+
+  requires integration payments: PaymentGateway
 
   domain
     enum InvoiceStatus
@@ -32,14 +35,15 @@ feature billing
       currency: Text required
       issued_at: Date required
       status: InvoiceStatus = draft
-      stripe_invoice_id: Text optional
+      external_invoice_id: Text optional
+      external_provider: Text optional
 
       soft_delete
       timestamps
 
     resource BillingWebhook
       tenancy org
-      provider: Text required
+      adapter: Text required
       provider_event_id: Text required
       received_at: DateTime required
       processed_at: DateTime optional
@@ -49,7 +53,7 @@ feature billing
 
     constraints
       unique number per org
-      unique provider_event_id per provider
+      unique provider_event_id per adapter
 
     query.list list
       params
@@ -65,19 +69,14 @@ feature billing
     query.lookup by_id by id: ID
 
     event invoice_created
-      invoice_id: ID
-      customer_id: ID
-      org_id: ID
+      payload Invoice
 
     event invoice_paid
-      invoice_id: ID
-      customer_id: ID
-      org_id: ID
-      stripe_invoice_id: Text
+      payload Invoice
+      external_provider: Text optional
 
     event billing_webhook_failed
-      webhook_id: ID
-      provider_event_id: Text
+      payload BillingWebhook
 
   policies
     create: @role.admin, @role.billing_admin
@@ -96,11 +95,13 @@ feature billing
       currency = input.currency
       issued_at = input.issued_at
       number = @fn.next_invoice_number(ctx.user.org)
-    emits invoice_created
+    audit default
+    emits invoice_created from creates
 
   workflow status on Invoice.status
     policy @policy.update
     emits invoice_status_changed
+    audit default
 
     open: draft -> open
     mark_paid: open -> paid
@@ -116,12 +117,12 @@ feature billing
     handler "./jobs/retry_failed_webhooks.go"
     emits billing_webhook_failed
 
-  webhook stripe_invoice_paid
-    path "/webhooks/stripe/invoice-paid"
-    verify "./integrations/stripe.go"
+  webhook payment_invoice_paid
+    path "/webhooks/payments/invoice-paid"
+    verify "./integrations/payment_invoice_paid.go"
     tenant_from payload.org_id
     idempotency by payload.org_id, payload.provider_event_id
-    handler "./integrations/record_stripe_invoice_paid.go" returns BillingWebhook
+    handler "./integrations/record_payment_invoice_paid.go" returns BillingWebhook
     emits invoice_paid
 
   surface web admin

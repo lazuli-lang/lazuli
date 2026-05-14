@@ -1,0 +1,136 @@
+# ANTI-PATTERN — VOCAB-UNION-001 + VOCAB-AUDIT-001 + VOCAB-EVENT-PAYLOAD-001.
+#
+# This file is preserved as a NEGATIVE example. Do not consult it as a
+# design fixture. It demonstrates the polymorphic-FK shape that Rule Zero
+# ("Vocabulary Over Mechanism") and the doctor VOCAB-* lints exist to
+# eliminate.
+#
+# Specific drifts captured here:
+#
+# - `target: enum {issue, customer} + target_id: ID` is the canonical
+#   "untyped polymorphic FK" pattern. The IR + generated schema carry
+#   zero guarantee that `target_id` resolves to a row of the kind named
+#   by `target`. An LLM cold-reading the field cannot infer the FK type
+#   at all. See `docs/proposals/doctor-vocabulary-lints.md`
+#   §VOCAB-UNION-001 for the canonical refactor.
+#
+# - `command create_for_issue` and `command create_for_customer` are
+#   90% boilerplate-duplicated; only the enum tag changes. Same drift
+#   signal as the resource — the discriminator should be type-level,
+#   not value-level.
+#
+# - `query.list for_issue` / `for_customer` and `view issue_thread` /
+#   `customer_thread` repeat the same drift one more time each.
+#
+# - Neither `create_for_*` declares `audit` — VOCAB-AUDIT-001.
+#
+# - `event comment_created` lists fields inline without a `payload
+#   <Type>` typed body — VOCAB-EVENT-PAYLOAD-001.
+#
+# Refactored, sanitized fixture lives at `examples/comment.lzi`.
+# Audit report: see commit history around 2026-05-13.
+
+feature comment
+  purpose "Threaded comments on issues and customers with explicit target resources."
+
+  non_goals
+    out_of_scope
+      rich_text_editor: "rich text editor implementation"
+      activity_timeline: "cross-feature activity timeline ownership"
+
+  uses org, user, issue, customer
+
+  domain
+    enum CommentTarget
+      issue
+      customer
+
+    resource Comment
+      tenancy org
+      author: User required
+      target: CommentTarget required
+      target_id: ID required
+      parent: Comment optional
+      body: Text required
+
+      soft_delete
+      timestamps
+
+    resource CommentMention
+      tenancy org
+      comment: Comment required
+      mentioned_user: User required
+      added_by: User required
+      added_at: DateTime required
+
+    query.list for_issue
+      params
+        issue_id: ID
+
+      filters
+        target = CommentTarget.issue
+        target_id = params.issue_id
+
+      order created_at asc
+
+    query.list for_customer
+      params
+        customer_id: ID
+
+      filters
+        target = CommentTarget.customer
+        target_id = params.customer_id
+
+      order created_at asc
+
+    event comment_created
+      comment_id: ID
+      org_id: ID
+      author_id: ID
+      target: CommentTarget
+      target_id: ID
+
+  policies
+    create: @scope.same_org
+    update: @scope.owner, @role.admin
+    delete: @scope.owner, @role.admin
+    read: @scope.same_org
+
+  command create_for_issue
+    input
+      issue_id: ID
+      body: Text
+    policy @policy.create
+    rate_limit "60 per minute per user"
+    creates Comment
+      target = CommentTarget.issue
+      target_id = input.issue_id
+      body = input.body
+      author = ctx.user
+    emits comment_created
+
+  command create_for_customer
+    input
+      customer_id: ID
+      body: Text
+    policy @policy.create
+    rate_limit "60 per minute per user"
+    creates Comment
+      target = CommentTarget.customer
+      target_id = input.customer_id
+      body = input.body
+      author = ctx.user
+    emits comment_created
+
+  surface web admin
+    view issue_thread SidePanel
+      source query.for_issue(issue_id: route.issue_id)
+      block @client.thread_view
+
+    view customer_thread SidePanel
+      source query.for_customer(customer_id: route.customer_id)
+      block @client.thread_view
+
+  extensions
+    client thread_view: ViewBlock[Comment]
+    fn extract_mentions: Function[Text, User[]]

@@ -1,101 +1,34 @@
 # Notification pressure test.
-# Exercises event consumption and external effects.
-# Design fixture only; parser and codegen coverage may lag this surface.
+# Exercises the declarative `notification <name>` primitive: channel
+# dispatch, template render, retry, idempotency, and tenant fan-out
+# are all owned by the Lazuli runtime contract — no user-space queue.
 
 feature notification
   purpose "Deliver email and in-app notifications from domain events."
 
-  non_goals
-    out_of_scope
-      event_source_of_truth: "producers own their events"
-      preferences_ui: "user preferences UI beyond notification settings"
-
-  defaults
-    policy_for jobs, webhooks: @actor.system
-
   uses org, user, customer, issue
 
-  domain
-    enum NotificationChannel
-      email
-      in_app
-
-    enum NotificationStatus
-      queued
-      sent
-      failed
-
-    resource Notification
-      tenancy org
-      recipient: User required
-      channel: NotificationChannel required
-      status: NotificationStatus = queued
-      subject: Text required
-      body: Text required
-      source_event: Text required
-
-      timestamps
-
-    query.list inbox
-      params
-        recipient: User
-
-      filters
-        recipient = params.recipient
-
-      paginate 50
-
-    event notification_queued
-      notification_id: ID
-      org_id: ID
-      recipient_id: ID
-
-    event notification_sent
-      notification_id: ID
-      provider_message_id: Text
-
   policies
-    create: @actor.system
-    read: @scope.self, @role.admin
-    update: @actor.system
-    delete: @role.admin
+    notify: @actor.system
 
-  job queue_customer_archived
+  notification customer_archived
+    channel email
+    recipient target.email
     trigger event customer.customer_archived
+    tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
-    creates Notification
-      recipient = payload.by_id
-      channel = NotificationChannel.email
-      subject = "Customer archived"
-      body = @fn.render_customer_archived(payload)
-    emits notification_queued
+    template "./templates/customer_archived.mjml"
+    policy @policy.notify
+    emits customer_archived_sent
 
-  job queue_issue_assigned
+  notification issue_assigned
+    channel in_app
+    recipient target.user_id
     trigger event issue.issue_assigned
+    tenant_from payload.org_id
     idempotency by envelope.id
     retry 3 backoff exponential
-    creates Notification
-      recipient = payload.assignee_id
-      channel = NotificationChannel.in_app
-      subject = "Issue assigned"
-      body = @fn.render_issue_assigned(payload)
-    emits notification_queued
-
-  job send_queued
-    trigger schedule "*/2 * * * *"
-    fanout tenants org
-    idempotency by tenant.org_id, schedule.minute
-    retry 3 backoff exponential
-    handler "./jobs/send_queued.go"
-    emits notification_sent
-
-  surface web admin
-    view inbox Table
-      source query.inbox(recipient: ctx.user)
-      columns subject, channel, status, created_at
-      filter channel, status
-
-  extensions
-    fn render_customer_archived: Function[CustomerArchivedPayload, Text] at "./templates/customer_archived.go"
-    fn render_issue_assigned: Function[IssueAssignedPayload, Text] at "./templates/issue_assigned.go"
+    template "./templates/issue_assigned.mjml"
+    policy @policy.notify
+    emits issue_assigned_sent

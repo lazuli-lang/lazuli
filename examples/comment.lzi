@@ -1,27 +1,33 @@
-# Comment pressure test.
-# Exercises rich relations and target-specific comment lists.
-# Design fixture only; parser and codegen coverage may lag this surface.
+# Comment fixture — typed-FK shape (canonical answer to "comments on X").
+#
+# Scope: comments on issues. The polymorphic `target: enum + target_id:
+# ID` shape was retired here as part of the 2026-05-14 vocab audit
+# (BLOCK -> PASS); the prior fixture is preserved at
+# `examples/anti-patterns/comment-polymorphic-target.lzi` so readers
+# can compare typed vs. untyped polymorphic FK.
+#
+# If "comments on customers" is needed later, add a sibling resource
+# `CustomerComment` (typed FK to Customer) and a parallel command +
+# query rather than reintroducing an enum discriminator. When the
+# `union` block lands (proposal: doctor-vocabulary-lints §VOCAB-UNION-001)
+# the two resources collapse into a discriminated union.
 
 feature comment
-  purpose "Threaded comments on issues and customers with explicit target resources."
+  purpose "Threaded comments on issues, with typed FK to the issue and self-referential replies."
 
   non_goals
     out_of_scope
       rich_text_editor: "rich text editor implementation"
       activity_timeline: "cross-feature activity timeline ownership"
+      multi_target_comments: "comments on resources other than Issue (add a sibling resource per target)"
 
-  uses org, user, issue, customer
+  uses org, user, issue
 
   domain
-    enum CommentTarget
-      issue
-      customer
-
     resource Comment
       tenancy org
       author: User required
-      target: CommentTarget required
-      target_id: ID required
+      issue: Issue required
       parent: Comment optional
       body: Text required
 
@@ -40,27 +46,21 @@ feature comment
         issue_id: ID
 
       filters
-        target = CommentTarget.issue
-        target_id = params.issue_id
+        issue.id = params.issue_id
 
       order created_at asc
 
-    query.list for_customer
+    query.list replies
       params
-        customer_id: ID
+        parent_id: ID
 
       filters
-        target = CommentTarget.customer
-        target_id = params.customer_id
+        parent.id = params.parent_id
 
       order created_at asc
 
     event comment_created
-      comment_id: ID
-      org_id: ID
-      author_id: ID
-      target: CommentTarget
-      target_id: ID
+      payload Comment
 
   policies
     create: @scope.same_org
@@ -68,41 +68,25 @@ feature comment
     delete: @scope.owner, @role.admin
     read: @scope.same_org
 
-  command create_for_issue
+  command create
     input
       issue_id: ID
+      parent_id: ID optional
       body: Text
     policy @policy.create
     rate_limit "60 per minute per user"
     creates Comment
-      target = CommentTarget.issue
-      target_id = input.issue_id
+      issue.id = input.issue_id
+      parent.id = input.parent_id
       body = input.body
       author = ctx.user
-    emits comment_created
-
-  command create_for_customer
-    input
-      customer_id: ID
-      body: Text
-    policy @policy.create
-    rate_limit "60 per minute per user"
-    creates Comment
-      target = CommentTarget.customer
-      target_id = input.customer_id
-      body = input.body
-      author = ctx.user
-    emits comment_created
+    audit default
+    emits comment_created from creates
 
   surface web admin
     view issue_thread SidePanel
       source query.for_issue(issue_id: route.issue_id)
       block @client.thread_view
 
-    view customer_thread SidePanel
-      source query.for_customer(customer_id: route.customer_id)
-      block @client.thread_view
-
   extensions
     client thread_view: ViewBlock[Comment]
-    fn extract_mentions: Function[Text, User[]]
