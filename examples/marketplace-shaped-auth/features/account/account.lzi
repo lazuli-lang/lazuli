@@ -1,0 +1,79 @@
+feature account
+  defaults
+    tenancy org
+
+  uses org
+
+  domain
+    resource User
+      org: Org required
+      email: @semantic.Email required unique
+      name: Text required
+
+    resource UserSession
+      org: Org required
+      user: User required
+      token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+
+    query.list mine
+      filters
+        org_id = ctx.actor.org_id
+
+  policies
+    public: @scope.public
+    authenticated: @scope.authenticated
+
+    fields UserSession
+      token_hash
+        read: @actor.system
+        write: @actor.system
+
+  auth
+    identity User.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_password
+      verify @fn.verify_password
+      rate_limit "5 per 10 minutes per ip"
+
+    sessions
+      resource UserSession
+      ttl "7 days"
+      refresh false
+
+  command signup
+    input
+      email: @semantic.Email required
+      password: Text required
+      name: Text required
+    policy @policy.public
+    rate_limit "5 per 10 minutes per ip"
+    creates User
+      email = input.email
+      name = input.name
+
+  command login
+    input
+      email: @semantic.Email required
+      password: Text required
+    policy @policy.public
+    rate_limit "5 per 10 minutes per ip"
+    returns AuthSession
+
+  command me
+    returns User
+    policy @policy.authenticated
+
+  api me_http
+    method GET
+    path "/me"
+    output User
+    policy @policy.authenticated
+    handler @fn.me
+
+  extensions
+    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./account/hash_password.go"
+    fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./account/verify_password.go"
+    fn me: Function[ActorContext, User] at "./account/me.go"
