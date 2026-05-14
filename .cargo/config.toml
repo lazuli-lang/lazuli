@@ -1,0 +1,5 @@
+# No linker override needed — requires build-essential + libc6-dev in the container image.
+# The fake-gcc.sh workaround from LAZ-9 is removed: it produced binaries with a zero
+# entry point (no CRT startup objects) causing SIGSEGV in every build script binary.
+# See LAZ-43 for the diagnosis. After the container is rebuilt with build-essential,
+# `cc` resolves to system gcc and cargo links correctly.
