@@ -289,6 +289,19 @@ pub fn emit_module(
         });
     }
 
+    // PG.C — emit `dist/go/plan/catalog.gen.go` when the analyzer
+    // surfaced plan facts. The file is skipped when the package
+    // declares no `plan` blocks (the runtime defaults to "no
+    // subscription gating").
+    if let Some(facts) = &options.plan_gate {
+        if let Some(contents) = crate::emitter::plan::emit_plan_catalog_file(facts) {
+            files.push(GeneratedFile {
+                path: "plan/catalog.gen.go".to_owned(),
+                contents,
+            });
+        }
+    }
+
     let source_context = source_context.as_ref();
 
     for feature in features.values() {

@@ -1974,10 +1974,16 @@ pub(crate) fn generate_go(
         .map(|s| s.to_owned())
         .unwrap_or_else(|| lazuli_codegen_go::LAZULI_GO_VERSION.to_owned());
 
+    // PG.C — compute plan-and-gate facts from the .lzi sources so
+    // codegen emits `dist/go/plan/catalog.gen.go` when the package
+    // authors plans.
+    let plan_gate = collect_plan_gate_facts_for_generate(input);
+
     let options = lazuli_codegen_go::GoEmitOptions {
         module_name: Some(module_name),
         lazuli_go_version: go_version,
         check,
+        plan_gate,
     };
     let files = if let Some((source_map, feature_file_ids)) = source_context.as_ref() {
         lazuli_codegen_go::generate_v1_with_manifest_and_source(
@@ -3109,6 +3115,75 @@ fn project_root_for_input(input: &Path) -> PathBuf {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf()
+}
+
+/// PG.C — walk `.lzi` files under `input` and aggregate plan-and-gate
+/// facts in the codegen emit shape. Returns `None` when no plan
+/// blocks, gate directives, or subscription anchors are declared
+/// (codegen skips `dist/go/plan/catalog.gen.go`).
+fn collect_plan_gate_facts_for_generate(
+    input: &Path,
+) -> Option<lazuli_codegen_go::PlanGateEmitFacts> {
+    let mut plan_blocks: Vec<lazuli_syntax::PlanBlockAst> = Vec::new();
+    let mut feature_gates: Vec<(String, lazuli_syntax::FeatureGatesAst)> = Vec::new();
+    let mut anchor: Option<lazuli_ir::SubscriptionAnchor> = None;
+
+    let project_root = project_root_for_input(input);
+    let mut stack: Vec<PathBuf> = vec![project_root];
+    while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            let Ok(entries) = fs::read_dir(&path) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                stack.push(entry.path());
+            }
+            continue;
+        }
+        if path.extension().and_then(|s| s.to_str()) != Some("lzi") {
+            continue;
+        }
+        let Ok(source) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if anchor.is_none() {
+            if let Some(a) = lazuli_analyzer::parse_subscription_anchor(&source) {
+                anchor = Some(a);
+            }
+        }
+        if let Ok(blocks) = lazuli_syntax::parse_plan_blocks(&source) {
+            plan_blocks.extend(blocks);
+        }
+        if let Ok(fg) = lazuli_syntax::parse_feature_gates(&source) {
+            if !fg.callables.is_empty() {
+                let feature_name = source
+                    .lines()
+                    .find_map(|l| l.trim_start().strip_prefix("feature ").map(|s| s.to_owned()))
+                    .and_then(|s| s.split_whitespace().next().map(|s| s.to_owned()))
+                    .unwrap_or_else(|| {
+                        path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_owned()
+                    });
+                feature_gates.push((feature_name, fg));
+            }
+        }
+    }
+
+    if plan_blocks.is_empty() && feature_gates.is_empty() && anchor.is_none() {
+        return None;
+    }
+    let facts = lazuli_analyzer::aggregate_plan_gate_facts(
+        &plan_blocks,
+        &feature_gates,
+        anchor,
+    );
+    Some(lazuli_codegen_go::PlanGateEmitFacts {
+        catalog: facts.catalog,
+        subscription_anchor: facts.subscription_anchor,
+        gates: facts.gates,
+    })
 }
 
 fn init_command(path: &Path) -> Result<()> {

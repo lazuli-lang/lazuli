@@ -169,3 +169,22 @@ type ErrPlanLookupFailed struct {
 func (e ErrPlanLookupFailed) Error() string {
 	return "plan lookup failed: " + e.Reason
 }
+
+// GateRef is the codegen-emitted record describing one gate directive
+// on a callable. The generated `dist/go/plan/catalog.gen.go` exposes
+// a `GatedCallables` map of these so debug / introspection layers can
+// enumerate every gated callable in the package.
+type GateRef struct {
+	Kind GateKind
+	Name string
+}
+
+// GateKind is the closed enum of v0.1 gate axes.
+type GateKind uint8
+
+const (
+	// GateBehind corresponds to `gate behind plan.feature: <name>`.
+	GateBehind GateKind = iota
+	// GateQuota corresponds to `gate quota plan.limit: <name>`.
+	GateQuota
+)

@@ -96,6 +96,23 @@ pub struct GoEmitOptions {
     /// "do not write" branch. Reserved for the §6.2.1 error catalog
     /// landing in cell I4.
     pub check: bool,
+    /// PG.C — package-wide plan catalog + per-callable gate facts.
+    /// When present the emitter generates `dist/go/plan/catalog.gen.go`
+    /// + 3-line gate preludes on every gated callable handler.
+    pub plan_gate: Option<PlanGateEmitFacts>,
+}
+
+/// PG.C — wire-thin codegen view of the analyzer's `PlanGateFacts`.
+/// Re-exposed from `lazuli_ir` so the codegen crate does not have to
+/// take a dependency on `lazuli_analyzer`. The CLI layer translates
+/// `lazuli_analyzer::PlanGateFacts` into this shape.
+#[derive(Debug, Clone, Default)]
+pub struct PlanGateEmitFacts {
+    pub catalog: Option<lazuli_ir::PlanCatalog>,
+    pub subscription_anchor: Option<lazuli_ir::SubscriptionAnchor>,
+    /// Keyed by `<feature>/<callable_kind>:<callable_name>` —
+    /// matches what `lazuli_analyzer::PlanGateFacts.gates` produces.
+    pub gates: BTreeMap<String, Vec<lazuli_ir::Gate>>,
 }
 
 impl Default for GoEmitOptions {
@@ -104,6 +121,7 @@ impl Default for GoEmitOptions {
             module_name: None,
             lazuli_go_version: LAZULI_GO_VERSION.to_owned(),
             check: false,
+            plan_gate: None,
         }
     }
 }

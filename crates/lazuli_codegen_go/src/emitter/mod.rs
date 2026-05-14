@@ -33,6 +33,7 @@ pub mod migration_ddl;
 pub mod module;
 pub mod notification;
 pub mod patterns;
+pub mod plan;
 pub mod printer;
 pub mod query;
 pub mod resource;

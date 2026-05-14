@@ -387,6 +387,7 @@ fn module_name_override_wins_over_app_name() {
         module_name: Some("github.com/acme/custom-name".to_owned()),
         lazuli_go_version: LAZULI_GO_VERSION.to_owned(),
         check: false,
+        plan_gate: None,
     };
     let files = generate_v1(&module, &options);
     let go_mod = files
@@ -546,6 +547,7 @@ fn lazuli_go_version_override_lands_in_go_mod() {
         module_name: None,
         lazuli_go_version: "v9.9.9".to_owned(),
         check: false,
+        plan_gate: None,
     };
     let files = generate_v1(&module, &options);
     let go_mod = files
