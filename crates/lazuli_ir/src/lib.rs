@@ -3069,6 +3069,28 @@ pub struct AuthSessions {
     pub ttl: String,
     /// `refresh false` — whether refresh tokens are issued.
     pub refresh: bool,
+    /// Extra session-table columns beyond the v0 baseline
+    /// (`id`, `user`, `token_hash`, `expires_at`, `created_at`).
+    /// Empty for single-tenant resources — back-compat guaranteed.
+    #[serde(default)]
+    pub extra_columns: Vec<SessionExtraColumn>,
+}
+
+/// One non-baseline column on a session resource (e.g. `org: Org required`).
+/// Populated by the lowering pass from the resource's `FieldSpec` list;
+/// consumed by the `auth_session` codegen emitter for typed shim emission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionExtraColumn {
+    /// DSL field name as declared (`"org"`).
+    pub field_name: String,
+    /// SQL column name derived from the field (`"org_id"`).
+    pub column_name: String,
+    /// Go type string for the emitted parameter (`"lazuli.ID"`).
+    pub go_type: String,
+    /// Referenced resource name if the field is a resource ref (`"Org"`).
+    pub references: Option<String>,
+    /// Whether the column carries a `required` constraint.
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
