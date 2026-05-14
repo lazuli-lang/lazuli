@@ -44,6 +44,19 @@ pub fn router_useparams_import(target: RouterTarget) -> &'static str {
     }
 }
 
+/// Emit the import line for the target's search-param hook.
+pub fn router_usesearchparams_import(target: RouterTarget) -> &'static str {
+    match target {
+        RouterTarget::ViteReact | RouterTarget::Tauri => {
+            "import { useSearchParams } from \"@tanstack/react-router\";\n"
+        }
+        RouterTarget::NextJs => "import { useSearchParams } from \"next/navigation\";\n",
+        RouterTarget::Expo => {
+            "import { useLocalSearchParams as useSearchParams } from \"expo-router\";\n"
+        }
+    }
+}
+
 /// Translate a portable `.lzx` route path (Express-style `:param`) into
 /// the syntax expected by the target router. Authors write `:key`; each
 /// router consumes its own dialect.

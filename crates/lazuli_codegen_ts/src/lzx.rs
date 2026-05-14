@@ -34,6 +34,9 @@ pub mod lzx_router_adapter;
 #[path = "lzx_aux.rs"]
 pub mod lzx_aux;
 
+#[path = "lzx_filters.rs"]
+pub mod lzx_filters;
+
 #[path = "lzx_view_list.rs"]
 pub mod lzx_view_list;
 
