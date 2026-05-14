@@ -1,0 +1,39 @@
+# VOCAB-AUDIT-001 - negative: query block, not command.
+# Expected: rule SHOULD NOT fire.
+# Queries are read-side declarations; audit is required only for mutating
+# command effects such as creates, updates, deletes, or emits.
+
+feature audit_negative_query_block
+  domain
+    resource Publication
+      title: Text required
+      slug: Text required unique
+      author_name: Text required
+      category: Text required
+      status: Text required
+      summary: Text optional
+      created_at: DateTime required
+      published_at: DateTime optional
+
+    query.list published
+      params
+        status: Text required
+        category: Text optional
+        author_name: Text optional
+
+      filters
+        status = params.status
+        category = params.category
+        author_name = params.author_name
+
+      paginate 25
+
+  policies
+    read: @scope.public
+
+  api published
+    method GET
+    path "/published"
+    output Publication
+    policy @policy.read
+    handler @fn.list_published
