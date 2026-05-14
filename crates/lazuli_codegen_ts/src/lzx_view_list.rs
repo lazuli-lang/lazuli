@@ -13,6 +13,7 @@ use crate::lzx::{
     command_ident, format_cells_literal, format_string_array, lower_camel, pascal_case, query_ident,
     view_hook_name, view_spec_const,
 };
+use crate::lzx::lzx_aux;
 use crate::lzx::{ListRender, SearchDecl, SearchMode, SelectionMode};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
@@ -21,6 +22,7 @@ pub fn emit_view_list(surface: &Surface, audience: &Audience, view: &ViewList) -
     s.push_str(banner());
 
     write_imports(&mut s, surface, view);
+    lzx_aux::write_setting_keys(&mut s, surface, view);
     write_spec_const(&mut s, audience, view);
     write_column_assert(&mut s, audience, view, surface);
     write_slot_interface(&mut s, audience, view, surface);
@@ -38,14 +40,17 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
     // 1. Runtime hooks.
     writeln!(s, "import {{").ok();
     writeln!(s, "  useLazuliQuery,").ok();
-    if !view.actions.is_empty() || has_drawer_delete {
+    if !view.actions.is_empty() || has_drawer_delete || lzx_aux::needs_bulk_commands(view) {
         writeln!(s, "  useLazuliCommand,").ok();
     }
     if has_drawer {
         writeln!(s, "  useDrawerSubView,").ok();
     }
-    if has_multi_selection {
+    if has_multi_selection || lzx_aux::needs_multi_selection(view) {
         writeln!(s, "  useMultiSelection,").ok();
+    }
+    if lzx_aux::needs_local_setting(view) {
+        writeln!(s, "  useLocalSetting,").ok();
     }
     writeln!(s, "  type UseLazuliQueryOptions,").ok();
     writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
@@ -57,6 +62,11 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
             "import {{ useRouterState }} from \"@tanstack/react-router\";"
         )
         .ok();
+    } else if lzx_aux::needs_use_state(view) {
+        writeln!(s, "import {{ useState }} from \"react\";").ok();
+        if !view.cells.is_empty() {
+            writeln!(s, "import type * as React from \"react\";").ok();
+        }
     } else if !view.cells.is_empty() {
         writeln!(s, "import type * as React from \"react\";").ok();
     }
@@ -85,6 +95,12 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
                 .insert(command_ident(cmd));
         }
     }
+    for ident in lzx_aux::unique_bulk_command_imports(view) {
+        sdk_imports
+            .entry(surface.feature.clone())
+            .or_default()
+            .insert(ident);
+    }
     sdk_imports
         .entry(surface.feature.clone())
         .or_default()
@@ -110,6 +126,7 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
     }
     s.push('\n');
 }
+
 
 fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     let const_name = view_spec_const(&audience.name, &view.name);
@@ -272,7 +289,8 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
         const_name
     )
     .ok();
-    if is_multi_selection(view) {
+    lzx_aux::write_hook_state(s, surface, view);
+    if is_multi_selection(view) && view.selection.is_none() {
         writeln!(
             s,
             "  const selection = useMultiSelection<string>(query.data ?? []);"
@@ -343,9 +361,7 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
             .collect();
         writeln!(s, "    actions: {{ {} }},", parts.join(", ")).ok();
     }
-    if is_multi_selection(view) {
-        writeln!(s, "    selection,").ok();
-    }
+    lzx_aux::write_return_fields(s, view);
     if view.drawer.is_some() {
         writeln!(s, "    drawer,").ok();
         writeln!(s, "    cellClick,").ok();
