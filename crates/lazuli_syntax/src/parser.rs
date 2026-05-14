@@ -4777,14 +4777,7 @@ fn parse_resource_decl(
     let child_indent = header_indent + 2;
     let grandchild_indent = header_indent + 4;
 
-    let mut previously: Vec<String> = Vec::new();
-    let mut tenancy: Option<DefaultsTenancy> = None;
-    let mut fields: Vec<ResourceFieldDecl> = Vec::new();
-    let mut has_many: Vec<ResourceHasMany> = Vec::new();
-    let mut soft_delete = false;
-    let mut timestamps = false;
-    let mut retention: Option<ResourceRetention> = None;
-    let mut validates: Vec<String> = Vec::new();
+    let mut state = ResourceBodyState::default();
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -4806,49 +4799,44 @@ fn parse_resource_decl(
             ));
         }
 
-        if let Some(rest) = trimmed.strip_prefix("previously ") {
-            previously.push(rest.trim().to_owned());
+        if trimmed == "soft_delete" {
+            state.soft_delete = true;
             last_end = line.end;
             i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("tenancy ") {
-            let axis = rest.trim();
-            if axis.is_empty() {
-                return Err(line_error(
-                    line,
-                    "`resource tenancy` requires an axis (`org`, `team`, `none`, or a custom name)",
-                ));
-            }
-            tenancy = Some(parse_defaults_tenancy(axis));
+            continue;
+        }
+        if trimmed == "timestamps" {
+            state.timestamps = true;
             last_end = line.end;
             i += 1;
-        } else if trimmed == "soft_delete" {
-            soft_delete = true;
-            last_end = line.end;
-            i += 1;
-        } else if trimmed == "timestamps" {
-            timestamps = true;
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("retention ") {
-            retention = Some(parse_resource_retention(line, rest)?);
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("validates ") {
-            validates.push(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("has_many ") {
-            has_many.push(parse_resource_has_many(line, rest)?);
-            last_end = line.end;
-            i += 1;
-        } else if trimmed.contains(':') {
+            continue;
+        }
+
+        if trimmed.contains(':')
+            && !resource_body_handlers()
+                .iter()
+                .any(|(prefix, _)| trimmed.starts_with(prefix))
+        {
             // `<name>: <Type> [modifiers...]` field declaration. Consume
             // optional `previously` grandchild block.
             let (field, next) = parse_resource_field_decl(lines, i, grandchild_indent)?;
-            fields.push(field);
+            state.fields.push(field);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
-        } else {
+            continue;
+        }
+
+        let mut matched = false;
+        for (prefix, handler) in resource_body_handlers() {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                handler(line, rest, &mut state)?;
+                last_end = line.end;
+                i += 1;
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
             return Err(line_error(
                 line,
                 "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, or `<field>: <Type>`",
@@ -4859,18 +4847,95 @@ fn parse_resource_decl(
     Ok((
         ResourceDecl {
             name,
-            previously,
-            tenancy,
-            fields,
-            has_many,
-            soft_delete,
-            timestamps,
-            retention,
-            validates,
+            previously: state.previously,
+            tenancy: state.tenancy,
+            fields: state.fields,
+            has_many: state.has_many,
+            soft_delete: state.soft_delete,
+            timestamps: state.timestamps,
+            retention: state.retention,
+            validates: state.validates,
             span: Span::new(header.start, last_end),
         },
         i,
     ))
+}
+
+#[derive(Default)]
+struct ResourceBodyState {
+    previously: Vec<String>,
+    tenancy: Option<DefaultsTenancy>,
+    fields: Vec<ResourceFieldDecl>,
+    has_many: Vec<ResourceHasMany>,
+    soft_delete: bool,
+    timestamps: bool,
+    retention: Option<ResourceRetention>,
+    validates: Vec<String>,
+}
+
+type ResourceBodyHandler =
+    for<'a> fn(&SourceLine<'a>, &str, &mut ResourceBodyState) -> Result<(), ParseError>;
+
+fn resource_body_handlers() -> &'static [(&'static str, ResourceBodyHandler)] {
+    &[
+        ("previously ", handle_resource_previously),
+        ("tenancy ", handle_resource_tenancy),
+        ("retention ", handle_resource_retention),
+        ("validates ", handle_resource_validates),
+        ("has_many ", handle_resource_has_many),
+    ]
+}
+
+fn handle_resource_previously(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    state.previously.push(rest.trim().to_owned());
+    Ok(())
+}
+
+fn handle_resource_tenancy(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    let axis = rest.trim();
+    if axis.is_empty() {
+        return Err(line_error(
+            line,
+            "`resource tenancy` requires an axis (`org`, `team`, `none`, or a custom name)",
+        ));
+    }
+    state.tenancy = Some(parse_defaults_tenancy(axis));
+    Ok(())
+}
+
+fn handle_resource_retention(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    state.retention = Some(parse_resource_retention(line, rest)?);
+    Ok(())
+}
+
+fn handle_resource_validates(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    state.validates.push(rest.trim().to_owned());
+    Ok(())
+}
+
+fn handle_resource_has_many(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    state.has_many.push(parse_resource_has_many(line, rest)?);
+    Ok(())
 }
 
 fn parse_resource_retention(
