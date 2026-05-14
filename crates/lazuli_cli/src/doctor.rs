@@ -1,3 +1,4 @@
+pub mod hook_target_001;
 pub mod vocab;
 
 use std::collections::{BTreeMap, BTreeSet};
