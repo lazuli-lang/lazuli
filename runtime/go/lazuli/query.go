@@ -1,6 +1,12 @@
 package lazuli
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+)
 
 // QueryKind names which canonical query shape a `Query[A, R]` represents.
 // Mirrors the DSL `query.list`, `query.lookup`, `query.sql` distinction.
@@ -164,4 +170,59 @@ type queryErased struct {
 	SQL        string
 	Returns    string
 	Cache      *CacheSpec
+}
+
+// maxFTSQueryLen caps the user-supplied FTS search string to prevent
+// abnormally large tsquery inputs from reaching Postgres.
+const maxFTSQueryLen = 256
+
+// SearchFTS runs a Postgres websearch_to_tsquery FTS search against the named
+// table's `fts` tsvector column, tenant-scoped via ctx.Tenant.OrgID. Results
+// are ordered by ts_rank descending. The caller must close the returned Rows.
+// The resource must declare `fts on (...)` in its .lzi — generated migrations
+// create the matching GIN index.
+func SearchFTS(ctx *Ctx, table string, userQuery string) (pgx.Rows, error) {
+	sql, values, err := buildFTSQuery(ctx, table, userQuery)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := DB().Query(ctx, sql, values...)
+	if err != nil {
+		return nil, &Error{Status: 500, Code: CodeInternal,
+			Message: "SearchFTS query failed: " + err.Error()}
+	}
+	return rows, nil
+}
+
+// buildFTSQuery constructs the SQL and bound args for SearchFTS. Extracted so
+// the SQL shape can be asserted in unit tests without a live DB.
+func buildFTSQuery(ctx *Ctx, table string, userQuery string) (string, []any, error) {
+	if userQuery == "" {
+		return "", nil, &Error{Status: 400, Code: CodeBadRequest,
+			Message: "SearchFTS: userQuery must not be empty"}
+	}
+	if len(userQuery) > maxFTSQueryLen {
+		return "", nil, &Error{Status: 400, Code: CodeBadRequest,
+			Message: fmt.Sprintf("SearchFTS: userQuery exceeds %d characters", maxFTSQueryLen)}
+	}
+
+	var conds []string
+	var values []any
+
+	if ctx.Tenant != nil {
+		conds = append(conds, fmt.Sprintf("org_id = $%d", len(values)+1))
+		values = append(values, ctx.Tenant.OrgID)
+	}
+
+	values = append(values, userQuery)
+	qp := fmt.Sprintf("$%d", len(values))
+	conds = append(conds, fmt.Sprintf("fts @@ websearch_to_tsquery('simple', %s)", qp))
+
+	sql := "SELECT * FROM " + quoteIdent(table)
+	if len(conds) > 0 {
+		sql += " WHERE " + strings.Join(conds, " AND ")
+	}
+	sql += fmt.Sprintf(" ORDER BY ts_rank(fts, websearch_to_tsquery('simple', %s)) DESC", qp)
+
+	return sql, values, nil
 }
