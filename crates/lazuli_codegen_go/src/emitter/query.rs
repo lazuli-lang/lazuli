@@ -816,30 +816,17 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
 }
 
 fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in split_ident_tokens(s) {
-        if word.is_empty() {
-            continue;
-        }
-        if is_acronym(&word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            for u in first.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
+    super::casing::pascal_case(s)
 }
 
 fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
 }
 
+/// Local helper used only by `resource_for_query` scoring: split an
+/// identifier into lowercase tokens. The shared `casing::split_words`
+/// preserves case (`fooBar` → `["foo", "Bar"]`); the scorer wants
+/// lowercase tokens for direct equality + plural matching.
 fn split_ident_tokens(s: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut current = String::new();
@@ -874,13 +861,6 @@ fn plural(word: &str) -> String {
     } else {
         format!("{word}s")
     }
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid"
-    )
 }
 
 fn escape_string(raw: &str) -> String {

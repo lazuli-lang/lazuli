@@ -1414,68 +1414,7 @@ fn exported_func_name(name: &str) -> String {
 }
 
 fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in split_words(s) {
-        if word.is_empty() {
-            continue;
-        }
-        if is_acronym(&word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            for upper in first.to_uppercase() {
-                out.push(upper);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
-}
-
-fn split_words(s: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut current = String::new();
-    let chars: Vec<char> = s.chars().collect();
-
-    let flush = |current: &mut String, words: &mut Vec<String>| {
-        if !current.is_empty() {
-            words.push(std::mem::take(current));
-        }
-    };
-
-    for (index, &ch) in chars.iter().enumerate() {
-        if !(ch.is_ascii_alphanumeric()) {
-            flush(&mut current, &mut words);
-            continue;
-        }
-
-        if ch.is_ascii_uppercase() {
-            let prev_lower = index > 0
-                && (chars[index - 1].is_ascii_lowercase() || chars[index - 1].is_ascii_digit());
-            let next_lower = index + 1 < chars.len() && chars[index + 1].is_ascii_lowercase();
-            if !current.is_empty() && (prev_lower || next_lower) {
-                if !next_lower {
-                    current.push(ch);
-                    continue;
-                }
-                flush(&mut current, &mut words);
-            }
-        }
-
-        current.push(ch);
-    }
-    flush(&mut current, &mut words);
-
-    words
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid"
-    )
+    super::casing::pascal_case(s)
 }
 
 fn escape_string(raw: &str) -> String {

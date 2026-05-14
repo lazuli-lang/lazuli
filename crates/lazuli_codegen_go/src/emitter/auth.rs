@@ -467,35 +467,11 @@ fn escape_route_segment(raw: &str) -> String {
 }
 
 fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-') {
-        if word.is_empty() {
-            continue;
-        }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            for u in first.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
+    super::casing::pascal_case(s)
 }
 
 fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid" | "mfa"
-    )
 }
 
 fn escape_string(raw: &str) -> String {

@@ -257,36 +257,8 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     p.blank();
 }
 
-/// PascalCase that mirrors `resource.rs::pascal_case` — splits on `_`
-/// and `-`, recognises canonical acronyms (`id`, `url`, `api`, ...).
-/// Kept local so the enum emitter has no reverse dependency on
-/// `resource.rs`.
 fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-') {
-        if word.is_empty() {
-            continue;
-        }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            for u in first.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid"
-    )
+    super::casing::pascal_case(s)
 }
 
 #[cfg(test)]
