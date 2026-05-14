@@ -8,10 +8,10 @@ use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentFormattingParams, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult,
-    InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, Position, Range,
-    ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-    Url,
+    DocumentSymbolResponse, Documentation, Hover, HoverContents, HoverParams, InitializeParams,
+    InitializeResult, InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, Position,
+    Range, ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
@@ -132,7 +132,12 @@ impl LanguageServer for Backend {
         let Some(word) = word_at_position(source, position) else {
             return Ok(None);
         };
-        let Some(description) = keyword_description(&word) else {
+        let description = if is_design_lzi_uri(&uri) {
+            design_keyword_description(&word).or_else(|| keyword_description(&word))
+        } else {
+            keyword_description(&word)
+        };
+        let Some(description) = description else {
             return Ok(None);
         };
 
@@ -151,6 +156,12 @@ impl LanguageServer for Backend {
         // `@cap.File(...)` falls back to the keyword list + Row 27
         // auth catalog values (argon2id/bcrypt/google/etc).
         let uri = params.text_document_position.text_document.uri;
+        if is_design_lzi_uri(&uri) {
+            return Ok(Some(CompletionResponse::Array(completion_items_for_uri(
+                &uri,
+            ))));
+        }
+
         let position = params.text_document_position.position;
         let documents = self.documents.read().await;
         if let Some(source) = documents.get(&uri) {
@@ -159,44 +170,9 @@ impl LanguageServer for Backend {
             }
         }
         drop(documents);
-        let mut items: Vec<CompletionItem> = KEYWORDS
-            .iter()
-            .map(|keyword| CompletionItem {
-                label: (*keyword).to_owned(),
-                kind: Some(CompletionItemKind::KEYWORD),
-                detail: keyword_description(keyword).map(str::to_owned),
-                ..CompletionItem::default()
-            })
-            .collect();
-        items.extend(AUTH_CATALOG_VALUES.iter().map(|value| CompletionItem {
-            label: (*value).to_owned(),
-            kind: Some(CompletionItemKind::VALUE),
-            detail: auth_catalog_detail(value).map(str::to_owned),
-            ..CompletionItem::default()
-        }));
-        // Migrations bucket cycle Route C — closed `deploy.strategy`
-        // catalog. Hovers/completions surface the three rollout patterns.
-        items.extend(DEPLOY_STRATEGY_VALUES.iter().map(|value| CompletionItem {
-            label: (*value).to_owned(),
-            kind: Some(CompletionItemKind::VALUE),
-            detail: deploy_strategy_detail(value).map(str::to_owned),
-            ..CompletionItem::default()
-        }));
-        // Notifications expanded bucket cycle — closed
-        // `notification.digest.template_strategy` catalog. Two
-        // strategies; LSP completion narrows authoring before doctor
-        // surfaces an unknown value.
-        items.extend(
-            NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES
-                .iter()
-                .map(|value| CompletionItem {
-                    label: (*value).to_owned(),
-                    kind: Some(CompletionItemKind::VALUE),
-                    detail: notification_digest_template_strategy_detail(value).map(str::to_owned),
-                    ..CompletionItem::default()
-                }),
-        );
-        Ok(Some(CompletionResponse::Array(items)))
+        Ok(Some(CompletionResponse::Array(completion_items_for_uri(
+            &uri,
+        ))))
     }
 
     async fn document_symbol(
@@ -287,6 +263,55 @@ impl LanguageServer for Backend {
             formatted,
         )]))
     }
+}
+
+fn completion_items_for_uri(uri: &Url) -> Vec<CompletionItem> {
+    if is_design_lzi_uri(uri) {
+        return design_keyword_completion_items();
+    }
+
+    lazuli_keyword_completion_items()
+}
+
+fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
+    let mut items: Vec<CompletionItem> = KEYWORDS
+        .iter()
+        .map(|keyword| CompletionItem {
+            label: (*keyword).to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            detail: keyword_description(keyword).map(str::to_owned),
+            ..CompletionItem::default()
+        })
+        .collect();
+    items.extend(AUTH_CATALOG_VALUES.iter().map(|value| CompletionItem {
+        label: (*value).to_owned(),
+        kind: Some(CompletionItemKind::VALUE),
+        detail: auth_catalog_detail(value).map(str::to_owned),
+        ..CompletionItem::default()
+    }));
+    // Migrations bucket cycle Route C — closed `deploy.strategy`
+    // catalog. Hovers/completions surface the three rollout patterns.
+    items.extend(DEPLOY_STRATEGY_VALUES.iter().map(|value| CompletionItem {
+        label: (*value).to_owned(),
+        kind: Some(CompletionItemKind::VALUE),
+        detail: deploy_strategy_detail(value).map(str::to_owned),
+        ..CompletionItem::default()
+    }));
+    // Notifications expanded bucket cycle — closed
+    // `notification.digest.template_strategy` catalog. Two
+    // strategies; LSP completion narrows authoring before doctor
+    // surfaces an unknown value.
+    items.extend(
+        NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES
+            .iter()
+            .map(|value| CompletionItem {
+                label: (*value).to_owned(),
+                kind: Some(CompletionItemKind::VALUE),
+                detail: notification_digest_template_strategy_detail(value).map(str::to_owned),
+                ..CompletionItem::default()
+            }),
+    );
+    items
 }
 
 #[allow(deprecated)]
@@ -11517,6 +11542,30 @@ fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
 }
 
+fn is_design_lzi_uri(uri: &Url) -> bool {
+    uri.path().ends_with("design.lzi")
+}
+
+fn design_keyword_completion_items() -> Vec<CompletionItem> {
+    DESIGN_KEYWORDS
+        .iter()
+        .map(|keyword| CompletionItem {
+            label: (*keyword).to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            detail: design_keyword_description(keyword).map(str::to_owned),
+            documentation: design_keyword_description(keyword).map(|description| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!(
+                        "`{keyword}`\n\n{description}\n\nSee [design tokens](docs/proposals/design-tokens.md)."
+                    ),
+                })
+            }),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
 /// Row 30 — context-aware closed-catalog completions for the four
 /// `@cap.File(...)` argument values. Returns `None` outside of
 /// `@cap.File(...)`; when inside, looks at the most recent keyword
@@ -11607,6 +11656,81 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
             })
             .collect(),
     )
+}
+
+fn design_keyword_description(keyword: &str) -> Option<&'static str> {
+    match keyword {
+        "design" => Some(
+            "Declares the project-root design token catalog. See `docs/proposals/design-tokens.md`.",
+        ),
+        "extends" => Some(
+            "Declares a base design catalog that this design overrides. See `docs/proposals/design-tokens.md`.",
+        ),
+        "color" => Some(
+            "Closed design token group for brand, semantic, and surface colors. See `docs/proposals/design-tokens.md`.",
+        ),
+        "typography" => Some(
+            "Closed design token group for type families, scales, weights, and tracking. See `docs/proposals/design-tokens.md`.",
+        ),
+        "space" => Some(
+            "Closed design token group for the spacing scale. See `docs/proposals/design-tokens.md`.",
+        ),
+        "radius" => Some(
+            "Closed design token group for border radius values. See `docs/proposals/design-tokens.md`.",
+        ),
+        "shadow" => Some(
+            "Closed design token group for CSS box-shadow elevation values. See `docs/proposals/design-tokens.md`.",
+        ),
+        "motion" => Some(
+            "Closed design token group for transition and animation primitives. See `docs/proposals/design-tokens.md`.",
+        ),
+        "breakpoint" => Some(
+            "Closed design token group for responsive viewport cutoffs. See `docs/proposals/design-tokens.md`.",
+        ),
+        "z" => Some(
+            "Closed design token group for stacking order values. See `docs/proposals/design-tokens.md`.",
+        ),
+        "family" => Some(
+            "Typography sub-group for named font stacks. See `docs/proposals/design-tokens.md`.",
+        ),
+        "scale" => Some(
+            "Typography sub-group for named text sizes and line heights. See `docs/proposals/design-tokens.md`.",
+        ),
+        "weight" => Some(
+            "Typography sub-group for named font weights. See `docs/proposals/design-tokens.md`.",
+        ),
+        "tracking" => Some(
+            "Typography sub-group for named letter-spacing values. See `docs/proposals/design-tokens.md`.",
+        ),
+        "duration" => Some(
+            "Motion sub-group for named transition durations. See `docs/proposals/design-tokens.md`.",
+        ),
+        "easing" => {
+            Some("Motion sub-group for named easing curves. See `docs/proposals/design-tokens.md`.")
+        }
+        "size" => Some(
+            "Typography scale field for a text token's font size. See `docs/proposals/design-tokens.md`.",
+        ),
+        "line_height" => Some(
+            "Typography scale field for a text token's line height. See `docs/proposals/design-tokens.md`.",
+        ),
+        "base" => Some(
+            "Required default color state; also commonly used as a token name. See `docs/proposals/design-tokens.md`.",
+        ),
+        "hover" => Some(
+            "Optional color state for mouse hover or touch press start. See `docs/proposals/design-tokens.md`.",
+        ),
+        "active" => Some(
+            "Optional color state for mouse down or touch press end. See `docs/proposals/design-tokens.md`.",
+        ),
+        "foreground" => Some(
+            "Optional text/icon color when the token is used as a background. See `docs/proposals/design-tokens.md`.",
+        ),
+        "dark" => Some(
+            "Optional dark-theme suffix for a color value. See `docs/proposals/design-tokens.md`.",
+        ),
+        _ => None,
+    }
 }
 
 pub fn keyword_description(keyword: &str) -> Option<&'static str> {
@@ -12104,6 +12228,32 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+const DESIGN_KEYWORDS: &[&str] = &[
+    "design",
+    "extends",
+    "color",
+    "typography",
+    "space",
+    "radius",
+    "shadow",
+    "motion",
+    "breakpoint",
+    "z",
+    "family",
+    "scale",
+    "weight",
+    "tracking",
+    "duration",
+    "easing",
+    "size",
+    "line_height",
+    "base",
+    "hover",
+    "active",
+    "foreground",
+    "dark",
+];
 
 const KEYWORDS: &[&str] = &[
     "workspace",
@@ -16090,8 +16240,66 @@ aggregate Customer {
     // for `@cap.File(...)` argument keywords.
     // ----------------------------------------------------------------
 
-    use super::{KEYWORDS, cap_file_value_completions, keyword_description};
+    use super::{
+        DESIGN_KEYWORDS, KEYWORDS, cap_file_value_completions, completion_items_for_uri,
+        design_keyword_description, keyword_description,
+    };
     use tower_lsp::lsp_types::Position;
+
+    #[test]
+    fn design_lzi_completion_surfaces_token_groups() {
+        let uri = Url::parse("file:///workspace/design.lzi").unwrap();
+        let items = completion_items_for_uri(&uri);
+        let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+
+        for group in [
+            "color",
+            "typography",
+            "space",
+            "radius",
+            "shadow",
+            "motion",
+            "breakpoint",
+            "z",
+        ] {
+            assert!(
+                labels.contains(&group),
+                "`design.lzi` completions should include `{group}`"
+            );
+        }
+    }
+
+    #[test]
+    fn feature_lzi_does_not_surface_design_keywords() {
+        let uri = Url::parse("file:///workspace/features/customer/customer.lzi").unwrap();
+        let items = completion_items_for_uri(&uri);
+        let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+
+        for design_only in [
+            "color",
+            "typography",
+            "space",
+            "radius",
+            "shadow",
+            "motion",
+            "breakpoint",
+            "z",
+        ] {
+            assert!(
+                !labels.contains(&design_only),
+                "feature `.lzi` completions should not include design keyword `{design_only}`"
+            );
+        }
+    }
+
+    #[test]
+    fn design_keyword_hovers_link_to_proposal() {
+        for kw in DESIGN_KEYWORDS {
+            let description = design_keyword_description(kw)
+                .unwrap_or_else(|| panic!("hover for `{kw}` missing"));
+            assert!(description.contains("docs/proposals/design-tokens.md"));
+        }
+    }
 
     #[test]
     fn keyword_hover_describes_cap_file_arguments() {

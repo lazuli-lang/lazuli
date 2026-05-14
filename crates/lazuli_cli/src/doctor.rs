@@ -72,6 +72,7 @@ fn doctor_release_command(input: &Path) -> Result<()> {
 #[derive(Debug)]
 struct DoctorPackage {
     project_root: PathBuf,
+    security_profile: SecurityProfile,
     lazurite_manifest: Option<Manifest>,
     files: Vec<DoctorFile>,
     workspace: Option<DoctorAppWorkspace>,
@@ -711,6 +712,7 @@ impl DoctorPackage {
 
         Ok(Self {
             project_root,
+            security_profile,
             lazurite_manifest,
             files,
             workspace,
@@ -909,16 +911,186 @@ impl DoctorPackage {
         ));
         diagnostics.extend(check_codegen_wrap_001(&self.project_root));
         diagnostics.extend(check_pattern_draft_stale_001(&self.project_root));
+        diagnostics.extend(folder_layout_diagnostics(
+            &self.project_root,
+            self.security_profile,
+        ));
+        diagnostics.extend(design_token_diagnostics(
+            &self.project_root,
+            self.security_profile,
+        ));
 
         diagnostics.sort_by(|left, right| {
-            left.path
-                .cmp(&right.path)
+            left.code
+                .cmp(&right.code)
+                .then(left.path.cmp(&right.path))
                 .then(left.line.cmp(&right.line))
                 .then(left.column.cmp(&right.column))
-                .then(left.code.cmp(&right.code))
         });
         diagnostics
     }
+}
+
+fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
+    match security_profile {
+        SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
+    }
+}
+
+fn folder_layout_diagnostics(
+    project_root: &Path,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    let severity = doctor_rule_severity(security_profile);
+    let mut diagnostics = Vec::new();
+
+    diagnostics.extend(
+        folder::feature_orphan::check(project_root)
+            .into_iter()
+            .map(|finding| DoctorDiagnostic {
+                path: doctor_rule_path(project_root, finding.path),
+                line: 1,
+                column: 1,
+                severity,
+                code: folder::feature_orphan::Finding::CODE.to_owned(),
+                message: finding.message,
+            }),
+    );
+    diagnostics.extend(
+        folder::pages_bypass::check(project_root)
+            .into_iter()
+            .map(|finding| DoctorDiagnostic {
+                path: doctor_rule_path(project_root, finding.path),
+                line: 1,
+                column: 1,
+                severity,
+                code: folder::pages_bypass::Finding::CODE.to_owned(),
+                message: finding.message,
+            }),
+    );
+    diagnostics.extend(
+        folder::type_duplicate::check(project_root)
+            .into_iter()
+            .map(|finding| DoctorDiagnostic {
+                path: doctor_rule_path(project_root, finding.user_file),
+                line: 1,
+                column: 1,
+                severity,
+                code: folder::type_duplicate::Finding::CODE.to_owned(),
+                message: finding.message,
+            }),
+    );
+    diagnostics.extend(
+        folder::cross_feature_import::check(project_root)
+            .into_iter()
+            .map(|finding| DoctorDiagnostic {
+                path: doctor_rule_path(project_root, finding.source_file),
+                line: 1,
+                column: 1,
+                severity,
+                code: folder::cross_feature_import::Finding::CODE.to_owned(),
+                message: finding.message,
+            }),
+    );
+
+    diagnostics
+}
+
+fn design_token_diagnostics(
+    project_root: &Path,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    let Some(allowlist) = design::read_allowlist(project_root) else {
+        return Vec::new();
+    };
+
+    let severity = doctor_rule_severity(security_profile);
+    let mut diagnostics = Vec::new();
+
+    diagnostics.extend(
+        design::token_undefined::check(project_root, &allowlist)
+            .into_iter()
+            .map(|finding| {
+                let message = finding.message();
+                DoctorDiagnostic {
+                    path: doctor_rule_path(project_root, finding.path),
+                    line: finding.line,
+                    column: 1,
+                    severity,
+                    code: design::token_undefined::Finding::CODE.to_owned(),
+                    message,
+                }
+            }),
+    );
+    diagnostics.extend(
+        design::hex_leak::check(project_root)
+            .into_iter()
+            .map(|finding| {
+                let message = finding.message();
+                DoctorDiagnostic {
+                    path: doctor_rule_path(project_root, finding.path),
+                    line: finding.line,
+                    column: 1,
+                    severity,
+                    code: design::hex_leak::Finding::CODE.to_owned(),
+                    message,
+                }
+            }),
+    );
+    diagnostics.extend(
+        design::px_leak::check(project_root)
+            .into_iter()
+            .map(|finding| {
+                let message = finding.message();
+                DoctorDiagnostic {
+                    path: doctor_rule_path(project_root, finding.path),
+                    line: finding.line,
+                    column: 1,
+                    severity,
+                    code: design::px_leak::Finding::CODE.to_owned(),
+                    message,
+                }
+            }),
+    );
+    diagnostics.extend(
+        design::fontfamily_leak::check(project_root, &allowlist)
+            .into_iter()
+            .map(|finding| {
+                let message = finding.message();
+                DoctorDiagnostic {
+                    path: doctor_rule_path(project_root, finding.path),
+                    line: finding.line,
+                    column: 1,
+                    severity,
+                    code: design::fontfamily_leak::Finding::CODE.to_owned(),
+                    message,
+                }
+            }),
+    );
+    diagnostics.extend(
+        design::shadow_leak::check(project_root)
+            .into_iter()
+            .map(|finding| {
+                let message = finding.message();
+                DoctorDiagnostic {
+                    path: doctor_rule_path(project_root, finding.path),
+                    line: finding.line,
+                    column: 1,
+                    severity,
+                    code: design::shadow_leak::Finding::CODE.to_owned(),
+                    message,
+                }
+            }),
+    );
+
+    diagnostics
+}
+
+fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
+    path.strip_prefix(project_root)
+        .unwrap_or(&path)
+        .to_path_buf()
 }
 
 /// CODEGEN-WRAP-001 - typed-error constructors forbidden in bucket source.
@@ -11040,6 +11212,7 @@ mod tests {
 
         DoctorPackage {
             project_root: PathBuf::from("."),
+            security_profile: SecurityProfile::Strict,
             lazurite_manifest: None,
             files,
             workspace,
@@ -12525,6 +12698,48 @@ contract acme.ai.v1
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn doctor_pipeline_invokes_folder_and_design_rules() {
+        let temp = tempfile::TempDir::new().expect("create tempdir");
+        let root = temp.path();
+
+        write_file(&root.join("app.lzi"), "app Acme\n");
+        write_file(
+            &root.join("features/slug/web/views/admin/list.tsx"),
+            "export function List() { return null; }\n",
+        );
+        write_file(
+            &root.join("src/components/Foo.tsx"),
+            "export function Foo() { return null; }\n",
+        );
+        write_file(
+            &root.join("dist/ts-web/design/allowlist.json"),
+            r#"{"bg":["primary"],"text":["foreground"],"font":["sans"]}"#,
+        );
+        write_file(
+            &root.join("features/slug/web/views/admin/styled.tsx"),
+            r##"export function Styled() {
+  return <div style={{ color: "#7c3aed" }} />;
+}
+"##,
+        );
+
+        let package = DoctorPackage::load(root, SecurityProfile::Strict).expect("load package");
+        let diagnostics = package.diagnostics();
+        let surfaced = codes(&diagnostics);
+
+        assert!(
+            surfaced.contains("feature-orphan-component"),
+            "expected folder rule to fire; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            surfaced.contains("design-token-hex-leak"),
+            "expected design rule to fire; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
     }
 
     #[test]

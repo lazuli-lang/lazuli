@@ -34,7 +34,7 @@ pub struct GeneratedFile {
 pub fn generate(module: &Module) -> Vec<GeneratedFile> {
     let display_name = display_name(module);
 
-    vec![
+    let mut files = vec![
         GeneratedFile {
             path: "frontend/package.json".to_owned(),
             contents: generate_package_json(&display_name),
@@ -67,7 +67,34 @@ pub fn generate(module: &Module) -> Vec<GeneratedFile> {
             path: "frontend/src/styles.css".to_owned(),
             contents: generate_styles_css(),
         },
-    ]
+    ];
+
+    if let Some(design) = &module.design {
+        files.extend([
+            GeneratedFile {
+                path: "dist/ts-web/design/tokens.ts".to_owned(),
+                contents: design::emit_tokens_ts(design),
+            },
+            GeneratedFile {
+                path: "dist/ts-web/design/tokens.css".to_owned(),
+                contents: design::emit_tokens_css(design),
+            },
+            GeneratedFile {
+                path: "dist/ts-web/design/tailwind.gen.ts".to_owned(),
+                contents: design::emit_tailwind_v3_preset(design),
+            },
+            GeneratedFile {
+                path: "dist/ts-web/design/tailwind.theme.css".to_owned(),
+                contents: design::emit_tailwind_v4_theme(design),
+            },
+            GeneratedFile {
+                path: "dist/ts-web/design/allowlist.json".to_owned(),
+                contents: design::emit_allowlist_json(design),
+            },
+        ]);
+    }
+
+    files
 }
 
 fn display_name(module: &Module) -> String {
@@ -582,6 +609,9 @@ fn to_kebab_case(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use lazuli_analyzer::lower_document;
+    use lazuli_ir::{
+        ColorState, ColorStateKind, ColorToken, Design, Module, Motion, ScaleToken, Typography,
+    };
     use lazuli_syntax::parse_document;
 
     use super::generate;
@@ -600,6 +630,94 @@ mod tests {
             files
                 .iter()
                 .any(|file| file.contents.contains("lazuliModule"))
+        );
+    }
+
+    fn minimal_design() -> Design {
+        Design {
+            name: "pleiades".to_owned(),
+            extends: None,
+            colors: vec![ColorToken {
+                name: "primary".to_owned(),
+                states: vec![ColorState {
+                    kind: ColorStateKind::Base,
+                    value: "#7c3aed".to_owned(),
+                    dark: None,
+                }],
+                span_ref: None,
+            }],
+            typography: Typography::default(),
+            spaces: vec![ScaleToken {
+                name: "4".to_owned(),
+                value: "1rem".to_owned(),
+            }],
+            radii: vec![],
+            shadows: vec![],
+            motion: Motion::default(),
+            breakpoints: vec![],
+            z_indices: vec![],
+            span_ref: None,
+        }
+    }
+
+    fn module_with_design(design: Option<Design>) -> Module {
+        Module {
+            workspace: None,
+            contracts: vec![],
+            app: None,
+            registry: None,
+            profiles: vec![],
+            design,
+            features: vec![],
+        }
+    }
+
+    #[test]
+    fn generate_emits_design_files_when_module_has_design() {
+        let module = module_with_design(Some(minimal_design()));
+        let files = generate(&module);
+        let design_files: Vec<_> = files
+            .iter()
+            .filter(|file| file.path.starts_with("dist/ts-web/design/"))
+            .collect();
+
+        assert!(design_files.len() >= 5);
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "dist/ts-web/design/tokens.ts")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "dist/ts-web/design/tokens.css")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "dist/ts-web/design/tailwind.gen.ts")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "dist/ts-web/design/tailwind.theme.css")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "dist/ts-web/design/allowlist.json")
+        );
+    }
+
+    #[test]
+    fn generate_skips_design_files_when_module_design_is_none() {
+        let module = module_with_design(None);
+        let files = generate(&module);
+
+        assert!(
+            !files
+                .iter()
+                .any(|file| file.path.starts_with("dist/ts-web/design/"))
         );
     }
 }

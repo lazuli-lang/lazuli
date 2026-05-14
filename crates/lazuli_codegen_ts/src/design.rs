@@ -2,18 +2,20 @@
 //! from `design.lzi` regardless of plugin opt-in. See `docs/proposals/
 //! design-tokens.md` §4.
 //!
-//! The `lazuli generate` orchestration that wires these into the output
-//! filesystem lands in a follow-up cell. For now this module simply re-exports
-//! the six `emit_*` functions; the cells building on top (Cell C doctor rule,
-//! Cell D import/export) pull them through this single public surface.
-//!
-//! All six emitters consume `crate::design_ir_stub::Design` — the Cell A IR
-//! lands the canonical `lazuli_ir::Design` in parallel; the orchestrator swaps
-//! the import path at cherry-pick time. The stub's field shape is identical
-//! to the spec in the cell prompt's "Canonical IR shape" block.
+//! This module re-exports the six `emit_*` functions and the canonical
+//! `lazuli_ir` design-token IR consumed by those emitters.
 
-#[path = "design_ir_stub.rs"]
-pub mod ir;
+pub use lazuli_ir::{
+    ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion, ScaleToken,
+    ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
+};
+
+pub mod ir {
+    pub use super::{
+        ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion,
+        ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
+    };
+}
 
 #[path = "design_tokens_ts.rs"]
 mod tokens_ts;

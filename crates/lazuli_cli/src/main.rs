@@ -11,6 +11,9 @@ use serde::Serialize;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
+mod cmd_design;
+mod cmd_generate_feature;
+mod cmd_new_frontends;
 mod debug;
 mod dev;
 mod doctor;
@@ -135,6 +138,9 @@ enum Commands {
         /// Go module path to write into template files.
         #[arg(long)]
         module: Option<String>,
+        /// Frontend skeletons to add: `web`, `mobile`, or `web,mobile`.
+        #[arg(long)]
+        frontends: Option<String>,
     },
     Lsp,
     /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
@@ -165,15 +171,15 @@ enum Commands {
         #[arg(long = "check")]
         check: Option<String>,
     },
-    /// OpenAPI / Lazuli Go bucket cycle — emit artifacts derived from
-    /// the typed IR slice. Today supports `openapi` (OpenAPI 3.1 spec
-    /// YAML) and `go` (Lazuli Go user-code that imports
+    /// OpenAPI / Lazuli Go / Lazurite feature cycle — emit artifacts
+    /// derived from the typed IR slice. Today supports `openapi`
+    /// (OpenAPI 3.1 spec YAML), `go` (Lazuli Go user-code that imports
     /// `lazuli.dev/runtime/lazuli`).
     Generate {
-        /// Which artifact to emit. Closed catalog: `openapi`, `go`.
+        /// Which artifact to emit. Closed catalog: `openapi`, `go`, `feature`.
         #[arg(value_enum)]
         kind: GenerateKind,
-        /// Path to a `.lzi` file or a directory containing one.
+        /// Path to a `.lzi` file or directory; for `feature`, the feature name.
         input: PathBuf,
         /// Output file path (for `openapi`) or directory (for `go`).
         /// When omitted, `openapi` writes to stdout; `go` requires
@@ -223,6 +229,11 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         sub: MigrateCommand,
+    },
+    /// Import, export, or diff Lazuli design-token catalogs.
+    Design {
+        #[command(subcommand)]
+        sub: DesignCommand,
     },
     /// Apply Lazuli authoring migration recipes.
     Upgrade {
@@ -330,10 +341,48 @@ enum MigrateCommand {
     Status,
 }
 
+#[derive(Debug, clap::Subcommand)]
+enum DesignCommand {
+    /// Import an external design-token catalog into `design.lzi`.
+    Import {
+        #[arg(long)]
+        from: PathBuf,
+        #[arg(long, value_enum, default_value_t = DesignImportFormat::Figma)]
+        format: DesignImportFormat,
+        #[arg(long)]
+        overwrite: bool,
+    },
+    /// Export `design.lzi` into an external design-token catalog.
+    Export {
+        #[arg(long, value_enum)]
+        target: DesignExportTarget,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Diff `design.lzi` against an external design-token catalog.
+    Diff {
+        #[arg(long)]
+        against: PathBuf,
+    },
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum GenerateKind {
     Openapi,
     Go,
+    Feature,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DesignImportFormat {
+    Figma,
+    StyleDictionary,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DesignExportTarget {
+    Figma,
+    StyleDictionary,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -600,7 +649,8 @@ fn main() -> Result<()> {
             bare,
             no_git,
             module,
-        } => new_command(&project_name, &template, bare, no_git, module),
+            frontends,
+        } => new_command(&project_name, &template, bare, no_git, module, frontends),
         Commands::Lsp => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
@@ -649,6 +699,7 @@ fn main() -> Result<()> {
             }
             .map_err(|err| anyhow::anyhow!("{err}"))
         }
+        Commands::Design { sub } => design_command(sub),
         Commands::Upgrade {
             from,
             to,
@@ -706,6 +757,86 @@ fn generate_command(
         GenerateKind::Openapi => generate_openapi(input, output, api_version),
         GenerateKind::Go => {
             generate_go(input, output, module, lazuli_go_version, check, with_source)
+        }
+        GenerateKind::Feature => {
+            reject_generate_feature_options(
+                output,
+                api_version,
+                module,
+                lazuli_go_version,
+                check,
+                with_source,
+            )?;
+            let name = input.to_str().context("feature name must be valid UTF-8")?;
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            cmd_generate_feature::run(name, &project_root)
+        }
+    }
+}
+
+fn reject_generate_feature_options(
+    output: Option<&Path>,
+    api_version: Option<&str>,
+    module: Option<&str>,
+    lazuli_go_version: Option<&str>,
+    check: bool,
+    with_source: bool,
+) -> Result<()> {
+    if output.is_some()
+        || api_version.is_some()
+        || module.is_some()
+        || lazuli_go_version.is_some()
+        || check
+        || with_source
+    {
+        bail!(
+            "`lazuli generate feature <name>` does not accept codegen flags like --out, --api-version, --module, --check, or --with-source"
+        );
+    }
+    Ok(())
+}
+
+fn design_command(sub: DesignCommand) -> Result<()> {
+    let project_root = std::env::current_dir().context("failed to determine current directory")?;
+    let design_path = cmd_design::default_design_path(&project_root);
+    match sub {
+        DesignCommand::Import {
+            from,
+            format,
+            overwrite,
+        } => cmd_design::import(&from, format.into(), &design_path, overwrite),
+        DesignCommand::Export { target, out } => {
+            let design = cmd_design::read_design(&design_path)?;
+            cmd_design::export(&out, target.into(), &design)
+        }
+        DesignCommand::Diff { against } => {
+            let design = cmd_design::read_design(&design_path)?;
+            let report = cmd_design::diff(&against, &design)?;
+            print!("{}", report.render());
+            if report.is_empty() {
+                Ok(())
+            } else {
+                bail!("design diff found changes")
+            }
+        }
+    }
+}
+
+impl From<DesignImportFormat> for cmd_design::ImportFormat {
+    fn from(format: DesignImportFormat) -> Self {
+        match format {
+            DesignImportFormat::Figma => cmd_design::ImportFormat::Figma,
+            DesignImportFormat::StyleDictionary => cmd_design::ImportFormat::StyleDictionary,
+        }
+    }
+}
+
+impl From<DesignExportTarget> for cmd_design::ExportTarget {
+    fn from(target: DesignExportTarget) -> Self {
+        match target {
+            DesignExportTarget::Figma => cmd_design::ExportTarget::Figma,
+            DesignExportTarget::StyleDictionary => cmd_design::ExportTarget::StyleDictionary,
         }
     }
 }
@@ -1863,6 +1994,7 @@ fn new_command(
     bare: bool,
     no_git: bool,
     module: Option<String>,
+    frontends: Option<String>,
 ) -> Result<()> {
     if project
         .try_exists()
@@ -1891,12 +2023,54 @@ fn new_command(
         }
     }
 
+    if let Some(frontends) = frontends.as_deref() {
+        for frontend in parse_frontends(frontends)? {
+            match frontend {
+                FrontendScaffold::Web => {
+                    cmd_new_frontends::scaffold_frontend_web(project, &app_name)?
+                }
+                FrontendScaffold::Mobile => {
+                    cmd_new_frontends::scaffold_frontend_mobile(project, &app_name)?
+                }
+            }
+        }
+    }
+
     if !no_git {
         run_git_init(project)?;
     }
 
     println!("created {}", project.display());
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrontendScaffold {
+    Web,
+    Mobile,
+}
+
+fn parse_frontends(raw: &str) -> Result<Vec<FrontendScaffold>> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for item in raw.split(',') {
+        let item = item.trim();
+        if item.is_empty() {
+            bail!("empty frontend in --frontends; expected web, mobile, or web,mobile");
+        }
+        let frontend = match item {
+            "web" => FrontendScaffold::Web,
+            "mobile" => FrontendScaffold::Mobile,
+            other => bail!("unknown frontend `{other}`; expected web, mobile, or web,mobile"),
+        };
+        if seen.insert(item.to_string()) {
+            out.push(frontend);
+        }
+    }
+    if out.is_empty() {
+        bail!("--frontends requires web, mobile, or web,mobile");
+    }
+    Ok(out)
 }
 
 fn scaffold_bare(project: &Path, app_name: &str) -> Result<()> {
@@ -6927,17 +7101,17 @@ fn leading_spaces(line: &str) -> usize {
 mod tests {
     use std::{
         fs,
-        path::Path,
+        path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
 
     use clap::Parser;
 
     use super::{
-        Cli, Commands, ExpandSet, MigrateCommand, REGISTRY_TEMPLATE, app_template,
-        default_module_name, expand_canonical_source, inspect_canonical_source, inspect_json_value,
-        new_command, parse_expand_set, pascal_case, pascal_case_project_name, scaffold_bare,
-        scaffold_from_template, templates,
+        Cli, Commands, DesignCommand, DesignExportTarget, DesignImportFormat, ExpandSet,
+        GenerateKind, MigrateCommand, REGISTRY_TEMPLATE, app_template, default_module_name,
+        expand_canonical_source, inspect_canonical_source, inspect_json_value, parse_expand_set,
+        pascal_case, pascal_case_project_name, scaffold_bare, scaffold_from_template, templates,
     };
 
     #[test]
@@ -6959,6 +7133,85 @@ mod tests {
             panic!("expected migrate up command");
         };
         assert_eq!(target.as_deref(), Some("20260513_001_account_user"));
+    }
+
+    #[test]
+    fn wave2_cli_dispatch_parses_new_surfaces() {
+        let cli = Cli::try_parse_from(["lazuli", "generate", "feature", "billing"]).unwrap();
+        let Commands::Generate {
+            kind: GenerateKind::Feature,
+            input,
+            ..
+        } = cli.command
+        else {
+            panic!("expected generate feature command");
+        };
+        assert_eq!(input, PathBuf::from("billing"));
+
+        let cli =
+            Cli::try_parse_from(["lazuli", "new", "demo", "--frontends", "web,mobile"]).unwrap();
+        let Commands::New {
+            frontends: Some(frontends),
+            ..
+        } = cli.command
+        else {
+            panic!("expected new command with frontends");
+        };
+        assert_eq!(frontends, "web,mobile");
+
+        let cli = Cli::try_parse_from([
+            "lazuli",
+            "design",
+            "import",
+            "--from",
+            "tokens.figma.json",
+            "--format",
+            "figma",
+            "--overwrite",
+        ])
+        .unwrap();
+        let Commands::Design {
+            sub:
+                DesignCommand::Import {
+                    format: DesignImportFormat::Figma,
+                    overwrite: true,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("expected design import command");
+        };
+
+        let cli = Cli::try_parse_from([
+            "lazuli",
+            "design",
+            "export",
+            "--target",
+            "style-dictionary",
+            "--out",
+            "tokens.sd.json",
+        ])
+        .unwrap();
+        let Commands::Design {
+            sub:
+                DesignCommand::Export {
+                    target: DesignExportTarget::StyleDictionary,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("expected design export command");
+        };
+
+        let cli = Cli::try_parse_from(["lazuli", "design", "diff", "--against", "tokens.sd.json"])
+            .unwrap();
+        let Commands::Design {
+            sub: DesignCommand::Diff { against },
+        } = cli.command
+        else {
+            panic!("expected design diff command");
+        };
+        assert_eq!(against, PathBuf::from("tokens.sd.json"));
     }
 
     #[test]
