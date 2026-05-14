@@ -1,0 +1,31 @@
+# VOCAB-EVENT-PAYLOAD-001 positive fixture.
+# Rule SHOULD fire.
+# Command `publish` emits `foo.bar` without a feature-level event declaration.
+# The missing `event bar` contract means no typed payload is available.
+
+feature foo
+  purpose "Fixture for an undeclared emitted event payload contract."
+
+  domain
+    resource Note
+      title: Text required
+      body: Text required
+      created_at: DateTime required
+      published_at: DateTime required
+
+  policies
+    create: @scope.authenticated
+
+  command publish
+    input
+      title: Text required
+      body: Text required
+    policy @policy.create
+    rate_limit "30 per minute per actor"
+    creates Note
+      title = input.title
+      body = input.body
+      created_at = ctx.now
+      published_at = ctx.now
+    audit default
+    emits foo.bar
