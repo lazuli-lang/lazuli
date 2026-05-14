@@ -100,33 +100,33 @@ fn resolve_named(
         return (sanitise_go_ident(&qname.name), None);
     }
 
+    // Project DSL identifiers (PascalCase resources/records/enums)
+    // through the shared `casing::pascal_case` so the reference
+    // matches whatever the resource/enum emitter wrote at the
+    // declaration site: `ApiKey` → `APIKey`, `MfaContract` →
+    // `MfaContract`. Acronyms in the closed table (`api`, `id`,
+    // `url`, `json`, ...) uppercase consistently across files.
+    let go_name = super::casing::pascal_case(&qname.name);
+
     // Step 1 — honour the analyzer's resolution if it landed. Today
     // `qname.feature` is always `None` (analyzer lifts every unknown
     // ident with `feature: None`), but the branch is here so future
     // analyzer cells can short-circuit the index lookup.
     if let Some(owner) = qname.feature.as_deref() {
         if owner == ctx.current_feature {
-            return (sanitise_go_ident(&qname.name), None);
+            return (go_name, None);
         }
         let import = format!("{}/{}", ctx.module_name, owner);
-        return (
-            format!("{}.{}", owner, sanitise_go_ident(&qname.name)),
-            Some(import),
-        );
+        return (format!("{}.{}", owner, go_name), Some(import));
     }
 
     // Step 2 — consult the cross-feature index. Same-package lookup
     // is bare; cross-feature emits a qualified ref plus the import.
     match ctx.cross_index.owner(&qname.name) {
-        Some(owner) if owner == ctx.current_feature => {
-            (sanitise_go_ident(&qname.name), None)
-        }
+        Some(owner) if owner == ctx.current_feature => (go_name, None),
         Some(owner) => {
             let import = format!("{}/{}", ctx.module_name, owner);
-            (
-                format!("{}.{}", owner, sanitise_go_ident(&qname.name)),
-                Some(import),
-            )
+            (format!("{}.{}", owner, go_name), Some(import))
         }
         None => {
             // Either ambiguous or not declared anywhere. Both
@@ -138,7 +138,7 @@ fn resolve_named(
             // tag rows; resource emitter records a separate warning
             // line outside the struct body when it detects the
             // condition via `cross_index.is_ambiguous`.
-            (sanitise_go_ident(&qname.name), None)
+            (go_name, None)
         }
     }
 }
