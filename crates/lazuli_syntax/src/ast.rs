@@ -275,6 +275,8 @@ pub struct ViewListAst {
     pub columns: Vec<String>,
     pub search: Vec<String>,
     pub filter: Vec<String>,
+    /// `filters` block declarations for typed view-local filter state.
+    pub filters: Vec<FilterDeclAst>,
     /// `cells @client.<slot>` grid-row slot. `None` means the view either
     /// uses per-column `cells <field> @client.<slot>` bindings or no cells.
     pub cells_slot: Option<String>,
@@ -347,6 +349,24 @@ pub struct CellBindingAst {
     /// Slot identifier (without the `@client.` prefix).
     pub slot: String,
     pub span: Span,
+}
+
+/// `filters` block field declaration inside `view list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilterDeclAst {
+    pub name: String,
+    /// Raw label as authored; resolved during lowering.
+    pub type_ref: String,
+    pub cardinality: FilterCardinalityAst,
+    pub url_sync: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterCardinalityAst {
+    Single,
+    Multi,
 }
 
 /// `route <name>: <Type> from path` — typed path parameter.

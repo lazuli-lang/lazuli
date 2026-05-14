@@ -14,7 +14,8 @@ use crate::ast::{
     ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
     DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
     EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
-    FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl, FieldPolicyDecl,
+    FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl,
+    FieldPolicyDecl, FilterCardinalityAst, FilterDeclAst,
     HttpMethod, InvalidatesDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
     ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience,
@@ -1173,6 +1174,22 @@ fn parse_view_block(
             continue;
         }
 
+        if trimmed == "filters" {
+            if kind != "list" {
+                return Err(line_error(line, "`filters` block is only valid in `view list`"));
+            }
+            let (next, block_end) = parse_filters_block(lines, i, body_indent, &mut state)?;
+            last_end = block_end;
+            i = next;
+            continue;
+        }
+        if trimmed.starts_with("filters ") {
+            return Err(line_error(
+                line,
+                "`filters` is a block keyword and does not accept inline content",
+            ));
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -1205,6 +1222,7 @@ fn parse_view_block(
             columns: state.columns,
             search: state.search,
             filter: state.filter,
+            filters: state.filters,
             cells_slot: state.cells_slot,
             cells: state.cells,
             drawer: state.drawer,
@@ -1248,6 +1266,8 @@ struct ViewBodyState {
     columns: Vec<String>,
     search: Vec<String>,
     filter: Vec<String>,
+    filters: Vec<FilterDeclAst>,
+    has_filters_block: bool,
     fields: Vec<String>,
     sections: Vec<String>,
     cells_slot: Option<String>,
@@ -1566,6 +1586,122 @@ fn parse_drawer_route_binding(
     })
 }
 
+fn parse_filters_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    body_indent: usize,
+    state: &mut ViewBodyState,
+) -> Result<(usize, usize), ParseError> {
+    let header = &lines[start];
+    if state.has_filters_block {
+        return Err(line_error(header, "view list declares `filters` at most once"));
+    }
+    state.has_filters_block = true;
+
+    let child_indent = body_indent + 2;
+    let mut block_filters = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= body_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "filters declarations use one indentation level deeper than the `filters` header",
+            ));
+        }
+
+        let trimmed = strip_inline_comment(raw).trim_end();
+        let filter = parse_filter_decl(line, trimmed)?;
+        if block_filters
+            .iter()
+            .any(|existing: &FilterDeclAst| existing.name == filter.name)
+        {
+            return Err(line_error_owned(
+                line,
+                format!("duplicate filter `{}` in `filters` block", filter.name),
+            ));
+        }
+        last_end = line.end;
+        block_filters.push(filter);
+        i += 1;
+    }
+
+    if block_filters.is_empty() {
+        return Err(line_error(
+            header,
+            "filters block requires at least one filter declaration",
+        ));
+    }
+
+    state.filters.extend(block_filters);
+    Ok((i, last_end))
+}
+
+fn parse_filter_decl(line: &SourceLine<'_>, value: &str) -> Result<FilterDeclAst, ParseError> {
+    let (name_raw, type_raw) = value.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "filter declaration must be `<name>: [list of] <Type> [from query]`",
+        )
+    })?;
+    let name = name_raw.trim().to_owned();
+    if !is_lzx_bare_ident(&name) {
+        return Err(line_error_owned(
+            line,
+            format!(
+                "filter name `{}` must start with a letter and contain only letters, digits, or `_`",
+                name
+            ),
+        ));
+    }
+
+    let mut rest = type_raw.trim();
+    let mut url_sync = false;
+    if let Some((head, source)) = rest.rsplit_once(" from ") {
+        if source.trim() != "query" {
+            return Err(line_error(
+                line,
+                "filter URL source must be `from query`",
+            ));
+        }
+        rest = head.trim();
+        url_sync = true;
+    }
+
+    let (cardinality, type_ref) = if let Some(type_ref) = rest.strip_prefix("list of ") {
+        (FilterCardinalityAst::Multi, type_ref.trim())
+    } else {
+        (FilterCardinalityAst::Single, rest)
+    };
+    if type_ref.is_empty() {
+        return Err(line_error(line, "filter declaration requires a type"));
+    }
+    if !is_lzx_bare_ident(type_ref) {
+        return Err(line_error_owned(
+            line,
+            format!("filter type `{}` must be a bare identifier", type_ref),
+        ));
+    }
+
+    Ok(FilterDeclAst {
+        name,
+        type_ref: type_ref.to_owned(),
+        cardinality,
+        url_sync,
+        span: Span::new(line.start, line.end),
+    })
+}
+
 /// Split the `<name> [at "<path>"]` tail of a view header. The optional
 /// `at "<...>"` clause carries a quoted route path.
 fn parse_view_header_tail(
@@ -1738,6 +1874,18 @@ fn is_kebab_or_snake_ident(s: &str) -> bool {
         }
     }
     true
+}
+
+fn is_lzx_bare_ident(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let mut chars = s.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn parse_app(pair: Pair<'_, Rule>) -> Result<String, ParseError> {
@@ -10144,7 +10292,7 @@ feature slug
 #[cfg(test)]
 mod surface_parser_tests {
     use super::parse_surface_document;
-    use crate::{DrawerBindingSourceAst, DrawerTriggerAst, SurfaceTargetAst, ViewAst};
+    use crate::{DrawerBindingSourceAst, DrawerTriggerAst, FilterCardinalityAst, SurfaceTargetAst, ViewAst};
 
     #[test]
     fn minimal_surface_one_audience_one_view_list() {
@@ -10521,6 +10669,113 @@ surface slug web
         assert!(err
             .to_string()
             .contains("drawer route binding source must be `from selection`"));
+    }
+
+    #[test]
+    fn view_list_filters_block_parses() {
+        let source = r#"surface item web
+  audience admin
+    view list item_terminal at "/"
+      source item.query.search
+      columns key
+      filters
+        type: ItemType
+        status: ItemStatus
+        confidence: Confidence
+        tags: list of Text
+        slug: Text from query
+"#;
+        let surface = parse_surface_document(source).expect("parses filters");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.filters.len(), 5);
+        assert_eq!(view.filters[0].name, "type");
+        assert_eq!(view.filters[0].type_ref, "ItemType");
+        assert_eq!(view.filters[0].cardinality, FilterCardinalityAst::Single);
+        assert!(!view.filters[0].url_sync);
+        assert_eq!(view.filters[3].name, "tags");
+        assert_eq!(view.filters[3].cardinality, FilterCardinalityAst::Multi);
+        assert!(!view.filters[3].url_sync);
+        assert_eq!(view.filters[4].name, "slug");
+        assert_eq!(view.filters[4].cardinality, FilterCardinalityAst::Single);
+        assert!(view.filters[4].url_sync);
+    }
+
+    #[test]
+    fn filters_single_from_query() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        slug: Text from query\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.filters[0].name, "slug");
+        assert_eq!(view.filters[0].cardinality, FilterCardinalityAst::Single);
+        assert!(view.filters[0].url_sync);
+    }
+
+    #[test]
+    fn filters_multi_from_query() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        tags: list of Text from query\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.filters[0].name, "tags");
+        assert_eq!(view.filters[0].cardinality, FilterCardinalityAst::Multi);
+        assert!(view.filters[0].url_sync);
+    }
+
+    #[test]
+    fn filters_rejects_from_path() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        slug: Text from path\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("from query"));
+    }
+
+    #[test]
+    fn filters_rejects_duplicate_name() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        tags: list of Text\n        tags: Text\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("duplicate filter `tags`"));
+    }
+
+    #[test]
+    fn filters_rejects_empty_block() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n      actions update\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("requires at least one"));
+    }
+
+    #[test]
+    fn view_detail_rejects_filters() {
+        let source = "surface item web\n  audience admin\n    view detail a\n      source item.query.by_id\n      filters\n        slug: Text\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("only valid in `view list`"));
+    }
+
+    #[test]
+    fn view_create_rejects_filters() {
+        let source = "surface item web\n  audience admin\n    view create a\n      submit item.command.create\n      fields key\n      filters\n        slug: Text\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("only valid in `view list`"));
+    }
+
+    #[test]
+    fn view_list_at_most_one_filters_block() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        slug: Text\n      filters\n        tags: list of Text\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("at most once"));
+    }
+
+    #[test]
+    fn filters_missing_type_ref() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        slug:\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("requires a type"));
     }
 
     #[test]
