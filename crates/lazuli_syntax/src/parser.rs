@@ -33,6 +33,45 @@ use crate::ast::{
     WebhookVerify, WeightTokenAst, ZTokenAst,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LifecycleBlockAst {
+    pub discriminator_field: String,
+    pub states: Vec<LifecycleStateAst>,
+    pub transitions: Vec<LifecycleTransitionAst>,
+    pub invariants: Vec<LifecycleInvariantAst>,
+    pub invariant_handlers: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LifecycleStateAst {
+    pub name: String,
+    pub kind_keyword: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LifecycleTransitionAst {
+    pub name: String,
+    pub from: Vec<String>,
+    pub to: String,
+    pub policy: Option<String>,
+    pub audit: Option<String>,
+    pub timestamps: Option<String>,
+    pub emits: Vec<String>,
+    pub requires: Option<String>,
+    pub tests: Vec<String>,
+    pub previously: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LifecycleInvariantAst {
+    /// Raw tail after `invariant `; lowering tokenizes the closed catalog.
+    pub raw: String,
+    pub span: Span,
+}
+
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
 struct LazuliParser;
@@ -4811,6 +4850,31 @@ fn parse_resource_decl(
             i += 1;
             continue;
         }
+        if trimmed == "lifecycle" {
+            return Err(line_error(
+                line,
+                "`lifecycle` requires a discriminator field name: `lifecycle <field>`",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("lifecycle ") {
+            if state.lifecycle.is_some() {
+                return Err(line_error(
+                    line,
+                    "a resource may declare at most one `lifecycle` block",
+                ));
+            }
+            if rest.trim().is_empty() {
+                return Err(line_error(
+                    line,
+                    "`lifecycle` requires a discriminator field name: `lifecycle <field>`",
+                ));
+            }
+            let (block, next) = parse_lifecycle_block(lines, i)?;
+            state.lifecycle = Some(block);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
 
         if trimmed.contains(':')
             && !resource_body_handlers()
@@ -4839,7 +4903,7 @@ fn parse_resource_decl(
         if !matched {
             return Err(line_error(
                 line,
-                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, or `<field>: <Type>`",
+                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, `lifecycle`, or `<field>: <Type>`",
             ));
         }
     }
@@ -4855,6 +4919,7 @@ fn parse_resource_decl(
             timestamps: state.timestamps,
             retention: state.retention,
             validates: state.validates,
+            lifecycle: state.lifecycle,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -4871,6 +4936,7 @@ struct ResourceBodyState {
     timestamps: bool,
     retention: Option<ResourceRetention>,
     validates: Vec<String>,
+    lifecycle: Option<LifecycleBlockAst>,
 }
 
 type ResourceBodyHandler =
@@ -4883,7 +4949,19 @@ fn resource_body_handlers() -> &'static [(&'static str, ResourceBodyHandler)] {
         ("retention ", handle_resource_retention),
         ("validates ", handle_resource_validates),
         ("has_many ", handle_resource_has_many),
+        ("lifecycle ", handle_resource_lifecycle),
     ]
+}
+
+fn handle_resource_lifecycle(
+    line: &SourceLine<'_>,
+    _rest: &str,
+    _state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    Err(line_error(
+        line,
+        "internal: lifecycle should be dispatched inline before registry",
+    ))
 }
 
 fn handle_resource_previously(
@@ -4936,6 +5014,313 @@ fn handle_resource_has_many(
 ) -> Result<(), ParseError> {
     state.has_many.push(parse_resource_has_many(line, rest)?);
     Ok(())
+}
+
+fn parse_lifecycle_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LifecycleBlockAst, usize), ParseError> {
+    let header = &lines[start];
+    let block_indent = header.indent;
+    let rest = header
+        .text
+        .trim_start()
+        .strip_prefix("lifecycle ")
+        .unwrap_or("");
+    let discriminator_field = rest.trim().to_owned();
+    let child_indent = block_indent + 2;
+    let grandchild_indent = block_indent + 4;
+
+    let mut states = Vec::new();
+    let mut transitions = Vec::new();
+    let mut invariants = Vec::new();
+    let mut invariant_handlers = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= block_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "lifecycle children use one indentation level deeper than the `lifecycle` header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("state ") {
+            let ((name, kind_keyword), span) = parse_lifecycle_state(line, rest)?;
+            states.push(LifecycleStateAst {
+                name,
+                kind_keyword,
+                span,
+            });
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("transition ") {
+            let transition_name = rest.trim();
+            if transition_name.is_empty() {
+                return Err(line_error(line, "`transition` requires a name"));
+            }
+            let (transition, next) =
+                parse_lifecycle_transition(lines, i, transition_name, grandchild_indent)?;
+            transitions.push(transition);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("invariant_handler ") {
+            invariant_handlers.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("invariant ") {
+            invariants.push(LifecycleInvariantAst {
+                raw: rest.trim().to_owned(),
+                span: Span::new(line.start, line.end),
+            });
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "lifecycle children are `state`, `transition`, `invariant`, `invariant_handler`",
+            ));
+        }
+    }
+
+    if states.len() < 2 {
+        return Err(line_error(
+            header,
+            "lifecycle requires at least 2 `state` declarations",
+        ));
+    }
+    if transitions.is_empty() {
+        return Err(line_error(
+            header,
+            "lifecycle requires at least 1 `transition`",
+        ));
+    }
+
+    Ok((
+        LifecycleBlockAst {
+            discriminator_field,
+            states,
+            transitions,
+            invariants,
+            invariant_handlers,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_lifecycle_state(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<((String, Option<String>), Span), ParseError> {
+    let mut parts = rest.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| line_error(line, "`state` requires a name"))?
+        .to_owned();
+    let kind_keyword = match parts.next() {
+        None => None,
+        Some(k @ ("initial" | "terminal")) => Some(k.to_owned()),
+        Some(other) => {
+            return Err(line_error_owned(
+                line,
+                format!("`state` modifier must be `initial` or `terminal`, got `{other}`"),
+            ));
+        }
+    };
+    if parts.next().is_some() {
+        return Err(line_error(
+            line,
+            "`state` accepts at most one modifier (initial | terminal)",
+        ));
+    }
+    Ok(((name, kind_keyword), Span::new(line.start, line.end)))
+}
+
+fn parse_lifecycle_transition(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    name: &str,
+    child_indent: usize,
+) -> Result<(LifecycleTransitionAst, usize), ParseError> {
+    let header = &lines[start];
+    let block_indent = header.indent;
+    let tests_indent = child_indent + 2;
+    let mut from = Vec::new();
+    let mut to = None;
+    let mut policy = None;
+    let mut audit = None;
+    let mut timestamps = None;
+    let mut emits = Vec::new();
+    let mut requires = None;
+    let mut tests = Vec::new();
+    let mut tests_seen = false;
+    let mut previously = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= block_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "transition children use one indentation level deeper than the `transition` header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("from ") {
+            let states = split_lzx_list(rest);
+            if states.is_empty() {
+                return Err(line_error(line, "`from` requires at least one state"));
+            }
+            from.extend(states);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("to ") {
+            ensure_lifecycle_once(line, "to", to.is_some())?;
+            let target = parse_lifecycle_single_identifier(line, "`to`", rest)?;
+            to = Some(target);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            ensure_lifecycle_once(line, "policy", policy.is_some())?;
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("audit ") {
+            ensure_lifecycle_once(line, "audit", audit.is_some())?;
+            audit = Some(format!("audit {}", rest.trim()));
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("timestamps ") {
+            ensure_lifecycle_once(line, "timestamps", timestamps.is_some())?;
+            let field = parse_lifecycle_single_identifier(line, "`timestamps`", rest)?;
+            timestamps = Some(field);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("emits ") {
+            let event = rest.trim();
+            if event.is_empty() {
+                return Err(line_error(line, "`emits` requires an event name"));
+            }
+            emits.push(event.to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("requires ") {
+            ensure_lifecycle_once(line, "requires", requires.is_some())?;
+            requires = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "tests" {
+            ensure_lifecycle_once(line, "tests", tests_seen)?;
+            tests_seen = true;
+            last_end = line.end;
+            i += 1;
+            while i < lines.len() {
+                let test_line = &lines[i];
+                let test_trimmed = test_line.text.trim_start();
+                if is_trivia(test_trimmed) {
+                    i += 1;
+                    continue;
+                }
+                if test_line.indent <= child_indent {
+                    break;
+                }
+                if test_line.indent != tests_indent {
+                    return Err(line_error(
+                        test_line,
+                        "`tests` children use one indentation level deeper than the `tests` header",
+                    ));
+                }
+                tests.push(test_trimmed.to_owned());
+                last_end = test_line.end;
+                i += 1;
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("previously ") {
+            previously.push(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "transition children are `from`, `to`, `policy`, `audit`, `timestamps`, `emits`, `requires`, `tests`, or `previously`",
+            ));
+        }
+    }
+
+    if from.is_empty() {
+        return Err(line_error(header, "`transition` requires at least one `from`"));
+    }
+    let to = to.ok_or_else(|| line_error(header, "`transition` requires `to <state>`"))?;
+
+    Ok((
+        LifecycleTransitionAst {
+            name: name.to_owned(),
+            from,
+            to,
+            policy,
+            audit,
+            timestamps,
+            emits,
+            requires,
+            tests,
+            previously,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn ensure_lifecycle_once(
+    line: &SourceLine<'_>,
+    keyword: &'static str,
+    already_seen: bool,
+) -> Result<(), ParseError> {
+    if already_seen {
+        return Err(line_error_owned(
+            line,
+            format!("transition declares `{keyword}` at most once"),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_lifecycle_single_identifier(
+    line: &SourceLine<'_>,
+    keyword: &'static str,
+    rest: &str,
+) -> Result<String, ParseError> {
+    let mut parts = rest.split_whitespace();
+    let value = parts.next().ok_or_else(|| {
+        line_error_owned(line, format!("{keyword} requires exactly one identifier"))
+    })?;
+    if parts.next().is_some() {
+        return Err(line_error_owned(
+            line,
+            format!("{keyword} requires exactly one identifier"),
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn parse_resource_retention(
@@ -10465,6 +10850,198 @@ feature customer
         assert!(
             message.contains("anonymize"),
             "error should list valid actions: {message}"
+        );
+    }
+
+    #[test]
+    fn parses_minimal_lifecycle_block() {
+        let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled
+        state published
+        transition publish
+          from scheduled
+          to published
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let lifecycle = features[0].resources[0]
+            .lifecycle
+            .as_ref()
+            .expect("lifecycle");
+
+        assert_eq!(lifecycle.discriminator_field, "status");
+        assert_eq!(lifecycle.states.len(), 2);
+        assert_eq!(lifecycle.states[0].name, "scheduled");
+        assert_eq!(lifecycle.states[1].name, "published");
+        assert_eq!(lifecycle.transitions.len(), 1);
+        assert_eq!(lifecycle.transitions[0].name, "publish");
+        assert_eq!(lifecycle.transitions[0].from, vec!["scheduled"]);
+        assert_eq!(lifecycle.transitions[0].to, "published");
+    }
+
+    #[test]
+    fn parses_lifecycle_with_terminal_states_and_invariants() {
+        let source = r#"
+feature publication
+  domain
+    resource Publication
+      workspace: Workspace required
+      scheduled_at: DateTime required
+      publishing_at: DateTime
+      published_at: DateTime
+      failed_at: DateTime
+      cancelled_at: DateTime
+      error_reason: Text
+
+      lifecycle status
+        state scheduled initial
+        state publishing
+        state published terminal
+        state failed terminal
+        state cancelled terminal
+
+        transition begin_publishing
+          from scheduled
+          to publishing
+          policy @policy.publisher_or_admin
+          audit default
+          timestamps publishing_at
+
+        transition mark_published
+          from publishing
+          to published
+          audit default
+          timestamps published_at
+          emits publication_published
+
+        transition mark_failed
+          from publishing
+          to failed
+          audit error_reason
+          timestamps failed_at
+          emits publication_failed payload error_reason
+
+        transition cancel
+          from scheduled, publishing
+          to cancelled
+          audit default
+          timestamps cancelled_at
+          emits publication_cancelled
+
+        invariant terminal_immutable
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let lifecycle = features[0].resources[0]
+            .lifecycle
+            .as_ref()
+            .expect("lifecycle");
+
+        assert_eq!(lifecycle.states[0].kind_keyword.as_deref(), Some("initial"));
+        assert_eq!(
+            lifecycle.states[2].kind_keyword.as_deref(),
+            Some("terminal")
+        );
+        assert_eq!(lifecycle.invariants.len(), 1);
+        assert_eq!(lifecycle.invariants[0].raw, "terminal_immutable");
+    }
+
+    #[test]
+    fn lifecycle_rejects_fewer_than_two_states() {
+        let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled
+        transition publish
+          from scheduled
+          to published
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+
+        assert!(
+            message.contains("at least 2"),
+            "error should require at least 2 states: {message}"
+        );
+    }
+
+    #[test]
+    fn lifecycle_rejects_unknown_state_modifier() {
+        let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled foo
+        state published
+        transition publish
+          from scheduled
+          to published
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+
+        assert!(
+            message.contains("initial") && message.contains("terminal"),
+            "error should list valid state modifiers: {message}"
+        );
+    }
+
+    #[test]
+    fn lifecycle_double_block_rejects() {
+        let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled
+        state published
+        transition publish
+          from scheduled
+          to published
+      lifecycle other_status
+        state draft
+        state archived
+        transition archive
+          from draft
+          to archived
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+
+        assert!(
+            message.contains("at most one"),
+            "error should reject duplicate lifecycle blocks: {message}"
+        );
+    }
+
+    #[test]
+    fn transition_multi_from_parsed() {
+        let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled
+        state publishing
+        state cancelled
+        transition cancel
+          from scheduled, publishing
+          to cancelled
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let lifecycle = features[0].resources[0]
+            .lifecycle
+            .as_ref()
+            .expect("lifecycle");
+
+        assert_eq!(
+            lifecycle.transitions[0].from,
+            vec!["scheduled", "publishing"]
         );
     }
 

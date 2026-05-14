@@ -975,6 +975,9 @@ pub struct ResourceDecl {
     /// declarations. Captured as raw text; the analyzer dispatches
     /// between resource-level and field-level validators.
     pub validates: Vec<String>,
+    /// Resource-owned state machine over one discriminator field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<crate::parser::LifecycleBlockAst>,
     pub span: Span,
 }
 
