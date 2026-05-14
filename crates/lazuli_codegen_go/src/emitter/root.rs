@@ -561,6 +561,7 @@ mod tests {
             app,
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features,
         }
     }

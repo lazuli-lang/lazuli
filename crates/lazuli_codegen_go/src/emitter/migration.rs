@@ -378,6 +378,7 @@ mod feature_emit_tests {
             app: Some(minimal_app()),
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features: vec![feature],
         }
     }

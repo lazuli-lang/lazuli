@@ -256,6 +256,7 @@ mod tests {
             }),
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features,
         }
     }

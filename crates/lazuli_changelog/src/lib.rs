@@ -341,6 +341,7 @@ mod tests {
             app: None,
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features: vec![feature],
         }
     }

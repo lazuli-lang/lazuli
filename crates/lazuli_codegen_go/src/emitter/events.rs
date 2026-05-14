@@ -689,6 +689,7 @@ mod tests {
             app: Some(minimal_app()),
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features: vec![feature],
         }
     }
@@ -926,6 +927,7 @@ mod feature_emit_tests {
             app: None,
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features: vec![feature],
         }
     }

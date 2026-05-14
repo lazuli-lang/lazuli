@@ -400,6 +400,7 @@ mod feature_emit_tests {
             }),
             registry: None,
             profiles: Vec::new(),
+            design: None,
             features: vec![feature],
         }
     }
