@@ -952,6 +952,200 @@ fn escape_string(raw: &str) -> String {
 fn _returns_effect_compiles(_: ReturnsEffect) {}
 
 #[cfg(test)]
+mod feature_emit_tests {
+    use super::*;
+    use lazuli_ir::{
+        AppManifest, BuiltinType, CommandKind, Defaults, Feature, Module, Policies, QualifiedName,
+        Resource, TypeRef,
+    };
+
+    fn base_feature(name: &str) -> Feature {
+        Feature {
+            name: name.to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: Defaults {
+                tenancy: None,
+                timestamps: false,
+                policy: None,
+            },
+            uses: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies: Policies {
+                categories: Vec::new(),
+                fields: Vec::new(),
+                span_ref: None,
+            },
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn minimal_app() -> AppManifest {
+        AppManifest {
+            name: "test".to_owned(),
+            title: None,
+            version: None,
+            lazuli_version: None,
+            targets: Vec::new(),
+            default_locale: None,
+            default_timezone: None,
+            auth_failed_redirect: None,
+            not_found: None,
+            uses: Vec::new(),
+            packs: Vec::new(),
+            bindings: Vec::new(),
+            architecture: None,
+            services: Vec::new(),
+            communication: None,
+            environments: Vec::new(),
+            urls: Vec::new(),
+            cors: None,
+            env: Vec::new(),
+            integrations: Vec::new(),
+            capabilities: Vec::new(),
+            runtime: Vec::new(),
+            deploy: None,
+            logging: None,
+            tracing: None,
+            observability: None,
+            locale: None,
+            span_ref: None,
+        }
+    }
+
+    fn module_with_features(features: Vec<Feature>) -> Module {
+        Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: Some(minimal_app()),
+            registry: None,
+            profiles: Vec::new(),
+            features,
+        }
+    }
+
+    fn simple_resource(name: &str) -> Resource {
+        Resource {
+            name: name.to_owned(),
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: Vec::new(),
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn typed_slot(name: &str, builtin: BuiltinType, required: bool) -> TypedSlot {
+        TypedSlot {
+            name: name.to_owned(),
+            type_ref: TypeRef::Builtin(builtin),
+            required,
+        }
+    }
+
+    fn local_qname(name: &str) -> QualifiedName {
+        QualifiedName {
+            feature: None,
+            name: name.to_owned(),
+        }
+    }
+
+    fn base_command(name: &str) -> Command {
+        Command {
+            name: name.to_owned(),
+            kind: CommandKind::Create,
+            route: Vec::new(),
+            input: CommandInput::Empty,
+            target: None,
+            lets: Vec::new(),
+            effect: CommandEffect::None,
+            policy: PolicyRef::None,
+            emits: Vec::new(),
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: Vec::new(),
+            external_calls: Vec::new(),
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            deprecated: None,
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    #[test]
+    fn representative_feature_emits_command_file_shape() {
+        let mut feature = base_feature("customer");
+        feature.resources.push(simple_resource("Customer"));
+
+        let mut cmd = base_command("create");
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "name".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "name"])),
+            }],
+        });
+        feature.commands.push(cmd);
+
+        let module = module_with_features(vec![feature.clone()]);
+        let index = CrossFeatureIndex::build(&module);
+        let emit_ctx = EmitContext::no_source("customer/command.gen.go");
+        let out = emit_command_file(
+            "features/customer/customer.lzi",
+            &feature,
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
+        .expect("representative command feature must emit command.gen.go");
+
+        assert!(!out.is_empty());
+        assert!(out.contains("// Code generated by lazuli; DO NOT EDIT."));
+        assert!(out.contains("package customer"));
+        assert!(out.contains("type CreateCustomerInput struct {"));
+        assert!(
+            out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
+        );
+        assert!(out.contains(
+            "func HandleCreate(ctx *lazuli.Ctx, input CreateCustomerInput) (Customer, error) {"
+        ));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use lazuli_ir::{
