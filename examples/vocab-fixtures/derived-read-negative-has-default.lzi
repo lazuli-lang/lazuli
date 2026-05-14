@@ -1,0 +1,35 @@
+# VOCAB-DERIVED-READ-001 negative fixture.
+# Case: field with an explicit default value.
+# Expected: rule SHOULD NOT fire.
+# The default marks `status_label` as persisted storage, not read-time derivation.
+
+feature derived_read_negative_has_default
+  domain
+    resource SupportTicket
+      requester_email: @semantic.Email required
+      title: Text required
+      status_label: Text = "open"
+      created_at: DateTime required
+      updated_at: DateTime required
+
+  policies
+    public: @scope.public
+
+  command open_ticket
+    input
+      requester_email: @semantic.Email required
+      title: Text required
+    policy @policy.public
+    rate_limit "20 per hour per actor"
+    audit default
+    creates SupportTicket
+      requester_email = input.requester_email
+      title = input.title
+      created_at = ctx.now
+      updated_at = ctx.now
+
+  command read_ticket
+    route id: ID
+    returns SupportTicket
+    policy @policy.public
+    rate_limit "120 per hour per actor"
