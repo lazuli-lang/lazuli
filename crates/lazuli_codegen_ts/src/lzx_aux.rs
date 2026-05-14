@@ -6,8 +6,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use crate::lzx::{
-    command_action_key, lower_camel, pascal_case, CommandRef, SelectionDecl, SelectionMode,
-    SettingDecl, SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, ViewList,
+    command_action_key, command_ident, lower_camel, pascal_case, CommandRef, SelectionDecl,
+    SelectionMode, SettingDecl, SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface,
+    ViewList,
 };
 
 pub(crate) fn needs_use_state(view: &ViewList) -> bool {
@@ -107,12 +108,11 @@ pub(crate) fn write_return_fields(s: &mut String, view: &ViewList) {
     }
 }
 
+/// Bulk action SDK ident is just the canonical command_ident — the .lzi
+/// command (whatever its name) is what gets imported. Doctor D.6 enforces
+/// the input shape (`{ ids: ID[] }` or `{ <feature>_ids: ID[] }`).
 pub(crate) fn bulk_command_ident(cmd: &CommandRef) -> String {
-    let resource_plural = format!("{}s", pascal_case(&cmd.feature));
-    let mut out = String::from("bulk");
-    out.push_str(&pascal_case(&cmd.name));
-    out.push_str(&resource_plural);
-    lower_first(&out)
+    command_ident(cmd)
 }
 
 fn write_sort_state(s: &mut String, sort: &SortDecl) {
