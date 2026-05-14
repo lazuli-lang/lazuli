@@ -63,6 +63,43 @@ pub enum AnalyzeError {
     )]
     DesignExtendsCutB { target: String },
 
+    /// L0 #3 — view source did not parse as
+    /// `<feature>.query.<short>` or
+    /// `<feature>.query.{list|lookup|sql}.<short>`.
+    #[error("LZX-BAD-QUERY-REF: view `{view}` source `{value}` must be `<feature>.query.<name>` (or `.query.{{list|lookup|sql}}.<name>`)")]
+    LzxBadQueryRef { view: String, value: String },
+
+    /// L0 #3 — `submit` or `actions` entry did not parse as a command
+    /// reference. Accepts `<feature>.command.<name>` (qualified) or a
+    /// bare local short name (`create`).
+    #[error("LZX-BAD-COMMAND-REF: command reference `{value}` must be `<feature>.command.<name>` or a bare local short name")]
+    LzxBadCommandRef { value: String },
+
+    /// L0 #3 §11 `lzx-cell-slot-orphan` — a `cells <field> @client.<slot>`
+    /// binding references a field that isn't in the view's column /
+    /// section / fields list. v0 surfaces this at lowering; doctor may
+    /// downgrade to a warning.
+    #[error("LZX-CELL-SLOT-ORPHAN: view `{view}` cell binding for field `{field}` is not in its columns / sections / fields list")]
+    LzxCellSlotOrphan { view: String, field: String },
+
+    /// L0 #3 — the cell slot identifier itself is malformed (empty or
+    /// non-kebab/snake characters). Parser-time check; this guards
+    /// against direct AST construction.
+    #[error("LZX-CELL-SLOT-INVALID: view `{view}` cell slot `{slot}` must be a kebab/snake identifier")]
+    LzxCellSlotInvalid { view: String, slot: String },
+
+    /// L0 #3 §11 `lzx-route-param-missing-binding` — a `:name`
+    /// placeholder in the `at "<path>"` string has no matching
+    /// `route <name>: <Type> from path` declaration.
+    #[error("LZX-ROUTE-PARAM-MISSING-BINDING: view `{view}` path placeholder `:{placeholder}` has no `route {placeholder}: <Type> from path` declaration")]
+    LzxRouteParamMissingBinding { view: String, placeholder: String },
+
+    /// L0 #3 §11 `lzx-route-param-orphan` — a `route <name>: Type from
+    /// path` declaration has no matching `:name` placeholder in the
+    /// view's `at "<path>"`.
+    #[error("LZX-ROUTE-PARAM-ORPHAN: view `{view}` declared route param `{param}` but the `at` path has no `:{param}` placeholder")]
+    LzxRouteParamOrphan { view: String, param: String },
+
     /// L0 #2 — a `shadow <name> "<value>"` entry carried a top-level
     /// comma, indicating multi-layer composition. Closed v0 grammar
     /// accepts only single-layer shadows; declare separate tokens
@@ -101,6 +138,30 @@ pub enum AnalyzeError {
     /// L0 #2 — `z <name> <value>` value did not parse as `i32`.
     #[error("DESIGN-Z-INVALID: z token `{name}` has non-integer value `{value}`")]
     DesignZInvalid { name: String, value: String },
+
+    /// L0 #3 §10.2 — conflicting inline field constraints. Per the
+    /// proposal: `length` rejects `min`/`max`, `between` rejects
+    /// `min`/`max`, and `in [...]` rejects `pattern`. The `combo`
+    /// string names the rejected pair (e.g. `length+min`,
+    /// `between+max`, `in+pattern`).
+    #[error(
+        "FIELD-CONSTRAINT-CONFLICT: field `{field}` has incompatible constraints (`{combo}`); see docs/proposals/lzx-integration-codegen.md §10.2"
+    )]
+    ConstraintConflict { field: String, combo: String },
+
+    /// L0 #3 §10.3 — a `default` value does not satisfy the field's
+    /// declared inline constraints. The analyzer accepts the value
+    /// verbatim from the parser; here we check it against `min`,
+    /// `max`, `length`, `between`, and `in [...]`. `pattern` is
+    /// honoured for string defaults too.
+    #[error(
+        "FIELD-DEFAULT-VIOLATES-CONSTRAINT: field `{field}` default `{value}` violates `{rule}`; see docs/proposals/lzx-integration-codegen.md §10.3"
+    )]
+    DefaultViolatesConstraint {
+        field: String,
+        value: String,
+        rule: String,
+    },
 }
 
 pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
@@ -343,6 +404,310 @@ fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
     }
 }
 
+// =============================================================================
+// L0 #3 — lzx ViewModel surface lowering.
+// -----------------------------------------------------------------------------
+// `lower_surface` takes a parsed `SurfaceAst` (from
+// `lazuli_syntax::parse_surface_document`) and yields an `ir::Surface`.
+// Validations performed at lowering time:
+//   - source/submit references are well-formed (`<feature>.query.<kind>.<name>`
+//     and `<feature>.command.<name>` respectively, OR the short
+//     bare-name form for actions inside the same surface).
+//   - cell slot + field identifiers are valid kebab/snake idents (parser
+//     already enforces; we re-check to defend against direct AST
+//     construction).
+//   - When both `at "<path>"` and `route <name>: Type from path` are
+//     declared, every `:<name>` placeholder in the path has a matching
+//     `route_params` entry and vice versa (`lzx-route-param-*`).
+// Deeper validations (`source` resource exists, `actions` reaches the
+// audience's scope, etc.) defer to the doctor cells per the proposal.
+// =============================================================================
+
+/// Lower a `SurfaceAst` (parser output) into the canonical `ir::Surface`
+/// per `docs/proposals/lzx-integration-codegen.md` §5 + §5.2.
+pub fn lower_surface(ast: &syntax::SurfaceAst) -> Result<ir::Surface, AnalyzeError> {
+    let target = match ast.target {
+        syntax::SurfaceTargetAst::Web => ir::SurfaceTarget::Web,
+        syntax::SurfaceTargetAst::Mobile => ir::SurfaceTarget::Mobile,
+    };
+    let owning_feature = ast.uses_feature.clone().unwrap_or_else(|| ast.feature.clone());
+
+    let mut audiences = Vec::with_capacity(ast.audiences.len());
+    for audience in &ast.audiences {
+        audiences.push(lower_audience_ast(audience, &owning_feature)?);
+    }
+
+    Ok(ir::Surface {
+        feature: owning_feature,
+        target,
+        audiences,
+        span_ref: Some(span_of(ast.span)),
+    })
+}
+
+fn lower_audience_ast(
+    ast: &syntax::AudienceAst,
+    owning_feature: &str,
+) -> Result<ir::Audience, AnalyzeError> {
+    let requires = ast
+        .requires
+        .iter()
+        .map(|atom| ir::PolicyAtom {
+            namespace: atom.namespace.clone(),
+            name: atom.name.clone(),
+        })
+        .collect();
+
+    let mut views = Vec::with_capacity(ast.views.len());
+    for view in &ast.views {
+        views.push(lower_view_ast(view, owning_feature)?);
+    }
+    Ok(ir::Audience {
+        name: ast.name.clone(),
+        requires,
+        views,
+        span_ref: Some(span_of(ast.span)),
+    })
+}
+
+fn lower_view_ast(
+    ast: &syntax::ViewAst,
+    owning_feature: &str,
+) -> Result<ir::View, AnalyzeError> {
+    match ast {
+        syntax::ViewAst::List(v) => {
+            let source = parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+                view: v.name.clone(),
+                value: v.source.clone(),
+            })?;
+            validate_cells(&v.cells, &v.columns, &v.name)?;
+            let actions = v
+                .actions
+                .iter()
+                .map(|s| parse_command_ref(s, owning_feature))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ir::View::List(ir::ViewList {
+                name: v.name.clone(),
+                route: v.route.clone(),
+                source,
+                columns: v.columns.clone(),
+                search: v.search.clone(),
+                filter: v.filter.clone(),
+                cells: v
+                    .cells
+                    .iter()
+                    .map(|c| ir::CellBinding {
+                        field: c.field.clone(),
+                        slot: c.slot.clone(),
+                    })
+                    .collect(),
+                actions,
+                span_ref: Some(span_of(v.span)),
+            }))
+        }
+        syntax::ViewAst::Detail(v) => {
+            let source = parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+                view: v.name.clone(),
+                value: v.source.clone(),
+            })?;
+            // Detail views bind cells against fields on the source resource,
+            // not against the `sections` enumeration. The source-resource
+            // cross-check happens at doctor time (`lzx-source-resource-mismatch`).
+            // We only validate cell slot identifier shape here.
+            validate_cells_slot_only(&v.cells, &v.name)?;
+            // Route param ↔ placeholder cross-check (`lzx-route-param-*`).
+            if let Some(path) = v.route.as_ref() {
+                let placeholders = path_placeholders(path);
+                for placeholder in &placeholders {
+                    if !v.route_params.iter().any(|p| &p.name == placeholder) {
+                        return Err(AnalyzeError::LzxRouteParamMissingBinding {
+                            view: v.name.clone(),
+                            placeholder: placeholder.clone(),
+                        });
+                    }
+                }
+                for param in &v.route_params {
+                    if !placeholders.iter().any(|p| p == &param.name) {
+                        return Err(AnalyzeError::LzxRouteParamOrphan {
+                            view: v.name.clone(),
+                            param: param.name.clone(),
+                        });
+                    }
+                }
+            }
+            let actions = v
+                .actions
+                .iter()
+                .map(|s| parse_command_ref(s, owning_feature))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ir::View::Detail(ir::ViewDetail {
+                name: v.name.clone(),
+                route: v.route.clone(),
+                source,
+                route_params: v
+                    .route_params
+                    .iter()
+                    .map(|p| ir::RouteParam {
+                        name: p.name.clone(),
+                        type_ref: p.type_ref.clone(),
+                    })
+                    .collect(),
+                sections: v.sections.clone(),
+                cells: v
+                    .cells
+                    .iter()
+                    .map(|c| ir::CellBinding {
+                        field: c.field.clone(),
+                        slot: c.slot.clone(),
+                    })
+                    .collect(),
+                actions,
+                span_ref: Some(span_of(v.span)),
+            }))
+        }
+        syntax::ViewAst::Create(v) => {
+            let submit = parse_command_ref(&v.submit, owning_feature)?;
+            validate_cells(&v.cells, &v.fields, &v.name)?;
+            Ok(ir::View::Create(ir::ViewCreate {
+                name: v.name.clone(),
+                route: v.route.clone(),
+                submit,
+                fields: v.fields.clone(),
+                cells: v
+                    .cells
+                    .iter()
+                    .map(|c| ir::CellBinding {
+                        field: c.field.clone(),
+                        slot: c.slot.clone(),
+                    })
+                    .collect(),
+                span_ref: Some(span_of(v.span)),
+            }))
+        }
+    }
+}
+
+/// Validate that every cell `field` shows up in the view's column /
+/// fields list (proposal §5.2 + doctor rule `lzx-cell-slot-orphan`).
+/// Slot names are restricted to kebab/snake identifiers (defensive —
+/// parser already enforces).
+fn validate_cells(
+    cells: &[syntax::CellBindingAst],
+    field_universe: &[String],
+    view_name: &str,
+) -> Result<(), AnalyzeError> {
+    for cell in cells {
+        validate_cell_slot_shape(&cell.slot, view_name)?;
+        if !field_universe.is_empty() && !field_universe.contains(&cell.field) {
+            return Err(AnalyzeError::LzxCellSlotOrphan {
+                view: view_name.to_owned(),
+                field: cell.field.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Cell-slot identifier validation only (skip the field-universe
+/// orphan check). Used for `view detail` where cells bind against
+/// fields on the source resource, not against the section enum.
+fn validate_cells_slot_only(
+    cells: &[syntax::CellBindingAst],
+    view_name: &str,
+) -> Result<(), AnalyzeError> {
+    for cell in cells {
+        validate_cell_slot_shape(&cell.slot, view_name)?;
+    }
+    Ok(())
+}
+
+fn validate_cell_slot_shape(slot: &str, view_name: &str) -> Result<(), AnalyzeError> {
+    if slot.is_empty()
+        || !slot.chars().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
+        })
+    {
+        return Err(AnalyzeError::LzxCellSlotInvalid {
+            view: view_name.to_owned(),
+            slot: slot.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// Extract `:name` placeholders from a route path like `/slugs/:key`.
+fn path_placeholders(path: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for segment in path.split('/') {
+        if let Some(rest) = segment.strip_prefix(':') {
+            // Trim any non-ident tail (the segment could theoretically
+            // carry a suffix; v0 keeps it strict so anything after the
+            // name is a parse-time error already).
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                .collect();
+            if !name.is_empty() {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+/// Parse `<feature>.query.<short>` into a `QueryRef`. The middle token
+/// disambiguates list / lookup / sql when the source pre-qualifies it
+/// (`feat.query.list.mine` / `feat.query.lookup.by_key` / `feat.query.sql.raw`).
+/// The shorter form `<feat>.query.<short>` defaults to `List`.
+fn parse_query_ref(text: &str) -> Option<ir::QueryRef> {
+    let parts: Vec<&str> = text.split('.').collect();
+    match parts.as_slice() {
+        [feature, "query", name] => Some(ir::QueryRef {
+            feature: (*feature).to_owned(),
+            kind: ir::QueryKind::List,
+            name: (*name).to_owned(),
+        }),
+        [feature, "query", "list", name] => Some(ir::QueryRef {
+            feature: (*feature).to_owned(),
+            kind: ir::QueryKind::List,
+            name: (*name).to_owned(),
+        }),
+        [feature, "query", "lookup", name] => Some(ir::QueryRef {
+            feature: (*feature).to_owned(),
+            kind: ir::QueryKind::Lookup,
+            name: (*name).to_owned(),
+        }),
+        [feature, "query", "sql", name] => Some(ir::QueryRef {
+            feature: (*feature).to_owned(),
+            kind: ir::QueryKind::Sql,
+            name: (*name).to_owned(),
+        }),
+        _ => None,
+    }
+}
+
+/// Parse a command reference from a `submit ` line or an `actions`
+/// list entry. Accepts both the qualified form (`feat.command.name`)
+/// and the bare local form (`name`) — the latter assumes the owning
+/// feature.
+fn parse_command_ref(text: &str, owning_feature: &str) -> Result<ir::CommandRef, AnalyzeError> {
+    let trimmed = text.trim();
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    match parts.as_slice() {
+        [feature, "command", name] => Ok(ir::CommandRef {
+            feature: (*feature).to_owned(),
+            name: (*name).to_owned(),
+        }),
+        [name] if !name.is_empty() => Ok(ir::CommandRef {
+            feature: owning_feature.to_owned(),
+            name: (*name).to_owned(),
+        }),
+        _ => Err(AnalyzeError::LzxBadCommandRef {
+            value: trimmed.to_owned(),
+        }),
+    }
+}
+
 struct LoweredAggregate {
     resource: ir::Resource,
     commands: Vec<ir::Command>,
@@ -461,6 +826,7 @@ fn lower_field(field: &syntax::Field) -> ir::Field {
         unique,
         default,
         derived_from: None,
+        constraints: ir::FieldConstraints::default(),
         previous_names: Vec::new(),
         span_ref: Some(span_of(field.span)),
     }
@@ -907,11 +1273,23 @@ pub fn lower_feature_skeleton(
         Some(d) => lower_defaults(d),
         None => ir::Defaults::default(),
     };
-    let commands = skeleton.commands.iter().map(lower_command_decl).collect();
+    let commands = skeleton
+        .commands
+        .iter()
+        .map(lower_command_decl)
+        .collect::<Result<Vec<_>, _>>()?;
     let apis = skeleton.apis.iter().map(lower_api_decl).collect();
-    let resources = skeleton.resources.iter().map(lower_resource_decl).collect();
+    let resources = skeleton
+        .resources
+        .iter()
+        .map(lower_resource_decl)
+        .collect::<Result<Vec<_>, _>>()?;
     let queries = skeleton.queries.iter().map(lower_query_decl).collect();
-    let records = skeleton.records.iter().map(lower_record_decl).collect();
+    let records = skeleton
+        .records
+        .iter()
+        .map(lower_record_decl)
+        .collect::<Result<Vec<_>, _>>()?;
     let policies = skeleton
         .policies
         .as_ref()
@@ -1079,18 +1457,24 @@ fn lower_command_input_to_typed(slot: &syntax::CommandInputSlot) -> ir::TypedSlo
         name: slot.name.clone(),
         type_ref: type_ref_from_text(&slot.type_text),
         required: slot.required,
+        constraints: lift_field_constraints(&slot.constraints),
     }
 }
 
 /// Phase L Tier 4d — lower a canonical-indent `record` block into
 /// `ir::Record`.
-fn lower_record_decl(r: &syntax::RecordDecl) -> ir::Record {
-    ir::Record {
+fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError> {
+    let fields = r
+        .fields
+        .iter()
+        .map(lower_resource_field)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ir::Record {
         name: r.name.clone(),
-        fields: r.fields.iter().map(lower_resource_field).collect(),
+        fields,
         discriminator_field: r.discriminator_field.clone(),
         span_ref: Some(span_of(r.span)),
-    }
+    })
 }
 
 /// Phase L Tier 4 follow-up — lower a canonical-indent `policies` block
@@ -1159,14 +1543,18 @@ fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
 /// `ir::Resource`. `tenancy` (resource-local override), `soft_delete`,
 /// `timestamps`, `retention`, `validates`, and `derived_from` all
 /// project through additive IR fields landed alongside this lowering.
-fn lower_resource_decl(r: &syntax::ResourceDecl) -> ir::Resource {
+fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, AnalyzeError> {
     let tenancy = r.tenancy.as_ref().map(|t| match t {
         syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
         syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
         syntax::DefaultsTenancy::None => ir::Tenancy::None,
         syntax::DefaultsTenancy::Custom(axis) => ir::Tenancy::Custom(axis.clone()),
     });
-    let fields = r.fields.iter().map(lower_resource_field).collect();
+    let fields = r
+        .fields
+        .iter()
+        .map(lower_resource_field)
+        .collect::<Result<Vec<_>, _>>()?;
     let retention = r.retention.as_ref().map(|ret| ir::RetentionSpec {
         duration: ret.duration.clone(),
         action: match ret.action {
@@ -1179,7 +1567,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> ir::Resource {
     // for a single-entry case (the fixture pattern). Multi-entry would
     // need a `Vec`; defer until pilot evidence demands it.
     let validate = r.validates.first().map(|v| ir::PathRef::authored(v));
-    ir::Resource {
+    Ok(ir::Resource {
         name: r.name.clone(),
         tenancy,
         soft_delete: r.soft_delete,
@@ -1195,7 +1583,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> ir::Resource {
             .map(|p| strip_previously_mode(p))
             .collect(),
         span_ref: Some(span_of(r.span)),
-    }
+    })
 }
 
 /// Migrations bucket cycle Route C — strip the `migrated`/`alias` mode
@@ -1213,9 +1601,15 @@ fn strip_previously_mode(raw: &str) -> String {
     trimmed.to_owned()
 }
 
-fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
+fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
     let default = f.default.as_deref().map(|raw| parse_default(raw.trim()));
-    ir::Field {
+    let constraints = lift_field_constraints(&f.constraints);
+    // L0 #3 §10.2 + §10.3 — combination rules + default compatibility.
+    validate_constraint_combinations(&f.name, &f.constraints)?;
+    if let Some(default_text) = f.default.as_deref() {
+        validate_default_against_constraints(&f.name, default_text.trim(), &f.constraints)?;
+    }
+    Ok(ir::Field {
         name: f.name.clone(),
         // Phase L Tier 4 follow-up — use `type_ref_from_syntax` so
         // `@cap.Hashed(algorithm:…)`, `@cap.Encrypted(key:…)`,
@@ -1227,20 +1621,194 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> ir::Field {
         unique: f.unique,
         default,
         derived_from: f.derived_from.clone(),
+        constraints,
         previous_names: f
             .previously
             .iter()
             .map(|p| strip_previously_mode(p))
             .collect(),
         span_ref: Some(span_of(f.span)),
+    })
+}
+
+/// Project `syntax::FieldConstraintsDecl` onto the IR's
+/// `ir::FieldConstraints`. Pure copy; combination + default checks
+/// happen separately so this stays infallible.
+fn lift_field_constraints(decl: &syntax::FieldConstraintsDecl) -> ir::FieldConstraints {
+    ir::FieldConstraints {
+        min: decl.min,
+        max: decl.max,
+        pattern: decl.pattern.clone(),
+        between: decl.between,
+        length: decl.length,
+        r#in: decl.r#in.clone(),
     }
+}
+
+/// L0 #3 §10.2 — enforce inline constraint combination rules. Returns
+/// the first conflict so authors get one focused diagnostic per field
+/// (consistent with the rest of the analyzer).
+fn validate_constraint_combinations(
+    field: &str,
+    c: &syntax::FieldConstraintsDecl,
+) -> Result<(), AnalyzeError> {
+    // length + min/max — `length N` already pins both bounds.
+    if c.length.is_some() && c.min.is_some() {
+        return Err(AnalyzeError::ConstraintConflict {
+            field: field.to_owned(),
+            combo: "length+min".to_owned(),
+        });
+    }
+    if c.length.is_some() && c.max.is_some() {
+        return Err(AnalyzeError::ConstraintConflict {
+            field: field.to_owned(),
+            combo: "length+max".to_owned(),
+        });
+    }
+    // between + min/max — redundant.
+    if c.between.is_some() && c.min.is_some() {
+        return Err(AnalyzeError::ConstraintConflict {
+            field: field.to_owned(),
+            combo: "between+min".to_owned(),
+        });
+    }
+    if c.between.is_some() && c.max.is_some() {
+        return Err(AnalyzeError::ConstraintConflict {
+            field: field.to_owned(),
+            combo: "between+max".to_owned(),
+        });
+    }
+    // in [...] + pattern — use enum instead.
+    if c.r#in.is_some() && c.pattern.is_some() {
+        return Err(AnalyzeError::ConstraintConflict {
+            field: field.to_owned(),
+            combo: "in+pattern".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// L0 #3 §10.3 — verify that a default literal satisfies the declared
+/// inline constraints. The parser captures `default` verbatim (incl.
+/// surrounding quotes for string literals); we strip the outer quotes
+/// before length/pattern/in checks. Numeric checks parse the literal
+/// as `i64`; non-integer literals fall back to a no-op rather than
+/// raise a different error code, because the analyzer already has a
+/// type-mismatch check elsewhere.
+fn validate_default_against_constraints(
+    field: &str,
+    default_raw: &str,
+    c: &syntax::FieldConstraintsDecl,
+) -> Result<(), AnalyzeError> {
+    let default_raw = default_raw.trim();
+    // Strip surrounding double quotes for string-typed defaults.
+    let unquoted = if default_raw.len() >= 2
+        && default_raw.starts_with('"')
+        && default_raw.ends_with('"')
+    {
+        &default_raw[1..default_raw.len() - 1]
+    } else {
+        default_raw
+    };
+    // Numeric path: try parsing the (unquoted) literal as an integer.
+    let as_int = unquoted.parse::<i64>().ok();
+    // length check (string only — applies to char count of the
+    // unquoted literal).
+    if let Some(n) = c.length {
+        if unquoted.chars().count() != n {
+            return Err(AnalyzeError::DefaultViolatesConstraint {
+                field: field.to_owned(),
+                value: default_raw.to_owned(),
+                rule: format!("length={}", n),
+            });
+        }
+    }
+    // min on numerics OR text length.
+    if let Some(min) = c.min {
+        if let Some(n) = as_int {
+            if n < min {
+                return Err(AnalyzeError::DefaultViolatesConstraint {
+                    field: field.to_owned(),
+                    value: default_raw.to_owned(),
+                    rule: format!("min={}", min),
+                });
+            }
+        } else {
+            // text-min checks character count.
+            let len = unquoted.chars().count() as i64;
+            if len < min {
+                return Err(AnalyzeError::DefaultViolatesConstraint {
+                    field: field.to_owned(),
+                    value: default_raw.to_owned(),
+                    rule: format!("min={}", min),
+                });
+            }
+        }
+    }
+    if let Some(max) = c.max {
+        if let Some(n) = as_int {
+            if n > max {
+                return Err(AnalyzeError::DefaultViolatesConstraint {
+                    field: field.to_owned(),
+                    value: default_raw.to_owned(),
+                    rule: format!("max={}", max),
+                });
+            }
+        } else {
+            let len = unquoted.chars().count() as i64;
+            if len > max {
+                return Err(AnalyzeError::DefaultViolatesConstraint {
+                    field: field.to_owned(),
+                    value: default_raw.to_owned(),
+                    rule: format!("max={}", max),
+                });
+            }
+        }
+    }
+    if let Some((lo, hi)) = c.between {
+        if let Some(n) = as_int {
+            if n < lo || n > hi {
+                return Err(AnalyzeError::DefaultViolatesConstraint {
+                    field: field.to_owned(),
+                    value: default_raw.to_owned(),
+                    rule: format!("between={}..{}", lo, hi),
+                });
+            }
+        }
+    }
+    if let Some(values) = &c.r#in {
+        // For text: compare unquoted string against the list verbatim.
+        // For numerics: also compare unquoted, since `in [1,2,3]` is
+        // stored as `["1", "2", "3"]` in the AST.
+        if !values.iter().any(|v| v == unquoted) {
+            return Err(AnalyzeError::DefaultViolatesConstraint {
+                field: field.to_owned(),
+                value: default_raw.to_owned(),
+                rule: format!("in=[{}]", values.join(", ")),
+            });
+        }
+    }
+    if let Some(pattern) = &c.pattern {
+        // We do NOT compile the regex here (Lazuli analyzer is regex-
+        // free by design — RE2 enforcement lives in doctor + runtime).
+        // For empty defaults the parser fails on the bare `""` anyway,
+        // but we explicitly catch them so they don't silently pass.
+        if unquoted.is_empty() && !pattern.is_empty() {
+            return Err(AnalyzeError::DefaultViolatesConstraint {
+                field: field.to_owned(),
+                value: default_raw.to_owned(),
+                rule: format!("pattern=\"{}\"", pattern),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Phase L Tier 4b — lower a canonical-indent `command` block into
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
 /// `handler`-only → Returns (the escape hatch case).
-fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
+fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
     let kind = match c.effect.as_ref().map(|e| e.kind) {
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
@@ -1259,16 +1827,21 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
     let input = match &c.input {
         syntax::CommandInputDecl::Empty => ir::CommandInput::Empty,
         syntax::CommandInputDecl::Short(name) => ir::CommandInput::Short(vec![name.clone()]),
-        syntax::CommandInputDecl::Typed(slots) => ir::CommandInput::Typed(
-            slots
-                .iter()
-                .map(|s| ir::TypedSlot {
+        syntax::CommandInputDecl::Typed(slots) => {
+            // L0 #3 §10.2 — apply combination + default-compat checks
+            // to each typed input slot too.
+            let mut lifted = Vec::with_capacity(slots.len());
+            for s in slots {
+                validate_constraint_combinations(&s.name, &s.constraints)?;
+                lifted.push(ir::TypedSlot {
                     name: s.name.clone(),
                     type_ref: type_ref_from_text(&s.type_text),
                     required: s.required,
-                })
-                .collect(),
-        ),
+                    constraints: lift_field_constraints(&s.constraints),
+                });
+            }
+            ir::CommandInput::Typed(lifted)
+        }
     };
     let target = c.target.as_ref().map(lower_target_expr);
     let lets = c.lets.iter().map(lower_let_binding).collect();
@@ -1321,7 +1894,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         .as_deref()
         .map(lower_path_string)
         .map(|path| ir::IdempotencyKey { by: path });
-    ir::Command {
+    Ok(ir::Command {
         name: c.name.clone(),
         kind,
         route,
@@ -1343,7 +1916,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> ir::Command {
         tests: None,
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
-    }
+    })
 }
 
 /// OpenAPI bucket cycle — lower an authored `deprecated` decorator into
@@ -2048,6 +2621,7 @@ pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, An
             name: slot.name.clone(),
             type_ref: type_ref_from_text(&slot.type_text),
             required: slot.required,
+            constraints: ir::FieldConstraints::default(),
         })
         .collect();
 
@@ -2142,6 +2716,7 @@ fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
             name: slot.name.clone(),
             type_ref: type_ref_from_text(&slot.type_text),
             required: true,
+            constraints: ir::FieldConstraints::default(),
         })
         .collect();
     ir::HttpExposure {
@@ -4012,5 +4587,243 @@ design pleiades
         assert_eq!(json["colors"][0]["states"][0]["kind"], "base");
         // ColorStateKind serializes as snake_case.
         assert_eq!(json["colors"][0]["states"][2]["kind"], "foreground");
+    }
+}
+
+// =============================================================================
+// L0 #3 — `.lzx` surface lowering tests.
+// =============================================================================
+#[cfg(test)]
+mod surface_lowering_tests {
+    use super::{AnalyzeError, lower_surface};
+    use lazuli_ir as ir;
+    use lazuli_syntax::parse_surface_document;
+
+    fn parse(src: &str) -> ir::Surface {
+        let ast = parse_surface_document(src).expect("parses");
+        lower_surface(&ast).expect("lowers")
+    }
+
+    #[test]
+    fn lowers_minimal_surface() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n",
+        );
+        assert_eq!(surface.feature, "slug");
+        assert_eq!(surface.target, ir::SurfaceTarget::Web);
+        assert_eq!(surface.audiences.len(), 1);
+        assert_eq!(surface.audiences[0].views.len(), 1);
+    }
+
+    #[test]
+    fn list_view_carries_columns_search_filter() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key, title\n      search key\n      filter title\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.columns, vec!["key", "title"]);
+        assert_eq!(view.search, vec!["key"]);
+        assert_eq!(view.filter, vec!["title"]);
+    }
+
+    #[test]
+    fn detail_view_lifts_route_params_and_sections() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view detail d at \"/s/:key\"\n      source slug.query.by_key\n      route key: Text from path\n      sections header, metadata\n",
+        );
+        let detail = match &surface.audiences[0].views[0] {
+            ir::View::Detail(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(detail.route.as_deref(), Some("/s/:key"));
+        assert_eq!(detail.route_params.len(), 1);
+        assert_eq!(detail.route_params[0].name, "key");
+        assert_eq!(detail.route_params[0].type_ref, "Text");
+        assert_eq!(detail.sections, vec!["header", "metadata"]);
+    }
+
+    #[test]
+    fn create_view_lifts_submit_command_and_fields() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view create n at \"/s/new\"\n      submit slug.command.create\n      fields key, title\n",
+        );
+        let create = match &surface.audiences[0].views[0] {
+            ir::View::Create(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(create.submit.feature, "slug");
+        assert_eq!(create.submit.name, "create");
+        assert_eq!(create.fields, vec!["key", "title"]);
+    }
+
+    #[test]
+    fn requires_lifts_to_policy_atom() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    requires @scope.workspace_admin\n    view list a\n      source slug.query.mine\n      columns key\n",
+        );
+        let req = &surface.audiences[0].requires[0];
+        assert_eq!(req.namespace, "scope");
+        assert_eq!(req.name, "workspace_admin");
+    }
+
+    #[test]
+    fn query_ref_disambiguates_kind_via_prefix() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view detail d at \"/s/:key\"\n      source slug.query.lookup.by_key\n      route key: Text from path\n",
+        );
+        let detail = match &surface.audiences[0].views[0] {
+            ir::View::Detail(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(detail.source.feature, "slug");
+        assert_eq!(detail.source.kind, ir::QueryKind::Lookup);
+        assert_eq!(detail.source.name, "by_key");
+    }
+
+    #[test]
+    fn query_ref_unqualified_defaults_to_list() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.source.kind, ir::QueryKind::List);
+        assert_eq!(view.source.name, "mine");
+    }
+
+    #[test]
+    fn actions_short_form_lifts_owning_feature() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      actions create, update\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.actions.len(), 2);
+        for action in &view.actions {
+            assert_eq!(action.feature, "slug");
+        }
+        assert_eq!(view.actions[0].name, "create");
+        assert_eq!(view.actions[1].name, "update");
+    }
+
+    #[test]
+    fn actions_qualified_form_keeps_explicit_feature() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      actions other.command.archive\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.actions[0].feature, "other");
+        assert_eq!(view.actions[0].name, "archive");
+    }
+
+    #[test]
+    fn cell_binding_lifts_to_ir_cell_binding() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns tags\n      cells tags @client.type_badge\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.cells[0].field, "tags");
+        assert_eq!(view.cells[0].slot, "type_badge");
+    }
+
+    #[test]
+    fn route_param_orphan_error() {
+        let ast = parse_surface_document(
+            "surface slug web\n  audience admin\n    view detail d at \"/s/:key\"\n      source slug.query.by_key\n",
+        )
+        .expect("parses");
+        let err = lower_surface(&ast).unwrap_err();
+        assert!(matches!(
+            err,
+            AnalyzeError::LzxRouteParamMissingBinding { .. }
+        ));
+    }
+
+    #[test]
+    fn route_param_extra_without_placeholder_error() {
+        let ast = parse_surface_document(
+            "surface slug web\n  audience admin\n    view detail d at \"/s/x\"\n      source slug.query.by_key\n      route key: Text from path\n",
+        )
+        .expect("parses");
+        let err = lower_surface(&ast).unwrap_err();
+        assert!(matches!(err, AnalyzeError::LzxRouteParamOrphan { .. }));
+    }
+
+    #[test]
+    fn cell_slot_orphan_when_field_not_in_columns() {
+        let ast = parse_surface_document(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key, title\n      cells tags @client.type_badge\n",
+        )
+        .expect("parses");
+        let err = lower_surface(&ast).unwrap_err();
+        assert!(matches!(err, AnalyzeError::LzxCellSlotOrphan { .. }));
+    }
+
+    #[test]
+    fn bad_query_ref_rejected_at_lowering() {
+        let ast = parse_surface_document(
+            "surface slug web\n  audience admin\n    view list a\n      source bogus_thing\n      columns key\n",
+        )
+        .expect("parses");
+        let err = lower_surface(&ast).unwrap_err();
+        assert!(matches!(err, AnalyzeError::LzxBadQueryRef { .. }));
+    }
+
+    #[test]
+    fn lowers_full_section_13_1_fixture() {
+        // Smoke: the proposal §13.1 fixture lowers cleanly end-to-end.
+        let surface = parse(include_str!("../tests/fixtures/slug_web_section_13_1.lzx"));
+        assert_eq!(surface.feature, "slug");
+        assert_eq!(surface.audiences.len(), 2);
+        assert_eq!(surface.audiences[0].views.len(), 3);
+        let admin_list = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(admin_list.cells[0].slot, "type_badge");
+        assert_eq!(admin_list.actions.len(), 3);
+    }
+
+    #[test]
+    fn mobile_target_lowers_to_mobile_variant() {
+        let surface = parse(
+            "surface item mobile\n  audience kiosk\n    view list a\n      source item.query.mine\n      columns key\n",
+        );
+        assert_eq!(surface.target, ir::SurfaceTarget::Mobile);
+    }
+
+    #[test]
+    fn span_ref_attached_after_lowering() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n",
+        );
+        assert!(surface.span_ref.is_some());
+        assert!(surface.audiences[0].span_ref.is_some());
+    }
+
+    #[test]
+    fn audience_view_count_preserves_source_order() {
+        let surface = parse(
+            "surface slug web\n  audience admin\n    view list b\n      source slug.query.mine\n      columns key\n    view list a\n      source slug.query.mine\n      columns key\n",
+        );
+        let names: Vec<&str> = surface.audiences[0]
+            .views
+            .iter()
+            .map(|v| v.name())
+            .collect();
+        assert_eq!(names, vec!["b", "a"]);
     }
 }

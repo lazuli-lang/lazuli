@@ -203,6 +203,136 @@ pub struct LzxPlatformView {
 }
 
 // =============================================================================
+// L0 #3 — lzx ViewModel surface AST.
+// -----------------------------------------------------------------------------
+// Hand-written AST mirror for `features/<feat>/<feat>.{web,mobile}.lzx`
+// files per `docs/proposals/lzx-integration-codegen.md` §5 (closed
+// keyword catalog) + §5.1 (per-view-kind matrix). Field-level type
+// references are kept as raw text; the analyzer lifts them to `ir::*`
+// in `lower_surface`. Indentation-based parser populates this via
+// `parse_surface_decl`.
+// =============================================================================
+
+/// A `.lzx` surface declaration — one per `<feat>.<target>.lzx` file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceAst {
+    /// `surface <feature> web|mobile` — first token after `surface`.
+    pub feature: String,
+    /// `web` or `mobile`. Validated at parse time.
+    pub target: SurfaceTargetAst,
+    /// Optional `uses feature <feature>` override. When absent, the
+    /// surface's owning feature (derived from the enclosing file path)
+    /// is assumed.
+    pub uses_feature: Option<String>,
+    pub audiences: Vec<AudienceAst>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceTargetAst {
+    Web,
+    Mobile,
+}
+
+/// `audience <name>` block inside a `.lzx` surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudienceAst {
+    pub name: String,
+    /// `requires @scope.<name>` (and reserved future `@role.<name>` /
+    /// `@actor.<name>`) — one entry per `requires` line.
+    pub requires: Vec<PolicyAtomAst>,
+    pub views: Vec<ViewAst>,
+    pub span: Span,
+}
+
+/// Closed view-kind catalog mirroring `ir::View`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ViewAst {
+    List(ViewListAst),
+    Detail(ViewDetailAst),
+    Create(ViewCreateAst),
+}
+
+impl ViewAst {
+    pub fn name(&self) -> &str {
+        match self {
+            ViewAst::List(v) => &v.name,
+            ViewAst::Detail(v) => &v.name,
+            ViewAst::Create(v) => &v.name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewListAst {
+    pub name: String,
+    pub route: Option<String>,
+    /// `source <feature>.query.<name>` — kept as raw `feature.query.name`
+    /// text; analyzer splits into a `QueryRef`.
+    pub source: String,
+    pub columns: Vec<String>,
+    pub search: Vec<String>,
+    pub filter: Vec<String>,
+    pub cells: Vec<CellBindingAst>,
+    /// `actions <cmd>, <cmd>` — comma-separated short names or qualified
+    /// `<feature>.command.<name>` references. Analyzer normalizes.
+    pub actions: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewDetailAst {
+    pub name: String,
+    pub route: Option<String>,
+    pub source: String,
+    pub route_params: Vec<RouteParamAst>,
+    pub sections: Vec<String>,
+    pub cells: Vec<CellBindingAst>,
+    pub actions: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewCreateAst {
+    pub name: String,
+    pub route: Option<String>,
+    /// `submit <feature>.command.<name>` — qualified reference text.
+    pub submit: String,
+    pub fields: Vec<String>,
+    pub cells: Vec<CellBindingAst>,
+    pub span: Span,
+}
+
+/// `cells <field> @client.<slot>` parsed binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CellBindingAst {
+    pub field: String,
+    /// Slot identifier (without the `@client.` prefix).
+    pub slot: String,
+    pub span: Span,
+}
+
+/// `route <name>: <Type> from path` — typed path parameter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteParamAst {
+    pub name: String,
+    pub type_ref: String,
+    pub span: Span,
+}
+
+/// `@<namespace>.<name>` — currently always `@scope.<x>` inside an
+/// audience's `requires` block, but kept structured for future
+/// `@role.x` / `@actor.x` expansion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAtomAst {
+    pub namespace: String,
+    pub name: String,
+    pub span: Span,
+}
+
+// =============================================================================
 // Cut A — canonical-indent slice for `feature` skeletons and `agent` blocks.
 //
 // Sibling to `Document` (legacy brace MVP). The slice deliberately covers
@@ -549,6 +679,12 @@ pub struct CommandInputSlot {
     pub type_text: String,
     pub required: bool,
     pub optional: bool,
+    /// L0 #3 §10 — inline constraints (`min N`, `max N`, `pattern
+    /// STRING`, `between A and B`, `length N`, `in [...]`). Parser
+    /// captures them; the analyzer validates combination rules and
+    /// lifts into `ir::FieldConstraints`.
+    #[serde(default, skip_serializing_if = "FieldConstraintsDecl::is_empty")]
+    pub constraints: FieldConstraintsDecl,
     pub span: Span,
 }
 
@@ -708,9 +844,48 @@ pub struct ResourceFieldDecl {
     pub default: Option<String>,
     /// `derived from <expr>` computed-field expression (Phase L Tier 4c).
     pub derived_from: Option<String>,
+    /// L0 #3 §10 — inline constraints (`min N`, `max N`, `pattern
+    /// STRING`, `between A and B`, `length N`, `in [...]`). Parser
+    /// captures them; the analyzer validates combination rules and
+    /// lifts into `ir::FieldConstraints`.
+    #[serde(default, skip_serializing_if = "FieldConstraintsDecl::is_empty")]
+    pub constraints: FieldConstraintsDecl,
     /// Child `previously migrated <old>` lines beneath the field.
     pub previously: Vec<String>,
     pub span: Span,
+}
+
+/// L0 #3 §10 — parser-side capture of the 6 inline field constraints.
+/// Mirrors `ir::FieldConstraints` but stays in the AST layer so the
+/// analyzer can apply combination + default-compat checks before
+/// projecting into the IR. `r#in` values are stored verbatim (no
+/// surrounding quotes for string literals; numerics as their text
+/// form) — the analyzer / emitters interpret per type.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FieldConstraintsDecl {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub between: Option<(i64, i64)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<usize>,
+    #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
+    pub r#in: Option<Vec<String>>,
+}
+
+impl FieldConstraintsDecl {
+    pub fn is_empty(&self) -> bool {
+        self.min.is_none()
+            && self.max.is_none()
+            && self.pattern.is_none()
+            && self.between.is_none()
+            && self.length.is_none()
+            && self.r#in.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

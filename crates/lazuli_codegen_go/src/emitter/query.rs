@@ -562,6 +562,7 @@ fn lookup_args(query: &LookupQuery, resource: Option<&Resource>) -> Vec<TypedSlo
             name,
             type_ref: infer_lookup_type(key, resource),
             required: true,
+            constraints: lazuli_ir::FieldConstraints::default(),
         });
     }
     args
@@ -990,6 +991,7 @@ mod tests {
             unique: false,
             default: None,
             derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1025,6 +1027,7 @@ mod tests {
             name: name.to_owned(),
             type_ref,
             required,
+            constraints: lazuli_ir::FieldConstraints::default(),
         }
     }
 
@@ -1369,6 +1372,7 @@ mod feature_emit {
             unique: false,
             default: None,
             derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1395,6 +1399,7 @@ mod feature_emit {
             name: name.to_owned(),
             type_ref,
             required,
+            constraints: lazuli_ir::FieldConstraints::default(),
         }
     }
 

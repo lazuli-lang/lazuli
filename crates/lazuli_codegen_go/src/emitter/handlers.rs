@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{
     BuiltinType, CapabilityRef, Command, CommandEffect, CommandInput, EvalContainsRhs,
-    EvalPredicate, Expr, ExtensionContract, Feature, JobBody, Module, PolicyRef, Predicate, Query,
-    TestAssertion, TestBlock, TypeRef, View,
+    EvalPredicate, Expr, ExtensionContract, Feature, JobBody, LegacyView, Module, PolicyRef,
+    Predicate, Query, TestAssertion, TestBlock, TypeRef,
 };
 
 use crate::GeneratedFile;
@@ -531,11 +531,11 @@ fn collect_feature_handler_refs(
         }
     }
 
-    for surface in &feature.surfaces {
-        for view in &surface.views {
-            collect_view_refs(view, feature_name, signatures, stubs);
-        }
-    }
+    // Legacy `.lzi` surface views are no longer carried on
+    // `Feature.surfaces`; the new lzx ViewModel pipeline (L0 #3) emits
+    // typed view spec consts directly via the codegen_ts crate. The
+    // helper is preserved for the legacy fixture path.
+    let _ = collect_view_refs;
 
     // Feature extension declarations are implementation obligations even when
     // the current IR has no concrete call site yet. Collect them after usage
@@ -878,13 +878,13 @@ fn collect_cache_refs(
 }
 
 fn collect_view_refs(
-    view: &View,
+    view: &LegacyView,
     feature: &str,
     signatures: &SignatureMap,
     stubs: &mut BTreeMap<StubKey, HandlerStub>,
 ) {
     match view {
-        View::Table(view) => {
+        LegacyView::Table(view) => {
             for cell in &view.cells {
                 collect_text_handler_refs(
                     &cell.renderer,
@@ -902,7 +902,7 @@ fn collect_view_refs(
                 stubs,
             );
         }
-        View::SidePanel(view) => {
+        LegacyView::SidePanel(view) => {
             for block in &view.blocks {
                 collect_text_handler_refs(
                     &block.renderer,
@@ -920,7 +920,7 @@ fn collect_view_refs(
                 stubs,
             );
         }
-        View::Form(view) => {
+        LegacyView::Form(view) => {
             collect_test_block_refs(
                 &view.tests,
                 feature,
@@ -929,7 +929,7 @@ fn collect_view_refs(
                 stubs,
             );
         }
-        View::Custom(view) => {
+        LegacyView::Custom(view) => {
             collect_optional_text_handler_ref(
                 &view.source.as_ref().map(|source| source.query.name.clone()),
                 feature,

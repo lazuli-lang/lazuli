@@ -423,10 +423,64 @@ pub struct Field {
     /// text for cross-field resolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derived_from: Option<String>,
+    /// L0 #3 §10 — inline field constraints emitted to Zod, Go
+    /// validator tags, and (in a follow-up) OpenAPI. Six closed
+    /// catalog keywords (`min N`, `max N`, `pattern STRING`,
+    /// `between A and B`, `length N`, `in [...]`). Combination
+    /// rules + default-value compatibility are enforced at lowering
+    /// (see `lazuli_analyzer::AnalyzeError::ConstraintConflict` and
+    /// `::DefaultViolatesConstraint`).
+    #[serde(default, skip_serializing_if = "FieldConstraints::is_empty")]
+    pub constraints: FieldConstraints,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// L0 #3 §10 — inline field constraints. Each slot is `Option` so an
+/// absent constraint serializes off via `is_empty`. Combination rules
+/// (§10.2) and default-value compatibility (§10.3) are checked in
+/// `lazuli_analyzer` at lowering; this struct is a passive container.
+///
+/// `r#in` carries values as strings; numeric-typed `in [...]` values
+/// are parsed on the consumer side (Go emitter / Zod emitter). This
+/// avoids splitting the field per-type and keeps the wire shape
+/// stable across numeric / text variants.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FieldConstraints {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub between: Option<(i64, i64)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<usize>,
+    #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
+    pub r#in: Option<Vec<String>>,
+}
+
+impl FieldConstraints {
+    /// `true` when no constraint is set. Used by serde to skip the
+    /// whole struct from JSON output (keeps `Module` byte-for-byte
+    /// stable for declarations without inline constraints).
+    pub fn is_empty(&self) -> bool {
+        self.min.is_none()
+            && self.max.is_none()
+            && self.pattern.is_none()
+            && self.between.is_none()
+            && self.length.is_none()
+            && self.r#in.is_none()
+    }
+
+    /// Convenience constructor used by tests and call sites that build
+    /// the struct from scratch without serde.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Closed catalog of type references. Strings are forbidden; the analyzer
@@ -839,6 +893,13 @@ pub struct TypedSlot {
     pub name: String,
     pub type_ref: TypeRef,
     pub required: bool,
+    /// L0 #3 §10 — inline constraints carried on command input
+    /// slots (`input` block). Mirrors `Field::constraints` so Zod
+    /// schemas for command inputs, Go validator tags on
+    /// `<Cmd>Input` structs, and OpenAPI parameter schemas pick up
+    /// the same six-keyword catalog without a parallel field.
+    #[serde(default, skip_serializing_if = "FieldConstraints::is_empty")]
+    pub constraints: FieldConstraints,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1508,34 +1569,41 @@ pub struct Transition {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Legacy `.lzi`-level `surface <name>` block carried from the original
+/// aggregate dialect. Lzx (L0 #3) introduces the canonical `Surface` /
+/// `Audience` / `View` types below; the legacy struct stays so older
+/// fixtures + emit_v1 snapshots that construct it via `Vec::new()`
+/// continue to compile. No producer populates it today.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Surface {
+pub struct LegacySurface {
     /// Surface words joined by space: `surface web admin` -> `name = "web admin"`.
     pub name: String,
-    pub views: Vec<View>,
+    pub views: Vec<LegacyView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
 
-/// Closed view kinds. New kinds enter via minor bump (see `docs/ir-abi.md`).
+/// Legacy `.lzi`-level view enum. See `LegacySurface` for context. The
+/// canonical `View` enum (lzx) lives below and is the active producer
+/// for new code.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
-pub enum View {
+pub enum LegacyView {
     Table(TableView),
     SidePanel(SidePanelView),
     Form(FormView),
     Custom(CustomView),
 }
 
-impl View {
+impl LegacyView {
     pub fn name(&self) -> &str {
         match self {
-            View::Table(v) => &v.name,
-            View::SidePanel(v) => &v.name,
-            View::Form(v) => &v.name,
-            View::Custom(v) => &v.name,
+            LegacyView::Table(v) => &v.name,
+            LegacyView::SidePanel(v) => &v.name,
+            LegacyView::Form(v) => &v.name,
+            LegacyView::Custom(v) => &v.name,
         }
     }
 }
@@ -1550,7 +1618,7 @@ pub struct TableView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filter: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub cells: Vec<CellBinding>,
+    pub cells: Vec<LegacyCellBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1617,8 +1685,10 @@ pub struct SourceRef {
     pub args: Vec<NamedArg>,
 }
 
+/// Legacy `.lzi` cell binding. The canonical lzx `CellBinding` lives in
+/// the lzx surface IR below.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CellBinding {
+pub struct LegacyCellBinding {
     pub field: String,
     /// `@client.<name>` reference resolved against the feature's `extensions`.
     pub renderer: String,
@@ -1627,6 +1697,188 @@ pub struct CellBinding {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockBinding {
     pub renderer: String,
+}
+
+// =============================================================================
+// Lzx ViewModel surface IR — L0 #3 (lzx-integration-codegen)
+// -----------------------------------------------------------------------------
+// One `Surface` per `(feature, target)` pair lowered from a
+// `features/<feat>/<feat>.{web,mobile}.lzx` file. `Feature.surfaces` carries
+// the lowered Vec (indexed by `SurfaceTarget`). See
+// `docs/proposals/lzx-integration-codegen.md` §5 for the closed grammar +
+// §6 for the emission shapes that consume this IR.
+// =============================================================================
+
+/// Lzx ViewModel surface lowered from one `<feat>.<target>.lzx` file.
+/// Carried on `Feature.surfaces`; one entry per platform target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Surface {
+    /// `surface <feature> web|mobile` — feature name.
+    pub feature: String,
+    pub target: SurfaceTarget,
+    pub audiences: Vec<Audience>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceTarget {
+    Web,
+    Mobile,
+}
+
+/// One audience block inside a surface. Maps to one `audience <name>
+/// requires @scope.<X>` section in `.lzx`. The `requires` list uses
+/// OR-semantics: the audience admits a caller whose policy carries ANY
+/// of the listed scopes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Audience {
+    /// `audience <name>` — kebab/snake case authoring identifier.
+    pub name: String,
+    /// `requires @scope.<name>` lines (one or more).
+    pub requires: Vec<PolicyAtom>,
+    pub views: Vec<View>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed view-kind catalog. New kinds enter via a Lazuli core proposal
+/// (Rule Zero) plus a minor IR bump.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum View {
+    List(ViewList),
+    Detail(ViewDetail),
+    Create(ViewCreate),
+}
+
+impl View {
+    pub fn name(&self) -> &str {
+        match self {
+            View::List(v) => &v.name,
+            View::Detail(v) => &v.name,
+            View::Create(v) => &v.name,
+        }
+    }
+
+    pub fn route(&self) -> Option<&str> {
+        match self {
+            View::List(v) => v.route.as_deref(),
+            View::Detail(v) => v.route.as_deref(),
+            View::Create(v) => v.route.as_deref(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewList {
+    pub name: String,
+    /// Optional `at "<path>"` route binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+    /// `source <feature>.query.<name>`.
+    pub source: QueryRef,
+    /// `columns <field>, <field>, ...` (required).
+    pub columns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filter: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<CellBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<CommandRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewDetail {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+    pub source: QueryRef,
+    /// `route <name>: <Type> from path` declarations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route_params: Vec<RouteParam>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<CellBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<CommandRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewCreate {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+    /// `submit <feature>.command.<name>` (required).
+    pub submit: CommandRef,
+    /// `fields <name>, <name>` — subset of the command's input slots.
+    pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<CellBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Reference to a query declared in some feature. The `kind` field
+/// surfaces the textual form (`query.list` / `query.lookup` / `query.sql`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryRef {
+    pub feature: String,
+    pub kind: QueryKind,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryKind {
+    List,
+    Lookup,
+    Sql,
+}
+
+/// Reference to a command. `feature` is set when the source uses the
+/// qualified form (`slug.command.create`); for the bare local form
+/// (`create` inside `actions`) the parser sets `feature` to the surface's
+/// feature and `name` to the command name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandRef {
+    pub feature: String,
+    pub name: String,
+}
+
+/// Slot binding for a list/detail/create view: `cells <field> @client.<slot>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CellBinding {
+    pub field: String,
+    /// The slot identifier after the `@client.` prefix.
+    pub slot: String,
+}
+
+/// `route <name>: <Type> from path` — a typed path parameter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteParam {
+    pub name: String,
+    /// Raw type label as authored (e.g. `Text`, `Customer.ID`). The
+    /// analyzer leaves the literal verbatim; deeper resolution lifts in
+    /// the codegen pipeline.
+    pub type_ref: String,
+}
+
+/// Atomic policy reference like `@scope.workspace_admin`, `@role.editor`,
+/// `@actor.workspace_owner`. Parser populates `namespace` ("scope" |
+/// "role" | "actor") + `name`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAtom {
+    pub namespace: String,
+    pub name: String,
 }
 
 // =============================================================================

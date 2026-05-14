@@ -1,0 +1,33 @@
+surface slug web
+  uses feature slug
+
+  audience admin
+    requires @scope.workspace_admin
+
+    view list slug_list at "/slugs"
+      source slug.query.mine
+      columns key, title, tags, created_at
+      search key, title
+      filter tags
+      cells tags @client.type_badge
+      actions create, update, delete
+
+    view detail slug_detail at "/slugs/:key"
+      source slug.query.by_key
+      route key: Text from path
+      sections header, metadata, related_items
+      cells tags @client.type_badge
+      actions update, delete
+
+    view create slug_create at "/slugs/new"
+      submit slug.command.create
+      fields key, title, description, tags
+      cells tags @client.type_badge
+
+  audience public
+    requires @scope.workspace_member
+
+    view list public_slug_list at "/browse"
+      source slug.query.mine
+      columns key, title
+      search key, title

@@ -7,24 +7,26 @@ use thiserror::Error;
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, ApiDecl,
-    ApprovalThenDecl, AssignmentDecl, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword,
-    AuthSessions, ColorStateAst, ColorTokenAst, Command, CommandApproval, CommandAudit,
-    CommandDecl, CommandDeprecatedDecl, CommandEffectDecl, CommandEffectKindDecl, CommandEmit,
-    CommandInputDecl, CommandInputSlot, CommandRouteSlot, ContainsRhs, DefaultsPolicyFor,
-    DefaultsTenancy, DesignDeclAst, Document, EasingTokenAst, EnumDeclAst, EnumStorageValueDecl,
-    EnumVariantDecl, EventGroup, FamilyTokenAst, FeatureDefaults, FeatureSkeleton, Field,
-    FieldModifier, FieldPoliciesDecl, FieldPolicyDecl, HttpMethod, InvalidatesDecl, Job, JobBody,
-    JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
-    JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl,
-    LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
-    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
-    LzxViewExtension, MotionAst, Notification, NotificationDigest, NotificationThrottle,
-    PoliciesDecl, PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl,
-    ResourceFieldDecl, ResourceHasMany, ResourceRetention, ResourceRetentionAction, ScaleTokenAst,
-    ShadowTokenAst, Span, SqlQueryDecl, Surface, TargetArgDecl, TargetExprDecl, TenantMigration,
-    TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl,
-    TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, Webhook, WebhookDlq,
-    WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst, ZTokenAst,
+    ApprovalThenDecl, AssignmentDecl, AudienceAst, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider,
+    AuthPassword, AuthSessions, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
+    CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
+    CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
+    ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document, EasingTokenAst,
+    EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
+    FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl, FieldPolicyDecl,
+    HttpMethod, InvalidatesDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
+    JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
+    ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience,
+    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
+    LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, MotionAst, Notification,
+    NotificationDigest, NotificationThrottle, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,
+    Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
+    ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, ShadowTokenAst, Span,
+    SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
+    TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
+    TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, ViewAst,
+    ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
+    WebhookVerify, WeightTokenAst, ZTokenAst,
 };
 
 #[derive(Parser)]
@@ -883,6 +885,551 @@ fn parse_lzx_platform_view(
         },
         index,
     ))
+}
+
+// =============================================================================
+// L0 #3 — lzx ViewModel surface parser.
+// -----------------------------------------------------------------------------
+// Hand-written line-walker for `features/<feat>/<feat>.{web,mobile}.lzx`
+// per `docs/proposals/lzx-integration-codegen.md` §5. Mirrors the
+// `parse_design_decl` pattern (L0 #2 Cell A) and the legacy
+// `parse_lzx_*` helpers. Indentation is two spaces per level.
+//
+// Top-level entry point is `parse_surface_document` (source text) which
+// dispatches to `parse_surface_decl` (line slice). The helper is `pub`
+// so the analyzer and CLI can drive it from already-loaded
+// `SourceLine` slices when needed.
+// =============================================================================
+
+/// Parse a full `.lzx` ViewModel file. Expects exactly one
+/// `surface <feature> web|mobile` declaration at indent 0.
+pub fn parse_surface_document(source: &str) -> Result<SurfaceAst, ParseError> {
+    let lines = source_lines(source);
+    let mut i = 0;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent != 0 {
+            return Err(line_error(
+                line,
+                "top-level `surface` declaration must start at indent 0",
+            ));
+        }
+        if trimmed.starts_with("surface ") {
+            let (parsed, _next) = parse_surface_decl(&lines, i)?;
+            return Ok(parsed);
+        }
+        return Err(line_error(
+            line,
+            "`.lzx` ViewModel files must begin with `surface <feature> web|mobile`",
+        ));
+    }
+    Err(ParseError::Expected {
+        expected: "surface <feature> web|mobile declaration",
+    })
+}
+
+/// Parse a `surface <feature> web|mobile` block starting at `lines[start]`.
+/// Returns the AST + the index of the first line not consumed. Module-private
+/// to match `SourceLine`'s scope; callers use the `parse_surface_document`
+/// source-text entry point.
+fn parse_surface_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(SurfaceAst, usize), ParseError> {
+    let header = &lines[start];
+    let header_text = strip_inline_comment(header.text.trim_start()).trim_end();
+    let parts: Vec<_> = header_text.split_whitespace().collect();
+    if parts.len() != 3 || parts[0] != "surface" {
+        return Err(line_error(
+            header,
+            "surface header is `surface <feature> web|mobile`",
+        ));
+    }
+    let feature = parts[1].to_owned();
+    let target = match parts[2] {
+        "web" => SurfaceTargetAst::Web,
+        "mobile" => SurfaceTargetAst::Mobile,
+        _ => {
+            return Err(line_error(
+                header,
+                "surface target must be `web` or `mobile`",
+            ));
+        }
+    };
+    let header_indent = header.indent;
+    let body_indent = header_indent + 2;
+
+    let mut uses_feature: Option<String> = None;
+    let mut audiences: Vec<AudienceAst> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != body_indent {
+            return Err(line_error(
+                line,
+                "surface body lines use one indentation level deeper than the `surface` header",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if let Some(rest) = trimmed.strip_prefix("uses feature ") {
+            let value = rest.trim();
+            if value.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`uses feature` requires a feature name",
+                ));
+            }
+            uses_feature = Some(value.to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed.starts_with("audience ") || trimmed == "audience" {
+            let (audience, next) = parse_lzx_audience_block(lines, i, body_indent)?;
+            audiences.push(audience);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "surface body lines are `uses feature <feature>` or `audience <name>` declarations",
+            ));
+        }
+    }
+
+    Ok((
+        SurfaceAst {
+            feature,
+            target,
+            uses_feature,
+            audiences,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Parse an `audience <name>` block. `requires @scope.<name>` lines may
+/// appear at the same indentation as `view` children; both are captured.
+fn parse_lzx_audience_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    parent_indent: usize,
+) -> Result<(AudienceAst, usize), ParseError> {
+    let header = &lines[start];
+    let header_text = strip_inline_comment(header.text.trim_start()).trim_end();
+    let parts: Vec<_> = header_text.split_whitespace().collect();
+    if parts.len() != 2 || parts[0] != "audience" {
+        return Err(line_error(header, "audience header is `audience <name>`"));
+    }
+    let name = parts[1].to_owned();
+    if !is_kebab_or_snake_ident(&name) {
+        return Err(line_error(
+            header,
+            "audience names use kebab-case or snake_case identifiers",
+        ));
+    }
+    let body_indent = parent_indent + 2;
+    let view_indent = body_indent;
+
+    let mut requires: Vec<PolicyAtomAst> = Vec::new();
+    let mut views: Vec<ViewAst> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= parent_indent {
+            break;
+        }
+        if line.indent != view_indent {
+            return Err(line_error(
+                line,
+                "audience body lines use one indentation level deeper than the `audience` header",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if let Some(rest) = trimmed.strip_prefix("requires ") {
+            let atom = parse_policy_atom(line, rest.trim())?;
+            requires.push(atom);
+            last_end = line.end;
+            i += 1;
+        } else if trimmed.starts_with("view list ")
+            || trimmed.starts_with("view detail ")
+            || trimmed.starts_with("view create ")
+        {
+            let (view, next) = parse_view_block(lines, i, view_indent)?;
+            views.push(view);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else {
+            return Err(line_error(
+                line,
+                "audience body lines are `requires @scope.<name>` or `view list|detail|create <name>` declarations",
+            ));
+        }
+    }
+
+    Ok((
+        AudienceAst {
+            name,
+            requires,
+            views,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Parse one of `view list`, `view detail`, `view create` blocks.
+fn parse_view_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    parent_indent: usize,
+) -> Result<(ViewAst, usize), ParseError> {
+    let header = &lines[start];
+    let header_text = strip_inline_comment(header.text.trim_start()).trim_end();
+    let (kind, after_kind) = if let Some(rest) = header_text.strip_prefix("view list ") {
+        ("list", rest)
+    } else if let Some(rest) = header_text.strip_prefix("view detail ") {
+        ("detail", rest)
+    } else if let Some(rest) = header_text.strip_prefix("view create ") {
+        ("create", rest)
+    } else {
+        return Err(line_error(
+            header,
+            "view header is `view list|detail|create <name> [at \"<path>\"]`",
+        ));
+    };
+
+    let (name, route) = parse_view_header_tail(header, after_kind)?;
+    if !is_kebab_or_snake_ident(&name) {
+        return Err(line_error_owned(
+            header,
+            format!("view name `{}` must be kebab-case or snake_case", name),
+        ));
+    }
+    let body_indent = parent_indent + 2;
+
+    // Collect raw children; dispatch into the kind-specific builder.
+    let mut source: Option<String> = None;
+    let mut submit: Option<String> = None;
+    let mut columns: Vec<String> = Vec::new();
+    let mut search: Vec<String> = Vec::new();
+    let mut filter: Vec<String> = Vec::new();
+    let mut fields: Vec<String> = Vec::new();
+    let mut sections: Vec<String> = Vec::new();
+    let mut cells: Vec<CellBindingAst> = Vec::new();
+    let mut actions: Vec<String> = Vec::new();
+    let mut route_params: Vec<RouteParamAst> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= parent_indent {
+            break;
+        }
+        if line.indent != body_indent {
+            return Err(line_error(
+                line,
+                "view body lines use one indentation level deeper than the `view` header",
+            ));
+        }
+        if raw.contains("+=") || raw.contains("-=") {
+            return Err(line_error(
+                line,
+                "partial overrides are not valid in `.lzx`; redeclare the whole view",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim_end();
+
+        if let Some(rest) = trimmed.strip_prefix("source ") {
+            if source.is_some() {
+                return Err(line_error(line, "view declares `source` at most once"));
+            }
+            source = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("submit ") {
+            if submit.is_some() {
+                return Err(line_error(line, "view declares `submit` at most once"));
+            }
+            submit = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("columns ") {
+            columns.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("fields ") {
+            fields.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("search ") {
+            search.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("filter ") {
+            filter.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("sections ") {
+            sections.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("actions ") {
+            actions.extend(split_lzx_list(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("cells ") {
+            let binding = parse_cell_binding(line, rest.trim())?;
+            cells.push(binding);
+        } else if let Some(rest) = trimmed.strip_prefix("route ") {
+            let param = parse_route_param(line, rest.trim())?;
+            route_params.push(param);
+        } else {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "view body lines are `source`, `submit`, `columns`, `fields`, `search`, `filter`, `sections`, `cells`, `route`, or `actions` declarations (got `{}`)",
+                    trimmed
+                ),
+            ));
+        }
+        last_end = line.end;
+        i += 1;
+    }
+
+    let span = Span::new(header.start, last_end);
+    let view = match kind {
+        "list" => ViewAst::List(ViewListAst {
+            name,
+            route,
+            source: source.ok_or_else(|| {
+                line_error(header, "view list requires a `source <feature>.query.<name>` line")
+            })?,
+            columns: {
+                if columns.is_empty() {
+                    return Err(line_error(header, "view list requires `columns <field>, ...`"));
+                }
+                columns
+            },
+            search,
+            filter,
+            cells,
+            actions,
+            span,
+        }),
+        "detail" => ViewAst::Detail(ViewDetailAst {
+            name,
+            route,
+            source: source.ok_or_else(|| {
+                line_error(header, "view detail requires a `source <feature>.query.<name>` line")
+            })?,
+            route_params,
+            sections,
+            cells,
+            actions,
+            span,
+        }),
+        "create" => ViewAst::Create(ViewCreateAst {
+            name,
+            route,
+            submit: submit.ok_or_else(|| {
+                line_error(
+                    header,
+                    "view create requires a `submit <feature>.command.<name>` line",
+                )
+            })?,
+            fields,
+            cells,
+            span,
+        }),
+        _ => unreachable!(),
+    };
+    Ok((view, i))
+}
+
+/// Split the `<name> [at "<path>"]` tail of a view header. The optional
+/// `at "<...>"` clause carries a quoted route path.
+fn parse_view_header_tail(
+    header: &SourceLine<'_>,
+    rest: &str,
+) -> Result<(String, Option<String>), ParseError> {
+    let rest = rest.trim();
+    if let Some(at_idx) = find_top_level_token(rest, " at ") {
+        let name = rest[..at_idx].trim().to_owned();
+        if name.is_empty() {
+            return Err(line_error(header, "view header requires a name"));
+        }
+        let after = rest[at_idx + " at ".len()..].trim();
+        if !after.starts_with('"') {
+            return Err(line_error(
+                header,
+                "`at` route must be a quoted string (e.g. `at \"/slugs\"`)",
+            ));
+        }
+        let route = unquote_lzx_value(after).to_owned();
+        if !route.starts_with('/') {
+            return Err(line_error(
+                header,
+                "`at` route path must begin with `/`",
+            ));
+        }
+        Ok((name, Some(route)))
+    } else {
+        let name = rest.trim().to_owned();
+        if name.is_empty() {
+            return Err(line_error(header, "view header requires a name"));
+        }
+        Ok((name, None))
+    }
+}
+
+/// Parse `cells <field> @client.<slot>` — `value` is the text after the
+/// `cells ` prefix.
+fn parse_cell_binding(line: &SourceLine<'_>, value: &str) -> Result<CellBindingAst, ParseError> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 2 {
+        return Err(line_error(
+            line,
+            "cell bindings use `cells <field> @client.<slot>`",
+        ));
+    }
+    let field = parts[0].to_owned();
+    let slot = parts[1]
+        .strip_prefix("@client.")
+        .ok_or_else(|| line_error(line, "cell slot must be `@client.<slot>`"))?
+        .to_owned();
+    if !is_kebab_or_snake_ident(&field) {
+        return Err(line_error_owned(
+            line,
+            format!("cell field `{}` must be a kebab/snake identifier", field),
+        ));
+    }
+    if !is_kebab_or_snake_ident(&slot) {
+        return Err(line_error_owned(
+            line,
+            format!("cell slot `{}` must be a kebab/snake identifier", slot),
+        ));
+    }
+    Ok(CellBindingAst {
+        field,
+        slot,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Parse `route <name>: <Type> from path` — the path-source clause is
+/// mandatory; the lzx grammar reserves `route ... from path` for typed
+/// path parameters.
+fn parse_route_param(line: &SourceLine<'_>, value: &str) -> Result<RouteParamAst, ParseError> {
+    // Pattern: `<name>: <Type> from path`. Split on `from` first so
+    // any `:` inside `<Type>` is preserved.
+    let (head, source) = value.rsplit_once(" from ").ok_or_else(|| {
+        line_error(
+            line,
+            "route param must be `route <name>: <Type> from path`",
+        )
+    })?;
+    if source.trim() != "path" {
+        return Err(line_error(
+            line,
+            "route param source must be `from path`",
+        ));
+    }
+    let (name_raw, type_raw) = head.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "route param must be `route <name>: <Type> from path`",
+        )
+    })?;
+    let name = name_raw.trim().to_owned();
+    let type_ref = type_raw.trim().to_owned();
+    if name.is_empty() || type_ref.is_empty() {
+        return Err(line_error(
+            line,
+            "route param requires both a name and a type",
+        ));
+    }
+    if !is_kebab_or_snake_ident(&name) {
+        return Err(line_error_owned(
+            line,
+            format!("route param name `{}` must be kebab/snake case", name),
+        ));
+    }
+    Ok(RouteParamAst {
+        name,
+        type_ref,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Parse a `@<namespace>.<name>` policy atom (currently `@scope.<x>` is
+/// the only authored form; the grammar reserves `@role.*` / `@actor.*`).
+fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst, ParseError> {
+    let atom = value.trim();
+    let body = atom.strip_prefix('@').ok_or_else(|| {
+        line_error(
+            line,
+            "policy atoms start with `@` (e.g. `@scope.workspace_admin`)",
+        )
+    })?;
+    let (namespace, name) = body.split_once('.').ok_or_else(|| {
+        line_error(
+            line,
+            "policy atom must include a namespace and name (`@<ns>.<name>`)",
+        )
+    })?;
+    if !matches!(namespace, "scope" | "role" | "actor") {
+        return Err(line_error_owned(
+            line,
+            format!(
+                "policy atom namespace `{}` is not in the closed catalog (`scope` | `role` | `actor`)",
+                namespace
+            ),
+        ));
+    }
+    if !is_kebab_or_snake_ident(name) {
+        return Err(line_error_owned(
+            line,
+            format!("policy atom name `{}` must be kebab/snake case", name),
+        ));
+    }
+    Ok(PolicyAtomAst {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Identifier check used across audience / view / cell / route names:
+/// kebab-case (`workspace-admin`) and snake_case (`workspace_admin`)
+/// both pass; anything else (PascalCase, spaces, leading digit, etc.)
+/// rejects.
+fn is_kebab_or_snake_ident(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let mut chars = s.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_lowercase() {
+        return false;
+    }
+    for c in chars {
+        if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
+            return false;
+        }
+    }
+    true
 }
 
 fn parse_app(pair: Pair<'_, Rule>) -> Result<String, ParseError> {
@@ -2375,9 +2922,13 @@ fn parse_command_input_block(
             ));
         }
         let rest = type_part.trim();
+        // L0 #3 §10 — peel inline constraints first so the residual
+        // string is just `<Type> [required|optional]`. Constraint
+        // combination rules are enforced in the analyzer.
+        let (rest_after, constraints) = extract_field_constraints(line, rest)?;
         // Walk to find the `required` or `optional` token at the end,
         // honouring parenthesised type-arg lists.
-        let (type_text, required, optional) = split_command_input_modifiers(rest);
+        let (type_text, required, optional) = split_command_input_modifiers(&rest_after);
         if type_text.is_empty() {
             return Err(line_error(
                 line,
@@ -2389,6 +2940,7 @@ fn parse_command_input_block(
             type_text,
             required,
             optional,
+            constraints,
             span: Span::new(line.start, line.end),
         });
         i += 1;
@@ -3308,7 +3860,8 @@ fn parse_resource_field_decl(
     }
     let after = after.trim();
     // Split the type text from trailing modifiers honouring parens.
-    let (type_text, modifiers_text, default, derived_from) = split_resource_field_after(after);
+    let (type_text, modifiers_text, default, derived_from, constraints) =
+        split_resource_field_after(header, after)?;
     let required = modifiers_text.contains("required");
     let optional = modifiers_text.contains("optional");
     let unique = modifiers_text.contains("unique");
@@ -3343,6 +3896,7 @@ fn parse_resource_field_decl(
             unique,
             default,
             derived_from,
+            constraints,
             previously,
             span: Span::new(header.start, header.end),
         },
@@ -3350,9 +3904,27 @@ fn parse_resource_field_decl(
     ))
 }
 
-/// Split `<TypeRef> [decorators...] [required|optional|unique] [= <default>]
-/// [derived from <expr>]` into structured pieces.
-fn split_resource_field_after(after: &str) -> (String, String, Option<String>, Option<String>) {
+/// Split `<TypeRef> [decorators...] [required|optional|unique]
+/// [<constraint>...] [= <default>] [derived from <expr>]` into
+/// structured pieces. L0 #3 §10 adds the constraint axis between
+/// modifiers and the default — but we peel from the right, so the
+/// order doesn't matter on input. Constraint keywords (`min`, `max`,
+/// `pattern`, `between`, `length`, `in`) are scanned via
+/// `find_token` at depth 0 so they don't trip on parenthesised
+/// decorator args.
+fn split_resource_field_after(
+    line: &SourceLine<'_>,
+    after: &str,
+) -> Result<
+    (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        FieldConstraintsDecl,
+    ),
+    ParseError,
+> {
     let after = after.trim();
 
     // Pull out `derived from <expr>` (always at the end).
@@ -3371,9 +3943,333 @@ fn split_resource_field_after(after: &str) -> (String, String, Option<String>, O
         (head, None)
     };
 
+    // Pull out inline constraints (closed catalog of 6 keywords).
+    let (head, constraints) = extract_field_constraints(line, &head)?;
+
     // Now split type (paren-aware) from trailing modifier tokens.
     let (type_text, modifiers_text) = split_type_and_modifiers(&head);
-    (type_text, modifiers_text, default, derived_from)
+    Ok((type_text, modifiers_text, default, derived_from, constraints))
+}
+
+/// L0 #3 §10 — scan the field tail for inline constraint keywords.
+/// Returns the head text with constraint segments removed plus a
+/// populated `FieldConstraintsDecl`. Each keyword is recognised at
+/// depth 0 (outside parens/brackets) and stripped from the head so
+/// the remaining text walks cleanly through `split_type_and_modifiers`.
+///
+/// Catalog: `min N`, `max N`, `pattern "STRING"`, `between A and B`,
+/// `length N`, `in [a, b, c]`. Combination rule enforcement happens
+/// in the analyzer; the parser only captures presence + values and
+/// reports basic shape errors (unparsable integer, missing bracket).
+fn extract_field_constraints(
+    line: &SourceLine<'_>,
+    text: &str,
+) -> Result<(String, FieldConstraintsDecl), ParseError> {
+    let mut head = text.to_owned();
+    let mut constraints = FieldConstraintsDecl::default();
+    // Loop until no more constraint keywords appear. Each iteration
+    // peels at most one keyword off the right; ordering of multiple
+    // constraints in the source is preserved by the iterative scan.
+    loop {
+        let scan = head.clone();
+        if let Some((before, rest)) = find_constraint_keyword(&scan) {
+            let rest = rest.trim_start();
+            match before_keyword_after(&scan, &rest) {
+                // `in [...]` — bracketed list.
+                ConstraintKw::In => {
+                    let (values, tail) = parse_constraint_in_list(line, rest)?;
+                    if constraints.r#in.is_some() {
+                        return Err(line_error(
+                            line,
+                            "duplicate `in` constraint on field",
+                        ));
+                    }
+                    constraints.r#in = Some(values);
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+                ConstraintKw::Min => {
+                    let (n, tail) = parse_constraint_int(line, rest, "min")?;
+                    if constraints.min.is_some() {
+                        return Err(line_error(line, "duplicate `min` constraint on field"));
+                    }
+                    constraints.min = Some(n);
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+                ConstraintKw::Max => {
+                    let (n, tail) = parse_constraint_int(line, rest, "max")?;
+                    if constraints.max.is_some() {
+                        return Err(line_error(line, "duplicate `max` constraint on field"));
+                    }
+                    constraints.max = Some(n);
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+                ConstraintKw::Length => {
+                    let (n, tail) = parse_constraint_int(line, rest, "length")?;
+                    if n < 0 {
+                        return Err(line_error(
+                            line,
+                            "`length` constraint must be a non-negative integer",
+                        ));
+                    }
+                    if constraints.length.is_some() {
+                        return Err(line_error(
+                            line,
+                            "duplicate `length` constraint on field",
+                        ));
+                    }
+                    constraints.length = Some(n as usize);
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+                ConstraintKw::Pattern => {
+                    let (pat, tail) = parse_constraint_string(line, rest, "pattern")?;
+                    if constraints.pattern.is_some() {
+                        return Err(line_error(
+                            line,
+                            "duplicate `pattern` constraint on field",
+                        ));
+                    }
+                    constraints.pattern = Some(pat);
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+                ConstraintKw::Between => {
+                    let (lo, hi, tail) = parse_constraint_between(line, rest)?;
+                    if constraints.between.is_some() {
+                        return Err(line_error(
+                            line,
+                            "duplicate `between` constraint on field",
+                        ));
+                    }
+                    constraints.between = Some((lo, hi));
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    Ok((head, constraints))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ConstraintKw {
+    Min,
+    Max,
+    Pattern,
+    Between,
+    Length,
+    In,
+}
+
+/// Find the first constraint keyword in `text` (at depth 0). Returns
+/// `(before_keyword, after_keyword_including_kw_and_args)`. Returns
+/// `None` when no recognized keyword is found.
+fn find_constraint_keyword(text: &str) -> Option<(&str, &str)> {
+    // Catalog of probes, each `(needle, kw)`. We scan once over the
+    // text and pick the earliest occurrence so multiple constraints
+    // peel left-to-right deterministically.
+    let needles: &[(&str, ConstraintKw)] = &[
+        (" min ", ConstraintKw::Min),
+        (" max ", ConstraintKw::Max),
+        (" pattern ", ConstraintKw::Pattern),
+        (" between ", ConstraintKw::Between),
+        (" length ", ConstraintKw::Length),
+        (" in ", ConstraintKw::In),
+    ];
+    let mut best: Option<usize> = None;
+    for (needle, _) in needles {
+        if let Some(idx) = find_token(text, needle) {
+            best = Some(best.map_or(idx, |b| b.min(idx)));
+        }
+    }
+    let idx = best?;
+    let before = &text[..idx];
+    // Include the leading space so callers can identify which kw was
+    // matched without re-scanning.
+    let after = &text[idx + 1..];
+    Some((before, after))
+}
+
+/// Pick the constraint kind from `after_keyword_text` (which starts
+/// with the keyword token plus its args).
+fn before_keyword_after(_full: &str, after_keyword_text: &str) -> ConstraintKw {
+    if after_keyword_text.starts_with("min ") {
+        ConstraintKw::Min
+    } else if after_keyword_text.starts_with("max ") {
+        ConstraintKw::Max
+    } else if after_keyword_text.starts_with("pattern ") {
+        ConstraintKw::Pattern
+    } else if after_keyword_text.starts_with("between ") {
+        ConstraintKw::Between
+    } else if after_keyword_text.starts_with("length ") {
+        ConstraintKw::Length
+    } else if after_keyword_text.starts_with("in ") {
+        ConstraintKw::In
+    } else {
+        // Should be unreachable because find_constraint_keyword
+        // matched one of these; defensive default.
+        ConstraintKw::Min
+    }
+}
+
+/// Parse `<keyword> <integer> [tail...]`. Returns the parsed integer
+/// and the tail after the integer (which may carry further
+/// constraints or be empty).
+fn parse_constraint_int(
+    line: &SourceLine<'_>,
+    text: &str,
+    keyword: &str,
+) -> Result<(i64, String), ParseError> {
+    // text starts with `<keyword> ` already verified by caller.
+    let rest = text.trim_start();
+    let rest = rest
+        .strip_prefix(keyword)
+        .ok_or_else(|| {
+            line_error_owned(line, format!("expected `{}` constraint keyword", keyword))
+        })?
+        .trim_start();
+    // Take next whitespace-delimited token as the integer.
+    let end = rest
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(rest.len());
+    let value_str = &rest[..end];
+    let tail = rest[end..].to_owned();
+    let n: i64 = value_str.parse().map_err(|_| {
+        line_error_owned(
+            line,
+            format!(
+                "`{}` constraint expects an integer, got `{}`",
+                keyword, value_str
+            ),
+        )
+    })?;
+    Ok((n, tail))
+}
+
+/// Parse `pattern "<STRING>" [tail...]`. The string is delimited by
+/// double quotes; embedded quotes are not supported (RE2 doesn't need
+/// them in the common case — `\"` is rare).
+fn parse_constraint_string(
+    line: &SourceLine<'_>,
+    text: &str,
+    keyword: &str,
+) -> Result<(String, String), ParseError> {
+    let rest = text
+        .trim_start()
+        .strip_prefix(keyword)
+        .ok_or_else(|| line_error_owned(line, format!("expected `{}` keyword", keyword)))?
+        .trim_start();
+    if !rest.starts_with('"') {
+        return Err(line_error_owned(
+            line,
+            format!(
+                "`{}` constraint expects a quoted string (e.g. `pattern \"^[a-z]+$\"`)",
+                keyword
+            ),
+        ));
+    }
+    let body = &rest[1..];
+    let end = body.find('"').ok_or_else(|| {
+        line_error_owned(
+            line,
+            format!(
+                "`{}` constraint string is missing a closing `\"`",
+                keyword
+            ),
+        )
+    })?;
+    let value = body[..end].to_owned();
+    let tail = body[end + 1..].to_owned();
+    Ok((value, tail))
+}
+
+/// Parse `between <A> and <B> [tail...]`.
+fn parse_constraint_between(
+    line: &SourceLine<'_>,
+    text: &str,
+) -> Result<(i64, i64, String), ParseError> {
+    let rest = text
+        .trim_start()
+        .strip_prefix("between")
+        .ok_or_else(|| line_error(line, "expected `between` keyword"))?
+        .trim_start();
+    // Parse first integer.
+    let end = rest
+        .find(|c: char| c.is_whitespace())
+        .ok_or_else(|| line_error(line, "`between` constraint requires `<A> and <B>`"))?;
+    let lo_str = &rest[..end];
+    let lo: i64 = lo_str.parse().map_err(|_| {
+        line_error_owned(
+            line,
+            format!("`between` expects integer, got `{}`", lo_str),
+        )
+    })?;
+    let rest = rest[end..].trim_start();
+    let rest = rest
+        .strip_prefix("and")
+        .ok_or_else(|| line_error(line, "`between <A> and <B>` requires the `and` keyword"))?
+        .trim_start();
+    let end = rest
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(rest.len());
+    let hi_str = &rest[..end];
+    let hi: i64 = hi_str.parse().map_err(|_| {
+        line_error_owned(
+            line,
+            format!("`between` expects integer, got `{}`", hi_str),
+        )
+    })?;
+    let tail = rest[end..].to_owned();
+    Ok((lo, hi, tail))
+}
+
+/// Parse `in [a, b, c] [tail...]`. Returns the list values and the
+/// tail. Quoted-string items are unquoted; bare integers stay as
+/// their text form (the analyzer interprets per field type).
+fn parse_constraint_in_list(
+    line: &SourceLine<'_>,
+    text: &str,
+) -> Result<(Vec<String>, String), ParseError> {
+    let rest = text
+        .trim_start()
+        .strip_prefix("in")
+        .ok_or_else(|| line_error(line, "expected `in` keyword"))?
+        .trim_start();
+    if !rest.starts_with('[') {
+        return Err(line_error(
+            line,
+            "`in` constraint expects a bracketed list (e.g. `in [\"a\", \"b\"]`)",
+        ));
+    }
+    // Find matching `]`.
+    let body = &rest[1..];
+    let close = body
+        .find(']')
+        .ok_or_else(|| line_error(line, "`in` constraint list is missing a closing `]`"))?;
+    let inner = &body[..close];
+    let tail = body[close + 1..].to_owned();
+    let values: Vec<String> = split_top_level_commas(inner)
+        .into_iter()
+        .map(|piece| {
+            let trimmed = piece.trim();
+            // Strip surrounding double quotes if present.
+            if trimmed.len() >= 2
+                && trimmed.starts_with('"')
+                && trimmed.ends_with('"')
+            {
+                trimmed[1..trimmed.len() - 1].to_owned()
+            } else {
+                trimmed.to_owned()
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .collect();
+    Ok((values, tail))
 }
 
 fn split_type_and_modifiers(text: &str) -> (String, String) {
@@ -3845,12 +4741,18 @@ fn parse_query_params_block(
                 "query `params` slot requires a name before `:`",
             ));
         }
-        let (type_text, required, optional) = split_command_input_modifiers(type_part.trim());
+        // L0 #3 §10 — query params share the inline-constraint catalog
+        // with command inputs / resource fields.
+        let (after_constraints, constraints) =
+            extract_field_constraints(line, type_part.trim())?;
+        let (type_text, required, optional) =
+            split_command_input_modifiers(after_constraints.trim());
         slots.push(CommandInputSlot {
             name: name.to_owned(),
             type_text,
             required,
             optional,
+            constraints,
             span: Span::new(line.start, line.end),
         });
         i += 1;
@@ -8801,5 +9703,361 @@ design pleiades
             msg.contains("design children"),
             "expected unknown-group diagnostic, got: {msg}"
         );
+    }
+}
+
+// =============================================================================
+// L0 #3 — `.lzx` surface parser tests.
+// =============================================================================
+#[cfg(test)]
+mod surface_parser_tests {
+    use super::parse_surface_document;
+    use crate::{SurfaceTargetAst, ViewAst};
+
+    #[test]
+    fn minimal_surface_one_audience_one_view_list() {
+        let source = r#"
+surface slug web
+  audience admin
+    view list slug_list
+      source slug.query.mine
+      columns key, title
+"#;
+        let surface = parse_surface_document(source).expect("parses");
+        assert_eq!(surface.feature, "slug");
+        assert_eq!(surface.target, SurfaceTargetAst::Web);
+        assert_eq!(surface.uses_feature, None);
+        assert_eq!(surface.audiences.len(), 1);
+        let audience = &surface.audiences[0];
+        assert_eq!(audience.name, "admin");
+        assert_eq!(audience.requires.len(), 0);
+        assert_eq!(audience.views.len(), 1);
+        let view = match &audience.views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected ViewAst::List, got {:?}", other),
+        };
+        assert_eq!(view.name, "slug_list");
+        assert_eq!(view.route, None);
+        assert_eq!(view.source, "slug.query.mine");
+        assert_eq!(view.columns, vec!["key", "title"]);
+    }
+
+    #[test]
+    fn parses_full_section_13_1_pleiades_fixture() {
+        // Section 13.1 verbatim from
+        // `docs/proposals/lzx-integration-codegen.md`.
+        let source = r#"surface slug web
+  uses feature slug
+
+  audience admin
+    requires @scope.workspace_admin
+
+    view list slug_list at "/slugs"
+      source slug.query.mine
+      columns key, title, tags, created_at
+      search key, title
+      filter tags
+      cells tags @client.type_badge
+      actions create, update, delete
+
+    view detail slug_detail at "/slugs/:key"
+      source slug.query.by_key
+      route key: Text from path
+      sections header, metadata, related_items
+      cells tags @client.type_badge
+      actions update, delete
+
+    view create slug_create at "/slugs/new"
+      submit slug.command.create
+      fields key, title, description, tags
+      cells tags @client.type_badge
+
+  audience public
+    requires @scope.workspace_member
+
+    view list public_slug_list at "/browse"
+      source slug.query.mine
+      columns key, title
+      search key, title
+"#;
+        let surface = parse_surface_document(source).expect("parses §13.1 fixture");
+        assert_eq!(surface.feature, "slug");
+        assert_eq!(surface.target, SurfaceTargetAst::Web);
+        assert_eq!(surface.uses_feature.as_deref(), Some("slug"));
+        assert_eq!(surface.audiences.len(), 2);
+
+        // admin audience.
+        let admin = &surface.audiences[0];
+        assert_eq!(admin.name, "admin");
+        assert_eq!(admin.requires.len(), 1);
+        assert_eq!(admin.requires[0].namespace, "scope");
+        assert_eq!(admin.requires[0].name, "workspace_admin");
+        assert_eq!(admin.views.len(), 3);
+
+        let list = match &admin.views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {:?}", other),
+        };
+        assert_eq!(list.name, "slug_list");
+        assert_eq!(list.route.as_deref(), Some("/slugs"));
+        assert_eq!(list.columns, vec!["key", "title", "tags", "created_at"]);
+        assert_eq!(list.search, vec!["key", "title"]);
+        assert_eq!(list.filter, vec!["tags"]);
+        assert_eq!(list.cells.len(), 1);
+        assert_eq!(list.cells[0].field, "tags");
+        assert_eq!(list.cells[0].slot, "type_badge");
+        assert_eq!(list.actions, vec!["create", "update", "delete"]);
+
+        let detail = match &admin.views[1] {
+            ViewAst::Detail(v) => v,
+            other => panic!("expected detail, got {:?}", other),
+        };
+        assert_eq!(detail.name, "slug_detail");
+        assert_eq!(detail.route.as_deref(), Some("/slugs/:key"));
+        assert_eq!(detail.source, "slug.query.by_key");
+        assert_eq!(detail.route_params.len(), 1);
+        assert_eq!(detail.route_params[0].name, "key");
+        assert_eq!(detail.route_params[0].type_ref, "Text");
+        assert_eq!(
+            detail.sections,
+            vec!["header", "metadata", "related_items"]
+        );
+        assert_eq!(detail.actions, vec!["update", "delete"]);
+
+        let create = match &admin.views[2] {
+            ViewAst::Create(v) => v,
+            other => panic!("expected create, got {:?}", other),
+        };
+        assert_eq!(create.name, "slug_create");
+        assert_eq!(create.route.as_deref(), Some("/slugs/new"));
+        assert_eq!(create.submit, "slug.command.create");
+        assert_eq!(
+            create.fields,
+            vec!["key", "title", "description", "tags"]
+        );
+
+        // public audience.
+        let public = &surface.audiences[1];
+        assert_eq!(public.name, "public");
+        assert_eq!(public.requires.len(), 1);
+        assert_eq!(public.requires[0].name, "workspace_member");
+        assert_eq!(public.views.len(), 1);
+    }
+
+    #[test]
+    fn view_list_requires_source() {
+        let source = "surface slug web\n  audience admin\n    view list bad\n      columns key\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("view list requires"));
+    }
+
+    #[test]
+    fn view_list_requires_columns() {
+        let source = "surface slug web\n  audience admin\n    view list bad\n      source slug.query.mine\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("`columns"));
+    }
+
+    #[test]
+    fn view_create_requires_submit() {
+        let source = "surface slug web\n  audience admin\n    view create bad\n      fields key\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("view create requires"));
+    }
+
+    #[test]
+    fn mobile_target_recognised() {
+        let source = "surface item mobile\n  audience kiosk\n    view list item_list\n      source item.query.mine\n      columns key\n";
+        let surface = parse_surface_document(source).expect("parses mobile");
+        assert_eq!(surface.target, SurfaceTargetAst::Mobile);
+    }
+
+    #[test]
+    fn rejects_unknown_target() {
+        let source = "surface slug desktop\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("surface target must be"));
+    }
+
+    #[test]
+    fn rejects_top_level_indentation() {
+        let source = "  surface slug web\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("top-level"));
+    }
+
+    #[test]
+    fn cells_binding_parses() {
+        let source = "surface slug web\n  audience admin\n    view list slug_list\n      source slug.query.mine\n      columns tags\n      cells tags @client.type_badge\n";
+        let surface = parse_surface_document(source).expect("parses cells");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.cells.len(), 1);
+        assert_eq!(view.cells[0].field, "tags");
+        assert_eq!(view.cells[0].slot, "type_badge");
+    }
+
+    #[test]
+    fn cells_binding_requires_at_client_prefix() {
+        let source = "surface slug web\n  audience admin\n    view list slug_list\n      source slug.query.mine\n      columns tags\n      cells tags @server.type_badge\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("cell slot must be `@client."));
+    }
+
+    #[test]
+    fn multiple_audiences_per_surface() {
+        let source = r#"surface slug web
+  audience admin
+    requires @scope.workspace_admin
+    view list a
+      source slug.query.mine
+      columns key
+
+  audience public
+    requires @scope.workspace_member
+    view list b
+      source slug.query.mine
+      columns key
+"#;
+        let surface = parse_surface_document(source).expect("parses");
+        assert_eq!(surface.audiences.len(), 2);
+        assert_eq!(surface.audiences[0].name, "admin");
+        assert_eq!(surface.audiences[1].name, "public");
+    }
+
+    #[test]
+    fn multiple_views_per_audience() {
+        let source = r#"surface slug web
+  audience admin
+    view list a
+      source slug.query.mine
+      columns key
+    view list b
+      source slug.query.mine
+      columns key
+    view detail c at "/x/:id"
+      source slug.query.by_key
+      route id: Text from path
+"#;
+        let surface = parse_surface_document(source).expect("parses");
+        assert_eq!(surface.audiences[0].views.len(), 3);
+    }
+
+    #[test]
+    fn empty_audience_parses_cleanly() {
+        let source = "surface slug web\n  audience admin\n    requires @scope.workspace_admin\n";
+        let surface = parse_surface_document(source).expect("parses empty audience");
+        assert_eq!(surface.audiences.len(), 1);
+        assert_eq!(surface.audiences[0].views.len(), 0);
+        assert_eq!(surface.audiences[0].requires.len(), 1);
+    }
+
+    #[test]
+    fn actions_comma_separated_list() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      actions create, update, delete\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.actions, vec!["create", "update", "delete"]);
+    }
+
+    #[test]
+    fn at_path_optional() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.route, None);
+    }
+
+    #[test]
+    fn rejects_partial_overrides() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      columns += score\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("partial overrides"));
+    }
+
+    #[test]
+    fn route_param_captures_type_text() {
+        let source = "surface slug web\n  audience admin\n    view detail d at \"/s/:id\"\n      source slug.query.by_key\n      route id: Customer.ID from path\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let detail = match &surface.audiences[0].views[0] {
+            ViewAst::Detail(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(detail.route_params[0].name, "id");
+        assert_eq!(detail.route_params[0].type_ref, "Customer.ID");
+    }
+
+    #[test]
+    fn uses_feature_override_captured() {
+        let source = "surface slug web\n  uses feature slug\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n";
+        let surface = parse_surface_document(source).expect("parses");
+        assert_eq!(surface.uses_feature.as_deref(), Some("slug"));
+    }
+
+    #[test]
+    fn requires_scope_atom_captured() {
+        let source = "surface slug web\n  audience admin\n    requires @scope.workspace_admin\n    view list a\n      source slug.query.mine\n      columns key\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let atom = &surface.audiences[0].requires[0];
+        assert_eq!(atom.namespace, "scope");
+        assert_eq!(atom.name, "workspace_admin");
+    }
+
+    #[test]
+    fn requires_rejects_unknown_namespace() {
+        let source = "surface slug web\n  audience admin\n    requires @group.workspace_admin\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("namespace"));
+    }
+
+    #[test]
+    fn rejects_blank_document() {
+        let source = "\n\n# comment only\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(matches!(err, super::ParseError::Expected { .. }));
+    }
+
+    #[test]
+    fn comments_and_blank_lines_skipped() {
+        let source = r#"# header comment
+
+surface slug web
+  # mid comment
+  audience admin
+
+    view list a
+      # explanatory
+      source slug.query.mine
+      columns key
+"#;
+        let surface = parse_surface_document(source).expect("parses with comments");
+        assert_eq!(surface.audiences[0].views.len(), 1);
+    }
+
+    #[test]
+    fn at_path_requires_leading_slash() {
+        let source = "surface slug web\n  audience admin\n    view list a at \"slugs\"\n      source slug.query.mine\n      columns key\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("must begin with `/`"));
+    }
+
+    #[test]
+    fn view_create_with_route_at() {
+        let source = "surface slug web\n  audience admin\n    view create new at \"/slugs/new\"\n      submit slug.command.create\n      fields key\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let create = match &surface.audiences[0].views[0] {
+            ViewAst::Create(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(create.route.as_deref(), Some("/slugs/new"));
+        assert_eq!(create.submit, "slug.command.create");
     }
 }

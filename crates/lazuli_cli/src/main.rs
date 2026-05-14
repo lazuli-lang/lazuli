@@ -1558,7 +1558,76 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         }
     }
 
+    // L0 #3 — walk `features/<feat>/<feat>.{web,mobile}.lzx` and attach
+    // the lowered `Surface` to the matching `Feature`. Skipped in
+    // single-file input mode (no surrounding `features/` tree to walk).
+    if input.is_dir() {
+        attach_lzx_surfaces(input, &mut module);
+    }
+
     Ok(module)
+}
+
+/// L0 #3 — look for `features/<feature>/<feature>.web.lzx` and
+/// `features/<feature>/<feature>.mobile.lzx` next to each parsed
+/// `Feature` and attach the lowered `Surface` records. Missing files
+/// are silently skipped; parse / lower errors are reported but do not
+/// fail the build.
+fn attach_lzx_surfaces(input: &Path, module: &mut lazuli_ir::Module) {
+    let features_root = input.join("features");
+    if !features_root.is_dir() {
+        return;
+    }
+    for feature in module.features.iter_mut() {
+        let feat_dir = features_root.join(&feature.name);
+        if !feat_dir.is_dir() {
+            continue;
+        }
+        for (target_label, parsed_target) in [
+            ("web", lazuli_syntax::SurfaceTargetAst::Web),
+            ("mobile", lazuli_syntax::SurfaceTargetAst::Mobile),
+        ] {
+            let path = feat_dir.join(format!("{}.{}.lzx", feature.name, target_label));
+            if !path.is_file() {
+                continue;
+            }
+            let source = match fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!("lazuli: skipping {}: read failed: {:?}", path.display(), err);
+                    continue;
+                }
+            };
+            let ast = match lazuli_syntax::parse_surface_document(&source) {
+                Ok(ast) => ast,
+                Err(err) => {
+                    eprintln!(
+                        "lazuli: skipping {}: surface parse failed: {:?}",
+                        path.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
+            if ast.target != parsed_target {
+                eprintln!(
+                    "lazuli: skipping {}: surface target `{:?}` does not match filename target `{}`",
+                    path.display(),
+                    ast.target,
+                    target_label,
+                );
+                continue;
+            }
+            match lazuli_analyzer::lower_surface(&ast) {
+                Ok(surface) => feature.surfaces.push(surface),
+                Err(err) => eprintln!(
+                    "lazuli: skipping {}: surface lower failed: {:?}",
+                    path.display(),
+                    err
+                ),
+            }
+        }
+    }
 }
 
 fn build_module_with_source_from_path(
@@ -1656,6 +1725,12 @@ fn build_module_with_source_from_path(
                 }
             }
         }
+    }
+
+    // L0 #3 — attach lowered `.lzx` surfaces alongside the source-map
+    // build path (mirrors `build_module_from_path`).
+    if input.is_dir() {
+        attach_lzx_surfaces(input, &mut module);
     }
 
     Ok((module, source_map, feature_file_ids))

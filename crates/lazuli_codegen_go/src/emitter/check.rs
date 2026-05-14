@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 
 use lazuli_ir::{
     AppIntegration, BuiltinType, Command, CommandEffect, CommandInput, EvalContainsRhs,
-    EvalPredicate, Expr, ExtensionContract, Feature, JobBody, Module, PolicyRef, Predicate, Query,
-    TestAssertion, TestBlock, TypeRef, View,
+    EvalPredicate, Expr, ExtensionContract, Feature, JobBody, LegacyView, Module, PolicyRef,
+    Predicate, Query, TestAssertion, TestBlock, TypeRef,
 };
 
 pub const CODE_PLUGIN: &str = "CODEGEN-GO-PLUGIN-001";
@@ -356,11 +356,13 @@ fn collect_feature_refs(feature: &Feature, refs: &mut Vec<RefUse>) {
         }
     }
 
-    for surface in &feature.surfaces {
-        for view in &surface.views {
-            collect_view_refs(view, feature_name, refs);
-        }
-    }
+    // Legacy `.lzi`-level surface views are no longer carried on
+    // `Feature.surfaces`; the new lzx ViewModel pipeline (L0 #3) emits
+    // typed view spec consts directly via the codegen_ts crate. This
+    // helper still services the legacy fixture path via
+    // `collect_view_refs`; live IR consumers reach views through the
+    // lzx codegen.
+    let _ = collect_view_refs;
 
     for extension in &feature.extensions {
         let site = format!("extension {}", extension.name);
@@ -495,26 +497,26 @@ fn collect_query_refs(query: &Query, feature: &str, refs: &mut Vec<RefUse>) {
     }
 }
 
-fn collect_view_refs(view: &View, feature: &str, refs: &mut Vec<RefUse>) {
+fn collect_view_refs(view: &LegacyView, feature: &str, refs: &mut Vec<RefUse>) {
     match view {
-        View::Table(view) => {
+        LegacyView::Table(view) => {
             for cell in &view.cells {
                 let site = format!("view {}.{}", view.name, cell.field);
                 collect_text_refs(&cell.renderer, feature, &site, refs);
             }
             collect_test_block_refs(&view.tests, feature, &format!("view {}", view.name), refs);
         }
-        View::SidePanel(view) => {
+        LegacyView::SidePanel(view) => {
             for block in &view.blocks {
                 let site = format!("view {}", view.name);
                 collect_text_refs(&block.renderer, feature, &site, refs);
             }
             collect_test_block_refs(&view.tests, feature, &format!("view {}", view.name), refs);
         }
-        View::Form(view) => {
+        LegacyView::Form(view) => {
             collect_test_block_refs(&view.tests, feature, &format!("view {}", view.name), refs);
         }
-        View::Custom(view) => {
+        LegacyView::Custom(view) => {
             collect_test_block_refs(&view.tests, feature, &format!("view {}", view.name), refs);
         }
     }
@@ -821,6 +823,7 @@ mod tests {
             unique: false,
             default: None,
             derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
             previous_names: Vec::new(),
             span_ref: None,
         }
