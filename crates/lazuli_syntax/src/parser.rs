@@ -1130,16 +1130,7 @@ fn parse_view_block(
     let body_indent = parent_indent + 2;
 
     // Collect raw children; dispatch into the kind-specific builder.
-    let mut source: Option<String> = None;
-    let mut submit: Option<String> = None;
-    let mut columns: Vec<String> = Vec::new();
-    let mut search: Vec<String> = Vec::new();
-    let mut filter: Vec<String> = Vec::new();
-    let mut fields: Vec<String> = Vec::new();
-    let mut sections: Vec<String> = Vec::new();
-    let mut cells: Vec<CellBindingAst> = Vec::new();
-    let mut actions: Vec<String> = Vec::new();
-    let mut route_params: Vec<RouteParamAst> = Vec::new();
+    let mut state = ViewBodyState::default();
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -1167,35 +1158,15 @@ fn parse_view_block(
         }
         let trimmed = strip_inline_comment(raw).trim_end();
 
-        if let Some(rest) = trimmed.strip_prefix("source ") {
-            if source.is_some() {
-                return Err(line_error(line, "view declares `source` at most once"));
+        let mut matched = false;
+        for (prefix, handler) in view_body_handlers() {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                handler(line, rest.trim(), &mut state)?;
+                matched = true;
+                break;
             }
-            source = Some(rest.trim().to_owned());
-        } else if let Some(rest) = trimmed.strip_prefix("submit ") {
-            if submit.is_some() {
-                return Err(line_error(line, "view declares `submit` at most once"));
-            }
-            submit = Some(rest.trim().to_owned());
-        } else if let Some(rest) = trimmed.strip_prefix("columns ") {
-            columns.extend(split_lzx_list(rest));
-        } else if let Some(rest) = trimmed.strip_prefix("fields ") {
-            fields.extend(split_lzx_list(rest));
-        } else if let Some(rest) = trimmed.strip_prefix("search ") {
-            search.extend(split_lzx_list(rest));
-        } else if let Some(rest) = trimmed.strip_prefix("filter ") {
-            filter.extend(split_lzx_list(rest));
-        } else if let Some(rest) = trimmed.strip_prefix("sections ") {
-            sections.extend(split_lzx_list(rest));
-        } else if let Some(rest) = trimmed.strip_prefix("actions ") {
-            actions.extend(split_lzx_list(rest));
-        } else if let Some(rest) = trimmed.strip_prefix("cells ") {
-            let binding = parse_cell_binding(line, rest.trim())?;
-            cells.push(binding);
-        } else if let Some(rest) = trimmed.strip_prefix("route ") {
-            let param = parse_route_param(line, rest.trim())?;
-            route_params.push(param);
-        } else {
+        }
+        if !matched {
             return Err(line_error_owned(
                 line,
                 format!(
@@ -1213,49 +1184,179 @@ fn parse_view_block(
         "list" => ViewAst::List(ViewListAst {
             name,
             route,
-            source: source.ok_or_else(|| {
+            source: state.source.ok_or_else(|| {
                 line_error(header, "view list requires a `source <feature>.query.<name>` line")
             })?,
             columns: {
-                if columns.is_empty() {
+                if state.columns.is_empty() {
                     return Err(line_error(header, "view list requires `columns <field>, ...`"));
                 }
-                columns
+                state.columns
             },
-            search,
-            filter,
-            cells,
-            actions,
+            search: state.search,
+            filter: state.filter,
+            cells: state.cells,
+            actions: state.actions,
             span,
         }),
         "detail" => ViewAst::Detail(ViewDetailAst {
             name,
             route,
-            source: source.ok_or_else(|| {
+            source: state.source.ok_or_else(|| {
                 line_error(header, "view detail requires a `source <feature>.query.<name>` line")
             })?,
-            route_params,
-            sections,
-            cells,
-            actions,
+            route_params: state.route_params,
+            sections: state.sections,
+            cells: state.cells,
+            actions: state.actions,
             span,
         }),
         "create" => ViewAst::Create(ViewCreateAst {
             name,
             route,
-            submit: submit.ok_or_else(|| {
+            submit: state.submit.ok_or_else(|| {
                 line_error(
                     header,
                     "view create requires a `submit <feature>.command.<name>` line",
                 )
             })?,
-            fields,
-            cells,
+            fields: state.fields,
+            cells: state.cells,
             span,
         }),
         _ => unreachable!(),
     };
     Ok((view, i))
+}
+
+#[derive(Default)]
+struct ViewBodyState {
+    source: Option<String>,
+    submit: Option<String>,
+    columns: Vec<String>,
+    search: Vec<String>,
+    filter: Vec<String>,
+    fields: Vec<String>,
+    sections: Vec<String>,
+    cells: Vec<CellBindingAst>,
+    actions: Vec<String>,
+    route_params: Vec<RouteParamAst>,
+}
+
+type ViewBodyLineHandler =
+    for<'a> fn(&SourceLine<'a>, &str, &mut ViewBodyState) -> Result<(), ParseError>;
+
+fn view_body_handlers() -> &'static [(&'static str, ViewBodyLineHandler)] {
+    &[
+        ("source ", parse_view_source_line),
+        ("submit ", parse_view_submit_line),
+        ("columns ", parse_view_columns_line),
+        ("fields ", parse_view_fields_line),
+        ("search ", parse_view_search_line),
+        ("filter ", parse_view_filter_line),
+        ("sections ", parse_view_sections_line),
+        ("actions ", parse_view_actions_line),
+        ("cells ", parse_view_cells_line),
+        ("route ", parse_view_route_line),
+    ]
+}
+
+fn parse_view_source_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    if state.source.is_some() {
+        return Err(line_error(line, "view declares `source` at most once"));
+    }
+    state.source = Some(rest.to_owned());
+    Ok(())
+}
+
+fn parse_view_submit_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    if state.submit.is_some() {
+        return Err(line_error(line, "view declares `submit` at most once"));
+    }
+    state.submit = Some(rest.to_owned());
+    Ok(())
+}
+
+fn parse_view_columns_line(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    state.columns.extend(split_lzx_list(rest));
+    Ok(())
+}
+
+fn parse_view_fields_line(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    state.fields.extend(split_lzx_list(rest));
+    Ok(())
+}
+
+fn parse_view_search_line(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    state.search.extend(split_lzx_list(rest));
+    Ok(())
+}
+
+fn parse_view_filter_line(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    state.filter.extend(split_lzx_list(rest));
+    Ok(())
+}
+
+fn parse_view_sections_line(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    state.sections.extend(split_lzx_list(rest));
+    Ok(())
+}
+
+fn parse_view_actions_line(
+    _line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    state.actions.extend(split_lzx_list(rest));
+    Ok(())
+}
+
+fn parse_view_cells_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    let binding = parse_cell_binding(line, rest)?;
+    state.cells.push(binding);
+    Ok(())
+}
+
+fn parse_view_route_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    let param = parse_route_param(line, rest)?;
+    state.route_params.push(param);
+    Ok(())
 }
 
 /// Split the `<name> [at "<path>"]` tail of a view header. The optional
