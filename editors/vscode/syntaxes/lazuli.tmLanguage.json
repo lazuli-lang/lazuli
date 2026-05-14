@@ -104,6 +104,25 @@
           "match": "^\\s*\\b(registry|profile)\\b"
         },
         {
+          "match": "^\\s*\\b(plan)\\s+([a-z_][a-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.declaration.structural.lazuli"
+            },
+            "2": {
+              "name": "entity.name.type.plan.lazuli"
+            }
+          }
+        },
+        {
+          "name": "keyword.other.plan-and-gate.lazuli",
+          "match": "\\b(gate|behind|quota|features|limits|trial|then|unlimited|subscription)\\b"
+        },
+        {
+          "name": "keyword.operator.plan-and-gate.lazuli",
+          "match": "\\b(plan\\.(?:feature|limit))\\b"
+        },
+        {
           "match": "^\\s*\\b(contract)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\b",
           "captures": {
             "1": {

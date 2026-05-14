@@ -124,6 +124,10 @@ struct DoctorPackage {
     /// `NOTIF-CHANNEL-*`, `EVENTGROUP-NESTING-*`) attach to the right
     /// authoring site.
     tier3_facts: Vec<Tier3FeatureFacts>,
+    /// PG.B — package-wide plan-and-gate facts (closed plan catalog,
+    /// subscription anchor, per-callable gate directives). `None` when
+    /// the package authors no `plan` blocks and no `gate` directives.
+    plan_gate_facts: Option<lazuli_analyzer::PlanGateFacts>,
 }
 
 /// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
@@ -713,6 +717,54 @@ impl DoctorPackage {
         // available to `agent_tool_diagnostics`.
         populate_feature_symbols_from_ir(&tier3_facts, &mut feature_symbols);
 
+        // PG.B — aggregate package-wide plan-and-gate facts. Walks every
+        // .lzi source once to collect top-level `plan` blocks +
+        // per-feature `gate ...` directives, and reads the subscription
+        // anchor from app.lzi. The output is consumed by the doctor
+        // diagnostics pass below and by codegen later.
+        let mut plan_blocks_raw: Vec<lazuli_syntax::PlanBlockAst> = Vec::new();
+        let mut feature_gates_raw: Vec<(String, lazuli_syntax::FeatureGatesAst)> =
+            Vec::new();
+        for file in &files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            if let Ok(blocks) = lazuli_syntax::parse_plan_blocks(&file.source) {
+                plan_blocks_raw.extend(blocks);
+            }
+            if let Ok(fg) = lazuli_syntax::parse_feature_gates(&file.source) {
+                if !fg.callables.is_empty() {
+                    // Derive feature name from the file's first
+                    // `feature <name>` header (mirrors the existing
+                    // doctor convention).
+                    let feature_name = derive_feature_name(&file.source)
+                        .unwrap_or_else(|| {
+                            file.path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .to_owned()
+                        });
+                    feature_gates_raw.push((feature_name, fg));
+                }
+            }
+        }
+        let anchor = app
+            .as_ref()
+            .and_then(|a| lazuli_analyzer::parse_subscription_anchor(&a.source));
+        let plan_gate_facts = if plan_blocks_raw.is_empty()
+            && feature_gates_raw.is_empty()
+            && anchor.is_none()
+        {
+            None
+        } else {
+            Some(lazuli_analyzer::aggregate_plan_gate_facts(
+                &plan_blocks_raw,
+                &feature_gates_raw,
+                anchor,
+            ))
+        };
+
         Ok(Self {
             project_root,
             security_profile,
@@ -735,6 +787,7 @@ impl DoctorPackage {
             feature_adapters,
             feature_uses,
             tier3_facts,
+            plan_gate_facts,
         })
     }
 
@@ -743,6 +796,27 @@ impl DoctorPackage {
 
         diagnostics.extend(manifest_required_diagnostics(&self.project_root));
         diagnostics.extend(lazurite_manifest_diagnostics(self));
+
+        // PG.B — plan-and-gate cross-feature checks.
+        if let Some(facts) = &self.plan_gate_facts {
+            let eval_order_inputs = collect_callable_bodies_for_eval_order(&self.files);
+            for diag in lazuli_analyzer::diagnose_plan_gate_facts(facts, &eval_order_inputs) {
+                let path = self
+                    .app
+                    .as_ref()
+                    .map(|a| a.path.clone())
+                    .or_else(|| self.files.first().map(|f| f.path.clone()))
+                    .unwrap_or_else(|| self.project_root.clone());
+                diagnostics.push(DoctorDiagnostic {
+                    path,
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: diag.code.as_str().to_owned(),
+                    message: diag.message,
+                });
+            }
+        }
 
         for file in &self.files {
             diagnostics.extend(file.local_diagnostics.clone());
@@ -2289,6 +2363,103 @@ fn is_lzi_path(path: &Path) -> bool {
 
 fn is_lzx_path(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("lzx")
+}
+
+/// PG.B — read the first `feature <name>` header from a `.lzi` source.
+/// Returns `None` for app.lzi / registry.lzi / contracts that don't
+/// declare a feature.
+fn derive_feature_name(source: &str) -> Option<String> {
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("feature ") {
+            return rest.split_whitespace().next().map(|s| s.to_owned());
+        }
+    }
+    None
+}
+
+/// PG.B — collect `(callable_key, body_text, span)` tuples for
+/// every callable in every `.lzi` source so
+/// `diagnose_plan_gate_facts` can run the `GATE-EVAL-ORDER-001`
+/// per-body scan. Body text is the indented region under the callable
+/// header.
+fn collect_callable_bodies_for_eval_order(
+    files: &[DoctorFile],
+) -> Vec<(String, String, lazuli_syntax::Span)> {
+    let mut out = Vec::new();
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let feature = derive_feature_name(&file.source).unwrap_or_else(|| {
+            file.path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_owned()
+        });
+        // Walk source lines tracking callable header + indent.
+        let mut current: Option<(String, usize, usize, String)> = None; // (key, header_indent, body_offset_start, body)
+        let mut offset = 0usize;
+        for line in file.source.lines() {
+            let line_len = line.len();
+            let trimmed = line.trim_start();
+            let indent = line.len() - trimmed.len();
+            if let Some((_, header_indent, _, _)) = &current {
+                if !trimmed.is_empty() && indent <= *header_indent {
+                    // Close current.
+                    if let Some((key, _, body_start, body)) = current.take() {
+                        out.push((
+                            format!("{}/{}", feature, key),
+                            body,
+                            lazuli_syntax::Span::new(body_start, offset),
+                        ));
+                    }
+                }
+            }
+            if let Some(key) = callable_header_key_from_trimmed(trimmed) {
+                if indent == 2 {
+                    current = Some((key, indent, offset + line_len + 1, String::new()));
+                    offset += line_len + 1;
+                    continue;
+                }
+            }
+            if let Some((_, _, _, body)) = &mut current {
+                body.push_str(line);
+                body.push('\n');
+            }
+            offset += line_len + 1;
+        }
+        if let Some((key, _, body_start, body)) = current.take() {
+            out.push((
+                format!("{}/{}", feature, key),
+                body,
+                lazuli_syntax::Span::new(body_start, offset),
+            ));
+        }
+    }
+    out
+}
+
+fn callable_header_key_from_trimmed(trimmed: &str) -> Option<String> {
+    let prefixes: &[(&str, &str)] = &[
+        ("command ", "command"),
+        ("job ", "job"),
+        ("webhook ", "webhook"),
+        ("api ", "api"),
+        ("query.list ", "query.list"),
+        ("query.lookup ", "query.lookup"),
+        ("query.sql ", "query.sql"),
+    ];
+    for (prefix, kind) in prefixes {
+        if let Some(rest) = trimmed.strip_prefix(*prefix) {
+            let name = rest.split_whitespace().next().unwrap_or_default();
+            if !name.is_empty() {
+                return Some(format!("{}:{}", kind, name));
+            }
+        }
+    }
+    None
 }
 
 fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts) {
@@ -11235,6 +11406,7 @@ mod tests {
             feature_adapters,
             feature_uses,
             tier3_facts,
+            plan_gate_facts: None,
         }
     }
 

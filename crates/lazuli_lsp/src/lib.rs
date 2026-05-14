@@ -11974,6 +11974,34 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "audit" => Some(
             "Declares an operation as audited. Use `audit` for default fields, `audit <field>, <field>` for explicit entries, or `audit none` to opt out.",
         ),
+        // PG.B — Plan & Gate vocabulary hovers.
+        "plan" => Some(
+            "Subscription tier declaration. Declares a feature set and a limit set, optionally with a `trial` revert policy. The catalog is package-wide; the union of every plan's `features`/`limits` forms the closed set for `gate` directives.",
+        ),
+        "features" => Some(
+            "Comma-separated identifier list of features in this plan. Cross-plan reuse: `features <other_plan>.features`. References at call sites: `gate behind plan.feature: <name>`.",
+        ),
+        "limits" => Some(
+            "Comma-separated `<name> <value>` pairs. Value is a positive integer or the literal `unlimited`. Cross-plan reuse: `limits <other_plan>.limits`. References at call sites: `gate quota plan.limit: <name>`.",
+        ),
+        "trial" => Some(
+            "Trial revert policy on a plan: `trial duration <integer><s|m|h|d>, then <plan>`. Runtime watches the subscription's expires_at and reverts to `<plan>` after the duration.",
+        ),
+        "unlimited" => Some(
+            "Limit value meaning the runtime emits no quota check at this tier. Use to opt a plan out of a quota that other plans declare.",
+        ),
+        "subscription" => Some(
+            "App-level directive: `subscription resource <feature>.<field>` names the resource that holds the active subscription. Required when any callable uses `gate behind plan.*` or `gate quota plan.*`. Exactly one per app.",
+        ),
+        "gate" => Some(
+            "Subscription gate on a callable. Two forms: `gate behind plan.feature: <name>` (boolean, 402 plan.feature_forbidden on refusal) or `gate quota plan.limit: <name>` (counter, 402 plan.quota_exceeded; increments after success).",
+        ),
+        "behind" => Some(
+            "Boolean gate: `gate behind plan.feature: <name>`. Refuses dispatch when the caller's active plan does not list `<name>` in its `features` set. Evaluates before `policy`.",
+        ),
+        "quota" => Some(
+            "Counter gate: `gate quota plan.limit: <name>`. Refuses dispatch when period usage has reached the plan's value for `<name>`; increments after successful dispatch.",
+        ),
         "has_many" => Some(
             "Declares a collection on a resource: `has_many <name>: <Type> [inverse <field>]`. the runtime generates the inverse lookup query and foreign-key contract.",
         ),
