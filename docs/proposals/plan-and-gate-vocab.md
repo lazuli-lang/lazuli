@@ -1,9 +1,33 @@
 # Plan & Gate Vocabulary (v0.1, design draft)
 
 **Status**: design proposal. Cell #9 of
-[`corbanx-class-readiness.md`](corbanx-class-readiness.md). Not yet
-graded. Implementation deferred to a separate `mode=implement` run
-with cells named in §"Cells" once this lands ≥ 8.5/10.
+[`corbanx-class-readiness.md`](corbanx-class-readiness.md).
+Architect grade **PASS-WITH-NOTES 8.62/10** (v0.2). Implementation
+landed under cells `PG.PRE.1` → `PG.F` per the wave-2 plan-gate
+phase set; see `git log --grep '^PG\\.' wave2-plan-gate`.
+
+## v0.3 reconciliation note (2026-05-14)
+
+- **PG.PRE.1** — gate polysemy resolved by extending `docs/invariants.md`
+  with an explicit disambiguation between app-level deploy gates
+  (prose) and callable-scope `gate` directives (closed grammar). The
+  word `gate` is not a parser keyword anywhere else; the only on-disk
+  appearance was the English phrase "deploy gates" in
+  `invariants.md:15` and `lazurite.toml:501`. No surface rename.
+- **PG.PRE.2** — `examples/billing.lzi` reconciled with v0.1 surface
+  via PG.F: a `plans` catalog block (`free`/`pro` + `invoices_per_month`
+  limit) lifts into a single `subscription resource` anchor under the
+  enclosing app and the existing `command create` gains
+  `gate quota plan.limit: invoices_per_month` so doctor exercises both
+  the catalog union check and the post-success increment path. Existing
+  `command create` semantics are unchanged: the gate runs before the
+  policy check; existing rate_limit + audit + emits continue to apply.
+- **PLAN-SUBSCRIPTION-TENANCY-001** promoted from §"Risks" to the v0.1
+  doctor catalog per architect notes — folded into PG.B as the fifth
+  PLAN-* error code alongside the four originally proposed.
+- **GATE-EVAL-ORDER-001** added in PG.B as an explicit static check that
+  authored `gate` directives appear before `policy` in their callable
+  body so the source ordering matches §"Ordering and combinability".
 
 **Audience**: Lazuli language team (Rust crates), Lazuli Go runtime
 team, downstream product authors who ship subscription-gated SaaS
