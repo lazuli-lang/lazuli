@@ -9,6 +9,7 @@ require (
 	github.com/aws/smithy-go v1.25.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/looplab/fsm v1.0.3
 	github.com/minio/minio-go/v7 v7.0.79
 	github.com/pquerna/otp v1.5.0
 	github.com/redis/go-redis/v9 v9.7.0
