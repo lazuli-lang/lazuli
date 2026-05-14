@@ -537,6 +537,11 @@ pub struct FeatureSkeleton {
     /// i18n bucket cycle — `translation` block. At most one per
     /// feature. Lowered into `ir::Translation` via the analyzer.
     pub translation: Option<TranslationDecl>,
+    /// L0 #8 — `poller <name>` blocks (docs/proposals/poller-vocab.md).
+    /// Closed catalog feature kind, parallel to `job` / `webhook` /
+    /// `notification`. Lowered into `ir::Poller` via the analyzer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pollers: Vec<crate::parser::PollerBlockAst>,
     pub span: Span,
 }
 
