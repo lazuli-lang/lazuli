@@ -215,6 +215,14 @@ fn go_type_for_capability(cap: &CapabilityRef) -> (String, Option<&'static str>)
             "lazuli.EncryptedRef".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
+        // `@cap.E2ee` shares the byte envelope shape with
+        // `@cap.Encrypted` — both store opaque ciphertext. The
+        // semantic distinction (server cannot decrypt) is enforced
+        // at codegen call-site time, not by the column type.
+        CapabilityRef::E2ee(_) => (
+            "lazuli.EncryptedRef".to_owned(),
+            Some("lazuli.dev/runtime/lazuli"),
+        ),
         CapabilityRef::Token(_) => (
             "lazuli.TokenRef".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),

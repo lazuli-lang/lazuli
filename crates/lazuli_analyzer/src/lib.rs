@@ -1176,6 +1176,9 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     if let Some(encrypted) = parse_cap_encrypted_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::Encrypted(encrypted));
     }
+    if let Some(e2ee) = parse_cap_e2ee_type(ty) {
+        return ir::TypeRef::Capability(ir::CapabilityRef::E2ee(e2ee));
+    }
     if let Some(token) = parse_cap_token_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::Token(token));
     }
@@ -1255,6 +1258,20 @@ fn parse_cap_encrypted_type(ty: &str) -> Option<ir::EncryptedCapability> {
         return None;
     }
     Some(ir::EncryptedCapability { key })
+}
+
+/// Encryption bucket cycle — `@cap.E2ee(key:@key.<scope>)`. Mirror of
+/// `parse_cap_encrypted_type` for end-to-end-encrypted fields that
+/// the server stores but never reads.
+/// See `docs/proposals/encryption-vocab.md` §Lowering.
+fn parse_cap_e2ee_type(ty: &str) -> Option<ir::E2eeCapability> {
+    let inner = ty.strip_prefix("@cap.E2ee(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+    let key = args.get("key")?.clone();
+    if !key.starts_with("@key.") {
+        return None;
+    }
+    Some(ir::E2eeCapability { key })
 }
 
 /// Phase L Tier 4 follow-up — `@cap.Token(ttl:<dur>,single_use:<bool>,

@@ -531,6 +531,10 @@ fn emit_schema_inline(out: &mut YamlEmitter, ty: &ir::TypeRef) {
                 out.line("type: string");
                 out.line("x-lazuli-capability: Encrypted");
             }
+            ir::CapabilityRef::E2ee(_) => {
+                out.line("type: string");
+                out.line("x-lazuli-capability: E2ee");
+            }
             ir::CapabilityRef::Token(_) => {
                 out.line("type: string");
                 out.line("x-lazuli-capability: Token");

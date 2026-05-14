@@ -119,6 +119,10 @@ fn has_sensitive_capability(field: &Field) -> bool {
 fn is_sensitive_tier(capability: &CapabilityRef) -> bool {
     let tier = match capability {
         CapabilityRef::Encrypted(_) => "Encrypted",
+        // `@cap.E2ee` is server-blind ciphertext — strictly more
+        // sensitive than `@cap.Encrypted` (the server cannot decrypt
+        // at all). Treated the same audit-tier-wise.
+        CapabilityRef::E2ee(_) => "E2ee",
         CapabilityRef::Token(_) => "Token",
         CapabilityRef::Hashed(_) => "Hashed",
         CapabilityRef::File(_) => "File",

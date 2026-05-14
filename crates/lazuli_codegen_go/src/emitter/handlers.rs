@@ -1318,6 +1318,8 @@ fn go_type_for_capability(capability: &CapabilityRef) -> &'static str {
     match capability {
         CapabilityRef::Hashed(_) => "lazuli.HashedRef",
         CapabilityRef::Encrypted(_) => "lazuli.EncryptedRef",
+        // `@cap.E2ee` and `@cap.Encrypted` share the byte envelope.
+        CapabilityRef::E2ee(_) => "lazuli.EncryptedRef",
         CapabilityRef::Token(_) => "lazuli.TokenRef",
         CapabilityRef::File(_) => "any",
     }

@@ -580,6 +580,10 @@ pub enum CapabilityRef {
     Hashed(HashedCapability),
     /// Phase L Tier 4 follow-up — `@cap.Encrypted(key:@key.<scope>)`.
     Encrypted(EncryptedCapability),
+    /// Encryption bucket cycle — `@cap.E2ee(key:@key.<scope>)`.
+    /// Sibling of `Encrypted`: the server stores ciphertext but
+    /// never reads it. See `docs/proposals/encryption-vocab.md`.
+    E2ee(E2eeCapability),
     /// Phase L Tier 4 follow-up — `@cap.Token(ttl:<duration>,
     /// single_use:<bool>,store:<storage>)`. `store` is `hashed` in v0.
     Token(TokenCapability),

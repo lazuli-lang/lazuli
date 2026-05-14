@@ -1598,6 +1598,7 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
         lazuli_ir::TypeRef::Capability(capability) => match capability {
             lazuli_ir::CapabilityRef::Hashed(_)
             | lazuli_ir::CapabilityRef::Encrypted(_)
+            | lazuli_ir::CapabilityRef::E2ee(_)
             | lazuli_ir::CapabilityRef::Token(_) => "string".to_owned(),
             lazuli_ir::CapabilityRef::File(_) => "unknown".to_owned(),
         },
@@ -1754,6 +1755,7 @@ fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {
             | lazuli_ir::TypeRef::Capability(
                 lazuli_ir::CapabilityRef::Hashed(_)
                     | lazuli_ir::CapabilityRef::Encrypted(_)
+                    | lazuli_ir::CapabilityRef::E2ee(_)
                     | lazuli_ir::CapabilityRef::Token(_)
             )
     )
@@ -6427,8 +6429,14 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
         TypeRef::Capability(CapabilityRef::File(file)) => format_file_capability(file),
         TypeRef::Capability(CapabilityRef::Hashed(h)) => format_hashed_capability(h),
         TypeRef::Capability(CapabilityRef::Encrypted(e)) => format_encrypted_capability(e),
+        TypeRef::Capability(CapabilityRef::E2ee(e)) => format_e2ee_capability(e),
         TypeRef::Capability(CapabilityRef::Token(t)) => format_token_capability(t),
     }
+}
+
+/// Encryption bucket cycle — render `E2eeCapability` back to source form.
+fn format_e2ee_capability(e: &lazuli_ir::E2eeCapability) -> String {
+    format!("@cap.E2ee(key:{})", e.key)
 }
 
 /// Phase L Tier 4 follow-up — render `HashedCapability` back to source form.

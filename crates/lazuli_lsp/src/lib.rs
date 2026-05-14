@@ -12127,6 +12127,12 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "payload" => Some(
             "On an `event_group`, declares the shared event payload schema for every concrete event under the group. Field-binding lines (`customer_id = id`) compile into the group's typed payload.",
         ),
+        "encryption" => Some(
+            "App-level encryption key binding catalog. One `key @key.<scope>` child per `@cap.Encrypted` / `@cap.E2ee` scope used in the capsule. Closed catalog: `@key.app`, `@key.tenant`, `@key.user`, `@key.record`. Per `docs/proposals/encryption-vocab.md`.",
+        ),
+        "rotation" => Some(
+            "Key rotation strategy on `encryption.key @key.<scope>`. v0 catalog: `manual` (rewrite env, re-encrypt rows via a job). `kms_managed` is deferred to a future cut.",
+        ),
         "reason" => Some("Documents why a dangerous declarative override is intentional."),
         "requires" => Some(
             "Declares a feature requirement or an additional authority requirement for a workflow transition.",
@@ -16358,6 +16364,26 @@ aggregate Customer {
                 "hover for `{kw}` must be non-empty"
             );
         }
+    }
+
+    // Encryption bucket cycle — hover catalog for the `encryption`
+    // block. `key`, `source`, `algorithm` are already in the catalog
+    // (claimed by sibling bucket cycles); only `encryption` and
+    // `rotation` are new tokens. See
+    // `docs/proposals/encryption-vocab.md` §LSP hovers.
+    #[test]
+    fn keyword_hover_describes_encryption_block() {
+        let description =
+            keyword_description("encryption").expect("encryption hover present");
+        assert!(description.contains("@key."));
+        assert!(description.contains("@cap.Encrypted"));
+    }
+
+    #[test]
+    fn keyword_hover_describes_rotation_strategy() {
+        let description =
+            keyword_description("rotation").expect("rotation hover present");
+        assert!(description.contains("manual"));
     }
 
     #[test]
