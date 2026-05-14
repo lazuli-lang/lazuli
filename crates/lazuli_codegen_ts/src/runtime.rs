@@ -12,6 +12,9 @@ use std::fmt::Write;
 use lazuli_codegen_spec::{
     FieldKind, QueryKind, RuntimeArg, RuntimeCommand, RuntimeFeature, RuntimeQuery, RuntimeResource,
 };
+use lazuli_ir as ir;
+
+use crate::lzx::{lower_camel as lzx_lower_camel, pascal_case as lzx_pascal_case};
 
 /// Emit the canonical `<feature>.gen.ts` for a feature. The emitted source
 /// matches the layout of `dist/web/customer/src/customer.gen.ts`.
@@ -28,6 +31,17 @@ pub fn emit_feature_ts(feature: &RuntimeFeature) -> String {
     for query in &feature.queries {
         write_query(&mut s, feature, query);
     }
+    s
+}
+
+/// Emit the lifecycle action-map footer for an IR feature SDK.
+///
+/// The runtime-spec projection has not yet gained `Resource.lifecycle`; this
+/// helper keeps the TS lifecycle surface tied to the canonical IR shape and can
+/// be appended by the IR-backed SDK emitter when that projection is wired.
+pub fn emit_lifecycle_action_maps_ts(feature: &ir::Feature) -> String {
+    let mut s = String::new();
+    write_lifecycle_action_maps(&mut s, feature);
     s
 }
 
@@ -215,6 +229,123 @@ fn write_query_arg(s: &mut String, arg: &RuntimeArg) {
 }
 
 // ----------------------------------------------------------------------------
+// Lifecycle action maps
+// ----------------------------------------------------------------------------
+
+fn write_lifecycle_action_maps(s: &mut String, feature: &ir::Feature) {
+    let lifecycle_resources: Vec<&ir::Resource> = feature
+        .resources
+        .iter()
+        .filter(|resource| resource.lifecycle.is_some())
+        .collect();
+
+    if lifecycle_resources.is_empty() {
+        return;
+    }
+
+    write_section_banner(s, &["Lifecycle action maps".to_owned()]);
+    writeln!(
+        s,
+        "// Auto-generated from lifecycle. Per docs/proposals/lifecycle-vocab.md §6.2."
+    )
+    .ok();
+
+    for resource in lifecycle_resources {
+        let lifecycle = resource
+            .lifecycle
+            .as_ref()
+            .expect("filtered lifecycle resources have lifecycle");
+        let resource_pascal = lzx_pascal_case(&resource.name);
+        let object_name = resource.name.to_ascii_lowercase();
+        writeln!(s, "export const {object_name} = {{").ok();
+        for transition in &lifecycle.transitions {
+            let action_key = lzx_lower_camel(&transition.name);
+            let command_ident = lifecycle_command_ident(&transition.name, &resource_pascal);
+            let input_type = lifecycle_transition_input_type(feature, &transition.name);
+            writeln!(
+                s,
+                "  {action_key}: useLazuliCommand<{input_type}, void>({command_ident}),"
+            )
+            .ok();
+        }
+        writeln!(s, "}} as const;").ok();
+        writeln!(s).ok();
+    }
+}
+
+fn lifecycle_command_ident(transition_name: &str, resource_pascal: &str) -> String {
+    format!("{}{resource_pascal}", lzx_lower_camel(transition_name))
+}
+
+fn lifecycle_transition_input_type(feature: &ir::Feature, transition_name: &str) -> String {
+    let mut fields = vec![("id".to_owned(), "ID".to_owned())];
+
+    if let Some(command) = feature
+        .commands
+        .iter()
+        .find(|command| command.name == transition_name)
+    {
+        for route in &command.route {
+            push_lifecycle_input_field(&mut fields, &route.name, &route.type_ref);
+        }
+        if let ir::CommandInput::Typed(slots) = &command.input {
+            for slot in slots {
+                push_lifecycle_input_field(&mut fields, &slot.name, &slot.type_ref);
+            }
+        }
+    }
+
+    let parts: Vec<String> = fields
+        .into_iter()
+        .map(|(name, ty)| format!("{name}: {ty}"))
+        .collect();
+    format!("{{ {} }}", parts.join("; "))
+}
+
+fn push_lifecycle_input_field(
+    fields: &mut Vec<(String, String)>,
+    name: &str,
+    type_ref: &ir::TypeRef,
+) {
+    let key = if name.eq_ignore_ascii_case("id") {
+        "id".to_owned()
+    } else {
+        lzx_lower_camel(name)
+    };
+    if fields.iter().any(|(existing, _)| existing == &key) {
+        return;
+    }
+    fields.push((key, type_ref_ts(type_ref).to_owned()));
+}
+
+fn type_ref_ts(type_ref: &ir::TypeRef) -> &'static str {
+    match type_ref {
+        ir::TypeRef::Builtin(ir::BuiltinType::Id) => "ID",
+        ir::TypeRef::Builtin(ir::BuiltinType::Boolean) => "boolean",
+        ir::TypeRef::Builtin(ir::BuiltinType::Integer | ir::BuiltinType::Decimal) => "number",
+        ir::TypeRef::Builtin(
+            ir::BuiltinType::Text
+            | ir::BuiltinType::Date
+            | ir::BuiltinType::DateTime
+            | ir::BuiltinType::SemanticEmail
+            | ir::BuiltinType::SemanticMoney
+            | ir::BuiltinType::SemanticPhone
+            | ir::BuiltinType::SemanticUrl
+            | ir::BuiltinType::SemanticUuid
+            | ir::BuiltinType::SemanticCurrency
+            | ir::BuiltinType::SemanticGeoPoint,
+        ) => "string",
+        ir::TypeRef::Builtin(ir::BuiltinType::Json) => "unknown",
+        ir::TypeRef::Builtin(ir::BuiltinType::CapSecret | ir::BuiltinType::CapFile) => "unknown",
+        ir::TypeRef::EnumRef(_) | ir::TypeRef::UserDefined(_) | ir::TypeRef::Unresolved(_) => {
+            "string"
+        }
+        ir::TypeRef::Many(_) => "unknown[]",
+        ir::TypeRef::Capability(_) => "unknown",
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -321,4 +452,191 @@ fn command_var_name(short_name: &str, resource_pascal: &str) -> String {
         out.push_str(&pascal_case(w));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn publication_feature() -> ir::Feature {
+        let mut feature = base_feature(vec![publication_resource(Some(publication_lifecycle()))]);
+        feature.commands = vec![
+            lifecycle_command("begin_publishing", ir::CommandInput::Empty),
+            lifecycle_command("mark_published", ir::CommandInput::Empty),
+            lifecycle_command(
+                "mark_failed",
+                ir::CommandInput::Typed(vec![ir::TypedSlot {
+                    name: "error_reason".to_owned(),
+                    type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
+                    required: true,
+                    constraints: ir::FieldConstraints::default(),
+                }]),
+            ),
+            lifecycle_command("cancel", ir::CommandInput::Empty),
+        ];
+        feature
+    }
+
+    fn base_feature(resources: Vec<ir::Resource>) -> ir::Feature {
+        ir::Feature {
+            name: "publication".to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: ir::Defaults::default(),
+            uses: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources,
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies: ir::Policies::default(),
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn publication_resource(lifecycle: Option<ir::Lifecycle>) -> ir::Resource {
+        ir::Resource {
+            name: "publication".to_owned(),
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: Vec::new(),
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle,
+        }
+    }
+
+    fn publication_lifecycle() -> ir::Lifecycle {
+        ir::Lifecycle {
+            discriminator_field: "status".to_owned(),
+            generated_enum: "PublicationStatus".to_owned(),
+            states: vec![
+                lifecycle_state("scheduled", ir::LifecycleStateKind::Initial),
+                lifecycle_state("publishing", ir::LifecycleStateKind::Intermediate),
+                lifecycle_state("published", ir::LifecycleStateKind::Terminal),
+                lifecycle_state("failed", ir::LifecycleStateKind::Terminal),
+                lifecycle_state("cancelled", ir::LifecycleStateKind::Terminal),
+            ],
+            transitions: vec![
+                lifecycle_transition("begin_publishing", "scheduled", "publishing"),
+                lifecycle_transition("mark_published", "publishing", "published"),
+                lifecycle_transition("mark_failed", "publishing", "failed"),
+                lifecycle_transition("cancel", "scheduled", "cancelled"),
+            ],
+            invariants: Vec::new(),
+            invariant_handlers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn lifecycle_state(name: &str, kind: ir::LifecycleStateKind) -> ir::LifecycleState {
+        ir::LifecycleState {
+            name: name.to_owned(),
+            kind,
+            span_ref: None,
+        }
+    }
+
+    fn lifecycle_transition(name: &str, from: &str, to: &str) -> ir::LifecycleTransition {
+        ir::LifecycleTransition {
+            name: name.to_owned(),
+            from: vec![from.to_owned()],
+            to: to.to_owned(),
+            policy: None,
+            audit: None,
+            timestamps: None,
+            emits: Vec::new(),
+            requires: None,
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn lifecycle_command(name: &str, input: ir::CommandInput) -> ir::Command {
+        ir::Command {
+            name: name.to_owned(),
+            kind: ir::CommandKind::Update,
+            route: vec![ir::RouteSlot {
+                name: "id".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
+                from: None,
+            }],
+            input,
+            target: None,
+            lets: Vec::new(),
+            effect: ir::CommandEffect::None,
+            policy: ir::PolicyRef::Unresolved("allow".to_owned()),
+            emits: Vec::new(),
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: Vec::new(),
+            external_calls: Vec::new(),
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            deprecated: None,
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    #[test]
+    fn lifecycle_emits_camel_case_action_map() {
+        let out = emit_lifecycle_action_maps_ts(&publication_feature());
+
+        assert!(out.contains("export const publication = {"));
+        assert!(out.contains(
+            "beginPublishing: useLazuliCommand<{ id: ID }, void>(beginPublishingPublication),"
+        ));
+        assert!(out.contains(
+            "markPublished: useLazuliCommand<{ id: ID }, void>(markPublishedPublication),"
+        ));
+        assert!(out.contains(
+            "markFailed: useLazuliCommand<{ id: ID; errorReason: string }, void>(markFailedPublication),"
+        ));
+        assert!(out.contains("cancel: useLazuliCommand<{ id: ID }, void>(cancelPublication),"));
+    }
+
+    #[test]
+    fn transition_input_defaults_to_id() {
+        let out = emit_lifecycle_action_maps_ts(&publication_feature());
+
+        assert!(out.contains(
+            "beginPublishing: useLazuliCommand<{ id: ID }, void>(beginPublishingPublication),"
+        ));
+    }
+
+    #[test]
+    fn non_lifecycle_resource_does_not_emit_action_map() {
+        let out = emit_lifecycle_action_maps_ts(&base_feature(vec![publication_resource(None)]));
+
+        assert!(!out.contains("export const publication ="));
+    }
 }
