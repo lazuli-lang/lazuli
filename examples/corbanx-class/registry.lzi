@@ -1,0 +1,64 @@
+# Corbanx-class capability + integration catalog.
+# Provider credentials, object storage for exports, queue for async dispatch,
+# cache for webhook payload TTL.
+
+registry
+  env
+    group object_storage
+      server STORAGE_ENDPOINT: Url required in production
+      server STORAGE_ACCESS_KEY: Secret required in production
+      server STORAGE_SECRET_KEY: Secret required in production
+      server STORAGE_BUCKET: Text required in production
+
+    group cache
+      server CACHE_URL: Url required in production
+
+    group queue
+      server QUEUE_URL: Url required in production
+
+    group provider_webhooks
+      server PROVIDER_A_WEBHOOK_SECRET: Secret required in production
+      server PROVIDER_B_WEBHOOK_SECRET: Secret required in production
+      server PROVIDER_C_WEBHOOK_SECRET: Secret required in production
+
+    group encryption
+      server CREDENTIALS_ENCRYPTION_KEY: Secret required in production
+
+  capabilities
+    database postgres
+    queue background_jobs
+    object_storage files
+    cache shared
+    event_bus internal
+    tracing optional
+
+  integrations
+    object_storage: ObjectStorage
+      adapter @runtime/storage
+      environments local, staging, production
+      credentials platform
+        endpoint env.STORAGE_ENDPOINT
+        access_key env.STORAGE_ACCESS_KEY
+        secret_key env.STORAGE_SECRET_KEY
+        bucket env.STORAGE_BUCKET
+
+    job_queue: JobQueue
+      adapter @runtime/jobs
+      environments local, staging, production
+      credentials platform
+        queue_url env.QUEUE_URL
+
+    cache: Cache
+      adapter @runtime/cache
+      environments local, staging, production
+      credentials platform
+        url env.CACHE_URL
+
+  webhook_events
+    provider_callback
+      provider: Text required
+      external_consult_id: Text required
+      company_id: ID required
+      status: Text required
+      payload: JSON required
+      received_at: Timestamp required

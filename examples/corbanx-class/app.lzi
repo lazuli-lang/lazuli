@@ -1,0 +1,71 @@
+# Corbanx-class fixture — B2B finance app shape.
+# Multi-tenant Companies, RBAC, async provider queries, encrypted credentials, exports.
+# Generic placeholder vocabulary (no proprietary terms).
+
+app CorbanxClass
+  title "Corbanx-Class Demo"
+  version "0.1.0"
+  default_timezone "America/Sao_Paulo"
+
+  lazuli_version "0.13"
+
+  locale
+    default "pt-BR"
+    supported "pt-BR", "en-US"
+    fallback "en-US" -> "pt-BR"
+
+  uses
+    companies
+    auth
+    credentials
+    queries
+    webhooks
+    billing
+
+  targets
+    backend go
+
+  environments
+    local
+    staging
+    production
+
+  urls
+    api local "http://localhost:8080"
+    api production "https://api.corbanx-class.example"
+    web local "http://localhost:3000"
+    web production "https://app.corbanx-class.example"
+
+  cors
+    allow_origins production "https://app.corbanx-class.example"
+    allow_origins local "http://localhost:3000"
+    allow_credentials true
+    max_age "1h"
+
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      healthcheck "/healthz"
+      readiness "/readyz"
+
+    unit worker
+      runs jobs *
+
+    unit scheduler
+      runs schedules *
+
+  deploy
+    migrations before_deploy
+    migration_lock required
+    destructive_migrations require_approval
+    rollback on_failed_healthcheck
+    strategy rolling
+
+  logging
+    level info
+    format json
+    redact pii
+
+  tracing
+    propagate true
+    sample_rate 0.1

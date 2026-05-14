@@ -1,0 +1,245 @@
+# The heart of the corbanx-shaped fixture.
+# A Query is a single tax-id consult dispatched to N providers in parallel.
+# Each provider response is a QueryResult.
+# Provider A is sync; Provider B returns PENDING and must be polled — this
+# exercises the `kind poller` gap (#5).
+# Downloading filtered results as CSV/XLSX exercises the report gap (#3, #4).
+
+feature queries
+  purpose "Dispatch parallel provider consults for a tax-id, aggregate results, allow CSV/XLSX export."
+
+  defaults
+    tenancy company
+    timestamps
+    policy_for jobs, webhooks: @actor.system
+
+  uses companies, credentials, billing
+
+  domain
+    enum QueryStatus
+      processing
+      completed
+      failed
+
+    enum ProviderResultStatus
+      pending
+      with_balance
+      no_balance
+      failed
+
+    resource Query
+      company: Company required on_delete cascade
+      user: User required on_delete restrict
+      # NOTE: gap #12 — @semantic.TaxID lives in the deferred scalars-pt-BR plugin.
+      tax_id: Text @pii.contact required
+      name: Text required
+      total_providers: Integer = 0
+      providers_with_balance: Integer = 0
+      providers_failed: Integer = 0
+
+      retention 2y then anonymize
+
+      lifecycle status
+        state processing initial
+        state completed terminal
+        state failed terminal
+
+        transition complete
+          from processing
+          to completed
+          policy @policy.update
+          audit default
+          emits query_completed, query_status_changed
+
+        transition fail
+          from processing
+          to failed
+          policy @policy.update
+          audit default
+          emits query_failed, query_status_changed
+
+    resource QueryResult
+      query: Query required on_delete cascade
+      provider: Provider required
+      credential: ProviderCredential optional
+      status: ProviderResultStatus = pending
+      result: JSON optional
+      margin_cents: Integer optional
+      external_consult_id: Text optional
+
+    # ---------------------------------------------------------------
+    # GAP: PENDING / POLLER MODEL
+    # PendingResolution rows model the V8-style async cursor: an initial
+    # consult returned a PENDING token, and a background loop must poll
+    # the provider every N seconds with backoff until either a final
+    # status is set or attempts exceeds a cap.
+    #
+    # Today this has to be authored as (a) a resource + (b) a `job` with
+    # `trigger schedule "*/30 * * * * *"` reading from the resource by
+    # `next_check_at`. Pattern repeats verbatim per provider — the
+    # `kind poller` proposal (gap #5) is supposed to name this pattern.
+    # See GAPS.md.
+    # ---------------------------------------------------------------
+    resource PendingResolution
+      query: Query required on_delete cascade
+      result: QueryResult required on_delete cascade
+      provider: Provider required
+      external_consult_id: Text required
+      attempts: Integer = 0
+      next_check_at: DateTime required
+      resolved_at: DateTime optional
+      final_status: ProviderResultStatus optional
+      gender_retry_count: Integer = 0
+
+    constraints
+      unique query, provider
+      unique external_consult_id per provider
+
+    query.list list_queries
+      params
+        status: QueryStatus optional
+        tax_id: Text optional
+
+      filters
+        status when params.status
+        tax_id when params.tax_id
+
+      cache
+        key queries.list_queries(params)
+        ttl 30s
+        tags query-list
+        namespace queries
+
+      paginate 50
+
+    query.lookup query_by_id by id: ID
+
+    query.list results_for_query
+      params
+        query_id: ID
+
+      filters
+        query.id = params.query_id
+
+      order provider asc
+
+    query.list pending_resolutions
+      params
+        provider: Provider optional
+
+      filters
+        resolved_at = nil
+        next_check_at < ctx.now
+        provider when params.provider
+
+      order next_check_at asc
+      paginate 100
+
+    event_group query_* on Query
+      payload
+        query_id = id
+        company_id = company.id
+        user_id = user.id
+        by_id = ctx.user.id when @actor.user
+
+      event dispatched
+        providers: JSON
+      event status_changed
+        from: QueryStatus
+        to: QueryStatus
+      event completed
+      event failed
+
+    event provider_result_recorded
+      query_id: ID
+      provider: Provider
+      status: ProviderResultStatus
+
+  policies
+    # NOTE: when plan-and-gate vocab lands, these become gated by
+    # billing.subscription.plan — see GAPS.md.
+    start_query: @scope.same_company
+    update: @scope.same_company
+    read_query: @scope.same_company
+    download_results: @scope.same_company
+
+    fields Query
+      tax_id
+        read: @scope.same_company
+        write: @scope.same_company
+
+  command start_query
+    input
+      tax_id: Text required
+      name: Text required
+      providers: JSON required
+    policy @policy.start_query
+    # ---------------------------------------------------------------
+    # GAP: PLAN + GATE
+    # In corbanx production this command is gated by the active
+    # subscription plan (free → 10/day cap; pro → 200/day; enterprise → ∞).
+    # No `gate by plan` directive exists yet. See GAPS.md.
+    # The line below would be the ergonomic surface:
+    #   gate billing.subscription.plan
+    # ---------------------------------------------------------------
+    rate_limit "60 per hour per user"
+    audit default
+    creates Query
+      company = ctx.actor.company
+      user = ctx.user
+      tax_id = input.tax_id
+      name = input.name
+    emits query_dispatched
+      providers = input.providers
+    invalidates
+      query.list_queries
+
+  command download_results
+    route id: ID
+    input
+      format: Text required
+    target query.query_by_id(id: route.id)
+    policy @policy.download_results
+    rate_limit "10 per hour per user"
+    audit default
+    # ---------------------------------------------------------------
+    # GAP: CSV / XLSX EXPORT
+    # The desired surface is something like:
+    #
+    #   output @cap.File(max_size:10mb,visibility:signed,signed_ttl:1h)
+    #   export
+    #     format csv, xlsx
+    #     source query.results_for_query(query_id: route.id)
+    #     columns provider, status, margin_cents, external_consult_id
+    #
+    # Today the only way is `api ... handler "./api/download.go"` with
+    # 60+ LOC of `encoding/csv` + `excelize/v2`. See GAPS.md.
+    # ---------------------------------------------------------------
+    returns Text
+
+  # ---------------------------------------------------------------
+  # GAP: ASYNC POLLER LOOP
+  # The block below is what `kind poller` should make declarative.
+  # Today it's a scheduled job reading next_check_at + a handler.
+  # ---------------------------------------------------------------
+  job resolve_pending_provider_b
+    trigger schedule "*/30 * * * * *"
+    fanout tenants company
+    idempotency by tenant.company_id, schedule.minute
+    retry 3 backoff exponential
+    handler "./jobs/resolve_pending_provider_b.go"
+    emits provider_result_recorded, query_status_changed
+
+  job dispatch_provider_queries
+    trigger event queries.query_dispatched
+    queue provider_queries
+    tenant_from payload.company_id
+    idempotency by payload.query_id
+    retry 3 backoff exponential
+    timeout "60s"
+    handler "./jobs/dispatch_provider_queries.go"
+    emits provider_result_recorded
+
+  extensions
+    fn export_results_csv: Function[QueryExport, Text] at "./handlers/export_results_csv.go"
+    fn export_results_xlsx: Function[QueryExport, Text] at "./handlers/export_results_xlsx.go"

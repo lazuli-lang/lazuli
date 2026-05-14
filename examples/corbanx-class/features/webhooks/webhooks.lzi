@@ -1,0 +1,67 @@
+# Provider webhook receivers — providers can call back when an async
+# query is resolved. We store the raw payload in cache for short TTL so
+# the poller job can claim it without a DB round-trip.
+
+feature webhooks
+  purpose "Receive provider callbacks for async consults; cache payload with TTL."
+
+  defaults
+    tenancy company
+    timestamps
+    policy_for webhooks: @actor.system
+
+  uses companies, credentials, queries
+
+  domain
+    event provider_callback_received
+      provider: Provider
+      external_consult_id: Text
+      status: Text
+
+    event provider_callback_dead_lettered
+      provider: Provider
+      external_consult_id: Text
+      reason: Text
+
+  policies
+    record_callback: @actor.system
+
+  webhook provider_a_callback
+    path "/webhooks/providers/provider-a"
+    payload from webhook_events.provider_callback
+    verify hmac sha256
+      secret env.PROVIDER_A_WEBHOOK_SECRET
+      header "X-Provider-Signature"
+    tenant_from payload.company_id
+    idempotency by payload.provider, payload.external_consult_id
+    retry 3 backoff exponential
+    replay allow within "24h"
+    dlq emit provider_callback_dead_lettered
+    handler "./integrations/record_provider_a_callback.go"
+    emits provider_callback_received
+    emits provider_callback_dead_lettered
+
+  webhook provider_b_callback
+    path "/webhooks/providers/provider-b"
+    payload from webhook_events.provider_callback
+    verify hmac sha256
+      secret env.PROVIDER_B_WEBHOOK_SECRET
+      header "X-Provider-Signature"
+    tenant_from payload.company_id
+    idempotency by payload.provider, payload.external_consult_id
+    retry 3 backoff exponential
+    dlq emit provider_callback_dead_lettered
+    handler "./integrations/record_provider_b_callback.go"
+    emits provider_callback_received
+    emits provider_callback_dead_lettered
+
+  webhook provider_c_callback
+    path "/webhooks/providers/provider-c"
+    payload from webhook_events.provider_callback
+    verify hmac sha256
+      secret env.PROVIDER_C_WEBHOOK_SECRET
+      header "X-Provider-Signature"
+    tenant_from payload.company_id
+    idempotency by payload.provider, payload.external_consult_id
+    handler "./integrations/record_provider_c_callback.go"
+    emits provider_callback_received

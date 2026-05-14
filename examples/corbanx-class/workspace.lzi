@@ -1,0 +1,13 @@
+workspace CorbanxClass
+  apps
+    api at "./app.lzi"
+
+  shared_registry "./registry.lzi"
+
+  boundaries
+    api publishes queries.query_*, companies.company_*, billing.subscription_*
+
+  communication
+    propagate actor, tenant, trace_id, request_id
+    default sync internal rpc
+    default async event_bus

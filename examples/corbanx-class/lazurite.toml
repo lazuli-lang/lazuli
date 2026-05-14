@@ -1,0 +1,23 @@
+[project]
+name = "corbanx-class"
+module = "github.com/lazuli-lang/example-corbanx-class"
+schema = 1
+
+[lazuli]
+runtime = "0.13.0"
+
+[lazurite]
+template = "lazurite-default"
+template_version = "0.1.0"
+
+[generate.go]
+out = "dist/go"
+gofmt = true
+strict = true
+emit_main = true
+submodule = true
+
+[migrations]
+generated = "dist/go/migrations"
+manual = "migrations"
+strategy = "auto"

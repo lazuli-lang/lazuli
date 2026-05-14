@@ -1,0 +1,113 @@
+# Subscription / plan tracking per Company.
+# This feature exercises the plan-and-gate gap (#9) — today the plan
+# is just an enum on a resource. We have no way to declaratively gate
+# commands or queries on the current plan.
+
+feature billing
+  purpose "Per-company plan, quotas, and gating signal for command access."
+
+  defaults
+    tenancy company
+    timestamps
+
+  uses companies
+
+  domain
+    enum Plan
+      free
+      pro
+      enterprise
+
+    enum SubscriptionStatus
+      trialing
+      active
+      past_due
+      cancelled
+
+    resource Subscription
+      company: Company required on_delete cascade
+      plan: Plan = free
+      status: SubscriptionStatus = trialing
+      trial_ends_at: DateTime optional
+      current_period_end: DateTime optional
+
+      lifecycle status
+        state trialing initial
+        state active
+        state past_due
+        state cancelled terminal
+
+        transition activate
+          from trialing
+          to active
+          audit default
+          emits subscription_activated, subscription_status_changed
+
+        transition mark_past_due
+          from active
+          to past_due
+          audit default
+          emits subscription_status_changed
+
+        transition recover
+          from past_due
+          to active
+          audit default
+          emits subscription_status_changed
+
+        transition cancel
+          from trialing, active, past_due
+          to cancelled
+          audit default
+          emits subscription_cancelled, subscription_status_changed
+
+    constraints
+      unique company
+
+    query.lookup subscription_by_company by company: Company
+
+    event_group subscription_* on Subscription
+      payload
+        subscription_id = id
+        company_id = company.id
+        plan = plan
+
+      event activated
+      event cancelled
+      event status_changed
+        from: SubscriptionStatus
+        to: SubscriptionStatus
+
+  policies
+    read_subscription: @scope.same_company
+    update_subscription: @role.platform_admin
+
+  command upgrade_plan
+    input
+      plan: Plan required
+    target query.subscription_by_company(company: ctx.actor.company)
+    policy @policy.update_subscription
+    rate_limit "10 per hour per user"
+    audit default
+    # ---------------------------------------------------------------
+    # GAP: PLAN + GATE
+    # When `plan-and-gate-vocab.md` lands the consuming side (queries.start_query
+    # etc.) gets a `gate billing.subscription.plan` directive that checks
+    # the value here and enforces quotas. See GAPS.md.
+    # ---------------------------------------------------------------
+    updates Subscription
+      plan = input.plan
+    emits subscription_status_changed
+
+  # ---------------------------------------------------------------
+  # PLACEHOLDER — PLAN CATALOG GOES HERE.
+  # When `plan-and-gate-vocab.md` lands this becomes a closed catalog:
+  #
+  #   plans
+  #     plan free
+  #       quota queries.start_query 10 per_day per_company
+  #     plan pro
+  #       quota queries.start_query 200 per_day per_company
+  #     plan enterprise
+  #       quota queries.start_query unlimited
+  # ---------------------------------------------------------------

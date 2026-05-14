@@ -1,0 +1,99 @@
+# Auth feature — session + login. The RBAC role/permission catalog GOES HERE
+# once `rbac-catalog-vocab.md` lands; today only sessions live here.
+
+feature auth
+  purpose "User login, sessions, password verification."
+
+  defaults
+    timestamps
+
+  uses companies
+
+  domain
+    resource UserSession
+      user: User required on_delete cascade
+      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+      retention 30d then delete
+
+    query.list active_sessions
+      params
+        user_id: ID
+
+      filters
+        user.id = params.user_id
+        expires_at > ctx.now
+
+    event user_logged_in
+      user_id: ID
+      session_id: ID
+
+    event user_logged_out
+      user_id: ID
+      session_id: ID
+
+  policies
+    login: @scope.public
+    read_session: @actor.system
+
+    fields UserSession
+      refresh_token_hash
+        read: @actor.system
+        write: @actor.system
+
+  auth
+    identity User.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_password
+      verify @fn.verify_password
+      rate_limit "5 per 10 minutes"
+
+    sessions
+      resource UserSession
+      ttl "7 days"
+      refresh false
+
+  command login
+    input
+      email: @semantic.Email required
+      password: Text required
+    policy @policy.login
+    rate_limit "5 per 10 minutes per ip"
+    returns Text
+    emits user_logged_in
+
+  # ---------------------------------------------------------------
+  # PLACEHOLDER — RBAC CATALOG GOES HERE.
+  # The current `policies` blocks reference @role.platform_admin /
+  # @role.company_admin / @role.consultor / @role.manager but nothing
+  # in the framework binds these names to permissions.
+  #
+  # Once `rbac-catalog-vocab.md` lands, this block becomes something like:
+  #
+  #   roles
+  #     role platform_admin
+  #       grants *
+  #     role company_admin
+  #       grants companies.invite_member
+  #       grants credentials.create
+  #       grants queries.start_query, queries.download_results
+  #       grants billing.read_subscription
+  #     role manager
+  #       grants queries.start_query, queries.download_results
+  #       grants billing.read_subscription
+  #     role consultor
+  #       grants queries.start_query
+  #
+  #   permissions
+  #     permission companies.invite_member
+  #     permission credentials.create
+  #     permission queries.start_query
+  #     permission queries.download_results
+  #     permission billing.read_subscription
+  # ---------------------------------------------------------------
+
+  extensions
+    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./handlers/hash_password.go"
+    fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./handlers/verify_password.go"

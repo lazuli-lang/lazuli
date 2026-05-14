@@ -1,0 +1,139 @@
+# Multi-tenant baseline.
+# Company is the tenant; User identities log in; Membership binds users to companies with a role.
+
+feature companies
+  purpose "B2B tenant model: Company + User identity + Membership with role."
+
+  defaults
+    timestamps
+
+  domain
+    resource Company
+      name: Text required
+      slug: Text required unique
+      # NOTE: tax_id stays Text. A semantic TaxID scalar would be
+      # natural but the locale-scalars plugin is gap #12 in
+      # `docs/proposals/corbanx-class-readiness.md` (deferred). See GAPS.md.
+      tax_id: Text @pii.contact required unique
+
+      soft_delete
+      retention 7y then anonymize
+
+    resource User
+      email: @semantic.Email @pii.contact required unique
+      name: Text required
+      password_hash: @cap.Hashed(algorithm:argon2id) required
+
+      soft_delete
+      retention 7y then anonymize
+
+    resource Membership
+      company: Company required on_delete cascade
+      user: User required on_delete restrict
+      # NOTE: `role` is a plain Text today.
+      # When the rbac-catalog-vocab proposal lands this becomes
+      # `role: Role required` referencing a closed catalog. See GAPS.md.
+      role: Text required
+      invited_at: DateTime required
+      accepted_at: DateTime optional
+
+    constraints
+      unique user, company
+
+    query.list list_companies
+      params
+        search: Text optional
+
+      search params.search over name, slug
+        mode contains
+
+      paginate 50
+
+    query.lookup company_by_id by id: ID
+
+    query.lookup company_by_slug by slug: Text
+
+    query.list list_members
+      params
+        company_id: ID
+
+      filters
+        company.id = params.company_id
+
+      order invited_at desc
+      paginate 100
+
+    event_group company_* on Company
+      payload
+        company_id = id
+        by_id = ctx.user.id when @actor.user
+
+      event created
+      event suspended
+      event reactivated
+
+    event_group membership_* on Membership
+      payload
+        company_id = company.id
+        user_id = user.id
+        role = role
+
+      event invited
+      event accepted
+      event revoked
+
+  policies
+    # NOTE: roles below are referenced as @role.* but there is no `role`
+    # catalog block in Lazuli yet — see GAPS.md (RBAC gap).
+    create_company: @role.platform_admin
+    update_company: @role.company_admin
+    read_company: @scope.same_company
+    invite_member: @role.company_admin
+    read_member: @scope.same_company
+
+    fields Company
+      tax_id
+        read: @scope.same_company
+        write: @role.platform_admin
+
+    fields User
+      email
+        read: @scope.same_company
+        write: @role.platform_admin
+      password_hash
+        read: @actor.system
+        write: @actor.system
+
+  command create_company
+    input
+      name: Text required
+      slug: Text required
+      tax_id: Text required
+    policy @policy.create_company
+    rate_limit "10 per hour per ip"
+    audit default
+    creates Company
+      name = input.name
+      slug = input.slug
+      tax_id = input.tax_id
+    emits company_created from creates
+
+  command invite_member
+    input
+      company_id: ID required
+      user_email: @semantic.Email required
+      role: Text required
+    target query.company_by_id(id: input.company_id)
+    policy @policy.invite_member
+    rate_limit "30 per hour per user"
+    audit default
+    # NOTE: when RBAC catalog lands, `role` becomes typed and validated against catalog.
+    creates Membership
+      company = target
+      user = @fn.find_or_create_user(input.user_email)
+      role = input.role
+      invited_at = ctx.now
+    emits membership_invited
+
+  extensions
+    fn find_or_create_user: Function[Email, User] at "./handlers/find_or_create_user.go"
