@@ -1779,16 +1779,24 @@ pub struct ViewList {
     pub route: Option<String>,
     /// `source <feature>.query.<name>`.
     pub source: QueryRef,
-    /// `columns <field>, <field>, ...` (required).
-    pub columns: Vec<String>,
+    /// How this list renders its rows (`columns` table form or grid `cells` slot).
+    pub render: ListRender,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub search: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub filter: Vec<String>,
+    pub filter: Vec<FilterDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cells: Vec<CellBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<CommandRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawer: Option<DrawerSubView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<SortDecl>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionDecl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings: Vec<SettingDecl>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

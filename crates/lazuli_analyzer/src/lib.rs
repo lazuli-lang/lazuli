@@ -480,7 +480,12 @@ fn lower_view_ast(
                 view: v.name.clone(),
                 value: v.source.clone(),
             })?;
-            validate_cells(&v.cells, &v.columns, &v.name)?;
+            let render = lower_list_render(v);
+            let render_columns = match &render {
+                ir::ListRender::Table { columns } => columns.as_slice(),
+                ir::ListRender::Cells { .. } => &[],
+            };
+            validate_cells(&v.cells, render_columns, &v.name)?;
             let actions = v
                 .actions
                 .iter()
@@ -490,9 +495,9 @@ fn lower_view_ast(
                 name: v.name.clone(),
                 route: v.route.clone(),
                 source,
-                columns: v.columns.clone(),
-                search: v.search.clone(),
-                filter: v.filter.clone(),
+                render,
+                search: v.search.as_ref().map(lower_search_decl),
+                filter: lower_filter_decls(v),
                 cells: v
                     .cells
                     .iter()
@@ -502,6 +507,18 @@ fn lower_view_ast(
                     })
                     .collect(),
                 actions,
+                drawer: v
+                    .drawer
+                    .as_ref()
+                    .map(|drawer| lower_drawer(drawer, owning_feature))
+                    .transpose()?,
+                sort: v.sort.as_ref().map(lower_sort_decl),
+                selection: v
+                    .selection
+                    .as_ref()
+                    .map(|selection| lower_selection_decl(selection, owning_feature))
+                    .transpose()?,
+                settings: v.settings.iter().map(lower_setting_decl).collect(),
                 span_ref: Some(span_of(v.span)),
             }))
         }
@@ -584,6 +601,175 @@ fn lower_view_ast(
                 span_ref: Some(span_of(v.span)),
             }))
         }
+    }
+}
+
+fn lower_list_render(ast: &syntax::ViewListAst) -> ir::ListRender {
+    match (ast.columns.is_empty(), ast.cells_slot.as_ref()) {
+        (false, None) => ir::ListRender::Table {
+            columns: ast.columns.clone(),
+        },
+        (true, Some(slot)) => ir::ListRender::Cells { slot: slot.clone() },
+        (false, Some(_)) | (true, None) => ir::ListRender::Table {
+            columns: ast.columns.clone(),
+        },
+    }
+}
+
+fn lower_filter_decls(ast: &syntax::ViewListAst) -> Vec<ir::FilterDecl> {
+    let mut filters: Vec<ir::FilterDecl> = ast.filters.iter().map(lower_filter_decl).collect();
+    filters.extend(ast.filter.iter().map(|name| ir::FilterDecl {
+        name: name.clone(),
+        type_ref: String::new(),
+        cardinality: ir::FilterCardinality::Single,
+        url_sync: false,
+        span_ref: None,
+    }));
+    filters
+}
+
+fn lower_filter_decl(ast: &syntax::FilterDeclAst) -> ir::FilterDecl {
+    ir::FilterDecl {
+        name: ast.name.clone(),
+        type_ref: ast.type_ref.clone(),
+        cardinality: match ast.cardinality {
+            syntax::FilterCardinalityAst::Single => ir::FilterCardinality::Single,
+            syntax::FilterCardinalityAst::Multi => ir::FilterCardinality::Multi,
+        },
+        url_sync: ast.url_sync,
+        span_ref: Some(span_of(ast.span)),
+    }
+}
+
+fn lower_search_decl(ast: &syntax::SearchDeclAst) -> ir::SearchDecl {
+    ir::SearchDecl {
+        mode: match &ast.mode {
+            syntax::SearchModeAst::Columns(columns) => ir::SearchMode::Columns {
+                columns: columns.clone(),
+            },
+            syntax::SearchModeAst::Segmented => ir::SearchMode::Segmented,
+        },
+        fields: ast.fields.iter().map(lower_search_field).collect(),
+        free_text_target: ast.free_text_target.as_ref().map(lower_binding_ref),
+        span_ref: Some(span_of(ast.span)),
+    }
+}
+
+fn lower_search_field(ast: &syntax::SearchFieldAst) -> ir::SearchField {
+    ir::SearchField {
+        key: ast.key.clone(),
+        binds_to: lower_binding_ref(&ast.binds_to),
+        span_ref: Some(span_of(ast.span)),
+    }
+}
+
+fn lower_binding_ref(ast: &syntax::BindingRefAst) -> ir::BindingRef {
+    match ast {
+        syntax::BindingRefAst::Filter { name } => ir::BindingRef::Filter { name: name.clone() },
+        syntax::BindingRefAst::SourceInput { name } => {
+            ir::BindingRef::SourceInput { name: name.clone() }
+        }
+        syntax::BindingRefAst::SelectionScalar => ir::BindingRef::SelectionScalar,
+    }
+}
+
+fn lower_drawer(
+    ast: &syntax::DrawerSubViewAst,
+    owning_feature: &str,
+) -> Result<ir::DrawerSubView, AnalyzeError> {
+    let source = parse_query_ref(&ast.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+        view: ast.name.clone(),
+        value: ast.source.clone(),
+    })?;
+    validate_cells_slot_only(&ast.cells, &ast.name)?;
+    let actions = ast
+        .actions
+        .iter()
+        .map(|s| parse_command_ref(s, owning_feature))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ir::DrawerSubView {
+        name: ast.name.clone(),
+        trigger: match ast.trigger {
+            syntax::DrawerTriggerAst::Select => ir::DrawerTrigger::Select,
+            syntax::DrawerTriggerAst::ManualOpen => ir::DrawerTrigger::ManualOpen,
+        },
+        source,
+        route_binding: ast.route_binding.as_ref().map(lower_drawer_route_binding),
+        sections: ast.sections.clone(),
+        cells: ast
+            .cells
+            .iter()
+            .map(|c| ir::CellBinding {
+                field: c.field.clone(),
+                slot: c.slot.clone(),
+            })
+            .collect(),
+        actions,
+        span_ref: Some(span_of(ast.span)),
+    })
+}
+
+fn lower_drawer_route_binding(ast: &syntax::DrawerRouteBindingAst) -> ir::DrawerRouteBinding {
+    ir::DrawerRouteBinding {
+        target: ast.target.clone(),
+        source: match ast.source {
+            syntax::DrawerBindingSourceAst::Selection => ir::DrawerBindingSource::Selection,
+        },
+    }
+}
+
+fn lower_sort_decl(ast: &syntax::SortDeclAst) -> ir::SortDecl {
+    ir::SortDecl {
+        allowed: ast.allowed.clone(),
+        default_field: ast.default_field.clone(),
+        default_dir: match ast.default_dir {
+            syntax::SortDirAst::Asc => ir::SortDir::Asc,
+            syntax::SortDirAst::Desc => ir::SortDir::Desc,
+        },
+        span_ref: Some(span_of(ast.span)),
+    }
+}
+
+fn lower_selection_decl(
+    ast: &syntax::SelectionDeclAst,
+    owning_feature: &str,
+) -> Result<ir::SelectionDecl, AnalyzeError> {
+    let bulk_actions = ast
+        .bulk_actions
+        .iter()
+        .map(|s| parse_command_ref(s, owning_feature))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ir::SelectionDecl {
+        mode: match ast.mode {
+            syntax::SelectionModeAst::None => ir::SelectionMode::None,
+            syntax::SelectionModeAst::Single => ir::SelectionMode::Single,
+            syntax::SelectionModeAst::Multi => ir::SelectionMode::Multi,
+        },
+        bulk_actions,
+        span_ref: Some(span_of(ast.span)),
+    })
+}
+
+fn lower_setting_decl(ast: &syntax::SettingDeclAst) -> ir::SettingDecl {
+    ir::SettingDecl {
+        name: ast.name.clone(),
+        value_space: match &ast.value_space {
+            syntax::SettingValueSpaceAst::Enum(values) => ir::SettingValueSpace::Enum {
+                values: values.clone(),
+            },
+            syntax::SettingValueSpaceAst::Bool => ir::SettingValueSpace::Bool,
+            syntax::SettingValueSpaceAst::Int { min, max } => ir::SettingValueSpace::Int {
+                min: min.unwrap_or(i64::MIN),
+                max: max.unwrap_or(i64::MAX),
+            },
+        },
+        default: ast.default.clone(),
+        persistence: match ast.persistence {
+            syntax::SettingPersistenceAst::None => ir::SettingPersistence::None,
+            syntax::SettingPersistenceAst::Local => ir::SettingPersistence::Local,
+            syntax::SettingPersistenceAst::Workspace => ir::SettingPersistence::Workspace,
+        },
+        span_ref: Some(span_of(ast.span)),
     }
 }
 
@@ -4616,7 +4802,7 @@ mod surface_lowering_tests {
     }
 
     #[test]
-    fn list_view_carries_columns_search_filter() {
+    fn list_view_lowers_table_render_search_and_legacy_filter_names() {
         let surface = parse(
             "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key, title\n      search key\n      filter title\n",
         );
@@ -4624,9 +4810,128 @@ mod surface_lowering_tests {
             ir::View::List(v) => v,
             _ => unreachable!(),
         };
-        assert_eq!(view.columns, vec!["key", "title"]);
-        assert_eq!(view.search, vec!["key"]);
-        assert_eq!(view.filter, vec!["title"]);
+        assert_eq!(
+            view.render,
+            ir::ListRender::Table {
+                columns: vec!["key".into(), "title".into()]
+            }
+        );
+        assert_eq!(
+            view.search.as_ref().map(|search| &search.mode),
+            Some(&ir::SearchMode::Columns {
+                columns: vec!["key".into()]
+            })
+        );
+        assert_eq!(view.filter.len(), 1);
+        assert_eq!(view.filter[0].name, "title");
+    }
+
+    #[test]
+    fn list_view_lowers_cells_render() {
+        let surface = parse(
+            "surface item web\n  audience admin\n    view list cards\n      source item.query.search\n      cells @client.item_card\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            view.render,
+            ir::ListRender::Cells {
+                slot: "item_card".into()
+            }
+        );
+    }
+
+    #[test]
+    fn lowers_filter_decl_block_to_typed_ir() {
+        let surface = parse(
+            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        slug: Text from query\n        tags: list of Text\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.filter.len(), 2);
+        assert_eq!(view.filter[0].name, "slug");
+        assert_eq!(view.filter[0].type_ref, "Text");
+        assert_eq!(view.filter[0].cardinality, ir::FilterCardinality::Single);
+        assert!(view.filter[0].url_sync);
+        assert_eq!(view.filter[1].cardinality, ir::FilterCardinality::Multi);
+    }
+
+    #[test]
+    fn lowers_segmented_search_decl_bindings() {
+        let surface = parse(
+            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      search segmented\n        field slug binds filters.slug\n        field q binds source.search\n        free text into selection\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        let search = view.search.as_ref().expect("search");
+        assert_eq!(search.mode, ir::SearchMode::Segmented);
+        assert_eq!(
+            search.fields[0].binds_to,
+            ir::BindingRef::Filter {
+                name: "slug".into()
+            }
+        );
+        assert_eq!(
+            search.fields[1].binds_to,
+            ir::BindingRef::SourceInput {
+                name: "search".into()
+            }
+        );
+        assert_eq!(search.free_text_target, Some(ir::BindingRef::SelectionScalar));
+    }
+
+    #[test]
+    fn lowers_drawer_subview() {
+        let surface = parse(
+            "surface item web\n  audience admin\n    view list items\n      source item.query.search\n      columns key\n      drawer item_detail on select\n        source item.query.by_id\n        route key from selection\n        sections header, meta\n        cells owner @client.owner_card\n        actions update\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        let drawer = view.drawer.as_ref().expect("drawer");
+        assert_eq!(drawer.name, "item_detail");
+        assert_eq!(drawer.trigger, ir::DrawerTrigger::Select);
+        assert_eq!(drawer.source.name, "by_id");
+        assert_eq!(drawer.route_binding.as_ref().unwrap().target, "key");
+        assert_eq!(drawer.sections, vec!["header", "meta"]);
+        assert_eq!(drawer.cells[0].slot, "owner_card");
+        assert_eq!(drawer.actions[0].name, "update");
+    }
+
+    #[test]
+    fn lowers_sort_selection_and_settings() {
+        let surface = parse(
+            "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      sort\n        by title, updated\n        default updated desc\n      selection multi\n      bulk_actions delete\n      settings\n        grid_size: Enum [sm, md] default sm\n          persist local\n        page_size: Int min 10 max 200 default 25\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        let sort = view.sort.as_ref().expect("sort");
+        assert_eq!(sort.allowed, vec!["title", "updated"]);
+        assert_eq!(sort.default_dir, ir::SortDir::Desc);
+        let selection = view.selection.as_ref().expect("selection");
+        assert_eq!(selection.mode, ir::SelectionMode::Multi);
+        assert_eq!(selection.bulk_actions[0].name, "delete");
+        assert_eq!(view.settings.len(), 2);
+        assert_eq!(
+            view.settings[0].value_space,
+            ir::SettingValueSpace::Enum {
+                values: vec!["sm".into(), "md".into()]
+            }
+        );
+        assert_eq!(view.settings[0].persistence, ir::SettingPersistence::Local);
+        assert_eq!(
+            view.settings[1].value_space,
+            ir::SettingValueSpace::Int { min: 10, max: 200 }
+        );
     }
 
     #[test]

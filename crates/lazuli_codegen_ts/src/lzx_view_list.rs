@@ -12,6 +12,7 @@ use crate::lzx::{
     command_ident, format_cells_literal, format_string_array, pascal_case, query_ident,
     view_hook_name, view_spec_const,
 };
+use crate::lzx::{ListRender, SearchDecl, SearchMode};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
 pub fn emit_view_list(surface: &Surface, audience: &Audience, view: &ViewList) -> String {
@@ -63,6 +64,9 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
 
 fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     let const_name = view_spec_const(&audience.name, &view.name);
+    let columns = view_columns(view);
+    let search_columns = view_search_columns(view);
+    let filter_names = view_filter_names(view);
 
     writeln!(
         s,
@@ -74,22 +78,22 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     writeln!(
         s,
         "  columns: {} as const,",
-        format_string_array(&view.columns)
+        format_string_array(columns)
     )
     .ok();
-    if !view.search.is_empty() {
+    if !search_columns.is_empty() {
         writeln!(
             s,
             "  search: {} as const,",
-            format_string_array(&view.search)
+            format_string_array(search_columns)
         )
         .ok();
     }
-    if !view.filter.is_empty() {
+    if !filter_names.is_empty() {
         writeln!(
             s,
             "  filter: {} as const,",
-            format_string_array(&view.filter)
+            format_string_array(&filter_names)
         )
         .ok();
     }
@@ -102,6 +106,27 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     }
     writeln!(s, "}} as const;").ok();
     s.push('\n');
+}
+
+fn view_columns(view: &ViewList) -> &[String] {
+    match &view.render {
+        ListRender::Table { columns } => columns.as_slice(),
+        ListRender::Cells { .. } => &[],
+    }
+}
+
+fn view_search_columns(view: &ViewList) -> &[String] {
+    match &view.search {
+        Some(SearchDecl {
+            mode: SearchMode::Columns { columns },
+            ..
+        }) => columns.as_slice(),
+        _ => &[],
+    }
+}
+
+fn view_filter_names(view: &ViewList) -> Vec<String> {
+    view.filter.iter().map(|filter| filter.name.clone()).collect()
 }
 
 fn format_actions_object(actions: &[CommandRef]) -> String {
@@ -231,11 +256,17 @@ mod tests {
                 kind: QueryKind::List,
                 name: "list".to_owned(),
             },
-            columns: vec!["id".to_owned()],
-            search: vec![],
+            render: ListRender::Table {
+                columns: vec!["id".to_owned()],
+            },
+            search: None,
             filter: vec![],
             cells: vec![],
             actions: vec![],
+            drawer: None,
+            sort: None,
+            selection: None,
+            settings: vec![],
             span_ref: None,
         }
     }
@@ -327,7 +358,9 @@ mod tests {
         let mut view = minimal_view_list();
         view.name = "slug_list".to_owned();
         view.source.feature = "slug".to_owned();
-        view.columns = vec!["key".to_owned()];
+        view.render = ListRender::Table {
+            columns: vec!["key".to_owned()],
+        };
 
         let audience = Audience {
             name: "workspace-admin".to_owned(),

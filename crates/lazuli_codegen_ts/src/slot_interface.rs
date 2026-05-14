@@ -440,6 +440,7 @@ mod tests {
     use super::*;
 
     use lazuli_codegen_spec::{FieldKind, RuntimeFeature, RuntimeField, RuntimeResource, Tenancy};
+    use lazuli_ir::ListRender;
 
     use crate::lzx_audience_slot::ir::{
         Audience, CellBinding, CommandRef, PolicyAtom, QueryKind, QueryRef, RouteParam, Surface,
@@ -509,14 +510,20 @@ mod tests {
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
             },
-            columns: vec!["key".to_owned(), "tags".to_owned()],
-            search: vec![],
+            render: ListRender::Table {
+                columns: vec!["key".to_owned(), "tags".to_owned()],
+            },
+            search: None,
             filter: vec![],
             cells,
             actions: vec![CommandRef {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
             }],
+            drawer: None,
+            sort: None,
+            selection: None,
+            settings: vec![],
             span_ref: None,
         })
     }
@@ -724,14 +731,20 @@ mod tests {
                         kind: QueryKind::List,
                         name: "all".to_owned(),
                     },
-                    columns: vec!["name".to_owned()],
-                    search: vec![],
+                    render: ListRender::Table {
+                        columns: vec!["name".to_owned()],
+                    },
+                    search: None,
                     filter: vec![],
                     cells: vec![CellBinding {
                         field: "status".to_owned(),
                         slot: "badge".to_owned(),
                     }],
                     actions: vec![],
+                    drawer: None,
+                    sort: None,
+                    selection: None,
+                    settings: vec![],
                     span_ref: None,
                 })],
                 span_ref: None,

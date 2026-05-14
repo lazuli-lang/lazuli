@@ -54,6 +54,10 @@ pub mod ir {
     pub use lazuli_ir::{
         Surface, SurfaceTarget, Audience, View, ViewList, ViewDetail, ViewCreate,
         QueryRef, QueryKind, CommandRef, CellBinding, RouteParam, PolicyAtom,
+        ListRender, SearchDecl, SearchMode, FilterDecl, FilterCardinality,
+        DrawerSubView, DrawerTrigger, DrawerRouteBinding, DrawerBindingSource,
+        SortDecl, SortDir, SelectionDecl, SelectionMode, SettingDecl,
+        SettingValueSpace, SettingPersistence,
     };
 }
 
@@ -299,14 +303,29 @@ pub(crate) mod test_fixtures {
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
             },
-            columns: vec![
-                "key".to_owned(),
-                "title".to_owned(),
-                "tags".to_owned(),
-                "created_at".to_owned(),
-            ],
-            search: vec!["key".to_owned(), "title".to_owned()],
-            filter: vec!["tags".to_owned()],
+            render: ListRender::Table {
+                columns: vec![
+                    "key".to_owned(),
+                    "title".to_owned(),
+                    "tags".to_owned(),
+                    "created_at".to_owned(),
+                ],
+            },
+            search: Some(SearchDecl {
+                mode: SearchMode::Columns {
+                    columns: vec!["key".to_owned(), "title".to_owned()],
+                },
+                fields: vec![],
+                free_text_target: None,
+                span_ref: None,
+            }),
+            filter: vec![FilterDecl {
+                name: "tags".to_owned(),
+                type_ref: String::new(),
+                cardinality: FilterCardinality::Single,
+                url_sync: false,
+                span_ref: None,
+            }],
             cells: vec![type_badge_cell()],
             actions: vec![
                 CommandRef {
@@ -322,6 +341,10 @@ pub(crate) mod test_fixtures {
                     name: "delete".to_owned(),
                 },
             ],
+            drawer: None,
+            sort: None,
+            selection: None,
+            settings: vec![],
             span_ref: None,
         }
     }
@@ -387,11 +410,24 @@ pub(crate) mod test_fixtures {
                 kind: QueryKind::List,
                 name: "mine".to_owned(),
             },
-            columns: vec!["key".to_owned(), "title".to_owned()],
-            search: vec!["key".to_owned(), "title".to_owned()],
+            render: ListRender::Table {
+                columns: vec!["key".to_owned(), "title".to_owned()],
+            },
+            search: Some(SearchDecl {
+                mode: SearchMode::Columns {
+                    columns: vec!["key".to_owned(), "title".to_owned()],
+                },
+                fields: vec![],
+                free_text_target: None,
+                span_ref: None,
+            }),
             filter: vec![],
             cells: vec![],
             actions: vec![],
+            drawer: None,
+            sort: None,
+            selection: None,
+            settings: vec![],
             span_ref: None,
         }
     }
