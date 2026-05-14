@@ -18,6 +18,7 @@
 //! Plan reference: `docs/proposals/ai-primitives-v0-implementation.md`
 //! §9.1. Runtime team: `docs/runtime-handoff.md`.
 
+pub mod design;
 pub mod runtime;
 
 pub use runtime::emit_feature_ts;
