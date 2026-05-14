@@ -24,6 +24,25 @@ import { createContext, createElement, useContext, type ReactNode } from "react"
 import { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 
+export {
+  canonicalizeSearch,
+  parseSegments,
+  useDrawerSubView,
+  useFilterState,
+  useLocalSetting,
+  useMultiSelection,
+  type DrawerConfig,
+  type DrawerSubView,
+  type FilterConfig,
+  type FilterState,
+  type FilterStates,
+  type MultiFilterState,
+  type MultiSelection,
+  type ParsedSegment,
+  type SetUrlParams,
+  type UrlParams,
+} from "./view-helpers.js";
+
 const LazuliClientContext = createContext<LazuliClient | null>(null);
 
 export interface LazuliProviderProps {
