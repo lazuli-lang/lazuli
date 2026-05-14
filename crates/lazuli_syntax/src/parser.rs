@@ -9732,7 +9732,7 @@ fn find_top_level_token(text: &str, needle: &str) -> Option<usize> {
 }
 
 #[derive(Debug)]
-struct SourceLine<'a> {
+pub(crate) struct SourceLine<'a> {
     text: &'a str,
     indent: usize,
     start: usize,
@@ -9756,6 +9756,52 @@ fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
     }
 
     lines
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum InvariantForm {
+    TerminalImmutable,
+    SingleStatePerScope { state: String, scope_field: String },
+    NoJumpMoreThanOne,
+}
+
+/// Parses the closed-catalog invariant form from the raw tail after `invariant `.
+/// Whitespace is significant only as a token separator; leading/trailing whitespace
+/// is trimmed before matching.
+#[allow(dead_code)]
+pub(crate) fn parse_invariant_form(
+    line: &SourceLine<'_>,
+    raw: &str,
+) -> Result<InvariantForm, ParseError> {
+    let raw = raw.trim();
+    if raw == "terminal_immutable" {
+        return Ok(InvariantForm::TerminalImmutable);
+    }
+    if raw == "no_jump_more_than_one" {
+        return Ok(InvariantForm::NoJumpMoreThanOne);
+    }
+
+    let parts: Vec<&str> = raw.split_whitespace().collect();
+    if parts.len() == 4 && parts[0] == "single" && parts[2] == "per" {
+        let state = parts[1].to_owned();
+        let scope_field = parts[3].to_owned();
+        if state.is_empty() || scope_field.is_empty() {
+            return Err(line_error(
+                line,
+                "`invariant single <state> per <scope_field>` requires both names",
+            ));
+        }
+        return Ok(InvariantForm::SingleStatePerScope { state, scope_field });
+    }
+
+    Err(line_error_owned(
+        line,
+        format!(
+            "unknown invariant form `{}` - closed catalog is `terminal_immutable`, `single <state> per <scope_field>`, `no_jump_more_than_one` (see docs/proposals/lifecycle-vocab.md §3.4)",
+            raw
+        ),
+    ))
 }
 
 fn is_trivia(trimmed: &str) -> bool {
@@ -9849,8 +9895,83 @@ fn pest_error_span(error: &pest::error::Error<Rule>) -> Span {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_document, parse_lzx_document};
+    use super::{
+        parse_document, parse_invariant_form, parse_lzx_document, InvariantForm, SourceLine,
+    };
     use crate::{FieldModifier, LzxPlatform};
+
+    fn make_invariant_line() -> SourceLine<'static> {
+        SourceLine {
+            text: "  invariant test",
+            indent: 2,
+            start: 0,
+            end: 16,
+        }
+    }
+
+    #[test]
+    fn parses_terminal_immutable() {
+        let line = make_invariant_line();
+        assert_eq!(
+            parse_invariant_form(&line, "terminal_immutable").unwrap(),
+            InvariantForm::TerminalImmutable
+        );
+    }
+
+    #[test]
+    fn parses_no_jump_more_than_one() {
+        let line = make_invariant_line();
+        assert_eq!(
+            parse_invariant_form(&line, "no_jump_more_than_one").unwrap(),
+            InvariantForm::NoJumpMoreThanOne
+        );
+    }
+
+    #[test]
+    fn parses_single_state_per_scope() {
+        let line = make_invariant_line();
+        let form = parse_invariant_form(&line, "single gold per item_id").unwrap();
+
+        match form {
+            InvariantForm::SingleStatePerScope { state, scope_field } => {
+                assert_eq!(state, "gold");
+                assert_eq!(scope_field, "item_id");
+            }
+            _ => panic!("expected SingleStatePerScope"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_form() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "my_custom_thing").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog"));
+    }
+
+    #[test]
+    fn rejects_single_with_missing_tokens() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "single gold per").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog") || msg.contains("requires"));
+    }
+
+    #[test]
+    fn rejects_single_with_wrong_separator() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "single gold by item_id").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog"));
+    }
+
+    #[test]
+    fn rejects_predicate_style() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "single gold where item_id = parent.id").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog"));
+    }
 
     #[test]
     fn parses_aggregate_fields_commands_queries_and_surfaces() {
