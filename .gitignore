@@ -32,3 +32,4 @@ node_modules/
 runtime/web/**/dist/
 dist/web/**/dist/
 *.tsbuildinfo
+.claude/
