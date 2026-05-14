@@ -1132,6 +1132,12 @@ pub struct Event {
     pub name: String,
     pub kind: EventKind,
     pub payload: Vec<EventField>,
+    /// `payload none` — explicit opt-out sentinel for intentionally
+    /// payload-less events (heartbeats, liveness signals). When `true`
+    /// the event has no typed payload by design; doctor must NOT fire
+    /// VOCAB-EVENT-PAYLOAD-001. Defaults to `false` (not authored).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub payload_none: bool,
     /// Observability bucket cycle row 37 — optional severity hint
     /// authored on `event.trace <name>`. Closed catalog:
     /// `debug`, `info`, `warn`, `error`. None defaults to `info` at
