@@ -400,7 +400,10 @@ mod tests {
 
     #[test]
     fn legacy_demo_emits_backend_files() {
-        let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
+        let document = parse_document(include_str!(
+            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
+        ))
+        .unwrap();
         let module = lower_document(&document).unwrap();
         let files = generate_legacy_demo(&module);
 
@@ -416,7 +419,10 @@ mod tests {
     fn generate_v1_emits_go_mod_plus_feature_stubs() {
         // E1 lands the scaffold: root `go.mod` plus one `.gen.go`
         // stub per feature. Per-kind content is empty until E2-E4.
-        let document = parse_document(include_str!("../../../examples/crm.lzi")).unwrap();
+        let document = parse_document(include_str!(
+            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
+        ))
+        .unwrap();
         let module = lower_document(&document).unwrap();
         let files = generate_v1(&module, &GoEmitOptions::default());
         assert!(files.iter().any(|f| f.path == "go.mod"));
