@@ -53,6 +53,7 @@ pub mod cell_slot_orphan;
 pub mod cells_mixed_form;
 pub mod command_input_mismatch;
 pub mod drawer_source;
+pub mod filter_resolves;
 pub mod route_param_missing_binding;
 pub mod route_param_orphan;
 pub mod source_resource_mismatch;
