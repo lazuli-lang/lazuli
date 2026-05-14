@@ -24,10 +24,26 @@ feature customer
       owner: User required
       name: Text required
       email: @semantic.Email required
-      status: CustomerStatus = lead
 
       soft_delete
       timestamps
+
+      lifecycle status
+        state lead initial
+        state active
+        state archived terminal
+
+        transition activate
+          from lead
+          to active
+          policy @policy.update
+          emits customer_activated
+
+        transition archive
+          from active
+          to archived
+          policy @policy.update
+          emits customer_archived
 
     constraints
       unique email per org
@@ -75,15 +91,6 @@ feature customer
       email = input.email
       owner = ctx.user
     emits customer_created
-
-  workflow lifecycle on Customer.status
-    policy @policy.update
-
-    activate: lead -> active
-      emits customer_activated
-
-    archive: active -> archived
-      emits customer_archived
 
   extensions
     client status_cell: CellRenderer[Customer]

@@ -38,12 +38,55 @@ feature issue
       assignee: User optional
       title: Text required
       description: Text optional
-      status: IssueStatus = backlog
       priority: IssuePriority = none
       labels: many Label
 
       soft_delete
       timestamps
+
+      lifecycle status
+        state backlog initial
+        state todo
+        state in_progress
+        state in_review
+        state done
+        state canceled terminal
+
+        transition triage
+          from backlog
+          to todo
+          policy @policy.update
+          emits issue_status_changed
+
+        transition start
+          from todo
+          to in_progress
+          policy @policy.update
+          emits issue_status_changed
+
+        transition submit_review
+          from in_progress
+          to in_review
+          policy @policy.update
+          emits issue_status_changed
+
+        transition complete
+          from in_review
+          to done
+          policy @policy.update
+          emits issue_status_changed
+
+        transition reopen
+          from done
+          to in_progress
+          policy @policy.update
+          emits issue_status_changed
+
+        transition cancel
+          from backlog, todo, in_progress, in_review
+          to canceled
+          policy @policy.update
+          emits issue_status_changed
 
     constraints
       unique title per team
@@ -144,28 +187,6 @@ feature issue
     updates Issue
       assignee = input.assignee
     emits issue_assigned
-
-  workflow status on Issue.status
-    policy @policy.update
-    emits issue_status_changed
-
-    triage: backlog -> todo
-
-    start: todo -> in_progress
-
-    submit_review: in_progress -> in_review
-
-    complete: in_review -> done
-
-    reopen: done -> in_progress
-
-    cancel_backlog: backlog -> canceled
-
-    cancel_todo: todo -> canceled
-
-    cancel_in_progress: in_progress -> canceled
-
-    cancel_in_review: in_review -> canceled
 
   surface web admin
     view list Table

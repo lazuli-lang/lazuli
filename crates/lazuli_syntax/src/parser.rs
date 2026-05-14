@@ -3065,8 +3065,24 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Any other feature child is skipped silently — workflows and
-        // surfaces remain in the legacy text-pattern doctor pipeline.
+        // Retired by docs/proposals/lifecycle-vocab.md v0.3 §2.1.
+        // Authors used to write `workflow <name> on <Resource>.<field>`
+        // at feature level; the new canonical form is a `lifecycle <field>`
+        // block child of the resource itself. Detect the legacy keyword
+        // explicitly so cold-readers see one form, not two.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("workflow ") {
+            return Err(line_error(
+                line,
+                "the `workflow` keyword was retired in favor of `lifecycle` \
+                 (proposal: docs/proposals/lifecycle-vocab.md). Refactor to a \
+                 `lifecycle <field>` block inside the targeted `resource`. \
+                 Each transition lifts 1:1: `name: from -> to emits X` becomes \
+                 `transition name\\n  from <state>\\n  to <state>\\n  emits X`.",
+            ));
+        }
+
+        // Any other feature child is skipped silently — surfaces remain
+        // in the legacy text-pattern doctor pipeline.
         last_end = line.end;
         i += 1;
     }
@@ -10315,6 +10331,25 @@ feature customer
         let features = parse_feature_skeletons(source).unwrap();
         let agent = &features[0].agents[0];
         assert_eq!(agent.output, Some(AgentOutput::Plain("Action".to_owned())));
+    }
+
+    #[test]
+    fn workflow_keyword_is_retired() {
+        // docs/proposals/lifecycle-vocab.md v0.3 §2.1 — `workflow` was
+        // retired in favor of `lifecycle` (a child of resource, not a
+        // feature-level block). The parser raises an explicit error so
+        // cold-readers see one canonical form.
+        let source = r#"
+feature customer
+  workflow lifecycle on Customer.status
+    activate: lead -> active
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("retired") && msg.contains("lifecycle"),
+            "expected retired+lifecycle in error, got: {msg}"
+        );
     }
 
     #[test]

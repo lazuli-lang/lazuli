@@ -34,12 +34,46 @@ feature billing
       amount_cents: Integer required
       currency: Text required
       issued_at: Date required
-      status: InvoiceStatus = draft
       external_invoice_id: Text optional
       external_provider: Text optional
 
       soft_delete
       timestamps
+
+      lifecycle status
+        state draft initial
+        state open
+        state paid terminal
+        state failed terminal
+        state void terminal
+
+        transition open
+          from draft
+          to open
+          policy @policy.update
+          audit default
+          emits invoice_status_changed
+
+        transition mark_paid
+          from open
+          to paid
+          policy @policy.update
+          audit default
+          emits invoice_paid, invoice_status_changed
+
+        transition fail
+          from open
+          to failed
+          policy @policy.update
+          audit default
+          emits invoice_status_changed
+
+        transition void
+          from open
+          to void
+          policy @policy.update
+          audit default
+          emits invoice_status_changed
 
     resource BillingWebhook
       tenancy org
@@ -97,17 +131,6 @@ feature billing
       number = @fn.next_invoice_number(ctx.user.org)
     audit default
     emits invoice_created from creates
-
-  workflow status on Invoice.status
-    policy @policy.update
-    emits invoice_status_changed
-    audit default
-
-    open: draft -> open
-    mark_paid: open -> paid
-      emits invoice_paid
-    fail: open -> failed
-    void: open -> void
 
   job retry_failed_webhooks
     trigger schedule "*/5 * * * *"
