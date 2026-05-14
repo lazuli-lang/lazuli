@@ -1,5 +1,12 @@
 package lazuli
 
+import (
+	"context"
+	"sync"
+
+	"github.com/jackc/pgx/v5"
+)
+
 // Effect is the side-effect of a command on a resource. The runtime applies
 // the effect transactionally inside `Command.Handle()` after policy and
 // validators pass.
@@ -40,6 +47,7 @@ const (
 	sourceCtx                      // value comes from `ctx.<path>`
 	sourceTarget                   // value comes from the loaded `target.<path>`
 	sourceConst                    // value is a literal
+	sourceFn                       // result of an @fn.X invocation inside a transaction
 )
 
 // FromInput binds a target field to an input field by path. The runtime
@@ -56,6 +64,61 @@ func FromTarget(path string) Source { return Source{kind: sourceTarget, path: pa
 
 // FromConst binds a target field to a literal value (enum, number, string).
 func FromConst(value any) Source { return Source{kind: sourceConst, value: value} }
+
+// FnHandler is the signature that @fn.X handlers must implement. The tx
+// argument is the surrounding pgx transaction; it is nil when the binding is
+// resolved outside a creates/updates block (e.g. for event payloads).
+type FnHandler func(ctx context.Context, tx pgx.Tx, args []any) (any, error)
+
+// fnRegistry holds named @fn.X handlers registered at startup.
+var fnRegistry struct {
+	sync.RWMutex
+	m map[string]FnHandler
+}
+
+func init() { fnRegistry.m = make(map[string]FnHandler) }
+
+// RegisterFn registers an @fn.X handler under its canonical name (e.g.
+// "next_version_number"). Generated dist code calls this from init().
+func RegisterFn(name string, fn FnHandler) {
+	fnRegistry.Lock()
+	defer fnRegistry.Unlock()
+	if _, exists := fnRegistry.m[name]; exists {
+		panic("lazuli: @fn." + name + " registered twice")
+	}
+	fnRegistry.m[name] = fn
+}
+
+func lookupFn(name string) FnHandler {
+	fnRegistry.RLock()
+	defer fnRegistry.RUnlock()
+	return fnRegistry.m[name]
+}
+
+// FromFn binds a target field to the return value of an @fn.X call. The named
+// handler receives the surrounding transaction so it can run advisory locks or
+// queries inside the same transaction as the INSERT/UPDATE it feeds.
+//
+//	"version_number": lazuli.FromFn("next_version_number", lazuli.FromInput("item_id"))
+func FromFn(name string, args ...Source) Source {
+	return Source{kind: sourceFn, path: name, value: args}
+}
+
+// txKey is the context key used to thread a pgx.Tx through Source resolution.
+type txKey struct{}
+
+// withTxContext stamps tx into the embedded context so @fn.X bindings can
+// retrieve it without a signature change on resolveSource.
+func withTxContext(ctx *Ctx, tx pgx.Tx) *Ctx {
+	out := *ctx
+	out.Context = context.WithValue(ctx.Context, txKey{}, tx)
+	return &out
+}
+
+func txFromContext(ctx context.Context) pgx.Tx {
+	tx, _ := ctx.Value(txKey{}).(pgx.Tx)
+	return tx
+}
 
 // CreatesEffect is the effect for a `creates <Resource>` block. Generated
 // code constructs one via `lazuli.Creates(&customerResource, lazuli.Bindings{...})`.
