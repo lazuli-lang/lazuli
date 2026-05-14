@@ -4,48 +4,69 @@ Feature folders are the source of truth. Generated output is disposable.
 
 A Lazurite-scaffolded app (the default produced by `lazuli new`) follows the
 shape below. Bare-mode (`lazuli new --template=bare`) omits `lazurite.toml`
-and the `features/<f>/handlers/` subdirs; everything else applies.
+and may keep sources at the root; the full Lazurite shape uses `app/` as the
+product kernel and `frontends/<target>/` as delivery adapters.
 
 ```txt
 lazurite.toml                # workspace manifest (Lazurite distro)
-app.lzi                      # app entrypoint: envs, urls, uses, deploy gates
-registry.lzi                 # integrations, packs, capabilities, bindings
-profiles.lzi                 # optional: env-specific overlays
+app/
+  app.lzi                    # app entrypoint: envs, urls, uses, deploy gates
+  design.lzi                 # design tokens
+  registry.lzi               # integrations, packs, capabilities, bindings
+  profiles.lzi               # optional: env-specific overlays
+
+  features/
+    customer/
+      customer.lzi           # DSL surface
+      customer.lzx           # abstract experience
+      customer.web.lzx       # web projection
+      customer.mobile.lzx    # mobile projection
+      customer.ctx.md        # LLM context pack
+      handlers/              # @fn.*/@validator.*/@hook.* extension code
+        hash_password.go
+        before_create.go
+      domain/                # domain functions, resource-local validators
+        risk_score.go
+        validate_customer.go
+      queries/               # raw SQL files referenced via query.sql @file.<name>
+        lifetime_value.sql
+      jobs/                  # background job handler extensions
+        recompute_scores.go
+      integrations/          # webhook verifiers, adapter handlers
+        stripe.go
+      templates/             # email/notification templates per locale
+        welcome.en-US.tmpl
+        welcome.pt-BR.tmpl
+      i18n/                  # feature-local catalogs
+        customer.en-US.json
+        customer.pt-BR.json
+      web/                   # feature-owned React views/cells
+        cells/
+          status_cell.tsx
+        views/admin/
+          list.tsx
+frontends/
+  web/
+    index.html
+    main.tsx
+    package.json
+    vite.config.ts
+    tsconfig.json
+    tailwind.config.ts
+    shell/
+      root.tsx
+      layout.tsx
+    theme/
+      globals.css
+    ui/
+      button.tsx
+    hooks/
+    lib/
+
 workspace.lzi                # optional: distributed-system root
 
 contracts/
   acme.ai.v1.lzi
-
-features/
-  customer/
-    customer.lzi             # DSL surface
-    customer.lzx             # abstract experience
-    customer.web.lzx         # web projection
-    customer.mobile.lzx      # mobile projection
-    customer.ctx.md          # LLM context pack
-    handlers/                # @fn.*/@validator.*/@hook.* extension code
-      hash_password.go
-      before_create.go
-    domain/                  # domain functions, resource-local validators
-      risk_score.go
-      validate_customer.go
-    queries/                 # raw SQL files referenced via query.sql @file.<name>
-      lifetime_value.sql
-    jobs/                    # background job handler extensions
-      recompute_scores.go
-    integrations/            # webhook verifiers, adapter handlers
-      stripe.go
-    templates/               # email/notification templates per locale
-      welcome.en-US.tmpl
-      welcome.pt-BR.tmpl
-    i18n/                    # feature-local catalogs
-      customer.en-US.json
-      customer.pt-BR.json
-    ui/                      # client UI extensions
-      status_cell.tsx
-      activity_timeline.tsx
-    pages/                   # escape-route pages
-      customer_imports.tsx
 
 i18n/                        # app-wide translation catalogs
   common.en-US.json
@@ -99,17 +120,20 @@ README.md
 These are authored and committed:
 
 - `lazurite.toml` (Lazurite-scaffolded apps; see §"Lazurite manifest" below)
-- `features/**/<feature>.lzi`
-- `app.lzi`
-- `registry.lzi`
+- `app/features/**/<feature>.lzi`
+- `app/app.lzi`
+- `app/design.lzi`
+- `app/registry.lzi`
 - `workspace.lzi` when the repo is a distributed-system root
 - `contracts/**/*.lzi` for external service/schema contracts
-- `profiles.lzi` or `profiles/**/*.lzi`
-- `features/**/<feature>.lzx`
-- `features/**/<feature>.web.lzx`
-- `features/**/<feature>.mobile.lzx`
-- `features/**/<feature>.ctx.md`
-- extension code under `handlers/`, `domain/`, `queries/`, `jobs/`, `integrations/`, `templates/`, `i18n/`, `ui/`, `pages/`
+- `app/profiles.lzi` or `profiles/**/*.lzi`
+- `app/features/**/<feature>.lzx`
+- `app/features/**/<feature>.web.lzx`
+- `app/features/**/<feature>.mobile.lzx`
+- `app/features/**/<feature>.ctx.md`
+- extension code under `handlers/`, `domain/`, `queries/`, `jobs/`, `integrations/`, `templates/`, `i18n/`
+- feature-owned web/mobile views and cells under `app/features/**/{web,mobile}/`
+- frontend adapter code under `frontends/<target>/{shell,theme,ui,hooks,lib}/`
 - adapter configuration
 - top-level `i18n/`, `scripts/`
 
@@ -192,20 +216,19 @@ Avoid both extremes: do not generate one giant `server.go`/`App.tsx` for the who
 
 Default extension paths (Lazurite-canonical):
 
-- `@fn.<name>` (custom function): `features/<feature>/handlers/<name>.go`
-- `@validator.<name>` (custom validator): `features/<feature>/handlers/<name>.go` or `features/<feature>/domain/validate_<resource>.go` for resource-local validators
-- `@hook.<name>` (workflow lifecycle hook): `features/<feature>/handlers/<name>.go`
-- domain function extensions: `features/<feature>/domain/<name>.go`
-- integration adapter extensions: `features/<feature>/integrations/<name>.go`
-- query modifier extensions: `features/<feature>/queries/<name>.go`
-- SQL query files (referenced via `query.sql @file.<name>`): `features/<feature>/queries/<name>.sql`
-- background job handler: `features/<feature>/jobs/<name>.go`
-- integration/webhook verifier or handler: `features/<feature>/integrations/<name>.go`
-- email/notification template: `features/<feature>/templates/<name>.<locale>.tmpl`
-- feature-local i18n catalog: `features/<feature>/i18n/<name>.<locale>.json`
-- client UI extension: `features/<feature>/ui/<name>.tsx`
-- inline view block: `features/<feature>/ui/<name>.tsx`
-- escape route/page: `features/<feature>/pages/<name>.tsx`
+- `@fn.<name>` (custom function): `app/features/<feature>/handlers/<name>.go`
+- `@validator.<name>` (custom validator): `app/features/<feature>/handlers/<name>.go` or `app/features/<feature>/domain/validate_<resource>.go` for resource-local validators
+- `@hook.<name>` (workflow lifecycle hook): `app/features/<feature>/handlers/<name>.go`
+- domain function extensions: `app/features/<feature>/domain/<name>.go`
+- integration adapter extensions: `app/features/<feature>/integrations/<name>.go`
+- query modifier extensions: `app/features/<feature>/queries/<name>.go`
+- SQL query files (referenced via `query.sql @file.<name>`): `app/features/<feature>/queries/<name>.sql`
+- background job handler: `app/features/<feature>/jobs/<name>.go`
+- integration/webhook verifier or handler: `app/features/<feature>/integrations/<name>.go`
+- email/notification template: `app/features/<feature>/templates/<name>.<locale>.tmpl`
+- feature-local i18n catalog: `app/features/<feature>/i18n/<name>.<locale>.json`
+- client cell implementation: `app/features/<feature>/<target>/cells/<name>.tsx`
+- concrete view implementation: `app/features/<feature>/<target>/views/<audience>/<view>.tsx`
 
 Filenames inside `handlers/`, `domain/`, etc. must match the DSL reference
 name (`@fn.verify_password` → `handlers/verify_password.go` with
@@ -213,7 +236,7 @@ name (`@fn.verify_password` → `handlers/verify_password.go` with
 
 Use `at` in `.lzi` only when a file intentionally lives outside convention.
 
-Feature-local files still belong to the feature that owns the capability, even when they extend another feature's UI. For example, `customer_tags` can extend `@anchor.customer_detail`, but its `tag_editor` implementation remains under `features/customer_tags/ui/tag_editor.tsx`.
+Feature-local files still belong to the feature that owns the capability, even when they extend another feature's UI. For example, `customer_tags` can extend `@anchor.customer_detail`, but its `tag_editor` implementation remains under `app/features/customer_tags/web/cells/tag_editor.tsx`.
 
 ## Experience Sources
 

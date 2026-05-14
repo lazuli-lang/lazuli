@@ -11,12 +11,39 @@ pub static DEFAULT_TEMPLATE: include_dir::Dir<'static> =
 // files use LF on every host (Lazuli runs on Windows too).
 // ---------------------------------------------------------------
 
+pub const FRONTEND_WEB_INDEX_HTML: &str = r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lazuli App</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>
+"#;
+
+pub const FRONTEND_WEB_MAIN_TSX: &str = r#"import React from "react";
+import ReactDOM from "react-dom/client";
+
+import { App } from "@web/shell/root";
+import "@web/theme/globals.css";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+"#;
+
 /// The TS app shell that mounts Lazuli providers + Router. User
 /// edits after scaffold; Lazuli never overwrites.
 pub const FRONTEND_WEB_ROOT_TSX: &str = r#"import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { LazuliProvider, LazuliClient } from "@lazuli/runtime/react";
-import { ThemeProvider } from "@/app/theme/theme_provider";
-import "@/app/theme/globals.css";
+import { LazuliClient } from "@lazuli/runtime";
+import { LazuliProvider } from "@lazuli/runtime/react";
+import { ThemeProvider } from "@web/theme/theme_provider";
 
 const queryClient = new QueryClient();
 const client = new LazuliClient({
@@ -99,7 +126,7 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 "#;
 
-pub const FRONTEND_THEME_GLOBALS_CSS: &str = r#"@import "@/dist/ts-web/design/tokens.css";
+pub const FRONTEND_THEME_GLOBALS_CSS: &str = r#"@import "@generated/design/tokens.css";
 
 /* User-owned. Lazuli emits the tokens; how you globalize them is yours. */
 "#;
@@ -159,11 +186,20 @@ export function useTheme(): ThemeContextValue {
 }
 "#;
 
-pub const FRONTEND_TAILWIND_CONFIG_TS: &str = r#"import { lazuliPreset } from "@/dist/ts-web/design/tailwind.gen";
+pub const FRONTEND_TAILWIND_CONFIG_TS: &str = r#"import { lazuliPreset } from "../../dist/ts-web/design/tailwind.gen";
 
 export default {
   presets: [lazuliPreset],
-  content: ["./features/**/*.tsx", "./app/**/*.tsx", "./index.html"],
+  content: [
+    "./index.html",
+    "./main.tsx",
+    "./shell/**/*.{ts,tsx}",
+    "./theme/**/*.{ts,tsx}",
+    "./ui/**/*.{ts,tsx}",
+    "./hooks/**/*.{ts,tsx}",
+    "./lib/**/*.{ts,tsx}",
+    "../../app/**/*.{ts,tsx}",
+  ],
 };
 "#;
 
@@ -183,10 +219,19 @@ pub const FRONTEND_TSCONFIG_JSON: &str = r#"{
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@app/*": ["../../app/*"],
+      "@generated/*": ["../../dist/ts-web/*"],
+      "@web/*": ["./*"]
     }
   },
-  "include": ["features", "app", "dist/ts-web", "vite.config.ts", "tailwind.config.ts"]
+  "include": [
+    ".",
+    "../../app/**/*.ts",
+    "../../app/**/*.tsx",
+    "../../dist/ts-web/**/*.ts",
+    "../../dist/ts-web/**/*.tsx"
+  ],
+  "exclude": ["node_modules", "../../dist/go"]
 }
 "#;
 
@@ -194,12 +239,21 @@ pub const FRONTEND_VITE_CONFIG_TS: &str = r#"import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const projectRoot = path.resolve(__dirname, "../..");
+
 export default defineConfig({
+  root: __dirname,
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
+      "@app": path.resolve(projectRoot, "app"),
+      "@generated": path.resolve(projectRoot, "dist/ts-web"),
+      "@web": path.resolve(projectRoot, "frontends/web"),
     },
+  },
+  build: {
+    outDir: path.resolve(projectRoot, "dist/web"),
+    emptyOutDir: true,
   },
 });
 "#;
@@ -209,9 +263,16 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
   "private": true,
   "type": "module",
   "scripts": {
+    "lazuli:check": "lazuli check ../..",
+    "lazuli:generate:go": "lazuli generate go ../.. -o ../../dist/go",
+    "lazuli:generate:ts": "lazuli generate ts ../..",
+    "lazuli:generate": "pnpm lazuli:generate:go && pnpm lazuli:generate:ts",
+    "build:go": "go -C ../../dist/go build .",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:go": "go -C ../../dist/go run .",
+    "test:go": "go -C ../../dist/go test ./..."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -235,6 +296,9 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
 "#;
 
 pub const FRONTEND_GITIGNORE: &str = r#"node_modules/
+frontends/*/node_modules/
+.vite/
+frontends/*/.vite/
 dist/
 .lazuli/
 "#;
@@ -247,7 +311,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaView, Text } from "react-native";
 // NOTE: `@lazuli/runtime-native` is not yet shipped. Once available,
 // import { LazuliProvider, LazuliClient } from it and wrap the tree
-// the same way as `app/shell/web/root.tsx`.
+// the same way as `frontends/web/shell/root.tsx`.
 
 const queryClient = new QueryClient();
 
@@ -267,7 +331,7 @@ registerRootComponent(App);
 pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
   "name": "lazuli-app-mobile",
   "private": true,
-  "main": "app/shell/mobile/root.tsx",
+  "main": "shell/root.tsx",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -292,7 +356,8 @@ pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
 /// `lazurite.toml [frontends.<x>]` snippet appended when --frontends flag set
 pub const FRONTEND_MANIFEST_WEB_SNIPPET: &str = r#"
 [frontends.web]
-target = "vite-react"
+target = "tanstack-vite"
+source = "frontends/web"
 out = "dist/ts-web"
 audiences = ["admin", "public"]
 "#;
@@ -300,6 +365,7 @@ audiences = ["admin", "public"]
 pub const FRONTEND_MANIFEST_MOBILE_SNIPPET: &str = r#"
 [frontends.mobile]
 target = "expo"
+source = "frontends/mobile"
 out = "dist/ts-mobile"
 audiences = ["mobile"]
 "#;

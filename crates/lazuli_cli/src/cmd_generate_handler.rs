@@ -1,12 +1,12 @@
 //! `lazuli generate handler <feature>.<fn>` subcommand.
 //!
-//! Creates `features/<feature>/handlers/<fn>.go` for a referenced
+//! Creates `<app_dir>/features/<feature>/handlers/<fn>.go` for a referenced
 //! `@fn.<fn>` in the feature's `.lzi` source.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 /// Run `lazuli generate handler <ident>`.
 /// `ident` is `<feature>.<fn_name>`.
@@ -15,7 +15,7 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     validate_part(&feature, "feature")?;
     validate_part(&fn_name, "fn name")?;
 
-    let feat_root = project_root.join("features").join(&feature);
+    let feat_root = app_root(project_root)?.join("features").join(&feature);
     let lzi_path = feat_root.join(format!("{}.lzi", feature));
     if !lzi_path.exists() {
         return Err(anyhow!("feature .lzi not found: {}", lzi_path.display()));
@@ -44,6 +44,15 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let body = render_stub(&feature, &fn_name);
     fs::write(&target, body).with_context(|| format!("writing {}", target.display()))?;
     Ok(())
+}
+
+fn app_root(project_root: &Path) -> Result<PathBuf> {
+    let manifest = crate::lazurite_manifest::load(project_root)
+        .map_err(|err| anyhow!("failed to load lazurite.toml: {err}"))?;
+    Ok(manifest
+        .as_ref()
+        .map(|manifest| manifest.app_root(project_root))
+        .unwrap_or_else(|| project_root.to_path_buf()))
 }
 
 fn parse_ident(ident: &str) -> Result<(String, String)> {
@@ -92,7 +101,7 @@ import (
 
 // {fn_pascal} is the handler for @fn.{fn_name}.
 //
-// Reference: features/{feature}/{feature}.lzi (search for `@fn.{fn_name}`).
+// Reference: app/features/{feature}/{feature}.lzi (search for `@fn.{fn_name}`).
 //
 // Implement the body to match the expected signature. The IR generator
 // will produce a typed callsite when the corresponding command/validator
@@ -132,6 +141,24 @@ mod tests {
         let feature_root = root.join("features").join(feature);
         fs::create_dir_all(&feature_root).unwrap();
         fs::write(feature_root.join(format!("{feature}.lzi")), content).unwrap();
+    }
+
+    fn write_app_dir_manifest(root: &Path) {
+        fs::write(
+            root.join("lazurite.toml"),
+            r#"[project]
+name = "demo"
+module = "github.com/acme/demo"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[lazurite]
+app_dir = "app"
+"#,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -195,13 +222,37 @@ mod tests {
 
         let err = run("badident", project.path()).unwrap_err();
 
-        assert!(err
-            .to_string()
-            .contains("handler ident must be <feature>.<fn_name>"));
+        assert!(
+            err.to_string()
+                .contains("handler ident must be <feature>.<fn_name>")
+        );
     }
 
     #[test]
     fn pascal_case_conversion() {
         assert_eq!(pascal_case("verify_password_v2"), "VerifyPasswordV2");
+    }
+
+    #[test]
+    fn honors_app_dir_manifest() {
+        let project = tempdir();
+        write_app_dir_manifest(project.path());
+        let feature_root = project.path().join("app/features/auth");
+        fs::create_dir_all(&feature_root).unwrap();
+        fs::write(
+            feature_root.join("auth.lzi"),
+            "feature auth\n  command login\n    handler @fn.verify_password\n",
+        )
+        .unwrap();
+
+        run("auth.verify_password", project.path()).unwrap();
+
+        assert!(feature_root.join("handlers/verify_password.go").exists());
+        assert!(
+            !project
+                .path()
+                .join("features/auth/handlers/verify_password.go")
+                .exists()
+        );
     }
 }

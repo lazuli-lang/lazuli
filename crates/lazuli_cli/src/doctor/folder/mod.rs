@@ -5,8 +5,8 @@
 //! frontend file layout:
 //!
 //! - [`feature_orphan`] — flags `.tsx`/`.ts` files outside the
-//!   canonical `features/<feat>/{web,mobile}/{cells,views/<audience>/}`
-//!   or `app/{shell,theme,ui,lib}/` layout.
+//!   canonical `app/features/<feat>/{web,mobile}/{cells,views/<audience>/}`
+//!   or `frontends/<target>/{shell,theme,ui,lib,hooks}/` layout.
 //! - [`pages_bypass`] — flags filesystem routing markers (Next.js
 //!   Pages Router `pages/`, App Router route groups `app/(<group>)/`)
 //!   when Lazurite routes come from `.lzx` `view ... at "<route>"`
@@ -15,11 +15,11 @@
 //!   `interface` or `type` whose name collides with a generated
 //!   `dist/ts-web/<feat>/<feat>.gen.ts` type.
 //! - [`cross_feature_import`] — flags imports of
-//!   `features/B/{web,mobile}/<...>` from inside `features/A/<...>`
+//!   `app/features/B/{web,mobile}/<...>` from inside `app/features/A/<...>`
 //!   when `A != B`; cross-feature visual dependencies must go via
-//!   slot bindings or shared `app/ui/` primitives.
+//!   slot bindings or shared `frontends/<target>/ui/` primitives.
 
+pub mod cross_feature_import;
 pub mod feature_orphan;
 pub mod pages_bypass;
 pub mod type_duplicate;
-pub mod cross_feature_import;

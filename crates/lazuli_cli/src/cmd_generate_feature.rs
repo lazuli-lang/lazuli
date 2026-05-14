@@ -1,20 +1,20 @@
 //! `lazuli generate feature <name>` subcommand.
 //!
-//! Creates `features/<name>/` with canonical Lazurite folder structure
+//! Creates `<app_dir>/features/<name>/` with canonical Lazurite folder structure
 //! per L0 #1 §6.2. Frontend subdirs (`web/`, `mobile/`) are only created
 //! when the project's `lazurite.toml` declares matching frontends.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 /// Run the subcommand. `project_root` is the directory containing
 /// `lazurite.toml` (or the CWD if no manifest).
 pub fn run(name: &str, project_root: &Path) -> Result<()> {
     validate_feature_name(name)?;
 
-    let feature_root = project_root.join("features").join(name);
+    let feature_root = app_root(project_root)?.join("features").join(name);
     if feature_root.exists() {
         return Err(anyhow!(
             "feature directory already exists: {}",
@@ -33,6 +33,15 @@ pub fn run(name: &str, project_root: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn app_root(project_root: &Path) -> Result<PathBuf> {
+    let manifest = crate::lazurite_manifest::load(project_root)
+        .map_err(|err| anyhow!("failed to load lazurite.toml: {err}"))?;
+    Ok(manifest
+        .as_ref()
+        .map(|manifest| manifest.app_root(project_root))
+        .unwrap_or_else(|| project_root.to_path_buf()))
 }
 
 fn validate_feature_name(name: &str) -> Result<()> {
@@ -166,8 +175,8 @@ fn mobile_lzx_stub(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use self::tempfile::TempDir;
+    use super::*;
 
     mod tempfile {
         use std::fs;
@@ -213,8 +222,26 @@ mod tests {
         fs::write(root.join("lazurite.toml"), content).unwrap();
     }
 
-    fn assert_backend_skeleton(root: &Path, name: &str) {
-        let feature_root = root.join("features").join(name);
+    fn frontend_manifest(extra: &str) -> String {
+        format!(
+            r#"[project]
+name = "demo"
+module = "github.com/acme/demo"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[lazurite]
+app_dir = "app"
+
+{extra}
+"#
+        )
+    }
+
+    fn assert_backend_skeleton(base: &Path, name: &str) {
+        let feature_root = base.join("features").join(name);
         assert!(feature_root.join(format!("{name}.lzi")).exists());
         for subdir in [
             "handlers",
@@ -245,44 +272,62 @@ mod tests {
     #[test]
     fn creates_web_when_manifest_declares_web() {
         let project = tempdir();
-        write_manifest(project.path(), "[frontends.web]\ntarget = \"vite-react\"\n");
+        write_manifest(
+            project.path(),
+            &frontend_manifest(
+                "[frontends.web]\ntarget = \"tanstack-vite\"\nsource = \"frontends/web\"\nout = \"dist/ts-web\"\naudiences = [\"admin\"]\n",
+            ),
+        );
 
         run("slug", project.path()).unwrap();
 
-        let feature_root = project.path().join("features").join("slug");
+        let feature_root = project.path().join("app").join("features").join("slug");
         assert!(feature_root.join("slug.web.lzx").exists());
-        assert!(feature_root
-            .join("web")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("web")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("web")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("web")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
         assert!(!feature_root.join("slug.mobile.lzx").exists());
     }
 
     #[test]
     fn creates_mobile_when_manifest_declares_mobile() {
         let project = tempdir();
-        write_manifest(project.path(), "[frontends.mobile]\ntarget = \"expo\"\n");
+        write_manifest(
+            project.path(),
+            &frontend_manifest(
+                "[frontends.mobile]\ntarget = \"expo\"\nsource = \"frontends/mobile\"\nout = \"dist/ts-mobile\"\naudiences = [\"mobile\"]\n",
+            ),
+        );
 
         run("slug", project.path()).unwrap();
 
-        let feature_root = project.path().join("features").join("slug");
+        let feature_root = project.path().join("app").join("features").join("slug");
         assert!(feature_root.join("slug.mobile.lzx").exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
         assert!(!feature_root.join("slug.web.lzx").exists());
     }
 
@@ -291,34 +336,44 @@ mod tests {
         let project = tempdir();
         write_manifest(
             project.path(),
-            "[frontends.web]\ntarget = \"vite-react\"\n\n[frontends.mobile]\ntarget = \"expo\"\n",
+            &frontend_manifest(
+                "[frontends.web]\ntarget = \"tanstack-vite\"\nsource = \"frontends/web\"\nout = \"dist/ts-web\"\naudiences = [\"admin\"]\n\n[frontends.mobile]\ntarget = \"expo\"\nsource = \"frontends/mobile\"\nout = \"dist/ts-mobile\"\naudiences = [\"mobile\"]\n",
+            ),
         );
 
         run("slug", project.path()).unwrap();
 
-        let feature_root = project.path().join("features").join("slug");
+        let feature_root = project.path().join("app").join("features").join("slug");
         assert!(feature_root.join("slug.web.lzx").exists());
-        assert!(feature_root
-            .join("web")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("web")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("web")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("web")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
         assert!(feature_root.join("slug.mobile.lzx").exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
     }
 
     #[test]
@@ -363,5 +418,16 @@ mod tests {
 
         let lzi = fs::read_to_string(project.path().join("features/slug/slug.lzi")).unwrap();
         assert!(lzi.starts_with("feature slug\n"));
+    }
+
+    #[test]
+    fn creates_under_app_dir_when_manifest_declares_app_dir() {
+        let project = tempdir();
+        write_manifest(project.path(), &frontend_manifest(""));
+
+        run("slug", project.path()).unwrap();
+
+        assert_backend_skeleton(&project.path().join("app"), "slug");
+        assert!(!project.path().join("features/slug/slug.lzi").exists());
     }
 }

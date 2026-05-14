@@ -8,8 +8,9 @@
 //!
 //! Detection: presence of `pages/` directory OR `app/(<group>)/`
 //! pattern (App Router route group syntax) at project root. The
-//! canonical Lazurite `app/` subdirs (`shell`, `theme`, `ui`, `lib`)
-//! are NOT route groups and don't fire.
+//! canonical Lazurite `app/` product-kernel subdirs (`features`) and
+//! frontend adapter subdirs (`frontends/<target>/shell`) are NOT route
+//! groups and don't fire.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -168,7 +169,7 @@ mod tests {
     #[test]
     fn app_shell_does_not_fire() {
         let temp = TempDir::new().unwrap();
-        touch(&temp.path().join("app/shell/web/root.tsx"));
+        touch(&temp.path().join("frontends/web/shell/root.tsx"));
 
         let findings = check(temp.path());
 
@@ -178,7 +179,7 @@ mod tests {
     #[test]
     fn app_ui_does_not_fire() {
         let temp = TempDir::new().unwrap();
-        touch(&temp.path().join("app/ui/button.tsx"));
+        touch(&temp.path().join("frontends/web/ui/button.tsx"));
 
         let findings = check(temp.path());
 

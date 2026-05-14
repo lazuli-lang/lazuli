@@ -9,6 +9,7 @@ runtime = "0.1.0"
 [lazurite]
 template = "lazurite-default"
 template_version = "0.1.0"
+app_dir = "app"
 
 [generate.go]
 out = "dist/go"
@@ -16,11 +17,6 @@ gofmt = true
 strict = true
 emit_main = true
 submodule = true
-
-[frontends.web]
-target = "tanstack-vite"
-out = "dist/ts-web"
-audiences = ["user"]
 
 [migrations]
 generated = "dist/go/migrations"

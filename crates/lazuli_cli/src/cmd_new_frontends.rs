@@ -2,7 +2,7 @@
 //!
 //! Implements L0 #1 §6.1 — when the user passes `--frontends web`
 //! and/or `--frontends mobile` to `lazuli new`, this module materializes
-//! the canonical app-shell, theme, config, and manifest entries.
+//! the canonical frontend-adapter shell, theme, config, and manifest entries.
 //!
 //! ## Boundary
 //!
@@ -29,23 +29,35 @@ use crate::templates;
 /// Scaffold the web frontend skeleton. Idempotent.
 ///
 /// Creates (when missing):
-/// - `app/shell/web/{root.tsx, layout.tsx, error_boundary.tsx}`
-/// - `app/theme/{globals.css, theme_provider.tsx}`
-/// - `tailwind.config.ts`, `tsconfig.json`, `vite.config.ts`, `package.json`, `.gitignore`
+/// - `frontends/web/{index.html,main.tsx}`
+/// - `frontends/web/shell/{root.tsx,layout.tsx,error_boundary.tsx}`
+/// - `frontends/web/theme/{globals.css,theme_provider.tsx}`
+/// - `frontends/web/{tailwind.config.ts,tsconfig.json,vite.config.ts,package.json}`
+/// - root `.gitignore`
 ///
 /// Appends `[frontends.web]` to `lazurite.toml` if no such block exists.
 pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;
 
-    let shell_dir = project_root.join("app").join("shell").join("web");
-    let theme_dir = project_root.join("app").join("theme");
-    fs::create_dir_all(&shell_dir)
-        .with_context(|| format!("creating {}", shell_dir.display()))?;
-    fs::create_dir_all(&theme_dir)
-        .with_context(|| format!("creating {}", theme_dir.display()))?;
+    let web_dir = project_root.join("frontends").join("web");
+    let shell_dir = web_dir.join("shell");
+    let theme_dir = web_dir.join("theme");
+    fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
+    fs::create_dir_all(&theme_dir).with_context(|| format!("creating {}", theme_dir.display()))?;
 
-    write_if_absent(&shell_dir.join("root.tsx"), templates::FRONTEND_WEB_ROOT_TSX)?;
-    write_if_absent(&shell_dir.join("layout.tsx"), templates::FRONTEND_WEB_LAYOUT_TSX)?;
+    write_if_absent(
+        &web_dir.join("index.html"),
+        templates::FRONTEND_WEB_INDEX_HTML,
+    )?;
+    write_if_absent(&web_dir.join("main.tsx"), templates::FRONTEND_WEB_MAIN_TSX)?;
+    write_if_absent(
+        &shell_dir.join("root.tsx"),
+        templates::FRONTEND_WEB_ROOT_TSX,
+    )?;
+    write_if_absent(
+        &shell_dir.join("layout.tsx"),
+        templates::FRONTEND_WEB_LAYOUT_TSX,
+    )?;
     write_if_absent(
         &shell_dir.join("error_boundary.tsx"),
         templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX,
@@ -60,19 +72,19 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     )?;
 
     write_if_absent(
-        &project_root.join("tailwind.config.ts"),
+        &web_dir.join("tailwind.config.ts"),
         templates::FRONTEND_TAILWIND_CONFIG_TS,
     )?;
     write_if_absent(
-        &project_root.join("tsconfig.json"),
+        &web_dir.join("tsconfig.json"),
         templates::FRONTEND_TSCONFIG_JSON,
     )?;
     write_if_absent(
-        &project_root.join("vite.config.ts"),
+        &web_dir.join("vite.config.ts"),
         templates::FRONTEND_VITE_CONFIG_TS,
     )?;
     write_if_absent(
-        &project_root.join("package.json"),
+        &web_dir.join("package.json"),
         templates::FRONTEND_PACKAGE_JSON,
     )?;
     write_if_absent(
@@ -92,8 +104,8 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 /// Scaffold the mobile (Expo) frontend skeleton. Idempotent.
 ///
 /// Creates (when missing):
-/// - `app/shell/mobile/root.tsx`
-/// - `mobile/package.json` (Expo-specific deps; web's `package.json`
+/// - `frontends/mobile/shell/root.tsx`
+/// - `frontends/mobile/package.json` (Expo-specific deps; web's `package.json`
 ///   is kept separate because Expo and Vite-react ecosystems pin
 ///   incompatible `react`/`react-dom` versions today).
 ///
@@ -101,16 +113,15 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;
 
-    let shell_dir = project_root.join("app").join("shell").join("mobile");
-    fs::create_dir_all(&shell_dir)
-        .with_context(|| format!("creating {}", shell_dir.display()))?;
+    let mobile_dir = project_root.join("frontends").join("mobile");
+    let shell_dir = mobile_dir.join("shell");
+    fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
 
     write_if_absent(
         &shell_dir.join("root.tsx"),
         templates::FRONTEND_MOBILE_ROOT_TSX,
     )?;
 
-    let mobile_dir = project_root.join("mobile");
     fs::create_dir_all(&mobile_dir)
         .with_context(|| format!("creating {}", mobile_dir.display()))?;
     write_if_absent(
@@ -141,8 +152,7 @@ fn write_if_absent(path: &Path, content: &str) -> Result<()> {
         return Ok(());
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     fs::write(path, content).with_context(|| format!("writing {}", path.display()))
 }
@@ -171,8 +181,7 @@ fn append_manifest_block(manifest_path: &Path, header: &str, snippet: &str) -> R
     }
     out.push_str(snippet);
 
-    fs::write(&manifest_buf, out)
-        .with_context(|| format!("writing {}", manifest_buf.display()))
+    fs::write(&manifest_buf, out).with_context(|| format!("writing {}", manifest_buf.display()))
 }
 
 #[cfg(test)]
@@ -233,31 +242,50 @@ mod tests {
 
         scaffold_frontend_web(root, "demo").unwrap();
 
-        // app/shell/web/
-        assert!(root.join("app/shell/web/root.tsx").exists(), "root.tsx missing");
+        // frontends/web/
         assert!(
-            root.join("app/shell/web/layout.tsx").exists(),
+            root.join("frontends/web/index.html").exists(),
+            "index.html missing"
+        );
+        assert!(
+            root.join("frontends/web/main.tsx").exists(),
+            "main.tsx missing"
+        );
+        assert!(
+            root.join("frontends/web/shell/root.tsx").exists(),
+            "root.tsx missing"
+        );
+        assert!(
+            root.join("frontends/web/shell/layout.tsx").exists(),
             "layout.tsx missing"
         );
         assert!(
-            root.join("app/shell/web/error_boundary.tsx").exists(),
+            root.join("frontends/web/shell/error_boundary.tsx").exists(),
             "error_boundary.tsx missing"
         );
 
-        // app/theme/
-        assert!(root.join("app/theme/globals.css").exists(), "globals.css missing");
+        // frontends/web/theme/
         assert!(
-            root.join("app/theme/theme_provider.tsx").exists(),
+            root.join("frontends/web/theme/globals.css").exists(),
+            "globals.css missing"
+        );
+        assert!(
+            root.join("frontends/web/theme/theme_provider.tsx").exists(),
             "theme_provider.tsx missing"
         );
 
-        // root-level config
         assert!(
-            root.join("tailwind.config.ts").exists(),
+            root.join("frontends/web/tailwind.config.ts").exists(),
             "tailwind.config.ts missing"
         );
-        assert!(root.join("tsconfig.json").exists(), "tsconfig.json missing");
-        assert!(root.join("vite.config.ts").exists(), "vite.config.ts missing");
+        assert!(
+            root.join("frontends/web/tsconfig.json").exists(),
+            "tsconfig.json missing"
+        );
+        assert!(
+            root.join("frontends/web/vite.config.ts").exists(),
+            "vite.config.ts missing"
+        );
     }
 
     #[test]
@@ -267,7 +295,7 @@ mod tests {
 
         scaffold_frontend_web(root, "demo").unwrap();
 
-        let pkg = fs::read_to_string(root.join("package.json")).unwrap();
+        let pkg = fs::read_to_string(root.join("frontends/web/package.json")).unwrap();
         assert!(pkg.contains("\"@tanstack/react-query\""));
         assert!(pkg.contains("\"@lazuli/runtime\""));
         assert!(pkg.contains("\"react-hook-form\""));
@@ -294,7 +322,8 @@ mod tests {
 
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.web]"));
-        assert!(manifest.contains("target = \"vite-react\""));
+        assert!(manifest.contains("target = \"tanstack-vite\""));
+        assert!(manifest.contains("source = \"frontends/web\""));
         assert!(manifest.contains("out = \"dist/ts-web\""));
         assert!(manifest.contains("[lazuli]")); // pre-existing block preserved
     }
@@ -305,7 +334,7 @@ mod tests {
         let root = project.path();
 
         // manifest already has the block; helper must NOT append again
-        let initial = "[frontends.web]\ntarget = \"vite-react\"\nout = \"dist/ts-web\"\naudiences = [\"admin\"]\n";
+        let initial = "[frontends.web]\ntarget = \"tanstack-vite\"\nsource = \"frontends/web\"\nout = \"dist/ts-web\"\naudiences = [\"admin\"]\n";
         fs::write(root.join("lazurite.toml"), initial).unwrap();
 
         scaffold_frontend_web(root, "demo").unwrap();
@@ -326,20 +355,21 @@ mod tests {
         scaffold_frontend_mobile(root, "demo").unwrap();
 
         assert!(
-            root.join("app/shell/mobile/root.tsx").exists(),
+            root.join("frontends/mobile/shell/root.tsx").exists(),
             "mobile root.tsx missing"
         );
         assert!(
-            root.join("mobile/package.json").exists(),
+            root.join("frontends/mobile/package.json").exists(),
             "mobile package.json missing"
         );
 
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.mobile]"));
         assert!(manifest.contains("target = \"expo\""));
+        assert!(manifest.contains("source = \"frontends/mobile\""));
         assert!(manifest.contains("out = \"dist/ts-mobile\""));
 
-        let pkg = fs::read_to_string(root.join("mobile/package.json")).unwrap();
+        let pkg = fs::read_to_string(root.join("frontends/mobile/package.json")).unwrap();
         assert!(pkg.contains("\"expo\""));
         assert!(pkg.contains("\"react-native\""));
     }
@@ -353,13 +383,16 @@ mod tests {
 
         // User edits one of the scaffolded files; the second pass must not clobber it.
         let edited_root_tsx = "// user-customized content\n";
-        fs::write(root.join("app/shell/web/root.tsx"), edited_root_tsx).unwrap();
+        fs::write(root.join("frontends/web/shell/root.tsx"), edited_root_tsx).unwrap();
 
         scaffold_frontend_web(root, "demo").unwrap();
 
         // file untouched
-        let after = fs::read_to_string(root.join("app/shell/web/root.tsx")).unwrap();
-        assert_eq!(after, edited_root_tsx, "second pass must NOT overwrite user edit");
+        let after = fs::read_to_string(root.join("frontends/web/shell/root.tsx")).unwrap();
+        assert_eq!(
+            after, edited_root_tsx,
+            "second pass must NOT overwrite user edit"
+        );
 
         // manifest still has exactly one block
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
@@ -373,11 +406,11 @@ mod tests {
 
         scaffold_frontend_mobile(root, "demo").unwrap();
         let edited = "// user-customized mobile root\n";
-        fs::write(root.join("app/shell/mobile/root.tsx"), edited).unwrap();
+        fs::write(root.join("frontends/mobile/shell/root.tsx"), edited).unwrap();
 
         scaffold_frontend_mobile(root, "demo").unwrap();
 
-        let after = fs::read_to_string(root.join("app/shell/mobile/root.tsx")).unwrap();
+        let after = fs::read_to_string(root.join("frontends/mobile/shell/root.tsx")).unwrap();
         assert_eq!(after, edited);
 
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
@@ -392,8 +425,8 @@ mod tests {
         scaffold_frontend_web(root, "demo").unwrap();
         scaffold_frontend_mobile(root, "demo").unwrap();
 
-        assert!(root.join("app/shell/web/root.tsx").exists());
-        assert!(root.join("app/shell/mobile/root.tsx").exists());
+        assert!(root.join("frontends/web/shell/root.tsx").exists());
+        assert!(root.join("frontends/mobile/shell/root.tsx").exists());
 
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.web]"));
@@ -405,6 +438,8 @@ mod tests {
     #[test]
     fn frontend_template_consts_are_nonempty() {
         // web
+        assert!(!templates::FRONTEND_WEB_INDEX_HTML.is_empty());
+        assert!(!templates::FRONTEND_WEB_MAIN_TSX.is_empty());
         assert!(!templates::FRONTEND_WEB_ROOT_TSX.is_empty());
         assert!(!templates::FRONTEND_WEB_LAYOUT_TSX.is_empty());
         assert!(!templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX.is_empty());
@@ -432,6 +467,8 @@ mod tests {
     #[test]
     fn templates_use_lf_newlines_only() {
         let all = [
+            templates::FRONTEND_WEB_INDEX_HTML,
+            templates::FRONTEND_WEB_MAIN_TSX,
             templates::FRONTEND_WEB_ROOT_TSX,
             templates::FRONTEND_WEB_LAYOUT_TSX,
             templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX,

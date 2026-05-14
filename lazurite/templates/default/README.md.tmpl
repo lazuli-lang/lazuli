@@ -21,7 +21,8 @@ Watches `.lzi` and `lazurite.toml` for changes; regenerates `dist/` and restarts
 
 ## Layout
 
-- `app.lzi` - app-wide config (envs, urls).
-- `features/` - domain features. Each is a Lazuli capability bundle.
+- `app/` - product kernel: app manifest, design tokens, registry, and features.
+- `app/features/` - domain features. Each is a Lazuli capability bundle.
+- `frontends/web/` - React/Vite adapter: shell, theme, UI primitives, and package config.
 - `lazurite.toml` - workspace manifest (Lazuli framework pin, plugins, codegen settings).
 - `dist/` - generated code (regen-only; do not edit).

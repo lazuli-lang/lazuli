@@ -1,11 +1,31 @@
 # Proposal — Lazurite Frontend Folder Canon
 
-**Status:** L0 v0.2 — 2026-05-14. Replaces v0.1's split (features/ at root, app/ for cross-feature) with a unified `app/` that owns the entire source tree (features + shell + ui + lib + theme + Lazuli sources). Root keeps only tooling configs + a single `app/` source folder. v0.1 was self-graded PASS 9.04/10; v0.2 re-grade pending. Lucas's directive (2026-05-14): "se voce recomenda B e a nota arquitetural for subir, eu concordo".
+**Status:** L0 v0.3 — 2026-05-14. Supersedes v0.2's unified `app/` source root. Decision: `app/` is now the product kernel (`app.lzi`, `design.lzi`, `registry.lzi`, `features/`) and `frontends/<target>/` owns delivery-adapter code (`shell`, `theme`, `ui`, `hooks`, `lib`, package/config files). This change follows Lucas's follow-up discomfort with `app/{shell,theme,ui,lib}` polluting the domain kernel.
 **Author:** Claude Opus 4.7 (orchestrator)
 **Audit-ready target:** ≥ 9.0 via `lazuli-language-architect`
 **Extends:** `docs/proposals/lazurite-scaffold.md` (§3 backend folder shape)
 **Honors:** `docs/invariants.md:14-15` (boundary: app.lzi owns envs+urls; manifest owns codegen+plugins)
 **Successors:** `docs/proposals/design-tokens.md` (L0 #2), `docs/proposals/lzx-integration-codegen.md` (L0 #3)
+
+---
+
+## §0. v0.3 correction — app kernel plus frontend adapters
+
+The v0.2 document below still contains the historical argument for a single
+`app/` root. The implementation direction has changed:
+
+- Product/domain source lives in `app/`: `app.lzi`, `design.lzi`,
+  `registry.lzi`, and `app/features/<feature>/`.
+- Feature-owned UI remains colocated with the feature:
+  `app/features/<feature>/web/{cells,views/<audience>}/`.
+- Frontend adapter glue lives outside the kernel:
+  `frontends/web/{shell,theme,ui,hooks,lib}/` plus `package.json`,
+  `index.html`, Vite, TS, and Tailwind configs.
+- Manifest topology records the adapter source:
+  `[frontends.web] source = "frontends/web"`.
+
+This keeps the Rails-like reading: `app/` is the application model of the
+product, while `frontends/` are delivery mechanisms.
 
 ---
 

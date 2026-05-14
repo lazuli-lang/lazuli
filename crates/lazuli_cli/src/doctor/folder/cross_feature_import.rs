@@ -1,18 +1,19 @@
 //! Doctor rule `cross-feature-direct-import`.
 //!
-//! Flags TypeScript `import` statements in `features/A/{web,mobile}/<...>.tsx`
-//! that reference `features/B/{web,mobile}/<...>` for A != B. Cross-feature
+//! Flags TypeScript `import` statements in
+//! `app/features/A/{web,mobile}/<...>.tsx` that reference
+//! `app/features/B/{web,mobile}/<...>` for A != B. Cross-feature
 //! visual dependencies must go via slot bindings (`@client.<slot>` declared
 //! in `B.<target>.lzx`) so the audience scope and typed contract are
 //! preserved.
 //!
 //! Allowed cross-feature paths:
-//!   - `@/dist/ts-web/<feat>/<...>` — generated SDK is shared across features.
-//!   - `@/app/<...>` — shared primitives (shell, theme, ui, lib).
+//!   - `@generated/<feat>/<...>` — generated SDK is shared across features.
+//!   - `@web/<...>` — frontend adapter primitives (shell, theme, ui, lib).
 //!
 //! Forbidden:
-//!   - `@/features/B/web/cells/<...>` from `features/A/`.
-//!   - `@/features/B/web/views/<...>` from `features/A/`.
+//!   - `@app/features/B/web/cells/<...>` from `app/features/A/`.
+//!   - `@app/features/B/web/views/<...>` from `app/features/A/`.
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -39,7 +40,7 @@ impl Finding {
             "`{}` (feature `{}`) imports directly from feature `{}` via \
              `{}`. Cross-feature visual dependencies must go via slot \
              bindings (`@client.<slot>` declared in \
-             `{}.<target>.lzx`) or shared `app/ui/` primitives.",
+             `{}.<target>.lzx`) or shared `frontends/<target>/ui/` primitives.",
             source_file.display(),
             source_feature,
             target_feature,
@@ -49,23 +50,24 @@ impl Finding {
     }
 }
 
-/// Walk `root/features/`, scan each `.tsx`/`.ts` for import statements
+/// Walk feature roots, scan each `.tsx`/`.ts` for import statements
 /// that reference a sibling feature's frontend tree. Emit Finding per
 /// violation.
 pub fn check(root: &Path) -> Vec<Finding> {
-    let features_root = root.join("features");
     let mut findings = Vec::new();
 
-    for feature_dir in read_sorted_dirs(&features_root) {
-        let Some(source_feature) = file_name_str(&feature_dir).map(str::to_owned) else {
-            continue;
-        };
+    for features_root in [root.join("app").join("features"), root.join("features")] {
+        for feature_dir in read_sorted_dirs(&features_root) {
+            let Some(source_feature) = file_name_str(&feature_dir).map(str::to_owned) else {
+                continue;
+            };
 
-        for target in ["web", "mobile"] {
-            let frontend_root = feature_dir.join(target);
-            walk_frontend_files(&frontend_root, &mut |source_file| {
-                scan_file(root, source_file, &source_feature, &mut findings);
-            });
+            for target in ["web", "mobile"] {
+                let frontend_root = feature_dir.join(target);
+                walk_frontend_files(&frontend_root, &mut |source_file| {
+                    scan_file(root, source_file, &source_feature, &mut findings);
+                });
+            }
         }
     }
 
@@ -101,12 +103,16 @@ fn extract_import_specifier(line: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
-/// Parse a `@/features/<feat>/<target>/<rest>` specifier into (feat,
+/// Parse a feature import specifier into (feat,
 /// target). Returns None if the specifier doesn't match the shape.
 /// `target` is "web" or "mobile"; anything else returns None.
 fn parse_feature_import(spec: &str) -> Option<(&str, &str)> {
-    let rest = spec.strip_prefix("@/features/")?;
-    parse_frontend_feature_path(rest)
+    for prefix in ["@app/features/", "@/features/"] {
+        if let Some(rest) = spec.strip_prefix(prefix) {
+            return parse_frontend_feature_path(rest);
+        }
+    }
+    None
 }
 
 fn scan_file(root: &Path, source_file: &Path, source_feature: &str, findings: &mut Vec<Finding>) {
@@ -168,15 +174,20 @@ fn parse_import_target(
 }
 
 fn parse_normalized_feature_path(root: &Path, path: &Path) -> Option<(String, String)> {
-    let features_root = normalize_path(root.join("features"));
-    let rel = path.strip_prefix(features_root).ok()?;
-    let mut parts = rel.components();
-    let feat = component_str(parts.next()?)?;
-    let target = component_str(parts.next()?)?;
-    if target != "web" && target != "mobile" {
-        return None;
+    for features_root in [root.join("app").join("features"), root.join("features")] {
+        let features_root = normalize_path(features_root);
+        let Ok(rel) = path.strip_prefix(features_root) else {
+            continue;
+        };
+        let mut parts = rel.components();
+        let feat = component_str(parts.next()?)?;
+        let target = component_str(parts.next()?)?;
+        if target != "web" && target != "mobile" {
+            return None;
+        }
+        return Some((feat.to_owned(), target.to_owned()));
     }
-    Some((feat.to_owned(), target.to_owned()))
+    None
 }
 
 fn parse_relative_feature_import(spec: &str) -> Option<(&str, &str)> {
@@ -286,8 +297,8 @@ fn should_skip_dir(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use self::tempfile::TempDir;
+    use super::*;
     use std::fs;
 
     mod tempfile {

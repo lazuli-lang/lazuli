@@ -6,9 +6,10 @@
 //! React/Vite anti-pattern is listed in §5.1.
 //!
 //! Canonical locations:
-//!   - `features/<feat>/web/{cells,views/<audience>}/*.{ts,tsx}`
-//!   - `features/<feat>/mobile/{cells,views/<audience>}/*.{ts,tsx}`
-//!   - `app/{shell/{web,mobile},theme,ui,lib}/**/*.{ts,tsx}`
+//!   - `app/features/<feat>/web/{cells,views/<audience>}/*.{ts,tsx}`
+//!   - `app/features/<feat>/mobile/{cells,views/<audience>}/*.{ts,tsx}`
+//!   - `frontends/<target>/{shell,theme,ui,hooks,lib}/**/*.{ts,tsx}`
+//!   - `frontends/<target>/{main,vite.config,tailwind.config}.ts(x)`
 //!
 //! Anything else, such as `src/components/`, `app/components/`, or
 //! `lib/components/`, is an orphan component.
@@ -29,9 +30,9 @@ impl Finding {
     pub fn message(path: &Path) -> String {
         format!(
             "`{}` is outside the canonical Lazurite frontend layout. Move \
-             to `features/<feat>/web/views/<audience>/` (page), \
-             `features/<feat>/web/cells/` (slot impl), or `app/ui/` \
-             (shared primitive).",
+             to `app/features/<feat>/web/views/<audience>/` (page), \
+             `app/features/<feat>/web/cells/` (slot impl), or \
+             `frontends/<target>/ui/` (shared primitive).",
             path.display()
         )
     }
@@ -96,31 +97,51 @@ fn is_canonical_path(rel: &Path) -> bool {
     let parts = path_parts(rel);
 
     match parts.as_slice() {
-        // features/<feat>/web/cells/<file>.tsx
-        // features/<feat>/mobile/cells/<file>.tsx
-        ["features", _, platform, "cells", rest @ ..]
+        // app/features/<feat>/web/cells/<file>.tsx
+        // app/features/<feat>/mobile/cells/<file>.tsx
+        ["app", "features", _, platform, "cells", rest @ ..]
             if is_platform(platform) && !rest.is_empty() =>
         {
             true
         }
 
-        // features/<feat>/web/views/<audience>/<file>.tsx
-        // features/<feat>/mobile/views/<audience>/<file>.tsx
+        // app/features/<feat>/web/views/<audience>/<file>.tsx
+        // app/features/<feat>/mobile/views/<audience>/<file>.tsx
+        ["app", "features", _, platform, "views", _, rest @ ..]
+            if is_platform(platform) && !rest.is_empty() =>
+        {
+            true
+        }
+
+        // Backwards-compatible legacy fixture shape.
+        ["features", _, platform, "cells", rest @ ..]
+            if is_platform(platform) && !rest.is_empty() =>
+        {
+            true
+        }
         ["features", _, platform, "views", _, rest @ ..]
             if is_platform(platform) && !rest.is_empty() =>
         {
             true
         }
 
-        // app/shell/web/<...>.tsx
-        // app/shell/mobile/<...>.tsx
-        ["app", "shell", platform, rest @ ..] if is_platform(platform) && !rest.is_empty() => true,
+        // frontends/web/shell/<...>.tsx
+        // frontends/mobile/theme/<...>.tsx
+        ["frontends", platform, subdir, rest @ ..]
+            if is_platform(platform)
+                && matches!(*subdir, "shell" | "theme" | "ui" | "hooks" | "lib")
+                && !rest.is_empty() =>
+        {
+            true
+        }
 
-        // app/theme/<...>.tsx
-        // app/ui/<...>.tsx
-        // app/lib/<...>.tsx
-        ["app", subdir, rest @ ..]
-            if matches!(*subdir, "theme" | "ui" | "lib") && !rest.is_empty() =>
+        // frontends/web/main.tsx, vite.config.ts, tailwind.config.ts
+        ["frontends", platform, file]
+            if is_platform(platform)
+                && matches!(
+                    *file,
+                    "main.tsx" | "main.ts" | "vite.config.ts" | "tailwind.config.ts"
+                ) =>
         {
             true
         }
@@ -223,7 +244,7 @@ mod tests {
     #[test]
     fn canonical_feature_view_does_not_fire() {
         let tmp = tempfile::TempDir::new().unwrap();
-        touch(tmp.path(), "features/slug/web/views/admin/list.tsx");
+        touch(tmp.path(), "app/features/slug/web/views/admin/list.tsx");
 
         let findings = check(tmp.path());
 
@@ -233,7 +254,7 @@ mod tests {
     #[test]
     fn canonical_feature_cell_does_not_fire() {
         let tmp = tempfile::TempDir::new().unwrap();
-        touch(tmp.path(), "features/slug/web/cells/type_badge.tsx");
+        touch(tmp.path(), "app/features/slug/web/cells/type_badge.tsx");
 
         let findings = check(tmp.path());
 
@@ -243,7 +264,7 @@ mod tests {
     #[test]
     fn canonical_app_ui_does_not_fire() {
         let tmp = tempfile::TempDir::new().unwrap();
-        touch(tmp.path(), "app/ui/button.tsx");
+        touch(tmp.path(), "frontends/web/ui/button.tsx");
 
         let findings = check(tmp.path());
 
@@ -279,7 +300,10 @@ mod tests {
     #[test]
     fn test_files_are_skipped() {
         let tmp = tempfile::TempDir::new().unwrap();
-        touch(tmp.path(), "features/slug/web/views/admin/list.test.tsx");
+        touch(
+            tmp.path(),
+            "app/features/slug/web/views/admin/list.test.tsx",
+        );
 
         let findings = check(tmp.path());
 

@@ -789,7 +789,9 @@ fn generate_command(
             cmd_generate_feature::run(name, &project_root)
         }
         GenerateKind::Handler => {
-            let ident = input.to_str().context("handler ident must be valid UTF-8")?;
+            let ident = input
+                .to_str()
+                .context("handler ident must be valid UTF-8")?;
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
             cmd_generate_handler::run(ident, &project_root)
@@ -3160,7 +3162,11 @@ fn collect_plan_gate_facts_for_generate(
             if !fg.callables.is_empty() {
                 let feature_name = source
                     .lines()
-                    .find_map(|l| l.trim_start().strip_prefix("feature ").map(|s| s.to_owned()))
+                    .find_map(|l| {
+                        l.trim_start()
+                            .strip_prefix("feature ")
+                            .map(|s| s.to_owned())
+                    })
                     .and_then(|s| s.split_whitespace().next().map(|s| s.to_owned()))
                     .unwrap_or_else(|| {
                         path.file_stem()
@@ -3176,11 +3182,7 @@ fn collect_plan_gate_facts_for_generate(
     if plan_blocks.is_empty() && feature_gates.is_empty() && anchor.is_none() {
         return None;
     }
-    let facts = lazuli_analyzer::aggregate_plan_gate_facts(
-        &plan_blocks,
-        &feature_gates,
-        anchor,
-    );
+    let facts = lazuli_analyzer::aggregate_plan_gate_facts(&plan_blocks, &feature_gates, anchor);
     Some(lazuli_codegen_go::PlanGateEmitFacts {
         catalog: facts.catalog,
         subscription_anchor: facts.subscription_anchor,
@@ -3312,7 +3314,10 @@ fn new_in_place_command(
     for frontend in parse_frontends(frontends)? {
         match frontend {
             FrontendScaffold::Web => {
-                let package_json = project_root.join("package.json");
+                let package_json = project_root
+                    .join("frontends")
+                    .join("web")
+                    .join("package.json");
                 let package_json_exists = package_json
                     .try_exists()
                     .with_context(|| format!("failed to inspect {}", package_json.display()))?;
@@ -3333,7 +3338,11 @@ fn new_in_place_command(
 }
 
 fn log_user_owned_frontend_skips(project_root: &Path) -> Result<()> {
-    for relative in ["tailwind.config.ts", "tsconfig.json", "vite.config.ts"] {
+    for relative in [
+        "frontends/web/tailwind.config.ts",
+        "frontends/web/tsconfig.json",
+        "frontends/web/vite.config.ts",
+    ] {
         let path = project_root.join(relative);
         if path
             .try_exists()
@@ -8675,7 +8684,8 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-            reports: vec![],            previous_names: vec![],
+            reports: vec![],
+            previous_names: vec![],
             span_ref: None,
         };
         let module = lazuli_ir::Module {
@@ -8848,7 +8858,8 @@ mod tests {
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
         assert!(manifest.contains("[lazuli]"));
         assert!(manifest.contains("[frontends.web]"));
-        assert!(manifest.contains("target = \"vite-react\""));
+        assert!(manifest.contains("target = \"tanstack-vite\""));
+        assert!(manifest.contains("source = \"frontends/web\""));
     }
 
     #[test]
@@ -8860,7 +8871,12 @@ mod tests {
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        fs::write(root.join("tailwind.config.ts"), "// custom tailwind\n").unwrap();
+        fs::create_dir_all(root.join("frontends/web")).unwrap();
+        fs::write(
+            root.join("frontends/web/tailwind.config.ts"),
+            "// custom tailwind\n",
+        )
+        .unwrap();
 
         new_command(
             Some(root),
@@ -8874,7 +8890,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            fs::read_to_string(root.join("tailwind.config.ts")).unwrap(),
+            fs::read_to_string(root.join("frontends/web/tailwind.config.ts")).unwrap(),
             "// custom tailwind\n"
         );
     }
@@ -8900,13 +8916,18 @@ mod tests {
         )
         .unwrap();
 
-        assert!(root.join("app/shell/web/root.tsx").is_file());
-        assert!(root.join("app/shell/web/layout.tsx").is_file());
-        assert!(root.join("app/theme/theme_provider.tsx").is_file());
-        assert!(root.join("app/theme/globals.css").is_file());
-        assert!(root.join("tailwind.config.ts").is_file());
-        assert!(root.join("tsconfig.json").is_file());
-        assert!(root.join("vite.config.ts").is_file());
+        assert!(root.join("frontends/web/index.html").is_file());
+        assert!(root.join("frontends/web/main.tsx").is_file());
+        assert!(root.join("frontends/web/shell/root.tsx").is_file());
+        assert!(root.join("frontends/web/shell/layout.tsx").is_file());
+        assert!(
+            root.join("frontends/web/theme/theme_provider.tsx")
+                .is_file()
+        );
+        assert!(root.join("frontends/web/theme/globals.css").is_file());
+        assert!(root.join("frontends/web/tailwind.config.ts").is_file());
+        assert!(root.join("frontends/web/tsconfig.json").is_file());
+        assert!(root.join("frontends/web/vite.config.ts").is_file());
     }
 
     #[test]
@@ -8943,8 +8964,9 @@ mod tests {
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
+        fs::create_dir_all(root.join("frontends/web")).unwrap();
         fs::write(
-            root.join("package.json"),
+            root.join("frontends/web/package.json"),
             r#"{
   "name": "custom-app",
   "dependencies": {
@@ -8970,8 +8992,10 @@ mod tests {
         )
         .unwrap();
 
-        let package_json: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(root.join("package.json")).unwrap()).unwrap();
+        let package_json: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(root.join("frontends/web/package.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(package_json["name"], "custom-app");
         assert_eq!(package_json["dependencies"]["left-pad"], "1.3.0");
         assert_eq!(package_json["dependencies"]["react"], "18.0.0");
@@ -9059,7 +9083,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            fs::read_to_string(root.join("app.lzi"))
+            fs::read_to_string(root.join("app/app.lzi"))
                 .unwrap()
                 .contains("app MyApp")
         );
@@ -9096,10 +9120,10 @@ mod tests {
             "lazuli/my-app",
         )
         .unwrap();
-        assert!(root.join("app.lzi").is_file());
-        assert!(!root.join("app.lzi.tmpl").exists());
-        assert!(root.join("features/account/account.lzi").is_file());
-        assert!(!root.join("features/account/account.lzi.tmpl").exists());
+        assert!(root.join("app/app.lzi").is_file());
+        assert!(!root.join("app/app.lzi.tmpl").exists());
+        assert!(root.join("app/features/account/account.lzi").is_file());
+        assert!(!root.join("app/features/account/account.lzi.tmpl").exists());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -9127,16 +9151,17 @@ mod tests {
         for relative in [
             ".gitignore",
             "README.md",
-            "app.lzi",
+            "app/app.lzi",
+            "app/design.lzi",
             "go.mod",
             "go.work",
             "lazurite.toml",
-            "registry.lzi",
-            "features/account/account.lzi",
-            "features/account/handlers/hash_password.go",
-            "features/account/handlers/verify_password.go",
-            "features/account/templates/welcome.en-US",
-            "features/account/templates/welcome.pt-BR",
+            "app/registry.lzi",
+            "app/features/account/account.lzi",
+            "app/features/account/handlers/hash_password.go",
+            "app/features/account/handlers/verify_password.go",
+            "app/features/account/templates/welcome.en-US",
+            "app/features/account/templates/welcome.pt-BR",
             "i18n/common.en-US.json",
             "scripts/seed.sh",
         ] {
