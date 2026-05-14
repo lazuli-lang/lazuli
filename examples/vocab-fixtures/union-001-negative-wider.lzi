@@ -1,0 +1,23 @@
+# VOCAB-UNION-001 negative: union rewrite would be wider.
+# Expected: rule SHOULD NOT fire.
+# Five variants would duplicate three shared fields into 15 union fields,
+# while this enum form keeps the resource at six fields.
+
+feature union_001_negative_wider
+  purpose "VOCAB-UNION-001 false-positive fixture where union form is wider."
+
+  domain
+    enum DeliveryChannel
+      email
+      sms
+      push
+      webhook
+      in_app
+
+    resource DeliveryTemplate
+      channel: DeliveryChannel required
+      name: Text required
+      subject: Text required
+      body: Text required
+      email_from: Text optional
+      sms_sender: Text optional
