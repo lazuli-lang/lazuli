@@ -1872,6 +1872,182 @@ pub struct RouteParam {
     pub type_ref: String,
 }
 
+// ---- L0 #6 Terminal grammar IR ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ListRender {
+    Table {
+        columns: Vec<String>,
+    },
+    /// Grid form: slot identifier after `@client.`.
+    Cells {
+        slot: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawerSubView {
+    pub name: String,
+    pub trigger: DrawerTrigger,
+    pub source: QueryRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_binding: Option<DrawerRouteBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cells: Vec<CellBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<CommandRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrawerTrigger {
+    /// Click on host cell opens drawer with that item.
+    Select,
+    /// User code calls `.open(id)` explicitly.
+    ManualOpen,
+}
+
+/// `route <slot> from selection` binds the drawer's source query input
+/// to the host's selection state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawerRouteBinding {
+    /// The sub-query input name, e.g. `key`.
+    pub target: String,
+    pub source: DrawerBindingSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrawerBindingSource {
+    Selection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilterDecl {
+    pub name: String,
+    /// Raw type label as authored (e.g. `ItemType`, `Text`). Resolution
+    /// to a concrete enum-on-resource or scalar happens in lowering.
+    pub type_ref: String,
+    pub cardinality: FilterCardinality,
+    /// `from query` flag: true if filter state syncs to URL params.
+    pub url_sync: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterCardinality {
+    Single,
+    Multi,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchDecl {
+    pub mode: SearchMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<SearchField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_text_target: Option<BindingRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SearchMode {
+    /// v1 behavior already represented by `ViewList.search` today.
+    Columns {
+        columns: Vec<String>,
+    },
+    Segmented,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchField {
+    pub key: String,
+    pub binds_to: BindingRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BindingRef {
+    /// `filters.<name>`.
+    Filter { name: String },
+    /// `source.<input-name>`.
+    SourceInput { name: String },
+    /// `selection` in single-selection mode.
+    SelectionScalar,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortDecl {
+    pub allowed: Vec<String>,
+    pub default_field: String,
+    pub default_dir: SortDir,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDir {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionDecl {
+    pub mode: SelectionMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bulk_actions: Vec<CommandRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionMode {
+    None,
+    Single,
+    Multi,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingDecl {
+    pub name: String,
+    pub value_space: SettingValueSpace,
+    /// Raw token, e.g. `sm`, `true`, or `42`.
+    pub default: String,
+    pub persistence: SettingPersistence,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SettingValueSpace {
+    Enum { values: Vec<String> },
+    Bool,
+    Int { min: i64, max: i64 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingPersistence {
+    None,
+    Local,
+    /// v0.2: declared but lowering warns until the cell ships.
+    Workspace,
+}
+
 /// Atomic policy reference like `@scope.workspace_admin`, `@role.editor`,
 /// `@actor.workspace_owner`. Parser populates `namespace` ("scope" |
 /// "role" | "actor") + `name`.
@@ -3919,4 +4095,208 @@ pub struct EasingToken {
 pub struct ZToken {
     pub name: String,
     pub value: i32,
+}
+
+#[cfg(test)]
+mod l0_6_ir_tests {
+    use super::*;
+    use serde::de::DeserializeOwned;
+    use serde_json::json;
+
+    fn round_trip<T>(value: &T)
+    where
+        T: Clone + PartialEq + std::fmt::Debug + Serialize + DeserializeOwned,
+    {
+        let encoded = serde_json::to_string(value).expect("serialize IR value");
+        let decoded: T = serde_json::from_str(&encoded).expect("deserialize IR value");
+        assert_eq!(*value, decoded);
+    }
+
+    fn query_ref(name: &str) -> QueryRef {
+        QueryRef {
+            feature: "item".to_string(),
+            kind: QueryKind::Lookup,
+            name: name.to_string(),
+        }
+    }
+
+    fn command_ref(name: &str) -> CommandRef {
+        CommandRef {
+            feature: "item".to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn terminal_render_drawer_and_filter_ir_round_trip() {
+        round_trip(&ListRender::Table {
+            columns: vec!["title".to_string(), "updated".to_string()],
+        });
+        round_trip(&ListRender::Cells {
+            slot: "item_card".to_string(),
+        });
+
+        let route_binding = DrawerRouteBinding {
+            target: "key".to_string(),
+            source: DrawerBindingSource::Selection,
+        };
+        round_trip(&route_binding);
+        round_trip(&DrawerTrigger::ManualOpen);
+        round_trip(&DrawerBindingSource::Selection);
+        round_trip(&DrawerSubView {
+            name: "item_detail".to_string(),
+            trigger: DrawerTrigger::Select,
+            source: query_ref("by_id"),
+            route_binding: Some(route_binding),
+            sections: vec!["header".to_string(), "metadata".to_string()],
+            cells: vec![CellBinding {
+                field: "related".to_string(),
+                slot: "related_items".to_string(),
+            }],
+            actions: vec![command_ref("update"), command_ref("delete")],
+            span_ref: Some(SpanRef { start: 10, end: 42 }),
+        });
+
+        round_trip(&FilterCardinality::Multi);
+        round_trip(&FilterDecl {
+            name: "tags".to_string(),
+            type_ref: "Text".to_string(),
+            cardinality: FilterCardinality::Multi,
+            url_sync: true,
+            span_ref: Some(SpanRef { start: 44, end: 60 }),
+        });
+    }
+
+    #[test]
+    fn terminal_search_sort_selection_and_setting_ir_round_trip() {
+        let filter_binding = BindingRef::Filter {
+            name: "slug".to_string(),
+        };
+        let source_binding = BindingRef::SourceInput {
+            name: "q".to_string(),
+        };
+        round_trip(&filter_binding);
+        round_trip(&source_binding);
+        round_trip(&BindingRef::SelectionScalar);
+
+        round_trip(&SearchMode::Columns {
+            columns: vec!["title".to_string()],
+        });
+        round_trip(&SearchMode::Segmented);
+        round_trip(&SearchField {
+            key: "slug".to_string(),
+            binds_to: filter_binding.clone(),
+            span_ref: Some(SpanRef { start: 70, end: 88 }),
+        });
+        round_trip(&SearchDecl {
+            mode: SearchMode::Segmented,
+            fields: vec![SearchField {
+                key: "slug".to_string(),
+                binds_to: filter_binding,
+                span_ref: None,
+            }],
+            free_text_target: Some(source_binding),
+            span_ref: Some(SpanRef { start: 62, end: 96 }),
+        });
+
+        round_trip(&SortDir::Desc);
+        round_trip(&SortDecl {
+            allowed: vec!["title".to_string(), "updated".to_string()],
+            default_field: "updated".to_string(),
+            default_dir: SortDir::Desc,
+            span_ref: Some(SpanRef {
+                start: 100,
+                end: 120,
+            }),
+        });
+
+        round_trip(&SelectionMode::Multi);
+        round_trip(&SelectionDecl {
+            mode: SelectionMode::Multi,
+            bulk_actions: vec![command_ref("delete")],
+            span_ref: Some(SpanRef {
+                start: 130,
+                end: 150,
+            }),
+        });
+
+        round_trip(&SettingValueSpace::Enum {
+            values: vec!["sm".to_string(), "md".to_string(), "lg".to_string()],
+        });
+        round_trip(&SettingValueSpace::Bool);
+        round_trip(&SettingValueSpace::Int { min: 1, max: 12 });
+        round_trip(&SettingPersistence::Workspace);
+        round_trip(&SettingDecl {
+            name: "grid_size".to_string(),
+            value_space: SettingValueSpace::Enum {
+                values: vec!["sm".to_string(), "md".to_string(), "lg".to_string()],
+            },
+            default: "sm".to_string(),
+            persistence: SettingPersistence::Local,
+            span_ref: Some(SpanRef {
+                start: 160,
+                end: 190,
+            }),
+        });
+    }
+
+    #[test]
+    fn terminal_tagged_enums_use_kind_discriminators() {
+        assert_eq!(
+            serde_json::to_value(ListRender::Cells {
+                slot: "item_card".to_string()
+            })
+            .expect("serialize list render"),
+            json!({ "kind": "cells", "slot": "item_card" })
+        );
+        assert_eq!(
+            serde_json::to_value(SearchMode::Columns {
+                columns: vec!["title".to_string()]
+            })
+            .expect("serialize search mode"),
+            json!({ "kind": "columns", "columns": ["title"] })
+        );
+        assert_eq!(
+            serde_json::to_value(BindingRef::SelectionScalar).expect("serialize binding ref"),
+            json!({ "kind": "selection_scalar" })
+        );
+        assert_eq!(
+            serde_json::to_value(SettingValueSpace::Int { min: 1, max: 9 })
+                .expect("serialize setting value space"),
+            json!({ "kind": "int", "min": 1, "max": 9 })
+        );
+    }
+
+    #[test]
+    fn terminal_optional_and_vec_fields_default_and_skip() {
+        let search_json = r#"{"mode":{"kind":"segmented"}}"#;
+        let search: SearchDecl = serde_json::from_str(search_json).expect("deserialize search");
+        assert_eq!(search.fields, Vec::<SearchField>::new());
+        assert_eq!(search.free_text_target, None);
+        assert_eq!(search.span_ref, None);
+        assert_eq!(
+            serde_json::to_value(search).expect("serialize search"),
+            json!({ "mode": { "kind": "segmented" } })
+        );
+
+        let drawer_json = r#"{
+            "name":"item_detail",
+            "trigger":"select",
+            "source":{"feature":"item","kind":"lookup","name":"by_id"}
+        }"#;
+        let drawer: DrawerSubView = serde_json::from_str(drawer_json).expect("deserialize drawer");
+        assert_eq!(drawer.route_binding, None);
+        assert!(drawer.sections.is_empty());
+        assert!(drawer.cells.is_empty());
+        assert!(drawer.actions.is_empty());
+        assert_eq!(drawer.span_ref, None);
+        assert_eq!(
+            serde_json::to_value(drawer).expect("serialize drawer"),
+            json!({
+                "name": "item_detail",
+                "trigger": "select",
+                "source": { "feature": "item", "kind": "lookup", "name": "by_id" }
+            })
+        );
+    }
 }
