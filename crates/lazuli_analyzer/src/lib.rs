@@ -1968,6 +1968,8 @@ fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
         resource: qualified_name_local(&sessions.resource),
         ttl: sessions.ttl.clone(),
         refresh: sessions.refresh,
+        // Populated in S3 when the orchestrator wires resource FieldSpec lookup.
+        extra_columns: vec![],
     }
 }
 

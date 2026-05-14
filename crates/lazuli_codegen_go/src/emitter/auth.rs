@@ -652,6 +652,7 @@ mod tests {
             resource: qname("CustomerSession"),
             ttl: "7 days".to_owned(),
             refresh: false,
+            extra_columns: vec![],
         });
         auth.mfa = Some(AuthMfa {
             method: "totp".to_owned(),
@@ -759,6 +760,7 @@ mod tests {
             resource: qname("UserSession"),
             ttl: "1 hour".to_owned(),
             refresh: true,
+            extra_columns: vec![],
         });
         feature.auth = Some(auth);
 
@@ -790,6 +792,7 @@ mod tests {
             resource: qname("CustomerSession"),
             ttl: "soon".to_owned(),
             refresh: true,
+            extra_columns: vec![],
         });
         feature.auth = Some(auth);
 
