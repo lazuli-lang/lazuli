@@ -67,20 +67,13 @@ feature queries
       margin_cents: Integer optional
       external_consult_id: Text optional
 
-    # ---------------------------------------------------------------
-    # GAP: PENDING / POLLER MODEL
-    # PendingResolution rows model the V8-style async cursor: an initial
-    # consult returned a PENDING token, and a background loop must poll
-    # the provider every N seconds with backoff until either a final
-    # status is set or attempts exceeds a cap.
-    #
-    # Today this has to be authored as (a) a resource + (b) a `job` with
-    # `trigger schedule "*/30 * * * * *"` reading from the resource by
-    # `next_check_at`. Pattern repeats verbatim per provider — the
-    # `kind poller` proposal (gap #5) is supposed to name this pattern.
-    # See GAPS.md.
-    # ---------------------------------------------------------------
+    # PendingResolution is the cursor table the `poller
+    # resolve_pending_provider_b` block (below, at feature level) walks.
+    # The poller proposal (docs/proposals/poller-vocab.md §3) names this
+    # pattern; in v0 the cursor fields live on the resource itself and
+    # the poller block binds them via `cursor`.
     resource PendingResolution
+      company: Company required
       query: Query required on_delete cascade
       result: QueryResult required on_delete cascade
       provider: Provider required
@@ -88,7 +81,9 @@ feature queries
       attempts: Integer = 0
       next_check_at: DateTime required
       resolved_at: DateTime optional
+      status_v8: ProviderResultStatus = pending
       final_status: ProviderResultStatus optional
+      gender: Text optional
       gender_retry_count: Integer = 0
 
     constraints
@@ -210,18 +205,36 @@ feature queries
     # ---------------------------------------------------------------
     returns Text
 
-  # ---------------------------------------------------------------
-  # GAP: ASYNC POLLER LOOP
-  # The block below is what `kind poller` should make declarative.
-  # Today it's a scheduled job reading next_check_at + a handler.
-  # ---------------------------------------------------------------
-  job resolve_pending_provider_b
-    trigger schedule "*/30 * * * * *"
-    fanout tenants company
-    idempotency by tenant.company_id, schedule.minute
-    retry 3 backoff exponential
-    handler "./jobs/resolve_pending_provider_b.go"
-    emits provider_result_recorded, query_status_changed
+  # L0 #8 — `kind poller` makes the V8-style async resolution loop
+  # declarative. The dispatcher SELECTs pending rows on `next_check_at`,
+  # calls @fn.poll_provider_b per row, and either marks the row resolved
+  # (writing `final_status` + emitting `provider_result_recorded`) or
+  # recomputes `next_check_at` via exponential backoff for another tick.
+  # See docs/proposals/poller-vocab.md §1.1 (worked example).
+  poller resolve_pending_provider_b
+    source PendingResolution
+    cursor
+      eligible_when next_check_at, resolved_at
+      attempts attempts
+    retry
+      max_attempts 30
+      backoff exponential base 30s cap 10m
+    states
+      pending initial
+      gender_ambiguous intermediate
+      resolved terminal
+      failed terminal
+    resolve via @fn.poll_provider_b
+    terminal_status_field final_status
+    tick every 15s batch 100
+    tenant_from row.company_id
+    idempotency by row.id, row.attempts
+    audit default
+    emits provider_result_recorded
+    retry_quirk gender_flip_once
+      when row.status_v8 == "gender_ambiguous"
+      counter gender_retry_count
+      mutate row.gender = flip(row.gender)
 
   job dispatch_provider_queries
     trigger event queries.query_dispatched
@@ -236,3 +249,4 @@ feature queries
   extensions
     fn export_results_csv: Function[QueryExport, Text] at "./handlers/export_results_csv.go"
     fn export_results_xlsx: Function[QueryExport, Text] at "./handlers/export_results_xlsx.go"
+    fn poll_provider_b: Function[PendingResolution, JSON] at "./handlers/poll_provider_b.go"
