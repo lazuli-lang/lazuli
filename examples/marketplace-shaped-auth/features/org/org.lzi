@@ -1,0 +1,5 @@
+feature org
+  domain
+    resource Org
+      name: Text required
+      slug: Text required unique
