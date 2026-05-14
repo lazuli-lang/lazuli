@@ -23,9 +23,11 @@ use crate::ast::{
     LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, MotionAst, Notification,
     NotificationDigest, NotificationThrottle, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,
     Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
-    ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, ShadowTokenAst, Span,
-    SearchDeclAst, SearchFieldAst, SearchModeAst, SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst,
-    TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
+    ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, SearchDeclAst,
+    SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst,
+    SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
+    SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
+    TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
     TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, ViewAst,
     ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
     WebhookVerify, WeightTokenAst, ZTokenAst,
@@ -1201,6 +1203,33 @@ fn parse_view_block(
             continue;
         }
 
+        if trimmed == "sort" {
+            if state.sort.is_some() {
+                return Err(line_error(line, "view declares `sort` at most once"));
+            }
+            let (sort, next, block_end) = parse_view_sort_block(lines, i, body_indent)?;
+            state.sort = Some(sort);
+            last_end = block_end;
+            i = next;
+            continue;
+        }
+        if trimmed == "settings" {
+            if !state.settings.is_empty() {
+                return Err(line_error(line, "view declares `settings` at most once"));
+            }
+            let (settings, next, block_end) = parse_view_settings_block(lines, i, body_indent)?;
+            state.settings = settings;
+            last_end = block_end;
+            i = next;
+            continue;
+        }
+        if trimmed.starts_with("persist ") {
+            return Err(line_error(
+                line,
+                "`persist` is valid only as a child of a `settings` declaration",
+            ));
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -1224,47 +1253,59 @@ fn parse_view_block(
 
     let span = Span::new(header.start, last_end);
     let view = match kind {
-        "list" => ViewAst::List(ViewListAst {
-            name,
-            route,
-            source: state.source.ok_or_else(|| {
-                line_error(header, "view list requires a `source <feature>.query.<name>` line")
-            })?,
-            columns: state.columns,
-            search: state.search,
-            filter: state.filter,
-            filters: state.filters,
-            cells_slot: state.cells_slot,
-            cells: state.cells,
-            drawer: state.drawer,
-            actions: state.actions,
-            span,
-        }),
-        "detail" => ViewAst::Detail(ViewDetailAst {
-            name,
-            route,
-            source: state.source.ok_or_else(|| {
-                line_error(header, "view detail requires a `source <feature>.query.<name>` line")
-            })?,
-            route_params: state.route_params,
-            sections: state.sections,
-            cells: state.cells,
-            actions: state.actions,
-            span,
-        }),
-        "create" => ViewAst::Create(ViewCreateAst {
-            name,
-            route,
-            submit: state.submit.ok_or_else(|| {
-                line_error(
-                    header,
-                    "view create requires a `submit <feature>.command.<name>` line",
-                )
-            })?,
-            fields: state.fields,
-            cells: state.cells,
-            span,
-        }),
+        "list" => {
+            let selection = assemble_selection_decl(&state, span);
+            ViewAst::List(ViewListAst {
+                name,
+                route,
+                source: state.source.ok_or_else(|| {
+                    line_error(header, "view list requires a `source <feature>.query.<name>` line")
+                })?,
+                columns: state.columns,
+                search: state.search,
+                filter: state.filter,
+                filters: state.filters,
+                cells_slot: state.cells_slot,
+                cells: state.cells,
+                drawer: state.drawer,
+                sort: state.sort,
+                selection,
+                settings: state.settings,
+                actions: state.actions,
+                span,
+            })
+        }
+        "detail" => {
+            reject_list_only_view_body(header, &state, "view detail")?;
+            ViewAst::Detail(ViewDetailAst {
+                name,
+                route,
+                source: state.source.ok_or_else(|| {
+                    line_error(header, "view detail requires a `source <feature>.query.<name>` line")
+                })?,
+                route_params: state.route_params,
+                sections: state.sections,
+                cells: state.cells,
+                actions: state.actions,
+                span,
+            })
+        }
+        "create" => {
+            reject_list_only_view_body(header, &state, "view create")?;
+            ViewAst::Create(ViewCreateAst {
+                name,
+                route,
+                submit: state.submit.ok_or_else(|| {
+                    line_error(
+                        header,
+                        "view create requires a `submit <feature>.command.<name>` line",
+                    )
+                })?,
+                fields: state.fields,
+                cells: state.cells,
+                span,
+            })
+        }
         _ => unreachable!(),
     };
     Ok((view, i))
@@ -1286,6 +1327,11 @@ struct ViewBodyState {
     actions: Vec<String>,
     route_params: Vec<RouteParamAst>,
     drawer: Option<DrawerSubViewAst>,
+    sort: Option<SortDeclAst>,
+    selection: Option<SelectionDeclAst>,
+    bulk_actions: Vec<String>,
+    bulk_actions_seen: bool,
+    settings: Vec<SettingDeclAst>,
 }
 
 type ViewBodyLineHandler =
@@ -1299,6 +1345,8 @@ fn view_body_handlers() -> &'static [(&'static str, ViewBodyLineHandler)] {
         ("fields ", parse_view_fields_line),
         ("filter ", parse_view_filter_line),
         ("sections ", parse_view_sections_line),
+        ("selection ", parse_view_selection_line),
+        ("bulk_actions ", parse_view_bulk_actions_line),
         ("actions ", parse_view_actions_line),
         ("cells ", parse_view_cells_line),
         ("route ", parse_view_route_line),
@@ -1845,6 +1893,94 @@ fn parse_binding_ref(line: &SourceLine<'_>, raw: &str) -> Result<BindingRefAst, 
     ))
 }
 
+fn parse_view_selection_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    if state.selection.is_some() {
+        return Err(line_error(line, "view declares `selection` at most once"));
+    }
+    let mode = match rest {
+        "single" => SelectionModeAst::Single,
+        "multi" => SelectionModeAst::Multi,
+        "none" => {
+            return Err(line_error(
+                line,
+                "`selection none` is not valid; omit the line for no selection",
+            ));
+        }
+        _ => {
+            return Err(line_error(
+                line,
+                "`selection` must be `selection single` or `selection multi`",
+            ));
+        }
+    };
+    state.selection = Some(SelectionDeclAst {
+        mode,
+        bulk_actions: Vec::new(),
+        span: Span::new(line.start, line.end),
+    });
+    Ok(())
+}
+
+fn parse_view_bulk_actions_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    if state.bulk_actions_seen {
+        return Err(line_error(line, "view declares `bulk_actions` at most once"));
+    }
+    let actions = split_lzx_list(rest);
+    if actions.is_empty() {
+        return Err(line_error(
+            line,
+            "`bulk_actions` requires at least one command name",
+        ));
+    }
+    state.bulk_actions = actions;
+    state.bulk_actions_seen = true;
+    Ok(())
+}
+
+fn assemble_selection_decl(state: &ViewBodyState, view_span: Span) -> Option<SelectionDeclAst> {
+    if let Some(mut selection) = state.selection.clone() {
+        selection.bulk_actions = state.bulk_actions.clone();
+        Some(selection)
+    } else if state.bulk_actions_seen {
+        Some(SelectionDeclAst {
+            mode: SelectionModeAst::None,
+            bulk_actions: state.bulk_actions.clone(),
+            span: view_span,
+        })
+    } else {
+        None
+    }
+}
+
+fn reject_list_only_view_body(
+    header: &SourceLine<'_>,
+    state: &ViewBodyState,
+    kind: &str,
+) -> Result<(), ParseError> {
+    if state.sort.is_some()
+        || state.selection.is_some()
+        || state.bulk_actions_seen
+        || !state.settings.is_empty()
+    {
+        return Err(line_error_owned(
+            header,
+            format!(
+                "`sort`, `selection`, `bulk_actions`, and `settings` are valid only in `view list`, not `{}`",
+                kind
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Split the `<name> [at "<path>"]` tail of a view header. The optional
 /// `at "<...>"` clause carries a quoted route path.
 fn parse_view_header_tail(
@@ -1958,6 +2094,378 @@ fn parse_route_param(line: &SourceLine<'_>, value: &str) -> Result<RouteParamAst
         type_ref,
         span: Span::new(line.start, line.end),
     })
+}
+
+fn parse_view_sort_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    body_indent: usize,
+) -> Result<(SortDeclAst, usize, usize), ParseError> {
+    let header = &lines[start];
+    let child_indent = body_indent + 2;
+    let mut index = start + 1;
+    let mut allowed: Option<Vec<String>> = None;
+    let mut default: Option<(String, SortDirAst)> = None;
+    let mut last_end = header.end;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            index += 1;
+            continue;
+        }
+        if line.indent <= body_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`sort` children use one indentation level deeper than `sort`",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if let Some(rest) = trimmed.strip_prefix("by ") {
+            if allowed.is_some() {
+                return Err(line_error(line, "`sort` declares `by` at most once"));
+            }
+            let fields = split_lzx_list(rest);
+            if fields.is_empty() {
+                return Err(line_error(line, "`sort by` requires at least one field"));
+            }
+            allowed = Some(fields);
+        } else if let Some(rest) = trimmed.strip_prefix("default ") {
+            if default.is_some() {
+                return Err(line_error(line, "`sort` declares `default` at most once"));
+            }
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() != 2 {
+                return Err(line_error(
+                    line,
+                    "`sort default` uses `default <field> <asc|desc>`",
+                ));
+            }
+            default = Some((parts[0].to_owned(), parse_sort_dir(line, parts[1])?));
+        } else {
+            return Err(line_error(
+                line,
+                "`sort` children are `by <field>, ...` or `default <field> <asc|desc>`",
+            ));
+        }
+        last_end = line.end;
+        index += 1;
+    }
+
+    let allowed = allowed.ok_or_else(|| line_error(header, "`sort` requires a `by` line"))?;
+    let (default_field, default_dir) =
+        default.ok_or_else(|| line_error(header, "`sort` requires a `default` line"))?;
+    if !allowed.iter().any(|field| field == &default_field) {
+        return Err(line_error_owned(
+            header,
+            format!(
+                "`sort default` field `{}` must be listed in `sort by`",
+                default_field
+            ),
+        ));
+    }
+
+    Ok((
+        SortDeclAst {
+            allowed,
+            default_field,
+            default_dir,
+            span: Span::new(header.start, last_end),
+        },
+        index,
+        last_end,
+    ))
+}
+
+fn parse_sort_dir(line: &SourceLine<'_>, value: &str) -> Result<SortDirAst, ParseError> {
+    match value {
+        "asc" => Ok(SortDirAst::Asc),
+        "desc" => Ok(SortDirAst::Desc),
+        _ => Err(line_error(line, "`sort default` dir must be `asc` or `desc`")),
+    }
+}
+
+fn parse_view_settings_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    body_indent: usize,
+) -> Result<(Vec<SettingDeclAst>, usize, usize), ParseError> {
+    let header = &lines[start];
+    let setting_indent = body_indent + 2;
+    let persist_indent = body_indent + 4;
+    let mut index = start + 1;
+    let mut settings = Vec::new();
+    let mut last_end = header.end;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            index += 1;
+            continue;
+        }
+        if line.indent <= body_indent {
+            break;
+        }
+        if line.indent != setting_indent {
+            return Err(line_error(
+                line,
+                "`settings` children use one indentation level deeper than `settings`",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if trimmed.starts_with("persist ") {
+            return Err(line_error(
+                line,
+                "`persist` is valid only as a child of a setting declaration",
+            ));
+        }
+        let mut setting = parse_setting_decl_line(line, trimmed)?;
+        if settings
+            .iter()
+            .any(|existing: &SettingDeclAst| existing.name == setting.name)
+        {
+            return Err(line_error_owned(
+                line,
+                format!("duplicate setting `{}`", setting.name),
+            ));
+        }
+        last_end = line.end;
+        index += 1;
+
+        let mut persistence_seen = false;
+        while index < lines.len() {
+            let child = &lines[index];
+            let child_raw = child.text.trim_start();
+            if is_trivia(child_raw) {
+                index += 1;
+                continue;
+            }
+            if child.indent <= setting_indent {
+                break;
+            }
+            if child.indent != persist_indent {
+                return Err(line_error(
+                    child,
+                    "setting children use one indentation level deeper than the setting declaration",
+                ));
+            }
+            let child_trimmed = strip_inline_comment(child_raw).trim_end();
+            if let Some(rest) = child_trimmed.strip_prefix("persist ") {
+                if persistence_seen {
+                    return Err(line_error(child, "setting declares `persist` at most once"));
+                }
+                persistence_seen = true;
+                setting.persistence = parse_setting_persistence(child, rest.trim())?;
+            } else {
+                return Err(line_error(
+                    child,
+                    "setting children are `persist local`, `persist workspace`, or `persist none`",
+                ));
+            }
+            setting.span = Span::new(setting.span.start, child.end);
+            last_end = child.end;
+            index += 1;
+        }
+
+        settings.push(setting);
+    }
+
+    if settings.is_empty() {
+        return Err(line_error(header, "`settings` requires at least one setting"));
+    }
+    Ok((settings, index, last_end))
+}
+
+fn parse_setting_decl_line(
+    line: &SourceLine<'_>,
+    trimmed: &str,
+) -> Result<SettingDeclAst, ParseError> {
+    let (name_raw, rest_raw) = trimmed.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "setting declarations use `<name>: <Type> [constraints] default <value>`",
+        )
+    })?;
+    let name = name_raw.trim().to_owned();
+    if !is_kebab_or_snake_ident(&name) {
+        return Err(line_error_owned(
+            line,
+            format!("setting name `{}` must be kebab/snake case", name),
+        ));
+    }
+    let rest = rest_raw.trim();
+    let (value_space, default) = if let Some(after_enum) = rest.strip_prefix("Enum ") {
+        parse_enum_setting(line, after_enum.trim())?
+    } else if let Some(after_bool) = rest.strip_prefix("Bool ") {
+        parse_bool_setting(line, after_bool.trim())?
+    } else if let Some(after_int) = rest.strip_prefix("Int ") {
+        parse_int_setting(line, after_int.trim())?
+    } else {
+        return Err(line_error(
+            line,
+            "setting type must be `Enum [...]`, `Bool`, or `Int`",
+        ));
+    };
+
+    Ok(SettingDeclAst {
+        name,
+        value_space,
+        default,
+        persistence: SettingPersistenceAst::None,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_enum_setting(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<(SettingValueSpaceAst, String), ParseError> {
+    if !rest.starts_with('[') {
+        return Err(line_error(line, "enum settings use `Enum [value, ...]`"));
+    }
+    let values_end = rest.find(']').ok_or_else(|| {
+        line_error(
+            line,
+            "enum settings use `Enum [value, ...] default <value>`",
+        )
+    })?;
+    let values = split_lzx_list(&rest[1..values_end]);
+    if values.is_empty() {
+        return Err(line_error(line, "enum settings require at least one value"));
+    }
+    let default = parse_required_default(line, rest[values_end + 1..].trim())?;
+    if !values.iter().any(|value| value == &default) {
+        return Err(line_error_owned(
+            line,
+            format!("enum setting default `{}` is not in the enum values", default),
+        ));
+    }
+    Ok((SettingValueSpaceAst::Enum(values), default))
+}
+
+fn parse_bool_setting(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<(SettingValueSpaceAst, String), ParseError> {
+    let default = parse_required_default(line, rest)?;
+    if !matches!(default.as_str(), "true" | "false") {
+        return Err(line_error(
+            line,
+            "bool setting default must be `true` or `false`",
+        ));
+    }
+    Ok((SettingValueSpaceAst::Bool, default))
+}
+
+fn parse_int_setting(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<(SettingValueSpaceAst, String), ParseError> {
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    let mut min = None;
+    let mut max = None;
+    let mut default = None;
+    let mut index = 0;
+    while index < parts.len() {
+        match parts[index] {
+            "min" => {
+                index += 1;
+                let value = parts.get(index).ok_or_else(|| {
+                    line_error(line, "int setting `min` requires an integer value")
+                })?;
+                min = Some(parse_i64_token(line, value, "min")?);
+            }
+            "max" => {
+                index += 1;
+                let value = parts.get(index).ok_or_else(|| {
+                    line_error(line, "int setting `max` requires an integer value")
+                })?;
+                max = Some(parse_i64_token(line, value, "max")?);
+            }
+            "default" => {
+                index += 1;
+                let value = parts.get(index).ok_or_else(|| {
+                    line_error(line, "int setting `default` requires an integer value")
+                })?;
+                if default.is_some() {
+                    return Err(line_error(line, "setting declares `default` at most once"));
+                }
+                default = Some((*value).to_owned());
+            }
+            _ => {
+                return Err(line_error(
+                    line,
+                    "int settings use `Int [min N] [max N] default V`",
+                ));
+            }
+        }
+        index += 1;
+    }
+    let default = default.ok_or_else(|| line_error(line, "setting requires `default <value>`"))?;
+    let default_value = default.parse::<i64>().map_err(|_| {
+        line_error(
+            line,
+            "int setting default must be an integer within the declared range",
+        )
+    })?;
+    if let Some(min) = min {
+        if default_value < min {
+            return Err(line_error(
+                line,
+                "int setting default is below the declared `min`",
+            ));
+        }
+    }
+    if let Some(max) = max {
+        if default_value > max {
+            return Err(line_error(
+                line,
+                "int setting default is above the declared `max`",
+            ));
+        }
+    }
+    Ok((SettingValueSpaceAst::Int { min, max }, default))
+}
+
+fn parse_required_default(line: &SourceLine<'_>, rest: &str) -> Result<String, ParseError> {
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    if parts.len() != 2 || parts[0] != "default" {
+        return Err(line_error(line, "setting requires `default <value>`"));
+    }
+    Ok(parts[1].to_owned())
+}
+
+fn parse_i64_token(
+    line: &SourceLine<'_>,
+    value: &str,
+    label: &'static str,
+) -> Result<i64, ParseError> {
+    value.parse::<i64>().map_err(|_| {
+        line_error_owned(
+            line,
+            format!("int setting `{}` must be an integer", label),
+        )
+    })
+}
+
+fn parse_setting_persistence(
+    line: &SourceLine<'_>,
+    value: &str,
+) -> Result<SettingPersistenceAst, ParseError> {
+    match value {
+        "local" => Ok(SettingPersistenceAst::Local),
+        "workspace" => Ok(SettingPersistenceAst::Workspace),
+        "none" => Ok(SettingPersistenceAst::None),
+        _ => Err(line_error(
+            line,
+            "`persist` must be `persist local`, `persist workspace`, or `persist none`",
+        )),
+    }
 }
 
 /// Parse a `@<namespace>.<name>` policy atom (currently `@scope.<x>` is
@@ -10437,7 +10945,8 @@ mod surface_parser_tests {
     use super::parse_surface_document;
     use crate::{
         BindingRefAst, DrawerBindingSourceAst, DrawerTriggerAst, FilterCardinalityAst,
-        SearchModeAst, SurfaceTargetAst, ViewAst,
+        SearchModeAst, SelectionModeAst, SettingPersistenceAst, SettingValueSpaceAst, SortDirAst,
+        SurfaceTargetAst, ViewAst,
     };
 
     #[test]
@@ -11251,5 +11760,218 @@ surface slug web
         };
         assert_eq!(create.route.as_deref(), Some("/slugs/new"));
         assert_eq!(create.submit, "slug.command.create");
+    }
+
+    #[test]
+    fn sort_block_parses() {
+        let source = r#"surface item web
+  audience admin
+    view list terminal
+      source item.query.search
+      columns title
+      sort
+        by title, type, priority, updated
+        default updated desc
+"#;
+        let surface = parse_surface_document(source).expect("parses sort");
+        let list = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        let sort = list.sort.as_ref().expect("sort");
+        assert_eq!(sort.allowed, vec!["title", "type", "priority", "updated"]);
+        assert_eq!(sort.default_field, "updated");
+        assert_eq!(sort.default_dir, SortDirAst::Desc);
+    }
+
+    #[test]
+    fn sort_requires_by_line() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      sort\n        default title asc\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("requires a `by`"));
+    }
+
+    #[test]
+    fn sort_default_field_must_be_allowed() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      sort\n        by title\n        default updated desc\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("must be listed"));
+    }
+
+    #[test]
+    fn sort_default_requires_dir() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      sort\n        by title\n        default title\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("default <field>"));
+    }
+
+    #[test]
+    fn selection_single_and_multi_parse() {
+        let source = r#"surface item web
+  audience admin
+    view list single_view
+      source item.query.search
+      columns title
+      selection single
+    view list multi_view
+      source item.query.search
+      columns title
+      selection multi
+"#;
+        let surface = parse_surface_document(source).expect("parses selection");
+        let single = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v.selection.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        let multi = match &surface.audiences[0].views[1] {
+            ViewAst::List(v) => v.selection.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        assert_eq!(single.mode, SelectionModeAst::Single);
+        assert_eq!(multi.mode, SelectionModeAst::Multi);
+    }
+
+    #[test]
+    fn selection_none_rejected() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      selection none\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("omit the line"));
+    }
+
+    #[test]
+    fn selection_unknown_mode_rejected() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      selection foo\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("selection single"));
+    }
+
+    #[test]
+    fn bulk_actions_single_and_multi_parse() {
+        let source = r#"surface item web
+  audience admin
+    view list one
+      source item.query.search
+      columns title
+      selection multi
+      bulk_actions delete
+    view list many
+      source item.query.search
+      columns title
+      selection multi
+      bulk_actions delete, archive
+"#;
+        let surface = parse_surface_document(source).expect("parses bulk actions");
+        let one = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v.selection.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        let many = match &surface.audiences[0].views[1] {
+            ViewAst::List(v) => v.selection.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        assert_eq!(one.bulk_actions, vec!["delete"]);
+        assert_eq!(many.bulk_actions, vec!["delete", "archive"]);
+    }
+
+    #[test]
+    fn bulk_actions_duplicate_rejected() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      bulk_actions delete\n      bulk_actions archive\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("bulk_actions"));
+    }
+
+    #[test]
+    fn bulk_actions_without_selection_is_not_parser_error() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      bulk_actions delete\n";
+        let surface = parse_surface_document(source).expect("bulk-only parses");
+        let selection = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v.selection.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        assert_eq!(selection.mode, SelectionModeAst::None);
+        assert_eq!(selection.bulk_actions, vec!["delete"]);
+    }
+
+    #[test]
+    fn settings_full_example_parses() {
+        let source = r#"surface item web
+  audience admin
+    view list terminal
+      source item.query.search
+      columns title
+      settings
+        grid_size: Enum [sm, md, lg] default sm
+          persist local
+        show_metadata: Bool default true
+        page_size: Int min 10 max 200 default 25
+          persist workspace
+"#;
+        let surface = parse_surface_document(source).expect("parses settings");
+        let list = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(list.settings.len(), 3);
+        assert_eq!(list.settings[0].name, "grid_size");
+        assert_eq!(
+            list.settings[0].value_space,
+            SettingValueSpaceAst::Enum(vec!["sm".into(), "md".into(), "lg".into()])
+        );
+        assert_eq!(list.settings[0].default, "sm");
+        assert_eq!(list.settings[0].persistence, SettingPersistenceAst::Local);
+        assert_eq!(list.settings[1].value_space, SettingValueSpaceAst::Bool);
+        assert_eq!(
+            list.settings[2].value_space,
+            SettingValueSpaceAst::Int {
+                min: Some(10),
+                max: Some(200)
+            }
+        );
+        assert_eq!(list.settings[2].persistence, SettingPersistenceAst::Workspace);
+    }
+
+    #[test]
+    fn persist_outside_setting_rejected() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      persist local\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("persist"));
+    }
+
+    #[test]
+    fn duplicate_setting_name_rejected() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      settings\n        grid_size: Bool default true\n        grid_size: Bool default false\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("duplicate setting"));
+    }
+
+    #[test]
+    fn enum_default_must_be_member() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      settings\n        grid_size: Enum [sm, md] default lg\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("not in the enum"));
+    }
+
+    #[test]
+    fn int_default_must_be_in_range() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      settings\n        page_size: Int min 10 max 200 default 5\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("below"));
+    }
+
+    #[test]
+    fn settings_empty_block_rejected() {
+        let source = "surface item web\n  audience admin\n    view list terminal\n      source item.query.search\n      columns title\n      settings\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("at least one setting"));
+    }
+
+    #[test]
+    fn list_only_keywords_rejected_in_detail_and_create() {
+        let detail = "surface item web\n  audience admin\n    view detail terminal\n      source item.query.by_id\n      sort\n        by title\n        default title asc\n";
+        let create = "surface item web\n  audience admin\n    view create terminal\n      submit item.command.create\n      selection multi\n";
+        let detail_err = parse_surface_document(detail).unwrap_err();
+        let create_err = parse_surface_document(create).unwrap_err();
+        assert!(detail_err.to_string().contains("valid only in `view list`"));
+        assert!(create_err.to_string().contains("valid only in `view list`"));
     }
 }

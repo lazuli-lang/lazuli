@@ -282,6 +282,9 @@ pub struct ViewListAst {
     pub cells_slot: Option<String>,
     pub cells: Vec<CellBindingAst>,
     pub drawer: Option<DrawerSubViewAst>,
+    pub sort: Option<SortDeclAst>,
+    pub selection: Option<SelectionDeclAst>,
+    pub settings: Vec<SettingDeclAst>,
     /// `actions <cmd>, <cmd>` — comma-separated short names or qualified
     /// `<feature>.command.<name>` references. Analyzer normalizes.
     pub actions: Vec<String>,
@@ -405,6 +408,65 @@ pub struct RouteParamAst {
     pub name: String,
     pub type_ref: String,
     pub span: Span,
+}
+
+/// `sort` block inside a `view list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortDeclAst {
+    pub allowed: Vec<String>,
+    pub default_field: String,
+    pub default_dir: SortDirAst,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirAst {
+    Asc,
+    Desc,
+}
+
+/// `selection single|multi` plus optional `bulk_actions` folded in at
+/// view assembly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionDeclAst {
+    pub mode: SelectionModeAst,
+    pub bulk_actions: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionModeAst {
+    None,
+    Single,
+    Multi,
+}
+
+/// One child declaration inside a `settings` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingDeclAst {
+    pub name: String,
+    pub value_space: SettingValueSpaceAst,
+    pub default: String,
+    pub persistence: SettingPersistenceAst,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SettingValueSpaceAst {
+    Enum(Vec<String>),
+    Bool,
+    Int { min: Option<i64>, max: Option<i64> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingPersistenceAst {
+    None,
+    Local,
+    Workspace,
 }
 
 /// `@<namespace>.<name>` — currently always `@scope.<x>` inside an
