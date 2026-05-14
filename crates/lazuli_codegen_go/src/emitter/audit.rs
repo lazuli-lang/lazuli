@@ -85,7 +85,7 @@ pub fn emit_audit_metadata(module: &Module) -> Vec<GeneratedFile> {
 fn emit_feature_audit_metadata(feature: &Feature, commands: &[&Command]) -> String {
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
-    imports.add("lazuli.dev/runtime/lazuli");
+    imports.add("lazuli.dev/runtime/lazuli/auth");
 
     p.banner("lazuli module", &feature.name);
     imports.emit(&mut p);
@@ -115,7 +115,7 @@ fn emit_command_audit_entry(p: &mut GoPrinter, feature: &Feature, command: &Comm
     );
 
     p.line(&format!(
-        "var {} = lazuli.AuditEntry{{",
+        "var {} = auth.AuditEntry{{",
         audit_entry_var_name(&command.name)
     ));
     p.indent();
@@ -341,10 +341,12 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "customer/audit.gen.go");
         assert!(files[0].contents.contains("package customer"));
-        assert!(files[0].contents.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(files[0]
             .contents
-            .contains("var createAuditEntry = lazuli.AuditEntry{"));
+            .contains("\"lazuli.dev/runtime/lazuli/auth\""));
+        assert!(files[0]
+            .contents
+            .contains("var createAuditEntry = auth.AuditEntry{"));
         assert!(files[0]
             .contents
             .contains("CommandName:    \"customer.create\","));
