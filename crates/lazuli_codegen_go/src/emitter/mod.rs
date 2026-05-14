@@ -37,6 +37,7 @@ pub mod plan;
 pub mod poller;
 pub mod printer;
 pub mod query;
+pub mod report;
 pub mod resource;
 pub mod root;
 pub mod storage;

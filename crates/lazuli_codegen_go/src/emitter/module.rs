@@ -28,6 +28,7 @@ use super::notification::emit_notification_file;
 use super::poller::emit_poller_file;
 use super::printer::GoPrinter;
 use super::query::emit_query_file;
+use super::report::emit_reports_file;
 use super::resource::emit_resource_file;
 use super::root::{LAZULI_APP_PATH, MAIN_GO_PATH, emit_lazuli_app_gen, emit_main_go};
 use super::storage::emit_storage_file;
@@ -524,6 +525,19 @@ pub fn emit_module(
             let api_path = format!("{name}/api.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: api_path,
+                contents,
+            });
+        }
+
+        // R.C — Report emission. Per-feature `report.Contract` values
+        // (one per `report <name>`) + Run<Name> entry points in
+        // `reports.gen.go`. The auto-mounted HTTP routes are wired by
+        // the runtime + main.go (out of scope for the emitter walker).
+        // See `docs/proposals/report-vocab.md` v0.2 §Codegen.
+        if let Some(contents) = emit_reports_file(&source_label, feature) {
+            let reports_path = format!("{name}/reports.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: reports_path,
                 contents,
             });
         }
