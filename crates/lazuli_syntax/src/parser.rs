@@ -1654,8 +1654,8 @@ fn parse_enum_decl(
 
     while i < lines.len() {
         let line = &lines[i];
-        let body = line.text.trim_start();
-        if is_trivia(body) {
+        let raw_body = line.text.trim_start();
+        if is_trivia(raw_body) {
             i += 1;
             continue;
         }
@@ -1668,6 +1668,7 @@ fn parse_enum_decl(
                 "`enum` variants use one indentation level deeper than the header",
             ));
         }
+        let body = strip_inline_comment(raw_body).trim_end();
         let (variant_name, storage) = match body.split_once('=') {
             Some((lhs, rhs)) => {
                 let var_name = lhs.trim().to_owned();
@@ -2913,6 +2914,8 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
     let mut rate_limit: Option<String> = None;
     let mut handler: Option<String> = None;
     let mut locale_negotiate: Option<LocaleNegotiateDecl> = None;
+    let mut route: Vec<CommandRouteSlot> = Vec::new();
+    let mut input: Option<CommandInputDecl> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
     while i < lines.len() {
@@ -2963,6 +2966,15 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             handler = Some(unquote_lzx_value(rest.trim()).to_owned());
             last_end = line.end;
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("route ") {
+            route.push(parse_command_route_slot(line, rest)?);
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "input" {
+            let (parsed, next) = parse_command_input_block(lines, i)?;
+            input = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
         } else if trimmed == "locale_negotiate" {
             if locale_negotiate.is_some() {
                 return Err(line_error(
@@ -2977,7 +2989,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
         } else {
             return Err(line_error(
                 line,
-                "`api` children are `method`, `path`, `output`, `policy`, `rate_limit`, `handler`, or `locale_negotiate`",
+                "`api` children are `method`, `path`, `route`, `input`, `output`, `policy`, `rate_limit`, `handler`, or `locale_negotiate`",
             ));
         }
     }
@@ -3001,6 +3013,8 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             rate_limit,
             handler,
             locale_negotiate,
+            route,
+            input,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -3275,7 +3289,8 @@ fn parse_resource_field_decl(
     grandchild_indent: usize,
 ) -> Result<(ResourceFieldDecl, usize), ParseError> {
     let header = &lines[start];
-    let trimmed = header.text.trim_start();
+    let raw_trimmed = header.text.trim_start();
+    let trimmed = strip_inline_comment(raw_trimmed).trim_end();
     let (name_part, after) = trimmed.split_once(':').ok_or_else(|| {
         line_error(
             header,
@@ -6554,6 +6569,29 @@ fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
 
 fn is_trivia(trimmed: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with('#')
+}
+
+/// Strip a `# ...` inline comment from the tail of a source line,
+/// honoring `"..."` and `'...'` quoted strings (a `#` inside a quoted
+/// literal stays put). Returns the input unchanged when the line carries
+/// no comment.
+fn strip_inline_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut in_quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match in_quote {
+            Some(q) if b == q => in_quote = None,
+            Some(_) if b == b'\\' && i + 1 < bytes.len() => i += 1,
+            Some(_) => {}
+            None if b == b'"' || b == b'\'' => in_quote = Some(b),
+            None if b == b'#' => return line[..i].trim_end(),
+            None => {}
+        }
+        i += 1;
+    }
+    line
 }
 
 fn split_lzx_list(value: &str) -> Vec<String> {

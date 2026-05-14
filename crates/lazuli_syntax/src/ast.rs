@@ -877,6 +877,16 @@ pub struct ApiDecl {
     pub handler: Option<String>,
     /// i18n bucket cycle — per-api `locale_negotiate` block override.
     pub locale_negotiate: Option<LocaleNegotiateDecl>,
+    /// `route <name>: <Type>` slots — path placeholders bound to typed
+    /// values. Captured verbatim; codegen currently materializes them
+    /// as args inferred from the path string.
+    #[serde(default)]
+    pub route: Vec<CommandRouteSlot>,
+    /// `input` block — typed body fields. Captured verbatim; codegen
+    /// does not lower these yet (handler @fn.<name> reads the request
+    /// body itself).
+    #[serde(default)]
+    pub input: Option<CommandInputDecl>,
     pub span: Span,
 }
 
