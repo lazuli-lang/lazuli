@@ -1,6 +1,7 @@
 pub mod design;
 pub mod correctness;
 pub mod folder;
+pub mod lifecycle;
 pub mod lzx;
 pub mod vocab;
 
