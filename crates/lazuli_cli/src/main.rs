@@ -852,23 +852,23 @@ fn emit_design_files(
     // doesn't depend on a yet-to-exist `lazuli_codegen_ts::generate_design`.
     let mut out = Vec::new();
     out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "design/tokens.ts".to_owned(),
+        path: "dist/ts-web/design/tokens.ts".to_owned(),
         contents: lazuli_codegen_ts::design::emit_tokens_ts(design),
     });
     out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "design/tokens.css".to_owned(),
+        path: "dist/ts-web/design/tokens.css".to_owned(),
         contents: lazuli_codegen_ts::design::emit_tokens_css(design),
     });
     out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "design/tailwind.gen.ts".to_owned(),
+        path: "dist/ts-web/design/tailwind.gen.ts".to_owned(),
         contents: lazuli_codegen_ts::design::emit_tailwind_v3_preset(design),
     });
     out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "design/tailwind.theme.css".to_owned(),
+        path: "dist/ts-web/design/tailwind.theme.css".to_owned(),
         contents: lazuli_codegen_ts::design::emit_tailwind_v4_theme(design),
     });
     out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "design/allowlist.json".to_owned(),
+        path: "dist/ts-web/design/allowlist.json".to_owned(),
         contents: lazuli_codegen_ts::design::emit_allowlist_json(design),
     });
     out
