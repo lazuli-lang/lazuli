@@ -19,6 +19,7 @@
 //! §9.1. Runtime team: `docs/runtime-handoff.md`.
 
 pub mod design;
+pub mod lzx;
 pub mod runtime;
 
 pub use runtime::emit_feature_ts;
