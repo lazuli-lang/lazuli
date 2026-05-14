@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use crate::lzx::{
     Audience, CommandRef, Surface, ViewList, audience_view_pascal, banner, command_action_key,
-    command_ident, format_cells_literal, format_string_array, pascal_case, query_ident,
+    command_ident, format_cells_literal, format_string_array, lower_camel, pascal_case, query_ident,
     view_hook_name, view_spec_const,
 };
 use crate::lzx::{ListRender, SearchDecl, SearchMode};
@@ -64,7 +64,6 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
 
 fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     let const_name = view_spec_const(&audience.name, &view.name);
-    let columns = view_columns(view);
     let search_columns = view_search_columns(view);
     let filter_names = view_filter_names(view);
 
@@ -75,12 +74,19 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     .ok();
     writeln!(s, "export const {} = {{", const_name).ok();
     writeln!(s, "  source: {},", query_ident(&view.source)).ok();
-    writeln!(
-        s,
-        "  columns: {} as const,",
-        format_string_array(columns)
-    )
-    .ok();
+    match &view.render {
+        ListRender::Table { columns } => {
+            writeln!(
+                s,
+                "  columns: {} as const,",
+                format_string_array(columns)
+            )
+            .ok();
+        }
+        ListRender::Cells { slot } => {
+            writeln!(s, "  cells: \"@client.{}\" as const,", slot).ok();
+        }
+    }
     if !search_columns.is_empty() {
         writeln!(
             s,
@@ -97,7 +103,9 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
         )
         .ok();
     }
-    writeln!(s, "  cells: {},", format_cells_literal(&view.cells)).ok();
+    if matches!(&view.render, ListRender::Table { .. }) {
+        writeln!(s, "  cells: {},", format_cells_literal(&view.cells)).ok();
+    }
     if !view.actions.is_empty() {
         writeln!(s, "  actions: {},", format_actions_object(&view.actions)).ok();
     }
@@ -106,13 +114,6 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     }
     writeln!(s, "}} as const;").ok();
     s.push('\n');
-}
-
-fn view_columns(view: &ViewList) -> &[String] {
-    match &view.render {
-        ListRender::Table { columns } => columns.as_slice(),
-        ListRender::Cells { .. } => &[],
-    }
 }
 
 fn view_search_columns(view: &ViewList) -> &[String] {
@@ -138,6 +139,10 @@ fn format_actions_object(actions: &[CommandRef]) -> String {
 }
 
 fn write_column_assert(s: &mut String, audience: &Audience, view: &ViewList, surface: &Surface) {
+    if !matches!(&view.render, ListRender::Table { .. }) {
+        return;
+    }
+
     let const_name = view_spec_const(&audience.name, &view.name);
     let feature_pascal = pascal_case(&surface.feature);
 
@@ -158,21 +163,39 @@ fn write_column_assert(s: &mut String, audience: &Audience, view: &ViewList, sur
     s.push('\n');
 }
 
-fn write_slot_interface(s: &mut String, audience: &Audience, view: &ViewList, _surface: &Surface) {
-    if view.cells.is_empty() {
-        return;
-    }
-    let iface = format!("{}Slots", audience_view_pascal(&audience.name, &view.name));
-    writeln!(s, "// Slot binding contract.").ok();
-    writeln!(s, "export interface {} {{", iface).ok();
-    for cell in &view.cells {
-        let pascal_slot = pascal_case(&cell.slot);
-        writeln!(
-            s,
-            "  {}: React.ComponentType<{}Props>;",
-            pascal_slot, pascal_slot
-        )
-        .ok();
+fn write_slot_interface(s: &mut String, audience: &Audience, view: &ViewList, surface: &Surface) {
+    match &view.render {
+        ListRender::Table { .. } => {
+            if view.cells.is_empty() {
+                return;
+            }
+            let iface = format!("{}Slots", audience_view_pascal(&audience.name, &view.name));
+            writeln!(s, "// Slot binding contract.").ok();
+            writeln!(s, "export interface {} {{", iface).ok();
+            for cell in &view.cells {
+                let pascal_slot = pascal_case(&cell.slot);
+                writeln!(
+                    s,
+                    "  {}: React.ComponentType<{}Props>;",
+                    pascal_slot, pascal_slot
+                )
+                .ok();
+            }
+        }
+        ListRender::Cells { slot } => {
+            let iface = format!("{}Cells", audience_view_pascal(&audience.name, &view.name));
+            let pascal_slot = pascal_case(slot);
+            let row_prop = lower_camel(&surface.feature);
+            let row_type = pascal_case(&surface.feature);
+            writeln!(s, "// Grid cell slot contract.").ok();
+            writeln!(s, "export interface {} {{", iface).ok();
+            writeln!(
+                s,
+                "  {}: React.ComponentType<{{ {}: {} }}>;",
+                pascal_slot, row_prop, row_type
+            )
+            .ok();
+        }
     }
     writeln!(s, "}}").ok();
     s.push('\n');
@@ -406,6 +429,53 @@ mod tests {
         // Slot interface includes both.
         assert!(out.contains("TypeBadge: React.ComponentType<TypeBadgeProps>"));
         assert!(out.contains("UserAvatar: React.ComponentType<UserAvatarProps>"));
+    }
+
+    #[test]
+    fn cells_render_emits_grid_slot_interface() {
+        let mut view = minimal_view_list();
+        view.render = ListRender::Cells {
+            slot: "item_card".to_owned(),
+        };
+        let audience = minimal_audience(view.clone());
+        let mut surface = minimal_surface(audience.clone());
+        surface.feature = "item".to_owned();
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(out.contains("export interface ViewerThingListCells"));
+        assert!(out.contains("ItemCard: React.ComponentType<{ item: Item }>;"));
+        assert!(!out.contains("export interface ViewerThingListSlots"));
+    }
+
+    #[test]
+    fn cells_render_spec_uses_client_slot_literal() {
+        let mut view = minimal_view_list();
+        view.render = ListRender::Cells {
+            slot: "item_card".to_owned(),
+        };
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(out.contains("cells: \"@client.item_card\" as const"));
+        assert!(!out.contains("columns:"));
+        assert!(!out.contains("type _AssertColumns"));
+    }
+
+    #[test]
+    fn table_render_keeps_columns_and_column_assertion() {
+        let view = minimal_view_list();
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(out.contains("columns: [\"id\"] as const"));
+        assert!(out.contains("cells: {}"));
+        assert!(out.contains("type _AssertColumns"));
+        assert!(!out.contains("export interface ViewerThingListCells"));
     }
 
     #[test]
