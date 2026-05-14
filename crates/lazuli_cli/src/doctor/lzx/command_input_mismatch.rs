@@ -94,7 +94,7 @@ fn find_command<'a>(feature: &'a Feature, cref: &CommandRef) -> Option<&'a Comma
     feature.commands.iter().find(|c| c.name == cref.name)
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -139,6 +139,7 @@ mod tests {
         Command {
             name: name.to_owned(),
             input_fields: input_fields.iter().map(|s| (*s).to_owned()).collect(),
+            input: CommandInput::Empty,
             policy_atoms: vec![],
         }
     }
@@ -200,6 +201,7 @@ mod tests {
             search_decl: None,
             filter_decls: vec![],
             selection: None,
+            sort: None,
             cells: vec![],
             actions: vec![],
             drawer: None,

@@ -104,7 +104,7 @@ fn command_intersects(cmd: &Command, requires: &[String]) -> bool {
         .any(|atom| requires.iter().any(|req| req == atom))
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -138,6 +138,7 @@ mod tests {
         Command {
             name: name.to_owned(),
             input_fields: vec![],
+            input: CommandInput::Empty,
             policy_atoms: atoms.iter().map(|s| (*s).to_owned()).collect(),
         }
     }

@@ -116,7 +116,7 @@ impl super::ir_stub::SortDir {
     }
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -125,14 +125,18 @@ mod tests {
         TypedSlot {
             name: name.to_owned(),
             type_label: type_label.to_owned(),
+            type_ref: TypeRef::Other(type_label.to_owned()),
+            required: false,
         }
     }
 
     fn query(params: Vec<TypedSlot>) -> ListQuery {
         ListQuery {
             name: "search".to_owned(),
+            input_slots: vec![],
             params,
             backs_resource: Some("Item".to_owned()),
+            input_slot_meta: vec![],
         }
     }
 
@@ -144,9 +148,13 @@ mod tests {
                 feature: None,
                 name: "search".to_owned(),
             },
+            render: ListRender::Table { columns: vec![] },
             columns: vec![],
             search: vec![],
             filter: vec![],
+            search_decl: None,
+            filter_decls: vec![],
+            selection: None,
             sort: Some(SortDecl {
                 allowed: vec!["title".to_owned(), "updated".to_owned()],
                 default_field: "updated".to_owned(),
@@ -154,6 +162,7 @@ mod tests {
             }),
             cells: vec![],
             actions: vec![],
+            drawer: None,
             line: 12,
         })
     }

@@ -179,7 +179,7 @@ fn format_query_ref(current_feature: &Feature, query_ref: &QueryRef) -> String {
     }
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -204,6 +204,8 @@ mod tests {
             name: name.to_owned(),
             input_slots,
             backs_resource: Some(backs_resource.to_owned()),
+            input_slot_meta: vec![],
+            params: vec![],
         }
     }
 
@@ -219,9 +221,16 @@ mod tests {
             name: "item_terminal".into(),
             at: Some("/items".into()),
             source: qref("search"),
+            render: ListRender::Table {
+                columns: vec!["id".into(), "title".into()],
+            },
             columns: vec!["id".into(), "title".into()],
             search: vec![],
             filter: vec![],
+            search_decl: None,
+            filter_decls: vec![],
+            selection: None,
+            sort: None,
             cells: vec![],
             actions: vec![],
             drawer: Some(DrawerSubView {

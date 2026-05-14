@@ -146,7 +146,7 @@ fn display_binding_ref(binding: &BindingRef) -> String {
     }
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -185,7 +185,9 @@ mod tests {
                 queries: vec![ListQuery {
                     name: "search".into(),
                     backs_resource: None,
-                    input_slots: source_inputs,
+                    input_slots: vec![],
+                    input_slot_meta: source_inputs,
+                    params: vec![],
                 }],
                 commands: vec![],
                 surfaces: vec![Surface {
@@ -201,6 +203,7 @@ mod tests {
                                 feature: None,
                                 name: "search".into(),
                             },
+                            render: ListRender::Table { columns: vec![] },
                             columns: vec![],
                             search: vec![],
                             filter: vec![],
@@ -209,9 +212,14 @@ mod tests {
                                 free_text_target: None,
                             }),
                             filter_decls: filters,
-                            selection: selection.map(|mode| SelectionDecl { mode }),
+                            selection: selection.map(|mode| SelectionDecl {
+                                mode,
+                                bulk_actions: vec![],
+                            }),
+                            sort: None,
                             cells: vec![],
                             actions: vec![],
+                            drawer: None,
                             line: 12,
                         })],
                         line: 3,

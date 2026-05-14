@@ -173,7 +173,7 @@ fn mode_label(mode: SelectionMode) -> &'static str {
     }
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -197,17 +197,28 @@ mod tests {
     fn typed_cmd(name: &str, fields: Vec<(&str, TypeRef)>) -> Command {
         Command {
             name: name.to_owned(),
+            input_fields: fields.iter().map(|(n, _)| (*n).to_owned()).collect(),
             input: CommandInput::Typed(
                 fields
                     .into_iter()
                     .map(|(name, type_ref)| TypedSlot {
                         name: name.to_owned(),
+                        type_label: display_type_label(&type_ref),
                         type_ref,
                         required: true,
                     })
                     .collect(),
             ),
             policy_atoms: vec![],
+        }
+    }
+
+    fn display_type_label(type_ref: &TypeRef) -> String {
+        match type_ref {
+            TypeRef::Id => "ID".to_owned(),
+            TypeRef::QualifiedId(prefix) => format!("{prefix}.ID"),
+            TypeRef::List(inner) => format!("{}[]", display_type_label(inner)),
+            TypeRef::Other(name) => name.clone(),
         }
     }
 
@@ -219,12 +230,17 @@ mod tests {
                 feature: None,
                 name: "mine".into(),
             },
+            render: ListRender::Table { columns: vec![] },
             columns: vec![],
             search: vec![],
             filter: vec![],
+            search_decl: None,
+            filter_decls: vec![],
+            selection,
+            sort: None,
             cells: vec![],
             actions: vec![],
-            selection,
+            drawer: None,
             line: 20,
         })
     }

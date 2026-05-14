@@ -103,7 +103,7 @@ fn check_view(feature: &Feature, view: &View, out: &mut Vec<Finding>) {
     }
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -121,7 +121,8 @@ mod tests {
             name: name.to_owned(),
             input_slots: vec![],
             backs_resource: backs.map(str::to_owned),
-            input_slots: vec![],
+            input_slot_meta: vec![],
+            params: vec![],
         }
     }
 
@@ -149,6 +150,7 @@ mod tests {
             search_decl: None,
             filter_decls: vec![],
             selection: None,
+            sort: None,
             cells: vec![],
             actions: vec![],
             drawer: None,

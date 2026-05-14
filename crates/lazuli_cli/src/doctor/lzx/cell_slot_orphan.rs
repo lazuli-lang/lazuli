@@ -115,7 +115,7 @@ fn check_view(feature_name: &str, view: &View, out: &mut Vec<Finding>) {
     }
 }
 
-#[cfg(any())] // TEMP: gated; tests need ir_stub field updates per L0 #6 cells D.4-D.6 follow-up
+#[cfg(test)]
 mod tests {
     use super::super::ir_stub::*;
     use super::*;
@@ -145,6 +145,7 @@ mod tests {
             search_decl: None,
             filter_decls: vec![],
             selection: None,
+            sort: None,
             cells,
             actions: vec![],
             drawer: None,
