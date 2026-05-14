@@ -546,60 +546,13 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     p.blank();
 }
 
-/// PascalCase that recognises canonical acronyms (`id`, `url`, `api`,
-/// ...) and renders them all-caps. Mirrors the runtime spike helper so
-/// the typed E2 output keeps the same casing convention.
-fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-') {
-        if word.is_empty() {
-            continue;
-        }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            for u in first.to_uppercase() {
-                out.push(u);
-            }
-        }
-        out.push_str(chars.as_str());
-    }
-    out
-}
-
-/// lowerCamelCase using the same acronym table. Leading word is always
-/// lower-cased so `id_lookup` becomes `idLookup`, not `IDLookup`.
-///
-/// Derives from `pascal_case` so it handles both snake_case
-/// (`customer_import_batch` → `customerImportBatch`) and PascalCase
-/// (`CustomerImportBatch` → `customerImportBatch`) inputs uniformly.
-/// The previous split-on-`_` implementation collapsed PascalCase
-/// names like `CustomerImportBatch` into a single all-lowercase word
-/// (`customerimportbatch`), breaking cross-emitter references when
-/// `query.rs` referenced `<resource>Resource` per Go idiom.
-fn lower_camel(s: &str) -> String {
-    let pascal = pascal_case(s);
-    let mut chars = pascal.chars();
-    let Some(first) = chars.next() else {
-        return String::new();
-    };
-    let mut out = String::with_capacity(pascal.len());
-    for c in first.to_lowercase() {
-        out.push(c);
-    }
-    out.push_str(chars.as_str());
-    out
-}
-
-fn is_acronym(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl" | "uuid"
-    )
-}
+// Delegate to the shared `casing` module so resource/record names use
+// the same word-splitting + acronym rules as every other emitter. The
+// previous local copy split only on `_`/`-`, missing case transitions
+// (`ApiKey` stayed one word, then emitted as `ApiKey`), which diverged
+// from `query.rs` / `command.rs` references to the same type (rendered
+// as `APIKey` after their split-on-case-transition + `api` acronym).
+use super::casing::{lower_camel, pascal_case};
 
 #[cfg(test)]
 mod tests {
