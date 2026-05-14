@@ -1300,6 +1300,39 @@ fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Result<()
     Ok(())
 }
 
+/// Recursively collect every `.lzi` file under a package root, skipping
+/// well-known noise directories (build output, vcs metadata, vendored
+/// deps). Honors the Lazurite convention (`features/<name>/<name>.lzi`)
+/// without requiring callers to enumerate features.
+fn collect_package_lzi_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    const SKIP: &[&str] = &[
+        ".git",
+        ".hg",
+        ".svn",
+        ".lazuli",
+        "dist",
+        "node_modules",
+        "target",
+    ];
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if SKIP.iter().any(|s| *s == name) {
+                continue;
+            }
+            collect_package_lzi_files(&path, out)?;
+        } else if path.extension().and_then(|s| s.to_str()) == Some("lzi") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
 /// Build a `lazuli_ir::Module` from a `.lzi` file or directory by
 /// walking every `.lzi` file in the canonical fixture and lowering its
 /// `feature` blocks through the canonical-indent slice (Phase L Tier
@@ -1317,15 +1350,7 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
 
     let files: Vec<PathBuf> = if input.is_dir() {
         let mut out = Vec::new();
-        for entry in
-            fs::read_dir(input).with_context(|| format!("reading directory {}", input.display()))?
-        {
-            let entry = entry?;
-            let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("lzi") {
-                out.push(p);
-            }
-        }
+        collect_package_lzi_files(input, &mut out)?;
         out.sort();
         out
     } else {
@@ -1354,12 +1379,24 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
             module.profiles.extend(profiles);
         }
         // Features via canonical-indent slice
-        if let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(&source) {
-            for ast in skeletons {
-                if let Ok(feature) = lazuli_analyzer::lower_feature_skeleton(&ast) {
-                    module.features.push(feature);
+        match lazuli_syntax::parse_feature_skeletons(&source) {
+            Ok(skeletons) => {
+                for ast in skeletons {
+                    match lazuli_analyzer::lower_feature_skeleton(&ast) {
+                        Ok(feature) => module.features.push(feature),
+                        Err(err) => eprintln!(
+                            "lazuli: skipping feature in {}: lower failed: {:?}",
+                            path.display(),
+                            err
+                        ),
+                    }
                 }
             }
+            Err(err) => eprintln!(
+                "lazuli: skipping {}: feature parse failed: {:?}",
+                path.display(),
+                err
+            ),
         }
     }
 
@@ -1388,15 +1425,7 @@ fn build_module_with_source_from_path(
 
     let files: Vec<PathBuf> = if input.is_dir() {
         let mut out = Vec::new();
-        for entry in
-            fs::read_dir(input).with_context(|| format!("reading directory {}", input.display()))?
-        {
-            let entry = entry?;
-            let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("lzi") {
-                out.push(p);
-            }
-        }
+        collect_package_lzi_files(input, &mut out)?;
         out.sort();
         out
     } else {
