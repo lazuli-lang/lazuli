@@ -14,6 +14,8 @@ use crate::lzx::{
     view_hook_name, view_spec_const,
 };
 use crate::lzx::lzx_aux;
+use crate::lzx::lzx_filters;
+use crate::lzx::lzx_search;
 use crate::lzx::{ListRender, SearchDecl, SearchMode, SelectionMode};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
@@ -36,6 +38,10 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
     let has_drawer = view.drawer.is_some();
     let has_drawer_delete = drawer_delete_action(view).is_some();
     let has_multi_selection = is_multi_selection(view);
+    let has_filters = !view.filter.is_empty();
+    let has_search = view.search.is_some();
+    let has_segmented_search = lzx_search::needs_segmented_imports(view.search.as_ref());
+    let has_url_synced_filters = lzx_filters::has_url_synced_filters(&view.filter);
 
     // 1. Runtime hooks.
     writeln!(s, "import {{").ok();
@@ -52,23 +58,63 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
     if lzx_aux::needs_local_setting(view) {
         writeln!(s, "  useLocalSetting,").ok();
     }
+    if has_filters {
+        writeln!(s, "  useFilterState,").ok();
+    }
+    if has_url_synced_filters {
+        // TODO: introduce useUrlParams() helper in @lazuli/runtime/react.
+        writeln!(s, "  useUrlParams,").ok();
+    }
+    if has_segmented_search {
+        writeln!(s, "  parseSegments,").ok();
+        writeln!(s, "  canonicalizeSearch,").ok();
+    }
     writeln!(s, "  type UseLazuliQueryOptions,").ok();
     writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
-    if has_drawer {
-        writeln!(s, "import {{ useCallback, useState }} from \"react\";").ok();
+
+    // React hooks — combine search-driven needs with the existing
+    // drawer/aux state needs so we never emit two `import ... from "react"`
+    // lines.
+    let needs_use_state = has_drawer || lzx_aux::needs_use_state(view) || has_search;
+    let needs_use_callback = has_drawer || has_search;
+    let needs_use_memo = has_segmented_search;
+    let needs_react_type = has_drawer || !view.cells.is_empty();
+    if needs_use_state || needs_use_callback || needs_use_memo {
+        let mut parts: Vec<&str> = Vec::new();
+        if needs_use_callback {
+            parts.push("useCallback");
+        }
+        if needs_use_memo {
+            parts.push("useMemo");
+        }
+        if needs_use_state {
+            parts.push("useState");
+        }
+        writeln!(s, "import {{ {} }} from \"react\";", parts.join(", ")).ok();
+    }
+    if needs_react_type {
         writeln!(s, "import type * as React from \"react\";").ok();
+    }
+    if has_drawer {
         writeln!(
             s,
             "import {{ useRouterState }} from \"@tanstack/react-router\";"
         )
         .ok();
-    } else if lzx_aux::needs_use_state(view) {
-        writeln!(s, "import {{ useState }} from \"react\";").ok();
-        if !view.cells.is_empty() {
-            writeln!(s, "import type * as React from \"react\";").ok();
-        }
-    } else if !view.cells.is_empty() {
-        writeln!(s, "import type * as React from \"react\";").ok();
+    }
+    if has_url_synced_filters {
+        writeln!(
+            s,
+            "import {{ useSearch as useRouterSearch, useNavigate }} from \"@tanstack/react-router\";"
+        )
+        .ok();
+    }
+    if has_segmented_search {
+        writeln!(
+            s,
+            "import {{ parse as parseSearchQuery, type SearchParserResult, type SearchParserOptions }} from \"search-query-parser\";"
+        )
+        .ok();
     }
 
     // 2. Feature SDK — resource type + source query + each action command.
@@ -96,6 +142,12 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
         }
     }
     for ident in lzx_aux::unique_bulk_command_imports(view) {
+        sdk_imports
+            .entry(surface.feature.clone())
+            .or_default()
+            .insert(ident);
+    }
+    for ident in lzx_filters::enum_value_imports(&view.filter) {
         sdk_imports
             .entry(surface.feature.clone())
             .or_default()
@@ -274,6 +326,13 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
     let const_name = view_spec_const(&audience.name, &view.name);
     let hook_name = view_hook_name(&audience.name, &view.name);
     let feature_pascal = pascal_case(&surface.feature);
+    let has_filters = !view.filter.is_empty();
+    let has_url_synced_filters = lzx_filters::has_url_synced_filters(&view.filter);
+    let has_search = view.search.is_some();
+    let is_columns_search = matches!(
+        view.search.as_ref().map(|d| &d.mode),
+        Some(SearchMode::Columns { .. })
+    );
 
     writeln!(s, "export function {}(", hook_name).ok();
     writeln!(
@@ -283,10 +342,24 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
     )
     .ok();
     writeln!(s, ") {{").ok();
+
+    if has_url_synced_filters {
+        // TODO: useUrlParams() ships with @lazuli/runtime/react alongside
+        // this emitter — see follow-up issue.
+        writeln!(s, "  const [params, setParams] = useUrlParams();").ok();
+    }
+    if has_filters {
+        s.push_str(&lzx_filters::emit_filters_const(&view.filter, surface));
+    }
+    if has_search {
+        lzx_search::emit_hook_setup(s, view);
+    }
+
     writeln!(
         s,
-        "  const query = useLazuliQuery({}.source, {{}}, options);",
-        const_name
+        "  const query = useLazuliQuery({}.source, {}, options);",
+        const_name,
+        format_query_input(view, has_filters, is_columns_search)
     )
     .ok();
     lzx_aux::write_hook_state(s, surface, view);
@@ -346,6 +419,10 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
     writeln!(s).ok();
     writeln!(s, "  return {{").ok();
     writeln!(s, "    query,").ok();
+    if has_filters {
+        writeln!(s, "    filters,").ok();
+    }
+    lzx_search::emit_return_field(s, view.search.as_ref());
     if !view.actions.is_empty() {
         let parts: Vec<String> = view
             .actions
@@ -369,6 +446,23 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
     writeln!(s, "    meta: {},", const_name).ok();
     writeln!(s, "  }} as const;").ok();
     writeln!(s, "}}").ok();
+}
+
+fn format_query_input(view: &ViewList, has_filters: bool, is_columns_search: bool) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if has_filters {
+        for filter in &view.filter {
+            parts.push(format!("{}: filters.{}.value", filter.name, filter.name));
+        }
+    }
+    if is_columns_search {
+        parts.push("q: searchRaw".to_owned());
+    }
+    if parts.is_empty() {
+        "{}".to_owned()
+    } else {
+        format!("{{ {} }}", parts.join(", "))
+    }
 }
 
 fn is_multi_selection(view: &ViewList) -> bool {
@@ -891,5 +985,142 @@ mod tests {
 
         assert!(out.contains("lookupThingByID"));
         assert!(out.contains("const drawerSubQuery = useLazuliQuery(lookupThingByID, { key: drawerId ?? \"\" }, { enabled: drawerId !== null });"));
+    }
+
+    #[test]
+    fn filter_decl_emits_use_filter_state_call() {
+        let mut view = minimal_view_list();
+        view.filter = vec![FilterDecl {
+            name: "tags".to_owned(),
+            type_ref: "Text".to_owned(),
+            cardinality: FilterCardinality::Single,
+            url_sync: false,
+            span_ref: None,
+        }];
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        // useFilterState imported from runtime.
+        assert!(out.contains("useFilterState,"));
+        // Hook declares `const filters = useFilterState(...)`.
+        assert!(out.contains(
+            "const filters = useFilterState({ tags: { mode: \"single\", urlKey: undefined } });"
+        ));
+        // Return shape includes `filters,`.
+        assert!(out.contains("    filters,\n"));
+    }
+
+    #[test]
+    fn segmented_search_emits_parse_segments_and_canonicalize() {
+        let mut view = minimal_view_list();
+        view.filter = vec![
+            FilterDecl {
+                name: "slug".to_owned(),
+                type_ref: "Text".to_owned(),
+                cardinality: FilterCardinality::Single,
+                url_sync: false,
+                span_ref: None,
+            },
+            FilterDecl {
+                name: "tags".to_owned(),
+                type_ref: "Text".to_owned(),
+                cardinality: FilterCardinality::Multi,
+                url_sync: false,
+                span_ref: None,
+            },
+        ];
+        view.search = Some(SearchDecl {
+            mode: SearchMode::Segmented,
+            fields: vec![
+                SearchField {
+                    key: "slug".to_owned(),
+                    binds_to: BindingRef::Filter {
+                        name: "slug".to_owned(),
+                    },
+                    span_ref: None,
+                },
+                SearchField {
+                    key: "tag".to_owned(),
+                    binds_to: BindingRef::Filter {
+                        name: "tags".to_owned(),
+                    },
+                    span_ref: None,
+                },
+            ],
+            free_text_target: None,
+            span_ref: None,
+        });
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        // search-query-parser pulled in.
+        assert!(out.contains(
+            "import { parse as parseSearchQuery, type SearchParserResult, type SearchParserOptions } from \"search-query-parser\";"
+        ));
+        // Runtime imports include parseSegments + canonicalizeSearch.
+        assert!(out.contains("  parseSegments,"));
+        assert!(out.contains("  canonicalizeSearch,"));
+        // Hook setup invokes parseSearchQuery, canonicalizeSearch.
+        assert!(out.contains("parseSearchQuery(input,"));
+        assert!(out.contains("canonicalizeSearch({"));
+        // Return field surfaces segments via parseSegments.
+        assert!(out.contains(
+            "segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),"
+        ));
+    }
+
+    #[test]
+    fn enum_filter_imports_values_const() {
+        let mut view = minimal_view_list();
+        view.filter = vec![FilterDecl {
+            name: "type".to_owned(),
+            type_ref: "ItemType".to_owned(),
+            cardinality: FilterCardinality::Single,
+            url_sync: false,
+            span_ref: None,
+        }];
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        // Feature SDK import block includes the enum VALUES constant.
+        assert!(out.contains("  ITEM_TYPE_VALUES,"));
+        // Filter config references it.
+        assert!(out.contains("values: [...ITEM_TYPE_VALUES] as const"));
+    }
+
+    #[test]
+    fn use_lazuli_query_threads_filter_values() {
+        let mut view = minimal_view_list();
+        view.filter = vec![
+            FilterDecl {
+                name: "tags".to_owned(),
+                type_ref: "Text".to_owned(),
+                cardinality: FilterCardinality::Multi,
+                url_sync: false,
+                span_ref: None,
+            },
+            FilterDecl {
+                name: "kind".to_owned(),
+                type_ref: "Text".to_owned(),
+                cardinality: FilterCardinality::Single,
+                url_sync: false,
+                span_ref: None,
+            },
+        ];
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        // useLazuliQuery receives the filter values in declaration order.
+        assert!(out.contains(
+            "const query = useLazuliQuery(viewerThingListView.source, { tags: filters.tags.value, kind: filters.kind.value }, options);"
+        ));
     }
 }
