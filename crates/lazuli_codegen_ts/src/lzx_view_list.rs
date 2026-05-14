@@ -5,6 +5,7 @@
 //!
 //! Per `docs/proposals/lzx-integration-codegen.md` §6.1.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use crate::lzx::{
@@ -12,7 +13,7 @@ use crate::lzx::{
     command_ident, format_cells_literal, format_string_array, lower_camel, pascal_case, query_ident,
     view_hook_name, view_spec_const,
 };
-use crate::lzx::{ListRender, SearchDecl, SearchMode};
+use crate::lzx::{ListRender, SearchDecl, SearchMode, SelectionMode};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
 pub fn emit_view_list(surface: &Surface, audience: &Audience, view: &ViewList) -> String {
@@ -30,24 +31,72 @@ pub fn emit_view_list(surface: &Surface, audience: &Audience, view: &ViewList) -
 
 fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
     let feature_pascal = pascal_case(&surface.feature);
+    let has_drawer = view.drawer.is_some();
+    let has_drawer_delete = drawer_delete_action(view).is_some();
+    let has_multi_selection = is_multi_selection(view);
 
     // 1. Runtime hooks.
     writeln!(s, "import {{").ok();
     writeln!(s, "  useLazuliQuery,").ok();
-    if !view.actions.is_empty() {
+    if !view.actions.is_empty() || has_drawer_delete {
         writeln!(s, "  useLazuliCommand,").ok();
+    }
+    if has_drawer {
+        writeln!(s, "  useDrawerSubView,").ok();
+    }
+    if has_multi_selection {
+        writeln!(s, "  useMultiSelection,").ok();
     }
     writeln!(s, "  type UseLazuliQueryOptions,").ok();
     writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
+    if has_drawer {
+        writeln!(s, "import {{ useCallback, useState }} from \"react\";").ok();
+        writeln!(s, "import type * as React from \"react\";").ok();
+        writeln!(
+            s,
+            "import {{ useRouterState }} from \"@tanstack/react-router\";"
+        )
+        .ok();
+    } else if !view.cells.is_empty() {
+        writeln!(s, "import type * as React from \"react\";").ok();
+    }
 
     // 2. Feature SDK — resource type + source query + each action command.
-    writeln!(s, "import {{").ok();
-    writeln!(s, "  {},", query_ident(&view.source)).ok();
+    let mut sdk_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    sdk_imports
+        .entry(view.source.feature.clone())
+        .or_default()
+        .insert(query_ident(&view.source));
     for cmd in &view.actions {
-        writeln!(s, "  {},", command_ident(cmd)).ok();
+        sdk_imports
+            .entry(cmd.feature.clone())
+            .or_default()
+            .insert(command_ident(cmd));
     }
-    writeln!(s, "  type {},", feature_pascal).ok();
-    writeln!(s, "}} from \"../../{}.gen.js\";", surface.feature).ok();
+    if let Some(drawer) = &view.drawer {
+        sdk_imports
+            .entry(drawer.source.feature.clone())
+            .or_default()
+            .insert(query_ident(&drawer.source));
+        for cmd in &drawer.actions {
+            sdk_imports
+                .entry(cmd.feature.clone())
+                .or_default()
+                .insert(command_ident(cmd));
+        }
+    }
+    sdk_imports
+        .entry(surface.feature.clone())
+        .or_default()
+        .insert(format!("type {}", feature_pascal));
+
+    for (feature, imports) in sdk_imports {
+        writeln!(s, "import {{").ok();
+        for import in imports {
+            writeln!(s, "  {},", import).ok();
+        }
+        writeln!(s, "}} from \"../../{}.gen.js\";", feature).ok();
+    }
 
     // 3. Cell slot prop types — one import per binding.
     for cell in &view.cells {
@@ -127,7 +176,10 @@ fn view_search_columns(view: &ViewList) -> &[String] {
 }
 
 fn view_filter_names(view: &ViewList) -> Vec<String> {
-    view.filter.iter().map(|filter| filter.name.clone()).collect()
+    view.filter
+        .iter()
+        .map(|filter| filter.name.clone())
+        .collect()
 }
 
 fn format_actions_object(actions: &[CommandRef]) -> String {
@@ -220,6 +272,28 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
         const_name
     )
     .ok();
+    if is_multi_selection(view) {
+        writeln!(
+            s,
+            "  const selection = useMultiSelection<string>(query.data ?? []);"
+        )
+        .ok();
+    }
+    if view.drawer.is_some() {
+        writeln!(s, "  const routerState = useRouterState();").ok();
+        writeln!(
+            s,
+            "  const [drawerId, setDrawerId] = useState<string | null>(null);"
+        )
+        .ok();
+        if is_multi_selection(view) {
+            writeln!(
+                s,
+                "  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);"
+            )
+            .ok();
+        }
+    }
 
     for cmd in &view.actions {
         let key = command_action_key(cmd);
@@ -236,6 +310,20 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
         )
         .ok();
     }
+    if let Some(delete_cmd) = drawer_delete_action(view)
+        && !view
+            .actions
+            .iter()
+            .any(|cmd| command_action_key(cmd) == "delete")
+    {
+        writeln!(
+            s,
+            "  const drawerDelete = useLazuliCommand({});",
+            command_ident(delete_cmd)
+        )
+        .ok();
+    }
+    write_drawer_state(s, view);
 
     writeln!(s).ok();
     writeln!(s, "  return {{").ok();
@@ -255,9 +343,134 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Su
             .collect();
         writeln!(s, "    actions: {{ {} }},", parts.join(", ")).ok();
     }
+    if is_multi_selection(view) {
+        writeln!(s, "    selection,").ok();
+    }
+    if view.drawer.is_some() {
+        writeln!(s, "    drawer,").ok();
+        writeln!(s, "    cellClick,").ok();
+    }
     writeln!(s, "    meta: {},", const_name).ok();
     writeln!(s, "  }} as const;").ok();
     writeln!(s, "}}").ok();
+}
+
+fn is_multi_selection(view: &ViewList) -> bool {
+    matches!(
+        view.selection.as_ref().map(|selection| selection.mode),
+        Some(SelectionMode::Multi)
+    )
+}
+
+fn drawer_delete_action(view: &ViewList) -> Option<&CommandRef> {
+    view.drawer.as_ref().and_then(|drawer| {
+        drawer
+            .actions
+            .iter()
+            .find(|cmd| command_action_key(cmd) == "delete")
+    })
+}
+
+fn delete_success_expr(view: &ViewList) -> &'static str {
+    if drawer_delete_action(view).is_none() {
+        "null"
+    } else if view
+        .actions
+        .iter()
+        .any(|cmd| command_action_key(cmd) == "delete")
+    {
+        "delete_.isSuccess ? delete_.submittedAt : null"
+    } else {
+        "drawerDelete.isSuccess ? drawerDelete.submittedAt : null"
+    }
+}
+
+fn write_drawer_state(s: &mut String, view: &ViewList) {
+    let Some(drawer) = &view.drawer else {
+        return;
+    };
+
+    let input = drawer
+        .route_binding
+        .as_ref()
+        .map(|binding| format!("{{ {}: drawerId ?? \"\" }}", binding.target))
+        .unwrap_or_else(|| "{ id: drawerId ?? \"\" }".to_owned());
+    let drawer_source = query_ident(&drawer.source);
+    let selection_contains = if is_multi_selection(view) {
+        "drawerId !== null ? selection.has(drawerId) : false"
+    } else {
+        "undefined"
+    };
+
+    writeln!(
+        s,
+        "  const drawerSubQuery = useLazuliQuery({}, {}, {{ enabled: drawerId !== null }});",
+        drawer_source, input
+    )
+    .ok();
+    writeln!(s, "  const drawerState = useDrawerSubView({{").ok();
+    writeln!(s, "    item: drawerSubQuery.data,").ok();
+    writeln!(
+        s,
+        "    itemMissing: !drawerSubQuery.isLoading && drawerSubQuery.data === null,"
+    )
+    .ok();
+    writeln!(s, "    pathname: routerState.location.pathname,").ok();
+    writeln!(s, "    lastDeleteSuccess: {},", delete_success_expr(view)).ok();
+    writeln!(s, "    selectionContainsOpenId: {},", selection_contains).ok();
+    writeln!(s, "  }});").ok();
+    writeln!(s, "  const drawer = {{").ok();
+    writeln!(s, "    ...drawerState,").ok();
+    writeln!(s, "    id: drawerId,").ok();
+    writeln!(s, "    isOpen: drawerState.isOpen,").ok();
+    writeln!(
+        s,
+        "    item: drawerId !== null ? (drawerSubQuery.data ?? null) : null,"
+    )
+    .ok();
+    writeln!(
+        s,
+        "    open: (id: string) => {{ setDrawerId(id); drawerState.open(id); }},"
+    )
+    .ok();
+    writeln!(
+        s,
+        "    close: () => {{ setDrawerId(null); drawerState.close(); }},"
+    )
+    .ok();
+    writeln!(s, "  }};").ok();
+    if is_multi_selection(view) {
+        writeln!(
+            s,
+            "  const cellClick = useCallback((id: string, event: React.MouseEvent) => {{"
+        )
+        .ok();
+        writeln!(
+            s,
+            "    if (event.shiftKey && lastSelectedId !== null) {{ selection.selectRange(lastSelectedId, id); setLastSelectedId(id); return; }}"
+        )
+        .ok();
+        writeln!(
+            s,
+            "    if (event.metaKey || event.ctrlKey) {{ selection.toggle(id); setLastSelectedId(id); return; }}"
+        )
+        .ok();
+        writeln!(
+            s,
+            "    if (selection.ids.size > 0) {{ selection.toggle(id); setLastSelectedId(id); return; }}"
+        )
+        .ok();
+        writeln!(s, "    drawer.open(id); setLastSelectedId(id);").ok();
+        writeln!(s, "  }}, [selection, drawer, lastSelectedId]);").ok();
+    } else {
+        writeln!(
+            s,
+            "  const cellClick = useCallback((id: string, _event: React.MouseEvent) => {{"
+        )
+        .ok();
+        writeln!(s, "    drawer.open(id);").ok();
+        writeln!(s, "  }}, [drawer]);").ok();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +522,33 @@ mod tests {
             target: SurfaceTarget::Web,
             audiences: vec![audience],
             span_ref: None,
+        }
+    }
+
+    fn drawer() -> DrawerSubView {
+        DrawerSubView {
+            name: "thing_detail".to_owned(),
+            trigger: DrawerTrigger::Select,
+            source: QueryRef {
+                feature: "thing".to_owned(),
+                kind: QueryKind::Lookup,
+                name: "by_id".to_owned(),
+            },
+            route_binding: Some(DrawerRouteBinding {
+                target: "id".to_owned(),
+                source: DrawerBindingSource::Selection,
+            }),
+            sections: vec![],
+            cells: vec![],
+            actions: vec![],
+            span_ref: None,
+        }
+    }
+
+    fn delete_thing_ref() -> CommandRef {
+        CommandRef {
+            feature: "thing".to_owned(),
+            name: "delete".to_owned(),
         }
     }
 
@@ -420,12 +660,14 @@ mod tests {
         let surface = minimal_surface(audience.clone());
 
         let out = emit_view_list(&surface, &audience, &view);
-        assert!(out.contains(
-            "import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";"
-        ));
-        assert!(out.contains(
-            "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
-        ));
+        assert!(
+            out.contains("import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";")
+        );
+        assert!(
+            out.contains(
+                "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
+            )
+        );
         // Slot interface includes both.
         assert!(out.contains("TypeBadge: React.ComponentType<TypeBadgeProps>"));
         assert!(out.contains("UserAvatar: React.ComponentType<UserAvatarProps>"));
@@ -502,7 +744,11 @@ mod tests {
 
         let out = emit_view_list(&surface, &audience, &view);
         // Object literal style + all three resolved identifiers.
-        assert!(out.contains("actions: { create: createSlug, update: updateSlug, archive: archiveSlug }"));
+        assert!(
+            out.contains(
+                "actions: { create: createSlug, update: updateSlug, archive: archiveSlug }"
+            )
+        );
         // Hook returns the spread actions map.
         assert!(out.contains("actions: { create, update, archive }"));
     }
@@ -517,5 +763,117 @@ mod tests {
         assert!(!out.contains("search:"));
         assert!(!out.contains("filter:"));
         assert!(!out.contains("actions:"));
+    }
+
+    #[test]
+    fn drawer_with_multi_selection_emits_dispatcher_branches() {
+        let mut view = minimal_view_list();
+        view.drawer = Some(drawer());
+        view.selection = Some(SelectionDecl {
+            mode: SelectionMode::Multi,
+            bulk_actions: vec![],
+            span_ref: None,
+        });
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(out.contains("useDrawerSubView"));
+        assert!(out.contains("useMultiSelection"));
+        assert!(out.contains("const selection = useMultiSelection<string>(query.data ?? [])"));
+        assert!(
+            out.contains(
+                "const cellClick = useCallback((id: string, event: React.MouseEvent) => {"
+            )
+        );
+        assert!(out.contains("if (event.shiftKey && lastSelectedId !== null) { selection.selectRange(lastSelectedId, id); setLastSelectedId(id); return; }"));
+        assert!(out.contains("if (event.metaKey || event.ctrlKey) { selection.toggle(id); setLastSelectedId(id); return; }"));
+        assert!(out.contains(
+            "if (selection.ids.size > 0) { selection.toggle(id); setLastSelectedId(id); return; }"
+        ));
+        assert!(out.contains("drawer.open(id); setLastSelectedId(id);"));
+        assert!(out.contains(
+            "selectionContainsOpenId: drawerId !== null ? selection.has(drawerId) : false"
+        ));
+        assert!(out.contains("drawer,"));
+        assert!(out.contains("cellClick,"));
+    }
+
+    #[test]
+    fn drawer_with_single_selection_emits_simple_dispatcher() {
+        let mut view = minimal_view_list();
+        view.drawer = Some(drawer());
+        view.selection = Some(SelectionDecl {
+            mode: SelectionMode::Single,
+            bulk_actions: vec![],
+            span_ref: None,
+        });
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(
+            out.contains(
+                "const cellClick = useCallback((id: string, _event: React.MouseEvent) => {"
+            )
+        );
+        assert!(out.contains("    drawer.open(id);"));
+        assert!(!out.contains("event.shiftKey"));
+        assert!(!out.contains("event.metaKey || event.ctrlKey"));
+        assert!(!out.contains("selection.ids.size > 0"));
+        assert!(!out.contains("useMultiSelection"));
+    }
+
+    #[test]
+    fn drawer_none_emits_no_drawer_or_cell_click_fields() {
+        let view = minimal_view_list();
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(!out.contains("useDrawerSubView"));
+        assert!(!out.contains("drawerSubQuery"));
+        assert!(!out.contains("const drawer ="));
+        assert!(!out.contains("cellClick"));
+        assert!(!out.contains("useRouterState"));
+    }
+
+    #[test]
+    fn drawer_delete_action_threads_last_delete_success() {
+        let mut drawer = drawer();
+        drawer.actions = vec![delete_thing_ref()];
+        let mut view = minimal_view_list();
+        view.drawer = Some(drawer);
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(out.contains("deleteThing"));
+        assert!(out.contains("const drawerDelete = useLazuliCommand(deleteThing);"));
+        assert!(out.contains(
+            "lastDeleteSuccess: drawerDelete.isSuccess ? drawerDelete.submittedAt : null"
+        ));
+    }
+
+    #[test]
+    fn drawer_route_binding_fills_subquery_input_target() {
+        let mut drawer = drawer();
+        drawer.route_binding = Some(DrawerRouteBinding {
+            target: "key".to_owned(),
+            source: DrawerBindingSource::Selection,
+        });
+        let mut view = minimal_view_list();
+        view.drawer = Some(drawer);
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_list(&surface, &audience, &view);
+
+        assert!(out.contains("lookupThingByID"));
+        assert!(out.contains("const drawerSubQuery = useLazuliQuery(lookupThingByID, { key: drawerId ?? \"\" }, { enabled: drawerId !== null });"));
     }
 }
