@@ -48,6 +48,7 @@ pub mod ir_stub;
 
 pub mod action_not_in_audience;
 pub mod audience_empty_sdk;
+pub mod bulk_actions;
 pub mod cells_or_columns;
 pub mod cell_slot_orphan;
 pub mod cells_mixed_form;
@@ -57,6 +58,7 @@ pub mod filter_resolves;
 pub mod route_param_missing_binding;
 pub mod route_param_orphan;
 pub mod search_binds;
+pub mod sort_source;
 pub mod source_resource_mismatch;
 
 use ir_stub::{Audience, Command, Feature, QueryRef, Resource};
@@ -188,24 +190,28 @@ mod helper_tests {
                     name: "mine".into(),
                     input_slots: vec![],
                     backs_resource: Some("Slug".into()),
-                    input_slots: vec![],
+                    input_slot_meta: vec![],
+                    params: vec![],
                 },
                 ListQuery {
                     name: "orphaned".into(),
                     input_slots: vec![],
                     backs_resource: None,
-                    input_slots: vec![],
+                    input_slot_meta: vec![],
+                    params: vec![],
                 },
             ],
             commands: vec![
                 Command {
                     name: "create".into(),
                     input_fields: vec!["key".into(), "title".into()],
+                    input: CommandInput::Empty,
                     policy_atoms: vec!["@scope.admin".into()],
                 },
                 Command {
                     name: "public_ping".into(),
                     input_fields: vec![],
+                    input: CommandInput::Empty,
                     policy_atoms: vec![],
                 },
             ],

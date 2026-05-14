@@ -64,6 +64,20 @@ pub struct ListQuery {
     /// resolve `source.<name>` against this list.
     #[allow(dead_code)]
     pub input_slot_meta: Vec<QueryInputSlot>,
+    /// Query input slots as TypedSlot (for sort_source rule). Mirrors
+    /// `input_slots` content but in the typed-name form.
+    pub params: Vec<TypedSlot>,
+}
+
+/// Sub-shape of `lazuli_ir::TypedSlot` for query/command parameters.
+/// Stub carries both a string label (used by sort_source) and a typed
+/// `TypeRef` (used by bulk_actions).
+#[derive(Debug, Clone)]
+pub struct TypedSlot {
+    pub name: String,
+    pub type_label: String,
+    pub type_ref: TypeRef,
+    pub required: bool,
 }
 
 /// Query input slot metadata consumed by `lzx-search-*` doctor rules.
@@ -100,10 +114,33 @@ pub struct Command {
     /// Names of slots in the command's `input` block (regardless of typed /
     /// short form).
     pub input_fields: Vec<String>,
+    /// Typed input shape consumed by `lzx-bulk-action-input-shape`.
+    pub input: CommandInput,
     /// Lowered policy atoms (`@scope.X`, `@role.X`, `@actor.X`). Empty = the
     /// command is public.
     pub policy_atoms: Vec<String>,
 }
+
+#[derive(Debug, Clone)]
+pub enum CommandInput {
+    Short(Vec<String>),
+    Typed(Vec<TypedSlot>),
+    Empty,
+}
+
+impl Default for CommandInput {
+    fn default() -> Self { CommandInput::Empty }
+}
+
+/// Closed type catalog the bulk-action input rule walks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeRef {
+    Id,
+    QualifiedId(String),
+    List(Box<TypeRef>),
+    Other(String),
+}
+
 
 // =============================================================================
 // Surface / Audience / View
@@ -189,11 +226,23 @@ pub struct ViewList {
     pub filter_decls: Vec<FilterDecl>,
     /// L0 #6 selection declaration.
     pub selection: Option<SelectionDecl>,
+    /// L0 #6 sort declaration.
+    pub sort: Option<SortDecl>,
     pub cells: Vec<CellBinding>,
     pub actions: Vec<CommandRef>,
     pub drawer: Option<DrawerSubView>,
     pub line: usize,
 }
+
+#[derive(Debug, Clone)]
+pub struct SortDecl {
+    pub allowed: Vec<String>,
+    pub default_field: String,
+    pub default_dir: SortDir,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDir { Asc, Desc }
 
 /// `view list` render discriminator.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -327,6 +376,9 @@ pub enum BindingRef {
 #[derive(Debug, Clone)]
 pub struct SelectionDecl {
     pub mode: SelectionMode,
+    /// Lzx-bulk-actions list of command refs. Used by
+    /// `lzx-bulk-action-input-shape` and `lzx-bulk-actions-require-multi`.
+    pub bulk_actions: Vec<CommandRef>,
 }
 
 /// Sub-shape of `lazuli_ir::SelectionMode`.
