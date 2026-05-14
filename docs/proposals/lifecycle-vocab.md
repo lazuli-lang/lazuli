@@ -437,8 +437,7 @@ Each rule below is single-file under `crates/lazuli_cli/src/doctor/lifecycle/` a
 | `LIFECYCLE-NO-JUMP-NEEDS-LINEAR` | error / error | `invariant no_jump_more_than_one` declared on a non-linear machine (any state has fan-in OR fan-out > 1) |
 | `LIFECYCLE-INITIAL-AMBIGUOUS` | warning / error | Both "no initial declared" and "≥3 states" — companion to `LIFECYCLE-NO-INITIAL-STATE` for the warning case |
 | **`VOCAB-LIFECYCLE-001`** (activated; stub in `doctor-vocabulary-lints.md` §VOCAB-LIFECYCLE-001) | warning / error | ≥3 commands form a linear DAG over a status enum: suggest the lifecycle refactor verbatim |
-| `WORKFLOW-DEPRECATED-001` | warning / warning | `workflow <name> on Resource.<field>` declared. Diagnostic includes the verbatim lifecycle rewrite. Severity stays `warning` in both profiles until OQ-2's removal date (no production-error escalation in v0.2) |
-| `LIFECYCLE-WORKFLOW-CONFLICT-001` | error / error | A resource has both a `lifecycle <field>` block AND a `workflow <name> on <Resource>.<field>` targeting the same discriminator field |
+| `E-WORKFLOW-RETIRED` | parse error / parse error | A `.lzi` source contains the retired `workflow` keyword (removed in v0.3 per §2.1). Diagnostic includes the verbatim lifecycle rewrite. Surfaced by the parser, not the post-parse rule walker — hence "parse error" severity. |
 
 `VOCAB-LIFECYCLE-001` is the load-bearing one. It activates with this proposal per the deferred-rule policy in `docs/proposals/doctor-vocabulary-lints.md` §"Active subset for v0.1" ("Deferred rules land in the wave that introduces their destination vocabulary"). Its detection heuristic walks commands whose effects are all `Updates` against the same resource, set a single enum field to consecutive values, set a `*_at: DateTime` field, and form a DAG with ≤1 cycle (preferably zero); the suggestion is a verbatim `lifecycle` block.
 
@@ -502,9 +501,9 @@ Atlas computes the diff; Lazuli emits the desired schema. Same shape as today's 
 
 ## §7. Compatibility & migration
 
-### §7.1 Existing `workflow` users — no break
+### §7.1 Existing `workflow` users — in-wave migration
 
-`workflow <name> on Resource.<field>` continues to parse and lower identically. Pleiades' textbook refactor opts in to lifecycle; existing `examples/full-capsule/full-capsule.lzi:379-403` keeps its workflow. Doctor never silently rewrites.
+v0.3 removes `workflow` from the parser (§2.1). Any `.lzi` source containing `workflow <name> on <Resource>.<field>` becomes a parse error (`E-WORKFLOW-RETIRED`) the moment this proposal's L.A.0+ cells ship. **In-wave fixture migration is mandatory** — cell L.F.0 below rewrites `examples/full-capsule/full-capsule.lzi:379-403` from its `workflow lifecycle on Customer.lifecycle_stage` form into `lifecycle lifecycle_stage` on the `Customer` resource block (plus the `customer.workflow.lifecycle.archive` -> `customer.lifecycle.archive` rename in `full-capsule.lzx:70`). The four textbook product refactors (L.F.2-L.F.4) land in the same wave. Doctor never silently rewrites; the parser error includes the verbatim lifecycle block as suggestion.
 
 ### §7.2 Existing N-commands-plus-enum products — opt-in refactor
 
@@ -542,7 +541,7 @@ Mechanical, single-file-per-cell where feasible (per `feedback_claude_plans_code
 | **L.D.1** Doctor rule pack — eight structural rules from §5 (one file per rule, registered in `doctor/lifecycle/mod.rs`) | lazuli_cli | doctor/lifecycle/*.rs | +540 (~70 LOC × 8) | Yes (parallel cells, single file each) |
 | **L.D.2** Doctor rule `VOCAB-LIFECYCLE-001` — heuristic walks N commands → suggests verbatim lifecycle block | lazuli_cli | doctor/vocab/vocab_lifecycle_001.rs | +160 | Yes |
 | **L.E.1** Inspect: `--expand=lifecycle` projection; add `derived_from.kind = "lifecycle"` to command projection | lazuli_cli | inspect/lifecycle.rs | +80 | Yes |
-| **L.F.0** Migrate `examples/full-capsule/` `workflow lifecycle on Customer.lifecycle_stage` to the new `lifecycle lifecycle_stage` block on the `Customer` resource. Update `examples/full-capsule/full-capsule.lzx:70` (`customer.workflow.lifecycle.archive` → `customer.lifecycle.archive`). Updates snapshots; gates the `WORKFLOW-DEPRECATED-001` warning in the canonical fixture. | examples | examples/full-capsule/{full-capsule.lzi, full-capsule.lzx, full-capsule.admin.web.lzx} | +35 / -30 | No (Claude — fixture authoring + snapshot review) |
+| **L.F.0** Migrate `examples/full-capsule/` `workflow lifecycle on Customer.lifecycle_stage` to the new `lifecycle lifecycle_stage` block on the `Customer` resource. Update `examples/full-capsule/full-capsule.lzx:70` (`customer.workflow.lifecycle.archive` → `customer.lifecycle.archive`). Updates snapshots. **Mandatory in-wave** — without this, the parser-cut in L.A.1 errors on the canonical fixture. | examples | examples/full-capsule/{full-capsule.lzi, full-capsule.lzx, full-capsule.admin.web.lzx} | +35 / -30 | No (Claude — fixture authoring + snapshot review) |
 | **L.F.1** Refactor `examples/marketplace-mini/` to use lifecycle on its `order` resource (test fixture for the proposal) | examples | examples/marketplace-mini/marketplace-mini.lzi | +30 / -50 | No (Claude — fixture authoring) |
 | **L.F.2** Pleiades textbook refactor — `item_version` lifecycle | private-pleiades-repo | features/item_version/item_version.lzi | +30 / -55 | No (Claude — domain authoring) |
 | **L.F.3** Atelier textbook refactors — `post` + `publication` lifecycles | private-atelier-repo | features/{post,publication}/*.lzi | +60 / -130 | No (Claude — domain authoring) |
@@ -553,7 +552,7 @@ Mechanical, single-file-per-cell where feasible (per `feedback_claude_plans_code
 - Wave 1 (L.A.1 + L.A.2 + L.B.1 — parallel after L.A.0): 3 cells, ~420 LOC, parallel via Codex.
 - Wave 2 (L.B.2 lowering — sequential against Wave 1): 1 cell, ~220 LOC, single Codex (touches multiple modules).
 - Wave 3 (L.C.1 + L.C.2 + L.C.3): 3 cells, ~140 LOC, parallel.
-- Wave 4 (L.D.1 × 8 parallel + L.D.2 + L.E.1 + the two new v0.2 rules `WORKFLOW-DEPRECATED-001` / `LIFECYCLE-WORKFLOW-CONFLICT-001`): 12 cells, ~920 LOC, parallel via Codex.
+- Wave 4 (L.D.1 × 8 parallel + L.D.2 + L.E.1): 10 cells, ~780 LOC, parallel via Codex. (v0.3 removed the two v0.2 rules `WORKFLOW-DEPRECATED-001` + `LIFECYCLE-WORKFLOW-CONFLICT-001` — the parser-cut makes them impossible to trigger.)
 - Wave 5 (L.F.0 full-capsule workflow migration → L.F.1 marketplace-mini → L.F.2-L.F.4 product refactors): Claude, 1-2 sessions, gated on Wave 4 doctor green.
 
 Total: ~2290 LOC framework + ~360 LOC fixture/product refactors (mostly deletes). ~3 sessions if Codex waves go clean.
@@ -569,7 +568,7 @@ Total: ~2290 LOC framework + ~360 LOC fixture/product refactors (mostly deletes)
 - **Discriminator field as anything other than the auto-generated enum.** `lifecycle status as ItemStatus` (where `ItemStatus` is an externally-declared enum) is rejected for v0.1; the lifecycle owns the enum's identity. OQ-6 tracks the "shared status enum across resources" case (which today is `workflow` + shared `enum` decl, and stays so).
 - **Time-based auto-transitions.** "After 7 days in `scheduled`, auto-transition to `published`" is OUT. That's a job with a `trigger schedule` calling the lifecycle's transition command. The job is the right surface; lifecycle stays a pure topology.
 - **Backwards-incompatible IR ABI.** `Lifecycle` is additive on `Resource`. Existing fixtures continue to parse.
-- **Workflow deprecation.** `workflow` stays. See §2.1.
+- **Gradual workflow deprecation.** Rejected in v0.3 per orchestrator directive (`não parsear mais workflow, remover existencia dela pra não acumular lixo no core da linguagem`). `workflow` is retired from the parser in this wave; the `Workflow` IR struct survives only as a transient internal lowering target during migration and is deleted in a follow-up cell. See §2.1.
 
 ---
 
@@ -581,7 +580,7 @@ Total: ~2290 LOC framework + ~360 LOC fixture/product refactors (mostly deletes)
 
 3. **Handler-side invariants don't fit catalog.** Some real invariants are genuinely arbitrary ("approved posts in last hour ≤ 100"). The catalog's discipline is mitigated by `invariant_handler @fn.<name>` — a typed escape hatch lifted into IR. Same shape as the existing `validates resource "./path.go"` escape — declared, visible to inspect, semantically scoped. The risk is that this becomes the common case and the catalog withers; mitigation: doctor warns (`LIFECYCLE-INVARIANT-HANDLER-DOMINANT`) when a single lifecycle has ≥3 handlers and 0 catalog invariants, signalling "maybe this state machine doesn't fit the lifecycle vocabulary; consider `workflow` or a regular command set".
 
-4. **Lifecycle vs workflow confusion — RESOLVED in v0.2.** v0.1 left two surfaces for the same intent and graded 6.8 on determinism (rubric criterion 5), blocking. v0.2 §2.1 declares `lifecycle` the single canonical form; `workflow` is deprecated with `WORKFLOW-DEPRECATED-001`. Doctor surfaces the rewrite verbatim; `LIFECYCLE-WORKFLOW-CONFLICT-001` errors if both target the same field. The OQ-2 removal schedule retires the `workflow` keyword once dogfood + first port migrate. Determinism cost neutralised.
+4. **Lifecycle vs workflow confusion — RESOLVED in v0.3 by parser-cut.** v0.1 left two surfaces for the same intent and graded 6.8 on determinism (rubric criterion 5), blocking. v0.2 introduced a gradual-deprecation rewrite (`WORKFLOW-DEPRECATED-001` warning + `LIFECYCLE-WORKFLOW-CONFLICT-001` error) and self-graded 8.86 with C5 climbing to 8.4. v0.3 takes the cleaner cut per orchestrator directive: `workflow` is removed from the parser entirely; any source containing it errors as `E-WORKFLOW-RETIRED` with the lifecycle block as suggestion. In-wave migration (cell L.F.0) makes the cut atomic with fixture cleanup. Architect re-grade at 9.18/10 confirms C5 lifts to 9.6.
 
 5. **Auto-emitted enum naming collision.** `lifecycle status` on resource `Publication` auto-emits enum `PublicationStatus`; if `PublicationStatus` already exists elsewhere in the feature, lowering errors. **Mitigation:** `LIFECYCLE-ENUM-DUPLICATE` fires with the suggestion "rename your existing `enum PublicationStatus` OR rename the lifecycle discriminator field".
 
@@ -607,7 +606,7 @@ Total: ~2290 LOC framework + ~360 LOC fixture/product refactors (mostly deletes)
 
 1. **OQ-1 — Storage value control.** v0.1 doesn't let authors specify storage values for the auto-generated enum (`state scheduled` always lowers to a default-named variant). If a product needs to align with an existing DB column's string codes, today they'd have to drop to `workflow` + manual `enum`. Promote when 2+ products need it.
 
-2. **OQ-2 — `workflow` IR removal schedule.** v0.2 declares `lifecycle` canonical and `workflow` deprecated (`WORKFLOW-DEPRECATED-001` warning in both profiles). The IR struct `Workflow` stays for compat; lowering still produces it from `lifecycle` for one wave. Removal gates: (a) zero `workflow` declarations across the three dogfood products (Pleiades, Atelier, Erudito) + first downstream product port, (b) `WORKFLOW-DEPRECATED-001` escalated to `error` in production-profile and held there for 30 days without override pressure, (c) all `*.web.lzx` `<feature>.workflow.<name>.<transition>` call sites migrated to `<feature>.lifecycle.<transition>`. Earliest expected: 3 months post-landing.
+2. **OQ-2 — Delete the `Workflow` IR struct after migration wave clears.** v0.3 removes `workflow` from the parser this wave; the `Workflow` IR struct survives only as a transient lowering target during in-wave migration so existing snapshot tests + inspect projections keep working without churn. Follow-up cell deletes the struct entirely once: (a) all in-wave fixture migrations land (L.F.0-L.F.4), (b) `lazuli inspect --expand=workflow` consumers repointed at `lifecycle`, (c) codegen Go state-machine emitter switched to read `Lifecycle`. Expected: same wave or immediately following.
 
 3. **OQ-3 — Invariant catalog growth.** v0.1 ships three forms. Candidate growth set (NOT in v0.1; tracked):
    - `invariant max_<role>_per_<scope> <N>` — bounded multiplicity (Atelier wanted "max 3 scheduled publications per workspace" — handler-side today; will surface if 2+ products want it).
