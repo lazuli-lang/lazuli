@@ -13,7 +13,7 @@ use crate::lzx::{
     command_action_key, command_ident, format_cells_literal, lower_camel, pascal_case, query_ident,
     view_hook_name, view_spec_const,
 };
-use crate::lzx::lzx_router_adapter::{RouterTarget, router_useparams_import};
+use crate::lzx::lzx_router_adapter::{RouterTarget, router_useparams_import, translate_route_path};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`
 /// for a `view detail` view.
@@ -27,10 +27,10 @@ pub fn emit_view_detail(
     s.push_str(banner());
 
     write_imports(&mut s, surface, view, target);
-    write_spec_const(&mut s, audience, view);
+    write_spec_const(&mut s, audience, view, target);
     write_sections_interface(&mut s, audience, view, surface);
     write_slot_interface(&mut s, audience, view);
-    write_hook(&mut s, audience, view);
+    write_hook(&mut s, audience, view, target);
 
     s
 }
@@ -71,14 +71,14 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewDetail, target: R
     s.push('\n');
 }
 
-fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewDetail) {
+fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewDetail, target: RouterTarget) {
     let const_name = view_spec_const(&audience.name, &view.name);
 
     writeln!(s, "// Compile-time view spec const.").ok();
     writeln!(s, "export const {} = {{", const_name).ok();
     writeln!(s, "  source: {},", query_ident(&view.source)).ok();
     if let Some(route) = &view.route {
-        writeln!(s, "  route: \"{}\",", route).ok();
+        writeln!(s, "  route: \"{}\",", translate_route_path(target, route)).ok();
     }
     if !view.sections.is_empty() {
         let sections: Vec<String> = view.sections.iter().map(|s| format!("\"{}\"", s)).collect();
@@ -160,10 +160,11 @@ fn write_slot_interface(s: &mut String, audience: &Audience, view: &ViewDetail) 
     s.push('\n');
 }
 
-fn write_hook(s: &mut String, audience: &Audience, view: &ViewDetail) {
+fn write_hook(s: &mut String, audience: &Audience, view: &ViewDetail, target: RouterTarget) {
     let const_name = view_spec_const(&audience.name, &view.name);
     let hook_name = view_hook_name(&audience.name, &view.name);
     let route = view.route.as_deref().unwrap_or("/");
+    let translated = translate_route_path(target, route);
 
     writeln!(s, "export function {}() {{", hook_name).ok();
 
@@ -174,7 +175,7 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewDetail) {
             s,
             "  const {{ {} }} = useParams({{ from: \"{}\" }});",
             names.join(", "),
-            route
+            translated
         )
         .ok();
         let args = format_route_args(&view.route_params);
@@ -318,8 +319,8 @@ mod tests {
         assert!(out.contains("export function useAdminSlugDetailView"));
         // Source query identifier (lookup → lookup<Resource>By<Short>).
         assert!(out.contains("lookupSlugByKey"));
-        // Route.
-        assert!(out.contains("route: \"/slugs/:key\""));
+        // Route — translated to TanStack Router syntax for vite-react.
+        assert!(out.contains("route: \"/slugs/$key\""));
         // Sections array in the spec.
         assert!(
             out.contains("sections: [\"header\", \"metadata\", \"related_items\"] as const")
@@ -335,7 +336,7 @@ mod tests {
         // useParams import for the default vite-react target.
         assert!(out.contains("@tanstack/react-router"));
         // Hook body destructures key from useParams and passes it to source.
-        assert!(out.contains("const { key } = useParams({ from: \"/slugs/:key\" })"));
+        assert!(out.contains("const { key } = useParams({ from: \"/slugs/$key\" })"));
         assert!(out.contains("useLazuliQuery(adminSlugDetailView.source, { key })"));
         // Actions: update + delete.
         assert!(out.contains("actions: { update: updateSlug, delete: deleteSlug }"));

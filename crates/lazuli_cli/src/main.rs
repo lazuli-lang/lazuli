@@ -816,19 +816,13 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         return Ok(());
     }
 
-    let out_dir = output
-        .map(Path::to_path_buf)
-        .or_else(|| {
-            manifest
-                .as_ref()
-                .and_then(|m| m.frontends.values().next())
-                .map(|f| project_root.join(&f.out))
-        })
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "`lazuli generate ts` requires --output <dir> or [frontends.<x>].out in lazurite.toml"
-            )
-        })?;
+    // Emitters return project-relative paths (e.g. `dist/ts-web/slug/...`).
+    // When the user passes `--output <dir>` we honour it as a literal base
+    // (legacy override + tests); otherwise default to project root so the
+    // `dist/<target>/` prefix encoded in each path lands at its canonical
+    // location. The manifest's `[frontends.<x>].out` is declarative — it
+    // describes WHERE the dist directory lives but is NOT a join prefix.
+    let out_dir = output.map(Path::to_path_buf).unwrap_or(project_root);
 
     fs::create_dir_all(&out_dir)
         .with_context(|| format!("creating output directory {}", out_dir.display()))?;

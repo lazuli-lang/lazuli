@@ -44,6 +44,52 @@ pub fn router_useparams_import(target: RouterTarget) -> &'static str {
     }
 }
 
+/// Translate a portable `.lzx` route path (Express-style `:param`) into
+/// the syntax expected by the target router. Authors write `:key`; each
+/// router consumes its own dialect.
+///
+/// | target       | `:param` becomes |
+/// |--------------|------------------|
+/// | `vite-react` | `$param` (TanStack Router) |
+/// | `tauri`      | `$param` (TanStack Router) |
+/// | `nextjs`     | `[param]` (App Router segment) |
+/// | `expo`       | `[param]` (Expo Router segment) |
+pub fn translate_route_path(target: RouterTarget, route: &str) -> String {
+    let mut out = String::with_capacity(route.len());
+    let bytes = route.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b':' {
+            let start = i + 1;
+            let mut j = start;
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+            {
+                j += 1;
+            }
+            if j > start {
+                let name = &route[start..j];
+                match target {
+                    RouterTarget::ViteReact | RouterTarget::Tauri => {
+                        out.push('$');
+                        out.push_str(name);
+                    }
+                    RouterTarget::NextJs | RouterTarget::Expo => {
+                        out.push('[');
+                        out.push_str(name);
+                        out.push(']');
+                    }
+                }
+                i = j;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,6 +124,43 @@ mod tests {
             router_useparams_import(RouterTarget::Expo),
             "import { useLocalSearchParams as useParams } from \"expo-router\";\n"
         );
+    }
+
+    #[test]
+    fn translate_route_path_tanstack_uses_dollar() {
+        assert_eq!(
+            translate_route_path(RouterTarget::ViteReact, "/slugs/:key"),
+            "/slugs/$key"
+        );
+        assert_eq!(
+            translate_route_path(RouterTarget::Tauri, "/orgs/:org_id/users/:user_id"),
+            "/orgs/$org_id/users/$user_id"
+        );
+    }
+
+    #[test]
+    fn translate_route_path_next_and_expo_use_brackets() {
+        assert_eq!(
+            translate_route_path(RouterTarget::NextJs, "/slugs/:key"),
+            "/slugs/[key]"
+        );
+        assert_eq!(
+            translate_route_path(RouterTarget::Expo, "/users/:id"),
+            "/users/[id]"
+        );
+    }
+
+    #[test]
+    fn translate_route_path_passes_through_static_segments() {
+        for t in [
+            RouterTarget::ViteReact,
+            RouterTarget::Tauri,
+            RouterTarget::NextJs,
+            RouterTarget::Expo,
+        ] {
+            assert_eq!(translate_route_path(t, "/slugs/new"), "/slugs/new");
+            assert_eq!(translate_route_path(t, "/"), "/");
+        }
     }
 
     #[test]
