@@ -1,0 +1,42 @@
+# Rule: VOCAB-DERIVED-READ-001
+# Case: positive - rule SHOULD fire
+# `canonical_url` is exposed only through a handler-backed API output.
+# No command or job writes it, so the field should be declared `derived from`.
+
+feature derived_read_positive_handler_only
+  domain
+    resource Post
+      title: Text required
+      slug: Text required unique
+      canonical_url: Text optional
+      created_at: DateTime required
+
+    record PostRead
+      id: ID required
+      title: Text required
+      slug: Text required
+      canonical_url: Text required
+
+  policies
+    public: @scope.public
+    author: @scope.authenticated
+
+  command create_post
+    input
+      title: Text required
+      slug: Text required
+    policy @policy.author
+    rate_limit "30 per hour per actor"
+    audit default
+    creates Post
+      title = input.title
+      slug = input.slug
+      created_at = ctx.now
+
+  api read_post
+    method GET
+    path "/posts/read"
+    output PostRead
+    policy @policy.public
+    rate_limit "120 per minute per ip"
+    handler @fn.serialize_post
