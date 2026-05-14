@@ -23,7 +23,8 @@ use crate::ast::{
     LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, MotionAst, Notification,
     NotificationDigest, NotificationThrottle, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst,
     PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,
-    Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
+    Query, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst, ReportColumnSourceAst,
+    ReportDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
     ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, SearchDeclAst,
     SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst,
     SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
@@ -2937,6 +2938,7 @@ fn parse_feature_skeleton(
     let mut enums: Vec<EnumDeclAst> = Vec::new();
     let mut translation: Option<TranslationDecl> = None;
     let mut pollers: Vec<PollerBlockAst> = Vec::new();
+    let mut reports: Vec<ReportDecl> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -3070,6 +3072,17 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // Report vocab — `report <name>` block. Tabular export contract
+        // (CSV / XLSX). Sibling of `api`/`command`/`query`.
+        // See `docs/proposals/report-vocab.md` v0.2.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("report ") {
+            let (parsed, next) = parse_report_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            reports.push(parsed);
+            i = next;
+            continue;
+        }
+
         // Phase L Tier 4c — `resource <Name>` block. The fixture authors
         // resources inside `domain` at indent 4 (and historically also
         // at indent 2 directly under `feature`), so we accept any
@@ -3192,6 +3205,7 @@ fn parse_feature_skeleton(
             enums,
             translation,
             pollers,
+            reports,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -4832,6 +4846,351 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
         },
         i,
     ))
+}
+
+// -----------------------------------------------------------------------------
+// Report vocab — `report <name>` block parser.
+//
+// Header at AGENT_INDENT_FEATURE_CHILD (indent 2). Children at
+// AGENT_INDENT_AGENT_CHILD (indent 4). The `columns` and `audit` blocks
+// have grandchildren at AGENT_INDENT_GRANDCHILD (indent 6).
+//
+// See `docs/proposals/report-vocab.md` v0.2 §Linguagem.
+// -----------------------------------------------------------------------------
+
+fn parse_report_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(ReportDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("report ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "report header must be `report <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "report header requires a name"));
+    }
+
+    let mut source: Option<String> = None;
+    let mut columns: Vec<ReportColumnAst> = Vec::new();
+    let mut formats: Vec<String> = Vec::new();
+    let mut storage: Option<String> = None;
+    let mut visibility: Option<String> = None;
+    let mut signed_ttl: Option<String> = None;
+    let mut filename: Option<String> = None;
+    let mut policy: Option<String> = None;
+    let mut rate_limit: Option<String> = None;
+    let mut audit: Option<CommandAudit> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "`report` body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("source ") {
+            source = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if trimmed == "columns" {
+            let (parsed, next) = parse_report_columns_block(lines, i)?;
+            columns = parsed;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("formats ") {
+            formats = rest
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("storage ") {
+            storage = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("visibility ") {
+            visibility = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("signed_ttl ") {
+            signed_ttl = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("filename ") {
+            filename = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+            rate_limit = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("audit ") {
+            let (parsed, next) = parse_command_audit(lines, i, rest)?;
+            audit = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if trimmed == "audit" {
+            return Err(line_error(
+                line,
+                "`report audit` requires at least one subject (e.g. `audit actor, ctx.now`)",
+            ));
+        } else {
+            return Err(line_error(
+                line,
+                "`report` children are `source`, `columns`, `formats`, `storage`, `visibility`, `signed_ttl`, `filename`, `policy`, `rate_limit`, or `audit`",
+            ));
+        }
+    }
+
+    let source = source
+        .ok_or_else(|| line_error(header, "`report` requires a `source <query_ref>` declaration"))?;
+    if formats.is_empty() {
+        return Err(line_error(
+            header,
+            "`report` requires a `formats <id>, ...` declaration (e.g. `formats csv, xlsx`)",
+        ));
+    }
+
+    Ok((
+        ReportDecl {
+            name,
+            source,
+            columns,
+            formats,
+            storage,
+            visibility,
+            signed_ttl,
+            filename,
+            policy,
+            rate_limit,
+            audit,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Parse the `columns` block of a `report`. Header at indent 4, column
+/// rows at indent 6. Each row: `<name> from <column_source> [label "..."] [format "..."]`.
+fn parse_report_columns_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(Vec<ReportColumnAst>, usize), ParseError> {
+    let header = &lines[start];
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let mut columns: Vec<ReportColumnAst> = Vec::new();
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`report columns` rows use six-space indentation",
+            ));
+        }
+
+        columns.push(parse_report_column(line)?);
+        i += 1;
+    }
+
+    Ok((columns, i))
+}
+
+/// Parse one column row inside `report.columns`.
+/// Grammar: `<name> from <column_source> [label "..."] [format "..."]`.
+/// `column_source` is `row.<field>` or `@fn.<name>(arg, arg)`.
+fn parse_report_column(line: &SourceLine<'_>) -> Result<ReportColumnAst, ParseError> {
+    let trimmed = strip_inline_comment(line.text.trim_start()).trim_end();
+    // Split off the column name first.
+    let (name, rest) = split_first_token(trimmed).ok_or_else(|| {
+        line_error(
+            line,
+            "report column row must be `<name> from <source> [label \"...\"] [format \"...\"]`",
+        )
+    })?;
+    if name.is_empty() {
+        return Err(line_error(line, "report column requires a name"));
+    }
+
+    let rest = rest.trim_start();
+    let after_from = rest.strip_prefix("from ").ok_or_else(|| {
+        line_error(
+            line,
+            "report column requires `from row.<field>` or `from @fn.<name>(args)`",
+        )
+    })?;
+
+    // The column source extends through `row.<field>` or
+    // `@fn.<name>(args...)`. Find the end of the source token, then
+    // scan the tail for optional `label "..."` / `format "..."`.
+    let (source, tail) = parse_report_column_source(after_from.trim_start(), line)?;
+
+    let mut label: Option<String> = None;
+    let mut format: Option<String> = None;
+    let mut tail = tail.trim_start();
+    while !tail.is_empty() {
+        if let Some(rest) = tail.strip_prefix("label ") {
+            let (value, next) = take_quoted_string(rest.trim_start(), line)?;
+            label = Some(value);
+            tail = next.trim_start();
+        } else if let Some(rest) = tail.strip_prefix("format ") {
+            let (value, next) = take_quoted_string(rest.trim_start(), line)?;
+            format = Some(value);
+            tail = next.trim_start();
+        } else {
+            return Err(line_error(
+                line,
+                "report column trailing modifiers are `label \"...\"` and `format \"...\"`",
+            ));
+        }
+    }
+
+    Ok(ReportColumnAst {
+        name: name.to_owned(),
+        source,
+        label,
+        format,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Parse a column source token: `row.<field>` or `@fn.<name>(arg, arg)`.
+/// Returns the parsed source plus the remaining tail of the line.
+fn parse_report_column_source<'a>(
+    input: &'a str,
+    line: &SourceLine<'_>,
+) -> Result<(ReportColumnSourceAst, &'a str), ParseError> {
+    if let Some(rest) = input.strip_prefix("row.") {
+        let (field, tail) = take_identifier(rest);
+        if field.is_empty() {
+            return Err(line_error(
+                line,
+                "report column source `row.` requires a field identifier",
+            ));
+        }
+        return Ok((ReportColumnSourceAst::RowField(field.to_owned()), tail));
+    }
+
+    if let Some(rest) = input.strip_prefix("@fn.") {
+        let (name, after_name) = take_identifier(rest);
+        if name.is_empty() {
+            return Err(line_error(
+                line,
+                "report column source `@fn.` requires a function name",
+            ));
+        }
+        let after_name = after_name.trim_start();
+        let after_paren = after_name.strip_prefix('(').ok_or_else(|| {
+            line_error(
+                line,
+                "report column source `@fn.<name>(args)` requires parentheses",
+            )
+        })?;
+        let close_idx = after_paren.find(')').ok_or_else(|| {
+            line_error(
+                line,
+                "report column source `@fn.<name>(...)` is missing the closing parenthesis",
+            )
+        })?;
+        let args_text = &after_paren[..close_idx];
+        let tail = &after_paren[close_idx + 1..];
+        let args: Vec<String> = args_text
+            .split(',')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect();
+        return Ok((
+            ReportColumnSourceAst::FnCall {
+                name: name.to_owned(),
+                args,
+            },
+            tail,
+        ));
+    }
+
+    Err(line_error(
+        line,
+        "report column source must be `row.<field>` or `@fn.<name>(args)`",
+    ))
+}
+
+/// Split off the first whitespace-delimited token from `input`. Returns
+/// `(token, rest_after_token)`. Returns `None` for an empty input.
+fn split_first_token(input: &str) -> Option<(&str, &str)> {
+    let input = input.trim_start();
+    if input.is_empty() {
+        return None;
+    }
+    let end = input
+        .find(|c: char| c.is_ascii_whitespace())
+        .unwrap_or(input.len());
+    Some((&input[..end], &input[end..]))
+}
+
+/// Take an identifier prefix (`[A-Za-z_][A-Za-z0-9_]*`). Returns
+/// `(ident, remainder)`.
+fn take_identifier(input: &str) -> (&str, &str) {
+    let mut end = 0;
+    for (i, c) in input.char_indices() {
+        let ok = if i == 0 {
+            c.is_ascii_alphabetic() || c == '_'
+        } else {
+            c.is_ascii_alphanumeric() || c == '_'
+        };
+        if !ok {
+            break;
+        }
+        end = i + c.len_utf8();
+    }
+    (&input[..end], &input[end..])
+}
+
+/// Take a `"..."` quoted string from the head of `input`. Returns
+/// `(content_without_quotes, remainder_after_close_quote)`.
+fn take_quoted_string<'a>(
+    input: &'a str,
+    line: &SourceLine<'_>,
+) -> Result<(String, &'a str), ParseError> {
+    let rest = input.strip_prefix('"').ok_or_else(|| {
+        line_error(line, "report column modifier value must be a `\"...\"` literal")
+    })?;
+    let close_idx = rest.find('"').ok_or_else(|| {
+        line_error(line, "report column modifier missing closing quote")
+    })?;
+    let value = rest[..close_idx].to_owned();
+    let tail = &rest[close_idx + 1..];
+    Ok((value, tail))
 }
 
 /// i18n bucket cycle — parse a `locale_negotiate` block. Header at
@@ -12842,6 +13201,106 @@ design pleiades
             msg.contains("design children"),
             "expected unknown-group diagnostic, got: {msg}"
         );
+    }
+}
+
+// =============================================================================
+// Report vocab — `report <name>` parser tests.
+// =============================================================================
+#[cfg(test)]
+mod report_parser_tests {
+    use super::parse_feature_skeletons;
+    use crate::ast::ReportColumnSourceAst;
+
+    #[test]
+    fn report_full_block_parses() {
+        let source = r#"
+feature customer
+  report monthly_audit
+    source customer.query.list
+    columns
+      id from row.id
+      name from row.name
+      tier from row.tier label "Plano"
+      ltv from @fn.lifetime_value(row.id) label "Valor de vida"
+      created_at from row.created_at format "yyyy-mm-dd"
+    formats csv, xlsx
+    storage object_storage.files
+    visibility signed
+    signed_ttl 1h
+    filename "monthly_audit_{ctx.now:yyyymm}.{format}"
+    policy @policy.global_read
+    rate_limit "10 per hour per user"
+    audit actor, ctx.now, source.params
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        assert_eq!(features.len(), 1);
+        assert_eq!(features[0].reports.len(), 1);
+        let report = &features[0].reports[0];
+        assert_eq!(report.name, "monthly_audit");
+        assert_eq!(report.source, "customer.query.list");
+        assert_eq!(report.columns.len(), 5);
+        assert!(matches!(
+            &report.columns[0].source,
+            ReportColumnSourceAst::RowField(f) if f == "id"
+        ));
+        assert!(matches!(
+            &report.columns[3].source,
+            ReportColumnSourceAst::FnCall { name, args }
+                if name == "lifetime_value" && args == &["row.id"]
+        ));
+        assert_eq!(report.columns[2].label.as_deref(), Some("Plano"));
+        assert_eq!(report.columns[4].format.as_deref(), Some("yyyy-mm-dd"));
+        assert_eq!(report.formats, vec!["csv".to_owned(), "xlsx".to_owned()]);
+        assert_eq!(report.storage.as_deref(), Some("object_storage.files"));
+        assert_eq!(report.visibility.as_deref(), Some("signed"));
+        assert_eq!(report.signed_ttl.as_deref(), Some("1h"));
+        assert_eq!(report.policy.as_deref(), Some("@policy.global_read"));
+        let audit = report.audit.as_ref().expect("audit");
+        assert_eq!(
+            audit.subjects,
+            vec!["actor".to_owned(), "ctx.now".to_owned(), "source.params".to_owned()]
+        );
+    }
+
+    #[test]
+    fn report_missing_source_errors() {
+        let source = r#"
+feature customer
+  report broken
+    columns
+      id from row.id
+    formats csv
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("source"));
+    }
+
+    #[test]
+    fn report_missing_formats_errors() {
+        let source = r#"
+feature customer
+  report broken
+    source customer.query.list
+    columns
+      id from row.id
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("formats"));
+    }
+
+    #[test]
+    fn report_column_unknown_source_errors() {
+        let source = r#"
+feature customer
+  report broken
+    source customer.query.list
+    columns
+      id from bogus.id
+    formats csv
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("row.<field>") || err.to_string().contains("@fn"));
     }
 }
 

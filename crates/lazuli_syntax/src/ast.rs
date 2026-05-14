@@ -542,6 +542,11 @@ pub struct FeatureSkeleton {
     /// `notification`. Lowered into `ir::Poller` via the analyzer.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pollers: Vec<crate::parser::PollerBlockAst>,
+    /// Report vocab — `report <name>` block(s). Static-column export
+    /// declarations replacing `api + opaque handler`. See
+    /// `docs/proposals/report-vocab.md`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reports: Vec<ReportDecl>,
     pub span: Span,
 }
 
@@ -1952,4 +1957,87 @@ pub struct FeatureGatesAst {
     /// `query.sql:<name>`. The qualified-callable key is what doctor
     /// and codegen consume.
     pub callables: std::collections::BTreeMap<String, Vec<GateDirectiveAst>>,
+}
+
+// =============================================================================
+// Report vocab — `report <name>` kind AST.
+//
+// Tabular export contract (CSV / XLSX) declared at compile time. Replaces the
+// `api + opaque handler` pattern for static-column exports. See
+// `docs/proposals/report-vocab.md` v0.2.
+//
+// Surface (Surface B only — v0.2 ships this one):
+//   report <name>
+//     source <qualified_query_ref>
+//     columns
+//       <col> from row.<field> | @fn.<name>(args) [label "..."] [format "..."]
+//     formats csv, xlsx
+//     storage <ref>          (optional)
+//     visibility signed|public|private
+//     signed_ttl <duration>
+//     filename "..."
+//     policy @policy.<name>
+//     rate_limit "..."
+//     audit ...
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportDecl {
+    pub name: String,
+    /// `source <qualified_query_ref>` — required. Captured verbatim
+    /// (`customer.query.list`, `query.list`). Analyzer resolves.
+    pub source: String,
+    /// `columns` block. Must contain at least one entry; doctor enforces
+    /// via `REPORT-COLUMNS-EMPTY-001`.
+    pub columns: Vec<ReportColumnAst>,
+    /// `formats csv, xlsx` — closed catalog enforced at lowering /
+    /// doctor via `REPORT-FORMAT-UNKNOWN-001`.
+    pub formats: Vec<String>,
+    /// `storage <capability_ref>` — optional. When omitted and the
+    /// package declares exactly one `object_storage` capability, the
+    /// analyzer binds implicitly. Otherwise `REPORT-STORAGE-AMBIGUOUS-001`.
+    pub storage: Option<String>,
+    /// `visibility signed|public|private` — defaults to `signed` at
+    /// lowering. Closed catalog.
+    pub visibility: Option<String>,
+    /// `signed_ttl 1h` — duration literal preserved as text. Required
+    /// when `visibility=signed`; rejected otherwise.
+    pub signed_ttl: Option<String>,
+    /// `filename "..."` — template string. Tokens validated by the
+    /// analyzer via `REPORT-FILENAME-TOKEN-UNKNOWN-001`.
+    pub filename: Option<String>,
+    /// `policy @policy.<name>` — required.
+    pub policy: Option<String>,
+    /// `rate_limit "..."` — required when policy includes `@scope.public`.
+    pub rate_limit: Option<String>,
+    /// `audit <subjects>` canonical block (see `CommandAudit`).
+    pub audit: Option<CommandAudit>,
+    pub span: Span,
+}
+
+/// One column in a `report.columns` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportColumnAst {
+    pub name: String,
+    /// `from row.<field>` or `from @fn.<name>(args)`.
+    pub source: ReportColumnSourceAst,
+    /// `label "..."` — optional human label.
+    pub label: Option<String>,
+    /// `format "..."` — optional value format hint (`yyyy-mm-dd`,
+    /// `currency:BRL`, etc.). v0 catalog is documented; the parser
+    /// captures verbatim.
+    pub format: Option<String>,
+    pub span: Span,
+}
+
+/// Column-source grammar — proposal v0.2 closes this to two variants.
+/// `Constant(String)` was rejected (no pilot evidence).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ReportColumnSourceAst {
+    /// `row.<field>` — project a field from the source query record.
+    RowField(String),
+    /// `@fn.<name>(arg, arg, ...)` — call a user-defined or capability
+    /// function. Args are captured verbatim (comma-split, trimmed).
+    FnCall { name: String, args: Vec<String> },
 }
