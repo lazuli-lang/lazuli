@@ -743,6 +743,7 @@ mod tests {
             name: name.to_owned(),
             kind: EventKind::Domain,
             payload,
+            payload_none: false,
             level: None,
             previous_names: Vec::new(),
             span_ref: None,
