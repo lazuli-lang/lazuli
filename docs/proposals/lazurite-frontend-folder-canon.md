@@ -1,6 +1,6 @@
 # Proposal — Lazurite Frontend Folder Canon
 
-**Status:** L0 v0.1 PASS @ 9.04/10 — 2026-05-14 (graded by `lazuli-language-architect`; no blockers; 2 polish items applied inline; 4 polish items carved into L2 follow-up cells)
+**Status:** L0 v0.2 — 2026-05-14. Replaces v0.1's split (features/ at root, app/ for cross-feature) with a unified `app/` that owns the entire source tree (features + shell + ui + lib + theme + Lazuli sources). Root keeps only tooling configs + a single `app/` source folder. v0.1 was self-graded PASS 9.04/10; v0.2 re-grade pending. Lucas's directive (2026-05-14): "se voce recomenda B e a nota arquitetural for subir, eu concordo".
 **Author:** Claude Opus 4.7 (orchestrator)
 **Audit-ready target:** ≥ 9.0 via `lazuli-language-architect`
 **Extends:** `docs/proposals/lazurite-scaffold.md` (§3 backend folder shape)
@@ -52,12 +52,12 @@ This boundary is the same one separating Rails (`app/models/`, `app/controllers/
 
 ### In scope
 
-1. **Top-level project layout** for a Lazurite-shaped product with one or more frontends declared in `lazurite.toml`.
-2. **Per-feature frontend layout** (`features/<feat>/web/`, `features/<feat>/mobile/`) for cells (`@client.*` slot implementations) and views (audience-scoped page-level React/RN code).
-3. **Cross-feature `app/` directory**: `shell/`, `theme/`, `ui/`, `lib/`.
+1. **Top-level project layout** for a Lazurite-shaped product. Root carries tooling configs + Docker + git/agent meta + a single `app/` source folder. Lazuli sources (`app.lzi`, `design.lzi`, `registry.lzi`) live inside `app/`. `lazurite.toml` continues at root (manifest is tooling, read before `app/` is even discovered).
+2. **Per-feature frontend layout** (`app/features/<feat>/web/`, `app/features/<feat>/mobile/`) for cells (`@client.*` slot implementations) and views (audience-scoped page-level React/RN code).
+3. **Cross-feature `app/` directory** as the closed catalog of source-roles: `features/`, `shell/`, `theme/`, `ui/`, `lib/`, `hooks/`. No other top-level subdir inside `app/` is canonical.
 4. **Doctor rules** that enforce the canon and reject React/Vite-style anti-patterns.
 5. **`lazuli new` updates** — when `--frontends web|mobile|web,mobile` flag is set, scaffold the `app/shell/` and `app/theme/` skeleton.
-6. **`lazuli generate feature <name>`** new subcommand — creates the canonical feature subfolders (`web/cells/`, `web/views/admin/`, `handlers/`, etc.) and a minimal `<feat>.lzi` stub.
+6. **`lazuli generate feature <name>`** new subcommand — creates the canonical feature subfolders (`web/cells/`, `web/views/admin/`, `handlers/`, etc.) and a minimal `<feat>.lzi` stub inside `app/features/<feat>/`.
 7. **Migration path** for existing fixtures (`examples/full-capsule/`, etc.) and Pleiades/Atelier/Erudito repos.
 
 ### Non-goals
@@ -76,56 +76,63 @@ This boundary is the same one separating Rails (`app/models/`, `app/controllers/
 
 ## §4. Canonical frontend layout
 
-The complete layout a Lazurite product produces (showing both backend already-scaffolded paths and new frontend additions). New additions marked `← NEW`.
+The complete layout a Lazurite product produces. Single `app/` source folder at root holds Lazuli sources + every feature + cross-feature glue. Tooling configs (Vite, Tailwind, tsconfig, package.json, go.mod, Docker) keep the root; they're read by external tools before `app/` is even discovered.
 
 ```
 myapp/
-├── lazurite.toml                       # workspace manifest
-├── app.lzi                             # app envelope (envs, urls, deploy)
-├── registry.lzi                        # capabilities + integrations
-├── design.lzi                          # ← NEW: design tokens (L0 #2)
-├── profiles.lzi                        # optional: env-specific overlays
+├── lazurite.toml                       # workspace manifest (tooling — declares `[lazurite] app_dir = "app"`)
 ├── package.json                        # node deps (root level — frontends share)
-├── tsconfig.json                       # ← NEW: scaffolded once by `lazuli new`; user-owned thereafter (Lazuli never overwrites)
-├── tailwind.config.ts                  # ← NEW: imports preset from dist; scaffolded once, user-owned
-├── vite.config.ts                      # ← NEW: vite/next/expo config; scaffolded once, user-owned
+├── tsconfig.json                       # path aliases: `@/*` → `./app/*`
+├── tailwind.config.ts                  # imports preset from dist
+├── vite.config.ts                      # entry: `app/main.tsx` via `index.html`
+├── index.html                          # `<script src="/app/main.tsx">`
+├── go.mod, go.work, go.work.sum        # Go workspace
+├── Dockerfile, docker-compose.yml      # deploy artifacts
 ├── README.md
 ├── .gitignore                          # ignores dist/, .lazuli/, node_modules/
+├── .agents/                            # AI meta (CLAUDE.md, AGENTS.md)
 │
-├── features/                           # FEATURE-BASED (the source of truth)
-│   ├── account/
-│   │   ├── account.lzi                 # M — domain contract
-│   │   │
-│   │   ├── account.web.lzx             # ← NEW: VM web (audience + view + bindings)
-│   │   ├── account.mobile.lzx          # ← NEW: VM mobile (optional)
-│   │   │
-│   │   ├── handlers/                   # @fn.* — Go
-│   │   │   ├── verify_password.go
-│   │   │   └── hash_password.go
-│   │   ├── queries/                    # query.sql @file.* — raw SQL
-│   │   ├── jobs/                       # job handler @fn.* — Go
-│   │   ├── integrations/               # webhook verify, adapter — Go
-│   │   ├── templates/                  # email/notif templates
-│   │   ├── i18n/                       # per-feature translations
-│   │   │
-│   │   ├── web/                        # ← NEW: V (web) — user-authored React
-│   │   │   ├── cells/                  # @client.<slot> typed implementations
-│   │   │   │   └── status_cell.tsx
-│   │   │   └── views/                  # page-level views, audience-scoped
-│   │   │       ├── admin/
-│   │   │       │   └── login.tsx
-│   │   │       └── public/
-│   │   │           └── signup.tsx
-│   │   │
-│   │   └── mobile/                     # ← NEW: V (RN/Expo)
-│   │       ├── cells/
-│   │       └── views/
+├── app/                                # ← THE APP (single source folder)
+│   ├── app.lzi                         # app envelope (envs, urls, deploy)
+│   ├── design.lzi                      # design tokens (L0 #2)
+│   ├── registry.lzi                    # capabilities + integrations
+│   ├── profiles.lzi                    # optional: env-specific overlays
 │   │
-│   └── slug/                           # ← same structure for every feature
-│       └── ...
-│
-├── app/                                # ← NEW: CROSS-FEATURE (limited scope)
-│   ├── shell/                          # app-root, navigation, providers
+│   ├── main.tsx                        # entry point referenced from index.html
+│   │
+│   ├── features/                       # FEATURE-BASED (the source of truth)
+│   │   ├── account/
+│   │   │   ├── account.lzi             # M — domain contract
+│   │   │   │
+│   │   │   ├── account.web.lzx         # VM web (audience + view + bindings)
+│   │   │   ├── account.mobile.lzx      # VM mobile (optional)
+│   │   │   │
+│   │   │   ├── handlers/               # @fn.* — Go
+│   │   │   │   ├── verify_password.go
+│   │   │   │   └── hash_password.go
+│   │   │   ├── queries/                # query.sql @file.* — raw SQL
+│   │   │   ├── jobs/                   # job handler @fn.* — Go
+│   │   │   ├── integrations/           # webhook verify, adapter — Go
+│   │   │   ├── templates/              # email/notif templates
+│   │   │   ├── i18n/                   # per-feature translations
+│   │   │   │
+│   │   │   ├── web/                    # V (web) — user-authored React
+│   │   │   │   ├── cells/              # @client.<slot> typed implementations
+│   │   │   │   │   └── status_cell.tsx
+│   │   │   │   └── views/              # page-level views, audience-scoped
+│   │   │   │       ├── admin/
+│   │   │   │       │   └── login.tsx
+│   │   │   │       └── public/
+│   │   │   │           └── signup.tsx
+│   │   │   │
+│   │   │   └── mobile/                 # V (RN/Expo)
+│   │   │       ├── cells/
+│   │   │       └── views/
+│   │   │
+│   │   └── slug/                       # ← same structure for every feature
+│   │       └── ...
+│   │
+│   ├── shell/                          # cross-feature shell (router/providers/layout)
 │   │   ├── web/
 │   │   │   ├── root.tsx                # mount Lazuli + Router + Theme providers
 │   │   │   ├── layout.tsx              # navigation + outlet
@@ -133,18 +140,21 @@ myapp/
 │   │   └── mobile/
 │   │       └── root.tsx
 │   │
-│   ├── theme/                          # design token consumption
+│   ├── theme/                          # design token consumption (cross-feature)
 │   │   ├── globals.css                 # @import "@/dist/ts-web/design/tokens.css"
 │   │   └── theme_provider.tsx          # data-theme switch
 │   │
-│   ├── ui/                             # SHARED primitives, opt-in
+│   ├── ui/                             # SHARED primitives, opt-in (cross-feature)
 │   │   │   (Shadcn copies, brand Button, generic Input)
 │   │   ├── button.tsx
 │   │   ├── input.tsx
 │   │   ├── dialog.tsx
 │   │   └── form_field.tsx
 │   │
-│   └── lib/                            # truly app-wide helpers (rare)
+│   ├── hooks/                          # cross-feature hooks (rare — prefer per-feature)
+│   │   └── use_keyboard_shortcut.ts
+│   │
+│   └── lib/                            # cross-feature helpers (rare; prefer in-feature)
 │       ├── format_currency.ts
 │       └── date_utils.ts
 │
@@ -158,9 +168,9 @@ myapp/
 ├── migrations/                         # SQL migrations (generated + manual)
 │   └── 20260514_001_add_slug.sql
 │
-├── dist/                               # GENERATED — never user-edited
+├── dist/                               # GENERATED — never user-edited (gitignored)
 │   ├── go/                             # Go runtime user-code
-│   ├── ts-web/                         # ← NEW: typed hooks + SDK + design preset
+│   ├── ts-web/                         # typed hooks + SDK + design preset
 │   │   ├── design/                     # tokens emission
 │   │   │   ├── tokens.ts
 │   │   │   ├── tokens.css
@@ -192,7 +202,7 @@ myapp/
 Inside each feature, frontend code is partitioned by platform (`web/`, `mobile/`), each containing `cells/` and `views/<audience>/`:
 
 ```
-features/slug/
+app/features/slug/
 ├── slug.lzi                  # M
 ├── slug.web.lzx              # VM web (declares audiences + views)
 ├── slug.mobile.lzx           # VM mobile (optional; may differ in views/columns)
@@ -217,40 +227,65 @@ features/slug/
 ```
 
 **Naming rule** (Doctor enforce):
-- Cell filename matches the slot name: `slug.web.lzx` declares `cells tags @client.type_badge` → `features/slug/web/cells/type_badge.tsx` must exist and default-export a component matching `TypeBadgeProps` (from `dist/ts-web/slug/cells/type_badge.gen.ts`).
-- View filename matches the view name: `slug.web.lzx` declares `view list slug_list at "/slugs"` inside `audience admin` → `features/slug/web/views/admin/list.tsx` (the view kind, `list`, becomes the filename; `slug_list` becomes the view's identifier in metadata).
+- Cell filename matches the slot name: `slug.web.lzx` declares `cells tags @client.type_badge` → `app/features/slug/web/cells/type_badge.tsx` must exist and default-export a component matching `TypeBadgeProps` (from `dist/ts-web/slug/cells/type_badge.gen.ts`).
+- View filename matches the view name: `slug.web.lzx` declares `view list slug_list at "/slugs"` inside `audience admin` → `app/features/slug/web/views/admin/list.tsx` (the view kind, `list`, becomes the filename; `slug_list` becomes the view's identifier in metadata).
 
 The convention is **DSL declaration → file path is mechanical and deterministic**. No discovery, no ambiguity. Both LLM and human know exactly where to look.
 
 **Shared types within a feature** (web ↔ mobile): derived helper types that both platforms need (e.g. a discriminator union, a computed-field shape) live in the generated `dist/ts-<target>/<feat>/<feat>.gen.ts` — both `web/` and `mobile/` import from the same generated module. No `features/<feat>/shared/` carve-out; if the type isn't in the generated module, it's specific to one platform and stays under that platform's tree.
 
-### §4.2 Cross-feature `app/`
+### §4.2 The unified `app/` source folder
 
-`app/` is the home for code that **legitimately spans features**. It is intentionally a small, closed catalog of subdirs:
+`app/` is the **only** source folder. Everything user-authored lives inside. Closed catalog of direct subdirs (anything else is rejected by Doctor):
 
 | Subdir | Purpose | Examples |
 |---|---|---|
+| `app/features/<feat>/` | Per-feature source — `.lzi` + `.lzx` + `handlers/` + `web/` + `mobile/` (see §4.1) | `app/features/slug/`, `app/features/account/` |
 | `app/shell/web/` | Web app root — providers, router setup, top-level layout | `root.tsx`, `layout.tsx`, `error_boundary.tsx` |
 | `app/shell/mobile/` | RN/Expo app root | `root.tsx`, `navigation.tsx` |
 | `app/theme/` | Theme consumption (NOT token declaration — that's `design.lzi`) | `globals.css`, `theme_provider.tsx` |
 | `app/ui/` | Shared visual primitives (Shadcn copies, brand components) | `button.tsx`, `input.tsx`, `dialog.tsx` |
+| `app/hooks/` | Cross-feature hooks (rare — prefer per-feature) | `use_keyboard_shortcut.ts` |
 | `app/lib/` | Generic helpers used across features (rare; prefer in-feature) | `format_currency.ts`, `date_utils.ts` |
 
-**Hard rule**: `app/` does NOT contain feature-specific code. If something is specific to `slug`, it goes in `features/slug/web/`. If it's generic enough to be reused by 3+ features, it goes in `app/ui/` or `app/lib/`. Doctor checks imports: `app/ui/<x>` cannot import from `features/<feat>/`.
+Plus the Lazuli source files at the top of `app/`:
 
-The Rails analogy: `app/views/layouts/application.html.erb` is cross-feature shell; `app/views/customers/index.html.erb` is feature-specific. Same idea, same separation.
+| File | Purpose |
+|---|---|
+| `app/app.lzi` | App envelope (envs, urls, deploy) |
+| `app/design.lzi` | Design tokens (L0 #2) |
+| `app/registry.lzi` | Capabilities + integrations |
+| `app/profiles.lzi` | Optional env-specific overlays |
+| `app/main.tsx` | Web entry referenced from `index.html` (`<script src="/app/main.tsx">`) |
+
+**Hard rule**: `app/{shell,theme,ui,hooks,lib}/` does NOT contain feature-specific code. If something is specific to `slug`, it goes in `app/features/slug/web/`. If it's generic enough to be reused by 3+ features, it goes in `app/ui/` or `app/lib/`. Doctor checks imports: `app/ui/<x>` cannot import from `app/features/<feat>/`.
+
+The Rails analogy maps directly: Rails' `app/{models,views,controllers}/` matches Lazurite's `app/{features,shell,ui}/` — a single source root partitioned by role.
 
 ### §4.3 Why this is enough (and not more)
 
-A common temptation is to add more cross-feature folders: `app/components/`, `app/hooks/`, `app/utils/`, `app/contexts/`, `app/services/`. Each is a slippery slope:
+The catalog inside `app/` is closed by design. Common temptations:
 
 - **`app/components/`** → catch-all dumping ground that drifts from `ui/`. Either it's a generic primitive (use `ui/`) or it belongs to a feature (use `features/<feat>/web/cells/`). Reject.
-- **`app/hooks/`** → hooks should be per-feature (in the emitted `dist/ts-web/<feat>/views/<a>/<v>.gen.ts`) or genuinely generic (use `lib/`). Custom hooks living in `app/hooks/` usually indicate missing Lazuli vocabulary or a feature boundary error.
 - **`app/utils/`** → alias for `lib/`. Reject duplicate.
 - **`app/contexts/`** → React Context for cross-cutting state (auth, theme, locale). These belong in `shell/` because they're providers mounted at root.
 - **`app/services/`** → frontend "service" layer is a smell: data access goes through `useLazuliQuery` / `useLazuliCommand`, not service singletons. Reject.
+- **`app/types/`** / **`app/api/`** → React/Vite-default folder names that compete with the canonical structure. Types live in generated `dist/ts-<target>/<feat>/<feat>.gen.ts`. API access is through the typed hooks. Reject both.
+- **`app/pages/`** / **`app/routes/`** → routes come from `.lzx` `view ... at "<route>"`. Lazuli emits `dist/ts-<target>/routes.gen.ts`. Reject.
 
-The closed list (`shell/`, `theme/`, `ui/`, `lib/`) is a feature, not a limitation. Closing the catalog forces the user (and LLM) to think about WHICH FEATURE owns a piece of code before adding it. Most "I need a new app-level folder" thoughts are actually "I should think about which feature this belongs to."
+The closed list (`features/`, `shell/`, `theme/`, `ui/`, `hooks/`, `lib/`) is a feature, not a limitation. Closing the catalog forces the user (and LLM) to think about WHICH FEATURE owns a piece of code before adding it. Most "I need a new app-level folder" thoughts are actually "I should think about which feature this belongs to."
+
+### §4.4 Why a single `app/` root (vs. parallel `app/` and `features/`)
+
+v0.1 placed `features/` at the project root, alongside `app/` (for cross-feature glue). v0.2 nests `features/` inside `app/`. Reasons:
+
+1. **One mental model.** "Source code lives in `app/`. Tooling configs live in the root." Cold-readers don't have to learn which top-level folder is for which kind of source — there's only one.
+2. **Cleaner root.** Removing `features/` from the root drops one entry. Pleiades' root goes from 27 entries to 18; further reductions move only into `.agents/` and dotfiles.
+3. **Symmetric with Lazuli sources.** `app.lzi`, `design.lzi`, `registry.lzi` already live inside `app/` per the [lazurite] `app_dir` manifest convention (Lazuli 5adf1e5). Having `features/` outside that boundary was the residual asymmetry — v0.2 closes it.
+4. **Imports normalise.** With `tsconfig.json` aliasing `@/*` → `./app/*`, every internal import becomes `@/features/<feat>/...` or `@/ui/<x>`. The `@/app/` prefix disappears. Vite/TS resolve via the alias; cold-readers see one path-namespace.
+5. **Doctor rules unchanged conceptually.** `cell-missing-impl` now checks `app/features/<feat>/web/cells/<slot>.tsx`. The rule text is identical aside from the path prefix.
+
+Rails uses this shape: everything is under `app/`. v0.2 adopts that proven separation. v0.1 split was a partial concession to React/Vite convention (which has no `app/` wrapper and dumps `src/` at root); v0.2 commits to the Rails-shaped boundary.
 
 ---
 
@@ -262,23 +297,23 @@ Doctor enforces folder canon via path + import checks. Rules listed by code; sev
 
 | Code | Trigger | Severity | Resolution |
 |---|---|---|---|
-| `feature-orphan-component` | `.tsx` file under `src/`, `app/components/`, or any non-canonical path | error in production | Move to `features/<feat>/web/views/<audience>/` or `app/ui/` |
-| `pages-bypass` | `pages/<…>.tsx` or `app/(routes)/<…>` (Next.js page dir at root) | error in production | Routes come from `.lzx` `view ... at "<route>"` declarations. Lazuli emits `dist/ts-web/routes.gen.ts` — wire it in `app/shell/web/root.tsx` |
+| `feature-orphan-component` | `.tsx` file under `src/`, `app/components/`, or any non-canonical path | error in production | Move to `app/features/<feat>/web/views/<audience>/` or `app/ui/` |
+| `pages-bypass` | `pages/<…>.tsx` or `app/(routes)/<…>` (Next.js page dir at root or inside `app/`) | error in production | Routes come from `.lzx` `view ... at "<route>"` declarations. Lazuli emits `dist/ts-web/routes.gen.ts` — wire it in `app/shell/web/root.tsx` |
 | `type-duplicate` | `*.ts(x)` file declaring an interface matching a generated `dist/ts-web/<feat>/<feat>.gen.ts` type name | warning in strict, error in production | Import the generated type instead |
 | `client-bypass` | Direct `fetch()` / `axios()` call to a Lazuli-managed API path | warning | Use `useLazuliQuery` / `useLazuliCommand` — they handle envelope, errors, cache, tenancy. Direct fetch loses all of that. Allowed for genuinely external endpoints |
 | `lazuli-hook-bypassed` | Custom hook named `use<Feature>` / `use<Feature><View>` that does not import from `dist/ts-web/` | warning | Either delete (use the generated hook) or rename to avoid collision |
-| `cross-feature-direct-import` | `features/A/web/<…>.tsx` imports from `features/B/web/cells/<…>` | error | Cross-feature view dependencies go via slot binding (`@client.<slot>`) declared in `B.web.lzx` — A's `.lzx` `cells x @client.foo` then resolves to B's typed slot interface |
+| `cross-feature-direct-import` | `app/features/A/web/<…>.tsx` imports from `app/features/B/web/cells/<…>` | error | Cross-feature view dependencies go via slot binding (`@client.<slot>`) declared in `B.web.lzx` — A's `.lzx` `cells x @client.foo` then resolves to B's typed slot interface |
 | `external-state-store` | Redux / Zustand / Jotai / Valtio store referencing server data | warning | Server state lives in TanStack Query (TQ-managed via `useLazuliQuery`). UI-ephemeral state in `useState`/`useReducer` is fine; persistent client state in a store is fine — but server data should not be duplicated |
 
 ### §5.2 Required structural shapes
 
 | Code | Trigger | Severity | Resolution |
 |---|---|---|---|
-| `cell-missing-impl` | `<feat>.web.lzx` declares `cells <field> @client.<slot>`, but `features/<feat>/web/cells/<slot>.tsx` does not exist | error | Create the file. Lazuli emits the slot interface at `dist/ts-web/<feat>/cells/<slot>.gen.ts`; user `.tsx` implements it |
+| `cell-missing-impl` | `<feat>.web.lzx` declares `cells <field> @client.<slot>`, but `app/features/<feat>/web/cells/<slot>.tsx` does not exist | error | Create the file. Lazuli emits the slot interface at `dist/ts-web/<feat>/cells/<slot>.gen.ts`; user `.tsx` implements it |
 | `cell-prop-mismatch` | Cell `.tsx` default-exports a component whose prop type does not satisfy the generated slot interface | error | Fix the prop shape. Generated interface is single source of truth |
-| `view-missing-impl` | `<feat>.web.lzx` declares `view <kind> <name>` inside `audience <a>`, but `features/<feat>/web/views/<a>/<kind>.tsx` does not exist | warning | Create the file (or remove the view declaration) |
+| `view-missing-impl` | `<feat>.web.lzx` declares `view <kind> <name>` inside `audience <a>`, but `app/features/<feat>/web/views/<a>/<kind>.tsx` does not exist | warning | Create the file (or remove the view declaration) |
 | `audience-frontend-empty` | `lazurite.toml [frontends.<x>] audiences = [...]` lists an audience that has zero views declared in any `<feat>.<x>.lzx` | warning | Either drop the audience from the frontend or declare at least one view for it |
-| `app-ui-feature-import` | File in `app/ui/<…>` imports from `features/<feat>/` | error | Generic UI primitives must not depend on specific features. Move the import-er to `features/<feat>/web/cells/` if feature-specific |
+| `app-ui-feature-import` | File in `app/ui/<…>` imports from `app/features/<feat>/` | error | Generic UI primitives must not depend on specific features. Move the import-er to `app/features/<feat>/web/cells/` if feature-specific |
 
 ### §5.3 Acceptable patterns Doctor explicitly allows
 
@@ -347,7 +382,7 @@ lazuli generate feature billing
 
 Produces:
 ```
-features/billing/
+app/features/billing/
 ├── billing.lzi              # minimal stub
 ├── billing.web.lzx          # empty (only if [frontends.web] exists)
 ├── handlers/.gitkeep
@@ -397,7 +432,7 @@ Slot scaffolding helper. Given a `.lzx` declaring `cells tags @client.type_badge
 lazuli generate cell slug.type_badge
 ```
 
-Creates `features/slug/web/cells/type_badge.tsx` (and `mobile/cells/type_badge.tsx` if mobile frontend exists) with:
+Creates `app/features/slug/web/cells/type_badge.tsx` (and `app/features/slug/mobile/cells/type_badge.tsx` if mobile frontend exists) with:
 
 ```tsx
 import type { TypeBadgeProps } from "@/dist/ts-web/slug/cells/type_badge.gen";
@@ -444,10 +479,10 @@ Once L0 #1 ships and Doctor rules are live, running `lazuli doctor` against an i
 
 ## §8. Examples — Pleiades-shaped
 
-### §8.1 `features/slug/` complete layout
+### §8.1 `app/features/slug/` complete layout
 
 ```
-features/slug/
+app/features/slug/
 ├── slug.lzi                              # M (existing, see pleiades@3f5ce3b)
 ├── slug.web.lzx                          # VM (authored after L0 #3 ships)
 │
@@ -559,17 +594,17 @@ Storybook conventions (`*.stories.tsx`) are allowed but not scaffolded. A `@plug
 L0 PASS condition: the proposal answers, for any Lazurite-shaped product, the following deterministically:
 
 1. **Given a feature `<feat>` with a `.lzx` declaring view `V` under audience `A`, where does the user's React file live?**
-   → `features/<feat>/web/views/<A>/<V>.tsx` (or `mobile/views/<A>/<V>.tsx`)
+   → `app/features/<feat>/web/views/<A>/<V>.tsx` (or `app/features/<feat>/mobile/views/<A>/<V>.tsx`)
 2. **Given a `.lzx` declaring cell slot `@client.foo`, where is the implementation?**
-   → `features/<feat>/web/cells/foo.tsx` (or `mobile/cells/foo.tsx`)
+   → `app/features/<feat>/web/cells/foo.tsx` (or `app/features/<feat>/mobile/cells/foo.tsx`)
 3. **Where do shared UI primitives go?**
    → `app/ui/`
 4. **Where does the app root / providers / router mount live?**
    → `app/shell/web/root.tsx` (or `mobile/root.tsx`)
 5. **Where do design tokens live?**
-   → `design.lzi` at project root (L0 #2)
+   → `app/design.lzi` (L0 #2); root `lazurite.toml` declares `[lazurite] app_dir = "app"` so the CLI resolves the path.
 6. **What does Doctor do when a user creates `src/components/SlugTable.tsx`?**
-   → Emits `feature-orphan-component` warning (strict) or error (production), with a fix suggestion pointing at `features/slug/web/views/admin/list.tsx` or `app/ui/`.
+   → Emits `feature-orphan-component` warning (strict) or error (production), with a fix suggestion pointing at `app/features/slug/web/views/admin/list.tsx` or `app/ui/`.
 7. **What does `lazuli new pleiades --frontends web` produce?**
    → The scaffold listed in §6.1.
 
