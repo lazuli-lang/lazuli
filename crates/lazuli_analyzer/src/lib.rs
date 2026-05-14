@@ -13,6 +13,7 @@
 //! requiring canonical-only constructs will surface as `TypeRef::Unresolved`
 //! or `PolicyRef::Unresolved` rather than fabricated facts.
 
+mod lifecycle;
 pub mod source_map;
 
 use std::collections::BTreeSet;
@@ -1483,7 +1484,7 @@ pub fn lower_feature_skeleton(
         .map(lower_policies_decl)
         .unwrap_or_default();
     let enums = skeleton.enums.iter().map(lower_enum_decl).collect();
-    Ok(ir::Feature {
+    let mut feature = ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
         non_goals: Vec::new(),
@@ -1514,7 +1515,9 @@ pub fn lower_feature_skeleton(
         agents,
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
-    })
+    };
+    lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
+    Ok(feature)
 }
 
 /// Phase L Tier 4d — lower a canonical-indent query declaration into
