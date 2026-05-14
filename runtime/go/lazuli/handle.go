@@ -269,6 +269,7 @@ func applyEffect[I, O any](ctx *Ctx, tx pgx.Tx, effect Effect, input I) (O, erro
 // when the resource declares `TenancyOrg` and the request has a tenant.
 func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O, error) {
 	var zero O
+	ctx = withTxContext(ctx, tx)
 
 	cols := make([]string, 0, len(eff.Bind))
 	values := make([]any, 0, len(eff.Bind))
@@ -316,6 +317,7 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 // tenancy + soft-delete scoping to the WHERE clause.
 func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O, error) {
 	var zero O
+	ctx = withTxContext(ctx, tx)
 	if len(eff.Where) == 0 {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "updates effect requires Where bindings"}
@@ -380,6 +382,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 // delete is the canonical path when `Resource.SoftDelete` is true.
 func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O, error) {
 	var zero O
+	ctx = withTxContext(ctx, tx)
 	if len(eff.Where) == 0 {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "deletes effect requires Where bindings"}
@@ -443,6 +446,8 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 	case sourceTarget:
 		return nil, &Error{Status: 501, Code: CodeInternal,
 			Message: "target binding not yet implemented in runtime spike"}
+	case sourceFn:
+		return resolveFn(ctx, src, input)
 	default:
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown source kind: %d", src.kind)}
@@ -516,6 +521,27 @@ func pascalCase(s string) string {
 		parts[i] = strings.ToUpper(p[:1]) + p[1:]
 	}
 	return strings.Join(parts, "")
+}
+
+// resolveFn resolves a sourceFn binding: looks up the @fn.X handler, resolves
+// each arg Source against the current input, then calls the handler with the
+// surrounding transaction (nil when called outside a creates/updates block).
+func resolveFn[I any](ctx *Ctx, src Source, input I) (any, error) {
+	fn := lookupFn(src.path)
+	if fn == nil {
+		return nil, &Error{Status: 500, Code: CodeInternal,
+			Message: "@fn." + src.path + " not registered"}
+	}
+	argSrcs, _ := src.value.([]Source)
+	resolved := make([]any, len(argSrcs))
+	for i, arg := range argSrcs {
+		v, err := resolveSource(ctx, arg, input)
+		if err != nil {
+			return nil, err
+		}
+		resolved[i] = v
+	}
+	return fn(ctx.Context, txFromContext(ctx), resolved)
 }
 
 // Boot wires the runtime: opens the DB pool. Call once at process startup
