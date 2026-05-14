@@ -255,3 +255,276 @@ the product port reaches that phase.
 - `CLAUDE.md` / `AGENTS.md` §Namespace policy + §The founding principle
 - `lazuli-lang/ops/.pipely/pipelines/plugin-scaffold/pipeline.toml`
 - Memory `project_plugin_namespace_policy.md`
+
+## Design emitter plugins (`@plugin/design-<target>`)
+
+Design emitter plugins extend the `design.lzi` token pipeline introduced
+by L0 #2 (Design Tokens, commit `20d8413`) beyond the universal emitters
+described in `docs/proposals/design-tokens.md` §4. Lazuli core ships
+five emitters because every product needs at least one of them: web
+`tokens.ts`, `tokens.css`, `tailwind.gen.ts`, `tailwind.theme.css`, and
+mobile `tokens.ts`. Anything beyond that — Figma sync, Style Dictionary,
+Panda, vanilla-extract, Tamagui, Restyle — is opinionated tool
+integration, so it belongs in plugin space per the namespace policy.
+
+### Plugin contract
+
+Design emitter plugins follow the same `@plugin/<name>` discipline as
+provider adapters, with the target encoded after `design-`:
+
+- **Plugin repo name**: `github.com/lazuli-lang/lazuli-plugin-design-<target>`
+  for canonical plugins, or `github.com/<your-org>/lazuli-plugin-design-<target>`
+  for private plugins.
+- **Plugin namespace**: `@plugin/design-<target>`, where `<target>` is
+  kebab-case. Examples: `figma`, `style-dictionary`, `panda`,
+  `vanilla-extract`, `tamagui`, `restyle`.
+- **Activation**: declared in `lazurite.toml [plugins]` with the module
+  path and version.
+- **Input**: the lowered `Design` IR slice, represented in the
+  compiler as the typed Rust struct from `lazuli_ir::Design`. Treat
+  this as opaque for now: Lazuli passes the parsed token catalog to the
+  plugin. The precise schema and ABI land in the L2 implementation
+  cell.
+- **Output**: one or more generated files under
+  `dist/ts-web/design/<plugin-target>/` for web output and/or
+  `dist/ts-mobile/design/<plugin-target>/` for mobile output. The
+  plugin chooses filenames and content inside that directory.
+
+`<plugin-target>` is the namespace suffix without `@plugin/design-`.
+Examples:
+
+| Namespace | Plugin target | Web output root | Mobile output root |
+|---|---|---|---|
+| `@plugin/design-figma` | `figma` | `dist/ts-web/design/figma/` | — |
+| `@plugin/design-style-dictionary` | `style-dictionary` | `dist/ts-web/design/style-dictionary/` | — |
+| `@plugin/design-panda` | `panda` | `dist/ts-web/design/panda/` | — |
+| `@plugin/design-vanilla-extract` | `vanilla-extract` | `dist/ts-web/design/vanilla-extract/` | — |
+| `@plugin/design-tamagui` | `tamagui` | — | `dist/ts-mobile/design/tamagui/` |
+| `@plugin/design-restyle` | `restyle` | — | `dist/ts-mobile/design/restyle/` |
+
+The output root is intentionally nested one level deeper than core
+emission. Core owns:
+
+```
+dist/ts-web/design/
+├── tokens.ts
+├── tokens.css
+├── tailwind.gen.ts
+├── tailwind.theme.css
+└── allowlist.json
+
+dist/ts-mobile/design/
+└── tokens.ts
+```
+
+Plugins own only:
+
+```
+dist/ts-web/design/<plugin-target>/
+dist/ts-mobile/design/<plugin-target>/
+```
+
+Design emitter plugins are sandboxed by convention and by the future
+L2 contract. A plugin MUST NOT touch any file outside its own
+`dist/ts-web/design/<plugin-target>/` or
+`dist/ts-mobile/design/<plugin-target>/` subtree. A plugin MUST NOT
+modify core-emitted files such as `tokens.ts`, `tokens.css`,
+`tailwind.gen.ts`, or `tailwind.theme.css`.
+
+The plugin may emit any file format required by the downstream tool:
+`.json`, `.ts`, `.css.ts`, `.css`, or supporting manifest files. Those
+files are generated output. Product code may import them, but product
+authors should not hand-edit them.
+
+The plugin input is already lowered. Plugin authors do not parse
+`design.lzi`, do not re-run validation, and do not infer token meaning
+from source text. Core parsing/lowering owns:
+
+- grammar validity;
+- token group closure;
+- color state closure;
+- unit normalization where required;
+- dark-mode value pairing;
+- diagnostics for invalid token shapes.
+
+Plugins translate from Lazuli's canonical token IR to an ecosystem
+format. If a target format cannot represent a Lazuli token exactly, the
+plugin should emit the closest faithful representation and report a
+diagnostic. It should not mutate the source catalog to make the target
+tool easier to satisfy.
+
+Activation order is not a dependency mechanism. Each design plugin is
+given the same lowered `Design` IR slice and writes its own output
+subtree. A plugin MUST NOT read another design plugin's output as its
+input. If two plugins need a shared helper representation, that helper
+belongs either in Lazuli core IR or in a normal library dependency used
+inside both plugin repos.
+
+### Reserved canonical plugins
+
+L0 #2 §4.7 reserves the following plugin names. Third-party
+implementations for the same target MUST use the reserved name, not a
+variant such as `@plugin/panda-design` or `@plugin/my-panda`. This
+keeps discovery predictable for humans and LLM agents, and prevents two
+competing plugin names from claiming the same ecosystem target.
+
+| Plugin | Output target | Reserved name |
+|---|---|---|
+| Figma Tokens Studio | W3C Design Tokens JSON, Figma round-trip | `@plugin/design-figma` |
+| Style Dictionary (Amazon) | Style Dictionary source-format JSON | `@plugin/design-style-dictionary` |
+| Panda CSS | Panda config tokens slice (`panda.config.ts`) | `@plugin/design-panda` |
+| vanilla-extract | `themeContract.css.ts` | `@plugin/design-vanilla-extract` |
+| Tamagui (RN) | Tamagui tokens config | `@plugin/design-tamagui` |
+| Shopify Restyle (RN) | Restyle theme | `@plugin/design-restyle` |
+
+Reserved does not mean implemented in Lazuli core. It means the name is
+held for the ecosystem target. The implementation still lives in its
+own plugin repo and is activated only when the product lists it in
+`lazurite.toml [plugins]`.
+
+Reserved also does not make a provider/vendor part of the runtime. The
+namespace stays `@plugin/design-<target>` because these targets are
+specific tools or frameworks, not commodity Lazuli runtime buckets.
+
+If a private product needs a fork of one of the reserved targets, keep
+the Lazuli namespace stable and point it at the private module:
+
+```toml
+[plugins]
+"@plugin/design-panda" = { module = "github.com/acme/lazuli-plugin-design-panda", version = "v0.1.0-acme.1" }
+```
+
+This keeps authored Lazuli source portable. Moving from a private fork
+back to the canonical plugin should be a `lazurite.toml` change, not a
+DSL rewrite.
+
+### Activation example
+
+```toml
+[plugins]
+"@plugin/design-figma" = { module = "github.com/lazuli-lang/lazuli-plugin-design-figma", version = "v0.1.0" }
+"@plugin/design-panda" = { module = "github.com/lazuli-lang/lazuli-plugin-design-panda", version = "v0.1.0" }
+```
+
+A product can declare multiple design plugins. Each runs independently.
+Plugin output is opt-in: removing an entry from `[plugins]` skips that
+plugin without breaking the build, as long as product code does not
+import files that only the plugin emits.
+
+Activation does not replace core emitters. If a product enables
+`@plugin/design-panda`, Lazuli still emits the core `tokens.ts` and
+`tokens.css` files. The Panda plugin adds its target-specific output
+under `dist/ts-web/design/panda/`.
+
+Activation also does not imply frontend presence. A web-only product
+may activate Figma and Panda. A mobile-only product may activate
+Tamagui or Restyle. A multi-frontend product may activate both web and
+mobile design plugins from the same `[plugins]` block.
+
+If a plugin targets a frontend that is not enabled, codegen should skip
+that face or report a clear diagnostic, depending on the L2 contract.
+The user-facing rule is simple: plugins may emit only into the dist
+roots that exist for the product.
+
+Expected generated tree for the example above:
+
+```
+dist/ts-web/design/
+├── tokens.ts
+├── tokens.css
+├── tailwind.theme.css
+├── figma/
+│   └── tokens.json
+└── panda/
+    └── panda.config.ts
+```
+
+Exact filenames inside `figma/` and `panda/` are plugin-owned. The
+subdirectory boundary is not.
+
+### Round-trip: Figma
+
+`@plugin/design-figma` is bidirectional because Figma Tokens Studio can
+act as an external token catalog. The plugin must support these flows:
+
+| Command | Plugin path | Output |
+|---|---|---|
+| `lazuli design export --target figma` | export | W3C Design Tokens JSON consumable by Figma Tokens Studio |
+| `lazuli design import --from <figma.json>` | import | lifted `design.lzi` source |
+| `lazuli design diff --against <figma.json>` | diff | drift report between `design.lzi` and the external catalog |
+
+Other design plugins are export-only unless a future proposal says
+otherwise. Panda, Tamagui, Restyle, vanilla-extract, and similar
+consumer targets emit files for downstream tools, but they do not
+import an external source of truth because the source of truth is
+`design.lzi`.
+
+Figma is the exception because teams may edit token values in Figma
+Tokens Studio and need an explicit reconciliation path. The path is
+still not a silent sync:
+
+1. Export writes Figma-consumable JSON from `design.lzi`.
+2. Import lifts a Figma JSON catalog into Lazuli source.
+3. Diff reports drift before a user accepts the source change.
+
+Round-trip support is target-specific. The Figma plugin may have both
+export and import entrypoints. The Panda plugin should not invent an
+import path from `panda.config.ts` back into `design.lzi`, because
+Panda config is generated consumer output, not the product's design
+source.
+
+For import, the plugin output is source text, not an in-place mutation.
+The CLI may write a new `design.lzi`, update the existing one after
+confirmation, or print a patch. In all cases, the user sees the diff.
+
+For diff, the plugin should compare semantic token paths and values,
+not generated file formatting. Reordered JSON keys, whitespace, and
+target-specific metadata should not count as drift unless they change a
+token that Lazuli understands.
+
+### Non-goals
+
+Design plugins are emitters, not language extensions:
+
+- Plugins MUST NOT add new token groups. The eight-group catalog
+  (`color`, `typography`, `space`, `radius`, `shadow`, `motion`,
+  `breakpoint`, `z`) is closed. Adding `gradient` or `animation` is a
+  Lazuli core proposal, not a plugin choice.
+- Plugins MUST NOT add new sub-groups within a group. Closed sub-groups
+  such as typography `family` / `scale` / `weight` / `tracking` and
+  motion `duration` / `easing` stay closed.
+- Plugins MUST NOT extend the color state catalog. `base`, `hover`,
+  `active`, and `foreground` are the only color states in v0.
+- Plugins MUST NOT silently mutate `design.lzi`. Import flow may write
+  a new `design.lzi` or update the existing one, but the user must see
+  the diff before accepting the change.
+
+Plugins also do not own Doctor policy. Doctor may learn to inspect
+plugin outputs later, but the plugin contract itself does not get to
+define new lint rules, new severity levels, or new accepted token
+syntax. Those belong in Lazuli core.
+
+Plugins do not own frontend folder topology. They cannot move design
+output to `app/design/`, `.lazuli/`, `generated/`, or a tool-preferred
+root. Generated output stays under `dist/ts-web/design/<plugin-target>/`
+or `dist/ts-mobile/design/<plugin-target>/`.
+
+Plugins do not own package-manager wiring by side effect. If a target
+needs npm dependencies, the L2 contract may allow the plugin to declare
+dependencies for generated package manifests, but the plugin should not
+edit arbitrary product files to install them.
+
+Plugins do not bypass the namespace policy. A named design tool or
+framework still lives under `@plugin/design-<target>`, never under
+`@runtime/`, and never under a product-scoped namespace such as
+`@plugin/<consumer-product>/figma`.
+
+Plugins do not make generated output authoritative. The authoritative
+catalog is `design.lzi`; generated files can always be deleted and
+recreated.
+
+### Forward reference
+
+The precise L2 plugin contract — Rust trait, FFI shape, and plugin
+discovery mechanism — is defined in the L0 #2 Cell E implementation.
+This section establishes the stable user-facing surface.
