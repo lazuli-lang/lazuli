@@ -60,6 +60,26 @@ pub struct ListQuery {
     pub name: String,
     pub input_slots: Vec<QueryInput>,
     pub backs_resource: Option<String>,
+    /// Names of slots in the query's input block. Search segmented bindings
+    /// resolve `source.<name>` against this list.
+    #[allow(dead_code)]
+    pub input_slot_meta: Vec<QueryInputSlot>,
+}
+
+/// Query input slot metadata consumed by `lzx-search-*` doctor rules.
+#[derive(Debug, Clone)]
+pub struct QueryInputSlot {
+    pub name: String,
+    /// `None` means the source input exists, but the lowering pipeline did not
+    /// preserve enough metadata for search codegen to compute `alwaysArray`.
+    pub cardinality: Option<SearchTargetCardinality>,
+}
+
+/// Cardinality model shared by search bindings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchTargetCardinality {
+    Single,
+    Multi,
 }
 
 #[derive(Debug, Clone)]
@@ -157,8 +177,18 @@ pub struct ViewList {
     /// Legacy table columns kept for the existing v1 doctor rules while the
     /// stub remains in use.
     pub columns: Vec<String>,
+    /// Legacy `search <field>, <field>` columns used by
+    /// `lzx-source-resource-mismatch`.
     pub search: Vec<String>,
+    /// Legacy `filter <field>, <field>` names used by
+    /// `lzx-source-resource-mismatch`.
     pub filter: Vec<String>,
+    /// L0 #6 segmented-search declaration.
+    pub search_decl: Option<SearchDecl>,
+    /// L0 #6 typed filter declarations.
+    pub filter_decls: Vec<FilterDecl>,
+    /// L0 #6 selection declaration.
+    pub selection: Option<SelectionDecl>,
     pub cells: Vec<CellBinding>,
     pub actions: Vec<CommandRef>,
     pub drawer: Option<DrawerSubView>,
@@ -258,4 +288,51 @@ pub struct DrawerRouteBinding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrawerBindingSource {
     Selection,
+}
+
+// =============================================================================
+// L0 #6 terminal-search declarations
+// =============================================================================
+
+/// Sub-shape of `lazuli_ir::FilterDecl`.
+#[derive(Debug, Clone)]
+pub struct FilterDecl {
+    pub name: String,
+    pub cardinality: SearchTargetCardinality,
+}
+
+/// Sub-shape of `lazuli_ir::SearchDecl`.
+#[derive(Debug, Clone)]
+pub struct SearchDecl {
+    pub fields: Vec<SearchField>,
+    pub free_text_target: Option<BindingRef>,
+}
+
+/// Sub-shape of `lazuli_ir::SearchField`.
+#[derive(Debug, Clone)]
+pub struct SearchField {
+    pub key: String,
+    pub binds_to: BindingRef,
+}
+
+/// Sub-shape of `lazuli_ir::BindingRef`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindingRef {
+    Filter { name: String },
+    SourceInput { name: String },
+    SelectionScalar,
+}
+
+/// Sub-shape of `lazuli_ir::SelectionDecl`.
+#[derive(Debug, Clone)]
+pub struct SelectionDecl {
+    pub mode: SelectionMode,
+}
+
+/// Sub-shape of `lazuli_ir::SelectionMode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionMode {
+    None,
+    Single,
+    Multi,
 }

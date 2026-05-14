@@ -56,6 +56,7 @@ pub mod drawer_source;
 pub mod filter_resolves;
 pub mod route_param_missing_binding;
 pub mod route_param_orphan;
+pub mod search_binds;
 pub mod source_resource_mismatch;
 
 use ir_stub::{Audience, Command, Feature, QueryRef, Resource};
@@ -187,11 +188,13 @@ mod helper_tests {
                     name: "mine".into(),
                     input_slots: vec![],
                     backs_resource: Some("Slug".into()),
+                    input_slots: vec![],
                 },
                 ListQuery {
                     name: "orphaned".into(),
                     input_slots: vec![],
                     backs_resource: None,
+                    input_slots: vec![],
                 },
             ],
             commands: vec![

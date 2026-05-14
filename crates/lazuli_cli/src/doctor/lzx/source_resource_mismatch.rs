@@ -121,6 +121,7 @@ mod tests {
             name: name.to_owned(),
             input_slots: vec![],
             backs_resource: backs.map(str::to_owned),
+            input_slots: vec![],
         }
     }
 
@@ -145,6 +146,9 @@ mod tests {
             columns: columns.iter().map(|s| (*s).to_owned()).collect(),
             search: search.iter().map(|s| (*s).to_owned()).collect(),
             filter: filter.iter().map(|s| (*s).to_owned()).collect(),
+            search_decl: None,
+            filter_decls: vec![],
+            selection: None,
             cells: vec![],
             actions: vec![],
             drawer: None,
