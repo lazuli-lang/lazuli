@@ -3,6 +3,24 @@
 # Provider-neutral: payment gateways are wired through an abstract integration slot.
 # Design fixture only; parser and codegen coverage may lag this surface.
 
+# PG.PRE.2 / PG.F — Plan & Gate vocabulary exercise. The package
+# author would normally split these blocks across `app.lzi` (anchor)
+# and `registry.lzi` (catalog); inline here to keep the fixture file
+# self-contained so doctor's plan-gate cross-checks have a single
+# source of truth.
+
+plan free
+  features list_invoices, lookup_invoice
+  limits invoices_per_month 50
+
+plan pro
+  features list_invoices, lookup_invoice, create_invoice
+  limits invoices_per_month 5000
+
+plan enterprise
+  features list_invoices, lookup_invoice, create_invoice
+  limits invoices_per_month unlimited
+
 feature billing
   purpose "Invoices, payment-gateway webhooks, retryable billing events, and invoice status."
 
@@ -120,6 +138,8 @@ feature billing
 
   command create
     input customer, amount_cents, currency, issued_at
+    gate behind plan.feature: create_invoice
+    gate quota plan.limit: invoices_per_month
     write_window by input.issued_at within billing.open_period
     policy @policy.create
     rate_limit "30 per minute per user"

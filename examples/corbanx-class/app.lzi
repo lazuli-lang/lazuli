@@ -9,6 +9,11 @@ app CorbanxClass
 
   lazuli_version "0.13"
 
+  # PG.F — Plan & Gate vocabulary anchor. Names the resource that
+  # holds the active subscription for the calling tenant. See
+  # docs/proposals/plan-and-gate-vocab.md §"Subscription anchor".
+  subscription resource billing.subscription
+
   locale
     default "pt-BR"
     supported "pt-BR", "en-US"

@@ -62,3 +62,25 @@ registry
       status: Text required
       payload: JSON required
       received_at: Timestamp required
+
+# PG.F — Plan & Gate v0.1 catalog. Sibling of `registry`; the analyzer
+# unions every top-level `plan` block into a single closed catalog and
+# resolves `gate behind plan.feature: ...` / `gate quota plan.limit: ...`
+# references against it. See docs/proposals/plan-and-gate-vocab.md.
+
+plan free
+  features search, view_history
+  limits start_query_per_month 10
+
+plan pro
+  features search, view_history, bulk_consult, export_csv
+  limits start_query_per_month 200
+
+plan enterprise
+  features search, view_history, bulk_consult, export_csv, api_access, sso
+  limits start_query_per_month unlimited
+
+plan trial_pro
+  trial duration 14d, then free
+  features search, view_history
+  limits start_query_per_month 200

@@ -173,15 +173,8 @@ feature queries
       tax_id: Text required
       name: Text required
       providers: JSON required
+    gate quota plan.limit: start_query_per_month
     policy @policy.start_query
-    # ---------------------------------------------------------------
-    # GAP: PLAN + GATE
-    # In corbanx production this command is gated by the active
-    # subscription plan (free → 10/day cap; pro → 200/day; enterprise → ∞).
-    # No `gate by plan` directive exists yet. See GAPS.md.
-    # The line below would be the ergonomic surface:
-    #   gate billing.subscription.plan
-    # ---------------------------------------------------------------
     rate_limit "60 per hour per user"
     audit default
     creates Query
