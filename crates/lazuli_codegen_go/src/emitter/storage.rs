@@ -391,6 +391,7 @@ mod tests {
             extensions: Vec::new(),
             escape_routes: Vec::new(),
             agents: Vec::new(),
+            reports: Vec::new(),
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -672,6 +673,7 @@ mod feature_emit_tests {
             extensions: Vec::new(),
             escape_routes: Vec::new(),
             agents: Vec::new(),
+            reports: Vec::new(),
             previous_names: Vec::new(),
             span_ref: None,
         }

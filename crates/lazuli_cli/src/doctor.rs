@@ -5,6 +5,7 @@ pub mod folder;
 pub mod lifecycle;
 pub mod lzx;
 pub mod poller;
+pub mod report;
 pub mod vocab;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -224,6 +225,20 @@ struct Tier3FeatureFacts {
     /// `Feature.policies` has a default value, so doctor reads the
     /// lowered `span_ref` to distinguish "absent" from "declared".
     policies_declared: bool,
+    /// Report vocab — lifted `report` declarations per feature. See
+    /// `docs/proposals/report-vocab.md`.
+    reports: Vec<lazuli_ir::Report>,
+    /// `report_name -> source line` lookup. Anchors `REPORT-*`
+    /// diagnostics at the report header.
+    report_lines: BTreeMap<String, usize>,
+    /// Resources captured (full `Resource`) per feature — used by
+    /// `REPORT-COLUMN-MISMATCH-001` to resolve `row.<field>` against
+    /// the source query's projection.
+    resources: Vec<lazuli_ir::Resource>,
+    /// Raw `ReportDecl` AST per feature — used by rules that need the
+    /// original (pre-lowering) form (e.g. `REPORT-FORMAT-UNKNOWN-001`
+    /// scans the AST formats list since lowering drops unknown tokens).
+    report_decls: Vec<lazuli_syntax::ReportDecl>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -482,6 +497,7 @@ impl DoctorPackage {
                                         || !feature.apis.is_empty()
                                         || !feature.records.is_empty()
                                         || !feature.enums.is_empty()
+                                        || !feature.reports.is_empty()
                                         || feature.translation.is_some()
                                         || has_text_pattern_api
                                     {
@@ -543,6 +559,15 @@ impl DoctorPackage {
                                             "api ",
                                             feature.apis.iter().map(|a| a.name.as_str()).collect(),
                                         );
+                                        let report_lines = collect_construct_lines(
+                                            &file.source,
+                                            "report ",
+                                            feature
+                                                .reports
+                                                .iter()
+                                                .map(|r| r.name.as_str())
+                                                .collect(),
+                                        );
                                         let translation_line = feature
                                             .translation
                                             .as_ref()
@@ -583,6 +608,10 @@ impl DoctorPackage {
                                             enums: feature.enums.clone(),
                                             events: feature.events.clone(),
                                             policies_declared: feature.policies.span_ref.is_some(),
+                                            reports: feature.reports.clone(),
+                                            report_lines,
+                                            resources: feature.resources.clone(),
+                                            report_decls: skeleton.reports.clone(),
                                         });
                                     }
                                     // Phase L Tier 4 follow-up — populate the
@@ -990,6 +1019,18 @@ impl DoctorPackage {
         ));
         diagnostics.extend(check_codegen_wrap_001(&self.project_root));
         diagnostics.extend(check_pattern_draft_stale_001(&self.project_root));
+
+        // Report vocab — 10 doctor codes per
+        // `docs/proposals/report-vocab.md` v0.2 §Doctor / LSP. The
+        // capability-aware rules (`REPORT-SIGNED-NO-STORAGE-001`,
+        // `REPORT-STORAGE-AMBIGUOUS-001`) read object_storage caps from
+        // the package's app manifest + registry.
+        diagnostics.extend(report_diagnostics(
+            &self.tier3_facts,
+            self.app.as_ref().map(|a| &a.manifest),
+            self.registry.as_ref(),
+        ));
+
         diagnostics.extend(folder_layout_diagnostics(
             &self.project_root,
             self.security_profile,
@@ -5397,6 +5438,39 @@ fn operational_env_names<'a>(
     if let Some(registry) = registry {
         names.extend(registry.manifest.env.iter().map(|env| env.name.as_str()));
     }
+    names
+}
+
+/// Collect every `object_storage` capability concrete-name declared by
+/// the app manifest or registry. Capability lines parse as
+/// `<kind> <name>` where the parser stores kind in `AppCapability.name`
+/// and the concrete name in `AppCapability.value`. This helper returns
+/// the list of concrete names (e.g. `files`) for every entry whose kind
+/// is `object_storage` or `storage`. Used by report-vocab doctor rules
+/// (`REPORT-SIGNED-NO-STORAGE-001` / `REPORT-STORAGE-AMBIGUOUS-001`)
+/// to resolve implicit `storage` bindings and reject signed reports
+/// in packages without any object-storage capability.
+fn collect_object_storage_caps(
+    app: Option<&AppManifest>,
+    registry: Option<&DoctorAppRegistry>,
+) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    if let Some(app) = app {
+        for cap in &app.capabilities {
+            if cap.name == "object_storage" || cap.name == "storage" {
+                names.push(cap.value.clone());
+            }
+        }
+    }
+    if let Some(registry) = registry {
+        for cap in &registry.manifest.capabilities {
+            if cap.name == "object_storage" || cap.name == "storage" {
+                names.push(cap.value.clone());
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
     names
 }
 
@@ -9873,6 +9947,254 @@ fn extract_cap_file_field_line(trimmed: &str) -> Option<(String, String)> {
     Some((name.to_owned(), cap_text.to_owned()))
 }
 
+/// Run the 10 `REPORT-*` doctor rules per
+/// `docs/proposals/report-vocab.md` v0.2 §Doctor / LSP, aggregating
+/// findings into typed `DoctorDiagnostic` rows.
+fn report_diagnostics(
+    facts: &[Tier3FeatureFacts],
+    app: Option<&AppManifest>,
+    registry: Option<&DoctorAppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let storage_caps = collect_object_storage_caps(app, registry);
+
+    for fact in facts {
+        if fact.reports.is_empty() {
+            continue;
+        }
+        let mut feature_for_rules = make_synthetic_feature_for_reports(fact);
+
+        // Local-only rules consume the synthesized Feature view.
+        for finding in
+            report::report_columns_empty_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_columns_empty_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in
+            report::report_signed_ttl_missing_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_signed_ttl_missing_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in
+            report::report_signed_ttl_forbidden_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_signed_ttl_forbidden_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in
+            report::report_filename_token_unknown_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_filename_token_unknown_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in
+            report::report_source_kind_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_source_kind_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in report::report_policy_public_no_rate_limit_001::check(
+            &feature_for_rules,
+            &fact.path,
+        ) {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_policy_public_no_rate_limit_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in
+            report::report_column_mismatch_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_column_mismatch_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in report::report_signed_no_storage_001::check(
+            &feature_for_rules,
+            &storage_caps,
+            &fact.path,
+        ) {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_signed_no_storage_001::Finding::CODE.to_owned(),
+            });
+        }
+        for finding in report::report_storage_ambiguous_001::check(
+            &feature_for_rules,
+            &storage_caps,
+            &fact.path,
+        ) {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_storage_ambiguous_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // AST-based rule (REPORT-FORMAT-UNKNOWN-001) reads the raw
+        // ReportDecl text because lowering drops unknown format tokens.
+        for finding in report::report_format_unknown_001::check(
+            &fact.feature,
+            &fact.report_decls,
+            &fact.path,
+        ) {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_format_unknown_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // Drop the unused borrow to satisfy the borrow checker on the
+        // synthetic feature value (none of the rule branches return
+        // borrowed data beyond their iteration).
+        let _ = &mut feature_for_rules;
+    }
+
+    diagnostics
+}
+
+/// Build a minimal `ir::Feature` view from a `Tier3FeatureFacts` row so
+/// the report rule modules (which take `&Feature`) can be invoked
+/// without re-lowering. Only the slots the rule modules read are
+/// populated; everything else stays at default.
+fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+    lazuli_ir::Feature {
+        name: fact.feature.clone(),
+        purpose: None,
+        non_goals: Vec::new(),
+        context_path: None,
+        defaults: lazuli_ir::Defaults::default(),
+        uses: Vec::new(),
+        requirements: Vec::new(),
+        enums: Vec::new(),
+        resources: fact.resources.clone(),
+        events: Vec::new(),
+        rules: Vec::new(),
+        policies: lazuli_ir::Policies::default(),
+        commands: Vec::new(),
+        apis: Vec::new(),
+        records: fact.records.clone(),
+        queries: fact.queries.clone(),
+        workflows: Vec::new(),
+        jobs: Vec::new(),
+        webhooks: Vec::new(),
+        notifications: Vec::new(),
+        event_groups: Vec::new(),
+        tenant_migrations: Vec::new(),
+        translation: None,
+        auth: None,
+        surfaces: Vec::new(),
+        extensions: Vec::new(),
+        escape_routes: Vec::new(),
+        agents: Vec::new(),
+        reports: fact.reports.clone(),
+        previous_names: Vec::new(),
+        span_ref: None,
+    }
+}
+
 fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -11206,6 +11528,11 @@ mod tests {
                                     "api ",
                                     feature.apis.iter().map(|a| a.name.as_str()).collect(),
                                 );
+                                let report_lines = collect_construct_lines(
+                                    &file.source,
+                                    "report ",
+                                    feature.reports.iter().map(|r| r.name.as_str()).collect(),
+                                );
                                 let translation_line = feature
                                     .translation
                                     .as_ref()
@@ -11246,6 +11573,10 @@ mod tests {
                                     enums: feature.enums.clone(),
                                     events: feature.events.clone(),
                                     policies_declared: feature.policies.span_ref.is_some(),
+                                    reports: feature.reports.clone(),
+                                    report_lines,
+                                    resources: feature.resources.clone(),
+                                    report_decls: skeleton.reports.clone(),
                                 });
                             }
                             // Phase L Tier 4 follow-up — mirror the IR-driven
@@ -11391,6 +11722,10 @@ mod tests {
                                     enums: feature.enums.clone(),
                                     events: feature.events.clone(),
                                     policies_declared: feature.policies.span_ref.is_some(),
+                                    reports: feature.reports.clone(),
+                                    report_lines: BTreeMap::new(),
+                                    resources: feature.resources.clone(),
+                                    report_decls: skeleton.reports.clone(),
                                 });
                             }
                         }
@@ -15396,6 +15731,10 @@ app crm
             enums: Vec::new(),
             events: Vec::new(),
             policies_declared: false,
+            reports: Vec::new(),
+            report_lines: BTreeMap::new(),
+            resources: Vec::new(),
+            report_decls: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -15448,6 +15787,10 @@ app crm
             enums: Vec::new(),
             events: Vec::new(),
             policies_declared: false,
+            reports: Vec::new(),
+            report_lines: BTreeMap::new(),
+            resources: Vec::new(),
+            report_decls: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(

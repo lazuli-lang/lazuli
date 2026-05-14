@@ -236,6 +236,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         extensions: Vec::new(),
         escape_routes: Vec::new(),
         agents: Vec::new(),
+        reports: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
             start: document.span.start,
@@ -2034,6 +2035,11 @@ pub fn lower_feature_skeleton(
         .map(lower_policies_decl)
         .unwrap_or_default();
     let enums = skeleton.enums.iter().map(lower_enum_decl).collect();
+    let reports = skeleton
+        .reports
+        .iter()
+        .map(|r| lower_report_decl(&skeleton.name, r))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut feature = ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -2064,6 +2070,7 @@ pub fn lower_feature_skeleton(
         extensions: Vec::new(),
         escape_routes: Vec::new(),
         agents,
+        reports,
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
@@ -2724,6 +2731,168 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         handler,
         locale_negotiate: a.locale_negotiate.as_ref().map(lower_locale_negotiate_decl),
         span_ref: Some(span_of(a.span)),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Report vocab — lower `report <name>` AST onto IR.
+// -----------------------------------------------------------------------------
+
+/// Lower a `ReportDecl` AST into `ir::Report`. Visibility defaults to
+/// `signed` (per proposal §Slot inventory); formats outside the closed
+/// `{csv, xlsx}` catalog drop silently — doctor reports
+/// `REPORT-FORMAT-UNKNOWN-001` against the AST. Filename tokens are
+/// parsed via the closed catalog (`{format}`, `{ctx.now:<strftime>}`,
+/// `{ctx.user.id}`, `{ctx.tenant.id}`); unknown tokens land as
+/// `FilenameToken::CtxNowStrftime("")` placeholders only if a parsing
+/// helper rejects them — but we instead keep the literal verbatim and
+/// surface unknown tokens via doctor.
+fn lower_report_decl(
+    _feature: &str,
+    r: &syntax::ReportDecl,
+) -> Result<ir::Report, AnalyzeError> {
+    let source = lower_report_source(&r.source);
+
+    let columns: Vec<ir::ReportColumn> = r
+        .columns
+        .iter()
+        .map(|col| ir::ReportColumn {
+            name: col.name.clone(),
+            source: lower_report_column_source(&col.source),
+            label: col.label.clone(),
+            format: col.format.clone(),
+            span_ref: Some(span_of(col.span)),
+        })
+        .collect();
+
+    let formats: Vec<ir::ReportFormat> = r
+        .formats
+        .iter()
+        .filter_map(|token| ir::ReportFormat::from_token(token.as_str()))
+        .collect();
+
+    let storage = r.storage.as_deref().map(lower_qualified_name);
+
+    let visibility = match r.visibility.as_deref() {
+        Some("public") => ir::FileVisibility::Public,
+        Some("private") => ir::FileVisibility::Private,
+        // Default per proposal §Slot inventory; doctor enforces signed
+        // pairing with `signed_ttl`.
+        _ => ir::FileVisibility::Signed,
+    };
+
+    let filename = r.filename.as_deref().map(lower_report_filename);
+
+    let policy = r
+        .policy
+        .as_deref()
+        .map(lower_policy_atom)
+        .unwrap_or(ir::PolicyRef::None);
+
+    let audit = r.audit.as_ref().map(|a| ir::AuditSpec {
+        subjects: a.subjects.clone(),
+        // Proposal v0.2 forbids `emit_to` on reports; doctor surfaces
+        // any author-supplied value. The lowering preserves what was
+        // written so the doctor lint sees the offending edge.
+        emit_to: a.emit_to.clone(),
+    });
+
+    Ok(ir::Report {
+        name: r.name.clone(),
+        source,
+        columns,
+        formats,
+        storage,
+        visibility,
+        signed_ttl: r.signed_ttl.clone(),
+        filename,
+        policy,
+        rate_limit: r.rate_limit.clone(),
+        audit,
+        span_ref: Some(span_of(r.span)),
+    })
+}
+
+fn lower_report_source(text: &str) -> ir::ReportSource {
+    // Source forms:
+    //   - `query.<name>`         (local short)
+    //   - `<feature>.query.<name>` (cross-feature)
+    //   - `<feature>.query.list.<name>` / `.lookup.<name>` / `.sql.<name>`
+    //     (kind-qualified). The analyzer collapses the kind segment;
+    //     doctor enforces the kind from the resolved target.
+    let trimmed = text.trim();
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    let qn = match parts.as_slice() {
+        ["query", name] => ir::QualifiedName {
+            feature: None,
+            name: (*name).to_owned(),
+        },
+        [feature, "query", name] => ir::QualifiedName {
+            feature: Some((*feature).to_owned()),
+            name: (*name).to_owned(),
+        },
+        [feature, "query", _kind, name] => ir::QualifiedName {
+            feature: Some((*feature).to_owned()),
+            name: (*name).to_owned(),
+        },
+        _ => lower_qualified_name(trimmed),
+    };
+    ir::ReportSource::Query(qn)
+}
+
+fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::ReportColumnSource {
+    match src {
+        syntax::ReportColumnSourceAst::RowField(field) => {
+            ir::ReportColumnSource::RowField(field.clone())
+        }
+        syntax::ReportColumnSourceAst::FnCall { name, args } => {
+            ir::ReportColumnSource::Fn(ir::FnInvocation {
+                name: name.clone(),
+                args: args.clone(),
+            })
+        }
+    }
+}
+
+/// Parse a filename template string into the closed `FilenameToken`
+/// catalog. Unknown `{...}` tokens are silently dropped from the typed
+/// token list; the literal is preserved so doctor's
+/// `REPORT-FILENAME-TOKEN-UNKNOWN-001` rule can scan the literal and
+/// report user-facing diagnostics.
+fn lower_report_filename(literal: &str) -> ir::ReportFilenamePattern {
+    let mut tokens = Vec::new();
+    let bytes = literal.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'{' {
+            if let Some(close) = literal[i + 1..].find('}') {
+                let raw = &literal[i + 1..i + 1 + close];
+                if let Some(token) = parse_filename_token(raw) {
+                    tokens.push(token);
+                }
+                i = i + 1 + close + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    ir::ReportFilenamePattern {
+        literal: literal.to_owned(),
+        tokens,
+    }
+}
+
+fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
+    match raw {
+        "format" => Some(ir::FilenameToken::Format),
+        "ctx.user.id" => Some(ir::FilenameToken::CtxUserId),
+        "ctx.tenant.id" => Some(ir::FilenameToken::CtxTenantId),
+        _ => {
+            if let Some(strftime) = raw.strip_prefix("ctx.now:") {
+                return Some(ir::FilenameToken::CtxNowStrftime(strftime.to_owned()));
+            }
+            None
+        }
     }
 }
 

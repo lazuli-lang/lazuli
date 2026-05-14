@@ -12238,6 +12238,20 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "signed_ttl" => Some(
             "Signed-URL TTL for `@cap.File(visibility:signed)`. Closed unit catalog: `s`, `m`, `h`, `d`. Forbidden when `visibility` is `public` or `private`.",
         ),
+        // Report vocab — `report <name>` kind keywords. See
+        // `docs/proposals/report-vocab.md` v0.2.
+        "report" => Some(
+            "Declares a tabular export contract (CSV / XLSX) on a feature. Replaces the `api + opaque handler` pattern for static-column exports. Body: `source <query_ref>`, `columns`, `formats csv|xlsx`, optional `storage`, `visibility`, `signed_ttl`, `filename`, `policy`, `rate_limit`, `audit`.",
+        ),
+        "columns" => Some(
+            "On a `report`, declares the column list at compile time. Each row: `<name> from row.<field> | @fn.<name>(args) [label \"...\"] [format \"...\"]`. Doctor cross-checks `row.<field>` against the source query's projection via `REPORT-COLUMN-MISMATCH-001`.",
+        ),
+        "formats" => Some(
+            "On a `report`, declares the export formats. Closed catalog: `csv`, `xlsx`. Each entry auto-mounts `GET /api/reports/<name>.<format>`. Unknown formats raise `REPORT-FORMAT-UNKNOWN-001`.",
+        ),
+        "filename" => Some(
+            "On a `report`, declares the download filename template. Closed token catalog: `{format}`, `{ctx.now:<strftime>}` (strftime tokens `yyyy`, `mm`, `dd`, `HH`, `MM`, `ss`), `{ctx.user.id}`, `{ctx.tenant.id}`. Unknown tokens raise `REPORT-FILENAME-TOKEN-UNKNOWN-001`.",
+        ),
         // Observability bucket cycle row 36 — `app.logging` /
         // `app.tracing` keywords. Each closed catalog matches the
         // doctor diagnostic.

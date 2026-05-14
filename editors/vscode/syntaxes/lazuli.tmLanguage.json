@@ -178,7 +178,7 @@
           }
         },
         {
-          "match": "^\\s*\\b(query(?:\\.(?:list|lookup|sql))?|command|api|operation|workflow|view|event(?:\\.trace)?|event_group|events|webhook|job|auth|extends|agent|notification|poller)\\s+([A-Za-z_][A-Za-z0-9_\\.*]*)\\b",
+          "match": "^\\s*\\b(query(?:\\.(?:list|lookup|sql))?|command|api|operation|workflow|view|event(?:\\.trace)?|event_group|events|webhook|job|auth|extends|agent|notification|poller|report)\\s+([A-Za-z_][A-Za-z0-9_\\.*]*)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.declaration.structural.lazuli"
