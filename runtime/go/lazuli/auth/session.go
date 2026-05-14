@@ -128,6 +128,35 @@ func InvalidateSession(ctx *lazuli.Ctx, contract SessionsContract, token string)
 	return err
 }
 
+// MintSessionToken generates the (token, tokenHash, expiresAt) triple
+// without writing to the database. Codegen callers use this, then build
+// their own per-resource INSERT with the correct tenant columns.
+func MintSessionToken(ctx *lazuli.Ctx, ttl any) (token, tokenHash string, expiresAt time.Time, err error) {
+	token, tokenHash, err = newSessionToken()
+	if err != nil {
+		return
+	}
+	expiresAt = sessionNow(ctx).Add(sessionTTL(ttl))
+	return
+}
+
+// HashSessionToken exposes the internal hash function for codegen callers
+// that receive a raw token and need to compute the stored hash.
+func HashSessionToken(token string) (string, error) { return hashSessionToken(token) }
+
+// MapSessionResolveError maps pgx sentinel errors to typed auth errors.
+// Codegen callers use this after their own SELECT roundtrip.
+func MapSessionResolveError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionNotFound
+	}
+	return err
+}
+
+// SessionDB exposes the configured sessionDB handle to codegen callers.
+// Uses _ for ctx; reserved for future tenant-scoped connection pools.
+func SessionDB(_ *lazuli.Ctx) sessionDB { return sessionDBProvider() }
+
 func newSessionToken() (string, string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
