@@ -56,6 +56,22 @@ pub enum AnalyzeError {
     #[error("unsupported webhook verify scheme `{scheme}` (use `hmac`)")]
     UnsupportedVerifyScheme { scheme: String },
 
+    /// L0 #8 — `poller` block missing a required child. Surfaces at
+    /// lowering when the parser somehow allowed a structurally
+    /// incomplete poller through (defense-in-depth; parser already
+    /// rejects most). See `docs/proposals/poller-vocab.md` §3.
+    #[error("POLLER-MISSING-FIELD: `{kind}` `{name}` is missing required field `{field}`")]
+    MissingField {
+        kind: String,
+        name: String,
+        field: String,
+    },
+
+    /// L0 #8 — `poller retry backoff <strategy>` outside the closed
+    /// catalog (`fixed` | `linear` | `exponential`).
+    #[error("POLLER-UNKNOWN-ENUM: `{kind}` carries unknown value `{value}` outside the closed catalog")]
+    UnknownEnum { kind: String, value: String },
+
     /// L0 #2 — `design <X>` declared `extends <Y>`. Cut B (post-pilot).
     /// v0 keeps the keyword reserved at parse time but rejects at
     /// lowering. See `docs/proposals/design-tokens.md` §3.6.
@@ -214,6 +230,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         event_groups: Vec::new(),
         tenant_migrations: Vec::new(),
         translation: None,
+        pollers: Vec::new(),
         auth: None,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -1978,6 +1995,10 @@ pub fn lower_feature_skeleton(
     for notification_ast in &skeleton.notifications {
         notifications.push(lower_notification(&skeleton.name, notification_ast)?);
     }
+    let mut pollers = Vec::with_capacity(skeleton.pollers.len());
+    for poller_ast in &skeleton.pollers {
+        pollers.push(lower_poller(poller_ast)?);
+    }
     let mut event_groups = Vec::with_capacity(skeleton.event_groups.len());
     for group_ast in &skeleton.event_groups {
         event_groups.push(lower_event_group(group_ast));
@@ -2037,6 +2058,7 @@ pub fn lower_feature_skeleton(
         event_groups,
         tenant_migrations,
         translation: skeleton.translation.as_ref().map(lower_translation_decl),
+        pollers,
         auth,
         surfaces: Vec::new(),
         extensions: Vec::new(),
@@ -2828,6 +2850,190 @@ pub fn lower_job(feature: &str, job: &syntax::Job) -> Result<ir::Job, AnalyzeErr
         emits: job.emits.clone(),
         previous_names: Vec::new(),
         span_ref: Some(span_of(job.span)),
+    })
+}
+
+// =============================================================================
+// L0 #8 — poller lowering (docs/proposals/poller-vocab.md §4).
+//
+// AST → IR is purely structural; doctor rules enforce the closed-catalog
+// validity invariants (cursor field shapes, terminal-state existence,
+// handler orphan, etc.). The lowering never fails on AST alone — it
+// applies the defaults (`tick.every = 30s`, `tick.batch = 100`) and
+// surfaces structurally well-formed IR for downstream consumers.
+// =============================================================================
+
+/// Default tick interval when `tick every <duration>` is omitted in source.
+/// Per proposal §3.8.
+const POLLER_DEFAULT_TICK_EVERY: &str = "30s";
+const POLLER_DEFAULT_TICK_BATCH: u32 = 100;
+
+pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, AnalyzeError> {
+    let cursor_ast = poller.cursor.as_ref().ok_or_else(|| AnalyzeError::MissingField {
+        kind: "poller".to_owned(),
+        name: poller.name.clone(),
+        field: "cursor".to_owned(),
+    })?;
+    let retry_ast = poller.retry.as_ref().ok_or_else(|| AnalyzeError::MissingField {
+        kind: "poller".to_owned(),
+        name: poller.name.clone(),
+        field: "retry".to_owned(),
+    })?;
+    let resolve_name =
+        poller
+            .resolve_handler
+            .as_deref()
+            .ok_or_else(|| AnalyzeError::MissingField {
+                kind: "poller".to_owned(),
+                name: poller.name.clone(),
+                field: "resolve via @fn.<name>".to_owned(),
+            })?;
+    if poller.idempotency.is_empty() {
+        return Err(AnalyzeError::MissingField {
+            kind: "poller".to_owned(),
+            name: poller.name.clone(),
+            field: "idempotency".to_owned(),
+        });
+    }
+    if poller.states.is_empty() {
+        return Err(AnalyzeError::MissingField {
+            kind: "poller".to_owned(),
+            name: poller.name.clone(),
+            field: "states".to_owned(),
+        });
+    }
+
+    let cursor = ir::PollerCursor {
+        next_at_field: cursor_ast.next_at_field.clone(),
+        resolved_at_field: cursor_ast.resolved_at_field.clone(),
+        attempts_field: cursor_ast.attempts_field.clone(),
+        span_ref: Some(span_of(cursor_ast.span)),
+    };
+
+    let backoff = match retry_ast.backoff_strategy.as_str() {
+        "fixed" => ir::PollerBackoff::Fixed {
+            base: retry_ast.backoff_base.clone(),
+        },
+        "linear" => ir::PollerBackoff::Linear {
+            base: retry_ast.backoff_base.clone().unwrap_or_else(|| "30s".to_owned()),
+            cap: retry_ast.backoff_cap.clone(),
+        },
+        "exponential" => ir::PollerBackoff::Exponential {
+            base: retry_ast.backoff_base.clone().unwrap_or_else(|| "30s".to_owned()),
+            cap: retry_ast.backoff_cap.clone(),
+        },
+        other => {
+            return Err(AnalyzeError::UnknownEnum {
+                kind: format!("poller `{}` backoff", poller.name),
+                value: other.to_owned(),
+            });
+        }
+    };
+    let retry = ir::PollerRetry {
+        max_attempts: retry_ast.max_attempts,
+        backoff,
+        span_ref: Some(span_of(retry_ast.span)),
+    };
+
+    let states = poller
+        .states
+        .iter()
+        .map(|s| ir::PollerState {
+            name: s.name.clone(),
+            kind: match s.kind_keyword.as_deref() {
+                Some("initial") => ir::PollerStateKind::Initial,
+                Some("terminal") => ir::PollerStateKind::Terminal,
+                Some("intermediate") | None => ir::PollerStateKind::Intermediate,
+                Some(_) => ir::PollerStateKind::Intermediate,
+            },
+            span_ref: Some(span_of(s.span)),
+        })
+        .collect::<Vec<_>>();
+
+    let tick = match poller.tick.as_ref() {
+        Some(t) => ir::PollerTick {
+            every: t.every.clone(),
+            batch: t.batch.unwrap_or(POLLER_DEFAULT_TICK_BATCH),
+        },
+        None => ir::PollerTick {
+            every: POLLER_DEFAULT_TICK_EVERY.to_owned(),
+            batch: POLLER_DEFAULT_TICK_BATCH,
+        },
+    };
+
+    let tenant_from = poller
+        .tenant_from
+        .as_deref()
+        .map(lower_path_string)
+        .map(|path| ir::TenantFromSpec { path });
+
+    let idempotency = ir::IdempotencyKey {
+        by: ir::Path {
+            segments: poller.idempotency.iter().cloned().collect(),
+        },
+    };
+
+    let audit = poller.audit.as_deref().map(|raw: &str| {
+        let rest = raw.strip_prefix("audit ").unwrap_or(raw).trim();
+        if rest == "default" {
+            ir::AuditSpec {
+                subjects: vec!["actor".to_owned(), "target.id".to_owned()],
+                emit_to: None,
+            }
+        } else if let Some(reason) = rest.strip_prefix("none ") {
+            ir::AuditSpec {
+                subjects: vec![format!("none {}", reason)],
+                emit_to: None,
+            }
+        } else {
+            ir::AuditSpec {
+                subjects: rest
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s: &&str| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+                emit_to: None,
+            }
+        }
+    });
+
+    let retry_quirks = poller
+        .retry_quirks
+        .iter()
+        .filter_map(|q| match q.kind.as_str() {
+            "gender_flip_once" => Some(ir::PollerRetryQuirk::GenderFlipOnce {
+                when: q.when.clone(),
+                counter_field: q.counter_field.clone(),
+                gender_field: q.mutate_field.clone(),
+            }),
+            // Unknown catalog entries are dropped during lowering;
+            // doctor `POLLER-QUIRK-CATALOG-MISMATCH-001` surfaces the
+            // diagnostic at the AST layer.
+            _ => None,
+        })
+        .collect();
+
+    Ok(ir::Poller {
+        name: poller.name.clone(),
+        source: poller.source.clone(),
+        cursor,
+        retry,
+        states,
+        resolve_handler: ir::HandlerRef {
+            namespace: "fn".to_owned(),
+            name: resolve_name.to_owned(),
+            span_ref: Some(span_of(poller.span)),
+        },
+        terminal_status_field: poller.terminal_status_field.clone(),
+        terminal_result_field: poller.terminal_result_field.clone(),
+        tick,
+        tenant_from,
+        idempotency,
+        audit,
+        emits: poller.emits.clone(),
+        retry_quirks,
+        span_ref: Some(span_of(poller.span)),
     })
 }
 

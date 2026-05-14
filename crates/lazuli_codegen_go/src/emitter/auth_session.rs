@@ -279,6 +279,7 @@ mod tests {
             event_groups: Vec::new(),
             tenant_migrations: Vec::new(),
             translation: None,
+            pollers: vec![],
             auth: None,
             surfaces: Vec::new(),
             extensions: Vec::new(),

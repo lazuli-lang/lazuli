@@ -178,7 +178,7 @@
           }
         },
         {
-          "match": "^\\s*\\b(query(?:\\.(?:list|lookup|sql))?|command|api|operation|workflow|view|event(?:\\.trace)?|event_group|events|webhook|job|auth|extends|agent|notification)\\s+([A-Za-z_][A-Za-z0-9_\\.*]*)\\b",
+          "match": "^\\s*\\b(query(?:\\.(?:list|lookup|sql))?|command|api|operation|workflow|view|event(?:\\.trace)?|event_group|events|webhook|job|auth|extends|agent|notification|poller)\\s+([A-Za-z_][A-Za-z0-9_\\.*]*)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.declaration.structural.lazuli"
@@ -238,7 +238,12 @@
         },
         {
           "name": "keyword.section.lazuli",
-          "match": "\\b(defaults|non_goals|delegated_to|out_of_scope|constraints|policies|errors|params|route|key|scope|filters|cells|payload|apps|shared_registry|boundaries|gateway|targets|environments|urls|env|group|integrations|bindings|packs|capabilities|architecture|services|communication|runtime|deploy|encryption|rotation)\\b"
+          "match": "\\b(defaults|non_goals|delegated_to|out_of_scope|constraints|policies|errors|params|route|key|scope|filters|cells|payload|apps|shared_registry|boundaries|gateway|targets|environments|urls|env|group|integrations|bindings|packs|capabilities|architecture|services|communication|runtime|deploy|encryption|rotation|cursor|states|retry_quirk)\\b"
+        },
+        {
+          "comment": "L0 #8 — poller statement keywords (poller-vocab.md §3).",
+          "name": "keyword.control.statement.poller.lazuli",
+          "match": "\\b(eligible_when|max_attempts|backoff|terminal_status_field|terminal_result_field|tick|resolve|fixed|linear|exponential|gender_flip_once)\\b"
         }
       ]
     },

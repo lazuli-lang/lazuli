@@ -12106,8 +12106,30 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "trigger" => Some(
             "Declares the event or schedule that starts a job or notification. `trigger event <feature>.<event>` for reactors; `trigger schedule \"<cron>\"` for scheduled work.",
         ),
+        // L0 #8 — `poller` vocabulary (docs/proposals/poller-vocab.md).
+        "poller" => Some(
+            "Declares an async resolution loop over a persistent cursor table. `poller <name>` is a feature-level kind parallel to `job` / `webhook` / `notification`. Closed children: `source <Resource>`, `cursor`, `retry`, `states`, `resolve via @fn.<name>`, `terminal_status_field`, `terminal_result_field`, `tick every <duration> batch <int>`, `tenant_from row.<axis>_id`, `idempotency by row.<field>, ...`, `audit`, `emits`, `retry_quirk` (closed catalog).",
+        ),
+        "cursor" => Some(
+            "Inside `poller`: names the three closed cursor fields on `source`. Body is exactly `eligible_when <next_at>, <resolved_at>` + `attempts <field>`. The runtime selects rows where `next_at <= NOW() AND resolved_at IS NULL`.",
+        ),
+        "eligible_when" => Some(
+            "Inside `poller cursor`: the two field names that gate row eligibility. Positional pair: `eligible_when <next_check_at>, <resolved_at>` — first is `DateTime required`, second is nullable `DateTime`.",
+        ),
+        "tick" => Some(
+            "Inside `poller`: wall-clock cadence. `tick every <duration> [batch <int>]`. Defaults: `every 30s`, `batch 100`. Duration unit catalog is closed (`s`/`m`/`h`/`d`); doctor warns when `every < 5s` (POLLER-TICK-TOO-FAST-001).",
+        ),
+        "retry_quirk" => Some(
+            "Inside `poller`: closed-catalog retry transformation. v0.1 catalog: `gender_flip_once`. Body: `when <predicate>`, `counter <field>`, `mutate <field> = <transform>`. No predicate sublanguage; for arbitrary mutation, drop to a `command` chained off `emits`.",
+        ),
+        "backoff" => Some(
+            "On `retry`: closed-catalog backoff strategy. Catalog: `fixed`, `linear`, `exponential`. `linear` and `exponential` require `base <duration>`; `exponential` strongly recommends `cap <duration>` (POLLER-EXPONENTIAL-NO-CAP-001).",
+        ),
+        "resolve" => Some(
+            "Inside `poller`: names the per-row handler. `resolve via @fn.<name>` — handler signature is derived from the poller's row + state + terminal types (`poller.ResolveResult[State, Terminal, Result]`). Doctor enforces the `@fn.<name>` is declared in feature `extensions` (POLLER-HANDLER-ORPHAN-001).",
+        ),
         "retry" => Some(
-            "Declares retry attempts and backoff strategy. `retry <count> backoff <fixed|exponential>`. v0 catalog is closed; adapter-specific jitter is a runtime concern.",
+            "Declares retry attempts and backoff strategy. For jobs: `retry <count> backoff <fixed|exponential>`. For pollers: `retry` block with `max_attempts <int>` + `backoff <strategy> [base <d>] [cap <d>]`. v0 catalog is closed.",
         ),
         "queue" => Some(
             "Declares an async queue lane for event-triggered jobs. Without `queue`, event jobs run inline as reactors; with `queue <lane>`, the runtime adapter dispatches via the queue (River, Asynq).",

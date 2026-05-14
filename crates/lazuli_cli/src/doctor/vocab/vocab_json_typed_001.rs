@@ -266,6 +266,7 @@ mod tests {
             event_groups: vec![],
             tenant_migrations: vec![],
             translation: None,
+            pollers: vec![],
             auth: None,
             surfaces: vec![],
             extensions: vec![],

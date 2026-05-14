@@ -4,6 +4,7 @@ pub mod encryption;
 pub mod folder;
 pub mod lifecycle;
 pub mod lzx;
+pub mod poller;
 pub mod vocab;
 
 use std::collections::{BTreeMap, BTreeSet};
