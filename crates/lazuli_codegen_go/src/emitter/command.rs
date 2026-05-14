@@ -47,8 +47,9 @@
 use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
-    Feature, IdempotencyKey, InvalidatesSpec, NamedArg, Path, PolicyRef, QualifiedName,
-    RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
+    Feature, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind, LifecycleTransition,
+    NamedArg, Path, PolicyRef, QualifiedName, Resource, RetryPolicy, ReturnsEffect, TypedSlot,
+    UpdateEffect,
 };
 use std::collections::BTreeMap;
 
@@ -99,6 +100,9 @@ pub fn emit_command_file(
     imports.add("context");
     imports.add("lazuli.dev/runtime/lazuli");
     imports.add("lazuli.dev/runtime/lazuli/observability");
+    if feature.resources.iter().any(|r| r.lifecycle.is_some()) {
+        imports.add("lazuli.dev/runtime/lazuli/lifecycle");
+    }
     if !wrap_buckets.is_empty() {
         imports.add("context");
         imports.add("errors");
@@ -123,6 +127,9 @@ pub fn emit_command_file(
     p.blank();
     if !wrap_buckets.is_empty() {
         emit_wrap_helper(&mut p, &wrap_buckets);
+        p.blank();
+    }
+    if emit_lifecycle_machines(&mut p, feature) {
         p.blank();
     }
 
@@ -197,6 +204,7 @@ fn emit_command(
     // Output type resolves from the effect. `None` falls back to
     // `struct{}` so the Command[I,O] still parses.
     let output_type = command_output_type(&command.effect, ctx);
+    let lifecycle_transition = lifecycle_transition_for(feature, command);
 
     let var_name = command_var_name(&command.name, &resource_pascal);
 
@@ -251,7 +259,13 @@ fn emit_command(
         .iter()
         .map(|binding| (binding.name.as_str(), &binding.value))
         .collect();
-    emit_effect(p, &command.effect, ctx, &let_bindings);
+    emit_effect(
+        p,
+        &command.effect,
+        ctx,
+        &let_bindings,
+        lifecycle_transition.as_ref(),
+    );
 
     // Emits block.
     if !command.emits.is_empty() {
@@ -369,10 +383,13 @@ fn emit_effect(
     effect: &CommandEffect,
     ctx: &TypeCtx<'_>,
     let_bindings: &BTreeMap<&str, &Expr>,
+    lifecycle_transition: Option<&LifecycleCommand<'_>>,
 ) {
     match effect {
         CommandEffect::Creates(create) => emit_creates_effect(p, create, let_bindings),
-        CommandEffect::Updates(update) => emit_updates_effect(p, update, let_bindings),
+        CommandEffect::Updates(update) => {
+            emit_updates_effect(p, update, let_bindings, lifecycle_transition)
+        }
         CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete),
         CommandEffect::Returns(ret) => {
             // `Returns` doesn't fit the side-effect axis; the runtime
@@ -424,11 +441,20 @@ fn emit_updates_effect(
     p: &mut GoPrinter,
     update: &UpdateEffect,
     let_bindings: &BTreeMap<&str, &Expr>,
+    lifecycle_transition: Option<&LifecycleCommand<'_>>,
 ) {
     let resource_var = resource_var_for_qname(&update.resource);
     // Lazuli Go lib `Updates` takes (resource, where, bind). For E3 we
     // assume the implicit `id` route slot drives WHERE; if the IR ever
     // grows a structured `target_by` axis we lift it here.
+    if let Some(lifecycle) = lifecycle_transition {
+        p.line(&format!(
+            "// lifecycle: newState, err := {}.Apply(ctx, current.{}, \"{}\")",
+            lifecycle_machine_var(lifecycle.resource),
+            pascal_case(&lifecycle.lifecycle.discriminator_field),
+            escape_string(&lifecycle.transition.name)
+        ));
+    }
     p.line(&format!("Effect: lazuli.Updates(&{resource_var},"));
     p.indent();
     p.line("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},");
@@ -441,6 +467,99 @@ fn emit_updates_effect(
     p.line("},");
     p.dedent();
     p.line("),");
+}
+
+struct LifecycleCommand<'a> {
+    resource: &'a Resource,
+    lifecycle: &'a Lifecycle,
+    transition: &'a LifecycleTransition,
+}
+
+fn lifecycle_transition_for<'a>(
+    feature: &'a Feature,
+    command: &Command,
+) -> Option<LifecycleCommand<'a>> {
+    let CommandEffect::Updates(update) = &command.effect else {
+        return None;
+    };
+    feature
+        .resources
+        .iter()
+        .filter(|resource| resource.name == update.resource.name)
+        .find_map(|resource| {
+            let lifecycle = resource.lifecycle.as_ref()?;
+            let transition = lifecycle
+                .transitions
+                .iter()
+                .find(|transition| transition.name == command.name)?;
+            Some(LifecycleCommand {
+                resource,
+                lifecycle,
+                transition,
+            })
+        })
+}
+
+fn emit_lifecycle_machines(p: &mut GoPrinter, feature: &Feature) -> bool {
+    let mut lifecycles: Vec<&Resource> = feature
+        .resources
+        .iter()
+        .filter(|resource| resource.lifecycle.is_some())
+        .collect();
+    lifecycles.sort_by(|a, b| a.name.cmp(&b.name));
+    if lifecycles.is_empty() {
+        return false;
+    }
+
+    for (idx, resource) in lifecycles.iter().enumerate() {
+        if idx > 0 {
+            p.blank();
+        }
+        let lifecycle = resource.lifecycle.as_ref().expect("filtered above");
+        let enum_name = pascal_case(&lifecycle.generated_enum);
+        let initial = initial_lifecycle_state(lifecycle)
+            .map(|state| enum_variant_name(&enum_name, state))
+            .unwrap_or_else(|| format!("{enum_name}(\"\")"));
+        p.line(&format!(
+            "var {} = lifecycle.New[{enum_name}]({initial}, []lifecycle.Transition[{enum_name}]{{",
+            lifecycle_machine_var(resource)
+        ));
+        p.indent();
+        for transition in &lifecycle.transitions {
+            let from = transition
+                .from
+                .iter()
+                .map(|state| format!("\"{}\"", escape_string(state)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            p.line(&format!(
+                "{{Name: \"{}\", From: []string{{{from}}}, To: {}}},",
+                escape_string(&transition.name),
+                enum_variant_name(&enum_name, &transition.to)
+            ));
+        }
+        p.dedent();
+        p.line("})");
+    }
+
+    true
+}
+
+fn lifecycle_machine_var(resource: &Resource) -> String {
+    format!("{}Lifecycle", lower_camel(&resource.name))
+}
+
+fn initial_lifecycle_state(lifecycle: &Lifecycle) -> Option<&str> {
+    lifecycle
+        .states
+        .iter()
+        .find(|state| matches!(state.kind, LifecycleStateKind::Initial))
+        .or_else(|| lifecycle.states.first())
+        .map(|state| state.name.as_str())
+}
+
+fn enum_variant_name(enum_name: &str, variant: &str) -> String {
+    format!("{}{}", enum_name, pascal_case(variant))
 }
 
 fn emit_deletes_effect(p: &mut GoPrinter, _delete: &DeleteEffect) {
@@ -1150,8 +1269,9 @@ mod tests {
     use lazuli_ir::{
         AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
         DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, IdempotencyKey, LetBinding,
-        Module, NamedArg, Path, Policies, QualifiedName, Record, Resource, RetryPolicy, RouteSlot,
-        Tenancy, TypeRef, UpdateEffect,
+        Lifecycle, LifecycleState, LifecycleStateKind, LifecycleTransition, Module, NamedArg, Path,
+        Policies, QualifiedName, Record, Resource, RetryPolicy, RouteSlot, Tenancy, TypeRef,
+        UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -1257,6 +1377,49 @@ mod tests {
             span_ref: None,
             lifecycle: None,
         }
+    }
+
+    fn lifecycle_resource(name: &str, field: &str, enum_name: &str) -> Resource {
+        let mut resource = simple_resource(name);
+        resource.lifecycle = Some(Lifecycle {
+            discriminator_field: field.to_owned(),
+            generated_enum: enum_name.to_owned(),
+            states: vec![
+                LifecycleState {
+                    name: "scheduled".to_owned(),
+                    kind: LifecycleStateKind::Initial,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "publishing".to_owned(),
+                    kind: LifecycleStateKind::Intermediate,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "published".to_owned(),
+                    kind: LifecycleStateKind::Terminal,
+                    span_ref: None,
+                },
+            ],
+            transitions: vec![LifecycleTransition {
+                name: "begin_publishing".to_owned(),
+                from: vec!["scheduled".to_owned()],
+                to: "publishing".to_owned(),
+                policy: None,
+                audit: None,
+                timestamps: Some("publishing_at".to_owned()),
+                emits: Vec::new(),
+                requires: None,
+                tests: None,
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+            invariants: Vec::new(),
+            invariant_handlers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        });
+        resource
     }
 
     fn typed_slot(name: &str, builtin: BuiltinType, required: bool) -> TypedSlot {
@@ -1460,6 +1623,69 @@ mod tests {
         // depends on which other kv rows landed; assertion targets the
         // payload so renaming the column doesn't break the test.
         assert!(out.contains("lazuli.Policy{Name: \"@policy.update\"},"));
+    }
+
+    #[test]
+    fn lifecycle_command_emits_apply_call() {
+        let mut feature = base_feature("publication");
+        feature.resources.push(lifecycle_resource(
+            "Publication",
+            "status",
+            "PublicationStatus",
+        ));
+        let mut cmd = base_command("begin_publishing");
+        cmd.kind = CommandKind::Update;
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Publication"),
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/lifecycle\""));
+        assert!(out.contains("var publicationLifecycle = lifecycle.New[PublicationStatus]("));
+        assert!(out.contains(
+            "// lifecycle: newState, err := publicationLifecycle.Apply(ctx, current.Status, \"begin_publishing\")"
+        ));
+    }
+
+    #[test]
+    fn non_lifecycle_command_does_not_emit_apply_call() {
+        let mut feature = base_feature("publication");
+        feature.resources.push(lifecycle_resource(
+            "Publication",
+            "status",
+            "PublicationStatus",
+        ));
+        let mut cmd = base_command("rename");
+        cmd.kind = CommandKind::Update;
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Publication"),
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains(".Apply(ctx,"));
+    }
+
+    #[test]
+    fn multi_lifecycle_resources_emit_per_resource_vars() {
+        let mut feature = base_feature("publication");
+        feature.resources.push(lifecycle_resource(
+            "Publication",
+            "status",
+            "PublicationStatus",
+        ));
+        feature
+            .resources
+            .push(lifecycle_resource("Issue", "state", "IssueState"));
+        feature.commands.push(base_command("noop"));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("var issueLifecycle = lifecycle.New[IssueState]("));
+        assert!(out.contains("var publicationLifecycle = lifecycle.New[PublicationStatus]("));
+        assert_eq!(out.matches("lifecycle.New[").count(), 2);
     }
 
     #[test]
