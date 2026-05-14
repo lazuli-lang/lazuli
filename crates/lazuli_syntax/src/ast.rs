@@ -273,7 +273,7 @@ pub struct ViewListAst {
     /// text; analyzer splits into a `QueryRef`.
     pub source: String,
     pub columns: Vec<String>,
-    pub search: Vec<String>,
+    pub search: Option<SearchDeclAst>,
     pub filter: Vec<String>,
     /// `filters` block declarations for typed view-local filter state.
     pub filters: Vec<FilterDeclAst>,
@@ -286,6 +286,36 @@ pub struct ViewListAst {
     /// `<feature>.command.<name>` references. Analyzer normalizes.
     pub actions: Vec<String>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchDeclAst {
+    pub mode: SearchModeAst,
+    pub fields: Vec<SearchFieldAst>,
+    pub free_text_target: Option<BindingRefAst>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum SearchModeAst {
+    Columns(Vec<String>),
+    Segmented,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchFieldAst {
+    pub key: String,
+    pub binds_to: BindingRefAst,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum BindingRefAst {
+    Filter { name: String },
+    SourceInput { name: String },
+    SelectionScalar,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

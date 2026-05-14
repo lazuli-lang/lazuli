@@ -8,7 +8,7 @@ use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, ApiDecl,
     ApprovalThenDecl, AssignmentDecl, AudienceAst, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider,
-    AuthPassword, AuthSessions, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
+    AuthPassword, AuthSessions, BindingRefAst, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
     CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
     CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
     ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
@@ -24,8 +24,8 @@ use crate::ast::{
     NotificationDigest, NotificationThrottle, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,
     Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
     ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, ShadowTokenAst, Span,
-    SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
-    TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
+    SearchDeclAst, SearchFieldAst, SearchModeAst, SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst,
+    TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
     TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, ViewAst,
     ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
     WebhookVerify, WeightTokenAst, ZTokenAst,
@@ -1190,6 +1190,17 @@ fn parse_view_block(
             ));
         }
 
+        if let Some(rest) = trimmed.strip_prefix("search ") {
+            if state.search.is_some() {
+                return Err(line_error(line, "view declares `search` at most once"));
+            }
+            let (search, next) = parse_view_search_decl(lines, i, rest.trim(), body_indent)?;
+            state.search = Some(search);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -1264,7 +1275,7 @@ struct ViewBodyState {
     source: Option<String>,
     submit: Option<String>,
     columns: Vec<String>,
-    search: Vec<String>,
+    search: Option<SearchDeclAst>,
     filter: Vec<String>,
     filters: Vec<FilterDeclAst>,
     has_filters_block: bool,
@@ -1286,7 +1297,6 @@ fn view_body_handlers() -> &'static [(&'static str, ViewBodyLineHandler)] {
         ("submit ", parse_view_submit_line),
         ("columns ", parse_view_columns_line),
         ("fields ", parse_view_fields_line),
-        ("search ", parse_view_search_line),
         ("filter ", parse_view_filter_line),
         ("sections ", parse_view_sections_line),
         ("actions ", parse_view_actions_line),
@@ -1334,15 +1344,6 @@ fn parse_view_fields_line(
     state: &mut ViewBodyState,
 ) -> Result<(), ParseError> {
     state.fields.extend(split_lzx_list(rest));
-    Ok(())
-}
-
-fn parse_view_search_line(
-    _line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ViewBodyState,
-) -> Result<(), ParseError> {
-    state.search.extend(split_lzx_list(rest));
     Ok(())
 }
 
@@ -1700,6 +1701,148 @@ fn parse_filter_decl(line: &SourceLine<'_>, value: &str) -> Result<FilterDeclAst
         url_sync,
         span: Span::new(line.start, line.end),
     })
+}
+
+fn parse_view_search_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+    body_indent: usize,
+) -> Result<(SearchDeclAst, usize), ParseError> {
+    let header = &lines[start];
+    if rest == "segmented" {
+        parse_view_segmented_search(lines, start, body_indent)
+    } else if rest.starts_with("segmented ") {
+        Err(line_error(
+            header,
+            "the `segmented` form takes no inline list — use child `field` declarations",
+        ))
+    } else {
+        Ok((
+            SearchDeclAst {
+                mode: SearchModeAst::Columns(split_lzx_list(rest)),
+                fields: Vec::new(),
+                free_text_target: None,
+                span: Span::new(header.start, header.end),
+            },
+            start + 1,
+        ))
+    }
+}
+
+fn parse_view_segmented_search(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    body_indent: usize,
+) -> Result<(SearchDeclAst, usize), ParseError> {
+    let header = &lines[start];
+    let child_indent = body_indent + 2;
+    let mut fields: Vec<SearchFieldAst> = Vec::new();
+    let mut free_text_target = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= body_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`search segmented` child lines use one indentation level deeper than `search segmented`",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if let Some(rest) = trimmed.strip_prefix("field ") {
+            let field = parse_view_search_field(line, rest.trim())?;
+            if fields.iter().any(|existing| existing.key == field.key) {
+                return Err(line_error_owned(
+                    line,
+                    format!(
+                        "`search segmented` declares field `{}` more than once",
+                        field.key
+                    ),
+                ));
+            }
+            fields.push(field);
+        } else if let Some(rest) = trimmed.strip_prefix("free text into ") {
+            if free_text_target.is_some() {
+                return Err(line_error(
+                    line,
+                    "`search segmented` declares `free text into` at most once",
+                ));
+            }
+            free_text_target = Some(parse_binding_ref(line, rest.trim())?);
+        } else {
+            return Err(line_error(
+                line,
+                "`search segmented` children are `field <key> binds <BindingRef>` or `free text into <BindingRef>`",
+            ));
+        }
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        SearchDeclAst {
+            mode: SearchModeAst::Segmented,
+            fields,
+            free_text_target,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_view_search_field(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<SearchFieldAst, ParseError> {
+    let Some((key, target)) = rest.split_once(" binds ") else {
+        return Err(line_error(
+            line,
+            "`search segmented` fields use `field <key> binds <BindingRef>`",
+        ));
+    };
+    let key = key.trim();
+    if key.is_empty() {
+        return Err(line_error(line, "`search segmented` field key cannot be empty"));
+    }
+    Ok(SearchFieldAst {
+        key: key.to_owned(),
+        binds_to: parse_binding_ref(line, target.trim())?,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_binding_ref(line: &SourceLine<'_>, raw: &str) -> Result<BindingRefAst, ParseError> {
+    if raw == "selection" {
+        return Ok(BindingRefAst::SelectionScalar);
+    }
+    if let Some(name) = raw.strip_prefix("filters.") {
+        if !name.is_empty() {
+            return Ok(BindingRefAst::Filter {
+                name: name.to_owned(),
+            });
+        }
+    }
+    if let Some(name) = raw.strip_prefix("source.") {
+        if !name.is_empty() {
+            return Ok(BindingRefAst::SourceInput {
+                name: name.to_owned(),
+            });
+        }
+    }
+    Err(line_error(
+        line,
+        "binding references are `filters.<name>`, `source.<name>`, or `selection`",
+    ))
 }
 
 /// Split the `<name> [at "<path>"]` tail of a view header. The optional
@@ -10292,7 +10435,10 @@ feature slug
 #[cfg(test)]
 mod surface_parser_tests {
     use super::parse_surface_document;
-    use crate::{DrawerBindingSourceAst, DrawerTriggerAst, FilterCardinalityAst, SurfaceTargetAst, ViewAst};
+    use crate::{
+        BindingRefAst, DrawerBindingSourceAst, DrawerTriggerAst, FilterCardinalityAst,
+        SearchModeAst, SurfaceTargetAst, ViewAst,
+    };
 
     #[test]
     fn minimal_surface_one_audience_one_view_list() {
@@ -10381,7 +10527,10 @@ surface slug web
         assert_eq!(list.name, "slug_list");
         assert_eq!(list.route.as_deref(), Some("/slugs"));
         assert_eq!(list.columns, vec!["key", "title", "tags", "created_at"]);
-        assert_eq!(list.search, vec!["key", "title"]);
+        match &list.search.as_ref().expect("search").mode {
+            SearchModeAst::Columns(columns) => assert_eq!(columns, &vec!["key", "title"]),
+            other => panic!("expected columns search, got {other:?}"),
+        }
         assert_eq!(list.filter, vec!["tags"]);
         assert_eq!(list.cells.len(), 1);
         assert_eq!(list.cells[0].field, "tags");
@@ -10422,6 +10571,177 @@ surface slug web
         assert_eq!(public.requires.len(), 1);
         assert_eq!(public.requires[0].name, "workspace_member");
         assert_eq!(public.views.len(), 1);
+    }
+
+    #[test]
+    fn search_segmented_block_parses() {
+        let source = r#"surface item web
+  audience admin
+    view list item_terminal at "/"
+      source item.query.search
+      columns key
+      search segmented
+        field slug binds filters.slug
+        field type binds filters.type
+        field tag binds filters.tags
+        free text into source.q
+"#;
+        let surface = parse_surface_document(source).expect("parses segmented search");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {other:?}"),
+        };
+        let search = view.search.as_ref().expect("search");
+        assert_eq!(search.mode, SearchModeAst::Segmented);
+        assert_eq!(search.fields.len(), 3);
+        assert_eq!(search.fields[0].key, "slug");
+        assert_eq!(
+            search.fields[0].binds_to,
+            BindingRefAst::Filter {
+                name: "slug".to_owned()
+            }
+        );
+        assert_eq!(
+            search.free_text_target,
+            Some(BindingRefAst::SourceInput {
+                name: "q".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn search_columns_v1_form_still_parses() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search key, title\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        let search = view.search.as_ref().expect("search");
+        match &search.mode {
+            SearchModeAst::Columns(columns) => assert_eq!(columns, &vec!["key", "title"]),
+            other => panic!("expected columns search, got {other:?}"),
+        }
+        assert!(search.fields.is_empty());
+        assert!(search.free_text_target.is_none());
+    }
+
+    #[test]
+    fn search_segmented_rejects_inline_content() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search segmented foo\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("takes no inline list"));
+    }
+
+    #[test]
+    fn search_at_most_once() {
+        let source = r#"surface slug web
+  audience admin
+    view list a
+      source slug.query.mine
+      columns key
+      search key
+      search segmented
+"#;
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("at most once"));
+    }
+
+    #[test]
+    fn search_field_rejects_duplicate_key() {
+        let source = r#"surface slug web
+  audience admin
+    view list a
+      source slug.query.mine
+      columns key
+      search segmented
+        field slug binds filters.slug
+        field slug binds source.slug
+"#;
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("more than once"));
+    }
+
+    #[test]
+    fn search_free_text_at_most_once() {
+        let source = r#"surface slug web
+  audience admin
+    view list a
+      source slug.query.mine
+      columns key
+      search segmented
+        free text into source.q
+        free text into source.query
+"#;
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("free text into"));
+    }
+
+    #[test]
+    fn search_binding_ref_filter_form() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search segmented\n        field slug binds filters.slug\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            view.search.as_ref().unwrap().fields[0].binds_to,
+            BindingRefAst::Filter {
+                name: "slug".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn search_binding_ref_source_form() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search segmented\n        field q binds source.q\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            view.search.as_ref().unwrap().fields[0].binds_to,
+            BindingRefAst::SourceInput {
+                name: "q".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn search_binding_ref_selection_form() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search segmented\n        field selected binds selection\n";
+        let surface = parse_surface_document(source).expect("parses");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            view.search.as_ref().unwrap().fields[0].binds_to,
+            BindingRefAst::SelectionScalar
+        );
+    }
+
+    #[test]
+    fn search_binding_ref_invalid() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search segmented\n        field slug binds foo.bar\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("binding references"));
+    }
+
+    #[test]
+    fn search_segmented_empty_block() {
+        let source = "surface slug web\n  audience admin\n    view list a\n      source slug.query.mine\n      columns key\n      search segmented\n";
+        let surface = parse_surface_document(source).expect("parses empty segmented search");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        let search = view.search.as_ref().expect("search");
+        assert_eq!(search.mode, SearchModeAst::Segmented);
+        assert!(search.fields.is_empty());
+        assert!(search.free_text_target.is_none());
     }
 
     #[test]
