@@ -1014,6 +1014,13 @@ impl DoctorPackage {
         // declared environments + urls.
         diagnostics.extend(cors_diagnostics(self.app.as_ref()));
 
+        // Roadmap §1.2 — HTTP hygiene contracts: cookie / proxy /
+        // limits. Each block's typed lift is doctor-validated against
+        // the closed catalog (same_site, parseable CIDR/size/duration).
+        diagnostics.extend(app_cookie_contract_diagnostics(self.app.as_ref()));
+        diagnostics.extend(app_proxy_contract_diagnostics(self.app.as_ref()));
+        diagnostics.extend(app_limits_contract_diagnostics(self.app.as_ref()));
+
         // Roadmap §1.10 — `app.headers` production-completeness +
         // closed-catalog gate.
         diagnostics.extend(app_headers_diagnostics(
@@ -8312,6 +8319,251 @@ fn catalog_list(items: &[&str]) -> String {
         .map(|i| format!("`{i}`"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+// =============================================================================
+// Roadmap §1.2 — HTTP hygiene at the app level
+//
+// Three blocks lift to typed `AppCookie` / `AppProxy` / `AppLimits` and
+// surface as one doctor diagnostic each:
+//
+//   - `app_cookie_contract_diagnostics`  — bad `same_site` token or
+//     unparseable `max_age`.
+//   - `app_proxy_contract_diagnostics`   — unparseable CIDR in
+//     `trusted` or missing header name.
+//   - `app_limits_contract_diagnostics`  — unparseable size / duration.
+//
+// All three are deliberately small contracts: the runtime owns the
+// real validation (Go `net/url`, `time.ParseDuration`, `netip.Prefix`).
+// Doctor catches the obvious typos at compile time so an LLM cold-
+// reading the manifest sees the bar.
+// =============================================================================
+
+/// Closed catalog for `same_site`. CSRF policy per RFC 6265bis.
+const COOKIE_SAME_SITE_CATALOG: &[&str] = &["lax", "strict", "none"];
+
+fn app_cookie_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    let Some(cookie) = app_manifest.manifest.cookie.as_ref() else {
+        return diagnostics;
+    };
+
+    for profile in &cookie.profiles {
+        if let Some(token) = profile.same_site.as_deref() {
+            if !COOKIE_SAME_SITE_CATALOG.contains(&token) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app_manifest.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_cookie_contract_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.cookie.{name}.same_site {token}` is not in the closed catalog. Allowed values: {}.",
+                        catalog_list(COOKIE_SAME_SITE_CATALOG),
+                        name = profile.name,
+                    ),
+                });
+            }
+        }
+        if let Some(raw) = profile.max_age.as_deref() {
+            if !is_parseable_duration(raw) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app_manifest.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_cookie_contract_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.cookie.{name}.max_age \"{raw}\"` is not a parseable duration. Use forms like `\"7d\"`, `\"12h\"`, `\"30m\"`, `\"45s\"`.",
+                        name = profile.name,
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn app_proxy_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    let Some(proxy) = app_manifest.manifest.proxy.as_ref() else {
+        return diagnostics;
+    };
+
+    for cidr in &proxy.trusted {
+        if !is_parseable_cidr(cidr) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app_manifest.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "app_proxy_contract_diagnostics".to_owned(),
+                message: format!(
+                    "`app.proxy.trusted \"{cidr}\"` is not a parseable CIDR. Use forms like `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `2001:db8::/32`.",
+                ),
+            });
+        }
+    }
+
+    // A missing header name on any of the three slots is a contract
+    // error: the runtime needs a token to look up. Empty strings reach
+    // here when the author wrote `real_ip_header ""` or
+    // `real_ip_header` (with no value).
+    let header_slots: [(&str, Option<&String>); 3] = [
+        ("real_ip_header", proxy.real_ip_header.as_ref()),
+        ("forwarded_proto_header", proxy.forwarded_proto_header.as_ref()),
+        ("forwarded_host_header", proxy.forwarded_host_header.as_ref()),
+    ];
+    for (slot, value) in header_slots {
+        if let Some(name) = value {
+            if name.trim().is_empty() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app_manifest.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_proxy_contract_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.proxy.{slot}` requires a non-empty header name (e.g. `X-Forwarded-For`). Remove the line to let the runtime fall back to its default.",
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn app_limits_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+    let Some(limits) = app_manifest.manifest.limits.as_ref() else {
+        return diagnostics;
+    };
+
+    let size_slots: [(&str, Option<&String>); 3] = [
+        ("body_size", limits.body_size.as_ref()),
+        ("header_size", limits.header_size.as_ref()),
+        ("upload_size", limits.upload_size.as_ref()),
+    ];
+    for (slot, value) in size_slots {
+        if let Some(raw) = value {
+            if !is_parseable_size(raw) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app_manifest.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "app_limits_contract_diagnostics".to_owned(),
+                    message: format!(
+                        "`app.limits.{slot} \"{raw}\"` is not a parseable size. Use forms like `\"512b\"`, `\"16kb\"`, `\"10mb\"`, `\"2gb\"`.",
+                    ),
+                });
+            }
+        }
+    }
+
+    if let Some(raw) = limits.timeout.as_ref() {
+        if !is_parseable_duration(raw) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app_manifest.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "app_limits_contract_diagnostics".to_owned(),
+                message: format!(
+                    "`app.limits.timeout \"{raw}\"` is not a parseable duration. Use forms like `\"30s\"`, `\"5m\"`, `\"2h\"`.",
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+/// Liberal duration parser. Matches Go `time.ParseDuration` idioms
+/// (`30s`, `5m`, `2h`) plus the day shorthand `7d` that the cookie /
+/// session vocabulary already uses. The numeric prefix must be a
+/// positive integer; the suffix is one of `ms | s | m | h | d`. This
+/// stays in sync with the runtime parser at
+/// `runtime/go/lazuli/http.go`.
+fn is_parseable_duration(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let suffixes = ["ms", "s", "m", "h", "d"];
+    for suffix in suffixes {
+        if let Some(head) = trimmed.strip_suffix(suffix) {
+            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Liberal size parser. Matches the common Go idiom (`512b`, `16kb`,
+/// `10mb`, `2gb`). The numeric prefix must be a positive integer; the
+/// suffix is one of `b | kb | mb | gb | tb`.
+fn is_parseable_size(raw: &str) -> bool {
+    let trimmed = raw.trim().to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let suffixes = ["tb", "gb", "mb", "kb", "b"];
+    for suffix in suffixes {
+        if let Some(head) = trimmed.strip_suffix(suffix) {
+            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Liberal CIDR parser. Accepts IPv4 (`a.b.c.d/n`, `0 ≤ n ≤ 32`) and
+/// IPv6 (`prefix::/n`, `0 ≤ n ≤ 128`). We don't need full RFC 4632
+/// canonicalization at this layer — the Go runtime parses via
+/// `netip.ParsePrefix` at wire time and surfaces real errors there.
+/// This check just catches the obvious typo (missing slash, garbage
+/// prefix length).
+fn is_parseable_cidr(raw: &str) -> bool {
+    let Some((addr, mask)) = raw.split_once('/') else {
+        return false;
+    };
+    if addr.is_empty() || mask.is_empty() {
+        return false;
+    }
+    let Ok(prefix_len) = mask.parse::<u32>() else {
+        return false;
+    };
+    if addr.contains(':') {
+        prefix_len <= 128
+    } else {
+        let octets: Vec<&str> = addr.split('.').collect();
+        if octets.len() != 4 {
+            return false;
+        }
+        for octet in &octets {
+            let Ok(value) = octet.parse::<u32>() else {
+                return false;
+            };
+            if value > 255 {
+                return false;
+            }
+        }
+        prefix_len <= 32
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -17910,6 +18162,190 @@ func Login(ctx *lazuli.Ctx, input LoginInput) (string, error) {
         assert!(
             !codes.contains("AUTH-SESSION-CALLSITE-001"),
             "AUTH-SESSION-CALLSITE-001 must not fire for .gen.go files; got {codes:?}"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Roadmap §1.2 — HTTP hygiene contracts: cookie / proxy / limits.
+    // Each block ships one diagnostic code that fires on any of its
+    // closed-catalog violations.
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn doctor_rejects_cookie_same_site_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  cookie
+    default
+      same_site loose
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_cookie_contract_diagnostics"),
+            "expected app_cookie_contract_diagnostics for unknown same_site; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_cookie_max_age_unparseable() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  cookie
+    default
+      max_age "forever"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_cookie_contract_diagnostics"),
+            "expected app_cookie_contract_diagnostics for unparseable max_age; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_cookie_block_in_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  cookie
+    default
+      signed true
+      secure true
+      http_only true
+      same_site strict
+      max_age "7d"
+    session
+      same_site lax
+      max_age "12h"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("app_cookie_contract_diagnostics"),
+            "cookie block in closed catalog must not raise app_cookie_contract_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_proxy_trusted_unparseable_cidr() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  proxy
+    trusted not_a_cidr
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_proxy_contract_diagnostics"),
+            "expected app_proxy_contract_diagnostics for unparseable CIDR; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_proxy_real_ip_header_empty() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  proxy
+    trusted 10.0.0.0/8
+    real_ip_header ""
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_proxy_contract_diagnostics"),
+            "expected app_proxy_contract_diagnostics for empty header name; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_proxy_block_with_well_formed_cidrs_and_headers() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  proxy
+    trusted 10.0.0.0/8, 172.16.0.0/12, 2001:db8::/32
+    real_ip_header X-Forwarded-For
+    forwarded_proto_header X-Forwarded-Proto
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("app_proxy_contract_diagnostics"),
+            "well-formed proxy block must not raise app_proxy_contract_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_limits_body_size_unparseable() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  limits
+    body_size "huge"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_limits_contract_diagnostics"),
+            "expected app_limits_contract_diagnostics for unparseable size; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_limits_timeout_unparseable() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  limits
+    timeout "soon"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("app_limits_contract_diagnostics"),
+            "expected app_limits_contract_diagnostics for unparseable duration; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_limits_block_with_well_formed_literals() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  limits
+    body_size "10mb"
+    header_size "16kb"
+    upload_size "100mb"
+    timeout "30s"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("app_limits_contract_diagnostics"),
+            "well-formed limits block must not raise app_limits_contract_diagnostics; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
 

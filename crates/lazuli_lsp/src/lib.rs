@@ -7694,6 +7694,11 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 // "unknown app block" warning does not fire on
                 // `csp` / `hsts` / `x_frame_options` etc.
                 Some("headers") => {}
+                // Roadmap §1.2 — `cookie` / `proxy` / `limits`
+                // children are doctor-validated (cookie profile
+                // children at indent 6; proxy/limits scalars at indent
+                // 4). Skip the "unknown app block" warning here.
+                Some("cookie") | Some("proxy") | Some("limits") => {}
                 // Observability bucket cycle row 36 — `logging` /
                 // `tracing` children are handled by
                 // `app_logging_tracing_diagnostics` (doctor) and the
@@ -7872,6 +7877,14 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         // recognize the header so warnings don't fire on the
         // children.
         "headers" => Some("headers"),
+        // Roadmap §1.2 — HTTP hygiene blocks. Bodies are validated
+        // by doctor's app_(cookie|proxy|limits)_contract_diagnostics
+        // (closed catalog, parseable size/duration). LSP only needs
+        // to recognize the header so warnings don't fire on the
+        // children.
+        "cookie" => Some("cookie"),
+        "proxy" => Some("proxy"),
+        "limits" => Some("limits"),
         "env" => Some("env"),
         "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
@@ -12613,6 +12626,54 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "auto_rollback" => Some(
             "On `secret_rotation <name>`, a boolean flag. When `true`, the runtime reverts to the previous secret if a fresh rollover fails its smoke check.",
+        ),
+        // Roadmap §1.2 — HTTP hygiene blocks at the app level. Each
+        // hover mirrors the doctor diagnostic catalog so the LLM /
+        // human reading the source sees the contract without docs.
+        "cookie" => Some(
+            "App cookie contract (`app.cookie`). Named profiles (`default`, `session`, `csrf`, ...) declare per-cookie hygiene. Closed catalogs: `same_site ∈ {lax, strict, none}`. Optional bools: `signed`, `secure`, `http_only`. Duration: `max_age \"7d\"`. Default profile applies unless overridden.",
+        ),
+        "proxy" => Some(
+            "App proxy contract (`app.proxy`). Declares trusted upstreams + real-IP header overrides. `trusted` accepts a comma-separated CIDR list (`10.0.0.0/8, 172.16.0.0/12`). Optional headers: `real_ip_header`, `forwarded_proto_header`, `forwarded_host_header`. The runtime trusts these headers only from the CIDRs in `trusted`.",
+        ),
+        // Note: `limits` and `timeout` reuse existing hovers (plan
+        // limits / service-boundary timeout); doctor's
+        // `app_limits_contract_diagnostics` disambiguates by structure.
+        "signed" => Some(
+            "On a cookie profile: append HMAC tag so the runtime detects tampering. Boolean. Default `false`.",
+        ),
+        "secure" => Some(
+            "On a cookie profile: mark the cookie as TLS-only (`Secure` attribute). Boolean. Default `false`; flip to `true` for production. Required when `same_site none`.",
+        ),
+        "http_only" => Some(
+            "On a cookie profile: hide from JavaScript (`document.cookie`). Boolean. Default `false`; flip to `true` for session cookies to mitigate XSS leaks.",
+        ),
+        "same_site" => Some(
+            "On a cookie profile: CSRF policy. Closed catalog: `lax` (default), `strict` (never cross-site), `none` (cross-site OK; requires `secure true` per RFC 6265bis).",
+        ),
+        "max_age" => Some(
+            "On a cookie profile: cookie lifetime. Duration literal (`\"7d\"`, `\"12h\"`, `\"30m\"`, `\"45s\"`). Doctor rejects unparseable values. Absent means session cookie (expires when browser closes).",
+        ),
+        "trusted" => Some(
+            "On `app.proxy`: comma-separated CIDR list of trusted upstream proxies. Real-IP and forwarded headers are honored only when the immediate peer is in this list. Doctor validates each entry as a parseable CIDR.",
+        ),
+        "real_ip_header" => Some(
+            "On `app.proxy`: header carrying the real client IP. Common values: `X-Forwarded-For`, `X-Real-IP`, `True-Client-IP`. Trusted only when peer is in `trusted` CIDRs.",
+        ),
+        "forwarded_proto_header" => Some(
+            "On `app.proxy`: header carrying the originating protocol (`http` / `https`). Common value: `X-Forwarded-Proto`. Used to detect TLS-terminated origin requests behind L7 proxies.",
+        ),
+        "forwarded_host_header" => Some(
+            "On `app.proxy`: header carrying the originating host. Common value: `X-Forwarded-Host`. The runtime substitutes the request's `Host` with this value when peer is trusted.",
+        ),
+        "body_size" => Some(
+            "On `app.limits`: max in-memory request body size. Size literal (`\"512b\"`, `\"16kb\"`, `\"10mb\"`). Larger bodies are rejected with `413 Payload Too Large`.",
+        ),
+        "header_size" => Some(
+            "On `app.limits`: max combined header size. Size literal (`\"4kb\"`, `\"16kb\"`). Larger header sets are rejected with `431 Request Header Fields Too Large`.",
+        ),
+        "upload_size" => Some(
+            "On `app.limits`: max multipart upload size (streamed). Size literal (`\"100mb\"`, `\"2gb\"`). Distinct from `body_size`; uploads stream to disk after the in-memory ceiling.",
         ),
         "reason" => Some("Documents why a dangerous declarative override is intentional."),
         "requires" => Some(

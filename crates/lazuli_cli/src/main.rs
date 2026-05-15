@@ -22,6 +22,7 @@ mod doctor;
 mod examples_bundle;
 mod inspect {
     pub mod expand_auth;
+    pub mod expand_http;
 }
 mod lazurite_manifest;
 mod migrate;
@@ -489,6 +490,14 @@ struct ExpandSet {
     /// know the projection is current.
     tracing: bool,
     logging: bool,
+    /// Roadmap §1.2 — `--expand=http` surfaces a unified `http`
+    /// projection covering the three app-level HTTP hygiene blocks
+    /// (`cookie` / `proxy` / `limits`). Each present block is
+    /// included with `origin` metadata. Without the flag the typed
+    /// blocks still serialize on `app` (because `AppManifest` carries
+    /// them), but the unified projection at the report root is
+    /// omitted.
+    http: bool,
     /// Phase L Tier 3 — `--expand=jobs` projects every lifted
     /// `ir::Job` (handler-backed + declarative) on the feature.
     /// Without the flag the projection is omitted; with the flag the
@@ -539,6 +548,7 @@ impl ExpandSet {
             storage: true,
             tracing: true,
             logging: true,
+            http: true,
             jobs: true,
             webhooks: true,
             event_groups: true,
@@ -566,6 +576,7 @@ impl ExpandSet {
             || self.storage
             || self.tracing
             || self.logging
+            || self.http
             || self.jobs
             || self.webhooks
             || self.event_groups
@@ -624,6 +635,9 @@ impl ExpandSet {
         }
         if self.logging {
             labels.push("logging");
+        }
+        if self.http {
+            labels.push("http");
         }
         if self.jobs {
             labels.push("jobs");
@@ -4063,6 +4077,7 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "storage" => set.storage = true,
             "tracing" => set.tracing = true,
             "logging" => set.logging = true,
+            "http" => set.http = true,
             "jobs" => set.jobs = true,
             "webhooks" => set.webhooks = true,
             "event_groups" => set.event_groups = true,
@@ -4111,6 +4126,12 @@ struct InspectReport {
     experiences: Vec<lazuli_ir::Experience>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     surfaces: Vec<lazuli_ir::PlatformSurface>,
+    /// Roadmap §1.2 — populated only when `--expand=http` is set. The
+    /// unified HTTP hygiene projection covers the three app-level
+    /// blocks (`cookie` / `proxy` / `limits`) with `origin` metadata.
+    /// `None` when the flag is off or when no block is populated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    http: Option<serde_json::Value>,
     features: Vec<InspectFeature>,
 }
 
@@ -4998,19 +5019,30 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
             .unwrap_or_default()
     });
 
+    let app = app_manifest::parse_app_manifest(source).or(lzx_app);
+    // Roadmap §1.2 — unified HTTP hygiene projection. Only populated
+    // when the flag is set; the typed blocks still surface via `app`
+    // either way.
+    let http = if expansions.http {
+        inspect::expand_http::expand_http(app.as_ref())
+    } else {
+        None
+    };
+
     InspectReport {
         schema: "lazuli.inspect.v0",
         source: input.display().to_string(),
         expand: expansions.labels(),
         workspace: app_manifest::parse_app_workspace(source),
         contracts: app_manifest::parse_app_contracts(source),
-        app: app_manifest::parse_app_manifest(source).or(lzx_app),
+        app,
         registry,
         webhook_events,
         profiles: app_manifest::parse_app_profiles(source),
         routes,
         experiences,
         surfaces,
+        http,
         features: inspect_features(&lines, expansions, &auth_by_feature, &tier3_by_feature),
     }
 }
@@ -11058,5 +11090,102 @@ feature customer
         let json = serde_json::to_value(&report).unwrap();
         // No auth block authored → field omitted (None serialises away).
         assert!(json["features"][0]["auth"].is_null());
+    }
+
+    // -------------------------------------------------------------------------
+    // Roadmap §1.2 — `--expand=http` projection coverage. The unified
+    // `http` slot at the report root surfaces cookie + proxy + limits
+    // with `origin` metadata only when the flag is set. The typed
+    // blocks still serialize on `app` either way.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn inspect_expand_http_flag_parses() {
+        let expansions = parse_expand_set("http").unwrap();
+        assert!(expansions.http);
+        assert!(!expansions.summary);
+    }
+
+    #[test]
+    fn inspect_http_projection_surfaces_cookie_proxy_limits_with_flag() {
+        let source = r#"
+app MyApp
+  cookie
+    default
+      signed true
+      secure true
+      http_only true
+      same_site strict
+      max_age "7d"
+    session
+      same_site lax
+
+  proxy
+    trusted 10.0.0.0/8, 172.16.0.0/12
+    real_ip_header X-Forwarded-For
+    forwarded_proto_header X-Forwarded-Proto
+
+  limits
+    body_size "10mb"
+    header_size "16kb"
+    timeout "30s"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.http = true;
+        let report = inspect_canonical_source(source, Path::new("app.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        let http = &json["http"];
+        assert!(!http.is_null(), "http projection should be present: {json}");
+        assert_eq!(http["origin"]["app"], "MyApp");
+        // Cookie block.
+        assert_eq!(http["cookie"]["profiles"][0]["name"], "default");
+        assert_eq!(http["cookie"]["profiles"][0]["signed"], true);
+        assert_eq!(http["cookie"]["profiles"][0]["same_site"], "strict");
+        assert_eq!(http["cookie"]["profiles"][0]["max_age"], "7d");
+        assert_eq!(http["cookie"]["profiles"][1]["name"], "session");
+        assert_eq!(http["cookie"]["profiles"][1]["same_site"], "lax");
+        // Proxy block.
+        assert_eq!(http["proxy"]["trusted"][0], "10.0.0.0/8");
+        assert_eq!(http["proxy"]["trusted"][1], "172.16.0.0/12");
+        assert_eq!(http["proxy"]["real_ip_header"], "X-Forwarded-For");
+        assert_eq!(http["proxy"]["forwarded_proto_header"], "X-Forwarded-Proto");
+        // Limits block.
+        assert_eq!(http["limits"]["body_size"], "10mb");
+        assert_eq!(http["limits"]["header_size"], "16kb");
+        assert_eq!(http["limits"]["timeout"], "30s");
+        // Per-block origin envelope.
+        assert_eq!(http["cookie"]["origin"]["app"], "MyApp");
+        assert_eq!(http["proxy"]["origin"]["app"], "MyApp");
+        assert_eq!(http["limits"]["origin"]["app"], "MyApp");
+    }
+
+    #[test]
+    fn inspect_http_projection_omitted_without_expand() {
+        let source = r#"
+app MyApp
+  cookie
+    default
+      same_site strict
+
+  limits
+    body_size "10mb"
+"#;
+        let report = inspect_canonical_source(source, Path::new("app.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+        // The unified `http` slot at the report root is absent without
+        // the flag — Option<Value>::None skips the serde key.
+        assert!(
+            !json.contains("\"http\":{"),
+            "http projection must be absent without --expand=http: {json}"
+        );
+        // But the typed blocks still serialize on `app`.
+        assert!(
+            json.contains("\"cookie\":"),
+            "cookie still surfaces on AppManifest: {json}"
+        );
+        assert!(
+            json.contains("\"limits\":"),
+            "limits still surfaces on AppManifest: {json}"
+        );
     }
 }

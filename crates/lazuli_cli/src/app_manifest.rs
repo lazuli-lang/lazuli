@@ -1,12 +1,12 @@
 use lazuli_ir::{
-    AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCors,
+    AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCookie, AppCors,
     AppCorsOriginRule, AppDeploy, AppEnvVar, AppHeaders, AppHsts, AppIntegration,
-    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppLocale, AppLogging, AppManifest,
-    AppObservability, AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy,
-    AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService,
-    AppServiceExposure, AppTracing, AppUrl, AppWorkspace, ContractEvent, ContractField,
-    ContractImport, ContractOperation, ContractOperationError, ContractRecord, DeployCheckpoint,
-    EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource,
+    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppLimits, AppLocale, AppLogging,
+    AppManifest, AppObservability, AppPack, AppPackProvide, AppPackUse, AppProfile,
+    AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppProxy, AppRegistry, AppRuntimeUnit,
+    AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace, ContractEvent, ContractField,
+    ContractImport, ContractOperation, ContractOperationError, ContractRecord, CookieProfile,
+    DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource,
     EncryptionTemplate, ErrorPage, FeatureRequirement, LocaleFallback, LocaleNegotiate,
     QualifiedName, RegistryToolEntry, SecretRotation, ToolEffect, WebhookEvent, WebhookEventField,
     WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
@@ -386,6 +386,11 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     // Indent-6 lines (`max_age`, `include_subdomains`, `preload`)
     // populate the HSTS struct. `None` when no HSTS body is open.
     let mut in_headers_hsts: bool = false;
+    // Roadmap §1.2 — tracks the open cookie profile (`default`,
+    // `session`, `csrf`, ...). Indent-4 lines headed by a bare ident
+    // open a profile; indent-6 lines (`signed`, `secure`, etc.)
+    // populate it.
+    let mut current_cookie_profile: Option<usize> = None;
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -407,6 +412,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 current_error_page = None;
                 current_encryption_binding = None;
                 in_headers_hsts = false;
+                current_cookie_profile = None;
                 if let Some(rest) = trimmed.strip_prefix("title ") {
                     app.title = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
@@ -499,6 +505,66 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         }
                     } else if let Some(rest) = trimmed.strip_prefix("max_age ") {
                         cors.max_age = Some(unquote(rest.trim()).to_owned());
+                    }
+                }
+                // Roadmap §1.2 — `cookie.<profile>` header at indent 4
+                // opens a profile (`default`, `session`, `csrf`, ...).
+                // Bare ident only; doctor flags anything else.
+                // Children (`signed`, `secure`, `http_only`,
+                // `same_site`, `max_age`) land at indent 6.
+                Some("cookie") => {
+                    let name = trimmed.trim();
+                    if is_identifier(name) {
+                        let cookie = app.cookie.get_or_insert_with(AppCookie::default);
+                        cookie.profiles.push(CookieProfile {
+                            name: name.to_owned(),
+                            signed: None,
+                            secure: None,
+                            http_only: None,
+                            same_site: None,
+                            max_age: None,
+                            span_ref: None,
+                        });
+                        current_cookie_profile = cookie.profiles.len().checked_sub(1);
+                    } else {
+                        current_cookie_profile = None;
+                    }
+                }
+                // Roadmap §1.2 — `proxy` block: flat indent-4 children.
+                // `trusted` accepts a comma-separated CIDR list (may
+                // appear multiple times — entries merge). Header slots
+                // are stored as raw strings; doctor enforces the
+                // catalog.
+                Some("proxy") => {
+                    let proxy = app.proxy.get_or_insert_with(AppProxy::default);
+                    if let Some(rest) = trimmed.strip_prefix("trusted ") {
+                        for cidr in split_items(rest) {
+                            let trimmed_cidr = unquote(cidr.trim()).to_owned();
+                            if !trimmed_cidr.is_empty() && !proxy.trusted.contains(&trimmed_cidr) {
+                                proxy.trusted.push(trimmed_cidr);
+                            }
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("real_ip_header ") {
+                        proxy.real_ip_header = Some(unquote(rest.trim()).to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("forwarded_proto_header ") {
+                        proxy.forwarded_proto_header = Some(unquote(rest.trim()).to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("forwarded_host_header ") {
+                        proxy.forwarded_host_header = Some(unquote(rest.trim()).to_owned());
+                    }
+                }
+                // Roadmap §1.2 — `limits` block: flat indent-4 children.
+                // Sizes/durations stored verbatim (quoted or bare);
+                // doctor validates the parseability.
+                Some("limits") => {
+                    let limits = app.limits.get_or_insert_with(AppLimits::default);
+                    if let Some(rest) = trimmed.strip_prefix("body_size ") {
+                        limits.body_size = Some(unquote(rest.trim()).to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("header_size ") {
+                        limits.header_size = Some(unquote(rest.trim()).to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("upload_size ") {
+                        limits.upload_size = Some(unquote(rest.trim()).to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
+                        limits.timeout = Some(unquote(rest.trim()).to_owned());
                     }
                 }
                 // Roadmap §1.10 — `headers` block scalar children.
@@ -916,6 +982,29 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     };
                     let hsts = headers.hsts.get_or_insert_with(AppHsts::default);
                     parse_hsts_inline(trimmed, hsts);
+                } else if current_child == Some("cookie") {
+                    // Roadmap §1.2 — populate the currently open profile.
+                    // Boolean slots accept `true | false`; unparseable
+                    // values are silently kept at `None` and surface
+                    // through doctor's app-cookie-contract diagnostic.
+                    let Some(profile_index) = current_cookie_profile else {
+                        continue;
+                    };
+                    let Some(cookie) = app.cookie.as_mut() else {
+                        continue;
+                    };
+                    let profile = &mut cookie.profiles[profile_index];
+                    if let Some(rest) = trimmed.strip_prefix("signed ") {
+                        profile.signed = parse_bool(rest.trim());
+                    } else if let Some(rest) = trimmed.strip_prefix("secure ") {
+                        profile.secure = parse_bool(rest.trim());
+                    } else if let Some(rest) = trimmed.strip_prefix("http_only ") {
+                        profile.http_only = parse_bool(rest.trim());
+                    } else if let Some(rest) = trimmed.strip_prefix("same_site ") {
+                        profile.same_site = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("max_age ") {
+                        profile.max_age = Some(unquote(rest.trim()).to_owned());
+                    }
                 }
             }
             8 => {
@@ -1723,6 +1812,13 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         // Referrer-Policy / Permissions-Policy. Child grammar lives
         // at indent 4 (top-level fields) and indent 6 (HSTS body).
         "headers" => Some("headers"),
+        // Roadmap §1.2 — HTTP hygiene at app indent-2. `cookie` groups
+        // named profiles (default / session / csrf / ...); `proxy`
+        // declares trusted upstreams + real-IP header overrides;
+        // `limits` declares request-shape ceilings.
+        "cookie" => Some("cookie"),
+        "proxy" => Some("proxy"),
+        "limits" => Some("limits"),
         _ => None,
     }
 }
@@ -2817,5 +2913,173 @@ app AcmeCRM
             manifest.encryption_bindings[0].rotation_profile.as_deref(),
             Some("default")
         );
+    }
+
+    // -------------------------------------------------------------
+    // Roadmap §1.2 — `cookie` block parser tests.
+    // -------------------------------------------------------------
+
+    #[test]
+    fn parses_cookie_block_with_default_profile() {
+        let source = r#"
+app AcmeCRM
+  cookie
+    default
+      signed true
+      secure true
+      http_only true
+      same_site strict
+      max_age "7d"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let cookie = manifest.cookie.expect("cookie block populated");
+        assert_eq!(cookie.profiles.len(), 1);
+        let default = &cookie.profiles[0];
+        assert_eq!(default.name, "default");
+        assert_eq!(default.signed, Some(true));
+        assert_eq!(default.secure, Some(true));
+        assert_eq!(default.http_only, Some(true));
+        assert_eq!(default.same_site.as_deref(), Some("strict"));
+        assert_eq!(default.max_age.as_deref(), Some("7d"));
+    }
+
+    #[test]
+    fn parses_cookie_block_with_multiple_profiles() {
+        let source = r#"
+app AcmeCRM
+  cookie
+    default
+      signed true
+      same_site lax
+      max_age "24h"
+    session
+      same_site strict
+      max_age "12h"
+    csrf
+      http_only true
+      same_site strict
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let cookie = manifest.cookie.expect("cookie block populated");
+        let names: Vec<&str> = cookie.profiles.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["default", "session", "csrf"]);
+        assert_eq!(cookie.profiles[1].same_site.as_deref(), Some("strict"));
+        assert_eq!(cookie.profiles[1].max_age.as_deref(), Some("12h"));
+        assert_eq!(cookie.profiles[2].http_only, Some(true));
+        // `session` doesn't declare `signed`, so the slot stays None.
+        assert_eq!(cookie.profiles[1].signed, None);
+    }
+
+    #[test]
+    fn cookie_block_absent_yields_none() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        assert!(manifest.cookie.is_none());
+    }
+
+    // -------------------------------------------------------------
+    // Roadmap §1.2 — `proxy` block parser tests.
+    // -------------------------------------------------------------
+
+    #[test]
+    fn parses_proxy_block_with_trusted_cidrs() {
+        let source = r#"
+app AcmeCRM
+  proxy
+    trusted 10.0.0.0/8, 172.16.0.0/12
+    real_ip_header X-Forwarded-For
+    forwarded_proto_header X-Forwarded-Proto
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let proxy = manifest.proxy.expect("proxy block populated");
+        assert_eq!(proxy.trusted, vec!["10.0.0.0/8", "172.16.0.0/12"]);
+        assert_eq!(proxy.real_ip_header.as_deref(), Some("X-Forwarded-For"));
+        assert_eq!(
+            proxy.forwarded_proto_header.as_deref(),
+            Some("X-Forwarded-Proto")
+        );
+        assert!(proxy.forwarded_host_header.is_none());
+    }
+
+    #[test]
+    fn parses_proxy_block_with_all_four_headers() {
+        let source = r#"
+app AcmeCRM
+  proxy
+    trusted 192.168.0.0/16
+    real_ip_header X-Real-IP
+    forwarded_proto_header X-Forwarded-Proto
+    forwarded_host_header X-Forwarded-Host
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let proxy = manifest.proxy.expect("proxy block populated");
+        assert_eq!(proxy.trusted, vec!["192.168.0.0/16"]);
+        assert_eq!(proxy.real_ip_header.as_deref(), Some("X-Real-IP"));
+        assert_eq!(
+            proxy.forwarded_host_header.as_deref(),
+            Some("X-Forwarded-Host")
+        );
+    }
+
+    #[test]
+    fn proxy_block_absent_yields_none() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        assert!(manifest.proxy.is_none());
+    }
+
+    // -------------------------------------------------------------
+    // Roadmap §1.2 — `limits` block parser tests.
+    // -------------------------------------------------------------
+
+    #[test]
+    fn parses_limits_block_with_all_four_slots() {
+        let source = r#"
+app AcmeCRM
+  limits
+    body_size "10mb"
+    header_size "16kb"
+    upload_size "100mb"
+    timeout "30s"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let limits = manifest.limits.expect("limits block populated");
+        assert_eq!(limits.body_size.as_deref(), Some("10mb"));
+        assert_eq!(limits.header_size.as_deref(), Some("16kb"));
+        assert_eq!(limits.upload_size.as_deref(), Some("100mb"));
+        assert_eq!(limits.timeout.as_deref(), Some("30s"));
+    }
+
+    #[test]
+    fn parses_limits_block_with_partial_slots() {
+        let source = r#"
+app AcmeCRM
+  limits
+    body_size "5mb"
+    timeout "10s"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let limits = manifest.limits.expect("limits block populated");
+        assert_eq!(limits.body_size.as_deref(), Some("5mb"));
+        assert_eq!(limits.timeout.as_deref(), Some("10s"));
+        // Unset slots stay None.
+        assert!(limits.header_size.is_none());
+        assert!(limits.upload_size.is_none());
+    }
+
+    #[test]
+    fn limits_block_absent_yields_none() {
+        let source = r#"
+app AcmeCRM
+  title "Acme CRM"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        assert!(manifest.limits.is_none());
     }
 }

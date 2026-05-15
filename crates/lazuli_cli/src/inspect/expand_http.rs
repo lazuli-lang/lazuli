@@ -115,6 +115,8 @@ mod tests {
             cookie: None,
             proxy: None,
             limits: None,
+            error_pages: vec![],
+            headers: None,
             span_ref: None,
         }
     }
