@@ -9,11 +9,12 @@
 //! Determinism: APIs are sorted by name, route args preserve path
 //! order, and imports flow through `ImportSet`.
 
-use lazuli_ir::{Api, Feature, HttpMethod, PolicyRef, TypeRef};
+use lazuli_ir::{Api, Feature, Gate, HttpMethod, PolicyRef, TypeRef};
 
 use super::casing::{lower_camel, pascal_case};
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
+use super::module::EmitContext;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
@@ -24,6 +25,7 @@ pub fn emit_api_file(
     feature: &Feature,
     module_name: &str,
     cross_index: &CrossFeatureIndex<'_>,
+    emit_ctx: &EmitContext<'_>,
 ) -> Option<String> {
     if feature.apis.is_empty() {
         return None;
@@ -56,13 +58,19 @@ pub fn emit_api_file(
             p.blank();
         }
         first_block = false;
-        emit_api(&mut p, feature, api, &type_ctx);
+        emit_api(&mut p, feature, api, &type_ctx, emit_ctx);
     }
 
     Some(p.finish())
 }
 
-fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) {
+fn emit_api(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    api: &Api,
+    ctx: &TypeCtx<'_>,
+    emit_ctx: &EmitContext<'_>,
+) {
     let qualified_name = format!("{}.{}", feature.name, api.name);
     let args_type = api_args_type_name(&api.name);
     let var_name = lower_camel(&api.name);
@@ -119,6 +127,7 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
         let pad = key_width.saturating_sub(key.len());
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
+    emit_gate_annotations(p, emit_ctx.gates_for("api", &api.name));
     p.line("// TODO(extension-points): user-authored handler via");
     p.line(&format!(
         "// lazuli.RegisterApi(\"{}\", func(ctx, input) (O, error) {{...}})",
@@ -126,6 +135,28 @@ fn emit_api(p: &mut GoPrinter, feature: &Feature, api: &Api, ctx: &TypeCtx<'_>) 
     ));
     p.dedent();
     p.line("}");
+}
+
+/// PG.C.1 — emit a comment trace listing every `gate` directive
+/// authored on an `api` declaration. APIs lower to `lazuli.Api[I, O]`
+/// contracts with no generated handler wrapper; runtime
+/// auto-evaluation of gates is deferred to a follow-up cell that
+/// grows the contract with a `Prelude []GateRef` slot.
+fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
+    if gates.is_empty() {
+        return;
+    }
+    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    for gate in gates {
+        match gate {
+            Gate::Behind { feature } => {
+                p.line(&format!("//   gate behind plan.feature: {feature}"));
+            }
+            Gate::Quota { limit } => {
+                p.line(&format!("//   gate quota plan.limit: {limit}"));
+            }
+        }
+    }
 }
 
 fn emit_args_struct(p: &mut GoPrinter, name: &str, args: &[ApiArg]) {
@@ -431,11 +462,13 @@ mod tests {
 
     fn emit_from_module(module: &Module, feature_index: usize) -> Option<String> {
         let index = CrossFeatureIndex::build(module);
+        let emit_ctx = EmitContext::no_source("feature/api.gen.go");
         emit_api_file(
             "examples/x.lzi",
             &module.features[feature_index],
             "lazuli/test",
             &index,
+            &emit_ctx,
         )
     }
 
@@ -770,12 +803,14 @@ mod feature_emit_tests {
             features: vec![feature],
         };
         let cross_index = CrossFeatureIndex::build(&module);
+        let emit_ctx = EmitContext::no_source("catalog/api.gen.go");
 
         let out = emit_api_file(
             "features/catalog/catalog.lzi",
             &module.features[0],
             "lazuli/test",
             &cross_index,
+            &emit_ctx,
         )
         .expect("feature with one API must emit api.gen.go");
 

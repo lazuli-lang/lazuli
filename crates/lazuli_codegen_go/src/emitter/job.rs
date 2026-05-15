@@ -14,8 +14,8 @@
 //! rendering.
 
 use lazuli_ir::{
-    BackoffStrategy, CommandEffect, ExternalCallRef, FanoutScope, Feature, IdempotencyKey, Job,
-    JobBody, JobDeclarative, JobHandler, JobTrigger, NamedArg, Path, PolicyRef, RetryPolicy,
+    BackoffStrategy, CommandEffect, ExternalCallRef, FanoutScope, Feature, Gate, IdempotencyKey,
+    Job, JobBody, JobDeclarative, JobHandler, JobTrigger, NamedArg, Path, PolicyRef, RetryPolicy,
     TenantFromSpec,
 };
 
@@ -161,6 +161,7 @@ fn emit_job(
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
     emit_ctx.emit_with_source_field(p, "job", &job.name, job.span_ref);
+    emit_gate_annotations(p, emit_ctx.gates_for("job", &job.name));
 
     if let Some(tenant_from) = &job.tenant_from {
         emit_tenant_from(p, tenant_from);
@@ -502,6 +503,29 @@ fn escape_string(raw: &str) -> String {
 
 fn escape_comment(raw: &str) -> String {
     raw.replace('\n', " ").replace('\r', " ")
+}
+
+/// PG.C.1 — emit a comment trace listing every `gate` directive
+/// authored on a job. Jobs dispatch through `jobs.JobContract` (no
+/// generated handler wrapper exists today), so the runtime cannot yet
+/// auto-evaluate gates the way commands can. The annotation keeps the
+/// gates discoverable in generated code; a follow-up cell grows
+/// `jobs.JobContract` with a `Prelude []GateRef` slot.
+fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
+    if gates.is_empty() {
+        return;
+    }
+    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    for gate in gates {
+        match gate {
+            Gate::Behind { feature } => {
+                p.line(&format!("//   gate behind plan.feature: {feature}"));
+            }
+            Gate::Quota { limit } => {
+                p.line(&format!("//   gate quota plan.limit: {limit}"));
+            }
+        }
+    }
 }
 
 #[cfg(test)]

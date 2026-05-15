@@ -47,9 +47,9 @@
 use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
-    Feature, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind, LifecycleTransition,
-    NamedArg, Path, PolicyRef, QualifiedName, Resource, RetryPolicy, ReturnsEffect, TypedSlot,
-    UpdateEffect,
+    Feature, Gate, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
+    LifecycleTransition, NamedArg, Path, PolicyRef, QualifiedName, Resource, RetryPolicy,
+    ReturnsEffect, TypedSlot, UpdateEffect,
 };
 use std::collections::BTreeMap;
 
@@ -107,6 +107,16 @@ pub fn emit_command_file(
         imports.add("context");
         imports.add("errors");
         imports.add("lazuli.dev/runtime/lazuli/auth");
+    }
+    // PG.C.1 — gated commands import `billing` (CheckFeature/CheckQuota/
+    // IncrQuota) and `plan` (the package-wide Catalog). Detected via
+    // the gate-map lookup on the EmitContext.
+    let any_gated = commands
+        .iter()
+        .any(|cmd| !emit_ctx.gates_for("command", &cmd.name).is_empty());
+    if any_gated {
+        imports.add("lazuli.dev/runtime/lazuli/billing");
+        imports.add(&format!("{module_name}/plan"));
     }
     for command in &commands {
         if let CommandInput::Typed(slots) = &command.input {
@@ -286,6 +296,7 @@ fn emit_command(
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
     p.blank();
+    let gates = emit_ctx.gates_for("command", &command.name);
     emit_command_handler_wrapper(
         p,
         feature,
@@ -294,6 +305,7 @@ fn emit_command(
         &input_type,
         &output_type,
         pattern,
+        gates,
     );
 }
 
@@ -305,6 +317,7 @@ fn emit_command_handler_wrapper(
     input_type: &str,
     output_type: &str,
     pattern: (&str, &str),
+    gates: &[Gate],
 ) {
     emit_pattern_header(p, pattern);
     p.line(&format!(
@@ -327,9 +340,119 @@ fn emit_command_handler_wrapper(
     p.line("var endOp func()");
     p.line("ctx.Context, endOp = observability.StartOp(ctx.Context)");
     p.line("defer endOp()");
-    p.line(&format!("return {var_name}.Handle(ctx, input)"));
+    // PG.C.1 — plan-gate prelude (pre-dispatch). Behind-gates run
+    // first (boolean feature check → 402 plan.feature_forbidden on
+    // failure). Quota gates next (counter check → 402
+    // plan.quota_exceeded on failure). Order matches
+    // docs/proposals/plan-and-gate-vocab.md §"Ordering and
+    // combinability".
+    let (behind_gates, quota_gates) = partition_gates(gates);
+    emit_command_gate_prelude(p, output_type, &behind_gates, &quota_gates);
+    if quota_gates.is_empty() {
+        p.line(&format!("return {var_name}.Handle(ctx, input)"));
+    } else {
+        // Post-success quota increment path: capture the wrapped
+        // result, then conditionally bump every quota counter before
+        // returning. Increment errors are swallowed (logged by the
+        // runtime); the user-visible response is the handler's result.
+        p.line(&format!(
+            "out, err := {var_name}.Handle(ctx, input)"
+        ));
+        p.line("if err == nil {");
+        p.indent();
+        for limit in &quota_gates {
+            p.line(&format!(
+                "_ = billing.IncrQuota(ctx, plan.Catalog, {:?})",
+                limit
+            ));
+        }
+        p.dedent();
+        p.line("}");
+        p.line("return out, err");
+    }
     p.dedent();
     p.line("}");
+}
+
+/// PG.C.1 — split the authored gate list into the two evaluation
+/// buckets. `gate behind plan.feature` checks fire first; `gate quota
+/// plan.limit` checks (and their post-success increments) fire after.
+fn partition_gates<'a>(gates: &'a [Gate]) -> (Vec<&'a str>, Vec<&'a str>) {
+    let mut behinds = Vec::new();
+    let mut quotas = Vec::new();
+    for gate in gates {
+        match gate {
+            Gate::Behind { feature } => behinds.push(feature.as_str()),
+            Gate::Quota { limit } => quotas.push(limit.as_str()),
+        }
+    }
+    (behinds, quotas)
+}
+
+/// PG.C.1 — emit the pre-dispatch gate prelude. Each `gate behind`
+/// becomes a `billing.CheckFeature(...)` short-circuit; each `gate
+/// quota` becomes a `billing.CheckQuota(...)` short-circuit. The
+/// post-success `billing.IncrQuota` calls are emitted by the
+/// surrounding wrapper because they need to read the handler's
+/// `(out, err)` return.
+fn emit_command_gate_prelude(
+    p: &mut GoPrinter,
+    output_type: &str,
+    behind_gates: &[&str],
+    quota_gates: &[&str],
+) {
+    if behind_gates.is_empty() && quota_gates.is_empty() {
+        return;
+    }
+    let zero = zero_value_for_go_type(output_type);
+    for feature in behind_gates {
+        p.line(&format!("// gate: behind plan.feature {feature}"));
+        p.line(&format!(
+            "if err := billing.CheckFeature(ctx, plan.Catalog, {:?}); err != nil {{",
+            feature
+        ));
+        p.indent();
+        p.line(&format!("return {zero}, err"));
+        p.dedent();
+        p.line("}");
+    }
+    for limit in quota_gates {
+        p.line(&format!("// gate: quota plan.limit {limit}"));
+        p.line(&format!(
+            "if err := billing.CheckQuota(ctx, plan.Catalog, {:?}); err != nil {{",
+            limit
+        ));
+        p.indent();
+        p.line(&format!("return {zero}, err"));
+        p.dedent();
+        p.line("}");
+    }
+}
+
+/// PG.C.1 helper — best-effort zero literal for a Go return type.
+/// Used by the gate prelude when it has to short-circuit before the
+/// wrapped handler runs. Falls back to `*new(T)` when the type is too
+/// shaped to write a literal for (named structs, generics).
+fn zero_value_for_go_type(ty: &str) -> String {
+    let trimmed = ty.trim();
+    match trimmed {
+        "string" => "\"\"".to_owned(),
+        "bool" => "false".to_owned(),
+        "int" | "int8" | "int16" | "int32" | "int64" => "0".to_owned(),
+        "uint" | "uint8" | "uint16" | "uint32" | "uint64" => "0".to_owned(),
+        "float32" | "float64" => "0".to_owned(),
+        "any" => "nil".to_owned(),
+        "error" => "nil".to_owned(),
+        "struct{}" => "struct{}{}".to_owned(),
+        _ if trimmed.starts_with('*')
+            || trimmed.starts_with('[')
+            || trimmed.starts_with("map[")
+            || trimmed.starts_with("chan ") =>
+        {
+            "nil".to_owned()
+        }
+        _ => format!("*new({trimmed})"),
+    }
 }
 
 /// Emit the `type <Name>Input struct` block for a typed input list.
@@ -1969,6 +2092,125 @@ mod tests {
         let alpha_pos = a.find("Command: customer.alpha").expect("alpha banner");
         let zebra_pos = a.find("Command: customer.zebra").expect("zebra banner");
         assert!(alpha_pos < zebra_pos);
+    }
+
+    #[test]
+    fn gate_prelude_injects_feature_and_quota_checks_into_handler_wrapper() {
+        // PG.C.1 — a `command create` carrying `gate behind ...` +
+        // `gate quota ...` directives should surface in the generated
+        // handler wrapper as billing.CheckFeature / billing.CheckQuota
+        // short-circuits followed by a post-success billing.IncrQuota.
+        let mut feature = base_feature("billing");
+        feature.resources.push(simple_resource("Invoice"));
+        let mut cmd = base_command("create");
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Invoice"),
+            from_input: false,
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let module = module_with_features(vec![feature.clone()]);
+        let index = CrossFeatureIndex::build(&module);
+        // Synthesise a gate map keyed off `<feature>/command:<name>`.
+        let mut gates: std::collections::BTreeMap<String, Vec<lazuli_ir::Gate>> =
+            std::collections::BTreeMap::new();
+        gates.insert(
+            "billing/command:create".to_owned(),
+            vec![
+                lazuli_ir::Gate::Behind {
+                    feature: "create_invoice".to_owned(),
+                },
+                lazuli_ir::Gate::Quota {
+                    limit: "invoices_per_month".to_owned(),
+                },
+            ],
+        );
+        let emit_ctx =
+            EmitContext::for_feature(None, "billing-app", "billing", "billing/command.gen.go")
+                .with_gates(Some(&gates));
+
+        let out = emit_command_file(
+            "examples/billing.lzi",
+            &module.features[0],
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
+        .expect("must emit");
+
+        // Imports must include billing + plan packages.
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "billing import missing:\n{out}"
+        );
+        assert!(
+            out.contains("\"lazuli/test/plan\""),
+            "plan import missing:\n{out}"
+        );
+        // Behind-gate prelude line.
+        assert!(
+            out.contains("billing.CheckFeature(ctx, plan.Catalog, \"create_invoice\")"),
+            "CheckFeature call missing:\n{out}"
+        );
+        // Quota-gate prelude line.
+        assert!(
+            out.contains("billing.CheckQuota(ctx, plan.Catalog, \"invoices_per_month\")"),
+            "CheckQuota call missing:\n{out}"
+        );
+        // Post-success increment.
+        assert!(
+            out.contains("billing.IncrQuota(ctx, plan.Catalog, \"invoices_per_month\")"),
+            "IncrQuota call missing:\n{out}"
+        );
+        // Ordering: feature-check fires before quota-check, both before
+        // the .Handle() call site.
+        let feat_pos = out
+            .find("billing.CheckFeature(ctx, plan.Catalog, \"create_invoice\")")
+            .expect("feature-check site");
+        let quota_pos = out
+            .find("billing.CheckQuota(ctx, plan.Catalog, \"invoices_per_month\")")
+            .expect("quota-check site");
+        let handle_pos = out
+            .find("createInvoice.Handle(ctx, input)")
+            .expect("handler site");
+        assert!(
+            feat_pos < quota_pos,
+            "feature-check must run before quota-check"
+        );
+        assert!(
+            quota_pos < handle_pos,
+            "quota-check must run before .Handle()"
+        );
+    }
+
+    #[test]
+    fn no_gates_means_no_billing_imports_or_prelude_lines() {
+        // PG.C.1 backward compat — commands without gates emit the
+        // legacy wrapper byte-for-byte (no billing / plan imports,
+        // no Check* lines, no Incr* lines).
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            !out.contains("billing.CheckFeature"),
+            "no CheckFeature when no gates"
+        );
+        assert!(
+            !out.contains("billing.CheckQuota"),
+            "no CheckQuota when no gates"
+        );
+        assert!(
+            !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "no billing import when no gates"
+        );
     }
 
     // The Record import is dragged in for typed-record output binding

@@ -13,9 +13,9 @@
 //! for SQL predicates / order clauses.
 
 use lazuli_ir::{
-    BuiltinType, CacheTtl, CacheTtlLiteral, CompareOp, Expr, Feature, Filter, KeyClause, ListQuery,
-    LookupQuery, OrderDir, PolicyRef, Predicate, Query, QueryCache, Resource, SqlQuery, TypeRef,
-    TypedSlot,
+    BuiltinType, CacheTtl, CacheTtlLiteral, CompareOp, Expr, Feature, Filter, Gate, KeyClause,
+    ListQuery, LookupQuery, OrderDir, PolicyRef, Predicate, Query, QueryCache, Resource, SqlQuery,
+    TypeRef, TypedSlot,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -137,6 +137,7 @@ fn emit_list_query(
         &query.name,
         query.span_ref,
     );
+    emit_gate_annotations(p, emit_ctx.gates_for("query.list", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
     if query.modifier.is_some() {
         p.line("// TODO(runtime): ListQuery.modifier is not yet in Lazuli Go lib.");
@@ -200,6 +201,7 @@ fn emit_lookup_query(
         &query.name,
         query.span_ref,
     );
+    emit_gate_annotations(p, emit_ctx.gates_for("query.lookup", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
     if !query.filters.is_empty() {
         p.line("// TODO(runtime): LookupQuery.filters are not applied by Lazuli Go RunLookup yet.");
@@ -250,6 +252,7 @@ fn emit_sql_query(
         &query.name,
         query.span_ref,
     );
+    emit_gate_annotations(p, emit_ctx.gates_for("query.sql", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
     p.line(&format!(
         "SQL:     \"./queries/{}.sql\",",
@@ -874,6 +877,30 @@ fn escape_string(raw: &str) -> String {
         }
     }
     out
+}
+
+/// PG.C.1 — emit a comment trace listing every `gate` directive
+/// authored on a query. Queries dispatch through declarative contracts
+/// (no generated handler-wrapper function exists today), so the
+/// runtime cannot yet evaluate gates pre-dispatch the way commands
+/// can. The annotation keeps the gates visible in generated code; a
+/// follow-up cell grows `lazuli.Query` with a `Prelude []GateRef`
+/// slot the runtime can honour.
+fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
+    if gates.is_empty() {
+        return;
+    }
+    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    for gate in gates {
+        match gate {
+            Gate::Behind { feature } => {
+                p.line(&format!("//   gate behind plan.feature: {feature}"));
+            }
+            Gate::Quota { limit } => {
+                p.line(&format!("//   gate quota plan.limit: {limit}"));
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::{FileId, Module, SourceMap, SpanRef};
+use lazuli_ir::{FileId, Gate, Module, SourceMap, SpanRef};
 
 use super::api::emit_api_file;
 use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
@@ -61,6 +61,11 @@ pub struct EmitContext<'a> {
     pub generated_path: &'a str,
     pub capsule_name: &'a str,
     pub current_feature: &'a str,
+    /// PG.C.1 — per-callable gate directives. Populated when the caller
+    /// provides `GoEmitOptions.plan_gate`; lookups go through
+    /// `gates_for(<callable_kind>, <callable_name>)`. `None` when no
+    /// plan-gate facts were threaded — emitters emit no prelude.
+    pub gates: Option<&'a BTreeMap<String, Vec<Gate>>>,
 }
 
 impl<'a> EmitContext<'a> {
@@ -71,6 +76,7 @@ impl<'a> EmitContext<'a> {
             generated_path,
             capsule_name: "",
             current_feature: "",
+            gates: None,
         }
     }
 
@@ -88,7 +94,27 @@ impl<'a> EmitContext<'a> {
             generated_path,
             capsule_name,
             current_feature: feature_name,
+            gates: None,
         }
+    }
+
+    /// PG.C.1 — look up the gate directives declared on a callable.
+    /// `callable_kind` is the on-disk authoring kind (`command`,
+    /// `query.list`, `query.lookup`, `query.sql`, `job`, `webhook`,
+    /// `api`). Returns an empty slice when no gates apply (the common
+    /// case: most callables are not gated).
+    pub fn gates_for(&self, callable_kind: &str, callable_name: &str) -> &'a [Gate] {
+        let Some(map) = self.gates else {
+            return &[];
+        };
+        let key = format!("{}/{}:{}", self.current_feature, callable_kind, callable_name);
+        map.get(&key).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    /// PG.C.1 — fluent setter so call sites can chain `EmitContext::for_feature(...).with_gates(...)`.
+    pub fn with_gates(mut self, gates: Option<&'a BTreeMap<String, Vec<Gate>>>) -> Self {
+        self.gates = gates;
+        self
     }
 
     pub fn emit_line_directive(&self, p: &mut GoPrinter, span: Option<SpanRef>) -> bool {
@@ -316,6 +342,12 @@ pub fn emit_module(
 
     let source_context = source_context.as_ref();
 
+    // PG.C.1 — gate map threaded through to every per-callable emit
+    // context so commands / queries / jobs / webhooks / apis can emit
+    // the runtime prelude when their authored body declares a gate.
+    let gate_map: Option<&BTreeMap<String, Vec<Gate>>> =
+        options.plan_gate.as_ref().map(|facts| &facts.gates);
+
     for feature in features.values() {
         let path = format!("{name}/{name}.gen.go", name = feature.name);
         let contents = emit_feature_stub(&source_label, &feature.name);
@@ -358,7 +390,8 @@ pub fn emit_module(
                 &source_label,
                 &feature.name,
                 &command_path,
-            );
+            )
+            .with_gates(gate_map);
             if let Some(contents) = emit_command_file(
                 &source_label,
                 feature,
@@ -379,7 +412,8 @@ pub fn emit_module(
         {
             let query_path = format!("{name}/query.gen.go", name = feature.name);
             let emit_ctx =
-                EmitContext::for_feature(source_context, &source_label, &feature.name, &query_path);
+                EmitContext::for_feature(source_context, &source_label, &feature.name, &query_path)
+                    .with_gates(gate_map);
             if let Some(contents) = emit_query_file(
                 &source_label,
                 feature,
@@ -420,7 +454,8 @@ pub fn emit_module(
         {
             let job_path = format!("{name}/job.gen.go", name = feature.name);
             let emit_ctx =
-                EmitContext::for_feature(source_context, &source_label, &feature.name, &job_path);
+                EmitContext::for_feature(source_context, &source_label, &feature.name, &job_path)
+                    .with_gates(gate_map);
             if let Some(contents) = emit_job_file(
                 &source_label,
                 feature,
@@ -444,7 +479,8 @@ pub fn emit_module(
                 &source_label,
                 &feature.name,
                 &webhook_path,
-            );
+            )
+            .with_gates(gate_map);
             if let Some(contents) = emit_webhook_file(
                 &source_label,
                 feature,
@@ -531,12 +567,19 @@ pub fn emit_module(
         // Cell G5 — Api emission. Per-feature `lazuli.Api[I, O]`
         // values in `api.gen.go` (Lazuli Go lib gap §4.2 — emitter
         // ships TODO comments inside the value literal).
-        if let Some(contents) = emit_api_file(&source_label, feature, &module_name, &cross_index) {
+        {
             let api_path = format!("{name}/api.gen.go", name = feature.name);
-            files.push(GeneratedFile {
-                path: api_path,
-                contents,
-            });
+            let emit_ctx =
+                EmitContext::for_feature(source_context, &source_label, &feature.name, &api_path)
+                    .with_gates(gate_map);
+            if let Some(contents) =
+                emit_api_file(&source_label, feature, &module_name, &cross_index, &emit_ctx)
+            {
+                files.push(GeneratedFile {
+                    path: api_path,
+                    contents,
+                });
+            }
         }
 
         // R.C — Report emission. Per-feature `report.Contract` values

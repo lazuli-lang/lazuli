@@ -13,8 +13,8 @@
 //! way as resource/command emitters.
 
 use lazuli_ir::{
-    BackoffStrategy, DlqSpec, Feature, PolicyRef, ReplayMode, RetryPolicy, TypeRef, VerifyScheme,
-    Webhook,
+    BackoffStrategy, DlqSpec, Feature, Gate, PolicyRef, ReplayMode, RetryPolicy, TypeRef,
+    VerifyScheme, Webhook,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -169,6 +169,7 @@ fn emit_webhook(
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
     emit_ctx.emit_with_source_field(p, "webhook", &webhook.name, webhook.span_ref);
+    emit_gate_annotations(p, emit_ctx.gates_for("webhook", &webhook.name));
 
     emit_runtime_gaps(p, webhook);
 
@@ -310,6 +311,29 @@ fn escape_string(raw: &str) -> String {
         }
     }
     out
+}
+
+/// PG.C.1 — emit a comment trace listing every `gate` directive
+/// authored on a webhook. Webhooks dispatch through
+/// `webhooks.WebhookContract` (no generated handler wrapper exists
+/// today); runtime auto-evaluation of gates is deferred to a
+/// follow-up cell that grows the contract with a `Prelude []GateRef`
+/// slot.
+fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
+    if gates.is_empty() {
+        return;
+    }
+    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    for gate in gates {
+        match gate {
+            Gate::Behind { feature } => {
+                p.line(&format!("//   gate behind plan.feature: {feature}"));
+            }
+            Gate::Quota { limit } => {
+                p.line(&format!("//   gate quota plan.limit: {limit}"));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
