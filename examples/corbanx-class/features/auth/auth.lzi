@@ -1,5 +1,54 @@
-# Auth feature — session + login. The RBAC role/permission catalog GOES HERE
-# once `rbac-catalog-vocab.md` lands; today only sessions live here.
+# Auth feature — session + login + RBAC catalog.
+#
+# RB.F (rbac-catalog-vocab.md): top-level `permission` / `role`
+# decls sit ABOVE the `feature auth` block. They are package-scoped,
+# not feature-scoped — placement here is convention only.
+#
+# Closure example: `manager` transitively grants every permission
+# `consultor` grants plus its own additions, and `manager` is a
+# parent of `company_admin` which inherits everything from manager.
+# `platform_admin` grants everything via `grants_all`.
+
+# Permission catalog (10 entries).
+permission companies:read
+permission companies:create
+permission companies:update
+permission companies:invite_member
+permission credentials:read
+permission credentials:create
+permission credentials:update
+permission credentials:delete
+permission queries:start
+permission queries:download_results
+
+# Role hierarchy (5 roles, 4-deep chain: viewer < consultor < manager
+# < company_admin, plus platform_admin grants_all).
+role viewer
+  grants
+    companies:read
+    credentials:read
+
+role consultor
+  inherits viewer
+  grants
+    queries:start
+
+role manager
+  inherits consultor
+  grants
+    queries:download_results
+
+role company_admin
+  inherits manager
+  grants
+    companies:update
+    companies:invite_member
+    credentials:create
+    credentials:update
+    credentials:delete
+
+role platform_admin
+  grants_all
 
 feature auth
   purpose "User login, sessions, password verification."
@@ -64,35 +113,9 @@ feature auth
     returns Text
     emits user_logged_in
 
-  # ---------------------------------------------------------------
-  # PLACEHOLDER — RBAC CATALOG GOES HERE.
-  # The current `policies` blocks reference @role.platform_admin /
-  # @role.company_admin / @role.consultor / @role.manager but nothing
-  # in the framework binds these names to permissions.
-  #
-  # Once `rbac-catalog-vocab.md` lands, this block becomes something like:
-  #
-  #   roles
-  #     role platform_admin
-  #       grants *
-  #     role company_admin
-  #       grants companies.invite_member
-  #       grants credentials.create
-  #       grants queries.start_query, queries.download_results
-  #       grants billing.read_subscription
-  #     role manager
-  #       grants queries.start_query, queries.download_results
-  #       grants billing.read_subscription
-  #     role consultor
-  #       grants queries.start_query
-  #
-  #   permissions
-  #     permission companies.invite_member
-  #     permission credentials.create
-  #     permission queries.start_query
-  #     permission queries.download_results
-  #     permission billing.read_subscription
-  # ---------------------------------------------------------------
+  # NOTE: the RBAC catalog lives at top level (above this `feature`
+  # block). See `permission` / `role` declarations at the file head
+  # and `docs/proposals/rbac-catalog-vocab.md` §Where the catalog lives.
 
   extensions
     fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./handlers/hash_password.go"
