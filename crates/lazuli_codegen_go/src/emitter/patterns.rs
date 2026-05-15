@@ -22,6 +22,7 @@ pub const PATTERN_REPORT_RUN: (&str, &str) = ("report_run", "v1");
 pub const PATTERN_REPORT_AUTOMOUNT: (&str, &str) = ("report_automount", "v1");
 pub const PATTERN_ENCRYPTION_REGISTER: (&str, &str) = ("encryption_register", "v1");
 pub const PATTERN_POLLER_REGISTER: (&str, &str) = ("poller_register", "v1");
+pub const PATTERN_RBAC_REGISTER: (&str, &str) = ("rbac_register", "v1");
 
 pub fn emit_pattern_header(p: &mut GoPrinter, pattern: (&str, &str)) {
     p.line(&format!("//lazuli:pattern {} {}", pattern.0, pattern.1));

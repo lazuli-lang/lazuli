@@ -10,9 +10,11 @@
 //! 4-role catalog. No runtime lookup beyond linear scan over the
 //! closure slice.
 
-use lazuli_ir::{Module, PermissionEntry, RbacCatalog, RoleEntry};
+use lazuli_ir::{Module, PermissionEntry, RoleEntry};
 
 use super::casing::pascal_case;
+use super::imports::ImportSet;
+use super::patterns::{emit_pattern_header, PATTERN_RBAC_REGISTER};
 use super::printer::GoPrinter;
 
 /// Emit `dist/go/rbac/rbac.gen.go` for the package, or `None` when
@@ -24,8 +26,13 @@ pub fn emit_rbac_file(source_label: &str, module: &Module) -> Option<String> {
     }
 
     let mut p = GoPrinter::new();
+    let mut imports = ImportSet::new();
+    imports.add("lazuli.dev/runtime/lazuli");
+
     p.banner(source_label, "rbac (catalog)");
     p.line("package rbac");
+    p.blank();
+    imports.emit(&mut p);
     p.blank();
 
     p.line("// Permission is the closed-catalog identifier for one verb.");
@@ -79,6 +86,8 @@ pub fn emit_rbac_file(source_label: &str, module: &Module) -> Option<String> {
 
     // Helper functions.
     emit_helpers(&mut p);
+    p.blank();
+    emit_register_init(&mut p);
 
     Some(p.finish())
 }
@@ -126,7 +135,7 @@ fn emit_role_var(p: &mut GoPrinter, role: &RoleEntry) {
 fn emit_helpers(p: &mut GoPrinter) {
     p.line("// HasPermission returns true when role `roleName` grants `perm`.");
     p.line("// Roles not declared in the catalog return false (fail-closed).");
-    p.line("func HasPermission(roleName string, perm Permission) bool {");
+    p.line("func HasPermission(roleName string, perm string) bool {");
     p.indent();
     p.line("for _, r := range AllRoles {");
     p.indent();
@@ -137,7 +146,7 @@ fn emit_helpers(p: &mut GoPrinter) {
     p.line("}");
     p.line("for _, g := range r.Grants {");
     p.indent();
-    p.line("if g == perm {");
+    p.line("if g == Permission(perm) {");
     p.indent();
     p.line("return true");
     p.dedent();
@@ -162,6 +171,16 @@ fn emit_helpers(p: &mut GoPrinter) {
     p.line("}");
 }
 
+fn emit_register_init(p: &mut GoPrinter) {
+    p.line("// Register the generated RBAC catalog with the Lazuli runtime.");
+    emit_pattern_header(p, PATTERN_RBAC_REGISTER);
+    p.line("func init() {");
+    p.indent();
+    p.line("lazuli.RegisterRbac(HasRole, HasPermission)");
+    p.dedent();
+    p.line("}");
+}
+
 /// Convert a permission name `"users:read:own"` -> Go identifier
 /// `PermUsersReadOwn`.
 fn permission_ident(name: &str) -> String {
@@ -180,9 +199,7 @@ fn role_ident(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{
-        Module, PermissionEntry, RbacCatalog, RoleEntry, RoleGrants,
-    };
+    use lazuli_ir::{Module, PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};
 
     fn mk_module(catalog: Option<RbacCatalog>) -> Module {
         Module {
@@ -237,16 +254,23 @@ mod tests {
         }));
         let out = emit_rbac_file("test.lzi", &m).expect("emits");
         assert!(out.contains("package rbac"));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("PermUsersRead Permission = \"users:read\""));
         assert!(out.contains("PermUsersCreate Permission = \"users:create\""));
         assert!(out.contains("var RoleViewer = Role{"));
         assert!(out.contains("var RoleAdmin = Role{"));
-        assert!(out.contains("func HasPermission(roleName string, perm Permission) bool {"));
+        assert!(out.contains("func HasPermission(roleName string, perm string) bool {"));
+        assert!(out.contains("if g == Permission(perm) {"));
         assert!(out.contains("AllRoles = []Role{"));
+        assert!(out.contains("//lazuli:pattern rbac_register v1"));
+        assert!(out.contains("lazuli.RegisterRbac(HasRole, HasPermission)"));
     }
 
     #[test]
     fn permission_ident_handles_three_segments() {
-        assert_eq!(permission_ident("report:repasse:mark"), "PermReportRepasseMark");
+        assert_eq!(
+            permission_ident("report:repasse:mark"),
+            "PermReportRepasseMark"
+        );
     }
 }
