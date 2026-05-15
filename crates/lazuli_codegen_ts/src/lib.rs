@@ -21,6 +21,7 @@
 pub mod design;
 pub mod lzx;
 pub mod lzx_audience_slot;
+pub mod rbac;
 pub mod runtime;
 pub mod zod_constraints;
 
@@ -96,6 +97,17 @@ pub fn generate(module: &Module) -> Vec<GeneratedFile> {
                 contents: design::emit_allowlist_json(design),
             },
         ]);
+    }
+
+    // RB.C — emit `dist/ts-web/rbac/rbac.gen.ts` when the package
+    // declares a `permission` / `role` catalog. Audience-scoping is
+    // deferred per docs/proposals/rbac-catalog-vocab.md §Codegen-TS;
+    // v0.1 ships the full catalog to every frontend.
+    if let Some(contents) = rbac::emit_rbac_ts(module) {
+        files.push(GeneratedFile {
+            path: "dist/ts-web/rbac/rbac.gen.ts".to_owned(),
+            contents,
+        });
     }
 
     files

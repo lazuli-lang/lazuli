@@ -304,6 +304,16 @@ pub fn emit_module(
         }
     }
 
+    // RB.C — emit `dist/go/rbac/rbac.gen.go` when the package declares
+    // a `permission` / `role` catalog. See
+    // `docs/proposals/rbac-catalog-vocab.md` §Codegen-Go.
+    if let Some(contents) = crate::emitter::rbac::emit_rbac_file(&source_label, module) {
+        files.push(GeneratedFile {
+            path: "rbac/rbac.gen.go".to_owned(),
+            contents,
+        });
+    }
+
     let source_context = source_context.as_ref();
 
     for feature in features.values() {
