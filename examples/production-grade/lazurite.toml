@@ -4,7 +4,7 @@ module = "github.com/lazuli-lang/example-production-grade"
 schema = 1
 
 [lazuli]
-runtime = "0.13.0"
+runtime = "0.1.0"
 
 [lazurite]
 template = "lazurite-default"
