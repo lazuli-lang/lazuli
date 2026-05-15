@@ -2616,6 +2616,75 @@ pub struct AppManifest {
     /// See `docs/proposals/encryption-vocab.md` §Lowering.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub encryption_bindings: Vec<EncryptionBinding>,
+    /// Roadmap §1.2 — typed `cookie` block (CL.C.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie: Option<AppCookie>,
+    /// Roadmap §1.2 — typed `proxy` block (CL.C.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<AppProxy>,
+    /// Roadmap §1.2 — typed `limits` block (CL.C.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<AppLimits>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Roadmap §1.2 — `app.cookie` block (CL.C.1). Named cookie hygiene
+/// profiles; reserved `default` profile applies fallback.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppCookie {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<CookieProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CookieProfile {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_only: Option<bool>,
+    /// `lax` | `strict` | `none`. Doctor closed-catalog checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_site: Option<String>,
+    /// Duration literal (`"7d"`, `"30m"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_age: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Roadmap §1.2 — `app.proxy` block (CL.C.1). Trusted upstream proxies
+/// plus the headers the runtime trusts for real client signal.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppProxy {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub real_ip_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded_proto_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded_host_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Roadmap §1.2 — `app.limits` block (CL.C.1). Request-shape ceilings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppLimits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_size: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_size: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_size: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

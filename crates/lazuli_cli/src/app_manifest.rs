@@ -358,6 +358,9 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         observability: None,
         locale: None,
         encryption_bindings: Vec::new(),
+        cookie: None,
+        proxy: None,
+        limits: None,
         span_ref: None,
     };
     let mut current_child: Option<&str> = None;
