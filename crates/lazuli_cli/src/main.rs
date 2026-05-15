@@ -1108,7 +1108,30 @@ fn collect_enum_ref(
         lazuli_ir::TypeRef::EnumRef(name) if enum_ref_matches_feature(feature, name) => {
             out.insert(name.name.clone());
         }
+        // UserDefined-tagged enum fields. Parallel to the
+        // `UserDefined → enum_decl` fallback in `ts_type_for_type_ref`:
+        // when the analyzer leaves an enum reference as
+        // `UserDefined("CustomerTier")` (default-bearing fields seem
+        // to take this path), the emitter resolves it to a real enum
+        // — but the alias only lands at the top of the file if we ALSO
+        // record the reference here. Without this branch the generated
+        // TS references an undeclared `CustomerTier` symbol.
+        lazuli_ir::TypeRef::UserDefined(name) if enum_ref_matches_feature(feature, name) => {
+            out.insert(name.name.clone());
+        }
         lazuli_ir::TypeRef::Many(inner) => collect_enum_ref(inner, feature, out),
+        // Bare-name `Unresolved` fallback for the same reason — kept
+        // narrow so we never invent a reference: the bare name MUST
+        // already exist in the same feature's enum catalog.
+        lazuli_ir::TypeRef::Unresolved(raw) if !raw.starts_with('@') => {
+            if feature
+                .enums
+                .iter()
+                .any(|enum_decl| enum_decl.name.eq_ignore_ascii_case(raw))
+            {
+                out.insert(raw.clone());
+            }
+        }
         _ => {}
     }
 }
@@ -1636,6 +1659,16 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
         lazuli_ir::TypeRef::UserDefined(name) => {
             if is_resource_ref(type_ref, module) {
                 "ID".to_owned()
+            } else if let Some(enum_decl) = find_enum_decl(module, name) {
+                // Enum referenced via UserDefined path. The parser
+                // sometimes tags an enum field as UserDefined when the
+                // analyzer hasn't promoted it to EnumRef (review bug #3,
+                // 2026-05-15: `tier: CustomerTier = free` and
+                // `source: CustomerSource = manual` both flowed as
+                // UserDefined-with-no-record-match and lowered to
+                // `unknown` — even though `CustomerTier`/`CustomerSource`
+                // are declared above the resource block).
+                pascal_case(&enum_decl.name)
             } else {
                 module
                     .features
@@ -1652,10 +1685,44 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
                 || raw.starts_with("@cap.Token")
                 || raw == "@semantic.Email"
             {
-                "string".to_owned()
-            } else {
-                "unknown".to_owned()
+                return "string".to_owned();
             }
+            // Bare PascalCase fallback: the analyzer occasionally leaves
+            // a `Unresolved("Foo")` even when `Foo` is a declared enum /
+            // record / resource somewhere in the module (review bug #3,
+            // 2026-05-15: `tier: CustomerTier = manual` flowed as
+            // `Unresolved("CustomerTier")` and lowered to `unknown`
+            // even though `CustomerTier` is declared three lines above).
+            // Recover by walking the module's catalogs here so the TS
+            // SDK preserves typing instead of falling to opaque
+            // `unknown` whenever the analyzer's resolve pass misses an
+            // edge case.
+            if !raw.starts_with('@') {
+                let synthetic = lazuli_ir::QualifiedName {
+                    feature: None,
+                    name: raw.clone(),
+                };
+                if let Some(enum_decl) = find_enum_decl(module, &synthetic) {
+                    return pascal_case(&enum_decl.name);
+                }
+                if let Some(record) = module
+                    .features
+                    .iter()
+                    .flat_map(|feature| feature.records.iter())
+                    .find(|record| record.name.eq_ignore_ascii_case(raw))
+                {
+                    return pascal_case(&record.name);
+                }
+                if module
+                    .features
+                    .iter()
+                    .flat_map(|feature| feature.resources.iter())
+                    .any(|resource| resource.name.eq_ignore_ascii_case(raw))
+                {
+                    return "ID".to_owned();
+                }
+            }
+            "unknown".to_owned()
         }
     }
 }
@@ -8673,6 +8740,72 @@ mod tests {
 
         assert!(!output.contains("UNUSED_VALUES"));
         assert!(!output.contains("export type Unused"));
+    }
+
+    #[test]
+    fn user_defined_tagged_enum_field_still_lifts_to_typed_alias() {
+        // Regression for review bug #3 (2026-05-15): fields like
+        // `tier: CustomerTier = free` arrive as
+        // `TypeRef::UserDefined({name: "ItemType"})` instead of
+        // `EnumRef(...)` because the analyzer's resolve pass doesn't
+        // always promote them. Before the fix, `ts_type_for_type_ref`
+        // checked records but not enums under that arm and emitted
+        // `tier: unknown` — making the SDK lose enum typing.
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        // Replace the EnumRef-tagged `type` field with a UserDefined-
+        // tagged one. Everything else identical.
+        let resource = feature.resources.first_mut().expect("fixture resource");
+        let type_field = resource
+            .fields
+            .iter_mut()
+            .find(|f| f.name == "type")
+            .expect("type field");
+        type_field.type_ref = lazuli_ir::TypeRef::UserDefined(local_qn("ItemType"));
+        // Module must mirror the feature's resource for the lookup.
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("  type: ItemType;"),
+            "UserDefined-tagged enum field must resolve to the typed alias; got:\n{output}"
+        );
+        assert!(
+            !output.contains("  type: unknown;"),
+            "UserDefined-tagged enum field must not fall through to `unknown`; got:\n{output}"
+        );
+        assert!(
+            output.contains("export type ItemType = typeof ITEM_TYPE_VALUES[number];"),
+            "alias must still be emitted at the top of the file when only a UserDefined ref drives it; got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn unresolved_bare_enum_name_recovers_to_typed_alias() {
+        // Regression for the deeper fallback in `ts_type_for_type_ref`:
+        // when the analyzer leaves a field as
+        // `TypeRef::Unresolved("ItemType")` (no `@` prefix), the emitter
+        // should still recover by walking the module's enum catalog
+        // rather than emitting `unknown`. Without this branch, partial
+        // analyzer failures would silently destroy the TS SDK's type
+        // information.
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        let resource = feature.resources.first_mut().expect("fixture resource");
+        let type_field = resource
+            .fields
+            .iter_mut()
+            .find(|f| f.name == "type")
+            .expect("type field");
+        type_field.type_ref = lazuli_ir::TypeRef::Unresolved("ItemType".to_owned());
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("  type: ItemType;"),
+            "Unresolved-but-known-enum must self-heal to the typed alias; got:\n{output}"
+        );
+        assert!(!output.contains("  type: unknown;"));
     }
 
     #[test]
