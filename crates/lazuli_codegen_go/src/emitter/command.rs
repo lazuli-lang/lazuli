@@ -48,8 +48,8 @@ use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
     Feature, Gate, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
-    LifecycleTransition, NamedArg, Path, PolicyRef, QualifiedName, Resource, RetryPolicy,
-    ReturnsEffect, TypedSlot, UpdateEffect,
+    LifecycleTransition, NamedArg, Path, PolicyExpr, PolicyRef, QualifiedName, Resource,
+    RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
 };
 use std::collections::BTreeMap;
 
@@ -237,7 +237,10 @@ fn emit_command(
     if let Some(resource_var) = effect_resource_var(&command.effect) {
         kv_rows.push(("Resource:".to_owned(), format!("&{resource_var},")));
     }
-    kv_rows.push(("Policy:".to_owned(), format_policy(&command.policy)));
+    kv_rows.push((
+        "Policy:".to_owned(),
+        format_policy_with_expr(&command.policy, command.policy_expr.as_ref()),
+    ));
     if let Some(rate) = &command.rate_limit {
         kv_rows.push((
             "RateLimit:".to_owned(),
@@ -1047,6 +1050,57 @@ fn effect_resource_var(effect: &CommandEffect) -> Option<String> {
 /// emits an empty `Policy{}` value to keep the field site present in
 /// the generated file.
 fn format_policy(policy: &PolicyRef) -> String {
+    format_policy_with_expr(policy, None)
+}
+
+/// Sibling emitters (`api.rs`, `webhook.rs`, `query.rs`, etc.) re-export
+/// the structured form so they can lower `policy_expr` without
+/// duplicating the walker logic.
+pub(super) fn format_policy_with_expr_public(
+    policy: &PolicyRef,
+    policy_expr: Option<&PolicyExpr>,
+) -> String {
+    format_policy_with_expr(policy, policy_expr)
+}
+
+/// RB.S6 — render `lazuli.Policy{...}` with optional structured
+/// predicate atoms drawn from a parsed `policy <expr>`. When
+/// `policy_expr` is present, the rendered struct gains an `Atoms` slice
+/// carrying entries with synthetic namespaces:
+///
+/// - `Namespace: "rbac.permission"` for `has_permission X:Y:Z`.
+/// - `Namespace: "rbac.role"` for `has_role X`.
+/// - `Namespace: "predicate", Name: "authenticated"` for `authenticated`.
+/// - `Namespace: "predicate", Name: "and|or|not"` markers for the
+///   combinator structure, flattened so the runtime can walk the slice
+///   linearly (OR-of-AND-of-atoms is the Policy.Atoms convention; the
+///   `predicate.*` namespace marks combinator boundaries).
+///
+/// Runtime evaluation (in `runtime/go/lazuli`) reads these atoms and
+/// dispatches to the generated `rbac.HasRole` / `rbac.HasPermission`
+/// helpers via `ctx.User.Roles`. Until the runtime hook lands, the
+/// atoms surface as metadata only — visible in the generated file,
+/// audit logs, and reflection.
+fn format_policy_with_expr(policy: &PolicyRef, policy_expr: Option<&PolicyExpr>) -> String {
+    // When a structured policy expression is present, prefer it: the
+    // legacy single-atom `Atoms: [...]` rendering is subsumed by the
+    // expanded form. The `Name` slot still echoes the raw author text
+    // for diagnostics.
+    if let Some(expr) = policy_expr {
+        let atoms = render_policy_expr_atoms(expr);
+        let name = policy_expr_display_name(expr);
+        if atoms.is_empty() {
+            return format!(
+                "lazuli.Policy{{Name: {:?}}},",
+                name
+            );
+        }
+        let inner = atoms.join(", ");
+        return format!(
+            "lazuli.Policy{{Name: {:?}, Atoms: []lazuli.PolicyAtom{{{inner}}}}},",
+            name
+        );
+    }
     match policy {
         PolicyRef::Local(name) => format!(
             "lazuli.Policy{{Name: \"@policy.{}\"}},",
@@ -1087,6 +1141,132 @@ fn format_policy(policy: &PolicyRef) -> String {
         }
         PolicyRef::Unresolved(raw) => format!("lazuli.Policy{{Name: \"{}\"}},", escape_string(raw)),
         PolicyRef::None => "lazuli.Policy{},".to_owned(),
+    }
+}
+
+/// Render a `PolicyExpr` as a flat list of `lazuli.PolicyAtom{...}`
+/// literal fragments. Atoms and predicates land as-is; combinators
+/// (`and` / `or` / `not`) land as marker atoms with `Namespace:
+/// "predicate"` so the runtime can reconstruct the tree shape.
+///
+/// Closed atom namespaces produced here:
+///  - `rbac.role`        (from `has_role <name>`)
+///  - `rbac.permission`  (from `has_permission <perm>`)
+///  - `predicate` + Name `authenticated` | `and` | `or` | `not` | `(` | `)`
+///  - plus the original `<ns>` for embedded `@<ns>.<name>` atoms
+///    (`role`, `scope`, `actor`, etc.).
+fn render_policy_expr_atoms(expr: &PolicyExpr) -> Vec<String> {
+    let mut out = Vec::new();
+    walk_policy_expr_atoms(expr, &mut out);
+    out
+}
+
+fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
+    match expr {
+        PolicyExpr::Authenticated => out.push(
+            "{Namespace: \"predicate\", Name: \"authenticated\"}".to_owned(),
+        ),
+        PolicyExpr::HasRole(name) => out.push(format!(
+            "{{Namespace: \"rbac.role\", Name: {:?}}}",
+            name
+        )),
+        PolicyExpr::HasPermission(perm) => out.push(format!(
+            "{{Namespace: \"rbac.permission\", Name: {:?}}}",
+            perm
+        )),
+        PolicyExpr::Atom(atom) => out.push(format!(
+            "{{Namespace: {:?}, Name: {:?}}}",
+            atom.namespace, atom.name
+        )),
+        PolicyExpr::And(terms) => {
+            out.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
+            for (i, term) in terms.iter().enumerate() {
+                if i > 0 {
+                    out.push(
+                        "{Namespace: \"predicate\", Name: \"and\"}".to_owned(),
+                    );
+                }
+                walk_policy_expr_atoms(term, out);
+            }
+            out.push("{Namespace: \"predicate\", Name: \")\"}".to_owned());
+        }
+        PolicyExpr::Or(terms) => {
+            out.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
+            for (i, term) in terms.iter().enumerate() {
+                if i > 0 {
+                    out.push(
+                        "{Namespace: \"predicate\", Name: \"or\"}".to_owned(),
+                    );
+                }
+                walk_policy_expr_atoms(term, out);
+            }
+            out.push("{Namespace: \"predicate\", Name: \")\"}".to_owned());
+        }
+        PolicyExpr::Not(inner) => {
+            out.push("{Namespace: \"predicate\", Name: \"not\"}".to_owned());
+            walk_policy_expr_atoms(inner, out);
+        }
+    }
+}
+
+/// Build a human-readable `Name:` for a structured policy expression,
+/// reusing the closed surface syntax (`authenticated and has_role X`).
+/// Mirrors the original source as faithfully as a tree-walk allows.
+fn policy_expr_display_name(expr: &PolicyExpr) -> String {
+    let mut s = String::new();
+    write_policy_expr_display(expr, &mut s, false);
+    s
+}
+
+fn write_policy_expr_display(expr: &PolicyExpr, out: &mut String, parenthesize: bool) {
+    match expr {
+        PolicyExpr::Authenticated => out.push_str("authenticated"),
+        PolicyExpr::HasRole(name) => {
+            out.push_str("has_role ");
+            out.push_str(name);
+        }
+        PolicyExpr::HasPermission(perm) => {
+            out.push_str("has_permission ");
+            out.push_str(perm);
+        }
+        PolicyExpr::Atom(atom) => {
+            out.push('@');
+            out.push_str(&atom.namespace);
+            out.push('.');
+            out.push_str(&atom.name);
+        }
+        PolicyExpr::And(terms) => {
+            if parenthesize {
+                out.push('(');
+            }
+            for (i, t) in terms.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(" and ");
+                }
+                write_policy_expr_display(t, out, true);
+            }
+            if parenthesize {
+                out.push(')');
+            }
+        }
+        PolicyExpr::Or(terms) => {
+            if parenthesize {
+                out.push('(');
+            }
+            for (i, t) in terms.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(" or ");
+                }
+                write_policy_expr_display(t, out, true);
+            }
+            if parenthesize {
+                out.push(')');
+            }
+        }
+        PolicyExpr::Not(inner) => {
+            out.push_str("not ");
+            write_policy_expr_display(inner, out, true);
+        }
     }
 }
 
@@ -2222,4 +2402,91 @@ mod tests {
     fn _record_compiles(_: Record) {}
     #[allow(dead_code)]
     fn _tenancy_compiles(_: Tenancy) {}
+
+    // ------------------------------------------------------------------
+    // RB.S6.C — `policy_expr` rendering.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn policy_expr_authenticated_renders_predicate_atom() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy_expr = Some(PolicyExpr::Authenticated);
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("Name: \"authenticated\""),
+            "expected `Name: \"authenticated\"` literal in:\n{out}"
+        );
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"authenticated\"}"),
+            "expected predicate atom in:\n{out}"
+        );
+    }
+
+    #[test]
+    fn policy_expr_has_permission_renders_rbac_permission_atom() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("start");
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy_expr = Some(PolicyExpr::HasPermission("queries:start".to_owned()));
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("{Namespace: \"rbac.permission\", Name: \"queries:start\"}"),
+            "expected rbac.permission atom in:\n{out}"
+        );
+        assert!(
+            out.contains("Name: \"has_permission queries:start\""),
+            "expected display name in:\n{out}"
+        );
+    }
+
+    #[test]
+    fn policy_expr_and_combinator_renders_paren_and_predicate_atoms() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("start");
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy_expr = Some(PolicyExpr::And(vec![
+            PolicyExpr::Authenticated,
+            PolicyExpr::HasRole("manager".to_owned()),
+        ]));
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"authenticated\"}"),
+            "missing authenticated atom in:\n{out}"
+        );
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"and\"}"),
+            "missing and atom in:\n{out}"
+        );
+        assert!(
+            out.contains("{Namespace: \"rbac.role\", Name: \"manager\"}"),
+            "missing rbac.role atom in:\n{out}"
+        );
+        assert!(
+            out.contains("Name: \"authenticated and has_role manager\""),
+            "missing combined display name in:\n{out}"
+        );
+    }
 }

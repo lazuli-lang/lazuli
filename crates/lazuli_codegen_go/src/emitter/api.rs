@@ -113,7 +113,13 @@ fn emit_api(
             "Path:".to_owned(),
             format!("\"{}\",", escape_string(&api.path)),
         ),
-        ("Policy:".to_owned(), format_policy(&api.policy)),
+        (
+            "Policy:".to_owned(),
+            super::command::format_policy_with_expr_public(
+                &api.policy,
+                api.policy_expr.as_ref(),
+            ),
+        ),
     ];
     if let Some(rate_limit) = &api.rate_limit {
         kv_rows.push((
