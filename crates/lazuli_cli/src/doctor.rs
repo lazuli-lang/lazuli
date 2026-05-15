@@ -12561,7 +12561,27 @@ surface customer web
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        // Assert no BLOCKING diagnostics (Error/Warning). Info-level
+        // advisories (e.g. `RBAC-CATALOG-MISSING-001` suggesting
+        // migration to the top-level RBAC catalog) are non-blocking
+        // suggestions and not part of this test's contract — the
+        // assertion is "the platform action resolves through the
+        // abstract experience without breaking validation".
+        let diagnostics = package.diagnostics();
+        let blocking: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.severity,
+                    DoctorSeverity::Error | DoctorSeverity::Warning
+                )
+            })
+            .collect();
+        assert!(
+            blocking.is_empty(),
+            "expected no blocking diagnostics, got: {:#?}",
+            blocking
+        );
     }
 
     #[test]

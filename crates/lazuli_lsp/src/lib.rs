@@ -5989,6 +5989,12 @@ fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut stack: Vec<(usize, String)> = Vec::new();
     let mut current_test_context: Option<String> = None;
+    // Indent at which the most recent `tests` keyword sat. Assertion
+    // lines live STRICTLY DEEPER; any line at this indent or shallower
+    // closes the block (the legacy `<= 4` heuristic assumed tests were
+    // always two levels deep, which broke when the canonical fixture
+    // nested `tests` under `workflow → transition` at indent 10).
+    let mut test_block_indent: Option<usize> = None;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -6003,14 +6009,18 @@ fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
             stack.pop();
         }
 
-        if current_test_context.is_some() && indent <= 4 {
-            current_test_context = None;
+        if let Some(block_indent) = test_block_indent {
+            if indent <= block_indent {
+                current_test_context = None;
+                test_block_indent = None;
+            }
         }
 
         if trimmed == "tests" {
             let context = test_context(&stack);
             if let Some(context) = context {
                 current_test_context = Some(context);
+                test_block_indent = Some(indent);
             } else {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
@@ -6059,6 +6069,13 @@ fn stack_kind(trimmed_line: &str) -> Option<&'static str> {
         Some("command")
     } else if first == "rule" {
         Some("rule")
+    // Block-form workflow transitions (`transition <name>` followed by
+    // indented `from`/`to`/`policy`/`emits`/`tests` children) are the
+    // canonical surface today. The legacy inline form
+    // (`<state>: <state> -> <name>`) is captured by
+    // `is_transition_line` below for back-compat with older fixtures.
+    } else if first == "transition" {
+        Some("transition")
     } else if view_anchor(trimmed_line).is_some() {
         Some("anchor")
     } else if is_transition_line(trimmed_line) {
@@ -7434,6 +7451,11 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 // `parse_app_manifest`; skip the "unknown app block"
                 // warning here.
                 Some("locale") => {}
+                // Encryption bucket cycle — `encryption` children are
+                // `key @key.<scope>` lines validated by doctor's
+                // encryption_binding_diagnostics; skip the "unknown
+                // app block" warning here.
+                Some("encryption") => {}
                 Some(_) | None => diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
@@ -7512,13 +7534,21 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         line,
                         trimmed,
                     );
+                } else if current_app_child == Some("encryption") {
+                    // Encryption bucket cycle — body of a
+                    // `key @key.<scope>` block: `source <expr>`,
+                    // `algorithm <name>`, `rotation <cadence>`.
+                    // Doctor's `encryption_binding_diagnostics` owns
+                    // the closed-catalog validation; the LSP just
+                    // needs to NOT fire the generic six-space
+                    // warning here.
                 } else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
                         line,
                         DiagnosticSeverity::WARNING,
                         "app-operational-contract",
-                        "six-space app manifest declarations are only valid inside `env group`, `integrations`, `runtime unit`, or `services service` blocks.",
+                        "six-space app manifest declarations are only valid inside `env group`, `integrations`, `runtime unit`, `services service`, or `encryption key` blocks.",
                     ));
                 }
             }
@@ -7600,6 +7630,13 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         // i18n bucket cycle — `app.locale` block (default / supported /
         // fallback). Supersedes bare `default_locale` scalar.
         "locale" => Some("locale"),
+        // Encryption bucket cycle — `app.encryption` block carries one
+        // `key @key.<scope>` per scope referenced by
+        // `@cap.Encrypted` / `@cap.E2ee` field sites. Body grammar
+        // (`source` / `algorithm` / `rotation`) is doctor-validated;
+        // the LSP only needs to recognize the header so warnings
+        // don't fire on the children.
+        "encryption" => Some("encryption"),
         _ => None,
     }
 }
@@ -8459,13 +8496,18 @@ fn validate_app_service_exposure_line(
     trimmed: &str,
 ) {
     let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() != 2 || !matches!(parts[0], "query" | "command" | "api" | "workflow") {
+    if parts.len() != 2
+        || !matches!(
+            parts[0],
+            "query" | "command" | "api" | "workflow" | "report"
+        )
+    {
         diagnostics.push(simple_canonical_diagnostic(
             line_index,
             line,
             DiagnosticSeverity::WARNING,
             "app-service-contract",
-            "service exposures use `query|command|api|workflow <feature>.<kind>.<name>`.",
+            "service exposures use `query|command|api|workflow|report <feature>.<kind>.<name>`.",
         ));
     }
 }

@@ -927,6 +927,8 @@ feature account
       name: Text required
       role: Text optional
 
+      retention forever then anonymize
+
   policies
     read: @scope.same_org
     update: @role.admin
