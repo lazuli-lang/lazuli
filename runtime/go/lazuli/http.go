@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"lazuli.dev/runtime/lazuli/report"
 )
 
 // Mux returns an http.Handler that exposes every registered command and
@@ -48,6 +50,14 @@ func Mux() http.Handler {
 			handleQueryRequest(w, r, q)
 		})
 	}
+
+	// Report auto-mount — `GET /api/reports/<name>.<format>` per
+	// (contract × format) declared in any feature. Walks the
+	// process-global registry populated by generated `reports.gen.go`
+	// `init()` blocks. See `runtime/go/lazuli/report/mount.go` +
+	// `docs/proposals/report-vocab.md` §Open questions
+	// "Auto-mount HTTP endpoints".
+	report.Mount(mux)
 
 	return loggingMiddleware(mux)
 }

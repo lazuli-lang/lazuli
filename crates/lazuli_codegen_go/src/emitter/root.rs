@@ -46,7 +46,9 @@ use lazuli_ir::{
 };
 
 use super::imports::ImportSet;
-use super::patterns::{PATTERN_MAIN_ENTRYPOINT, emit_pattern_header};
+use super::patterns::{
+    PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT, emit_pattern_header,
+};
 use super::printer::GoPrinter;
 use crate::LazuriteManifest;
 
@@ -454,7 +456,7 @@ fn emit_encryption_bindings(p: &mut GoPrinter, bindings: &[EncryptionBinding]) {
     p.dedent();
     p.line("}");
     p.blank();
-    p.line("//lazuli:pattern encryption_register v1");
+    emit_pattern_header(p, PATTERN_ENCRYPTION_REGISTER);
     p.line("func init() {");
     p.indent();
     p.line("for _, b := range EncryptionBindings {");

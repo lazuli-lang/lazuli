@@ -17,7 +17,7 @@ use lazuli_ir::{
 
 use super::casing::pascal_case;
 use super::imports::ImportSet;
-use super::patterns::{PATTERN_REPORT_RUN, emit_pattern_header};
+use super::patterns::{PATTERN_REPORT_AUTOMOUNT, PATTERN_REPORT_RUN, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/reports.gen.go` for a feature, or `None` when the
@@ -32,6 +32,7 @@ pub fn emit_reports_file(source_label: &str, feature: &Feature) -> Option<String
 
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
+    imports.add("context");
     imports.add("lazuli.dev/runtime/lazuli");
     imports.add("lazuli.dev/runtime/lazuli/report");
     imports.add("lazuli.dev/runtime/lazuli/storage");
@@ -50,11 +51,49 @@ pub fn emit_reports_file(source_label: &str, feature: &Feature) -> Option<String
         emit_report(&mut p, feature, report);
     }
 
+    // Auto-mount registration. One `init()` per file registers every
+    // contract with the runtime registry; `lazuli.Mux()` mounts
+    // `GET /api/reports/<name>.<format>` routes by walking that
+    // registry. The registered runner reads the package-level
+    // `<Name>Runner` variable each request so user code can override
+    // the stub once source + store are wired (typically from `main`
+    // after `lazuli.Boot`). See
+    // `runtime/go/lazuli/report/{registry,mount}.go` +
+    // `docs/proposals/report-vocab.md` §Open questions.
+    p.blank();
+    emit_pattern_header(&mut p, PATTERN_REPORT_AUTOMOUNT);
+    p.line("func init() {");
+    p.indent();
+    for report in &reports {
+        let var_name = format!("{}Report", pascal_case(&report.name));
+        let runner_name = format!("{}Runner", pascal_case(&report.name));
+        p.line(&format!(
+            "report.Register({var_name}, func(ctx context.Context, format report.Format) (string, error) {{"
+        ));
+        p.indent();
+        p.line(&format!(
+            "if {runner_name} != nil {{"
+        ));
+        p.indent();
+        p.line(&format!("return {runner_name}(ctx, format)"));
+        p.dedent();
+        p.line("}");
+        p.line(&format!(
+            "return \"\", report.ErrRunnerNotWired({:?})",
+            report.name
+        ));
+        p.dedent();
+        p.line("})");
+    }
+    p.dedent();
+    p.line("}");
+
     Some(p.finish())
 }
 
 fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
     let var_name = format!("{}Report", pascal_case(&report.name));
+    let runner_name = format!("{}Runner", pascal_case(&report.name));
 
     p.line(&format!(
         "// {}: {} (auto-mounts `GET /api/reports/{}.<format>` per format).",
@@ -117,6 +156,27 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
 
     p.dedent();
     p.line("}");
+
+    // Per-report Runner hook. User code overrides this variable from
+    // `main` once the SourceFn + ObjectStore are wired. The init()
+    // block at the end of this file registers a stub that reads the
+    // current value on every request, so overriding takes effect
+    // without re-registering. A typical user wire-up is:
+    //
+    //   <feature>.<Name>Runner = func(ctx context.Context, format report.Format) (string, error) {
+    //       return <feature>.Run<Name>(lazuli.NewCtx(ctx), format, source, store)
+    //   }
+    //
+    // Until overridden, the auto-mounted route returns HTTP 501 with a
+    // message pointing at this site.
+    p.blank();
+    p.line(&format!(
+        "// {runner_name} is the auto-mount runner override hook. See {var_name}'s",
+    ));
+    p.line(&format!(
+        "// auto-mount registration in `init()` at the end of this file."
+    ));
+    p.line(&format!("var {runner_name} report.Runner"));
 
     // Per proposal §Codegen worked example, emit a Run<Name> entry
     // point that the auto-mounted HTTP handler calls. The actual HTTP
@@ -231,5 +291,160 @@ fn policy_atom(policy: &PolicyRef) -> String {
         PolicyRef::External { feature, name } => format!("{}.@policy.{}", feature, name),
         PolicyRef::Unresolved(s) => s.clone(),
         PolicyRef::None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lazuli_ir::{
+        Defaults, FileVisibility, Policies, PolicyRef, QualifiedName, Report, ReportColumn,
+        ReportColumnSource, ReportFormat, ReportSource,
+    };
+
+    fn base_feature(name: &str) -> Feature {
+        Feature {
+            name: name.to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: Defaults {
+                tenancy: None,
+                timestamps: false,
+                policy: None,
+            },
+            uses: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies: Policies {
+                categories: Vec::new(),
+                fields: Vec::new(),
+                span_ref: None,
+            },
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            pollers: vec![],
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            reports: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn mk_report(name: &str, formats: Vec<ReportFormat>) -> Report {
+        Report {
+            name: name.to_owned(),
+            source: ReportSource::Query(QualifiedName {
+                feature: None,
+                name: "list".to_owned(),
+            }),
+            columns: vec![ReportColumn {
+                name: "id".to_owned(),
+                source: ReportColumnSource::RowField("id".to_owned()),
+                label: None,
+                format: None,
+                span_ref: None,
+            }],
+            formats,
+            storage: None,
+            visibility: FileVisibility::Signed,
+            signed_ttl: Some("1h".to_owned()),
+            filename: None,
+            policy: PolicyRef::Local("global_read".to_owned()),
+            rate_limit: None,
+            audit: None,
+            span_ref: None,
+        }
+    }
+
+    #[test]
+    fn empty_feature_emits_nothing() {
+        let feature = base_feature("customer");
+        assert!(emit_reports_file("examples/x.lzi", &feature).is_none());
+    }
+
+    #[test]
+    fn single_report_emits_contract_runner_and_init() {
+        let mut feature = base_feature("customer");
+        feature
+            .reports
+            .push(mk_report("monthly_audit", vec![ReportFormat::Csv, ReportFormat::Xlsx]));
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+
+        // Contract and Runner var still declared per report.
+        assert!(out.contains("var MonthlyAuditReport = report.Contract{"));
+        assert!(out.contains("var MonthlyAuditRunner report.Runner"));
+
+        // Auto-mount init() block — registers the contract with a
+        // closure that calls the package-level Runner each request.
+        assert!(out.contains("func init() {"));
+        assert!(out.contains(
+            "report.Register(MonthlyAuditReport, func(ctx context.Context, format report.Format) (string, error) {"
+        ));
+        assert!(out.contains("if MonthlyAuditRunner != nil {"));
+        assert!(out.contains("return MonthlyAuditRunner(ctx, format)"));
+        assert!(out.contains("return \"\", report.ErrRunnerNotWired(\"monthly_audit\")"));
+
+        // Context import threaded through for the closure signature.
+        assert!(out.contains("\"context\""));
+
+        // Existing Run<Name> entry point preserved (still 4-arg form).
+        assert!(out.contains(
+            "func RunMonthlyAudit(ctx *lazuli.Ctx, format report.Format, source report.SourceFn, store storage.ObjectStore) (string, error) {"
+        ));
+    }
+
+    #[test]
+    fn two_reports_emit_one_init_with_both_registrations() {
+        let mut feature = base_feature("customer");
+        feature
+            .reports
+            .push(mk_report("monthly_audit", vec![ReportFormat::Csv]));
+        feature
+            .reports
+            .push(mk_report("daily_summary", vec![ReportFormat::Xlsx]));
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+
+        // Only ONE init() block holds both registrations.
+        assert_eq!(out.matches("func init() {").count(), 1);
+        assert!(out.contains("report.Register(MonthlyAuditReport,"));
+        assert!(out.contains("report.Register(DailySummaryReport,"));
+        assert!(out.contains("MonthlyAuditRunner"));
+        assert!(out.contains("DailySummaryRunner"));
+
+        // Reports stay sorted by name (daily before monthly).
+        let daily_pos = out.find("DailySummaryReport").expect("daily declared");
+        let monthly_pos = out.find("MonthlyAuditReport").expect("monthly declared");
+        assert!(daily_pos < monthly_pos, "expected sorted output");
+    }
+
+    #[test]
+    fn deterministic_across_runs() {
+        let mut feature = base_feature("customer");
+        feature
+            .reports
+            .push(mk_report("zebra", vec![ReportFormat::Csv]));
+        feature
+            .reports
+            .push(mk_report("alpha", vec![ReportFormat::Xlsx]));
+        let a = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+        let b = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+        assert_eq!(a, b);
     }
 }
