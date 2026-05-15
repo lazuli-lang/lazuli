@@ -1,11 +1,24 @@
 # Wave C — Deferred CL Integration Catalog
 
 **Date**: 2026-05-15
-**Status**: 4 Claude-authored branches preserved in worktrees; pending surgical re-integration into `main`.
+**Status**: ✅ **COMPLETE** — all 4 deferred branches integrated surgically into `main` on 2026-05-15.
 
-## Context
+| Wave C item | Resolution | Commit |
+|---|---|---|
+| CL.C.5 — `app.headers` + `secret_rotation` (parser/doctor/LSP) | Surgical port from `wave-c-cl5-branch` | `633f90f` |
+| CL.C.1 — `cookie/proxy/limits` (parser/doctor/LSP/--expand=http) | Surgical port from `wave-c-cl1-branch` | `ed875ea` |
+| CL.C.3 — feature-level `cache <name>` kind | Surgical port from `wave-c-cl3-branch` | `c5c1fe0` |
+| CL.C.2 — DB decorators (lock/composite_key/@full_text) | Surgical port from `wave-c-cl2-branch` (slug deduped against CL.C.4) | `604637a` |
 
-Wave C dispatched 10 parallel workers (5 Codex + 5 Claude subagents), each in an isolated worktree off `5b279f0`. The 5 Codex commits and 1 Claude commit (CL.C.4) cherry-picked cleanly into `main`. The remaining 4 Claude commits each ran `cargo fmt` over the workspace, producing line-ending/import-sort churn across 60-90 unrelated files that surfaces as merge conflicts during cherry-pick. Substantive content remains valid and is worth ~8-10 hours of focused integration work.
+**Workspace state after integration**: 1828 tests pass across 49 binaries (up from ~1813 baseline); 0 failures. Pleiades regen can now validate the full Roadmap §1.1 / §1.2 / §1.5 / §1.10 / §1.15 surface.
+
+The historical content below documents the original plan; the *Branches preserved* table and the cargo-fmt-cascade post-mortem remain useful as Wave D+ process input.
+
+---
+
+## Context (historical)
+
+Wave C dispatched 10 parallel workers (5 Codex + 5 Claude subagents), each in an isolated worktree off `5b279f0`. The 5 Codex commits and 1 Claude commit (CL.C.4) cherry-picked cleanly into `main`. The remaining 4 Claude commits each ran `cargo fmt` over the workspace, producing line-ending/import-sort churn across 60-90 unrelated files that surfaces as merge conflicts during cherry-pick. Substantive content remained valid and was worth ~8 hours of focused integration work — done in this session via surgical additive ports (skipping the `cargo fmt` cascade entirely).
 
 ## Branches preserved
 
