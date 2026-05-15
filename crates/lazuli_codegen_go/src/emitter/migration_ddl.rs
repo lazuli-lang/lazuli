@@ -119,7 +119,19 @@ fn emit_resource_migration<'a>(
     let columns = resource_columns(module, feature, resource, cross_index);
     for (idx, column) in columns.iter().enumerate() {
         let comma = if idx + 1 == columns.len() { "" } else { "," };
-        writeln!(sql, "    {}{}", column.render(), comma).unwrap();
+        // Trailing-comment columns place the comma *before* the
+        // comment so the SQL stays valid (`<body>, -- <comment>`
+        // instead of `<body> -- <comment>,`).
+        if let Some(comment) = column.trailing_comment() {
+            writeln!(
+                sql,
+                "    {body}{comma} -- {comment}",
+                body = column.render_body(),
+            )
+            .unwrap();
+        } else {
+            writeln!(sql, "    {}{}", column.render_body(), comma).unwrap();
+        }
     }
     writeln!(sql, ");").unwrap();
 
@@ -216,12 +228,16 @@ fn resource_columns<'a>(
 
     columns.extend(resource.fields.iter().map(|field| {
         let pg_type = pg_type_for_field(module, feature, field, cross_index);
-        SqlColumn::typed_generated(
+        let column = SqlColumn::typed_generated(
             &field.name,
             &pg_type.sql,
             field.required,
             field.derived_from.clone(),
-        )
+        );
+        match encryption_marker_for(field) {
+            Some(marker) => column.with_trailing_comment(marker),
+            None => column,
+        }
     }));
 
     if uses_timestamps(feature, resource) {
@@ -260,6 +276,10 @@ enum SqlColumn {
         pg_type: String,
         required: bool,
         generated_as: Option<String>,
+        /// Trailing SQL comment for operator visibility (e.g.
+        /// `lazuli:encrypted @key.tenant`). Rendered as a `-- ...`
+        /// suffix on the column line; no semantic effect on the DDL.
+        trailing_comment: Option<String>,
     },
 }
 
@@ -274,6 +294,7 @@ impl SqlColumn {
             pg_type: pg_type.to_owned(),
             required,
             generated_as: None,
+            trailing_comment: None,
         }
     }
 
@@ -288,10 +309,26 @@ impl SqlColumn {
             pg_type: pg_type.to_owned(),
             required,
             generated_as,
+            trailing_comment: None,
         }
     }
 
-    fn render(&self) -> String {
+    fn with_trailing_comment(mut self, comment: String) -> Self {
+        if let Self::Typed {
+            trailing_comment, ..
+        } = &mut self
+        {
+            *trailing_comment = Some(comment);
+        }
+        self
+    }
+
+    /// Body of the column line, without any trailing comment. The
+    /// emitter appends the comma + comment separately so we don't
+    /// end up with `BYTEA -- lazuli:encrypted, NOT NULL` (the comma
+    /// belongs after the type and before the comment, not after the
+    /// comment).
+    fn render_body(&self) -> String {
         match self {
             Self::Raw(sql) => sql.clone(),
             Self::Typed {
@@ -299,6 +336,7 @@ impl SqlColumn {
                 pg_type,
                 required,
                 generated_as,
+                ..
             } => {
                 let mut rendered = format!("{} {}", sql_ident(name), pg_type);
                 if *required {
@@ -311,6 +349,31 @@ impl SqlColumn {
                 }
                 rendered
             }
+        }
+    }
+
+    fn trailing_comment(&self) -> Option<&str> {
+        if let Self::Typed {
+            trailing_comment, ..
+        } = self
+        {
+            trailing_comment.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// Back-compat: callers that only need the body (down-migration,
+    /// audit DDL) continue to call `render`. Equivalent to
+    /// `render_body` plus an inline `-- comment` suffix when
+    /// declared, but the caller is responsible for placing the comma
+    /// — see `emit_resource_migration` for the up-migration loop that
+    /// preserves comma-before-comment ordering.
+    fn render(&self) -> String {
+        let body = self.render_body();
+        match self.trailing_comment() {
+            Some(comment) => format!("{body} -- {comment}"),
+            None => body,
         }
     }
 }
@@ -388,10 +451,35 @@ fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
 }
 
 fn pg_type_for_capability(capability: &CapabilityRef) -> PgType {
-    let _ = capability;
+    // `@cap.Encrypted` / `@cap.E2ee` columns store the AES-256-GCM
+    // ciphertext envelope (`nonce || ciphertext || tag`) — BYTEA. The
+    // `EncryptCustomer`/`DecryptCustomer` helpers in `resource.gen.go`
+    // thread these bytes through `encryption.ForCtx` at the SQL
+    // boundary. Other capabilities (Hashed, Token, File) stay TEXT
+    // until a pilot demands richer column types.
+    let sql = match capability {
+        CapabilityRef::Encrypted(_) | CapabilityRef::E2ee(_) => "BYTEA",
+        _ => "TEXT",
+    };
     PgType {
-        sql: "TEXT".to_owned(),
+        sql: sql.to_owned(),
         uses_postgis: false,
+    }
+}
+
+/// Render the operator-visibility marker for an `@cap.Encrypted` /
+/// `@cap.E2ee` column. Lifted into the SQL as a trailing `-- ...`
+/// comment so DBAs cold-reading the schema see which `@key.<scope>`
+/// each encrypted column resolves through.
+fn encryption_marker_for(field: &Field) -> Option<String> {
+    match &field.type_ref {
+        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => {
+            Some(format!("lazuli:encrypted {} algorithm=aes_256_gcm", cap.key))
+        }
+        TypeRef::Capability(CapabilityRef::E2ee(cap)) => {
+            Some(format!("lazuli:e2ee {} algorithm=aes_256_gcm", cap.key))
+        }
+        _ => None,
     }
 }
 
@@ -983,8 +1071,39 @@ DROP TABLE IF EXISTS \"customer\";
 
         assert!(sql.contains("secret TEXT NOT NULL,"));
         assert!(sql.contains("hashed_password TEXT NOT NULL,"));
-        assert!(sql.contains("encrypted_note TEXT,"));
+        // `@cap.Encrypted` columns store the AES-256-GCM ciphertext
+        // envelope; BYTEA + operator-visibility comment with the
+        // bound `@key.<scope>`.
+        assert!(
+            sql.contains(
+                "encrypted_note BYTEA, -- lazuli:encrypted @key.tenant algorithm=aes_256_gcm"
+            ),
+            "expected BYTEA + lazuli:encrypted comment, sql:\n{sql}"
+        );
         assert!(sql.contains("api_token TEXT NOT NULL,"));
         assert!(sql.contains("tags TEXT[]"));
+    }
+
+    #[test]
+    fn e2ee_capability_emits_bytea_with_e2ee_marker() {
+        use lazuli_ir::E2eeCapability;
+        let mut feature = base_feature("notes");
+        feature.resources.push(resource(
+            "PrivateNote",
+            vec![field(
+                "body",
+                TypeRef::Capability(CapabilityRef::E2ee(E2eeCapability {
+                    key: "@key.user".to_owned(),
+                })),
+                true,
+            )],
+        ));
+        let files = emit_migrations(&base_module(vec![feature]), "notes");
+        let sql = &files[0].contents;
+        // Last column → no trailing comma; the comment still lands.
+        assert!(
+            sql.contains("body BYTEA NOT NULL -- lazuli:e2ee @key.user algorithm=aes_256_gcm"),
+            "expected BYTEA + lazuli:e2ee comment, sql:\n{sql}"
+        );
     }
 }
