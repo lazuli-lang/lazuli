@@ -180,6 +180,59 @@ pub enum AnalyzeError {
         value: String,
         rule: String,
     },
+
+    /// `inline_validator_range_invariant_001` (Wave-B-CL4) — a
+    /// numeric bound pair is logically empty: `min N max M` with N>M,
+    /// or `between A and B` with A>B. These would produce an
+    /// uninhabited domain at runtime; reject at compile time. The
+    /// `rule` string identifies which pair (`min>max`, `between`).
+    /// `low` / `high` carry the violating literals (verbatim text)
+    /// so the error message shows the author what they wrote.
+    #[error(
+        "INLINE-VALIDATOR-RANGE-INVARIANT: field `{field}` has empty range `{rule}` (`{low}` > `{high}`); swap the bounds or pick one side"
+    )]
+    InlineValidatorRangeInvariant {
+        field: String,
+        rule: String,
+        low: String,
+        high: String,
+    },
+
+    /// `inline_validator_type_mismatch_001` (Wave-B-CL4) — a
+    /// constraint keyword was applied to a field whose builtin type
+    /// is not in §10.1's "Applies to" column. Examples: `pattern` on
+    /// `Boolean`, `length` on `Integer`, `between` on `Text`.
+    /// `constraint` names the offending keyword (`pattern`, `length`,
+    /// `between`); `field_type` echoes the source `type_text` so the
+    /// author sees what they typed (vs the resolved BuiltinType,
+    /// which is internal vocabulary).
+    #[error(
+        "INLINE-VALIDATOR-TYPE-MISMATCH: field `{field}: {field_type}` cannot use `{constraint}` (applies to {applies_to} only); see docs/proposals/lzx-integration-codegen.md §10.1"
+    )]
+    InlineValidatorTypeMismatch {
+        field: String,
+        field_type: String,
+        constraint: String,
+        applies_to: String,
+    },
+
+    /// `inline_validator_pattern_compile_001` (Wave-B-CL4) — the
+    /// `pattern "STRING"` regex failed a structural well-formedness
+    /// check at compile time. We do NOT pull in the `regex` crate
+    /// (Lazuli analyzer stays regex-free by design — see comment in
+    /// `validate_default_against_constraints`). Instead we check
+    /// bracket/paren balance and reject the few unambiguous RE2
+    /// shape errors (unbalanced `[`, unbalanced `(`, trailing `\`).
+    /// Runtime regex compilation in Go/JS is still the authoritative
+    /// validator; this just catches the trivial typos at author time.
+    #[error(
+        "INLINE-VALIDATOR-PATTERN-COMPILE: field `{field}` pattern `{pattern}` is malformed: {reason}"
+    )]
+    InlineValidatorPatternCompile {
+        field: String,
+        pattern: String,
+        reason: String,
+    },
 }
 
 pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
@@ -2359,6 +2412,14 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
     let constraints = lift_field_constraints(&f.constraints);
     // L0 #3 §10.2 + §10.3 — combination rules + default compatibility.
     validate_constraint_combinations(&f.name, &f.constraints)?;
+    // Wave-B-CL4 — three follow-up diagnostics for the inline-validator
+    // surface: range invariants (`min>max`, `between A>B`), per-type
+    // applicability (§10.1), and structural regex sanity. Combination
+    // conflicts run first so `length+min` etc. take precedence over
+    // the per-constraint type / range checks.
+    validate_constraint_range_invariant(&f.name, &f.constraints)?;
+    validate_constraint_type_compatibility(&f.name, &f.type_text, &f.constraints)?;
+    validate_constraint_pattern_compile(&f.name, &f.constraints)?;
     if let Some(default_text) = f.default.as_deref() {
         validate_default_against_constraints(&f.name, default_text.trim(), &f.constraints)?;
     }
@@ -2396,6 +2457,216 @@ fn lift_field_constraints(decl: &syntax::FieldConstraintsDecl) -> ir::FieldConst
         length: decl.length,
         r#in: decl.r#in.clone(),
     }
+}
+
+/// `inline_validator_range_invariant_001` — reject empty numeric
+/// ranges at compile time. A `min N max M` pair with N>M produces an
+/// uninhabited domain; same for `between A and B` with A>B. The
+/// shipped parser stores both bounds as `i64`, so the comparison is
+/// total. This check runs after the combination rules so that conflict
+/// errors (which already cover redundancy) take precedence.
+fn validate_constraint_range_invariant(
+    field: &str,
+    c: &syntax::FieldConstraintsDecl,
+) -> Result<(), AnalyzeError> {
+    if let (Some(min), Some(max)) = (c.min, c.max) {
+        if min > max {
+            return Err(AnalyzeError::InlineValidatorRangeInvariant {
+                field: field.to_owned(),
+                rule: "min>max".to_owned(),
+                low: min.to_string(),
+                high: max.to_string(),
+            });
+        }
+    }
+    if let Some((a, b)) = c.between {
+        if a > b {
+            return Err(AnalyzeError::InlineValidatorRangeInvariant {
+                field: field.to_owned(),
+                rule: "between".to_owned(),
+                low: a.to_string(),
+                high: b.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// `inline_validator_type_mismatch_001` — reject constraint keywords
+/// applied to a field whose underlying `BuiltinType` is outside the
+/// §10.1 "Applies to" column. The check is intentionally generous on
+/// `UserDefined` / `EnumRef` / `Capability` / `Many` / `Unresolved`
+/// type refs (we skip them) so the existing `TypeRef::Unresolved`
+/// path keeps owning the "this is an unknown name" error class.
+///
+/// Catalog (mirrors `docs/proposals/lzx-integration-codegen.md §10.1`):
+/// - `min` / `max`: Text, Integer, Decimal, semantic string variants
+/// - `length`: Text + semantic string variants ONLY
+/// - `pattern`: Text + semantic string variants ONLY
+/// - `between`: Integer, Decimal ONLY
+/// - `in`: Text, Integer, Decimal + semantic string variants
+fn validate_constraint_type_compatibility(
+    field: &str,
+    type_text: &str,
+    c: &syntax::FieldConstraintsDecl,
+) -> Result<(), AnalyzeError> {
+    use ir::{BuiltinType as B, TypeRef};
+    // Resolve once; bail out on non-Builtin refs (those classes never
+    // carry inline constraints in v0 — and we don't want to false-
+    // positive on unresolved names).
+    let resolved = type_ref_from_syntax(type_text);
+    let builtin = match resolved {
+        TypeRef::Builtin(b) => b,
+        _ => return Ok(()),
+    };
+
+    // Helper closures for the three categories.
+    let is_text_like = matches!(
+        builtin,
+        B::Text
+            | B::SemanticEmail
+            | B::SemanticPhone
+            | B::SemanticUrl
+            | B::SemanticUuid
+            | B::SemanticCurrency
+    );
+    let is_numeric = matches!(builtin, B::Integer | B::Decimal);
+    let is_min_max_compatible = is_text_like || is_numeric;
+    let is_in_compatible = is_text_like || is_numeric;
+
+    if c.min.is_some() && !is_min_max_compatible {
+        return Err(AnalyzeError::InlineValidatorTypeMismatch {
+            field: field.to_owned(),
+            field_type: type_text.trim().to_owned(),
+            constraint: "min".to_owned(),
+            applies_to: "Text, Integer, Decimal".to_owned(),
+        });
+    }
+    if c.max.is_some() && !is_min_max_compatible {
+        return Err(AnalyzeError::InlineValidatorTypeMismatch {
+            field: field.to_owned(),
+            field_type: type_text.trim().to_owned(),
+            constraint: "max".to_owned(),
+            applies_to: "Text, Integer, Decimal".to_owned(),
+        });
+    }
+    if c.length.is_some() && !is_text_like {
+        return Err(AnalyzeError::InlineValidatorTypeMismatch {
+            field: field.to_owned(),
+            field_type: type_text.trim().to_owned(),
+            constraint: "length".to_owned(),
+            applies_to: "Text".to_owned(),
+        });
+    }
+    if c.pattern.is_some() && !is_text_like {
+        return Err(AnalyzeError::InlineValidatorTypeMismatch {
+            field: field.to_owned(),
+            field_type: type_text.trim().to_owned(),
+            constraint: "pattern".to_owned(),
+            applies_to: "Text".to_owned(),
+        });
+    }
+    if c.between.is_some() && !is_numeric {
+        return Err(AnalyzeError::InlineValidatorTypeMismatch {
+            field: field.to_owned(),
+            field_type: type_text.trim().to_owned(),
+            constraint: "between".to_owned(),
+            applies_to: "Integer, Decimal".to_owned(),
+        });
+    }
+    if c.r#in.is_some() && !is_in_compatible {
+        return Err(AnalyzeError::InlineValidatorTypeMismatch {
+            field: field.to_owned(),
+            field_type: type_text.trim().to_owned(),
+            constraint: "in".to_owned(),
+            applies_to: "Text, Integer, Decimal".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// `inline_validator_pattern_compile_001` — reject obviously
+/// malformed regex patterns at lowering. The analyzer stays regex-
+/// free by design (no `regex` crate dep in Cargo.toml — see comment
+/// in `validate_default_against_constraints`); we only flag the
+/// unambiguous shape errors that the Go/JS regex compilers also
+/// reject (unbalanced `(`, unbalanced `[`, trailing `\`). Anything
+/// passing this check is still subject to the runtime regex
+/// compiler's authoritative judgement.
+fn validate_constraint_pattern_compile(
+    field: &str,
+    c: &syntax::FieldConstraintsDecl,
+) -> Result<(), AnalyzeError> {
+    let Some(pattern) = c.pattern.as_deref() else {
+        return Ok(());
+    };
+    // Trailing unescaped backslash: `^a\` — both RE2 and JS RegExp
+    // reject.
+    if pattern.ends_with('\\') {
+        // Count trailing backslashes; an odd count means the last
+        // backslash is unescaped.
+        let trailing = pattern.chars().rev().take_while(|c| *c == '\\').count();
+        if trailing % 2 == 1 {
+            return Err(AnalyzeError::InlineValidatorPatternCompile {
+                field: field.to_owned(),
+                pattern: pattern.to_owned(),
+                reason: "trailing unescaped `\\`".to_owned(),
+            });
+        }
+    }
+    // Bracket / paren balance check. Walk left-to-right, skipping the
+    // character after `\` (escape). Inside a character class `[...]`
+    // we still treat `\]` as escaped. We only flag the unambiguous
+    // shape errors: paren or bracket counts that go negative or end
+    // non-zero.
+    let mut paren_depth: i32 = 0;
+    let mut in_class = false;
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                // Skip the next char (treat as escaped). If the next
+                // char is missing, the trailing-`\` check above already
+                // fired.
+                chars.next();
+            }
+            '[' if !in_class => {
+                in_class = true;
+            }
+            ']' if in_class => {
+                in_class = false;
+            }
+            '(' if !in_class => {
+                paren_depth += 1;
+            }
+            ')' if !in_class => {
+                paren_depth -= 1;
+                if paren_depth < 0 {
+                    return Err(AnalyzeError::InlineValidatorPatternCompile {
+                        field: field.to_owned(),
+                        pattern: pattern.to_owned(),
+                        reason: "unbalanced `)`".to_owned(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    if in_class {
+        return Err(AnalyzeError::InlineValidatorPatternCompile {
+            field: field.to_owned(),
+            pattern: pattern.to_owned(),
+            reason: "unbalanced `[`".to_owned(),
+        });
+    }
+    if paren_depth != 0 {
+        return Err(AnalyzeError::InlineValidatorPatternCompile {
+            field: field.to_owned(),
+            pattern: pattern.to_owned(),
+            reason: "unbalanced `(`".to_owned(),
+        });
+    }
+    Ok(())
 }
 
 /// L0 #3 §10.2 — enforce inline constraint combination rules. Returns
@@ -2582,10 +2853,16 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         syntax::CommandInputDecl::Short(name) => ir::CommandInput::Short(vec![name.clone()]),
         syntax::CommandInputDecl::Typed(slots) => {
             // L0 #3 §10.2 — apply combination + default-compat checks
-            // to each typed input slot too.
+            // to each typed input slot too. Wave-B-CL4 — also run the
+            // range / type-compatibility / pattern-compile checks so
+            // command inputs aren't a back door past the resource-side
+            // diagnostics.
             let mut lifted = Vec::with_capacity(slots.len());
             for s in slots {
                 validate_constraint_combinations(&s.name, &s.constraints)?;
+                validate_constraint_range_invariant(&s.name, &s.constraints)?;
+                validate_constraint_type_compatibility(&s.name, &s.type_text, &s.constraints)?;
+                validate_constraint_pattern_compile(&s.name, &s.constraints)?;
                 lifted.push(ir::TypedSlot {
                     name: s.name.clone(),
                     type_ref: type_ref_from_text(&s.type_text),
@@ -6201,5 +6478,272 @@ feature post
         let field = &feature.resources[0].fields[0];
         assert_eq!(field.constraints.min, Some(2));
         assert_eq!(field.constraints.max, Some(80));
+    }
+
+    // -------------------------------------------------------------------------
+    // Wave-B-CL4 — `inline_validator_range_invariant_001`
+    // -------------------------------------------------------------------------
+
+    /// `min 10 max 5` — N>M yields an empty domain.
+    #[test]
+    fn min_greater_than_max_emits_range_invariant() {
+        let source = r#"
+feature post
+  domain
+    resource Post
+      score: Integer required min 10 max 5
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorRangeInvariant {
+                field, rule, low, high,
+            }) => {
+                assert_eq!(field, "score");
+                assert_eq!(rule, "min>max");
+                assert_eq!(low, "10");
+                assert_eq!(high, "5");
+            }
+            other => panic!(
+                "expected InlineValidatorRangeInvariant, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// `between 100 and 0` — A>B yields an empty domain.
+    #[test]
+    fn between_with_inverted_bounds_emits_range_invariant() {
+        let source = r#"
+feature score
+  domain
+    resource Score
+      points: Integer required between 100 and 0
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorRangeInvariant {
+                field, rule, low, high,
+            }) => {
+                assert_eq!(field, "points");
+                assert_eq!(rule, "between");
+                assert_eq!(low, "100");
+                assert_eq!(high, "0");
+            }
+            other => panic!(
+                "expected InlineValidatorRangeInvariant, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// `min 5 max 5` — equal bounds are valid (single-value domain).
+    #[test]
+    fn min_equals_max_passes_range_invariant() {
+        let source = r#"
+feature post
+  domain
+    resource Post
+      flag: Integer required min 5 max 5
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = super::lower_feature_skeleton(&features[0]).expect("lowers");
+        let field = &feature.resources[0].fields[0];
+        assert_eq!(field.constraints.min, Some(5));
+        assert_eq!(field.constraints.max, Some(5));
+    }
+
+    // -------------------------------------------------------------------------
+    // Wave-B-CL4 — `inline_validator_type_mismatch_001`
+    // -------------------------------------------------------------------------
+
+    /// `pattern "..."` on `Boolean` — §10.1 restricts `pattern` to Text.
+    #[test]
+    fn pattern_on_boolean_emits_type_mismatch() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      enabled: Boolean pattern "^t"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorTypeMismatch {
+                field,
+                field_type,
+                constraint,
+                ..
+            }) => {
+                assert_eq!(field, "enabled");
+                assert_eq!(field_type, "Boolean");
+                assert_eq!(constraint, "pattern");
+            }
+            other => panic!(
+                "expected InlineValidatorTypeMismatch, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// `length N` on `Integer` — §10.1 restricts `length` to Text.
+    #[test]
+    fn length_on_integer_emits_type_mismatch() {
+        let source = r#"
+feature score
+  domain
+    resource Score
+      points: Integer length 3
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorTypeMismatch {
+                field,
+                field_type,
+                constraint,
+                ..
+            }) => {
+                assert_eq!(field, "points");
+                assert_eq!(field_type, "Integer");
+                assert_eq!(constraint, "length");
+            }
+            other => panic!(
+                "expected InlineValidatorTypeMismatch, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// `between A and B` on `Text` — §10.1 restricts `between` to numerics.
+    #[test]
+    fn between_on_text_emits_type_mismatch() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      handle: Text between 2 and 30
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorTypeMismatch {
+                field,
+                field_type,
+                constraint,
+                ..
+            }) => {
+                assert_eq!(field, "handle");
+                assert_eq!(field_type, "Text");
+                assert_eq!(constraint, "between");
+            }
+            other => panic!(
+                "expected InlineValidatorTypeMismatch, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Wave-B-CL4 — `inline_validator_pattern_compile_001`
+    // -------------------------------------------------------------------------
+
+    /// `pattern "[a"` — unbalanced character class.
+    #[test]
+    fn pattern_unbalanced_class_emits_compile_error() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      handle: Text pattern "[a"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorPatternCompile {
+                field,
+                pattern,
+                reason,
+            }) => {
+                assert_eq!(field, "handle");
+                assert_eq!(pattern, "[a");
+                assert!(reason.contains("unbalanced `[`"), "reason: {}", reason);
+            }
+            other => panic!(
+                "expected InlineValidatorPatternCompile, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// `pattern "^a("` — unbalanced group paren.
+    #[test]
+    fn pattern_unbalanced_paren_emits_compile_error() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      handle: Text pattern "^a("
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorPatternCompile {
+                field, pattern, reason,
+            }) => {
+                assert_eq!(field, "handle");
+                assert_eq!(pattern, "^a(");
+                assert!(reason.contains("unbalanced `(`"), "reason: {}", reason);
+            }
+            other => panic!(
+                "expected InlineValidatorPatternCompile, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// `pattern "^a)"` — extra closing paren, no matching `(`.
+    #[test]
+    fn pattern_extra_closing_paren_emits_compile_error() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      handle: Text pattern "^a)"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let result = super::lower_feature_skeleton(&features[0]);
+        match result {
+            Err(AnalyzeError::InlineValidatorPatternCompile {
+                field, pattern, reason,
+            }) => {
+                assert_eq!(field, "handle");
+                assert_eq!(pattern, "^a)");
+                assert!(reason.contains("unbalanced `)`"), "reason: {}", reason);
+            }
+            other => panic!(
+                "expected InlineValidatorPatternCompile, got: {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    /// Sanity: well-formed pattern passes.
+    #[test]
+    fn pattern_well_formed_passes() {
+        let source = r#"
+feature account
+  domain
+    resource Account
+      handle: Text pattern "^[a-z][a-z0-9-]{2,29}$"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = super::lower_feature_skeleton(&features[0]).expect("lowers");
+        let field = &feature.resources[0].fields[0];
+        assert_eq!(
+            field.constraints.pattern.as_deref(),
+            Some("^[a-z][a-z0-9-]{2,29}$")
+        );
     }
 }

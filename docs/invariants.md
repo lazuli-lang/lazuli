@@ -462,6 +462,40 @@ source that only fails later.
 - Reusable validators used inside commands are called through
   `validate @validator.*` or through `let` plus `requires`.
 
+### Inline field constraints (L0 #3 §10, Gap A)
+
+- Closed catalog of six keywords on resource fields and command input
+  slots: `min N`, `max N`, `pattern STRING`, `between A and B`,
+  `length N`, `in [...]`. Order is free; modifiers (`required`,
+  `optional`, `unique`) and `= <default>` may precede or follow.
+- Numeric bounds (`min`, `max`, `between`) are `i64`-typed in the IR.
+- `pattern STRING` regex syntax is **Rust `regex` crate / RE2**:
+  no lookahead, no lookbehind, no backreferences. Go's stdlib
+  `regexp` and JavaScript `RegExp` both accept the RE2 subset, so a
+  pattern that passes the Lazuli analyzer compiles identically on
+  both emit targets.
+- Applicability (§10.1, enforced by `INLINE-VALIDATOR-TYPE-MISMATCH`):
+  - `min` / `max` → `Text`, `Integer`, `Decimal`, semantic string variants
+  - `length` → `Text` + semantic string variants
+  - `pattern` → `Text` + semantic string variants
+  - `between` → `Integer`, `Decimal`
+  - `in` → `Text`, `Integer`, `Decimal` + semantic string variants
+- Combination rules (§10.2, enforced by `FIELD-CONSTRAINT-CONFLICT`):
+  `length` rejects `min` / `max`; `between` rejects `min` / `max`;
+  `in` rejects `pattern`.
+- Range invariants (Wave-B-CL4, enforced by
+  `INLINE-VALIDATOR-RANGE-INVARIANT`): `min N max M` requires `N ≤ M`;
+  `between A and B` requires `A ≤ B`. Equal bounds are valid
+  (single-value domain).
+- Pattern well-formedness (Wave-B-CL4, enforced by
+  `INLINE-VALIDATOR-PATTERN-COMPILE`): the analyzer rejects the
+  unambiguous shape errors (unbalanced `[`, `(`, `)`, trailing
+  unescaped `\`) without pulling in the `regex` crate; full RE2
+  compilation is the runtime's authoritative check.
+- Default-value compatibility (§10.3, enforced by
+  `FIELD-DEFAULT-VIOLATES-CONSTRAINT`): a `default` literal must
+  satisfy every declared constraint at lowering time.
+
 ## Tests
 
 - `tests` blocks are optional and inline.
