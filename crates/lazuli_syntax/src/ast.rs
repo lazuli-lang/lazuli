@@ -479,6 +479,38 @@ pub struct PolicyAtomAst {
     pub span: Span,
 }
 
+/// RB.S6 — structured `policy <expr>` form used by command / query / job /
+/// webhook / api / notification / agent declarations. Coexists with the
+/// raw `policy: Option<String>` field for back-compat; populated only when
+/// the policy string parses as an expression (contains `has_role` /
+/// `has_permission` / `authenticated` keywords or boolean combinators).
+///
+/// Closed shape: atoms (`@role.X`, `@scope.X`, `@actor.X`), the
+/// `authenticated` keyword, `has_role <ident>`, `has_permission
+/// <segment>:<segment>...`, plus `and` / `or` / `not` combinators with
+/// optional parens. See `docs/proposals/rbac-catalog-vocab.md`
+/// §Composition with `policy` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum PolicyExprAst {
+    /// `authenticated` — true when ctx.User != nil.
+    Authenticated,
+    /// `has_role <name>` — true when actor's role is `<name>` or
+    /// transitively inherits it.
+    HasRole(String),
+    /// `has_permission <resource>:<action>[:...]` — true when actor's
+    /// role grants the permission via the catalog closure.
+    HasPermission(String),
+    /// `@<ns>.<name>` policy atom embedded in an expression.
+    Atom(PolicyAtomAst),
+    /// `<a> and <b>` — boolean conjunction (n-ary).
+    And(Vec<PolicyExprAst>),
+    /// `<a> or <b>` — boolean disjunction (n-ary).
+    Or(Vec<PolicyExprAst>),
+    /// `not <a>` — boolean negation.
+    Not(Box<PolicyExprAst>),
+}
+
 // =============================================================================
 // Cut A — canonical-indent slice for `feature` skeletons and `agent` blocks.
 //
@@ -800,6 +832,12 @@ pub struct CommandDecl {
     pub input: CommandInputDecl,
     /// `policy @policy.<name>` atom. Captured verbatim.
     pub policy: Option<String>,
+    /// RB.S6 — structured form of `policy <expr>` when the policy
+    /// string includes `has_role` / `has_permission` / `authenticated`
+    /// predicates or boolean combinators. Coexists with `policy` (raw)
+    /// for back-compat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `rate_limit "<N per period per scope>"` literal (quotes stripped).
     pub rate_limit: Option<String>,
     /// `audit <subject>, <subject>, ...` line + optional `emit_to <group>` child.
@@ -1164,6 +1202,10 @@ pub struct ListQueryDecl {
     pub name: String,
     /// `policy @policy.<name>`.
     pub policy: Option<String>,
+    /// RB.S6 — structured form of `policy <expr>` when predicates
+    /// (`has_role` / `has_permission` / `authenticated`) are present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `modifier @query_modifier.<name>` reference.
     pub modifier: Option<String>,
     /// `params` block (typed slots).
@@ -1197,6 +1239,9 @@ pub struct LookupQueryDecl {
     pub name: String,
     /// `policy @policy.<name>`.
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `by <field>: <Type>` keys. Authored on the same line as the
     /// header in the fixture (`query.lookup by_id by id: ID`).
     pub keys: Vec<LookupKey>,
@@ -1214,6 +1259,9 @@ pub struct LookupKey {
 pub struct SqlQueryDecl {
     pub name: String,
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `params` block.
     pub params: Vec<CommandInputSlot>,
     /// `scope` block — verbatim lines.
@@ -1263,6 +1311,9 @@ pub struct ApiDecl {
     pub output: String,
     /// `policy @policy.<name>`.
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `rate_limit "<N per period per scope>"`.
     pub rate_limit: Option<String>,
     /// `handler "./api/<name>.go"`.
@@ -1562,6 +1613,9 @@ pub struct Job {
     pub retry: Option<JobRetry>,
     /// `policy @policy.<...>` — captured verbatim for lowering.
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `timeout "30s"` — adapter-parsed duration literal.
     pub timeout: Option<String>,
     /// `calls <slot>.<op>` blocks lifted as `ExternalCallRef` shapes.
@@ -1660,6 +1714,9 @@ pub struct Webhook {
     /// `idempotency by <path>` — captured verbatim.
     pub idempotency_by: Option<String>,
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `handler "./..."` — required for canonical webhooks today.
     pub handler: Option<WebhookHandler>,
     /// `emits <event>` lines.
@@ -1749,6 +1806,9 @@ pub struct Notification {
     /// `template "./outreach/welcome.mjml"`.
     pub template: String,
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     pub emits: Vec<String>,
     /// Notifications expanded bucket cycle — optional `digest` sub-block.
     /// Captured verbatim from the canonical-indent slice and lowered to
@@ -2065,6 +2125,9 @@ pub struct ReportDecl {
     pub filename: Option<String>,
     /// `policy @policy.<name>` — required.
     pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
     /// `rate_limit "..."` — required when policy includes `@scope.public`.
     pub rate_limit: Option<String>,
     /// `audit <subjects>` canonical block (see `CommandAudit`).

@@ -22,7 +22,7 @@ use crate::ast::{
     LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
     LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, MotionAst, Notification,
     NotificationDigest, NotificationThrottle, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst,
-    PackageSkeleton, PermissionDeclAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst,
+    PackageSkeleton, PermissionDeclAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyExprAst,
     PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
     ReportColumnSourceAst, RoleDeclAst, RoleGrantsAst,
     ReportDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
@@ -2620,6 +2620,339 @@ fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst
     })
 }
 
+/// RB.S6 — recognize the new `has_role` / `has_permission` /
+/// `authenticated` predicates within a `policy <expr>` payload. The
+/// caller passes the raw payload (`rest.trim()` from `policy <rest>`);
+/// the helper returns:
+///
+/// - `Ok(Some(expr))` when the payload is a structured expression
+///   (contains `has_role` / `has_permission` / `authenticated` /
+///   `and` / `or` / `not` / parens).
+/// - `Ok(None)` when the payload is a bare legacy atom
+///   (`@policy.<name>` / `@role.<name>` / etc.) — back-compat path,
+///   caller keeps the raw string and skips the expression form.
+/// - `Err(_)` when the payload looks expression-shaped but is
+///   malformed (unknown predicate, bad permission ref, etc.).
+fn try_parse_policy_expr(
+    line: &SourceLine<'_>,
+    payload: &str,
+) -> Result<Option<PolicyExprAst>, ParseError> {
+    let trimmed = payload.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    // Back-compat fast path: bare atom (no spaces, no parens, no keyword
+    // boundaries). Examples: `@policy.create`, `@role.admin`,
+    // `@scope.same_company`. The caller keeps the raw string for the
+    // legacy single-atom rendering.
+    if !looks_like_policy_expr(trimmed) {
+        return Ok(None);
+    }
+    let mut parser = PolicyExprParser::new(trimmed, line);
+    let expr = parser.parse_or()?;
+    if !parser.is_at_end() {
+        return Err(line_error_owned(
+            line,
+            format!(
+                "unexpected trailing input in policy expression: `{}`",
+                parser.remaining()
+            ),
+        ));
+    }
+    Ok(Some(expr))
+}
+
+/// Cheap surface heuristic: does the payload contain any of the closed
+/// expression keywords or grouping punctuation?
+fn looks_like_policy_expr(payload: &str) -> bool {
+    if payload.contains('(') || payload.contains(')') {
+        return true;
+    }
+    // Tokenize on whitespace; any token equal to a reserved keyword
+    // qualifies as expression-shaped.
+    for tok in payload.split_whitespace() {
+        match tok {
+            "authenticated" | "has_role" | "has_permission" | "and" | "or" | "not" => {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Hand-rolled recursive-descent parser for the closed policy
+/// expression grammar:
+///
+/// ```text
+/// or_expr   := and_expr ("or" and_expr)*
+/// and_expr  := unary_expr ("and" unary_expr)*
+/// unary_expr := "not" unary_expr | atom_expr
+/// atom_expr := "(" or_expr ")"
+///            | "authenticated"
+///            | "has_role" <ident>
+///            | "has_permission" <perm_ref>
+///            | <policy_atom>     # @<ns>.<name>
+/// ```
+struct PolicyExprParser<'a, 'src> {
+    input: &'a str,
+    pos: usize,
+    line: &'a SourceLine<'src>,
+}
+
+impl<'a, 'src> PolicyExprParser<'a, 'src> {
+    fn new(input: &'a str, line: &'a SourceLine<'src>) -> Self {
+        Self {
+            input,
+            pos: 0,
+            line,
+        }
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.skip_ws_peek();
+        self.pos >= self.input.len()
+    }
+
+    fn remaining(&self) -> &str {
+        &self.input[self.pos..]
+    }
+
+    fn skip_ws_peek(&self) -> usize {
+        let bytes = self.input.as_bytes();
+        let mut p = self.pos;
+        while p < bytes.len() && bytes[p].is_ascii_whitespace() {
+            p += 1;
+        }
+        p
+    }
+
+    fn skip_ws(&mut self) {
+        self.pos = self.skip_ws_peek();
+    }
+
+    /// Consume the literal `kw` if it appears next (followed by
+    /// whitespace, `(`, or end). Returns true on success.
+    fn consume_keyword(&mut self, kw: &str) -> bool {
+        self.skip_ws();
+        let rest = &self.input[self.pos..];
+        if !rest.starts_with(kw) {
+            return false;
+        }
+        let after = &rest[kw.len()..];
+        if !after.is_empty() {
+            let c = after.as_bytes()[0];
+            if !(c.is_ascii_whitespace() || c == b'(' || c == b')') {
+                return false;
+            }
+        }
+        self.pos += kw.len();
+        true
+    }
+
+    fn consume_char(&mut self, c: char) -> bool {
+        self.skip_ws();
+        let rest = &self.input[self.pos..];
+        if rest.starts_with(c) {
+            self.pos += c.len_utf8();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Read a bare ident token (lowercase + digits + `_`). Used for
+    /// `has_role <ident>`.
+    fn read_ident(&mut self) -> Option<String> {
+        self.skip_ws();
+        let bytes = self.input.as_bytes();
+        let start = self.pos;
+        while self.pos < bytes.len() {
+            let c = bytes[self.pos];
+            if c.is_ascii_lowercase() || c == b'_' || (self.pos > start && c.is_ascii_digit()) {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if self.pos == start {
+            None
+        } else {
+            Some(self.input[start..self.pos].to_owned())
+        }
+    }
+
+    /// Read a permission ref: 2-4 colon-separated lowercase segments.
+    /// Mirrors `parse_permission_decl` validation; centralised here so
+    /// `has_permission` malformed args raise a parse error
+    /// (RBAC-POLICY-PREDICATE-FORM-001 spec).
+    fn read_permission_ref(&mut self) -> Option<String> {
+        self.skip_ws();
+        let bytes = self.input.as_bytes();
+        let start = self.pos;
+        while self.pos < bytes.len() {
+            let c = bytes[self.pos];
+            if c.is_ascii_lowercase()
+                || c == b'_'
+                || c == b':'
+                || (self.pos > start && c.is_ascii_digit())
+            {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if self.pos == start {
+            None
+        } else {
+            Some(self.input[start..self.pos].to_owned())
+        }
+    }
+
+    /// Read a `@<ns>.<name>` atom token.
+    fn read_atom_token(&mut self) -> Option<&str> {
+        self.skip_ws();
+        let bytes = self.input.as_bytes();
+        if self.pos >= bytes.len() || bytes[self.pos] != b'@' {
+            return None;
+        }
+        let start = self.pos;
+        self.pos += 1;
+        while self.pos < bytes.len() {
+            let c = bytes[self.pos];
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' || c == b'-' || c == b'.' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if self.pos == start + 1 {
+            // Just `@` with nothing after.
+            self.pos = start;
+            return None;
+        }
+        Some(&self.input[start..self.pos])
+    }
+
+    fn parse_or(&mut self) -> Result<PolicyExprAst, ParseError> {
+        let mut terms = vec![self.parse_and()?];
+        while self.consume_keyword("or") {
+            terms.push(self.parse_and()?);
+        }
+        Ok(if terms.len() == 1 {
+            terms.into_iter().next().unwrap()
+        } else {
+            PolicyExprAst::Or(terms)
+        })
+    }
+
+    fn parse_and(&mut self) -> Result<PolicyExprAst, ParseError> {
+        let mut terms = vec![self.parse_unary()?];
+        while self.consume_keyword("and") {
+            terms.push(self.parse_unary()?);
+        }
+        Ok(if terms.len() == 1 {
+            terms.into_iter().next().unwrap()
+        } else {
+            PolicyExprAst::And(terms)
+        })
+    }
+
+    fn parse_unary(&mut self) -> Result<PolicyExprAst, ParseError> {
+        if self.consume_keyword("not") {
+            let inner = self.parse_unary()?;
+            return Ok(PolicyExprAst::Not(Box::new(inner)));
+        }
+        self.parse_atom()
+    }
+
+    fn parse_atom(&mut self) -> Result<PolicyExprAst, ParseError> {
+        self.skip_ws();
+        if self.consume_char('(') {
+            let inner = self.parse_or()?;
+            if !self.consume_char(')') {
+                return Err(line_error(
+                    self.line,
+                    "unbalanced parens in policy expression (expected `)`)",
+                ));
+            }
+            return Ok(inner);
+        }
+        if self.consume_keyword("authenticated") {
+            return Ok(PolicyExprAst::Authenticated);
+        }
+        if self.consume_keyword("has_role") {
+            let name = self.read_ident().ok_or_else(|| {
+                line_error(
+                    self.line,
+                    "`has_role` requires an identifier (e.g. `has_role manager`)",
+                )
+            })?;
+            return Ok(PolicyExprAst::HasRole(name));
+        }
+        if self.consume_keyword("has_permission") {
+            let perm = self.read_permission_ref().ok_or_else(|| {
+                line_error(
+                    self.line,
+                    "`has_permission` requires a permission ref (e.g. `has_permission users:read`)",
+                )
+            })?;
+            // Validate shape: 2-4 colon-separated lowercase segments,
+            // each non-empty. Mirrors the RBAC catalog grammar.
+            if !is_valid_permission_ref(&perm) {
+                return Err(line_error_owned(
+                    self.line,
+                    format!(
+                        "`has_permission` argument `{}` must be 2-4 colon-separated lowercase segments",
+                        perm
+                    ),
+                ));
+            }
+            return Ok(PolicyExprAst::HasPermission(perm));
+        }
+        if let Some(tok) = self.read_atom_token() {
+            // Re-parse via parse_policy_atom to enforce the closed
+            // namespace catalog. `tok` includes the leading `@`.
+            let owned = tok.to_owned();
+            let atom = parse_policy_atom(self.line, &owned)?;
+            return Ok(PolicyExprAst::Atom(atom));
+        }
+        Err(line_error_owned(
+            self.line,
+            format!(
+                "expected `authenticated`, `has_role`, `has_permission`, `not`, `(`, or `@<ns>.<name>` in policy expression; found `{}`",
+                self.remaining()
+            ),
+        ))
+    }
+}
+
+/// Permission ref shape: 2-4 colon-separated lowercase segments, each
+/// non-empty, alphanumeric + `_`, first char lowercase. Mirrors the
+/// `permission <ref>` catalog grammar (`parse_permission_decl`).
+fn is_valid_permission_ref(s: &str) -> bool {
+    let segments: Vec<&str> = s.split(':').collect();
+    if segments.len() < 2 || segments.len() > 4 {
+        return false;
+    }
+    for seg in segments {
+        if seg.is_empty() {
+            return false;
+        }
+        let mut chars = seg.chars();
+        let first = chars.next().unwrap();
+        if !first.is_ascii_lowercase() {
+            return false;
+        }
+        for c in chars {
+            if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Identifier check used across audience / view / cell / route names:
 /// kebab-case (`workspace-admin`) and snake_case (`workspace_admin`)
 /// both pass; anything else (PascalCase, spaces, leading digit, etc.)
@@ -3834,6 +4167,7 @@ fn parse_command_decl(
     let mut route: Vec<CommandRouteSlot> = Vec::new();
     let mut input = CommandInputDecl::Empty;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut rate_limit: Option<String> = None;
     let mut audit: Option<CommandAudit> = None;
     let mut approval: Option<CommandApproval> = None;
@@ -3901,6 +4235,7 @@ fn parse_command_decl(
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
@@ -4031,6 +4366,7 @@ fn parse_command_decl(
             route,
             input,
             policy,
+            policy_expr,
             rate_limit,
             audit,
             approval,
@@ -4735,6 +5071,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
     let mut path: Option<String> = None;
     let mut output: Option<String> = None;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut rate_limit: Option<String> = None;
     let mut handler: Option<String> = None;
     let mut locale_negotiate: Option<LocaleNegotiateDecl> = None;
@@ -4780,6 +5117,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
@@ -4838,6 +5176,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             path,
             output,
             policy,
+            policy_expr,
             rate_limit,
             handler,
             locale_negotiate,
@@ -4881,6 +5220,7 @@ fn parse_report_decl(
     let mut signed_ttl: Option<String> = None;
     let mut filename: Option<String> = None;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut rate_limit: Option<String> = None;
     let mut audit: Option<CommandAudit> = None;
     let mut last_end = header.end;
@@ -4939,6 +5279,7 @@ fn parse_report_decl(
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
@@ -4983,6 +5324,7 @@ fn parse_report_decl(
             signed_ttl,
             filename,
             policy,
+            policy_expr,
             rate_limit,
             audit,
             span: Span::new(header.start, last_end),
@@ -7116,6 +7458,7 @@ fn parse_query_lookup_decl(
     let child_indent = header_indent + 2;
     let grandchild_indent = header_indent + 4;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut params: Vec<CommandInputSlot> = Vec::new();
     // `filters` lines are captured for cross-check but not lowered to
     // typed keys today; Cut A's contract is `keys` (from `by ...`) so
@@ -7142,6 +7485,7 @@ fn parse_query_lookup_decl(
         }
         if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if trimmed == "params" {
@@ -7186,6 +7530,7 @@ fn parse_query_lookup_decl(
         QueryDecl::Lookup(LookupQueryDecl {
             name,
             policy,
+            policy_expr,
             keys,
             span: Span::new(header.start, last_end),
         }),
@@ -7236,6 +7581,7 @@ fn parse_query_list_decl(
     let grandchild_indent = header_indent + 4;
 
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut modifier: Option<String> = None;
     let mut params: Vec<CommandInputSlot> = Vec::new();
     let mut scope_override = false;
@@ -7269,6 +7615,7 @@ fn parse_query_list_decl(
 
         if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("modifier ") {
@@ -7334,6 +7681,7 @@ fn parse_query_list_decl(
         QueryDecl::List(ListQueryDecl {
             name,
             policy,
+            policy_expr,
             modifier,
             params,
             scope_override,
@@ -7366,6 +7714,7 @@ fn parse_query_sql_decl(
     let grandchild_indent = header_indent + 4;
 
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut params: Vec<CommandInputSlot> = Vec::new();
     let mut scope_lines: Vec<String> = Vec::new();
     let mut returns: Option<String> = None;
@@ -7392,6 +7741,7 @@ fn parse_query_sql_decl(
 
         if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if trimmed == "params" {
@@ -7440,6 +7790,7 @@ fn parse_query_sql_decl(
         QueryDecl::Sql(SqlQueryDecl {
             name,
             policy,
+            policy_expr,
             params,
             scope_lines,
             returns,
@@ -8153,6 +8504,7 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
     let mut idempotency_by: Option<String> = None;
     let mut retry: Option<JobRetry> = None;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut timeout: Option<String> = None;
     let mut external_calls: Vec<JobExternalCall> = Vec::new();
     let mut handler: Option<JobHandler> = None;
@@ -8211,6 +8563,7 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("timeout ") {
@@ -8326,6 +8679,7 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
             idempotency_by,
             retry,
             policy,
+            policy_expr,
             timeout,
             external_calls,
             body,
@@ -8598,6 +8952,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
     let mut tenant_from: Option<String> = None;
     let mut idempotency_by: Option<String> = None;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut handler: Option<WebhookHandler> = None;
     let mut emits: Vec<String> = Vec::new();
     let mut payload_from: Option<String> = None;
@@ -8646,6 +9001,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("handler ") {
@@ -8728,6 +9084,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             tenant_from,
             idempotency_by,
             policy,
+            policy_expr,
             handler,
             emits,
             payload_from,
@@ -9043,6 +9400,7 @@ fn parse_notification(
     let mut retry: Option<JobRetry> = None;
     let mut template: Option<String> = None;
     let mut policy: Option<String> = None;
+    let mut policy_expr: Option<PolicyExprAst> = None;
     let mut emits: Vec<String> = Vec::new();
     let mut digest: Option<NotificationDigest> = None;
     let mut throttle: Option<NotificationThrottle> = None;
@@ -9099,6 +9457,7 @@ fn parse_notification(
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("policy ") {
             policy = Some(rest.trim().to_owned());
+            policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("emits ") {
@@ -9165,6 +9524,7 @@ fn parse_notification(
             retry,
             template,
             policy,
+            policy_expr,
             emits,
             digest,
             throttle,
@@ -13643,6 +14003,187 @@ design pleiades
             msg.contains("design children"),
             "expected unknown-group diagnostic, got: {msg}"
         );
+    }
+}
+
+// =============================================================================
+// RB.S6 — policy-expression parser tests (`has_role`, `has_permission`,
+// `authenticated`, with boolean combinators).
+// =============================================================================
+#[cfg(test)]
+mod policy_expr_parser_tests {
+    use super::{looks_like_policy_expr, try_parse_policy_expr, SourceLine};
+    use crate::ast::PolicyExprAst;
+
+    fn line(text: &'static str) -> SourceLine<'static> {
+        SourceLine {
+            text,
+            indent: 0,
+            start: 0,
+            end: text.len(),
+        }
+    }
+
+    #[test]
+    fn legacy_atom_falls_back_to_none() {
+        let l = line("policy @policy.create");
+        assert_eq!(
+            try_parse_policy_expr(&l, "@policy.create").unwrap(),
+            None,
+            "bare @policy.* atom must remain raw-string back-compat"
+        );
+        assert!(!looks_like_policy_expr("@policy.create"));
+        assert!(!looks_like_policy_expr("@role.admin"));
+    }
+
+    #[test]
+    fn authenticated_alone_parses() {
+        let l = line("policy authenticated");
+        let expr = try_parse_policy_expr(&l, "authenticated").unwrap().unwrap();
+        assert_eq!(expr, PolicyExprAst::Authenticated);
+    }
+
+    #[test]
+    fn has_role_parses() {
+        let l = line("policy has_role manager");
+        let expr = try_parse_policy_expr(&l, "has_role manager").unwrap().unwrap();
+        assert_eq!(expr, PolicyExprAst::HasRole("manager".into()));
+    }
+
+    #[test]
+    fn has_permission_parses() {
+        let l = line("policy has_permission queries:start");
+        let expr = try_parse_policy_expr(&l, "has_permission queries:start")
+            .unwrap()
+            .unwrap();
+        assert_eq!(expr, PolicyExprAst::HasPermission("queries:start".into()));
+    }
+
+    #[test]
+    fn has_permission_three_segments_parses() {
+        let l = line("policy has_permission report:repasse:mark");
+        let expr = try_parse_policy_expr(&l, "has_permission report:repasse:mark")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            expr,
+            PolicyExprAst::HasPermission("report:repasse:mark".into())
+        );
+    }
+
+    #[test]
+    fn malformed_permission_ref_errors() {
+        let l = line("policy has_permission users");
+        let err = try_parse_policy_expr(&l, "has_permission users").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("must be 2-4 colon-separated"),
+            "expected segment-count error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn missing_has_role_arg_errors() {
+        let l = line("policy has_role");
+        let err = try_parse_policy_expr(&l, "has_role").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("`has_role` requires an identifier"),
+            "expected missing-ident error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn and_combinator_parses() {
+        let l = line("policy authenticated and has_role manager");
+        let expr = try_parse_policy_expr(&l, "authenticated and has_role manager")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::And(terms) => {
+                assert_eq!(terms.len(), 2);
+                assert_eq!(terms[0], PolicyExprAst::Authenticated);
+                assert_eq!(terms[1], PolicyExprAst::HasRole("manager".into()));
+            }
+            other => panic!("expected And, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn or_combinator_parses() {
+        let l = line("policy has_role manager or has_role admin");
+        let expr = try_parse_policy_expr(&l, "has_role manager or has_role admin")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Or(terms) => {
+                assert_eq!(terms.len(), 2);
+                assert_eq!(terms[0], PolicyExprAst::HasRole("manager".into()));
+                assert_eq!(terms[1], PolicyExprAst::HasRole("admin".into()));
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn not_combinator_parses() {
+        let l = line("policy not has_role viewer");
+        let expr = try_parse_policy_expr(&l, "not has_role viewer")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Not(inner) => {
+                assert_eq!(*inner, PolicyExprAst::HasRole("viewer".into()));
+            }
+            other => panic!("expected Not, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parens_override_precedence() {
+        // `and` binds tighter than `or`; parens force the alternative
+        // grouping. We expect `Or([authenticated, And([X,Y])])` without
+        // parens vs `And([Or([authenticated, X]), Y])` with parens.
+        let l = line("policy");
+        let raw = "(authenticated or has_role manager) and has_permission queries:start";
+        let expr = try_parse_policy_expr(&l, raw).unwrap().unwrap();
+        match expr {
+            PolicyExprAst::And(terms) => {
+                assert_eq!(terms.len(), 2);
+                match &terms[0] {
+                    PolicyExprAst::Or(_) => {}
+                    other => panic!("expected Or under And, got {other:?}"),
+                }
+                assert_eq!(
+                    terms[1],
+                    PolicyExprAst::HasPermission("queries:start".into())
+                );
+            }
+            other => panic!("expected And, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embedded_atom_parses() {
+        // `has_role X or @actor.system` mixes a predicate with an atom.
+        let l = line("policy");
+        let expr = try_parse_policy_expr(&l, "has_role admin or @actor.system")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Or(terms) => {
+                assert_eq!(terms.len(), 2);
+                assert_eq!(terms[0], PolicyExprAst::HasRole("admin".into()));
+                match &terms[1] {
+                    PolicyExprAst::Atom(atom) => {
+                        assert_eq!(atom.namespace, "actor");
+                        assert_eq!(atom.name, "system");
+                    }
+                    other => panic!("expected Atom, got {other:?}"),
+                }
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
     }
 }
 

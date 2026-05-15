@@ -60,6 +60,7 @@ mod tests {
             signed_ttl: None,
             filename: None,
             policy: None,
+            policy_expr: None,
             rate_limit: None,
             audit: None,
             span: Span::new(0, 1),
