@@ -14,11 +14,13 @@
 //! - REPORT-SOURCE-KIND-001            — `source` resolves to `query.lookup`
 //! - REPORT-STORAGE-AMBIGUOUS-001      — implicit storage with ≠ 1 cap available
 //! - REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001 — `@scope.public` policy without rate_limit
+//! - REPORT-PATH-COLLISION-001         — auto-mounted report route collides
 
 pub mod report_column_mismatch_001;
 pub mod report_columns_empty_001;
 pub mod report_filename_token_unknown_001;
 pub mod report_format_unknown_001;
+pub mod report_path_collision_001;
 pub mod report_policy_public_no_rate_limit_001;
 pub mod report_signed_no_storage_001;
 pub mod report_signed_ttl_forbidden_001;

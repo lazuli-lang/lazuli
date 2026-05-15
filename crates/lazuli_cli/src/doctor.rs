@@ -201,6 +201,8 @@ struct Tier3FeatureFacts {
     /// `apis` slot. Anchors `agent_expose_*` cross-checks at each api
     /// header.
     api_lines: BTreeMap<String, usize>,
+    /// Cut A.7 — lifted agents for report auto-mount route conflict checks.
+    agents: Vec<lazuli_ir::Agent>,
     /// i18n bucket cycle — lifted `translation` block (when authored).
     translation: Option<lazuli_ir::Translation>,
     translation_line: usize,
@@ -603,6 +605,7 @@ impl DoctorPackage {
                                             api_names_text_pattern,
                                             apis: feature.apis.clone(),
                                             api_lines,
+                                            agents: feature.agents.clone(),
                                             translation: feature.translation.clone(),
                                             translation_line,
                                             records: feature.records.clone(),
@@ -10412,6 +10415,23 @@ fn report_diagnostics(
                 code: report::report_column_mismatch_001::Finding::CODE.to_owned(),
             });
         }
+        for finding in
+            report::report_path_collision_001::check(&feature_for_rules, &fact.path)
+        {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: report::report_path_collision_001::Finding::CODE.to_owned(),
+            });
+        }
         for finding in report::report_signed_no_storage_001::check(
             &feature_for_rules,
             &storage_caps,
@@ -10501,7 +10521,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         rules: Vec::new(),
         policies: lazuli_ir::Policies::default(),
         commands: Vec::new(),
-        apis: Vec::new(),
+        apis: fact.apis.clone(),
         records: fact.records.clone(),
         queries: fact.queries.clone(),
         workflows: Vec::new(),
@@ -10515,7 +10535,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         surfaces: Vec::new(),
         extensions: Vec::new(),
         escape_routes: Vec::new(),
-        agents: Vec::new(),
+        agents: fact.agents.clone(),
         reports: fact.reports.clone(),
     pollers: vec![],
         previous_names: Vec::new(),
@@ -11895,6 +11915,7 @@ mod tests {
                                     api_names_text_pattern,
                                     apis: feature.apis.clone(),
                                     api_lines,
+                                    agents: feature.agents.clone(),
                                     translation: feature.translation.clone(),
                                     translation_line,
                                     records: feature.records.clone(),
@@ -12044,6 +12065,7 @@ mod tests {
                                     api_names_text_pattern: Vec::new(),
                                     apis: feature.apis.clone(),
                                     api_lines: BTreeMap::new(),
+                                    agents: feature.agents.clone(),
                                     translation: feature.translation.clone(),
                                     translation_line: header_line,
                                     records: feature.records.clone(),
@@ -16053,6 +16075,7 @@ app crm
             api_names_text_pattern: Vec::new(),
             apis: Vec::new(),
             api_lines: BTreeMap::new(),
+            agents: Vec::new(),
             translation: None,
             translation_line: 1,
             records: Vec::new(),
@@ -16109,6 +16132,7 @@ app crm
             api_names_text_pattern: vec!["customer_legacy".to_owned()],
             apis: Vec::new(),
             api_lines: BTreeMap::new(),
+            agents: Vec::new(),
             translation: None,
             translation_line: 1,
             records: Vec::new(),
