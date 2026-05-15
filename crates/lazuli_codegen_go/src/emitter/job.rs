@@ -67,6 +67,18 @@ pub fn emit_job_file(
         imports.add("errors");
         imports.add("lazuli.dev/runtime/lazuli/auth");
     }
+    // PG.C.2 — gated jobs carry a `Prelude: []billing.GateRef{...}`
+    // field on the JobContract value; the runtime dispatcher
+    // (`DispatchJob` / River worker) evaluates it before invoking
+    // the user handler. Import `billing` only when any job in the
+    // file declares gates.
+    let any_gated = jobs
+        .iter()
+        .any(|job| !emit_ctx.gates_for("job", &job.name).is_empty());
+    if any_gated {
+        imports.add("lazuli.dev/runtime/lazuli/billing");
+        imports.add(&format!("{module_name}/plan"));
+    }
 
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
@@ -505,27 +517,35 @@ fn escape_comment(raw: &str) -> String {
     raw.replace('\n', " ").replace('\r', " ")
 }
 
-/// PG.C.1 — emit a comment trace listing every `gate` directive
-/// authored on a job. Jobs dispatch through `jobs.JobContract` (no
-/// generated handler wrapper exists today), so the runtime cannot yet
-/// auto-evaluate gates the way commands can. The annotation keeps the
-/// gates discoverable in generated code; a follow-up cell grows
-/// `jobs.JobContract` with a `Prelude []GateRef` slot.
+/// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
+/// `jobs.JobContract` value. `DispatchJob` (and the River worker
+/// shim) consults the slice via the package-level runner the
+/// `billing` package registers at init. Empty slice → no field
+/// emitted, preserving byte-equivalent output for ungated jobs.
 fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
     if gates.is_empty() {
         return;
     }
-    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    p.line("Prelude: []billing.GateRef{");
+    p.indent();
     for gate in gates {
         match gate {
             Gate::Behind { feature } => {
-                p.line(&format!("//   gate behind plan.feature: {feature}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateBehind, Name: {:?}}},",
+                    feature
+                ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!("//   gate quota plan.limit: {limit}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateQuota, Name: {:?}}},",
+                    limit
+                ));
             }
         }
     }
+    p.dedent();
+    p.line("},");
 }
 
 #[cfg(test)]
@@ -861,4 +881,75 @@ mod feature_emit_tests {
 
     #[allow(dead_code)]
     fn _create_effect_compiles(_: CreateEffect) {}
+
+    #[test]
+    fn gated_job_emits_real_prelude_field_and_billing_imports() {
+        // PG.C.2 — gated jobs lift the wave-4 comment annotation
+        // into a real `Prelude: []billing.GateRef{...}` field that
+        // `jobs.DispatchJob` (and the River worker wrapper) consult
+        // via the package-level runner billing registers at init.
+        let mut feature = base_feature("billing");
+        let job = handler_job("dispatch_payment");
+        feature.jobs.push(job);
+
+        let mut gates: std::collections::BTreeMap<String, Vec<lazuli_ir::Gate>> =
+            std::collections::BTreeMap::new();
+        gates.insert(
+            "billing/job:dispatch_payment".to_owned(),
+            vec![
+                lazuli_ir::Gate::Behind {
+                    feature: "dispatch_payment".to_owned(),
+                },
+                lazuli_ir::Gate::Quota {
+                    limit: "payments_per_month".to_owned(),
+                },
+            ],
+        );
+        let module = module_with_feature(feature);
+        let index = CrossFeatureIndex::build(&module);
+        let emit_ctx =
+            EmitContext::for_feature(None, "billing-app", "billing", "billing/job.gen.go")
+                .with_gates(Some(&gates));
+        let out = emit_job_file(
+            "examples/billing.lzi",
+            &module.features[0],
+            "billing-app",
+            &index,
+            &emit_ctx,
+        )
+        .expect("must emit");
+
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "billing import missing:\n{out}"
+        );
+        assert!(
+            out.contains("\"billing-app/plan\""),
+            "plan import missing:\n{out}"
+        );
+        assert!(
+            out.contains("Prelude: []billing.GateRef{"),
+            "Prelude field missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateBehind, Name: \"dispatch_payment\"},"),
+            "behind-gate row missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateQuota, Name: \"payments_per_month\"},"),
+            "quota-gate row missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn ungated_job_emits_no_prelude_or_billing_import() {
+        let mut feature = base_feature("customer");
+        feature.jobs.push(handler_job("ping"));
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains("Prelude:"), "no Prelude when no gates");
+        assert!(
+            !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "no billing import when no gates"
+        );
+    }
 }

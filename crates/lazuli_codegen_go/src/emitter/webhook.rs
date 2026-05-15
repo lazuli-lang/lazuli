@@ -55,6 +55,18 @@ pub fn emit_webhook_file(
     if webhooks.iter().any(|webhook| webhook.retry.is_some()) {
         imports.add("lazuli.dev/runtime/lazuli/jobs");
     }
+    // PG.C.2 — gated webhooks carry a `Prelude: []billing.GateRef{...}`
+    // field on the WebhookContract value; the receiver runs it via
+    // the runner the `billing` package registers on `webhooks` at
+    // init. Import `billing` only when any webhook in the file
+    // declares gates.
+    let any_gated = webhooks
+        .iter()
+        .any(|w| !emit_ctx.gates_for("webhook", &w.name).is_empty());
+    if any_gated {
+        imports.add("lazuli.dev/runtime/lazuli/billing");
+        imports.add(&format!("{module_name}/plan"));
+    }
 
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
@@ -313,27 +325,35 @@ fn escape_string(raw: &str) -> String {
     out
 }
 
-/// PG.C.1 — emit a comment trace listing every `gate` directive
-/// authored on a webhook. Webhooks dispatch through
-/// `webhooks.WebhookContract` (no generated handler wrapper exists
-/// today); runtime auto-evaluation of gates is deferred to a
-/// follow-up cell that grows the contract with a `Prelude []GateRef`
-/// slot.
+/// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
+/// `webhooks.WebhookContract` value. The receiver (`webhooks.Mount`
+/// → `handleOne`) consults the slice via the package-level runner
+/// the `billing` package registers at init. Empty slice → no field
+/// emitted.
 fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
     if gates.is_empty() {
         return;
     }
-    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    p.line("Prelude: []billing.GateRef{");
+    p.indent();
     for gate in gates {
         match gate {
             Gate::Behind { feature } => {
-                p.line(&format!("//   gate behind plan.feature: {feature}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateBehind, Name: {:?}}},",
+                    feature
+                ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!("//   gate quota plan.limit: {limit}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateQuota, Name: {:?}}},",
+                    limit
+                ));
             }
         }
     }
+    p.dedent();
+    p.line("},");
 }
 
 #[cfg(test)]
@@ -674,5 +694,80 @@ mod feature_emit_tests {
         assert!(out.contains("Route:       \"/webhooks/mercadopago\","));
         assert!(out.contains("HandlerPath: \"./webhooks/mercadopago_callback.go\","));
         assert!(out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},"));
+    }
+
+    #[test]
+    fn gated_webhook_emits_real_prelude_field_and_billing_imports() {
+        // PG.C.2 — gated webhooks lift the wave-4 comment
+        // annotation into a real `Prelude: []billing.GateRef{...}`
+        // field on the WebhookContract; the receiver consults it
+        // via the runner billing registers at init.
+        let mut feature = base_feature("billing");
+        let mut webhook = base_webhook("payment_callback");
+        webhook.route = "/webhooks/payment".to_owned();
+        webhook.structured_verify = Some(hmac_verify());
+        feature.webhooks.push(webhook);
+
+        let mut gates: std::collections::BTreeMap<String, Vec<lazuli_ir::Gate>> =
+            std::collections::BTreeMap::new();
+        gates.insert(
+            "billing/webhook:payment_callback".to_owned(),
+            vec![
+                lazuli_ir::Gate::Behind {
+                    feature: "payment_webhooks".to_owned(),
+                },
+                lazuli_ir::Gate::Quota {
+                    limit: "webhooks_per_month".to_owned(),
+                },
+            ],
+        );
+        let module = module_with_feature(feature);
+        let index = CrossFeatureIndex::build(&module);
+        let emit_ctx =
+            EmitContext::for_feature(None, "billing-app", "billing", "billing/webhook.gen.go")
+                .with_gates(Some(&gates));
+        let out = emit_webhook_file(
+            "examples/billing.lzi",
+            &module.features[0],
+            "billing-app",
+            &index,
+            &emit_ctx,
+        )
+        .expect("must emit");
+
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "billing import missing:\n{out}"
+        );
+        assert!(
+            out.contains("\"billing-app/plan\""),
+            "plan import missing:\n{out}"
+        );
+        assert!(
+            out.contains("Prelude: []billing.GateRef{"),
+            "Prelude field missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateBehind, Name: \"payment_webhooks\"},"),
+            "behind-gate row missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateQuota, Name: \"webhooks_per_month\"},"),
+            "quota-gate row missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn ungated_webhook_emits_no_prelude_or_billing_import() {
+        let mut feature = base_feature("payments");
+        let mut webhook = base_webhook("callback");
+        webhook.structured_verify = Some(hmac_verify());
+        feature.webhooks.push(webhook);
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains("Prelude:"), "no Prelude when no gates");
+        assert!(
+            !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "no billing import when no gates"
+        );
     }
 }

@@ -47,6 +47,17 @@ pub fn emit_api_file(
     for api in &apis {
         register_imports_for_api_output(&api.output, &type_ctx, &mut imports);
     }
+    // PG.C.2 — gated APIs carry a `Prelude: []billing.GateRef{...}`
+    // field on the lazuli.Api value; `api.Invoke` runs the prelude
+    // via `lazuli.RunPrelude` before the handler. Import `billing`
+    // only when any api in the file declares gates.
+    let any_gated = apis
+        .iter()
+        .any(|api| !emit_ctx.gates_for("api", &api.name).is_empty());
+    if any_gated {
+        imports.add("lazuli.dev/runtime/lazuli/billing");
+        imports.add(&format!("{module_name}/plan"));
+    }
 
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
@@ -143,26 +154,34 @@ fn emit_api(
     p.line("}");
 }
 
-/// PG.C.1 — emit a comment trace listing every `gate` directive
-/// authored on an `api` declaration. APIs lower to `lazuli.Api[I, O]`
-/// contracts with no generated handler wrapper; runtime
-/// auto-evaluation of gates is deferred to a follow-up cell that
-/// grows the contract with a `Prelude []GateRef` slot.
+/// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
+/// `lazuli.Api[I, O]` value. `Api.Invoke` consults the slice via
+/// `lazuli.RunPrelude` before invoking the handler. Empty slice →
+/// no field emitted.
 fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
     if gates.is_empty() {
         return;
     }
-    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    p.line("Prelude: []billing.GateRef{");
+    p.indent();
     for gate in gates {
         match gate {
             Gate::Behind { feature } => {
-                p.line(&format!("//   gate behind plan.feature: {feature}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateBehind, Name: {:?}}},",
+                    feature
+                ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!("//   gate quota plan.limit: {limit}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateQuota, Name: {:?}}},",
+                    limit
+                ));
             }
         }
     }
+    p.dedent();
+    p.line("},");
 }
 
 fn emit_args_struct(p: &mut GoPrinter, name: &str, args: &[ApiArg]) {
@@ -701,6 +720,97 @@ mod tests {
         assert!(out.contains("var ownerProfile = lazuli.Api[OwnerProfileArgs, org.UserProfile]{"));
         assert!(out.contains("Method:  lazuli.MethodPost,"));
         assert!(out.contains("OwnerID lazuli.ID `json:\"owner_id\"`"));
+    }
+
+    #[test]
+    fn gated_api_emits_real_prelude_field_and_billing_imports() {
+        // PG.C.2 — gated APIs lift the wave-4 comment annotation into
+        // a real `Prelude: []billing.GateRef{...}` field that
+        // `Api.Invoke` consults via `lazuli.RunPrelude`. Billing and
+        // <module>/plan imports appear when any api carries gates.
+        let mut feature = base_feature("billing");
+        feature.records.push(simple_record("Invoice"));
+        feature.apis.push(simple_api(
+            "issue_invoice",
+            HttpMethod::Post,
+            "/api/invoices",
+            TypeRef::UserDefined(QualifiedName {
+                feature: None,
+                name: "Invoice".to_owned(),
+            }),
+        ));
+
+        let mut gates: std::collections::BTreeMap<String, Vec<lazuli_ir::Gate>> =
+            std::collections::BTreeMap::new();
+        gates.insert(
+            "billing/api:issue_invoice".to_owned(),
+            vec![
+                lazuli_ir::Gate::Behind {
+                    feature: "issue_invoice".to_owned(),
+                },
+                lazuli_ir::Gate::Quota {
+                    limit: "invoices_per_month".to_owned(),
+                },
+            ],
+        );
+        let module = module_with_features(vec![feature]);
+        let cross_index = CrossFeatureIndex::build(&module);
+        let emit_ctx =
+            EmitContext::for_feature(None, "billing-app", "billing", "billing/api.gen.go")
+                .with_gates(Some(&gates));
+        let out = emit_api_file(
+            "examples/billing.lzi",
+            &module.features[0],
+            "billing-app",
+            &cross_index,
+            &emit_ctx,
+        )
+        .expect("must emit");
+
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "billing import missing:\n{out}"
+        );
+        assert!(out.contains("\"billing-app/plan\""), "plan import missing:\n{out}");
+        assert!(
+            out.contains("Prelude: []billing.GateRef{"),
+            "Prelude field missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateBehind, Name: \"issue_invoice\"},"),
+            "behind-gate row missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateQuota, Name: \"invoices_per_month\"},"),
+            "quota-gate row missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn ungated_api_emits_no_prelude_or_billing_import() {
+        // PG.C.2 backward-compat — APIs without gates emit
+        // byte-equivalent wave-3 output (no Prelude field, no
+        // billing import).
+        let mut feature = base_feature("customer");
+        feature.records.push(simple_record("Customer"));
+        feature.apis.push(simple_api(
+            "list_customers",
+            HttpMethod::Get,
+            "/api/customers",
+            TypeRef::UserDefined(QualifiedName {
+                feature: None,
+                name: "Customer".to_owned(),
+            }),
+        ));
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            !out.contains("Prelude:"),
+            "no Prelude when no gates:\n{out}"
+        );
+        assert!(
+            !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "no billing import when no gates:\n{out}"
+        );
     }
 
     #[test]

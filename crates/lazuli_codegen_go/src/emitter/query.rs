@@ -61,6 +61,17 @@ pub fn emit_query_file(
     for query in &queries {
         register_imports_for_query(query, feature, &type_ctx, &mut imports);
     }
+    // PG.C.2 — gated queries import `billing` (GateRef / GateBehind /
+    // GateQuota) and `<module>/plan` (the package-wide Catalog;
+    // unused here but kept in scope for handler-authored
+    // `billing.CheckFeature(ctx, plan.Catalog, ...)` calls).
+    let any_gated = queries
+        .iter()
+        .any(|q| !emit_ctx.gates_for(query_callable_kind(q), q.name()).is_empty());
+    if any_gated {
+        imports.add("lazuli.dev/runtime/lazuli/billing");
+        imports.add(&format!("{module_name}/plan"));
+    }
 
     p.banner(source_label, &feature.name);
     imports.emit(&mut p);
@@ -879,27 +890,47 @@ fn escape_string(raw: &str) -> String {
     out
 }
 
-/// PG.C.1 — emit a comment trace listing every `gate` directive
-/// authored on a query. Queries dispatch through declarative contracts
-/// (no generated handler-wrapper function exists today), so the
-/// runtime cannot yet evaluate gates pre-dispatch the way commands
-/// can. The annotation keeps the gates visible in generated code; a
-/// follow-up cell grows `lazuli.Query` with a `Prelude []GateRef`
-/// slot the runtime can honour.
+/// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
+/// `lazuli.Query[A, R]` value. The runtime dispatcher (`RunList` /
+/// `RunLookup`) consults the slice via `lazuli.RunPrelude` before
+/// invoking the handler and via `lazuli.RunIncrement` after a
+/// successful return. Empty slice is the no-gate fast path — we
+/// skip emission entirely so back-compat call sites stay
+/// byte-equivalent.
 fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
     if gates.is_empty() {
         return;
     }
-    p.line("// PG.C.1 gate prelude (runtime evaluation deferred — see plan/catalog.gen.go):");
+    p.line("Prelude: []billing.GateRef{");
+    p.indent();
     for gate in gates {
         match gate {
             Gate::Behind { feature } => {
-                p.line(&format!("//   gate behind plan.feature: {feature}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateBehind, Name: {:?}}},",
+                    feature
+                ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!("//   gate quota plan.limit: {limit}"));
+                p.line(&format!(
+                    "{{Kind: billing.GateQuota, Name: {:?}}},",
+                    limit
+                ));
             }
         }
+    }
+    p.dedent();
+    p.line("},");
+}
+
+/// PG.C.2 — translate a `Query` IR variant back to the canonical
+/// `<callable_kind>` string used as a key in the emit-time gate
+/// map (`<feature>/query.list:<name>`, etc.).
+fn query_callable_kind(query: &Query) -> &'static str {
+    match query {
+        Query::List(_) => "query.list",
+        Query::Lookup(_) => "query.lookup",
+        Query::Sql(_) => "query.sql",
     }
 }
 
@@ -1301,6 +1332,103 @@ mod tests {
         let alpha_pos = a.find("Query: customer.query.alpha").expect("alpha banner");
         let zebra_pos = a.find("Query: customer.query.zebra").expect("zebra banner");
         assert!(alpha_pos < zebra_pos);
+    }
+
+    #[test]
+    fn gated_query_emits_real_prelude_field_and_billing_imports() {
+        // PG.C.2 — gated queries lift the wave-4 comment annotation
+        // into a real `Prelude: []billing.GateRef{...}` field that
+        // `RunList` / `RunLookup` consult via `lazuli.RunPrelude`.
+        let mut feature = base_feature("billing");
+        feature.resources.push(resource("Invoice", Vec::new()));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: Some(50),
+            modifier: None,
+            cache: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let mut gates: std::collections::BTreeMap<String, Vec<lazuli_ir::Gate>> =
+            std::collections::BTreeMap::new();
+        gates.insert(
+            "billing/query.list:list".to_owned(),
+            vec![
+                lazuli_ir::Gate::Behind {
+                    feature: "list_invoices".to_owned(),
+                },
+                lazuli_ir::Gate::Quota {
+                    limit: "queries_per_month".to_owned(),
+                },
+            ],
+        );
+        let module = module_with_features(vec![feature]);
+        let cross_index = CrossFeatureIndex::build(&module);
+        let emit_ctx =
+            EmitContext::for_feature(None, "billing-app", "billing", "billing/query.gen.go")
+                .with_gates(Some(&gates));
+        let out = emit_query_file(
+            "examples/billing.lzi",
+            &module.features[0],
+            "billing-app",
+            &cross_index,
+            &emit_ctx,
+        )
+        .expect("must emit");
+
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "billing import missing:\n{out}"
+        );
+        assert!(
+            out.contains("\"billing-app/plan\""),
+            "plan import missing:\n{out}"
+        );
+        assert!(
+            out.contains("Prelude: []billing.GateRef{"),
+            "Prelude field missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateBehind, Name: \"list_invoices\"},"),
+            "behind-gate row missing:\n{out}"
+        );
+        assert!(
+            out.contains("{Kind: billing.GateQuota, Name: \"queries_per_month\"},"),
+            "quota-gate row missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn ungated_query_emits_no_prelude_or_billing_import() {
+        // PG.C.2 backward-compat — queries without gates emit
+        // byte-equivalent wave-3 output.
+        let mut feature = base_feature("customer");
+        feature.resources.push(resource("Customer", Vec::new()));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains("Prelude:"), "no Prelude when no gates:\n{out}");
+        assert!(
+            !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
+            "no billing import when no gates:\n{out}"
+        );
     }
 }
 
