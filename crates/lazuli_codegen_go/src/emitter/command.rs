@@ -929,7 +929,7 @@ fn backoff_literal(backoff: BackoffStrategy) -> &'static str {
     }
 }
 
-fn format_deprecation_replacement(
+pub(super) fn format_deprecation_replacement(
     feature: &str,
     replacement: Option<&DeprecationReplacement>,
 ) -> String {
@@ -937,8 +937,16 @@ fn format_deprecation_replacement(
         Some(DeprecationReplacement::LocalCommand(name)) => {
             format!("{feature}.command.{name}")
         }
+        Some(DeprecationReplacement::LocalApi(name)) => {
+            format!("{feature}.api.{name}")
+        }
         Some(DeprecationReplacement::Qualified(qname)) => format!(
             "{}.command.{}",
+            qname.feature.as_deref().unwrap_or(feature),
+            qname.name
+        ),
+        Some(DeprecationReplacement::QualifiedApi(qname)) => format!(
+            "{}.api.{}",
             qname.feature.as_deref().unwrap_or(feature),
             qname.name
         ),

@@ -316,6 +316,21 @@ fn emit_api(out: &mut YamlEmitter, feature: &str, api: &ir::Api, strict: bool) {
     if let Some(rl) = &api.rate_limit {
         out.kv_quoted("x-lazuli-rate-limit", rl);
     }
+    if let Some(dep) = &api.deprecated {
+        out.line("deprecated: true");
+        if let Some(since) = &dep.since {
+            out.kv_quoted("x-lazuli-deprecated-since", since);
+        }
+        if let Some(rep) = &dep.replacement {
+            out.kv_quoted(
+                "x-lazuli-deprecated-replacement",
+                &render_deprecation_replacement(feature, rep),
+            );
+        }
+        if let Some(sunset) = &dep.sunset {
+            out.kv_quoted("x-lazuli-deprecated-sunset", sunset);
+        }
+    }
     let policy_str = render_policy(&api.policy);
     if !policy_str.is_empty() {
         out.kv_quoted("x-lazuli-policy", &policy_str);
@@ -642,9 +657,16 @@ fn render_deprecation_replacement(feature: &str, rep: &ir::DeprecationReplacemen
         ir::DeprecationReplacement::LocalCommand(name) => {
             format!("{}.command.{}", feature, name)
         }
+        ir::DeprecationReplacement::LocalApi(name) => {
+            format!("{}.api.{}", feature, name)
+        }
         ir::DeprecationReplacement::Qualified(qn) => match &qn.feature {
             Some(feature) => format!("{}.command.{}", feature, qn.name),
             None => format!("command.{}", qn.name),
+        },
+        ir::DeprecationReplacement::QualifiedApi(qn) => match &qn.feature {
+            Some(feature) => format!("{}.api.{}", feature, qn.name),
+            None => format!("api.{}", qn.name),
         },
         ir::DeprecationReplacement::Url(u) => u.clone(),
     }

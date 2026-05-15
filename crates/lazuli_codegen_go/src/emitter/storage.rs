@@ -470,6 +470,7 @@ mod tests {
             output,
             handler: PathRef::authored("./api/handler.go"),
             locale_negotiate: None,
+            deprecated: None,
             span_ref: None,
         }
     }

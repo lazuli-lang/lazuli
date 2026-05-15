@@ -213,8 +213,14 @@ fn operation_ref(feature: &str, cmd: &ir::Command) -> OperationRef {
 fn render_replacement(r: &ir::DeprecationReplacement) -> String {
     match r {
         ir::DeprecationReplacement::LocalCommand(name) => name.clone(),
+        ir::DeprecationReplacement::LocalApi(name) => format!("api.{name}"),
         ir::DeprecationReplacement::Qualified(qn) => format!(
             "{}.command.{}",
+            qn.feature.clone().unwrap_or_default(),
+            qn.name
+        ),
+        ir::DeprecationReplacement::QualifiedApi(qn) => format!(
+            "{}.api.{}",
             qn.feature.clone().unwrap_or_default(),
             qn.name
         ),

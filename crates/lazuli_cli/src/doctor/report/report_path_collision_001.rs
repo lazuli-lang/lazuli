@@ -178,6 +178,7 @@ mod tests {
             output: TypeRef::Builtin(lazuli_ir::BuiltinType::Text),
             handler: PathRef::authored("./api/download.go"),
             locale_negotiate: None,
+            deprecated: None,
             span_ref: None,
         }
     }

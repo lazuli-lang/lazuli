@@ -157,6 +157,7 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
         writeln!(s, "  \"{qualified_name}\",").ok();
         writeln!(s, "  {{").ok();
         writeln!(s, "    invalidates: {invalidates_lit},").ok();
+        write_deprecated_spec(s, command, "    ");
         writeln!(s, "  }},").ok();
         writeln!(s, ");").ok();
     } else {
@@ -165,9 +166,36 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
         writeln!(s, "  {resource_pascal}").ok();
         writeln!(s, ">(\"{qualified_name}\", {{").ok();
         writeln!(s, "  invalidates: {invalidates_lit},").ok();
+        write_deprecated_spec(s, command, "  ");
         writeln!(s, "}});").ok();
     }
     writeln!(s).ok();
+}
+
+fn write_deprecated_spec(s: &mut String, command: &RuntimeCommand, indent: &str) {
+    let Some(dep) = &command.deprecated else {
+        return;
+    };
+    writeln!(s, "{indent}deprecated: {{").ok();
+    if let Some(since) = &dep.since {
+        writeln!(s, "{indent}  since: \"{}\",", escape_ts_string(since)).ok();
+    }
+    if let Some(replacement) = &dep.replacement {
+        writeln!(
+            s,
+            "{indent}  replacement: \"{}\",",
+            escape_ts_string(replacement)
+        )
+        .ok();
+    }
+    if let Some(sunset) = &dep.sunset {
+        writeln!(s, "{indent}  sunset: \"{}\",", escape_ts_string(sunset)).ok();
+    }
+    writeln!(s, "{indent}}},").ok();
+}
+
+fn escape_ts_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 // ----------------------------------------------------------------------------
@@ -457,6 +485,10 @@ fn command_var_name(short_name: &str, resource_pascal: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lazuli_codegen_spec::{
+        RuntimeDeprecation, RuntimeEffect, RuntimeFeature, RuntimeField, RuntimeInput,
+        RuntimeResource, Tenancy,
+    };
 
     fn publication_feature() -> ir::Feature {
         let mut feature = base_feature(vec![publication_resource(Some(publication_lifecycle()))]);
@@ -610,6 +642,50 @@ mod tests {
             previous_names: Vec::new(),
             span_ref: None,
         }
+    }
+
+    #[test]
+    fn command_spec_emits_deprecated_metadata() {
+        let feature = RuntimeFeature {
+            name: "customer".to_owned(),
+            source_path: "features/customer/customer.lzi".to_owned(),
+            resources: vec![RuntimeResource {
+                name: "customer".to_owned(),
+                tenancy: Tenancy::Org,
+                soft_delete: false,
+                retention: None,
+                fields: vec![RuntimeField {
+                    name: "name".to_owned(),
+                    kind: FieldKind::Text,
+                }],
+            }],
+            commands: vec![RuntimeCommand {
+                short_name: "legacy_update".to_owned(),
+                policy_name: "@policy.update".to_owned(),
+                policy_atoms: Vec::new(),
+                rate_limit: String::new(),
+                validators: Vec::new(),
+                effect: RuntimeEffect::UpdatesByID,
+                inputs: vec![RuntimeInput {
+                    field_name: "Name".to_owned(),
+                    kind: FieldKind::Text,
+                }],
+                emits: Vec::new(),
+                invalidates: vec!["customer.query.list".to_owned()],
+                deprecated: Some(RuntimeDeprecation {
+                    since: Some("2026-03-01".to_owned()),
+                    replacement: Some("customer.command.update_v2".to_owned()),
+                    sunset: Some("2026-12-31".to_owned()),
+                }),
+            }],
+            queries: Vec::new(),
+        };
+
+        let out = emit_feature_ts(&feature);
+        assert!(out.contains("deprecated: {"));
+        assert!(out.contains("since: \"2026-03-01\","));
+        assert!(out.contains("replacement: \"customer.command.update_v2\","));
+        assert!(out.contains("sunset: \"2026-12-31\","));
     }
 
     #[test]

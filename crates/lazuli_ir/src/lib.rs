@@ -903,8 +903,12 @@ pub struct Deprecation {
 pub enum DeprecationReplacement {
     /// `replacement <command_name>` — same-feature short form.
     LocalCommand(String),
+    /// `replacement api.<name>` on an api — same-feature short form.
+    LocalApi(String),
     /// `replacement <feature>.command.<name>` — cross-feature.
     Qualified(QualifiedName),
+    /// `replacement <feature>.api.<name>` — cross-feature api.
+    QualifiedApi(QualifiedName),
     /// `replacement "https://..."` — explicit URL escape hatch.
     Url(String),
 }
@@ -4134,6 +4138,9 @@ pub struct Api {
     /// `Some`, supersedes the runtime unit's default for this endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale_negotiate: Option<LocaleNegotiate>,
+    /// OpenAPI bucket cycle — `deprecated` child block for public APIs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<Deprecation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

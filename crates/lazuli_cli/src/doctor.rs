@@ -10951,30 +10951,31 @@ fn format_accept_list(accept: &[lazuli_ir::MimeType]) -> String {
 // OpenAPI bucket cycle (row 48) — `deprecated_*` diagnostics.
 // =============================================================================
 
-/// Row 48 — emits five OpenAPI-related diagnostics:
-/// `deprecated_replacement_unknown`, `deprecated_sunset_date_invalid`,
-/// `deprecated_sunset_in_past`, `openapi_text_pattern_api_block`,
+/// Row 48 — emits OpenAPI-related diagnostics:
+/// `deprecated-replacement-unknown`, `deprecated_sunset_date_invalid`,
+/// `deprecated-sunset-past`, `deprecated-no-replacement`,
+/// `openapi_text_pattern_api_block`,
 /// `api_changelog_breaking_change` (the last only when invoked from the
 /// changelog pipeline; doctor surfaces a guard noop). See
 /// `docs/proposals/bucket-openapi-cycle.md` §Doctor/LSP.
 fn openapi_deprecated_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
-    // Build per-feature command name index for LocalCommand resolution.
     let mut commands_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut apis_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for feature in facts {
-        let set = commands_by_feature
+        let command_set = commands_by_feature
             .entry(feature.feature.as_str())
             .or_default();
         for c in &feature.commands {
-            set.insert(c.name.as_str());
+            command_set.insert(c.name.as_str());
+        }
+        let api_set = apis_by_feature.entry(feature.feature.as_str()).or_default();
+        for api in &feature.apis {
+            api_set.insert(api.name.as_str());
         }
     }
 
-    // Today: the calendar date for "now" comes from `chrono::Local::today()`.
-    // The crate may not be available; fall back to a fixed-pivot probe at
-    // 2026-01-01 so the in-past test stays deterministic. Doctor's CI
-    // window already gates this rule as a warning.
     let today_pivot = openapi_today_pivot();
 
     for feature in facts {
@@ -10987,101 +10988,38 @@ fn openapi_deprecated_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiag
                 .get(&command.name)
                 .copied()
                 .unwrap_or(feature.feature_line);
-
-            // 1) `deprecated_replacement_unknown`.
-            if let Some(replacement) = &dep.replacement {
-                match replacement {
-                    lazuli_ir::DeprecationReplacement::LocalCommand(target) => {
-                        let local = commands_by_feature
-                            .get(feature.feature.as_str())
-                            .map(|set| set.contains(target.as_str()))
-                            .unwrap_or(false);
-                        if !local {
-                            diagnostics.push(DoctorDiagnostic {
-                                path: feature.path.clone(),
-                                line,
-                                column: 1,
-                                severity: DoctorSeverity::Error,
-                                code: "deprecated_replacement_unknown".to_owned(),
-                                message: format!(
-                                    "command `{}`.deprecated.replacement `{}` does not resolve: same-feature command not found.",
-                                    command.name, target
-                                ),
-                            });
-                        }
-                    }
-                    lazuli_ir::DeprecationReplacement::Qualified(q) => {
-                        let other_feature =
-                            q.feature.as_deref().unwrap_or(feature.feature.as_str());
-                        let resolves = commands_by_feature
-                            .get(other_feature)
-                            .map(|set| set.contains(q.name.as_str()))
-                            .unwrap_or(false);
-                        if !resolves {
-                            diagnostics.push(DoctorDiagnostic {
-                                path: feature.path.clone(),
-                                line,
-                                column: 1,
-                                severity: DoctorSeverity::Error,
-                                code: "deprecated_replacement_unknown".to_owned(),
-                                message: format!(
-                                    "command `{}`.deprecated.replacement `{}.command.{}` does not resolve: cross-feature reference malformed.",
-                                    command.name, other_feature, q.name
-                                ),
-                            });
-                        }
-                    }
-                    lazuli_ir::DeprecationReplacement::Url(url) => {
-                        let cleaned = url.trim();
-                        if !(cleaned.starts_with("http://") || cleaned.starts_with("https://"))
-                            || cleaned.len() < "https://x".len()
-                        {
-                            diagnostics.push(DoctorDiagnostic {
-                                path: feature.path.clone(),
-                                line,
-                                column: 1,
-                                severity: DoctorSeverity::Error,
-                                code: "deprecated_replacement_unknown".to_owned(),
-                                message: format!(
-                                    "command `{}`.deprecated.replacement `{}` does not resolve: url malformed.",
-                                    command.name, url
-                                ),
-                            });
-                        }
-                    }
-                }
-            }
-
-            // 2) `deprecated_sunset_date_invalid` + 3) `deprecated_sunset_in_past`.
-            if let Some(sunset) = &dep.sunset {
-                match parse_iso_date(sunset) {
-                    None => diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "deprecated_sunset_date_invalid".to_owned(),
-                        message: format!(
-                            "command `{}`.deprecated.sunset `{}` is not a valid ISO-8601 date (`YYYY-MM-DD`).",
-                            command.name, sunset
-                        ),
-                    }),
-                    Some(date) if date < today_pivot => {
-                        diagnostics.push(DoctorDiagnostic {
-                            path: feature.path.clone(),
-                            line,
-                            column: 1,
-                            severity: DoctorSeverity::Warning,
-                            code: "deprecated_sunset_in_past".to_owned(),
-                            message: format!(
-                                "command `{}`.deprecated.sunset `{}` is in the past; consumers should expect this endpoint to be removed soon.",
-                                command.name, sunset
-                            ),
-                        });
-                    }
-                    Some(_) => {}
-                }
-            }
+            deprecated_callable_diagnostics(
+                &mut diagnostics,
+                feature,
+                "command",
+                &command.name,
+                line,
+                dep,
+                &commands_by_feature,
+                &apis_by_feature,
+                today_pivot,
+            );
+        }
+        for api in &feature.apis {
+            let Some(dep) = &api.deprecated else {
+                continue;
+            };
+            let line = feature
+                .api_lines
+                .get(&api.name)
+                .copied()
+                .unwrap_or(feature.feature_line);
+            deprecated_callable_diagnostics(
+                &mut diagnostics,
+                feature,
+                "api",
+                &api.name,
+                line,
+                dep,
+                &commands_by_feature,
+                &apis_by_feature,
+                today_pivot,
+            );
         }
     }
 
@@ -11117,6 +11055,161 @@ fn openapi_deprecated_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiag
     }
 
     diagnostics
+}
+
+#[allow(clippy::too_many_arguments)]
+fn deprecated_callable_diagnostics(
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+    feature: &Tier3FeatureFacts,
+    kind: &str,
+    name: &str,
+    line: usize,
+    dep: &lazuli_ir::Deprecation,
+    commands_by_feature: &BTreeMap<&str, BTreeSet<&str>>,
+    apis_by_feature: &BTreeMap<&str, BTreeSet<&str>>,
+    today_pivot: (u16, u8, u8),
+) {
+    if dep.replacement.is_none() {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "deprecated-no-replacement".to_owned(),
+            message: format!(
+                "{kind} `{name}` is deprecated without a replacement; declare `replacement {kind}.<name>` when a successor exists."
+            ),
+        });
+    } else if let Some(replacement) = &dep.replacement {
+        match replacement {
+            lazuli_ir::DeprecationReplacement::LocalCommand(target) => {
+                push_unknown_replacement_if_missing(
+                    diagnostics,
+                    feature,
+                    kind,
+                    name,
+                    line,
+                    "command",
+                    feature.feature.as_str(),
+                    target,
+                    commands_by_feature,
+                );
+            }
+            lazuli_ir::DeprecationReplacement::LocalApi(target) => {
+                push_unknown_replacement_if_missing(
+                    diagnostics,
+                    feature,
+                    kind,
+                    name,
+                    line,
+                    "api",
+                    feature.feature.as_str(),
+                    target,
+                    apis_by_feature,
+                );
+            }
+            lazuli_ir::DeprecationReplacement::Qualified(q) => {
+                push_unknown_replacement_if_missing(
+                    diagnostics,
+                    feature,
+                    kind,
+                    name,
+                    line,
+                    "command",
+                    q.feature.as_deref().unwrap_or(feature.feature.as_str()),
+                    &q.name,
+                    commands_by_feature,
+                );
+            }
+            lazuli_ir::DeprecationReplacement::QualifiedApi(q) => {
+                push_unknown_replacement_if_missing(
+                    diagnostics,
+                    feature,
+                    kind,
+                    name,
+                    line,
+                    "api",
+                    q.feature.as_deref().unwrap_or(feature.feature.as_str()),
+                    &q.name,
+                    apis_by_feature,
+                );
+            }
+            lazuli_ir::DeprecationReplacement::Url(url) => {
+                let cleaned = url.trim();
+                if !(cleaned.starts_with("http://") || cleaned.starts_with("https://"))
+                    || cleaned.len() < "https://x".len()
+                {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "deprecated-replacement-unknown".to_owned(),
+                        message: format!(
+                            "{kind} `{name}`.deprecated.replacement `{url}` does not resolve: url malformed."
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(sunset) = &dep.sunset {
+        match parse_iso_date(sunset) {
+            None => diagnostics.push(DoctorDiagnostic {
+                path: feature.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "deprecated_sunset_date_invalid".to_owned(),
+                message: format!(
+                    "{kind} `{name}`.deprecated.sunset `{sunset}` is not a valid ISO-8601 date (`YYYY-MM-DD`)."
+                ),
+            }),
+            Some(date) if date < today_pivot => diagnostics.push(DoctorDiagnostic {
+                path: feature.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Info,
+                code: "deprecated-sunset-past".to_owned(),
+                message: format!(
+                    "{kind} `{name}`.deprecated.sunset `{sunset}` is in the past; consumers should expect this endpoint to be removed soon."
+                ),
+            }),
+            Some(_) => {}
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_unknown_replacement_if_missing(
+    diagnostics: &mut Vec<DoctorDiagnostic>,
+    feature: &Tier3FeatureFacts,
+    kind: &str,
+    name: &str,
+    line: usize,
+    target_kind: &str,
+    target_feature: &str,
+    target_name: &str,
+    index: &BTreeMap<&str, BTreeSet<&str>>,
+) {
+    let resolves = index
+        .get(target_feature)
+        .map(|set| set.contains(target_name))
+        .unwrap_or(false);
+    if resolves {
+        return;
+    }
+    diagnostics.push(DoctorDiagnostic {
+        path: feature.path.clone(),
+        line,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "deprecated-replacement-unknown".to_owned(),
+        message: format!(
+            "{kind} `{name}`.deprecated.replacement `{target_feature}.{target_kind}.{target_name}` does not resolve."
+        ),
+    });
 }
 
 /// Parse `YYYY-MM-DD` into a `(year, month, day)` triple. Returns `None`
@@ -16194,8 +16287,8 @@ app crm
     }
 
     // =========================================================================
-    // OpenAPI bucket cycle (row 48) — 4 doctor diagnostics on
-    // `Command.deprecated` typed lift + `openapi_text_pattern_api_block`.
+    // OpenAPI bucket cycle (row 48) — deprecation diagnostics on
+    // `Command.deprecated` / `Api.deprecated` typed lifts.
     // =========================================================================
 
     const OPENAPI_REPLACEMENT_UNKNOWN_FIXTURE: &str =
@@ -16212,8 +16305,8 @@ app crm
         let package = package_from_sources(vec![("x.lzi", OPENAPI_REPLACEMENT_UNKNOWN_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics).contains("deprecated_replacement_unknown"),
-            "expected deprecated_replacement_unknown in {:?}",
+            codes(&diagnostics).contains("deprecated-replacement-unknown"),
+            "expected deprecated-replacement-unknown in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
@@ -16234,8 +16327,171 @@ app crm
         let package = package_from_sources(vec![("x.lzi", OPENAPI_SUNSET_IN_PAST_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics).contains("deprecated_sunset_in_past"),
-            "expected deprecated_sunset_in_past in {:?}",
+            codes(&diagnostics).contains("deprecated-sunset-past"),
+            "expected deprecated-sunset-past in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deprecated_no_replacement_fires_for_command() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  command legacy_update
+    policy @policy.update
+    deprecated
+    creates Customer
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("deprecated-no-replacement"),
+            "expected deprecated-no-replacement in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deprecated_no_replacement_fires_for_api() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  api legacy_export
+    method GET
+    path "/api/customers/export-v1"
+    output [Customer]
+    deprecated
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("deprecated-no-replacement"),
+            "expected deprecated-no-replacement in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deprecated_no_replacement_skips_when_replacement_resolves() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  command legacy_update
+    policy @policy.update
+    deprecated replacement command.update_v2
+    creates Customer
+
+  command update_v2
+    policy @policy.update
+    creates Customer
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("deprecated-no-replacement"),
+            "did not expect deprecated-no-replacement in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn api_deprecated_replacement_unknown_fires() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  api legacy_export
+    method GET
+    path "/api/customers/export-v1"
+    output [Customer]
+    deprecated
+      replacement api.export_v2
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("deprecated-replacement-unknown"),
+            "expected deprecated-replacement-unknown in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deprecated_replacement_unknown_fires_for_cross_feature_api() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  api legacy_export
+    method GET
+    path "/api/customers/export-v1"
+    output [Customer]
+    deprecated replacement billing.api.export_v2
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("deprecated-replacement-unknown"),
+            "expected deprecated-replacement-unknown in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn api_deprecated_sunset_past_fires_info() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  api legacy_export
+    method GET
+    path "/api/customers/export-v1"
+    output [Customer]
+    deprecated
+      replacement api.export_v2
+      sunset "2024-01-01"
+
+  api export_v2
+    method GET
+    path "/api/customers/export-v2"
+    output [Customer]
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "deprecated-sunset-past")
+            .collect();
+        assert_eq!(hits.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(hits[0].severity, DoctorSeverity::Info);
+    }
+
+    #[test]
+    fn deprecated_sunset_future_does_not_fire() {
+        let package = package_from_sources(vec![(
+            "x.lzi",
+            r#"
+feature customer
+  command legacy_update
+    policy @policy.update
+    deprecated
+      replacement command.update_v2
+      sunset "2027-01-01"
+    creates Customer
+
+  command update_v2
+    policy @policy.update
+    creates Customer
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("deprecated-sunset-past"),
+            "did not expect deprecated-sunset-past in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

@@ -138,6 +138,20 @@ fn emit_api(
             format!("\"{}\",", escape_string(rate_limit)),
         ));
     }
+    if let Some(deprecation) = &api.deprecated {
+        kv_rows.push((
+            "Deprecation:".to_owned(),
+            format!(
+                "&lazuli.Deprecation{{Since: \"{}\", Replacement: \"{}\", Sunset: \"{}\"}},",
+                escape_string(deprecation.since.as_deref().unwrap_or("")),
+                escape_string(&super::command::format_deprecation_replacement(
+                    &feature.name,
+                    deprecation.replacement.as_ref()
+                )),
+                escape_string(deprecation.sunset.as_deref().unwrap_or(""))
+            ),
+        ));
+    }
 
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
@@ -528,6 +542,7 @@ mod tests {
             output,
             handler: PathRef::authored(format!("./handlers/{name}.go")),
             locale_negotiate: None,
+            deprecated: None,
             span_ref: None,
         }
     }
@@ -844,6 +859,34 @@ func init() { lazuli.RegisterApi(&customerSummary) }
     }
 
     #[test]
+    fn deprecated_api_emits_deprecation_literal() {
+        let mut feature = base_feature("customer");
+        feature.records.push(simple_record("Customer"));
+        let mut api = simple_api(
+            "legacy_export",
+            HttpMethod::Get,
+            "/api/customers/export-v1",
+            TypeRef::Many(Box::new(TypeRef::UserDefined(QualifiedName {
+                feature: None,
+                name: "Customer".to_owned(),
+            }))),
+        );
+        api.deprecated = Some(lazuli_ir::Deprecation {
+            since: Some("2026-04-01".to_owned()),
+            replacement: Some(lazuli_ir::DeprecationReplacement::LocalApi(
+                "export_v2".to_owned(),
+            )),
+            sunset: Some("2026-09-30".to_owned()),
+        });
+        feature.apis.push(api);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains(
+            "Deprecation: &lazuli.Deprecation{Since: \"2026-04-01\", Replacement: \"customer.api.export_v2\", Sunset: \"2026-09-30\"},"
+        ));
+    }
+
+    #[test]
     fn deterministic_across_runs_and_sorts_by_name() {
         let mut feature = base_feature("customer");
         feature.resources.push(simple_resource("Customer"));
@@ -914,6 +957,7 @@ mod feature_emit_tests {
                 output: TypeRef::Many(Box::new(TypeRef::Builtin(BuiltinType::Text))),
                 handler: PathRef::authored("./api/list_products.go"),
                 locale_negotiate: None,
+                deprecated: None,
                 span_ref: None,
             }],
             records: Vec::new(),

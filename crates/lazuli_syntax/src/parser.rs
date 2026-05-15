@@ -4430,14 +4430,10 @@ fn parse_command_decl(
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
         } else if trimmed == "deprecated" {
-            deprecated = Some(CommandDeprecatedDecl {
-                since: None,
-                replacement: None,
-                sunset: None,
-                span: Span::new(line.start, line.end),
-            });
-            last_end = line.end;
-            i += 1;
+            let (parsed, next) = parse_deprecated_block(lines, i)?;
+            deprecated = Some(parsed);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
         } else if let Some(rest) = trimmed.strip_prefix("deprecated ") {
             deprecated = Some(parse_command_deprecated(line, rest)?);
             last_end = line.end;
@@ -4556,6 +4552,63 @@ fn parse_command_deprecated(
         sunset,
         span: Span::new(line.start, line.end),
     })
+}
+
+fn parse_deprecated_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(CommandDeprecatedDecl, usize), ParseError> {
+    let header = &lines[start];
+    let mut since: Option<String> = None;
+    let mut replacement: Option<String> = None;
+    let mut sunset: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`deprecated` block children use six-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("since ") {
+            since = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("replacement ") {
+            let (value, _) = take_quoted_or_word(rest)
+                .ok_or_else(|| line_error(line, "`deprecated replacement` requires a value"))?;
+            replacement = Some(value);
+        } else if let Some(rest) = trimmed.strip_prefix("sunset ") {
+            sunset = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "`deprecated` children are `since`, `replacement`, `sunset`",
+            ));
+        }
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        CommandDeprecatedDecl {
+            since,
+            replacement,
+            sunset,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
 }
 
 /// Take a quoted string or a single bare word (dotted refs allowed),
@@ -5203,6 +5256,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
     let mut locale_negotiate: Option<LocaleNegotiateDecl> = None;
     let mut route: Vec<CommandRouteSlot> = Vec::new();
     let mut input: Option<CommandInputDecl> = None;
+    let mut deprecated: Option<CommandDeprecatedDecl> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
     while i < lines.len() {
@@ -5274,6 +5328,15 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             last_end = lines[next.saturating_sub(1).max(i)].end;
             locale_negotiate = Some(parsed);
             i = next;
+        } else if trimmed == "deprecated" {
+            let (parsed, next) = parse_deprecated_block(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            deprecated = Some(parsed);
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("deprecated ") {
+            deprecated = Some(parse_command_deprecated(line, rest)?);
+            last_end = line.end;
+            i += 1;
         } else if trimmed.starts_with("gate ") {
             // PG.A — gates lifted via side-channel pass; tolerate here.
             last_end = line.end;
@@ -5281,7 +5344,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
         } else {
             return Err(line_error(
                 line,
-                "`api` children are `method`, `path`, `route`, `input`, `output`, `policy`, `rate_limit`, `handler`, `locale_negotiate`, or `gate behind/quota plan.*`",
+                "`api` children are `method`, `path`, `route`, `input`, `output`, `policy`, `rate_limit`, `handler`, `locale_negotiate`, `deprecated`, or `gate behind/quota plan.*`",
             ));
         }
     }
@@ -5308,6 +5371,7 @@ fn parse_api_decl(lines: &[SourceLine<'_>], start: usize) -> Result<(ApiDecl, us
             locale_negotiate,
             route,
             input,
+            deprecated,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -15974,6 +16038,100 @@ surface slug web
         let create_err = parse_surface_document(create).unwrap_err();
         assert!(detail_err.to_string().contains("valid only in `view list`"));
         assert!(create_err.to_string().contains("valid only in `view list`"));
+    }
+}
+
+#[cfg(test)]
+mod deprecated_parser_tests {
+    use super::parse_feature_skeletons;
+
+    #[test]
+    fn command_deprecated_block_parses() {
+        let source = r#"feature customer
+  command legacy_update
+    policy @policy.update
+    creates Customer
+    deprecated
+      since "2026-03-01"
+      replacement command.update_v2
+      sunset "2026-12-31"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let dep = features[0].commands[0].deprecated.as_ref().unwrap();
+        assert_eq!(dep.since.as_deref(), Some("2026-03-01"));
+        assert_eq!(dep.replacement.as_deref(), Some("command.update_v2"));
+        assert_eq!(dep.sunset.as_deref(), Some("2026-12-31"));
+    }
+
+    #[test]
+    fn command_deprecated_inline_parses() {
+        let source = r#"feature customer
+  command legacy_update
+    policy @policy.update
+    deprecated since "2026-03-01" replacement command.update_v2 sunset "2026-12-31"
+    creates Customer
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(
+            features[0].commands[0].deprecated.as_ref().unwrap().replacement.as_deref(),
+            Some("command.update_v2")
+        );
+    }
+
+    #[test]
+    fn command_deprecated_bare_parses() {
+        let source = "feature customer\n  command legacy_update\n    policy @policy.update\n    deprecated\n    creates Customer\n";
+        let features = parse_feature_skeletons(source).unwrap();
+        let dep = features[0].commands[0].deprecated.as_ref().unwrap();
+        assert!(dep.since.is_none());
+        assert!(dep.replacement.is_none());
+        assert!(dep.sunset.is_none());
+    }
+
+    #[test]
+    fn api_deprecated_block_parses() {
+        let source = r#"feature customer
+  api legacy_export
+    method GET
+    path "/api/customers/export-v1"
+    output [Customer]
+    policy @policy.read
+    deprecated
+      since "2026-04-01"
+      replacement api.export_v2
+      sunset "2026-09-30"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let dep = features[0].apis[0].deprecated.as_ref().unwrap();
+        assert_eq!(dep.since.as_deref(), Some("2026-04-01"));
+        assert_eq!(dep.replacement.as_deref(), Some("api.export_v2"));
+        assert_eq!(dep.sunset.as_deref(), Some("2026-09-30"));
+    }
+
+    #[test]
+    fn api_deprecated_inline_parses() {
+        let source = r#"feature customer
+  api legacy_export
+    method GET
+    path "/api/customers/export-v1"
+    output [Customer]
+    deprecated since "2026-04-01" replacement api.export_v2 sunset "2026-09-30"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(
+            features[0].apis[0].deprecated.as_ref().unwrap().replacement.as_deref(),
+            Some("api.export_v2")
+        );
+    }
+
+    #[test]
+    fn api_deprecated_bare_parses() {
+        let source = "feature customer\n  api legacy_export\n    method GET\n    path \"/api/customers/export-v1\"\n    output [Customer]\n    deprecated\n";
+        let features = parse_feature_skeletons(source).unwrap();
+        let dep = features[0].apis[0].deprecated.as_ref().unwrap();
+        assert!(dep.since.is_none());
+        assert!(dep.replacement.is_none());
+        assert!(dep.sunset.is_none());
     }
 }
 

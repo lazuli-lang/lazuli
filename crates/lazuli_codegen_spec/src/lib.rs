@@ -98,6 +98,18 @@ pub struct RuntimeCommand {
     pub inputs: Vec<RuntimeInput>,
     pub emits: Vec<RuntimeEmit>,
     pub invalidates: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<RuntimeDeprecation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeDeprecation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +264,7 @@ pub fn customer_spike() -> RuntimeFeature {
                     "customer.query.list".to_owned(),
                     "customer.query.global_search".to_owned(),
                 ],
+                deprecated: None,
             },
             RuntimeCommand {
                 short_name: "update_email".to_owned(),
@@ -275,6 +288,7 @@ pub fn customer_spike() -> RuntimeFeature {
                     "customer.query.list".to_owned(),
                     "customer.query.by_id".to_owned(),
                 ],
+                deprecated: None,
             },
             RuntimeCommand {
                 short_name: "archive".to_owned(),
@@ -298,6 +312,7 @@ pub fn customer_spike() -> RuntimeFeature {
                     "customer.query.list".to_owned(),
                     "customer.query.by_id".to_owned(),
                 ],
+                deprecated: None,
             },
         ],
         queries: vec![

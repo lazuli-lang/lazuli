@@ -272,6 +272,7 @@ mod tests {
             }],
             emits: vec![],
             invalidates: vec![],
+            deprecated: None,
         }
     }
 
@@ -289,6 +290,7 @@ mod tests {
             }],
             emits: vec![],
             invalidates: vec![],
+            deprecated: None,
         }
     }
 

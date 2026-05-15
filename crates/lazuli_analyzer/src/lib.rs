@@ -2924,7 +2924,10 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         })
         .collect();
     let external_calls = c.external_calls.iter().map(lower_external_call).collect();
-    let deprecated = c.deprecated.as_ref().map(lower_command_deprecated);
+    let deprecated = c
+        .deprecated
+        .as_ref()
+        .map(|dep| lower_deprecated(dep, DeprecationTarget::Command));
     // Phase L Tier 4 follow-up — lift `timeout`/`retry`/`idempotency by`
     // mirrors of `parse_job`. Doctor cross-checks against
     // `external_calls` for the `INT-CALL-*` integration coverage rules.
@@ -2968,12 +2971,20 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
     })
 }
 
+#[derive(Clone, Copy)]
+enum DeprecationTarget {
+    Command,
+    Api,
+}
+
 /// OpenAPI bucket cycle — lower an authored `deprecated` decorator into
 /// the typed IR shape. `replacement` is classified by syntactic shape:
-/// `https?://` → Url, `<feature>.command.<name>` → Qualified, otherwise
-/// → LocalCommand. Doctor resolves LocalCommand against the same-feature
-/// command table.
-fn lower_command_deprecated(decl: &syntax::CommandDeprecatedDecl) -> ir::Deprecation {
+/// `https?://` → Url, `[<feature>.]command.<name>` / `[<feature>.]api.<name>`
+/// → typed callable ref, otherwise → same-kind local ref.
+fn lower_deprecated(
+    decl: &syntax::CommandDeprecatedDecl,
+    target: DeprecationTarget,
+) -> ir::Deprecation {
     let replacement = decl.replacement.as_ref().map(|raw| {
         let trimmed = raw.trim();
         if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
@@ -2983,15 +2994,30 @@ fn lower_command_deprecated(decl: &syntax::CommandDeprecatedDecl) -> ir::Depreca
             // verbatim escape hatch.
             ir::DeprecationReplacement::Url(format!("@{}", stripped))
         } else {
-            // Detect `<feature>.command.<name>` shape.
             let parts: Vec<&str> = trimmed.split('.').collect();
-            if parts.len() == 3 && parts[1] == "command" {
+            if parts.len() == 2 && parts[0] == "command" {
+                ir::DeprecationReplacement::LocalCommand(parts[1].to_owned())
+            } else if parts.len() == 2 && parts[0] == "api" {
+                ir::DeprecationReplacement::LocalApi(parts[1].to_owned())
+            } else if parts.len() == 3 && parts[1] == "command" {
                 ir::DeprecationReplacement::Qualified(ir::QualifiedName {
                     feature: Some(parts[0].to_owned()),
                     name: parts[2].to_owned(),
                 })
+            } else if parts.len() == 3 && parts[1] == "api" {
+                ir::DeprecationReplacement::QualifiedApi(ir::QualifiedName {
+                    feature: Some(parts[0].to_owned()),
+                    name: parts[2].to_owned(),
+                })
             } else {
-                ir::DeprecationReplacement::LocalCommand(trimmed.to_owned())
+                match target {
+                    DeprecationTarget::Command => {
+                        ir::DeprecationReplacement::LocalCommand(trimmed.to_owned())
+                    }
+                    DeprecationTarget::Api => {
+                        ir::DeprecationReplacement::LocalApi(trimmed.to_owned())
+                    }
+                }
             }
         }
     });
@@ -3022,6 +3048,10 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         .map(ir::PathRef::authored)
         .unwrap_or_else(|| ir::PathRef::convention(format!("./api/{}.go", a.name)));
     let policy_expr = a.policy_expr.as_ref().map(lower_policy_expr);
+    let deprecated = a
+        .deprecated
+        .as_ref()
+        .map(|dep| lower_deprecated(dep, DeprecationTarget::Api));
     ir::Api {
         name: a.name.clone(),
         method,
@@ -3032,6 +3062,7 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         output: type_ref_from_text(&a.output),
         handler,
         locale_negotiate: a.locale_negotiate.as_ref().map(lower_locale_negotiate_decl),
+        deprecated,
         span_ref: Some(span_of(a.span)),
     }
 }

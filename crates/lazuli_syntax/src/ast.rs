@@ -1354,6 +1354,8 @@ pub struct ApiDecl {
     /// body itself).
     #[serde(default)]
     pub input: Option<CommandInputDecl>,
+    /// `deprecated` child block shared with commands.
+    pub deprecated: Option<CommandDeprecatedDecl>,
     pub span: Span,
 }
 

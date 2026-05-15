@@ -12218,13 +12218,13 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         // OpenAPI bucket cycle — `deprecated` decorator + sub-fields.
         "deprecated" => Some(
-            "Marks a command, api, or outbound `webhook_event` schema as deprecated. Commands/apis use inline metadata; `webhook_event` uses `deprecated <bool>` plus its version trail.",
+            "Marks a command, api, or outbound `webhook_event` schema as deprecated. Commands/apis use inline metadata: `deprecated [since \"<version>\"] [replacement <ref>] [sunset \"<YYYY-MM-DD>\"]` or the block form with `since`/`replacement`/`sunset` children. `webhook_event` uses `deprecated <bool>` plus its version trail. Doctor: `deprecated-replacement-unknown`, `deprecated-sunset-past`, `deprecated-no-replacement`.",
         ),
         "since" => Some(
             "Version string when the deprecation was declared. Free-form (semver, calendar, git-sha); emitted verbatim as OpenAPI `x-lazuli-deprecated-since`.",
         ),
         "replacement" => Some(
-            "Replacement reference for a deprecated command. Resolves to a same-feature command name, a `<feature>.command.<name>` qualified ref, or an `https://` URL.",
+            "Replacement reference for a deprecated command or api. Resolves to `command.<name>`, `api.<name>`, `<feature>.command.<name>`, `<feature>.api.<name>`, or an `https://` URL.",
         ),
         "sunset" => Some(
             "ISO-8601 date (`YYYY-MM-DD`) when consumers must stop using this endpoint. Emitted as OpenAPI `x-lazuli-sunset` and HTTP `Sunset` header.",
@@ -12880,8 +12880,10 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
             "rate_limit",
             "audit",
             "route",
+            "deprecated",
         ],
     ),
+    ("deprecated", &["since", "replacement", "sunset"]),
     (
         "agent",
         &[
