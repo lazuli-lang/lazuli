@@ -20,10 +20,12 @@ pub use encryption::{
     EncryptionRotation, EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
 
-/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.13.0 by L.B.1
-/// (SourceMap companion). Companion is opt-in sidecar emission, so
-/// `Module` shape itself is unchanged; bump signals the companion
-/// exists for downstream tooling.
+/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.14.0 by
+/// CL.C.4 (Wave C) — additive `Field.slug`, `Resource.invariants`,
+/// `Feature.aggregates`, plus the new `Invariant` and `Aggregate`
+/// types. Module shape grows three optional slots (all empty defaults
+/// or `false`) so existing fixtures deserialize unchanged. Bump
+/// signals the new vocabulary is available to downstream tooling.
 pub const LZIR_SCHEMA: &str = "0.14.0";
 
 pub type FileId = u16;
@@ -380,6 +382,14 @@ pub struct Feature {
     /// pre-realtime fixtures deserialize with an empty vec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<Channel>,
+    /// CL.C.4 — `aggregate <Name>` declarations (DDD consistency
+    /// boundary). Each entry pins a root resource + a closed set of
+    /// member resources + invariants spanning the cluster. Sibling
+    /// slot of `resources`/`commands`/`policies`. Additive: features
+    /// without `aggregate` blocks deserialize with an empty vec.
+    /// See roadmap §1.7 + spec wave-c-cl4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aggregates: Vec<Aggregate>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -421,7 +431,10 @@ pub enum StorageValue {
     String(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// CL.C.4 — `Resource` drops `Eq` because `Invariant` (transitively
+/// carrying `EvalPredicate` ⇒ `Expr`) is not `Eq`. Mirrors the existing
+/// `Feature` derive note. Consumers needing equality use `PartialEq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Resource {
     pub name: String,
     /// Tenancy axis: `tenancy org`, `tenancy team`, or `tenancy none` (opt-out).
@@ -457,6 +470,13 @@ pub struct Resource {
     /// `None` when the resource has no lifecycle (the vast majority).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<Lifecycle>,
+    /// CL.C.4 — resource-level `invariant <name>` declarations. Each
+    /// invariant carries a closed-catalog predicate (`when <pred>`)
+    /// plus an authored `message`. Lowered from the canonical-indent
+    /// slice. Shared shape with `Aggregate.invariants` (DDD aggregate
+    /// boundary). Additive: pre-CL.C.4 fixtures deserialize empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariants: Vec<Invariant>,
 }
 
 /// Phase L Tier 4c — retention policy lifted from
@@ -502,6 +522,13 @@ pub struct Field {
     pub type_ref: TypeRef,
     pub required: bool,
     pub unique: bool,
+    /// CL.C.4 — `@slug` field decorator. When `true` the field is the
+    /// resource's URL slug column; codegen emits a unique index +
+    /// case-insensitive lookup. Doctor enforces implicit uniqueness
+    /// via `slug-uniqueness-implicit`. Additive boolean: pre-CL.C.4
+    /// fields deserialize with `slug == false`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub slug: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<DefaultValue>,
     /// Phase L Tier 4c — `<name>: <Type> derived from <expr>` lifts
@@ -1641,6 +1668,66 @@ pub enum OperationKind {
     Transition,
     /// Resolution deferred to the analyzer; default for legacy lowering.
     Unresolved,
+}
+
+// =============================================================================
+// CL.C.4 — `aggregate <Name>` + standalone `invariant <name>` vocabulary.
+//
+// `Invariant` is the shared shape used by `Resource.invariants` and
+// `Aggregate.invariants`. The predicate language stays closed-catalog —
+// authored `when <expr>` lowers to `EvalPredicate::Closed(...)` or
+// `EvalPredicate::Unparsed(text)` when the analyzer cannot project it.
+// No escape hatch into Go: callers must rephrase as closed-catalog
+// comparisons or move the rule into a `rule` block which already carries
+// its own typed predicate slot.
+//
+// `Aggregate` declares a DDD consistency boundary: one `root` resource,
+// zero-or-more `contains` members, and zero-or-more invariants whose
+// predicates span the cluster. Doctor enforces that `root` + every
+// `contains` entry resolves to a declared resource in the same feature,
+// and that each invariant predicate references only fields the analyzer
+// can resolve (`aggregate-root-unknown`, `aggregate-contains-unknown`,
+// `invariant-predicate-invalid`).
+// =============================================================================
+
+/// CL.C.4 — `Invariant` deliberately drops `Eq` because `EvalPredicate`
+/// carries an `Expr` chain that isn't `Eq` (mirrors the IR's existing
+/// `Feature` derive note). Consumers needing equality use `PartialEq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Invariant {
+    /// Snake-case identifier authored as `invariant <name>`.
+    pub name: String,
+    /// Closed-catalog predicate text from `when <expr>`. The analyzer
+    /// lifts this through the same closed-predicate parser the agent
+    /// `evals` block uses, so the shape mirrors `EvalPredicate`.
+    pub when: EvalPredicate,
+    /// Authored `message "<text>"`. Empty string when no message body
+    /// was written (doctor surfaces a follow-up suggestion).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// CL.C.4 — `Aggregate` drops `Eq` to keep parity with `Invariant`
+/// (transitively `EvalPredicate`-bearing). Consumers needing equality
+/// use `PartialEq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Aggregate {
+    /// `aggregate <Name>` — PascalCase declaration name.
+    pub name: String,
+    /// `root <Resource>` — the consistency-boundary root.
+    pub root: QualifiedName,
+    /// `contains <Resource>, <Resource>, ...` — closed cluster.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contains: Vec<QualifiedName>,
+    /// `invariants` block (zero or more) — predicates spanning the
+    /// cluster. Shape mirrors `Resource.invariants` so doctor and
+    /// codegen share one predicate-resolution path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariants: Vec<Invariant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4858,6 +4945,7 @@ mod lifecycle_tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(

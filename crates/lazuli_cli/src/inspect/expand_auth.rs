@@ -150,6 +150,7 @@ mod tests {
             translation: None,
             pollers: vec![],
             channels: vec![],
+            aggregates: vec![],
             auth,
             surfaces: vec![],
             extensions: vec![],

@@ -594,6 +594,12 @@ pub struct FeatureSkeleton {
     /// (three required children: `tenant_from`, `policy`, `payload`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<Channel>,
+    /// CL.C.4 — `aggregate <Name>` block(s) (DDD consistency
+    /// boundary). Sibling slot of `resources`/`commands`/`policies`.
+    /// Each entry carries a root resource + closed contains list +
+    /// cluster-spanning invariants. Lowered into `ir::Aggregate`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aggregates: Vec<AggregateDecl>,
     pub span: Span,
 }
 
@@ -1107,6 +1113,44 @@ pub struct ResourceDecl {
     /// Resource-owned state machine over one discriminator field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<crate::parser::LifecycleBlockAst>,
+    /// CL.C.4 — standalone `invariant <name>` blocks declared as
+    /// resource children. Each block carries a closed-catalog
+    /// predicate (`when <expr>`) plus an authored `message`. Shared
+    /// shape with `AggregateDecl.invariants`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariants: Vec<InvariantDecl>,
+    pub span: Span,
+}
+
+/// CL.C.4 — `aggregate <Name>` declaration block. DDD consistency
+/// boundary: one `root` resource, a closed `contains` member list,
+/// and zero-or-more invariants whose predicates span the cluster.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregateDecl {
+    pub name: String,
+    /// `root <Resource>` — the consistency-boundary root.
+    pub root: String,
+    /// `contains <Resource>, <Resource>, ...` — comma-separated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contains: Vec<String>,
+    /// `invariants` sub-block — zero or more `invariant <name>` blocks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariants: Vec<InvariantDecl>,
+    pub span: Span,
+}
+
+/// CL.C.4 — `invariant <name>` declaration. Shared by `ResourceDecl`
+/// and `AggregateDecl` (both surfaces author identical syntax). The
+/// `when` text is parsed by the analyzer into `ir::EvalPredicate`; the
+/// AST keeps it verbatim so doctor can echo the source on failure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvariantDecl {
+    pub name: String,
+    /// `when <expr>` — verbatim predicate text (analyzer parses).
+    pub when: String,
+    /// `message "<text>"` — authored message body (empty when absent).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub message: String,
     pub span: Span,
 }
 
@@ -1119,6 +1163,12 @@ pub struct ResourceFieldDecl {
     pub required: bool,
     pub optional: bool,
     pub unique: bool,
+    /// CL.C.4 — `@slug` field decorator. When `true` the field is the
+    /// resource's URL slug. Doctor enforces implicit uniqueness via
+    /// `slug-uniqueness-implicit`. Captured at parse time as a typed
+    /// modifier (sibling of `required`/`optional`/`unique`).
+    #[serde(default)]
+    pub slug: bool,
     /// `= <expr>` default value (verbatim).
     pub default: Option<String>,
     /// `derived from <expr>` computed-field expression (Phase L Tier 4c).

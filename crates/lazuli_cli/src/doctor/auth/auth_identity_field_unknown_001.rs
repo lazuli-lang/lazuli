@@ -142,6 +142,7 @@ mod tests {
             type_ref,
             required: true,
             unique,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
@@ -164,6 +165,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 
@@ -198,6 +200,7 @@ mod tests {
             translation: None,
             pollers: vec![],
             channels: vec![],
+            aggregates: vec![],
             auth: Some(Auth {
                 identity: AuthIdentity {
                     field: FieldRef {

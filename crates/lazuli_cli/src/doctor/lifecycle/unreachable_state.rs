@@ -94,6 +94,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: Some(lifecycle),
+            invariants: vec![],
         };
 
         Feature {
@@ -128,6 +129,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
         }

@@ -175,6 +175,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
         }
@@ -252,6 +253,7 @@ mod tests {
                 type_ref: TypeRef::Builtin(BuiltinType::Id),
                 required: true,
                 unique: false,
+                slug: false,
                 default: None,
                 derived_from: None,
                 constraints: FieldConstraints::default(),
@@ -277,6 +279,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 

@@ -89,6 +89,7 @@ pub fn empty_feature(name: &str) -> Feature {
         pollers: vec![],
         reports: vec![],
         channels: vec![],
+        aggregates: vec![],
         previous_names: vec![],
         span_ref: None,
     }
@@ -102,6 +103,7 @@ pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
         })),
         required: false,
         unique: false,
+        slug: false,
         default: None,
         derived_from: None,
         constraints: FieldConstraints::default(),
@@ -118,6 +120,7 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
         })),
         required: false,
         unique: false,
+        slug: false,
         default: None,
         derived_from: None,
         constraints: FieldConstraints::default(),
@@ -140,6 +143,7 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
         previous_names: vec![],
         span_ref: None,
         lifecycle: None,
+        invariants: vec![],
     }
 }
 

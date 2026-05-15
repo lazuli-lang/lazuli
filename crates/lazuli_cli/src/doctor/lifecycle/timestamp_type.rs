@@ -110,6 +110,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: Some(lc),
+            invariants: vec![],
         };
 
         Feature {
@@ -144,6 +145,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
         }
@@ -198,6 +200,7 @@ mod tests {
             type_ref,
             required: false,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),

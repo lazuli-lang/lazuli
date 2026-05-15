@@ -185,6 +185,7 @@ mod tests {
             type_ref,
             required,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -223,6 +224,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 
@@ -259,6 +261,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
         }

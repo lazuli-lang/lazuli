@@ -6,7 +6,8 @@ use thiserror::Error;
 
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
-    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate, ApiDecl,
+    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate,
+    AggregateDecl, ApiDecl,
     ApprovalThenDecl, AssignmentDecl, AudienceAst, Auth, AuthIdentity, AuthMfa, AuthOAuthProvider,
     AuthPassword, AuthSessions, BindingRefAst, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
     CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
@@ -17,7 +18,7 @@ use crate::ast::{
     EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
     FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl,
     FieldPolicyDecl, FilterCardinalityAst, FilterDeclAst, FeatureGatesAst, GateDirectiveAst,
-    HttpMethod, InvalidatesDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
+    HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
     ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience,
     LzxDocument, LzxErrorPage, LzxExperience, LzxExperienceView, LzxExtensionOrder,
@@ -3347,6 +3348,8 @@ fn parse_feature_skeleton(
     let mut pollers: Vec<PollerBlockAst> = Vec::new();
     let mut reports: Vec<ReportDecl> = Vec::new();
     let mut channels: Vec<Channel> = Vec::new();
+    // CL.C.4 — `aggregate <Name>` blocks (DDD consistency boundaries).
+    let mut aggregates: Vec<AggregateDecl> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -3432,6 +3435,19 @@ fn parse_feature_skeleton(
             let (parsed, next) = parse_channel(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             channels.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // CL.C.4 — `aggregate <Name>` block (DDD consistency boundary).
+        // Closed body: `root <Resource>` (required), `contains
+        // <Resource>, ...` (optional, repeatable), `invariants` block
+        // (optional). Sibling of `resource`/`command` at feature-child
+        // indent. See roadmap §1.7.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("aggregate ") {
+            let (parsed, next) = parse_aggregate_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            aggregates.push(parsed);
             i = next;
             continue;
         }
@@ -3626,6 +3642,7 @@ fn parse_feature_skeleton(
             pollers,
             reports,
             channels,
+            aggregates,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -5881,6 +5898,17 @@ fn parse_resource_decl(
             continue;
         }
 
+        // CL.C.4 — resource-scoped `invariant <name>` block. Shares
+        // parser with the aggregate-scoped form; closed body is
+        // `when <predicate>` plus optional `message "<text>"`.
+        if let Some(rest) = trimmed.strip_prefix("invariant ") {
+            let (inv, next) = parse_invariant_decl(lines, i, rest)?;
+            state.invariants.push(inv);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
+
         if trimmed.contains(':')
             && !resource_body_handlers()
                 .iter()
@@ -5925,6 +5953,7 @@ fn parse_resource_decl(
             retention: state.retention,
             validates: state.validates,
             lifecycle: state.lifecycle,
+            invariants: state.invariants,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -5942,6 +5971,8 @@ struct ResourceBodyState {
     retention: Option<ResourceRetention>,
     validates: Vec<String>,
     lifecycle: Option<LifecycleBlockAst>,
+    /// CL.C.4 — resource-scoped `invariant <name>` blocks.
+    invariants: Vec<InvariantDecl>,
 }
 
 type ResourceBodyHandler =
@@ -6326,6 +6357,302 @@ fn parse_lifecycle_single_identifier(
         ));
     }
     Ok(value.to_owned())
+}
+
+// ---------------------------------------------------------------------------
+// CL.C.4 — `aggregate <Name>` + standalone `invariant <name>` parsers.
+//
+// `aggregate` lives at feature-child indent (sibling of `resource`,
+// `command`). Closed body shape:
+//
+//     aggregate Order
+//       root Order
+//       contains OrderLine, Payment
+//       invariants
+//         invariant total_consistent
+//           when sum(lines.amount) == total
+//           message "Order total must match line items"
+//
+// `invariant` blocks also appear directly inside `resource` for
+// resource-scoped invariants. The two parsers share `parse_invariant_decl`.
+// ---------------------------------------------------------------------------
+
+fn parse_aggregate_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(AggregateDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let rest = header_trimmed
+        .strip_prefix("aggregate ")
+        .ok_or_else(|| line_error(header, "aggregate header must be `aggregate <Name>`"))?;
+    let name = rest.trim();
+    if name.is_empty() {
+        return Err(line_error(
+            header,
+            "aggregate header requires a name (`aggregate <Name>`)",
+        ));
+    }
+    let name = name.to_owned();
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let grandchild_indent = header_indent + 4;
+
+    let mut root: Option<String> = None;
+    let mut contains: Vec<String> = Vec::new();
+    let mut invariants: Vec<InvariantDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "aggregate body children use one indentation level deeper than the `aggregate` header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("root ") {
+            if root.is_some() {
+                return Err(line_error(
+                    line,
+                    "aggregate declares `root` at most once",
+                ));
+            }
+            let target = rest.trim();
+            if target.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`root` requires a resource name (`root <Resource>`)",
+                ));
+            }
+            if target.split_whitespace().count() != 1 {
+                return Err(line_error(
+                    line,
+                    "`root` accepts exactly one resource name",
+                ));
+            }
+            root = Some(target.to_owned());
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("contains ") {
+            let parts = rest.split(',').map(str::trim).filter(|s| !s.is_empty());
+            for member in parts {
+                if member.split_whitespace().count() != 1 {
+                    return Err(line_error(
+                        line,
+                        "`contains` accepts comma-separated resource names only",
+                    ));
+                }
+                contains.push(member.to_owned());
+            }
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        if trimmed == "invariants" {
+            // Open-block form: child block of `invariant <name>` blocks
+            // at grandchild_indent.
+            i += 1;
+            last_end = line.end;
+            while i < lines.len() {
+                let inv_line = &lines[i];
+                let inv_trim = inv_line.text.trim_start();
+                if is_trivia(inv_trim) {
+                    i += 1;
+                    continue;
+                }
+                if inv_line.indent <= child_indent {
+                    break;
+                }
+                if inv_line.indent != grandchild_indent {
+                    return Err(line_error(
+                        inv_line,
+                        "`invariants` children use one indentation level deeper than the `invariants` header",
+                    ));
+                }
+                if let Some(inv_rest) = inv_trim.strip_prefix("invariant ") {
+                    let (inv, next) = parse_invariant_decl(lines, i, inv_rest)?;
+                    invariants.push(inv);
+                    last_end = lines[next.saturating_sub(1).max(i)].end;
+                    i = next;
+                    continue;
+                }
+                return Err(line_error(
+                    inv_line,
+                    "`invariants` body accepts only `invariant <name>` blocks",
+                ));
+            }
+            continue;
+        }
+
+        return Err(line_error(
+            line,
+            "`aggregate` children are `root`, `contains`, or `invariants`",
+        ));
+    }
+
+    let root = root.ok_or_else(|| {
+        line_error(
+            header,
+            "aggregate requires a `root <Resource>` declaration",
+        )
+    })?;
+
+    Ok((
+        AggregateDecl {
+            name,
+            root,
+            contains,
+            invariants,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Parse a single `invariant <name>` block. Reused by
+/// `parse_aggregate_decl` (aggregate-scoped) and the resource parser
+/// (resource-scoped). Closed body: `when <expr>` (required), `message
+/// "<text>"` (optional).
+///
+/// `name_rest` is the substring after `invariant ` on the header line.
+fn parse_invariant_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    name_rest: &str,
+) -> Result<(InvariantDecl, usize), ParseError> {
+    let header = &lines[start];
+    let name = name_rest.trim();
+    if name.is_empty() {
+        return Err(line_error(
+            header,
+            "`invariant` requires a name (`invariant <name>`)",
+        ));
+    }
+    if name.split_whitespace().count() != 1 {
+        return Err(line_error(
+            header,
+            "`invariant` accepts exactly one name identifier",
+        ));
+    }
+    let name = name.to_owned();
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+
+    let mut when: Option<String> = None;
+    let mut message: String = String::new();
+    let mut message_seen = false;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "invariant body children use one indentation level deeper than the `invariant` header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("when ") {
+            if when.is_some() {
+                return Err(line_error(
+                    line,
+                    "invariant declares `when` at most once",
+                ));
+            }
+            let expr = rest.trim();
+            if expr.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`when` requires a predicate expression",
+                ));
+            }
+            when = Some(expr.to_owned());
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("message ") {
+            if message_seen {
+                return Err(line_error(
+                    line,
+                    "invariant declares `message` at most once",
+                ));
+            }
+            message_seen = true;
+            let raw = rest.trim();
+            if let Some(quoted) = raw.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                message = quoted.to_owned();
+            } else {
+                message = raw.to_owned();
+            }
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        return Err(line_error(
+            line,
+            "`invariant` children are `when <predicate>` and optional `message \"<text>\"`",
+        ));
+    }
+
+    let when = when.ok_or_else(|| {
+        line_error(header, "`invariant` requires a `when <predicate>` clause")
+    })?;
+
+    Ok((
+        InvariantDecl {
+            name,
+            when,
+            message,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// CL.C.4 — peel the `@slug` decorator off the raw type text. Returns
+/// the cleaned type text + a bool indicating presence. `@slug` is
+/// recognized as a standalone bare token (no parens) anywhere in the
+/// decorator chain; other `@*` decorators (`@semantic.X`, `@pii.X`,
+/// `@cap.Encrypted(...)`) stay inside the type text.
+fn extract_slug_decorator(text: &str) -> (String, bool) {
+    let mut parts: Vec<&str> = text.split_whitespace().collect();
+    let mut slug = false;
+    parts.retain(|tok| {
+        if *tok == "@slug" {
+            slug = true;
+            false
+        } else {
+            true
+        }
+    });
+    (parts.join(" "), slug)
 }
 
 // ---------------------------------------------------------------------------
@@ -7125,11 +7452,17 @@ fn parse_resource_field_decl(
     }
     let after = after.trim();
     // Split the type text from trailing modifiers honouring parens.
-    let (type_text, modifiers_text, default, derived_from, constraints) =
+    let (raw_type_text, modifiers_text, default, derived_from, constraints) =
         split_resource_field_after(header, after)?;
     let required = modifiers_text.contains("required");
     let optional = modifiers_text.contains("optional");
     let unique = modifiers_text.contains("unique");
+    // CL.C.4 — `@slug` field decorator. Lives in the type/decorator
+    // chain alongside `@semantic.X`/`@pii.X`. We peel it to a typed
+    // `Field.slug` bool so codegen and doctor read it from the typed
+    // slot without re-scanning `type_text`. Stripped from `type_text`
+    // so `type_ref_from_*` does not see an unknown token.
+    let (type_text, slug) = extract_slug_decorator(&raw_type_text);
 
     // Consume optional `previously migrated <old>` grandchild lines.
     let mut previously: Vec<String> = Vec::new();
@@ -7159,6 +7492,7 @@ fn parse_resource_field_decl(
             required,
             optional,
             unique,
+            slug,
             default,
             derived_from,
             constraints,
@@ -13982,6 +14316,167 @@ feature publication
         assert_eq!(lifecycle.transitions[0].name, "publish");
         assert_eq!(lifecycle.transitions[0].from, vec!["scheduled"]);
         assert_eq!(lifecycle.transitions[0].to, "published");
+    }
+
+    // -----------------------------------------------------------------
+    // CL.C.4 — `aggregate` + `invariant` + `@slug` parser tests.
+    //
+    // Coverage targets per spec: 4 aggregate, 3 invariant, 2 slug.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parses_aggregate_minimal_root_only() {
+        let source = "
+feature billing
+  aggregate Order
+    root Order
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features[0].aggregates.len(), 1);
+        assert_eq!(features[0].aggregates[0].name, "Order");
+        assert_eq!(features[0].aggregates[0].root, "Order");
+        assert!(features[0].aggregates[0].contains.is_empty());
+        assert!(features[0].aggregates[0].invariants.is_empty());
+    }
+
+    #[test]
+    fn parses_aggregate_with_contains_list() {
+        let source = "
+feature billing
+  aggregate Order
+    root Order
+    contains OrderLine, Payment
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let agg = &features[0].aggregates[0];
+        assert_eq!(agg.contains, vec!["OrderLine", "Payment"]);
+    }
+
+    #[test]
+    fn parses_aggregate_with_invariants_block() {
+        let source = "
+feature billing
+  aggregate Order
+    root Order
+    contains OrderLine
+    invariants
+      invariant total_consistent
+        when total = total
+        message \"line totals must match order total\"
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let agg = &features[0].aggregates[0];
+        assert_eq!(agg.invariants.len(), 1);
+        assert_eq!(agg.invariants[0].name, "total_consistent");
+        assert_eq!(agg.invariants[0].when, "total = total");
+        assert_eq!(
+            agg.invariants[0].message,
+            "line totals must match order total"
+        );
+    }
+
+    #[test]
+    fn aggregate_rejects_missing_root() {
+        let source = "
+feature billing
+  aggregate Order
+    contains OrderLine
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("requires a `root <Resource>` declaration"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn parses_resource_level_invariant() {
+        let source = "
+feature billing
+  resource Order
+    total: Integer required
+    invariant total_non_negative
+      when total >= 0
+      message \"order total cannot be negative\"
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let r = &features[0].resources[0];
+        assert_eq!(r.invariants.len(), 1);
+        assert_eq!(r.invariants[0].name, "total_non_negative");
+        assert_eq!(r.invariants[0].when, "total >= 0");
+    }
+
+    #[test]
+    fn invariant_rejects_missing_when() {
+        let source = "
+feature billing
+  resource Order
+    total: Integer required
+    invariant bad
+      message \"oops\"
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("requires a `when <predicate>` clause"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn invariant_rejects_unknown_child() {
+        let source = "
+feature billing
+  resource Order
+    invariant bad
+      when total = 0
+      bogus thing
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("`invariant` children are"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn parses_slug_field_decorator() {
+        let source = "
+feature blog
+  resource Post
+    slug: Text @slug required
+    title: Text required
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let r = &features[0].resources[0];
+        assert_eq!(r.fields.len(), 2);
+        // First field is the slug field; `@slug` peeled, type clean.
+        assert_eq!(r.fields[0].name, "slug");
+        assert!(r.fields[0].slug, "`@slug` should peel into Field.slug");
+        assert!(r.fields[0].required);
+        assert!(
+            !r.fields[0].type_text.contains("@slug"),
+            "@slug should be stripped from type_text; got: {}",
+            r.fields[0].type_text
+        );
+        // Second field has no `@slug`.
+        assert!(!r.fields[1].slug);
+    }
+
+    #[test]
+    fn slug_decorator_coexists_with_unique_modifier() {
+        let source = "
+feature blog
+  resource Post
+    slug: Text @slug required unique
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let f = &features[0].resources[0].fields[0];
+        assert!(f.slug);
+        assert!(f.unique);
+        assert!(f.required);
     }
 
     #[test]

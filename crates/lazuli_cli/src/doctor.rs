@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod design;
 pub mod correctness;
+pub mod domain;
 pub mod encryption;
 pub mod folder;
 pub mod lifecycle;
@@ -255,6 +256,16 @@ struct Tier3FeatureFacts {
     /// original (pre-lowering) form (e.g. `REPORT-FORMAT-UNKNOWN-001`
     /// scans the AST formats list since lowering drops unknown tokens).
     report_decls: Vec<lazuli_syntax::ReportDecl>,
+    /// CL.C.4 — lifted `aggregate <Name>` declarations per feature.
+    /// Powers the four domain-model diagnostics:
+    /// `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
+    /// `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
+    /// Empty vec when the feature authored no aggregate blocks.
+    aggregates: Vec<lazuli_ir::Aggregate>,
+    /// CL.C.4 — `aggregate_name -> source line` lookup. Anchors the
+    /// `AGGREGATE-*` and aggregate-scoped `INVARIANT-*` diagnostics
+    /// at the aggregate header.
+    aggregate_lines: BTreeMap<String, usize>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -592,6 +603,19 @@ impl DoctorPackage {
                                                     .unwrap_or(header_line)
                                             })
                                             .unwrap_or(header_line);
+                                        // CL.C.4 — line lookup for aggregates so
+                                        // domain diagnostics anchor at the
+                                        // `aggregate <Name>` header.
+                                        let mut aggregate_lines: BTreeMap<String, usize> =
+                                            BTreeMap::new();
+                                        for agg in &feature.aggregates {
+                                            let agg_line = agg
+                                                .span_ref
+                                                .as_ref()
+                                                .map(|s| line_col_for_offset(&file.source, s.start).0)
+                                                .unwrap_or(header_line);
+                                            aggregate_lines.insert(agg.name.clone(), agg_line);
+                                        }
                                         tier3_facts.push(Tier3FeatureFacts {
                                             feature: feature.name.clone(),
                                             path: file.path.clone(),
@@ -629,6 +653,8 @@ impl DoctorPackage {
                                             report_lines,
                                             resources: feature.resources.clone(),
                                             report_decls: skeleton.reports.clone(),
+                                            aggregates: feature.aggregates.clone(),
+                                            aggregate_lines,
                                         });
                                     }
                                     // Phase L Tier 4 follow-up — populate the
@@ -1077,6 +1103,11 @@ impl DoctorPackage {
             self.app.as_ref().map(|a| &a.manifest),
             self.registry.as_ref(),
         ));
+
+        // CL.C.4 — domain-model diagnostics (roadmap §1.7). Four codes:
+        // `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
+        // `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
+        diagnostics.extend(domain_diagnostics(&self.tier3_facts));
 
         diagnostics.extend(folder_layout_diagnostics(
             &self.project_root,
@@ -10753,9 +10784,95 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         reports: fact.reports.clone(),
         pollers: vec![],
         channels: Vec::new(),
+        aggregates: fact.aggregates.clone(),
         previous_names: Vec::new(),
         span_ref: None,
     }
+}
+
+/// CL.C.4 — dispatch the four domain-model diagnostics over every
+/// feature fact. Each rule consumes a synthesized `Feature` view (the
+/// rules take `&Feature` to stay independent of the doctor scaffolding).
+/// Line anchoring uses `aggregate_lines` for aggregate-scoped findings
+/// and `feature_line` otherwise.
+fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for fact in facts {
+        if fact.aggregates.is_empty()
+            && fact.resources.iter().all(|r| r.invariants.is_empty())
+            && fact.resources.iter().all(|r| r.fields.iter().all(|f| !f.slug))
+        {
+            continue;
+        }
+        let feature = make_synthetic_feature_for_reports(fact);
+
+        // AGGREGATE-ROOT-UNKNOWN
+        for finding in domain::aggregate_root_unknown::check(&feature, &fact.path) {
+            let line = fact
+                .aggregate_lines
+                .get(&finding.aggregate)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::aggregate_root_unknown::Finding::CODE.to_owned(),
+            });
+        }
+        // AGGREGATE-CONTAINS-UNKNOWN
+        for finding in domain::aggregate_contains_unknown::check(&feature, &fact.path) {
+            let line = fact
+                .aggregate_lines
+                .get(&finding.aggregate)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::aggregate_contains_unknown::Finding::CODE.to_owned(),
+            });
+        }
+        // INVARIANT-PREDICATE-INVALID — covers both resource-scoped
+        // and aggregate-scoped invariants.
+        for finding in domain::invariant_predicate_invalid::check(&feature, &fact.path) {
+            let line = match &finding.scope {
+                domain::invariant_predicate_invalid::InvariantScope::Aggregate(a) => fact
+                    .aggregate_lines
+                    .get(a)
+                    .copied()
+                    .unwrap_or(fact.feature_line),
+                domain::invariant_predicate_invalid::InvariantScope::Resource(_) => {
+                    fact.feature_line
+                }
+            };
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::invariant_predicate_invalid::Finding::CODE.to_owned(),
+            });
+        }
+        // SLUG-UNIQUENESS-IMPLICIT — warning, not error.
+        for finding in domain::slug_uniqueness_implicit::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: domain::slug_uniqueness_implicit::Finding::CODE.to_owned(),
+            });
+        }
+    }
+    diagnostics
 }
 
 fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
@@ -12234,6 +12351,8 @@ mod tests {
                                     report_lines,
                                     resources: feature.resources.clone(),
                                     report_decls: skeleton.reports.clone(),
+                                    aggregates: feature.aggregates.clone(),
+                                    aggregate_lines: BTreeMap::new(),
                                 });
                             }
                             // Phase L Tier 4 follow-up — mirror the IR-driven
@@ -12384,6 +12503,8 @@ mod tests {
                                     report_lines: BTreeMap::new(),
                                     resources: feature.resources.clone(),
                                     report_decls: skeleton.reports.clone(),
+                                    aggregates: feature.aggregates.clone(),
+                                    aggregate_lines: BTreeMap::new(),
                                 });
                             }
                         }
@@ -12920,7 +13041,7 @@ surface customer_auth web
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     customer
   targets
@@ -12991,7 +13112,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     customer
   targets
@@ -13092,7 +13213,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     customer
   targets
@@ -13156,7 +13277,7 @@ feature customer
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   auth_failed_redirect public_login
   not_found public_not_found
   uses
@@ -13279,7 +13400,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     payments
   bindings
@@ -13326,7 +13447,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     payments
   packs
@@ -13375,7 +13496,7 @@ registry
             "app.lzi",
             r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     payments
   packs
@@ -13410,7 +13531,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     customer
   targets
@@ -13466,7 +13587,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     payments
   targets
@@ -13502,7 +13623,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     payments
   bindings
@@ -13552,7 +13673,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     imports
   bindings
@@ -13608,7 +13729,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     imports
   targets
@@ -13655,7 +13776,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     imports
   bindings
@@ -13721,7 +13842,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     imports
   targets
@@ -13786,7 +13907,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.13"
+  lazuli_version "0.14"
   uses
     customer
     billing
@@ -16687,6 +16808,8 @@ feature customer
             report_lines: BTreeMap::new(),
             resources: Vec::new(),
             report_decls: Vec::new(),
+            aggregates: Vec::new(),
+            aggregate_lines: BTreeMap::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -16744,6 +16867,8 @@ feature customer
             report_lines: BTreeMap::new(),
             resources: Vec::new(),
             report_decls: Vec::new(),
+            aggregates: Vec::new(),
+            aggregate_lines: BTreeMap::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(

@@ -68,6 +68,7 @@ fn empty_feature(name: &str) -> Feature {
         agents: Vec::new(),
         reports: Vec::new(),
         channels: Vec::new(),
+        aggregates: vec![],
         previous_names: Vec::new(),
         span_ref: None,
     }
@@ -436,6 +437,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
             type_ref: TypeRef::Builtin(BuiltinType::Text),
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
@@ -449,6 +451,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
         previous_names: Vec::new(),
         span_ref: None,
         lifecycle: None,
+        invariants: vec![],
     };
     module.features[0].resources.push(resource);
 
@@ -594,6 +597,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
             }),
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
@@ -607,6 +611,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         previous_names: Vec::new(),
         span_ref: None,
         lifecycle: None,
+        invariants: vec![],
     });
 
     // Add User on `org` feature.
@@ -620,6 +625,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
             type_ref: TypeRef::Builtin(BuiltinType::Text),
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
@@ -633,6 +639,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         previous_names: Vec::new(),
         span_ref: None,
         lifecycle: None,
+        invariants: vec![],
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());
@@ -690,6 +697,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
                 type_ref: TypeRef::Builtin(BuiltinType::Text),
                 required: true,
                 unique: false,
+                slug: false,
                 default: None,
                 derived_from: None,
                 constraints: FieldConstraints::default(),
@@ -701,6 +709,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
                 type_ref: TypeRef::Builtin(BuiltinType::SemanticEmail),
                 required: true,
                 unique: false,
+                slug: false,
                 default: None,
                 derived_from: None,
                 constraints: FieldConstraints::default(),
@@ -715,6 +724,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         previous_names: Vec::new(),
         span_ref: None,
         lifecycle: None,
+        invariants: vec![],
     });
 
     // Command — `customer.create` with typed input + Creates effect.
@@ -1092,6 +1102,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
             type_ref: TypeRef::Builtin(BuiltinType::SemanticGeoPoint),
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
@@ -1105,6 +1116,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         previous_names: Vec::new(),
         span_ref: None,
         lifecycle: None,
+        invariants: vec![],
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());

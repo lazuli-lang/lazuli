@@ -138,6 +138,7 @@ mod tests {
             translation: None,
             pollers: vec![],
             channels: vec![],
+            aggregates: vec![],
             auth: Some(Auth {
                 identity: AuthIdentity {
                     field: FieldRef {

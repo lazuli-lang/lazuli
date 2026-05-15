@@ -513,6 +513,11 @@ struct ExpandSet {
     /// Roadmap §1.11 — `--expand=webhook_events` projects the package
     /// registry's canonical outbound webhook event schemas.
     webhook_events: bool,
+    /// CL.C.4 — `--expand=aggregates` projects every lifted
+    /// `ir::Aggregate` declaration on the feature, including the
+    /// `root` resource, the `contains` cluster, and any invariants
+    /// (with predicate text + message). Roadmap §1.7.
+    aggregates: bool,
 }
 
 impl ExpandSet {
@@ -540,6 +545,7 @@ impl ExpandSet {
             migrations: true,
             notifications: true,
             webhook_events: true,
+            aggregates: true,
         }
     }
 
@@ -566,6 +572,7 @@ impl ExpandSet {
             || self.migrations
             || self.webhook_events
             || self.notifications
+            || self.aggregates
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -635,6 +642,9 @@ impl ExpandSet {
         }
         if self.webhook_events {
             labels.push("webhook_events");
+        }
+        if self.aggregates {
+            labels.push("aggregates");
         }
         labels
     }
@@ -4066,8 +4076,11 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // `throttle` sub-blocks. The scalar fields surface in
             // default inspect; this flag adds the structured shapes.
             "notifications" => set.notifications = true,
+            // CL.C.4 — projects every lifted `ir::Aggregate` on the
+            // feature (root + contains + invariants). Roadmap §1.7.
+            "aggregates" => set.aggregates = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, or notifications"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, or aggregates"
             ),
         }
     }
@@ -4181,6 +4194,10 @@ struct InspectFeature {
     /// `ir::TenantMigration` on the feature.
     #[serde(skip_serializing_if = "Option::is_none")]
     tenant_migrations: Option<Vec<lazuli_ir::TenantMigration>>,
+    /// CL.C.4 — populated only when `--expand=aggregates` is set.
+    /// Every lifted `ir::Aggregate` on the feature. Roadmap §1.7.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    aggregates: Option<Vec<InspectAggregate>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -4819,6 +4836,32 @@ struct InspectEventGroup {
     origin: &'static str,
 }
 
+// CL.C.4 — `--expand=aggregates` projections (roadmap §1.7).
+#[derive(Debug, Serialize)]
+struct InspectAggregate {
+    name: String,
+    root: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    contains: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    invariants: Vec<InspectInvariant>,
+    origin: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectInvariant {
+    name: String,
+    /// Closed-catalog predicate text. The IR carries an
+    /// `EvalPredicate`; we stringify it back so the projection is
+    /// stable across `Closed` / `Unparsed` / `Contains` shapes.
+    when: String,
+    /// Predicate kind as projected. Aids LLM/cold-reader inspection;
+    /// stable closed catalog: `closed | contains | tools_calls | unparsed`.
+    when_kind: &'static str,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    message: String,
+}
+
 #[derive(Debug, Serialize)]
 struct InspectSecurityWebhook {
     webhook: String,
@@ -4938,7 +4981,8 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         || expansions.notifications
         || expansions.policies
         || expansions.tests
-        || expansions.migrations)
+        || expansions.migrations
+        || expansions.aggregates)
         && !is_lzx
     {
         collect_tier3_by_feature(source)
@@ -4994,6 +5038,7 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 tenant_migrations: feature_ir.tenant_migrations,
                 notifications: feature_ir.notifications,
                 policies: feature_ir.policies,
+                aggregates: feature_ir.aggregates,
             },
         );
     }
@@ -5017,6 +5062,9 @@ struct Tier3FeatureSlice {
     /// `inspect_tests` consume; retires the `collect_policy_atoms`
     /// text walker.
     policies: lazuli_ir::Policies,
+    /// CL.C.4 — lifted `aggregate <Name>` declarations. Powers
+    /// `--expand=aggregates`.
+    aggregates: Vec<lazuli_ir::Aggregate>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -5169,6 +5217,17 @@ fn inspect_feature(
             .map(|t| t.tenant_migrations.clone())
             .unwrap_or_default()
     });
+    // CL.C.4 — `--expand=aggregates` projection.
+    let aggregates_projection = expansions.aggregates.then(|| {
+        tier3
+            .map(|t| {
+                t.aggregates
+                    .iter()
+                    .map(project_aggregate)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
 
     InspectFeature {
         name,
@@ -5197,6 +5256,7 @@ fn inspect_feature(
         webhooks: webhooks_projection,
         event_groups: event_groups_projection,
         tenant_migrations: tenant_migrations_projection,
+        aggregates: aggregates_projection,
     }
 }
 
@@ -5356,6 +5416,120 @@ fn project_event_group(group: &lazuli_ir::EventGroup) -> InspectEventGroup {
         audit: group.raw_audit.clone(),
         events: group.events.clone(),
         origin: "event_group",
+    }
+}
+
+// CL.C.4 — project an `ir::Aggregate` into the inspect view.
+fn project_aggregate(agg: &lazuli_ir::Aggregate) -> InspectAggregate {
+    InspectAggregate {
+        name: agg.name.clone(),
+        root: format_qname(&agg.root),
+        contains: agg.contains.iter().map(format_qname).collect(),
+        invariants: agg.invariants.iter().map(project_invariant).collect(),
+        origin: "aggregate",
+    }
+}
+
+fn project_invariant(inv: &lazuli_ir::Invariant) -> InspectInvariant {
+    let (when, when_kind): (String, &'static str) = match &inv.when {
+        lazuli_ir::EvalPredicate::Closed(pred) => {
+            (predicate_to_string(pred), "closed")
+        }
+        lazuli_ir::EvalPredicate::Contains { lhs, rhs } => {
+            let rhs_str = match rhs {
+                lazuli_ir::EvalContainsRhs::Literal(t) => format!("\"{t}\""),
+                lazuli_ir::EvalContainsRhs::SemanticType(q) => format_qname(q),
+            };
+            (
+                format!("{} contains {}", path_to_string(lhs), rhs_str),
+                "contains",
+            )
+        }
+        lazuli_ir::EvalPredicate::ToolsCalls { op, target } => (
+            format!("tools.calls {} {}", op_as_str(op), tool_ref_to_string(target)),
+            "tools_calls",
+        ),
+        lazuli_ir::EvalPredicate::Unparsed(text) => (text.clone(), "unparsed"),
+    };
+    InspectInvariant {
+        name: inv.name.clone(),
+        when,
+        when_kind,
+        message: inv.message.clone(),
+    }
+}
+
+fn predicate_to_string(pred: &lazuli_ir::Predicate) -> String {
+    match pred {
+        lazuli_ir::Predicate::Comparison { left, op, right } => format!(
+            "{} {} {}",
+            inspect_expr_to_string(left),
+            compare_op_to_string(*op),
+            inspect_expr_to_string(right),
+        ),
+        lazuli_ir::Predicate::Has {
+            collection,
+            element,
+        } => format!(
+            "{} has {}",
+            inspect_expr_to_string(collection),
+            inspect_expr_to_string(element),
+        ),
+        lazuli_ir::Predicate::And(parts) => parts
+            .iter()
+            .map(predicate_to_string)
+            .collect::<Vec<_>>()
+            .join(" and "),
+        lazuli_ir::Predicate::Or(parts) => parts
+            .iter()
+            .map(predicate_to_string)
+            .collect::<Vec<_>>()
+            .join(" or "),
+    }
+}
+
+fn compare_op_to_string(op: lazuli_ir::CompareOp) -> &'static str {
+    match op {
+        lazuli_ir::CompareOp::Eq => "=",
+        lazuli_ir::CompareOp::Ne => "!=",
+        lazuli_ir::CompareOp::Lt => "<",
+        lazuli_ir::CompareOp::Le => "<=",
+        lazuli_ir::CompareOp::Gt => ">",
+        lazuli_ir::CompareOp::Ge => ">=",
+    }
+}
+
+fn op_as_str(op: &lazuli_ir::ToolsCallsOp) -> &'static str {
+    match op {
+        lazuli_ir::ToolsCallsOp::Includes => "includes",
+        lazuli_ir::ToolsCallsOp::Excludes => "excludes",
+    }
+}
+
+fn tool_ref_to_string(t: &lazuli_ir::QualifiedToolRef) -> String {
+    match t {
+        lazuli_ir::QualifiedToolRef::Local { kind, name } => {
+            format!("{}.{}", tool_kind_segment(*kind), name)
+        }
+        lazuli_ir::QualifiedToolRef::CrossFeature {
+            feature,
+            kind,
+            name,
+        } => format!("{feature}.{}.{name}", tool_kind_segment(*kind)),
+        lazuli_ir::QualifiedToolRef::Adapter { dotted } => {
+            format!("@tool.{}", dotted.join("."))
+        }
+    }
+}
+
+fn tool_kind_segment(kind: lazuli_ir::ToolKind) -> &'static str {
+    match kind {
+        lazuli_ir::ToolKind::QueryList => "query.list",
+        lazuli_ir::ToolKind::QueryLookup => "query.lookup",
+        lazuli_ir::ToolKind::QuerySql => "query.sql",
+        lazuli_ir::ToolKind::Command => "command",
+        lazuli_ir::ToolKind::Api => "api",
+        lazuli_ir::ToolKind::QueryUnspecified => "query",
     }
 }
 
@@ -9375,6 +9549,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
         };
@@ -9405,6 +9580,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 
@@ -9414,6 +9590,7 @@ mod tests {
             type_ref,
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -10316,6 +10493,64 @@ registry
         assert!(expansions.security);
         assert!(!expansions.tests);
         assert!(parse_expand_set("crud").is_err());
+    }
+
+    // CL.C.4 — `--expand=aggregates` projection test (spec wave-c-cl4).
+    #[test]
+    fn inspect_expand_aggregates_projects_root_contains_invariants() {
+        let expansions = parse_expand_set("aggregates").unwrap();
+        assert!(expansions.aggregates);
+
+        let source = "
+feature billing
+  resource Order
+    total: Integer required
+
+  resource OrderLine
+    amount: Integer required
+
+  aggregate OrderBoundary
+    root Order
+    contains OrderLine
+    invariants
+      invariant total_non_negative
+        when total >= 0
+        message \"order total cannot be negative\"
+";
+        let report = inspect_canonical_source(
+            source,
+            Path::new("features/billing/billing.lzi"),
+            expansions,
+        );
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            json.contains("\"aggregates\":["),
+            "expected aggregates projection in JSON: {json}"
+        );
+        assert!(
+            json.contains("\"name\":\"OrderBoundary\""),
+            "aggregate name should surface: {json}"
+        );
+        assert!(
+            json.contains("\"root\":\"Order\""),
+            "root should surface verbatim: {json}"
+        );
+        assert!(
+            json.contains("\"contains\":[\"OrderLine\"]"),
+            "contains list should surface: {json}"
+        );
+        assert!(
+            json.contains("\"name\":\"total_non_negative\""),
+            "invariant name should surface: {json}"
+        );
+        assert!(
+            json.contains("\"when\":\"total >= 0\""),
+            "predicate text should round-trip: {json}"
+        );
+        assert!(
+            json.contains("\"when_kind\":\"closed\""),
+            "closed predicate kind should surface: {json}"
+        );
     }
 
     // -------------------------------------------------------------------------

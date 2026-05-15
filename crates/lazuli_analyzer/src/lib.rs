@@ -292,6 +292,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         agents: Vec::new(),
         reports: Vec::new(),
         channels: Vec::new(),
+        aggregates: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
             start: document.span.start,
@@ -1059,6 +1060,7 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
         previous_names: Vec::new(),
         span_ref: Some(span_of(aggregate.span)),
         lifecycle: None,
+        invariants: Vec::new(),
     };
 
     let commands = aggregate
@@ -1096,6 +1098,7 @@ fn lower_field(field: &syntax::Field) -> ir::Field {
         type_ref: type_ref_from_syntax(&field.ty),
         required,
         unique,
+        slug: false,
         default,
         derived_from: None,
         constraints: ir::FieldConstraints::default(),
@@ -2107,6 +2110,12 @@ pub fn lower_feature_skeleton(
         .iter()
         .map(|r| lower_report_decl(&skeleton.name, r))
         .collect::<Result<Vec<_>, _>>()?;
+    // CL.C.4 — lower `aggregate <Name>` blocks from the surface AST.
+    let aggregates = skeleton
+        .aggregates
+        .iter()
+        .map(lower_aggregate_decl)
+        .collect::<Vec<_>>();
     let mut feature = ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
@@ -2139,11 +2148,55 @@ pub fn lower_feature_skeleton(
         agents,
         reports,
         channels: skeleton.channels.iter().map(lower_channel).collect(),
+        aggregates,
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
     lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
     Ok(feature)
+}
+
+/// CL.C.4 — lower an `AggregateDecl` from the surface AST into
+/// `ir::Aggregate`. Resource references stay unqualified `QualifiedName`
+/// (feature `None`); doctor resolves them against the surrounding
+/// feature's resource list.
+fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
+    ir::Aggregate {
+        name: decl.name.clone(),
+        root: ir::QualifiedName {
+            feature: None,
+            name: decl.root.clone(),
+        },
+        contains: decl
+            .contains
+            .iter()
+            .map(|m| ir::QualifiedName {
+                feature: None,
+                name: m.clone(),
+            })
+            .collect(),
+        invariants: decl
+            .invariants
+            .iter()
+            .map(lower_invariant_decl)
+            .collect(),
+        span_ref: Some(span_of(decl.span)),
+    }
+}
+
+/// CL.C.4 — lower an `InvariantDecl` (shared by aggregate-scoped and
+/// resource-scoped sites) into `ir::Invariant`. The `when` expression
+/// is run through the closed-predicate parser used by agent `evals`
+/// (`parse_closed_predicate`); when the shape isn't recognized the
+/// `EvalPredicate::Unparsed(text)` variant carries the verbatim source
+/// so doctor can echo it on failure.
+fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
+    ir::Invariant {
+        name: decl.name.clone(),
+        when: parse_closed_predicate(&decl.when),
+        message: decl.message.clone(),
+        span_ref: Some(span_of(decl.span)),
+    }
 }
 
 /// Phase L Tier 4d — lower a canonical-indent query declaration into
@@ -2383,6 +2436,12 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
     // for a single-entry case (the fixture pattern). Multi-entry would
     // need a `Vec`; defer until pilot evidence demands it.
     let validate = r.validates.first().map(|v| ir::PathRef::authored(v));
+    // CL.C.4 — lower resource-scoped `invariant <name>` blocks.
+    let invariants = r
+        .invariants
+        .iter()
+        .map(lower_invariant_decl)
+        .collect::<Vec<_>>();
     Ok(ir::Resource {
         name: r.name.clone(),
         tenancy,
@@ -2400,6 +2459,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
             .collect(),
         span_ref: Some(span_of(r.span)),
         lifecycle: None,
+        invariants,
     })
 }
 
@@ -2444,6 +2504,8 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
         type_ref: type_ref_from_syntax(&f.type_text),
         required: f.required,
         unique: f.unique,
+        // CL.C.4 — lift `@slug` decorator presence into the typed IR.
+        slug: f.slug,
         default,
         derived_from: f.derived_from.clone(),
         constraints,

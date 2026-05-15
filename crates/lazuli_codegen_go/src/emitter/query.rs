@@ -1042,6 +1042,7 @@ mod tests {
             agents: Vec::new(),
             reports: Vec::new(),
             channels: Vec::new(),
+            aggregates: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1053,6 +1054,7 @@ mod tests {
             type_ref,
             required,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -1075,6 +1077,7 @@ mod tests {
             previous_names: Vec::new(),
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 
@@ -1527,6 +1530,7 @@ mod feature_emit {
             agents: Vec::new(),
             reports: Vec::new(),
             channels: Vec::new(),
+            aggregates: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1538,6 +1542,7 @@ mod feature_emit {
             type_ref,
             required,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -1560,6 +1565,7 @@ mod feature_emit {
             previous_names: Vec::new(),
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 

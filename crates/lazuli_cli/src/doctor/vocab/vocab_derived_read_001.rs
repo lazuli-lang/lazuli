@@ -231,6 +231,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
         }
@@ -250,6 +251,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 
@@ -259,6 +261,7 @@ mod tests {
             type_ref: TypeRef::Builtin(BuiltinType::Text),
             required: false,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -273,6 +276,7 @@ mod tests {
             type_ref: TypeRef::Builtin(BuiltinType::Text),
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -400,6 +404,7 @@ mod tests {
             })),
             required: false,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -425,6 +430,7 @@ mod tests {
             type_ref: TypeRef::Builtin(BuiltinType::Text),
             required: false,
             unique: false,
+            slug: false,
             default: Some(DefaultValue::String("active".into())),
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -466,6 +472,7 @@ mod tests {
             type_ref: TypeRef::Builtin(BuiltinType::Text),
             required: false,
             unique: false,
+            slug: false,
             default: None,
             derived_from: Some("\"https://example.com/p/{{slug}}\"".into()),
             constraints: lazuli_ir::FieldConstraints::default(),

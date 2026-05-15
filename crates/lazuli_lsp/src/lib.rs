@@ -12074,6 +12074,28 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "event.trace" => {
             Some("Declares an observability-only event that is outside the feature reaction graph.")
         }
+        // CL.C.4 — domain-model vocabulary (roadmap §1.7).
+        "aggregate" => Some(
+            "Declares a DDD consistency boundary: `aggregate <Name>` with `root <Resource>` (required), optional `contains <Resource>, ...`, and an optional `invariants` block. The root is the consistency anchor; `contains` lists the closed cluster. Predicate language stays closed-catalog (no escape hatch).",
+        ),
+        "root" => Some(
+            "Inside `aggregate`: declares the consistency-boundary root. Exactly one resource name (`root <Resource>`). Doctor: `AGGREGATE-ROOT-UNKNOWN` rejects roots that do not resolve to a same-feature resource.",
+        ),
+        "contains" => Some(
+            "Inside `aggregate`: declares the closed cluster (`contains <Resource>, <Resource>, ...`). Comma-separated bare resource names. Doctor: `AGGREGATE-CONTAINS-UNKNOWN` rejects unknown members.",
+        ),
+        "invariant" => Some(
+            "Declares a closed-catalog predicate: `invariant <name>` with `when <predicate>` (required) and optional `message \"<text>\"`. Standalone form lives inside `resource` or `aggregate.invariants`. Doctor: `INVARIANT-PREDICATE-INVALID` rejects predicates referencing unknown fields. NOT a mechanism escape hatch — predicate sublanguage is the same closed catalog used by agent `evals`.",
+        ),
+        "invariants" => Some(
+            "Inside `aggregate`: open block of `invariant <name>` declarations whose predicates may span the cluster (root + contains members). Same shape as resource-scoped invariants.",
+        ),
+        "when" => Some(
+            "Inside `invariant`: the closed-catalog predicate. Comparisons (`=`, `!=`, `<`, `<=`, `>`, `>=`), `has <element>`, `and`/`or`. Identifiers must resolve to fields on the scoping resource (or the aggregate's root + `contains` members).",
+        ),
+        "@slug" => Some(
+            "Field decorator: marks the field as the resource's URL slug column. Codegen emits a unique index + case-insensitive lookup. Doctor: `SLUG-UNIQUENESS-IMPLICIT` warns when `@slug` is missing an explicit `unique` modifier.",
+        ),
         "tenancy" => Some("Declares the tenant axis for generated scope and indexes."),
         "timestamps" => Some("Adds generated created/updated timestamp fields."),
         "soft_delete" => Some("Adds generated soft-delete scope and delete semantics."),
@@ -13350,6 +13372,15 @@ const KEYWORDS: &[&str] = &[
     "operation",
     "env",
     "aggregate",
+    // CL.C.4 — domain-model vocabulary (roadmap §1.7). `aggregate`
+    // was reserved in the catalog before this cut; the four new
+    // entries below complete the closed catalog.
+    "root",
+    "contains",
+    "invariant",
+    "invariants",
+    "when",
+    "message",
     "entity",
     "record",
     "command",

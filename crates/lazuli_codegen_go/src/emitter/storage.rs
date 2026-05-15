@@ -395,6 +395,7 @@ mod tests {
             agents: Vec::new(),
             reports: Vec::new(),
             channels: Vec::new(),
+            aggregates: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -414,6 +415,7 @@ mod tests {
             previous_names: Vec::new(),
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         }
     }
 
@@ -423,6 +425,7 @@ mod tests {
             type_ref: TypeRef::Capability(CapabilityRef::File(capability)),
             required: true,
             unique: false,
+            slug: false,
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
@@ -681,6 +684,7 @@ mod feature_emit_tests {
             agents: Vec::new(),
             reports: Vec::new(),
             channels: Vec::new(),
+            aggregates: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -730,6 +734,7 @@ mod feature_emit_tests {
                 })),
                 required: true,
                 unique: false,
+                slug: false,
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
@@ -743,6 +748,7 @@ mod feature_emit_tests {
             previous_names: Vec::new(),
             span_ref: None,
             lifecycle: None,
+            invariants: vec![],
         });
 
         let out = emit_entry_point(&feature).expect("typed file field must emit storage.gen.go");
