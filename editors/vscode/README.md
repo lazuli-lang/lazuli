@@ -1,127 +1,72 @@
-# Lazuli VS Code Extension
+# Lazuli for VS Code
 
-Adds Lazuli `.lzi` and `.lzx` language support:
+Language support for the [Lazuli](https://github.com/lazuli-lang/lazuli) AI-first DSL — `.lzi` (feature capsules), `.lzx` (experiences/surfaces), and `Lazurite.toml` (project manifest).
 
-- Syntax highlighting for canonical feature capsules
-- Syntax highlighting for workspace contracts, external contracts, app manifests, routes, experiences, and projections
-- Bracket configuration
+## Features
 
-## Development
+### Syntax highlighting
 
-This is intentionally syntax-only for now. Open this folder in VS Code and press `F5` to run it as an Extension Development Host, or package it with `vsce` later.
+- **Three distinct file icons** so `.lzi`, `.lzx`, and `Lazurite.toml` pop in the file tree (lapis-lazuli blue / citrine gold / rose-quartz pink).
+- Context-aware grammar (~70 named-block kinds) for every Lazuli construct — declarations, sub-blocks, statement keywords, modifiers, type catalogs (primitive / UI / extension / domain), decorators (`@policy.X`, `@scope.X`, `@fn.X`, `@cap.X`, `@semantic.X`, etc.), HTTP method constants, closed-catalog values (cookie `same_site`, headers, encryption, auth, digest, on_delete cascade rules…), expression operators (`@>`, `<@`, `?|`, `?&`, `matches`, `when`, `between`).
+- Reference paths split: known roots like `ctx` / `input` / `output` / `payload` / `route` get a distinct context accent; `.tenant.id` after them colors as a property chain.
+- Model paths (`Customer.ID`, `Item.tags`) split into type root + member chain.
+- Theme-friendly scope names — verified against Default Dark+/Light+/Dark Modern/Light Modern/One Dark Pro/Atom One Dark/Monokai/Solarized.
+- Lazurite.toml gets a TOML overlay highlighting the 9 known table headers + 24 known keys + `@plugin/X` module references distinctly from arbitrary user TOML.
 
-No Lazuli language server is started by this extension yet.
+### Language server (LSP)
 
-The sample syntax follows the canonical indentation-based capsule sketch:
+Bundles the Lazuli language server (`lazuli lsp`) so you get **live**:
 
-```txt
-app ExampleApp
-  uses
-    thing
-  targets
-    backend go
-    web react
-  environments
-    local
-  runtime
-    unit api
-      serves queries, commands
-  deploy
-    migrations before_deploy
+- **Diagnostics** — error / warning / hint squiggles for everything `lazuli doctor` would catch.
+- **Hover** — keyword docs sourced from the framework's authoritative catalog.
+- **Completion** — closed-catalog completion for keyword children.
+- File-local lints for app blocks, headers, cookies, secret rotation, audit, cache, etc.
 
-feature name
-  purpose "short product reason"
+The bundled binary is matched to the framework version; it auto-detects in this order:
 
-  non_goals
-    out_of_scope
-      unowned: "thing this feature does not own"
+1. User setting `lazuli.lspPath` (explicit override — point at your local dev build)
+2. Bundled `server/lazuli.exe` (shipped in the .vsix)
+3. `lazuli` on `PATH`
 
-  uses org
+### Snippets
 
-  domain
-    enum ThingStatus
-      active
-      archived
+25 ready-to-fill snippets for the common patterns:
 
-    resource Thing
-      tenancy org
-      name: Text required
-      status: ThingStatus = active
+- Top-level kinds: `feature`, `app`, `registry`, `workspace`, `profile`
+- Block kinds: `resource`, `record`, `enum`, `querylist`, `querylookup`, `command`, `api`, `view`, `webhook`, `job`, `agent`, `notification`, `route`
+- Sub-blocks: `policies`, `emits`, `route_slot`, `field`, `audit`, `ratelimit`, `policy_ref`
 
-    constraints
-      unique name per org
+Type the prefix (e.g. `command`) and press `Tab` to expand into a working skeleton with placeholder tabstops + closed-catalog choice picks.
 
-    query list
-      order created_at desc
+## Settings
 
-    event thing_created
-      thing_id: ID
+| Setting | Default | Description |
+|---|---|---|
+| `lazuli.lspPath` | `""` | Path to the lazuli executable used as the language server. When empty, falls back to bundled binary, then `PATH`. |
+| `lazuli.trace.server` | `"off"` | Trace LSP messages between VS Code and the lazuli server (`off` / `messages` / `verbose`). |
 
-  policies
-    create: role_admin
-    update: role_admin
-    read: same_org
+## Requirements
 
-  command create
-    input name
-    policy create
-    creates Thing
-      name = input.name
-    emits thing_created
+- VS Code `^1.90.0`
+- The bundled language server is Windows-x64 only in this release. macOS / Linux users should set `lazuli.lspPath` to a local `lazuli` build (`cargo install lazuli_cli`).
 
-  command rename
-    route id: ID
-    input
-      name: Text
-    target query.by_id(id: route.id)
-    policy update
-    updates Thing
-      name = input.name
+## Known limitations
 
-  workflow status on Thing.status
-    policy update
+- L0 #6 view-body grammar (terminal cells / drawer / search-segmented / sort / selection / bulk_actions / settings) is fully colored, but the LSP file-local diagnostics for these constructs are still being rolled out.
+- SQL inside `query.sql` is referenced via `sql "./path.sql"` (external file) — those `.sql` files get standard SQL highlighting from VS Code's bundled grammar; there is no inline triple-quoted SQL form in Lazuli today.
 
-    archive: active -> archived
+## Reporting issues
 
-experience thing
-  imports thing
+Please file issues at <https://github.com/lazuli-lang/lazuli/issues> with:
 
-  view list
-    source thing.query.list
+- Extension version (Settings → Extensions → Lazuli → "About this extension")
+- A minimal `.lzi` snippet that reproduces the problem
+- The output of "Developer: Inspect Editor Tokens and Scopes" (Ctrl+Shift+P) for the misbehaving token
 
-surface thing web
-  uses experience thing
+## License
 
-  audience admin
-    view list Table
-      columns name, status
+MIT — see `LICENSE`.
 
-  extensions
-    client status_cell: CellRenderer[Thing]
-    server before_create: Hook[CreateThing]
-```
+---
 
-Current consistency rules:
-
-- Blocks are opened by indentation, not `do`/`end` or braces.
-- Fields, typed extension contracts, and assignment blocks use `name: Type` or `name = expression`.
-- Required/optional is explicit in canonical resource fields.
-- Defaults use `=`, e.g. `status: Status = active`.
-- Transitions use `->`, e.g. `archive: active -> archived`.
-- Resource writes should use assignment blocks under `creates` or `updates`.
-- Route/context values used by commands should be explicit with `route`.
-- Commands that mutate an existing record should bind it with `target`.
-- `<feature>.ctx.md` sits next to the capsule by convention. `context` is only an override for non-standard locations.
-- Context files are source, not generated frontend/backend output.
-
-Highlighting groups use standard TextMate scopes so IDE themes can style them
-without Lazuli-specific colors:
-
-- Structural constructors: `workspace`, `contract`, `app`, `registry`, `profile`, `feature`, `experience`, `route`, `resource`, `record`, `enum`, `query`, `command`, `api`, `operation`, `workflow`, `view`, `rule`, `event`, `event_group`, `webhook`, `job`, `auth`, `extends`, `escape_route`.
-- Workspace/app/registry contract sections: `apps`, `shared_registry`, `boundaries`, `gateway`, `env`, `capabilities`, `integrations`, `packs`, `bindings`, `profiles`, `runtime`, `deploy`, `services`, and `communication`.
-- Adapter sources are highlighted as ordinary references. Canonical provenance
-  is checked by the LSP/doctor: `@runtime/...`, `@plugin/publisher/name`,
-  `@adapter.<local>`, or local paths.
-- Layer sections: `domain`, `surface`, `extensions`.
-- Section containers: `defaults`, `constraints`, `policies`, `errors`, `params`, `route`, `key`, `scope`, `filters`, `cells`, `payload`, `non_goals`, `delegated_to`, `out_of_scope`, `requires`, `apps`, `shared_registry`, `boundaries`, `gateway`, `targets`, `environments`, `urls`, `env`, `group`, `integrations`, `bindings`, `capabilities`, `architecture`, `services`, `communication`, `runtime`, `deploy`.
-- Internal statements: `creates`, `updates`, `deletes`, `input`, `route`, `let`, `target`, `policy`, `calls`, `emits`, `invalidates`, `trigger`, `idempotency`, `retry`, `handler`, `validate`, `validates`, `deny`, `permits`, `forbids`, `message`, `source`, `submit`, `columns`, `fields`, `sections`, `slot`, `platforms`, `previously`, `migrated`, `alias`, contract verbs such as `compatibility`, `import`, `transport`, `method`, `auth`, and app/runtime verbs such as `service`, `owns`, `exposes`, `publishes`, `consumes`, `credentials`, `propagate`, `serves`, `runs`, `healthcheck`, `migrations`, `topology`, `environment`, and `rollback`.
+*This extension is part of the Lazuli framework — a 2026 design experiment in AI-first software DSLs (declarative authoring, narrow-but-deep vocabulary, generated thin Go runtime + thin TypeScript SDK). See the [main repository](https://github.com/lazuli-lang/lazuli) for details.*

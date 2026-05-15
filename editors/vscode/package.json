@@ -1,16 +1,38 @@
 {
   "name": "lazuli-vscode",
   "displayName": "Lazuli",
-  "description": "Language support for Lazuli .lzi / .lzx files plus Lazurite.toml manifests. Bundles the Lazuli language server (lazuli lsp) for diagnostics, hover, completion.",
+  "description": "Language support for Lazuli .lzi / .lzx files plus Lazurite.toml manifests. Bundles the Lazuli language server for diagnostics, hover, completion, snippets, and 3 distinct file icons.",
   "version": "0.1.0",
   "publisher": "lazuli",
   "license": "MIT",
+  "icon": "icons/lazurite.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lazuli-lang/lazuli.git",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/lazuli-lang/lazuli/issues"
+  },
+  "homepage": "https://github.com/lazuli-lang/lazuli#readme",
+  "keywords": [
+    "lazuli",
+    "lazurite",
+    "lzi",
+    "lzx",
+    "dsl",
+    "ai-first",
+    "framework",
+    "go",
+    "typescript"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
     "Programming Languages",
-    "Linters"
+    "Linters",
+    "Snippets"
   ],
   "activationEvents": [
     "onStartupFinished"
