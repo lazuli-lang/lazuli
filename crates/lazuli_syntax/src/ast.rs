@@ -551,6 +551,63 @@ pub struct FeatureSkeleton {
 }
 
 // -----------------------------------------------------------------------------
+// RBAC catalog vocab — top-level `permission <ident>` and `role <name>`
+// declarations. Package-scoped (sibling of `feature`); see
+// `docs/proposals/rbac-catalog-vocab.md`.
+// -----------------------------------------------------------------------------
+
+/// A single permission declaration: `permission users:read`.
+/// Stored as the verbatim source token plus its colon-split segments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionDeclAst {
+    /// Full identifier (e.g., `users:read` or `report:repasse:mark`).
+    pub name: String,
+    /// Colon-split segments (2-4 entries; grammar-enforced).
+    pub segments: Vec<String>,
+    pub span: Span,
+}
+
+/// A single role declaration with optional `inherits` and one of
+/// `grants` / `grants_all` / neither.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleDeclAst {
+    pub name: String,
+    /// Optional single-parent inheritance (`inherits <role>`).
+    /// Multi-parent (`inherits A, B`) is rejected at parse time.
+    pub inherits: Option<String>,
+    pub grants: RoleGrantsAst,
+    pub span: Span,
+}
+
+/// Authored shape of a role's grants. `Explicit` carries one permission
+/// ref per line (bare colon-identifiers, resolved against the catalog by
+/// the analyzer). `All` is the `grants_all` shorthand. `InheritedOnly`
+/// is no `grants*` block at all — the role's grants come entirely from
+/// the inheritance chain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum RoleGrantsAst {
+    Explicit(Vec<String>),
+    All,
+    InheritedOnly,
+}
+
+/// Package-level skeleton produced by `parse_package_skeleton`. Carries
+/// the per-feature skeletons plus any cross-feature top-level decls
+/// (RBAC catalog so far). Other top-level kinds (`app`, `workspace`,
+/// `contract`) remain on dedicated parsers; this slice is additive.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PackageSkeleton {
+    pub features: Vec<FeatureSkeleton>,
+    /// Top-level `permission <ident>` decls (RBAC catalog).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<PermissionDeclAst>,
+    /// Top-level `role <name>` decls (RBAC catalog).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RoleDeclAst>,
+}
+
+// -----------------------------------------------------------------------------
 // Phase L Tier 4 follow-up — `policies` block surface AST.
 //
 // The `policies` block lives at indent 2 under the feature header. Its
