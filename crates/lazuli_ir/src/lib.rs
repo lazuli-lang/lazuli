@@ -2473,6 +2473,8 @@ pub struct AppManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_found: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_pages: Vec<ErrorPage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uses: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub packs: Vec<AppPackUse>,
@@ -2525,6 +2527,17 @@ pub struct AppManifest {
     pub encryption_bindings: Vec<EncryptionBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+pub const ERROR_PAGE_STATUS_CATALOG: &[u16] =
+    &[400, 401, 403, 404, 405, 410, 422, 429, 500, 502, 503, 504];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorPage {
+    pub status: u16,
+    pub template: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
 }
 
 /// i18n bucket cycle — `app.locale` block. Declares supported BCP-47

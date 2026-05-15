@@ -3206,6 +3206,7 @@ fn app_contract_diagnostics(
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
     diagnostics.extend(external_call_contract_diagnostics(operational));
     diagnostics.extend(app_route_redirect_diagnostics(app, operational));
+    diagnostics.extend(error_page_contract_diagnostics(app));
     diagnostics.extend(profile_contract_diagnostics(
         app,
         registry,
@@ -3373,6 +3374,81 @@ fn app_route_redirect_diagnostics(
     }
 
     diagnostics
+}
+
+fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+    let app_dir = app.path.parent().unwrap_or_else(|| Path::new("."));
+
+    for page in &app.manifest.error_pages {
+        let line = error_page_line(app, page.status);
+        if !ir::ERROR_PAGE_STATUS_CATALOG.contains(&page.status) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "error-page-contract".to_owned(),
+                message: format!(
+                    "`error_page {}` is outside the closed status catalog: {}.",
+                    page.status,
+                    error_page_catalog_display()
+                ),
+            });
+        }
+        if !seen.insert(page.status) {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "error-page-duplicate".to_owned(),
+                message: format!(
+                    "`error_page {}` is declared more than once in the app manifest.",
+                    page.status
+                ),
+            });
+        }
+        if page.template.trim().is_empty() {
+            continue;
+        }
+        let template_path = app_dir.join(&page.template);
+        if !template_path.exists() {
+            diagnostics.push(DoctorDiagnostic {
+                path: app.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "error-page-template-missing".to_owned(),
+                message: format!(
+                    "`error_page {}` template `{}` does not resolve relative to `{}`.",
+                    page.status,
+                    page.template,
+                    app.path.display()
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
+    let needle = format!("error_page {status}");
+    app.source
+        .lines()
+        .position(|line| line.trim_start() == needle)
+        .map(|index| index + 1)
+        .unwrap_or(1)
+}
+
+fn error_page_catalog_display() -> String {
+    ir::ERROR_PAGE_STATUS_CATALOG
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
@@ -12893,6 +12969,69 @@ route public_login
         assert!(
             codes.contains("APP-ROUTE-002"),
             "expected APP-ROUTE-002 for missing not_found route, got: {diagnostics:#?}",
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_error_page_status_outside_catalog() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  error_page 418
+    template "./views/teapot.tmpl"
+"#,
+        )]);
+
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("error-page-contract"),
+            "expected error-page-contract, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn doctor_warns_when_error_page_template_is_missing() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  error_page 404
+    template "./views/missing-404.tmpl"
+"#,
+        )]);
+
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("error-page-template-missing"),
+            "expected error-page-template-missing, got: {diagnostics:#?}"
+        );
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == "error-page-template-missing"
+                    && diagnostic.severity == DoctorSeverity::Warning
+            }),
+            "template-missing should be a warning, got: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_duplicate_error_page_status() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  error_page 500
+    template "./views/500.tmpl"
+  error_page 500
+    template "./views/other-500.tmpl"
+"#,
+        )]);
+
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("error-page-duplicate"),
+            "expected error-page-duplicate, got: {diagnostics:#?}"
         );
     }
 

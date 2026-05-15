@@ -335,6 +335,15 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         default_timezone: app.default_timezone.clone(),
         auth_failed_redirect: app.auth_failed_redirect.clone(),
         not_found: app.not_found.clone(),
+        error_pages: app
+            .error_pages
+            .iter()
+            .map(|page| ir::ErrorPage {
+                status: page.status,
+                template: page.template.clone(),
+                audience: page.audience.clone(),
+            })
+            .collect(),
         uses: app.uses.clone(),
         packs: Vec::new(),
         bindings: Vec::new(),

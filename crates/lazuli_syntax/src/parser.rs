@@ -20,8 +20,9 @@ use crate::ast::{
     HttpMethod, InvalidatesDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
     ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience,
-    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
-    LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, MotionAst, Notification,
+    LzxDocument, LzxErrorPage, LzxExperience, LzxExperienceView, LzxExtensionOrder,
+    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension,
+    MotionAst, Notification,
     NotificationDigest, NotificationThrottle, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst,
     PackageSkeleton, PermissionDeclAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyExprAst,
     PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
@@ -277,6 +278,7 @@ fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usiz
     let mut default_timezone = None;
     let mut auth_failed_redirect = None;
     let mut not_found = None;
+    let mut error_pages = Vec::new();
     let mut uses = Vec::new();
     let mut index = start + 1;
 
@@ -336,12 +338,17 @@ fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usiz
             auth_failed_redirect = Some(rest.trim().to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("not_found ") {
             not_found = Some(rest.trim().to_owned());
+        } else if trimmed.starts_with("error_page ") {
+            let (error_page, next) = parse_lzx_error_page(lines, index)?;
+            error_pages.push(error_page);
+            index = next;
+            continue;
         } else if let Some(rest) = trimmed.strip_prefix("uses ") {
             uses = split_lzx_list(rest);
         } else {
             return Err(line_error(
                 line,
-                "app manifest children are `title`, `version`, `targets`, `default_locale`, `default_timezone`, `auth_failed_redirect`, `not_found`, or `uses` declarations",
+                "app manifest children are `title`, `version`, `targets`, `default_locale`, `default_timezone`, `auth_failed_redirect`, `not_found`, `error_page <status>`, or `uses` declarations",
             ));
         }
 
@@ -358,7 +365,72 @@ fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usiz
             default_timezone,
             auth_failed_redirect,
             not_found,
+            error_pages,
             uses,
+            span: Span::new(header.start, lines[index.saturating_sub(1)].end),
+        },
+        index,
+    ))
+}
+
+fn parse_lzx_error_page(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LzxErrorPage, usize), ParseError> {
+    let header = &lines[start];
+    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    if parts.len() != 2 || parts[0] != "error_page" {
+        return Err(line_error(header, "error pages use `error_page <status>`"));
+    }
+    let status = parts[1]
+        .parse::<u16>()
+        .map_err(|_| line_error(header, "error page status must be an HTTP status code"))?;
+
+    let mut template = None;
+    let mut audience = None;
+    let mut index = start + 1;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            index += 1;
+            continue;
+        }
+        if line.indent <= 2 {
+            break;
+        }
+        if line.indent != 4 {
+            return Err(line_error(
+                line,
+                "error_page children use four-space indentation",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("template ") {
+            template = Some(unquote_lzx_value(rest.trim()).to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("audience ") {
+            audience = Some(rest.trim().to_owned());
+        } else {
+            return Err(line_error(
+                line,
+                "error_page children are `template \"./...\"` or `audience <name>` declarations",
+            ));
+        }
+        index += 1;
+    }
+
+    let template = template.ok_or_else(|| {
+        line_error(
+            header,
+            "`error_page` requires a `template \"./...\"` declaration",
+        )
+    })?;
+
+    Ok((
+        LzxErrorPage {
+            status,
+            template,
+            audience,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
@@ -12507,6 +12579,11 @@ app AcmeCRM
   default_timezone "America/Sao_Paulo"
   auth_failed_redirect public.login
   not_found public.not_found
+  error_page 404
+    template "./views/404.tmpl"
+    audience public
+  error_page 500
+    template "./views/500.tmpl"
   uses customer, customer_auth
 
 route customer_detail
@@ -12524,6 +12601,13 @@ route customer_detail
         assert_eq!(app.name, "AcmeCRM");
         assert_eq!(app.title.as_deref(), Some("Acme CRM"));
         assert_eq!(app.targets, vec!["backend go", "web react", "mobile expo"]);
+        assert_eq!(app.error_pages.len(), 2);
+        assert_eq!(app.error_pages[0].status, 404);
+        assert_eq!(app.error_pages[0].template, "./views/404.tmpl");
+        assert_eq!(app.error_pages[0].audience.as_deref(), Some("public"));
+        assert_eq!(app.error_pages[1].status, 500);
+        assert_eq!(app.error_pages[1].template, "./views/500.tmpl");
+        assert_eq!(app.error_pages[1].audience, None);
         assert_eq!(app.uses, vec!["customer", "customer_auth"]);
         assert_eq!(document.routes.len(), 1);
         assert_eq!(document.routes[0].path.as_deref(), Some("/customers/:id"));
@@ -12533,6 +12617,39 @@ route customer_detail
             Some("customer.view.detail(id: route.id)")
         );
         assert_eq!(document.routes[0].lazy, Some(true));
+    }
+
+    #[test]
+    fn parses_lzx_error_page_maintenance_status() {
+        let source = r#"
+app AcmeCRM
+  error_page 503
+    template "./views/maintenance.tmpl"
+    audience public
+"#;
+
+        let document = parse_lzx_document(source).unwrap();
+        let page = &document.app.as_ref().unwrap().error_pages[0];
+        assert_eq!(page.status, 503);
+        assert_eq!(page.template, "./views/maintenance.tmpl");
+        assert_eq!(page.audience.as_deref(), Some("public"));
+    }
+
+    #[test]
+    fn rejects_lzx_error_page_without_template() {
+        let source = r#"
+app AcmeCRM
+  error_page 404
+    audience public
+"#;
+
+        let error = parse_lzx_document(source).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("requires a `template \"./...\"` declaration"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

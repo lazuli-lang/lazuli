@@ -425,6 +425,7 @@ mod feature_emit_tests {
                 default_timezone: None,
                 auth_failed_redirect: None,
                 not_found: None,
+                error_pages: Vec::new(),
                 uses: Vec::new(),
                 packs: Vec::new(),
                 bindings: Vec::new(),

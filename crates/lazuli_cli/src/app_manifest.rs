@@ -6,9 +6,10 @@ use lazuli_ir::{
     AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
     ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
     ContractRecord, DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation,
-    EncryptionSource, EncryptionTemplate, FeatureRequirement, LocaleFallback, LocaleNegotiate,
-    QualifiedName, RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField, WorkspaceApp,
-    WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway, WorkspaceGatewayRoute,
+    EncryptionSource, EncryptionTemplate, ErrorPage, FeatureRequirement, LocaleFallback,
+    LocaleNegotiate, QualifiedName, RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField,
+    WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
+    WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist
@@ -337,6 +338,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         default_timezone: None,
         auth_failed_redirect: None,
         not_found: None,
+        error_pages: Vec::new(),
         uses: Vec::new(),
         packs: Vec::new(),
         bindings: Vec::new(),
@@ -369,6 +371,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let mut current_env_group: Option<String> = None;
     let mut current_integration: Option<usize> = None;
     let mut current_integration_child: Option<&str> = None;
+    let mut current_error_page: Option<usize> = None;
     // Encryption bucket cycle — tracks the open
     // `encryption.key @key.<scope>` binding. Indent-6 lines (`source`,
     // `algorithm`, `rotation`) populate this index. `None` when no
@@ -392,6 +395,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 current_env_group = None;
                 current_integration = None;
                 current_integration_child = None;
+                current_error_page = None;
                 current_encryption_binding = None;
                 if let Some(rest) = trimmed.strip_prefix("title ") {
                     app.title = Some(unquote(rest.trim()).to_owned());
@@ -414,6 +418,18 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 } else if let Some(rest) = trimmed.strip_prefix("not_found ") {
                     app.not_found = Some(rest.trim().to_owned());
                     current_child = None;
+                } else if let Some(rest) = trimmed.strip_prefix("error_page ") {
+                    if let Ok(status) = rest.trim().parse::<u16>() {
+                        app.error_pages.push(ErrorPage {
+                            status,
+                            template: String::new(),
+                            audience: None,
+                        });
+                        current_error_page = app.error_pages.len().checked_sub(1);
+                        current_child = Some("error_page");
+                    } else {
+                        current_child = None;
+                    }
                 } else if let Some(rest) = trimmed.strip_prefix("uses ") {
                     app.uses.extend(split_items(rest));
                     current_child = None;
@@ -437,6 +453,16 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 Some("bindings") => {
                     if let Some(binding) = parse_app_binding(trimmed) {
                         app.bindings.push(binding);
+                    }
+                }
+                Some("error_page") => {
+                    if let Some(index) = current_error_page {
+                        let page = &mut app.error_pages[index];
+                        if let Some(rest) = trimmed.strip_prefix("template ") {
+                            page.template = unquote(rest.trim()).to_owned();
+                        } else if let Some(rest) = trimmed.strip_prefix("audience ") {
+                            page.audience = Some(rest.trim().to_owned());
+                        }
                     }
                 }
                 Some("targets") => app.targets.push(trimmed.to_owned()),
@@ -1901,6 +1927,9 @@ mod tests {
         let source = r#"
 app AcmeCRM
   title "Acme CRM"
+  error_page 404
+    template "./views/404.tmpl"
+    audience public
   uses
     customer
   packs
@@ -1954,6 +1983,10 @@ app AcmeCRM
         let manifest = parse_app_manifest(source).unwrap();
 
         assert_eq!(manifest.name, "AcmeCRM");
+        assert_eq!(manifest.error_pages.len(), 1);
+        assert_eq!(manifest.error_pages[0].status, 404);
+        assert_eq!(manifest.error_pages[0].template, "./views/404.tmpl");
+        assert_eq!(manifest.error_pages[0].audience.as_deref(), Some("public"));
         assert_eq!(manifest.uses, ["customer"]);
         assert_eq!(manifest.packs[0].name, "customer_import");
         assert_eq!(manifest.packs[0].source, "registry.packs.customer_import");

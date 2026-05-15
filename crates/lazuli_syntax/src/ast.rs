@@ -90,7 +90,16 @@ pub struct LzxApp {
     pub default_timezone: Option<String>,
     pub auth_failed_redirect: Option<String>,
     pub not_found: Option<String>,
+    pub error_pages: Vec<LzxErrorPage>,
     pub uses: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxErrorPage {
+    pub status: u16,
+    pub template: String,
+    pub audience: Option<String>,
     pub span: Span,
 }
 

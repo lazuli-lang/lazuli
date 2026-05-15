@@ -347,6 +347,12 @@ fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
                 ..CompletionItem::default()
             }),
     );
+    items.extend(ERROR_PAGE_STATUS_VALUES.iter().map(|value| CompletionItem {
+        label: (*value).to_owned(),
+        kind: Some(CompletionItemKind::ENUM_MEMBER),
+        detail: error_page_status_detail(value).map(str::to_owned),
+        ..CompletionItem::default()
+    }));
     items
 }
 
@@ -11833,6 +11839,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Declares an optional distributed-system contract across local apps and external services.",
         ),
         "app" => Some("Declares the `.lzi` application entrypoint and operational contract."),
+        "error_page" => Some(
+            "Declares one custom app-level error response page. Header is `error_page <status>`; children are `template \"./...\"` and optional `audience <name>`.",
+        ),
         "registry" => Some(
             "Declares the package-level catalog for env, capabilities, integrations, and packs.",
         ),
@@ -11946,9 +11955,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "recipient" => Some(
             "On a `notification`, declares the recipient expression (e.g., `target.email`, `payload.user_id`).",
         ),
-        "template" => {
-            Some("On a `notification`, points to the template file at `./path` (mjml/mdx/text).")
-        }
+        "template" => Some(
+            "Points to a relative template file. Used by `notification` delivery templates and app-level `error_page` responses.",
+        ),
         "digest" => Some(
             "On a `notification`, declares window-based aggregation. Children: `every \"<duration>\"` (required), `group_by <payload-path>`, `max_size <N>` (1..=10000), `template_strategy merge|append`. Distinct from scalar `rate_limit`. Doctor: `NOTIF-DIGEST-001/002/003`.",
         ),
@@ -12723,6 +12732,31 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
             ]
             .join("\n"),
         ),
+        "error_page" => Some(
+            [
+                "**`error_page`** — declares a custom app-level HTTP error page once so every generated surface can share the same status response contract.",
+                "",
+                "**Header**",
+                "- `error_page <status>` — closed catalog: `400`, `401`, `403`, `404`, `405`, `410`, `422`, `429`, `500`, `502`, `503`, `504`.",
+                "",
+                "**Required children**",
+                "- `template \"./views/<status>.tmpl\"` — relative template path.",
+                "",
+                "**Optional children**",
+                "- `audience <name>` — route audience that can see this page, commonly `public`.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "app MyApp",
+                "  error_page 404",
+                "    template \"./views/404.tmpl\"",
+                "    audience public",
+                "```",
+                "",
+                "Doctor: `error-page-contract`, `error-page-template-missing`, `error-page-duplicate`.",
+            ]
+            .join("\n"),
+        ),
         _ => None,
     }
 }
@@ -12824,6 +12858,7 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
             "audit",
         ],
     ),
+    ("error_page", &["template", "audience"]),
 ];
 
 /// Closed catalog of effect verbs offered as completion when the
@@ -12920,6 +12955,10 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
         return Some(items);
     }
 
+    if let Some(items) = error_page_value_completions(source, position, before) {
+        return Some(items);
+    }
+
     // 2. Indent-aware kind child.
     // Only fire when the prefix is whitespace (cursor on a blank
     // indented line) or a partial child keyword. We don't want to
@@ -12959,6 +12998,52 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
         });
     }
     Some(items)
+}
+
+fn error_page_value_completions(
+    source: &str,
+    position: Position,
+    before_cursor: &str,
+) -> Option<Vec<CompletionItem>> {
+    let trimmed = before_cursor.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("error_page ") {
+        if rest.chars().all(|c| c.is_ascii_digit()) {
+            return Some(
+                ERROR_PAGE_STATUS_VALUES
+                    .iter()
+                    .map(|value| CompletionItem {
+                        label: (*value).to_owned(),
+                        kind: Some(CompletionItemKind::ENUM_MEMBER),
+                        detail: error_page_status_detail(value).map(str::to_owned),
+                        ..CompletionItem::default()
+                    })
+                    .collect(),
+            );
+        }
+    }
+
+    if block_kind_at(source, position).as_deref() == Some("error_page") {
+        if let Some(rest) = trimmed.strip_prefix("audience ") {
+            if rest
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                return Some(
+                    ERROR_PAGE_AUDIENCE_VALUES
+                        .iter()
+                        .map(|value| CompletionItem {
+                            label: (*value).to_owned(),
+                            kind: Some(CompletionItemKind::VALUE),
+                            detail: Some("Common app route audience.".to_owned()),
+                            ..CompletionItem::default()
+                        })
+                        .collect(),
+                );
+            }
+        }
+    }
+
+    None
 }
 
 /// Scan `source` for declared names under the namespace pointed to by
@@ -13201,6 +13286,7 @@ const DESIGN_KEYWORDS: &[&str] = &[
 const KEYWORDS: &[&str] = &[
     "workspace",
     "app",
+    "error_page",
     "registry",
     "profile",
     "apps",
@@ -13451,6 +13537,30 @@ pub const AUTH_CATALOG_VALUES: &[&str] = &[
     "true",
     "false",
 ];
+
+pub const ERROR_PAGE_STATUS_VALUES: &[&str] = &[
+    "400", "401", "403", "404", "405", "410", "422", "429", "500", "502", "503", "504",
+];
+
+pub const ERROR_PAGE_AUDIENCE_VALUES: &[&str] = &["public", "authenticated", "admin"];
+
+pub fn error_page_status_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "400" => Some("Bad Request custom error page."),
+        "401" => Some("Unauthorized custom error page."),
+        "403" => Some("Forbidden custom error page."),
+        "404" => Some("Not Found custom error page."),
+        "405" => Some("Method Not Allowed custom error page."),
+        "410" => Some("Gone custom error page."),
+        "422" => Some("Unprocessable Content custom error page."),
+        "429" => Some("Too Many Requests custom error page."),
+        "500" => Some("Internal Server Error custom error page."),
+        "502" => Some("Bad Gateway custom error page."),
+        "503" => Some("Service Unavailable / maintenance custom error page."),
+        "504" => Some("Gateway Timeout custom error page."),
+        _ => None,
+    }
+}
 
 /// Hover/completion description for a closed-catalog value.
 pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
@@ -17372,6 +17482,46 @@ aggregate Customer {
             character: source.len() as u32,
         };
         assert!(cap_file_value_completions(source, position).is_none());
+    }
+
+    #[test]
+    fn error_page_hover_and_status_completion_are_available() {
+        let hover = rich_keyword_hover("error_page").expect("error_page hover");
+        assert!(hover.contains("Closed catalog") || hover.contains("closed catalog"));
+
+        let source = "  error_page 4";
+        let position = Position {
+            line: 0,
+            character: source.len() as u32,
+        };
+        let items = context_aware_completions(source, position).expect("status completions");
+        let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+        assert!(labels.contains(&"404"));
+        assert!(labels.contains(&"503"));
+    }
+
+    #[test]
+    fn error_page_child_completion_offers_template_and_audience() {
+        let source = "app Acme\n  error_page 404\n    ";
+        let position = Position {
+            line: 2,
+            character: 4,
+        };
+        let items = context_aware_completions(source, position).expect("child completions");
+        let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+        assert_eq!(labels, vec!["template", "audience"]);
+    }
+
+    #[test]
+    fn error_page_audience_completion_offers_common_values() {
+        let source = "app Acme\n  error_page 404\n    audience p";
+        let position = Position {
+            line: 2,
+            character: "    audience p".len() as u32,
+        };
+        let items = context_aware_completions(source, position).expect("audience completions");
+        let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+        assert!(labels.contains(&"public"));
     }
 
     // ----------------------------------------------------------------
