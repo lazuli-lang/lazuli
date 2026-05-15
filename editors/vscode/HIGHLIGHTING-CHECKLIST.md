@@ -214,9 +214,9 @@ For `validate pattern "..."` — embed `source.regexp` — niche but nice.
 
 ---
 
-## Phase 8 — theme compatibility audit
+## Phase 8 — theme compatibility audit ✅
 
-### 8.1 Test against major themes ☐
+### 8.1 Test against major themes ✅ (8 themes audited; THEME-AUDIT.md generated; 9 scope renames applied to fix plain-render coverage)
 Open Pleiades `item.lzi` in each:
 - Default Dark+ / Default Light+
 - Dark Modern / Light Modern  
@@ -234,11 +234,10 @@ For each, screenshot a 30-line slice with mixed token types. Note any token that
 
 ---
 
-## Phase 9 — regression test fixture
+## Phase 9 — regression test fixture ✅
 
-### 9.1 Snapshot test fixture ☐
-**Approach:** create a `.lzi` file that exercises EVERY keyword/scope from this checklist. Run a tokenizer (vsce / vscode-tmgrammar-test) and snapshot the scope assignments. Future grammar changes diff against the snapshot.
-**Acceptance:** `npm test` in `editors/vscode/` validates the snapshot.
+### 9.1 Snapshot test fixture ✅
+**Shipped:** `vscode-tmgrammar-test@^0.1.3` installed; 6 fixture files at `editors/vscode/tests/grammar/` (feature.lzi 282L, app.lzi 165L, registry.lzi 63L, experience.lzx 75L, experience.web.lzx 68L, manifest.toml 47L); 6 `.snap` files generated with **2,375 scope assertions** total. Scripts: `npm run test:grammar:check` (runs against snapshot) + `npm run test:grammar` (regenerates snapshot). `.vscodeignore` excludes `tests/**` and `**/*.snap` from .vsix.
 
 ---
 

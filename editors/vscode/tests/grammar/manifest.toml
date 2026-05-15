@@ -1,0 +1,47 @@
+# Grammar snapshot fixture — Lazurite.toml manifest.
+# Exercises every known table header and key.
+
+[project]
+name = "snapshot-app"
+module = "github.com/lazuli-lang/example-snapshot-app"
+schema = 1
+
+[lazuli]
+runtime = "0.13.0"
+
+[lazurite]
+template = "lazurite-default"
+template_version = "0.1.0"
+app_dir = "."
+
+[generate.go]
+out = "dist/go"
+gofmt = true
+strict = true
+emit_main = true
+submodule = true
+dev_replace = true
+
+[generate.ts]
+out = "dist/ts"
+target = "esnext"
+
+[frontends.web]
+source = "frontends/web"
+audiences = ["admin", "public"]
+
+[frontends.mobile]
+source = "frontends/mobile"
+audiences = ["sales"]
+
+[migrations]
+generated = "dist/go/migrations"
+manual = "migrations"
+strategy = "auto"
+
+[seeds]
+dir = "seeds"
+
+[plugins]
+"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
+"@plugin/example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0", path = "../local-pack" }

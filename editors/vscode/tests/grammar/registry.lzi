@@ -1,0 +1,63 @@
+# Grammar snapshot fixture — registry manifest.
+# Exercises every registry-level block including the new
+# `secret_rotation <name>` cycle (CL.C.5).
+
+registry
+  env
+    group catalog
+      server CRM_WEBHOOK_SECRET: Secret required in production
+      server STRIPE_API_KEY: Secret required in production
+    group public_clients
+      client PUBLIC_APP_URL: Url required
+      mobile EXPO_PUBLIC_API_URL: Url required
+    group encryption
+      server CRYPT_KEY_APP: Secret required
+      server CRYPT_KEY_TENANT_{tenant_id}: Secret required
+
+  capabilities
+    database postgres
+    queue background_jobs
+    object_storage files
+    mailer transactional
+    event_bus internal
+    cache shared
+    tracing optional
+    integration crm
+    integration payments
+
+  packs
+    catalog_pack from @runtime/catalog-pack
+      version "0.1.0"
+      provides feature catalog
+      requires integration crm: CRMProvider
+
+  integrations
+    crm: CRMProvider
+      adapter @adapter.crm
+      environments sandbox, production
+      credentials platform
+        webhook_secret env.CRM_WEBHOOK_SECRET
+
+    payments: PaymentProvider
+      adapter @adapter.stripe
+      environments sandbox, production
+      credentials platform
+        api_key env.STRIPE_API_KEY
+
+  webhook_events
+    crm_customer_upsert
+      external_id: Text required
+      org_id: ID required
+      email: @semantic.Email @pii.contact optional
+      payload_version: Text required
+      received_at: Timestamp required
+
+  secret_rotation default
+    cadence 90d
+    overlap 24h
+    auto_rollback true
+
+  secret_rotation tenant_keys
+    cadence 30d
+    overlap 0h
+    auto_rollback false

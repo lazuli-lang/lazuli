@@ -1,0 +1,165 @@
+# Grammar snapshot fixture — app manifest.
+# Exercises every app-level block including the new
+# `headers`/`cookie`/`proxy`/`limits` (CL.C.1 + CL.C.5) plus
+# `encryption` with a `@key.<scope>` binding.
+
+app SnapshotApp
+  title "Snapshot Demo"
+  version "0.1.0"
+  default_timezone "America/Sao_Paulo"
+  lazuli_version "0.13"
+
+  locale
+    default "pt-BR"
+    supported "pt-BR", "en-US"
+    fallback "en-US" -> "pt-BR"
+
+  auth_failed_redirect public_login
+  not_found public_not_found
+
+  uses
+    catalog
+    account
+    billing
+
+  bindings
+    catalog.crm = integrations.crm
+
+  targets
+    backend go
+    web react
+    mobile expo
+
+  environments
+    local
+    staging
+    production
+
+  urls
+    web local "http://localhost:3000"
+    api local "http://localhost:8080"
+    web production "https://app.snapshot.example"
+    api production "https://api.snapshot.example"
+
+  cors
+    allow_origins production "https://app.snapshot.example"
+    allow_origins local "http://localhost:3000"
+    allow_credentials true
+    max_age "1h"
+
+  headers
+    csp "default-src 'self'; script-src 'self' 'unsafe-inline'"
+    x_frame_options DENY
+    x_content_type_options nosniff
+    referrer_policy strict-origin-when-cross-origin
+    permissions_policy "geolocation=(), camera=()"
+    hsts
+      max_age 63072000
+      include_subdomains
+      preload
+
+  cookie
+    default
+      signed true
+      secure true
+      http_only true
+      same_site strict
+      max_age "7d"
+    session
+      same_site lax
+      max_age "12h"
+    csrf
+      http_only true
+      same_site strict
+
+  proxy
+    trusted 10.0.0.0/8, 172.16.0.0/12
+    real_ip_header X-Forwarded-For
+    forwarded_proto_header X-Forwarded-Proto
+    forwarded_host_header X-Forwarded-Host
+
+  limits
+    body_size "10mb"
+    header_size "16kb"
+    upload_size "100mb"
+    timeout "30s"
+
+  architecture
+    mode modular_monolith
+    service_ready true
+    enforce_service_boundaries true
+
+  services
+    service identity
+      owns account
+      exposes
+        command account.command.login
+      publishes account.user_*
+
+    service catalog_svc
+      owns catalog
+      exposes
+        query catalog.query.list
+        query catalog.query.by_id
+        command catalog.command.create
+        command catalog.command.publish
+      publishes catalog.product_*
+      consumes billing.invoice_paid
+
+  communication
+    internal sync rpc
+    external http
+    async event_bus
+    propagate actor, tenant, trace_id, request_id
+    timeout default "2s"
+    retry default 2 backoff exponential
+
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      healthcheck "/healthz"
+      readiness "/readyz"
+      locale_negotiate
+        source accept_language
+        strategy best_match
+        fallback "pt-BR"
+
+    unit web
+      serves surfaces web
+
+    unit worker
+      runs jobs *
+
+    unit scheduler
+      runs schedules *
+
+  deploy
+    migrations before_deploy
+    migration_lock required
+    destructive_migrations require_approval
+    rollback on_failed_healthcheck
+    strategy rolling
+    lock_timeout "30s"
+    pre_migration_hook "./hooks/migration_pre.sh"
+    post_migration_hook "./hooks/migration_post.sh"
+    checkpoint baseline "./checkpoints/snapshot.snapshot.json"
+
+  logging
+    level info
+    format json
+    redact pii
+
+  tracing
+    propagate true
+    sample_rate 0.1
+
+  encryption
+    key @key.app
+      source env.CRYPT_KEY_APP
+      algorithm aes_256_gcm
+      rotation manual
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+      rotation manual
+      rotation_profile default

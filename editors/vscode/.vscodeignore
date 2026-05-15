@@ -6,3 +6,5 @@ scripts/**
 **/tsconfig.json
 .eslintrc*
 README-DEV.md
+tests/**
+**/*.snap

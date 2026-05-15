@@ -28,7 +28,11 @@
         "lazuli.trace.server": {
           "type": "string",
           "scope": "window",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Trace LSP messages between VS Code and the lazuli server."
         }
@@ -37,8 +41,13 @@
     "languages": [
       {
         "id": "lazuli-feature",
-        "aliases": ["Lazuli Feature", "lzi"],
-        "extensions": [".lzi"],
+        "aliases": [
+          "Lazuli Feature",
+          "lzi"
+        ],
+        "extensions": [
+          ".lzi"
+        ],
         "configuration": "./language-configuration.json",
         "icon": {
           "light": "./icons/lzi.png",
@@ -47,8 +56,13 @@
       },
       {
         "id": "lazuli-experience",
-        "aliases": ["Lazuli Experience", "lzx"],
-        "extensions": [".lzx"],
+        "aliases": [
+          "Lazuli Experience",
+          "lzx"
+        ],
+        "extensions": [
+          ".lzx"
+        ],
         "configuration": "./language-configuration.json",
         "icon": {
           "light": "./icons/lzx.png",
@@ -57,8 +71,13 @@
       },
       {
         "id": "lazurite-manifest",
-        "aliases": ["Lazurite Manifest"],
-        "filenames": ["Lazurite.toml", "lazurite.toml"],
+        "aliases": [
+          "Lazurite Manifest"
+        ],
+        "filenames": [
+          "Lazurite.toml",
+          "lazurite.toml"
+        ],
         "icon": {
           "light": "./icons/lazurite.png",
           "dark": "./icons/lazurite.png"
@@ -83,8 +102,14 @@
       }
     ],
     "snippets": [
-      { "language": "lazuli-feature", "path": "./snippets/lazuli.code-snippets" },
-      { "language": "lazuli-experience", "path": "./snippets/lazuli.code-snippets" }
+      {
+        "language": "lazuli-feature",
+        "path": "./snippets/lazuli.code-snippets"
+      },
+      {
+        "language": "lazuli-experience",
+        "path": "./snippets/lazuli.code-snippets"
+      }
     ]
   },
   "dependencies": {
@@ -93,10 +118,17 @@
   "devDependencies": {
     "@types/node": "^20",
     "@types/vscode": "^1.90.0",
-    "@vscode/vsce": "^3.2.0"
+    "@vscode/vsce": "^3.2.0",
+    "vscode-tmgrammar-test": "^0.1.3"
   },
   "scripts": {
     "package": "vsce package --target win32-x64",
-    "bundle-server": "node scripts/bundle-server.js"
+    "bundle-server": "node scripts/bundle-server.js",
+    "test:grammar:lazuli": "vscode-tmgrammar-snap -g ./syntaxes/lazuli.tmLanguage.json --updateSnapshot \"./tests/grammar/**/*.lzi\" \"./tests/grammar/**/*.lzx\"",
+    "test:grammar:lazuli:check": "vscode-tmgrammar-snap -g ./syntaxes/lazuli.tmLanguage.json \"./tests/grammar/**/*.lzi\" \"./tests/grammar/**/*.lzx\"",
+    "test:grammar:manifest": "vscode-tmgrammar-snap -g ./syntaxes/lazurite-manifest.tmLanguage.json -s source.lazurite-toml --updateSnapshot \"./tests/grammar/**/*.toml\"",
+    "test:grammar:manifest:check": "vscode-tmgrammar-snap -g ./syntaxes/lazurite-manifest.tmLanguage.json -s source.lazurite-toml \"./tests/grammar/**/*.toml\"",
+    "test:grammar": "npm run test:grammar:lazuli && npm run test:grammar:manifest",
+    "test:grammar:check": "npm run test:grammar:lazuli:check && npm run test:grammar:manifest:check"
   }
 }

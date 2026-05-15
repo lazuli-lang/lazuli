@@ -1,0 +1,282 @@
+# Grammar snapshot fixture — exercises the canonical .lzi vocabulary.
+# Modeled on examples/full-capsule and pleiades/account so every major
+# construct that has a dedicated TextMate scope is hit at least once.
+
+feature catalog
+  purpose "Catalog of products with prices, stock, status lifecycle, search and reports."
+
+  non_goals
+    delegated_to
+      account: "user authentication"
+      billing: "invoicing"
+    out_of_scope
+      generic_taxonomy: "tag taxonomy framework"
+
+  context "@docs/catalog/catalog.ctx.md"
+
+  defaults
+    tenancy org
+    timestamps
+    policy_for jobs, webhooks: @actor.system
+
+  uses org, account, billing
+
+  domain
+    enum ProductStatus
+      draft = 10
+      active = 20
+      archived = 90
+
+    enum PriceTier
+      free
+      standard
+      premium
+
+    resource Product
+      previously migrated Item
+      owner: User optional
+      name: Text required
+      slug: @semantic.Slug required
+      sku: Text required
+      description: Text optional
+      tier: PriceTier = standard
+      status: ProductStatus = draft
+      price_cents: Integer required
+      currency: Text = "USD"
+      external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
+      is_featured: Boolean derived from price_cents > 1000
+
+      soft_delete
+      retention 5y then anonymize
+
+      validates @validator.price_check
+
+      lifecycle status
+        state draft initial
+        state active
+        state archived terminal
+
+        transition publish
+          from draft
+          to active
+          policy @policy.publish
+          emits product_published, product_status_changed
+          tests
+            allows from draft
+            denies from active
+            denies from archived
+
+        transition archive
+          from active
+          to archived
+          policy @policy.archive
+          emits product_archived, product_status_changed
+          tests
+            allows from active
+            denies from draft
+
+    resource ProductImage
+      product: Product required on_delete cascade
+      url: Text required
+      position: Integer = 0
+
+    constraints
+      unique sku per org
+      unique slug per org
+
+    record ProductSummary
+      product_id: ID
+      name: Text
+      total_revenue: Integer
+
+    record TopSellerRow
+      product_id: ID
+      sold: Integer
+      revenue: Integer
+
+    query.list list
+      modifier @query_modifier.product_scope
+
+      params
+        status: ProductStatus optional
+        tier: PriceTier optional
+        owner: User optional
+        search: Text optional
+
+      filters
+        status when params.status
+        tier when params.tier
+        owner when params.owner
+
+      search params.search over name, sku
+        mode contains
+
+      cache
+        key catalog.list(params)
+        ttl 5m
+        tags catalog-list, catalog-summary
+        namespace catalog
+
+      order updated_at desc
+      paginate 50
+
+    query.lookup by_id by id: ID
+
+    query.lookup by_slug by slug: @semantic.Slug
+
+    query.sql top_sellers
+      returns TopSellerRow[]
+
+      params
+        days: Integer optional
+
+      scope
+        org = ctx.user.org
+
+      sql "./queries/top_sellers.sql"
+
+    rule "archived products cannot be republished"
+      deny Product.publish when self.status = ProductStatus.archived
+      message @translation.republish_archived_blocked
+
+      tests
+        denies when self.status = archived
+        allows when self.status = draft
+
+    event_group product_* on Product
+      payload
+        product_id = id
+        org_id = org.id
+        by_id = ctx.user.id when @actor.user
+
+      event created
+        sku: Text
+        tier: PriceTier
+
+      event status_changed
+        from: ProductStatus
+        to: ProductStatus
+
+      event published
+
+      event archived
+
+      event.trace price_recalculated
+        old_price: Integer
+        new_price: Integer
+
+  policies
+    create: @role.admin, @role.merchandiser
+    update: @role.admin, @role.merchandiser
+    publish: @role.admin
+    archive: @role.admin
+    delete: @role.admin
+    read: @scope.same_org
+
+    fields Product
+      external_id
+        read: @role.admin, @role.integrations_admin
+        write: @actor.system
+
+      price_cents
+        read: @scope.same_org
+        write: @role.admin
+
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
+  translation
+    catalog "./i18n/catalog.<locale>.json"
+
+    key republish_archived_blocked
+      pt-BR "Não é possível publicar um produto arquivado"
+      en-US "Cannot republish an archived product"
+
+  command create
+    input
+      name: Text required
+      sku: Text required
+      tier: PriceTier required
+      price_cents: Integer required
+    policy @policy.create
+    rate_limit "30 per hour per ip"
+    creates Product
+      name = input.name
+      sku = input.sku
+      tier = input.tier
+      price_cents = input.price_cents
+      owner = ctx.user
+    emits product_created from creates
+    invalidates
+      query.list
+
+  command publish
+    route id: ID
+    policy @policy.publish
+    rate_limit "60 per minute per user"
+    audit actor, target.id
+      emit_to audit_log
+    updates Product
+      status = ProductStatus.active
+    emits product_published
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
+  command archive
+    previously migrated deactivate
+    deprecated since "2026.04" replacement publish sunset "2026-12-31"
+    route id: ID
+    policy @policy.archive
+    rate_limit "60 per minute per user"
+    approval
+      required_when target.tier = premium
+      by @role.admin
+      timeout "24h"
+      then deny
+    updates Product
+      status = ProductStatus.archived
+    emits product_archived
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
+  api search
+    method GET
+    path "/api/products/search"
+    output ProductSummary[]
+    policy @policy.read
+    handler "./api/search_products.go"
+
+  api restock
+    method POST
+    path "/api/products/:id/restock"
+    route id: ID
+    input
+      quantity: Integer required
+    output Product
+    policy @policy.update
+    rate_limit "10 per minute per user"
+    handler "./api/restock_product.go"
+
+  job recompute_prices
+    trigger schedule "0 3 * * *"
+    fanout tenants org
+    idempotency by tenant.org_id, schedule.day
+    retry 3 backoff exponential
+    handler "./jobs/recompute_prices.go"
+
+  channel catalog_activity
+    tenant_from org
+    policy @policy.read
+    payload ProductSummary
+
+  extensions
+    client status_cell: CellRenderer[Product]
+    hook before_publish: Hook[PublishProduct]
+    fn risk_score: Function[Product, Integer]
+    fn lifetime_value: Function[ID, Integer] at "./domain/lifetime_value.go"
+    query_modifier product_scope: QueryModifier[Product] at "./queries/product_scope.go"
+    validator price_check: Validator[Product.price_cents] at "./hooks/validate_price.go"

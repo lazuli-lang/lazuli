@@ -1,0 +1,236 @@
+># Grammar snapshot fixture — registry manifest.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># Exercises every registry-level block including the new
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># `secret_rotation <name>` cycle (CL.C.5).
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>
+>registry
+#^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>  env
+#^^ source.lazuli
+#  ^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    group catalog
+#^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#         ^^^^^^^^^ source.lazuli
+>      server CRM_WEBHOOK_SECRET: Secret required in production
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                               ^ source.lazuli punctuation.separator.type.lazuli
+#                                ^ source.lazuli
+#                                 ^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                       ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>      server STRIPE_API_KEY: Secret required in production
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                           ^ source.lazuli punctuation.separator.type.lazuli
+#                            ^ source.lazuli
+#                             ^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                   ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    group public_clients
+#^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#         ^^^^^^^^^^^^^^^^ source.lazuli
+>      client PUBLIC_APP_URL: Url required
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                           ^ source.lazuli punctuation.separator.type.lazuli
+#                            ^ source.lazuli
+#                             ^^^ source.lazuli support.type.primitive.lazuli
+#                                ^^^^^^^^^^ source.lazuli
+>      mobile EXPO_PUBLIC_API_URL: Url required
+#^^^^^^^^^^^^^ source.lazuli
+#             ^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                                ^ source.lazuli punctuation.separator.type.lazuli
+#                                 ^ source.lazuli
+#                                  ^^^ source.lazuli support.type.primitive.lazuli
+#                                     ^^^^^^^^^^ source.lazuli
+>    group encryption
+#^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#         ^^^^^^^^^^^^ source.lazuli
+>      server CRYPT_KEY_APP: Secret required
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                          ^ source.lazuli punctuation.separator.type.lazuli
+#                           ^ source.lazuli
+#                            ^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                  ^^^^^^^^^^ source.lazuli
+>      server CRYPT_KEY_TENANT_{tenant_id}: Secret required
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                              ^^^^^^^^^^^ source.lazuli
+#                                         ^ source.lazuli punctuation.separator.key-value.lazuli
+#                                          ^ source.lazuli
+#                                           ^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                                 ^^^^^^^^^^ source.lazuli
+>
+>  capabilities
+#^^ source.lazuli
+#  ^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    database postgres
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    queue background_jobs
+#^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    object_storage files
+#^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    mailer transactional
+#^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    event_bus internal
+#^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    cache shared
+#^^^^^^^^^^^^^^^^^ source.lazuli
+>    tracing optional
+#^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    integration crm
+#^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    integration payments
+#^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>  packs
+#^^ source.lazuli
+#  ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    catalog_pack from @runtime/catalog-pack
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                      ^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.namespace.package.lazuli
+>      version "0.1.0"
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^^^ source.lazuli string.quoted.double.lazuli
+#                    ^ source.lazuli string.quoted.double.lazuli
+>      provides feature catalog
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.packs.lazuli
+#              ^^^^^^^^^^^^^^^^^ source.lazuli
+>      requires integration crm: CRMProvider
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                              ^ source.lazuli punctuation.separator.key-value.lazuli
+#                               ^ source.lazuli
+#                                ^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>
+>  integrations
+#^^ source.lazuli
+#  ^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    crm: CRMProvider
+#^^^^^^^ source.lazuli
+#       ^ source.lazuli punctuation.separator.key-value.lazuli
+#        ^ source.lazuli
+#         ^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>      adapter @adapter.crm
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.integration.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      environments sandbox, production
+#^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                          ^ source.lazuli punctuation.separator.comma.lazuli
+#                           ^^^^^^^^^^^^ source.lazuli
+>      credentials platform
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.integration.lazuli
+#                 ^^^^^^^^^^ source.lazuli
+>        webhook_secret env.CRM_WEBHOOK_SECRET
+#^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                       ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>    payments: PaymentProvider
+#^^^^^^^^^^^^ source.lazuli
+#            ^ source.lazuli punctuation.separator.key-value.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>      adapter @adapter.stripe
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.integration.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      environments sandbox, production
+#^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                          ^ source.lazuli punctuation.separator.comma.lazuli
+#                           ^^^^^^^^^^^^ source.lazuli
+>      credentials platform
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.integration.lazuli
+#                 ^^^^^^^^^^ source.lazuli
+>        api_key env.STRIPE_API_KEY
+#^^^^^^^^^^^^^^^^ source.lazuli
+#                ^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>  webhook_events
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    crm_customer_upsert
+#^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>      external_id: Text required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^ source.lazuli support.type.primitive.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      org_id: ID required
+#^^^^^^ source.lazuli
+#      ^^^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli support.type.primitive.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      email: @semantic.Email @pii.contact optional
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli variable.other.field.lazuli
+#           ^ source.lazuli punctuation.separator.type.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                            ^ source.lazuli
+#                             ^^^^ source.lazuli entity.name.tag.lazuli
+#                                 ^ source.lazuli punctuation.accessor.lazuli
+#                                  ^^^^^^^^ source.lazuli
+#                                          ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      payload_version: Text required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                     ^ source.lazuli punctuation.separator.type.lazuli
+#                      ^ source.lazuli
+#                       ^^^^ source.lazuli support.type.primitive.lazuli
+#                           ^ source.lazuli
+#                            ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      received_at: Timestamp required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                            ^ source.lazuli
+#                             ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>
+>  secret_rotation default
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^^ source.lazuli entity.name.function.secret-rotation.lazuli
+>    cadence 90d
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^^^^^ source.lazuli
+>    overlap 24h
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^^^^^ source.lazuli
+>    auto_rollback true
+#^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                 ^ source.lazuli
+#                  ^^^^ source.lazuli constant.language.boolean.lazuli
+>
+>  secret_rotation tenant_keys
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^^^^^^ source.lazuli entity.name.function.secret-rotation.lazuli
+>    cadence 30d
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^^^^^ source.lazuli
+>    overlap 0h
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^^^^ source.lazuli
+>    auto_rollback false
+#^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^ source.lazuli constant.language.boolean.lazuli
+>

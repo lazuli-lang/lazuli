@@ -1,0 +1,335 @@
+># Grammar snapshot fixture — abstract experience.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># Routes + experiences + extends/slot.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>
+>route public_login
+#^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^^^^^^ source.lazuli entity.name.function.route.lazuli
+>  path "/login"
+#^^^^^^^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^^^^ source.lazuli string.quoted.double.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+>  to account.view.login
+#^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#    ^ source.lazuli
+#     ^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>  surface account web
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.label.surface-target.lazuli
+#                 ^ source.lazuli
+#                  ^^^ source.lazuli entity.name.label.surface-area.lazuli
+>  audience public
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^ source.lazuli entity.name.label.audience.lazuli
+>
+>route public_not_found
+#^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.route.lazuli
+>  path "/not-found"
+#^^^^^^^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+>  to catalog.view.not_found
+#^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#    ^ source.lazuli
+#     ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>  surface catalog web
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.label.surface-target.lazuli
+#                 ^ source.lazuli
+#                  ^^^ source.lazuli entity.name.label.surface-area.lazuli
+>  audience public
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^ source.lazuli entity.name.label.audience.lazuli
+>
+>route admin_catalog_list
+#^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.route.lazuli
+>  path "/admin/catalog"
+#^^^^^^^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                      ^ source.lazuli string.quoted.double.lazuli
+>  to catalog.view.list
+#^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#    ^ source.lazuli
+#     ^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>  surface catalog web
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.label.surface-target.lazuli
+#                 ^ source.lazuli
+#                  ^^^ source.lazuli entity.name.label.surface-area.lazuli
+>  audience admin
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^ source.lazuli entity.name.label.audience.lazuli
+>
+>route admin_catalog_detail
+#^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.route.lazuli
+>  path "/admin/catalog/:id"
+#^^^^^^^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                          ^ source.lazuli string.quoted.double.lazuli
+>  route id: Product.ID
+#^^ source.lazuli
+#  ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#       ^ source.lazuli
+#        ^^ source.lazuli entity.name.function.route.lazuli
+#          ^ source.lazuli punctuation.separator.key-value.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                   ^^^ source.lazuli variable.other.member.lazuli
+>  to catalog.view.detail(id: route.id)
+#^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#    ^ source.lazuli
+#     ^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                        ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                         ^^ source.lazuli variable.other.field.lazuli
+#                           ^ source.lazuli punctuation.separator.type.lazuli
+#                            ^ source.lazuli
+#                             ^^^^^ source.lazuli support.variable.context.lazuli
+#                                  ^^^ source.lazuli variable.other.member.lazuli
+#                                     ^ source.lazuli punctuation.section.parens.end.lazuli
+>  surface catalog web
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.label.surface-target.lazuli
+#                 ^ source.lazuli
+#                  ^^^ source.lazuli entity.name.label.surface-area.lazuli
+>  audience admin
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^ source.lazuli entity.name.label.audience.lazuli
+>  lazy true
+#^^^^^^^ source.lazuli
+#       ^^^^ source.lazuli constant.language.boolean.lazuli
+>
+>route sales_catalog_list
+#^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.route.lazuli
+>  path "catalog"
+#^^^^^^^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^^^^^ source.lazuli string.quoted.double.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+>  to catalog.view.list
+#^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#    ^ source.lazuli
+#     ^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>  surface catalog mobile
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.label.surface-target.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^ source.lazuli entity.name.label.surface-area.lazuli
+>  audience sales
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^ source.lazuli entity.name.label.audience.lazuli
+>
+>experience catalog
+#^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli entity.name.type.experience.lazuli
+>  imports catalog
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^^^^^^^^^ source.lazuli
+>
+>  view list
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#      ^ source.lazuli
+#       ^^^^ source.lazuli entity.name.function.view.lazuli
+>    source catalog.query.list
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>    action create -> catalog.command.create
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^ source.lazuli entity.name.function.action.lazuli
+#                 ^ source.lazuli
+#                  ^^ source.lazuli keyword.operator.transition.lazuli
+#                    ^ source.lazuli
+#                     ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>    opens detail(id: row.id)
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^^^^^^^ source.lazuli
+#                ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                 ^^ source.lazuli
+#                   ^ source.lazuli punctuation.separator.key-value.lazuli
+#                    ^ source.lazuli
+#                     ^^^ source.lazuli support.variable.context.lazuli
+#                        ^^^ source.lazuli variable.other.member.lazuli
+#                           ^ source.lazuli punctuation.section.parens.end.lazuli
+>
+>  view detail
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#      ^ source.lazuli
+#       ^^^^^^ source.lazuli entity.name.function.view.lazuli
+>    route id: Product.ID
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^ source.lazuli variable.other.route-slot.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                     ^^^ source.lazuli variable.other.member.lazuli
+>    anchor @anchor.product_detail
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    source catalog.query.by_id(id: route.id)
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                              ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                               ^^ source.lazuli
+#                                 ^ source.lazuli punctuation.separator.key-value.lazuli
+#                                  ^ source.lazuli
+#                                   ^^^^^ source.lazuli support.variable.context.lazuli
+#                                        ^^^ source.lazuli variable.other.member.lazuli
+#                                           ^ source.lazuli punctuation.section.parens.end.lazuli
+>    block @client.activity_timeline
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    extensible_by catalog_tags
+#^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                 ^^^^^^^^^^^^^^ source.lazuli
+>    action publish -> catalog.command.publish(id: route.id)
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli entity.name.function.action.lazuli
+#                  ^ source.lazuli
+#                   ^^ source.lazuli keyword.operator.transition.lazuli
+#                     ^ source.lazuli
+#                      ^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                                             ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                                              ^^ source.lazuli
+#                                                ^ source.lazuli punctuation.separator.key-value.lazuli
+#                                                 ^ source.lazuli
+#                                                  ^^^^^ source.lazuli support.variable.context.lazuli
+#                                                       ^^^ source.lazuli variable.other.member.lazuli
+#                                                          ^ source.lazuli punctuation.section.parens.end.lazuli
+>    action archive -> catalog.lifecycle.archive(id: route.id)
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli entity.name.function.action.lazuli
+#                  ^ source.lazuli
+#                   ^^ source.lazuli keyword.operator.transition.lazuli
+#                     ^ source.lazuli
+#                      ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                                               ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                                                ^^ source.lazuli
+#                                                  ^ source.lazuli punctuation.separator.key-value.lazuli
+#                                                   ^ source.lazuli
+#                                                    ^^^^^ source.lazuli support.variable.context.lazuli
+#                                                         ^^^ source.lazuli variable.other.member.lazuli
+#                                                            ^ source.lazuli punctuation.section.parens.end.lazuli
+>
+>    tests
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.section.lazuli
+>      accepted by catalog_tags
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#              ^^^^^^^^^^^^^^^^^ source.lazuli
+>      rejected by billing
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#              ^^^^^^^^^^^^ source.lazuli
+>
+>  view top_sellers
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#      ^ source.lazuli
+#       ^^^^^^^^^^^ source.lazuli entity.name.function.view.lazuli
+>    source catalog.query.top_sellers
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>  view not_found
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#      ^ source.lazuli
+#       ^^^^^^^^^ source.lazuli entity.name.function.view.lazuli
+>
+>experience account
+#^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli entity.name.type.experience.lazuli
+>  imports account
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^^^^^^^^^ source.lazuli
+>
+>  view login
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#      ^ source.lazuli
+#       ^^^^^ source.lazuli entity.name.function.view.lazuli
+>    submit account.command.login
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>experience catalog_tags
+#^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^ source.lazuli entity.name.type.experience.lazuli
+>  imports catalog
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^^^^^^^^^ source.lazuli
+>
+>  extends @anchor.product_detail
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    slot aside
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli keyword.control.statement.lazuli
+#        ^ source.lazuli
+#         ^^^^^ source.lazuli entity.name.label.slot.lazuli
+>      block @client.tag_editor
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      platforms web, mobile
+#^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#               ^^^^ source.lazuli
+#                   ^ source.lazuli punctuation.separator.comma.lazuli
+#                    ^^^^^^^^ source.lazuli
+>      audience admin
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^^^^^^^ source.lazuli
+>

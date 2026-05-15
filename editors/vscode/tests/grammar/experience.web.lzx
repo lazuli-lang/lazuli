@@ -1,0 +1,68 @@
+# Grammar snapshot fixture — web surface projection.
+# Exercises L0 #6 terminal-grammar primitives:
+# `cells <slot>`, `drawer <name> on select`, `filters` with typed slots,
+# `search segmented`, `sort by`, `selection multi`, `bulk_actions`,
+# `settings ... persist local`.
+
+surface catalog web
+  uses experience catalog
+
+  audience admin
+    requires @scope.workspace_admin
+
+    view list product_terminal at "/products"
+      source catalog.query.list
+      cells @client.product_card
+      actions create, update, delete
+
+      drawer product_detail on select
+        source catalog.query.by_id
+        route id from selection
+        sections header, content, metadata
+        cells related @client.related_items
+        actions update, delete
+
+      filters
+        status: ProductStatus
+        tier: PriceTier
+        tags: list of Text
+        slug: Text from query
+
+      search segmented
+        field slug binds filters.slug
+        field status binds filters.status
+        field tag binds filters.tags
+        free text into source.q
+
+      sort
+        by name, status, tier, updated_at
+        default updated_at desc
+
+      selection multi
+      bulk_actions delete, archive
+
+      settings
+        grid_size: Enum [sm, md, lg] default sm
+          persist local
+        density: Enum [compact, regular] default regular
+          persist local
+
+    view detail product_detail at "/products/:id"
+      source catalog.query.by_id
+      route id: ID from path
+      sections header, metadata, related_items
+      cells tags @client.type_badge
+      actions update, delete
+
+    view create product_create at "/products/new"
+      submit catalog.command.create
+      fields name, sku, tier, price_cents
+
+  audience public
+    requires @scope.workspace_member
+
+    view list public_catalog at "/browse"
+      source catalog.query.list
+      columns name, sku, price_cents
+      search name, sku
+      filter tier

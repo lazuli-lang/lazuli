@@ -1,0 +1,75 @@
+# Grammar snapshot fixture — abstract experience.
+# Routes + experiences + extends/slot.
+
+route public_login
+  path "/login"
+  to account.view.login
+  surface account web
+  audience public
+
+route public_not_found
+  path "/not-found"
+  to catalog.view.not_found
+  surface catalog web
+  audience public
+
+route admin_catalog_list
+  path "/admin/catalog"
+  to catalog.view.list
+  surface catalog web
+  audience admin
+
+route admin_catalog_detail
+  path "/admin/catalog/:id"
+  route id: Product.ID
+  to catalog.view.detail(id: route.id)
+  surface catalog web
+  audience admin
+  lazy true
+
+route sales_catalog_list
+  path "catalog"
+  to catalog.view.list
+  surface catalog mobile
+  audience sales
+
+experience catalog
+  imports catalog
+
+  view list
+    source catalog.query.list
+    action create -> catalog.command.create
+    opens detail(id: row.id)
+
+  view detail
+    route id: Product.ID
+    anchor @anchor.product_detail
+    source catalog.query.by_id(id: route.id)
+    block @client.activity_timeline
+    extensible_by catalog_tags
+    action publish -> catalog.command.publish(id: route.id)
+    action archive -> catalog.lifecycle.archive(id: route.id)
+
+    tests
+      accepted by catalog_tags
+      rejected by billing
+
+  view top_sellers
+    source catalog.query.top_sellers
+
+  view not_found
+
+experience account
+  imports account
+
+  view login
+    submit account.command.login
+
+experience catalog_tags
+  imports catalog
+
+  extends @anchor.product_detail
+    slot aside
+      block @client.tag_editor
+      platforms web, mobile
+      audience admin

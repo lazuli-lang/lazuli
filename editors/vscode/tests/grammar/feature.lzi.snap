@@ -1,0 +1,1371 @@
+># Grammar snapshot fixture — exercises the canonical .lzi vocabulary.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># Modeled on examples/full-capsule and pleiades/account so every major
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># construct that has a dedicated TextMate scope is hit at least once.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>
+>feature catalog
+#^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#       ^ source.lazuli
+#        ^^^^^^^ source.lazuli entity.name.type.feature.lazuli
+>  purpose "Catalog of products with prices, stock, status lifecycle, search and reports."
+#^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                                                        ^ source.lazuli string.quoted.double.lazuli
+>
+>  non_goals
+#^^ source.lazuli
+#  ^^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    delegated_to
+#^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.non-goals.lazuli
+>      account: "user authentication"
+#^^^^^^ source.lazuli
+#      ^^^^^^^ source.lazuli variable.other.dictionary-key.lazuli
+#             ^ source.lazuli punctuation.separator.key-value.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                   ^ source.lazuli string.quoted.double.lazuli
+>      billing: "invoicing"
+#^^^^^^ source.lazuli
+#      ^^^^^^^ source.lazuli variable.other.dictionary-key.lazuli
+#             ^ source.lazuli punctuation.separator.key-value.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                         ^ source.lazuli string.quoted.double.lazuli
+>    out_of_scope
+#^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.non-goals.lazuli
+>      generic_taxonomy: "tag taxonomy framework"
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^^^^^^ source.lazuli variable.other.dictionary-key.lazuli
+#                      ^ source.lazuli punctuation.separator.key-value.lazuli
+#                       ^ source.lazuli
+#                        ^ source.lazuli string.quoted.double.lazuli
+#                         ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                               ^ source.lazuli string.quoted.double.lazuli
+>
+>  context "@docs/catalog/catalog.ctx.md"
+#^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                       ^ source.lazuli string.quoted.double.lazuli
+>
+>  defaults
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    tenancy org
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.defaults.lazuli
+#           ^^^^^ source.lazuli
+>    timestamps
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.defaults.lazuli
+>    policy_for jobs, webhooks: @actor.system
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.defaults.lazuli
+#              ^^^^^ source.lazuli
+#                   ^ source.lazuli punctuation.separator.comma.lazuli
+#                    ^^^^^^^^^ source.lazuli
+#                             ^ source.lazuli punctuation.separator.key-value.lazuli
+#                              ^ source.lazuli
+#                               ^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>  uses org, account, billing
+#^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#      ^^^^ source.lazuli
+#          ^ source.lazuli punctuation.separator.comma.lazuli
+#           ^^^^^^^^ source.lazuli
+#                   ^ source.lazuli punctuation.separator.comma.lazuli
+#                    ^^^^^^^^^ source.lazuli
+>
+>  domain
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.section.lazuli
+>    enum ProductStatus
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#        ^ source.lazuli
+#         ^^^^^^^^^^^^^ source.lazuli entity.name.type.enum.lazuli
+>      draft = 10
+#^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli constant.numeric.lazuli
+>      active = 20
+#^^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
+#            ^ source.lazuli
+#             ^ source.lazuli keyword.operator.comparison.lazuli
+#              ^ source.lazuli
+#               ^^ source.lazuli constant.numeric.lazuli
+>      archived = 90
+#^^^^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli keyword.operator.comparison.lazuli
+#                ^ source.lazuli
+#                 ^^ source.lazuli constant.numeric.lazuli
+>
+>    enum PriceTier
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#        ^ source.lazuli
+#         ^^^^^^^^^ source.lazuli entity.name.type.enum.lazuli
+>      free
+#^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
+>      standard
+#^^^^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
+>      premium
+#^^^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
+>
+>    resource Product
+#^^^^ source.lazuli
+#    ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^ source.lazuli entity.name.type.resource.lazuli
+>      previously migrated Item
+#^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^ source.lazuli storage.modifier.lazuli
+#                         ^ source.lazuli
+#                          ^^^^ source.lazuli support.type.domain.lazuli
+>      owner: User optional
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli variable.other.field.lazuli
+#           ^ source.lazuli punctuation.separator.type.lazuli
+#            ^ source.lazuli
+#             ^^^^ source.lazuli support.type.domain.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      name: Text required
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli support.type.primitive.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      slug: @semantic.Slug required
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                          ^ source.lazuli
+#                           ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      sku: Text required
+#^^^^^^ source.lazuli
+#      ^^^ source.lazuli variable.other.field.lazuli
+#         ^ source.lazuli punctuation.separator.type.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli support.type.primitive.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      description: Text optional
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^ source.lazuli support.type.primitive.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      tier: PriceTier = standard
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                     ^ source.lazuli
+#                      ^ source.lazuli keyword.operator.comparison.lazuli
+#                       ^^^^^^^^^^ source.lazuli
+>      status: ProductStatus = draft
+#^^^^^^ source.lazuli
+#      ^^^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                           ^ source.lazuli
+#                            ^ source.lazuli keyword.operator.comparison.lazuli
+#                             ^^^^^^^ source.lazuli
+>      price_cents: Integer required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                          ^ source.lazuli
+#                           ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      currency: Text = "USD"
+#^^^^^^ source.lazuli
+#      ^^^^^^^^ source.lazuli variable.other.field.lazuli
+#              ^ source.lazuli punctuation.separator.type.lazuli
+#               ^ source.lazuli
+#                ^^^^ source.lazuli support.type.primitive.lazuli
+#                    ^ source.lazuli
+#                     ^ source.lazuli keyword.operator.comparison.lazuli
+#                      ^ source.lazuli
+#                       ^ source.lazuli string.quoted.double.lazuli
+#                        ^^^ source.lazuli string.quoted.double.lazuli
+#                           ^ source.lazuli string.quoted.double.lazuli
+>      external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^ source.lazuli entity.name.tag.lazuli
+#                        ^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                                 ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                                  ^^^ source.lazuli variable.parameter.decorator-arg.lazuli
+#                                     ^ source.lazuli punctuation.separator.key-value.lazuli
+#                                      ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                                                 ^ source.lazuli punctuation.section.parens.end.lazuli
+#                                                  ^ source.lazuli
+#                                                   ^^^^ source.lazuli entity.name.tag.lazuli
+#                                                       ^ source.lazuli punctuation.accessor.lazuli
+#                                                        ^^^^^^^^ source.lazuli storage.modifier.lazuli
+#                                                                ^ source.lazuli
+#                                                                 ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      is_featured: Boolean derived from price_cents > 1000
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                          ^^^^^^^^^ source.lazuli
+#                                   ^^^^ source.lazuli storage.modifier.lazuli
+#                                       ^^^^^^^^^^^^^ source.lazuli
+#                                                    ^ source.lazuli keyword.operator.comparison.lazuli
+#                                                     ^ source.lazuli
+#                                                      ^^^^ source.lazuli constant.numeric.lazuli
+>
+>      soft_delete
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
+>      retention 5y then anonymize
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
+#               ^^^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>      validates @validator.price_check
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                          ^ source.lazuli punctuation.accessor.lazuli
+#                           ^^^^^^^^^^^^ source.lazuli
+>
+>      lifecycle status
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#               ^ source.lazuli
+#                ^^^^^^ source.lazuli entity.name.function.lifecycle.lazuli
+>        state draft initial
+#^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#             ^^^^^^^^^^^^^^^ source.lazuli
+>        state active
+#^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#             ^^^^^^^^ source.lazuli
+>        state archived terminal
+#^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#             ^^^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>        transition publish
+#^^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                  ^^^^^^^^^ source.lazuli
+>          from draft
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^^^^^^^ source.lazuli
+>          to active
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^^^^^^^^ source.lazuli
+>          policy @policy.publish
+#^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>          emits product_published, product_status_changed
+#^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#               ^^^^^^^^^^^^^^^^^^ source.lazuli
+#                                 ^ source.lazuli punctuation.separator.comma.lazuli
+#                                  ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>          tests
+#^^^^^^^^^^ source.lazuli
+#          ^^^^^ source.lazuli keyword.control.section.lazuli
+>            allows from draft
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#                  ^^^^^^^^^^^^ source.lazuli
+>            denies from active
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#                  ^^^^^^^^^^^^^ source.lazuli
+>            denies from archived
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#                  ^^^^^^^^^^^^^^^ source.lazuli
+>
+>        transition archive
+#^^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                  ^^^^^^^^^ source.lazuli
+>          from active
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^^^^^^^^ source.lazuli
+>          to archived
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^^^^^^^^^^ source.lazuli
+>          policy @policy.archive
+#^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>          emits product_archived, product_status_changed
+#^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#               ^^^^^^^^^^^^^^^^^ source.lazuli
+#                                ^ source.lazuli punctuation.separator.comma.lazuli
+#                                 ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>          tests
+#^^^^^^^^^^ source.lazuli
+#          ^^^^^ source.lazuli keyword.control.section.lazuli
+>            allows from active
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#                  ^^^^^^^^^^^^^ source.lazuli
+>            denies from draft
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#                  ^^^^^^^^^^^^ source.lazuli
+>
+>    resource ProductImage
+#^^^^ source.lazuli
+#    ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^ source.lazuli entity.name.type.resource.lazuli
+>      product: Product required on_delete cascade
+#^^^^^^ source.lazuli
+#      ^^^^^^^ source.lazuli variable.other.field.lazuli
+#             ^ source.lazuli punctuation.separator.type.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                      ^ source.lazuli
+#                       ^^^^^^^^ source.lazuli storage.modifier.lazuli
+#                               ^ source.lazuli
+#                                ^^^^^^^^^ source.lazuli storage.modifier.lazuli
+#                                         ^ source.lazuli
+#                                          ^^^^^^^ source.lazuli storage.modifier.lazuli
+>      url: Text required
+#^^^^^^ source.lazuli
+#      ^^^ source.lazuli variable.other.field.lazuli
+#         ^ source.lazuli punctuation.separator.type.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli support.type.primitive.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      position: Integer = 0
+#^^^^^^ source.lazuli
+#      ^^^^^^^^ source.lazuli variable.other.field.lazuli
+#              ^ source.lazuli punctuation.separator.type.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                       ^ source.lazuli
+#                        ^ source.lazuli keyword.operator.comparison.lazuli
+#                         ^ source.lazuli
+#                          ^ source.lazuli constant.numeric.lazuli
+>
+>    constraints
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>      unique sku per org
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
+#            ^^^^^ source.lazuli
+#                 ^^^ source.lazuli storage.modifier.lazuli
+#                    ^^^^^ source.lazuli
+>      unique slug per org
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
+#            ^^^^^^ source.lazuli
+#                  ^^^ source.lazuli storage.modifier.lazuli
+#                     ^^^^^ source.lazuli
+>
+>    record ProductSummary
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^ source.lazuli entity.name.type.record.lazuli
+>      product_id: ID
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                ^ source.lazuli punctuation.separator.type.lazuli
+#                 ^ source.lazuli
+#                  ^^ source.lazuli support.type.primitive.lazuli
+>      name: Text
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli support.type.primitive.lazuli
+>      total_revenue: Integer
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                   ^ source.lazuli punctuation.separator.type.lazuli
+#                    ^ source.lazuli
+#                     ^^^^^^^ source.lazuli support.type.primitive.lazuli
+>
+>    record TopSellerRow
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^ source.lazuli entity.name.type.record.lazuli
+>      product_id: ID
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                ^ source.lazuli punctuation.separator.type.lazuli
+#                 ^ source.lazuli
+#                  ^^ source.lazuli support.type.primitive.lazuli
+>      sold: Integer
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^ source.lazuli support.type.primitive.lazuli
+>      revenue: Integer
+#^^^^^^ source.lazuli
+#      ^^^^^^^ source.lazuli variable.other.field.lazuli
+#             ^ source.lazuli punctuation.separator.type.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^ source.lazuli support.type.primitive.lazuli
+>
+>    query.list list
+#^^^^ source.lazuli
+#    ^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#              ^ source.lazuli
+#               ^^^^ source.lazuli entity.name.function.named-block.lazuli
+>      modifier @query_modifier.product_scope
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>      params
+#^^^^^^ source.lazuli
+#      ^^^^^^ source.lazuli keyword.control.section.lazuli
+>        status: ProductStatus optional
+#^^^^^^^^ source.lazuli
+#        ^^^^^^ source.lazuli variable.other.field.lazuli
+#              ^ source.lazuli punctuation.separator.type.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                             ^ source.lazuli
+#                              ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>        tier: PriceTier optional
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>        owner: User optional
+#^^^^^^^^ source.lazuli
+#        ^^^^^ source.lazuli variable.other.field.lazuli
+#             ^ source.lazuli punctuation.separator.type.lazuli
+#              ^ source.lazuli
+#               ^^^^ source.lazuli support.type.domain.lazuli
+#                   ^ source.lazuli
+#                    ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>        search: Text optional
+#^^^^^^^^ source.lazuli
+#        ^^^^^^ source.lazuli variable.other.field.lazuli
+#              ^ source.lazuli punctuation.separator.type.lazuli
+#               ^ source.lazuli
+#                ^^^^ source.lazuli support.type.primitive.lazuli
+#                    ^ source.lazuli
+#                     ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>
+>      filters
+#^^^^^^ source.lazuli
+#      ^^^^^^^ source.lazuli keyword.control.section.lazuli
+>        status when params.status
+#^^^^^^^^^^^^^^^ source.lazuli
+#               ^^^^ source.lazuli keyword.operator.predicate.lazuli
+#                   ^ source.lazuli
+#                    ^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        tier when params.tier
+#^^^^^^^^^^^^^ source.lazuli
+#             ^^^^ source.lazuli keyword.operator.predicate.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        owner when params.owner
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^^^^ source.lazuli keyword.operator.predicate.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>      search params.search over name, sku
+#^^^^^^ source.lazuli
+#      ^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^ source.lazuli variable.other.search-target.lazuli
+#                          ^ source.lazuli
+#                           ^^^^ source.lazuli keyword.control.statement.lazuli
+#                               ^^^^^ source.lazuli
+#                                    ^ source.lazuli punctuation.separator.comma.lazuli
+#                                     ^^^^^ source.lazuli
+>        mode contains
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^^^^^^^^^^ source.lazuli
+>
+>      cache
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.statement.lazuli
+>        key catalog.list(params)
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.cache.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                        ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                         ^^^^^^ source.lazuli
+#                               ^ source.lazuli punctuation.section.parens.end.lazuli
+>        ttl 5m
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.cache.lazuli
+#           ^^^^ source.lazuli
+>        tags catalog-list, catalog-summary
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cache.lazuli
+#            ^^^^^^^^^^^^^ source.lazuli
+#                         ^ source.lazuli punctuation.separator.comma.lazuli
+#                          ^^^^^^^^^^^^^^^^^ source.lazuli
+>        namespace catalog
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cache.lazuli
+#                 ^^^^^^^^^ source.lazuli
+>
+>      order updated_at desc
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^^^^^^^^^^^^ source.lazuli
+#                       ^^^^ source.lazuli constant.language.direction.lazuli
+>      paginate 50
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^^ source.lazuli constant.numeric.lazuli
+>
+>    query.lookup by_id by id: ID
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#                ^ source.lazuli
+#                 ^^^^^ source.lazuli entity.name.function.named-block.lazuli
+#                      ^ source.lazuli
+#                       ^^ source.lazuli keyword.control.statement.lazuli
+#                         ^ source.lazuli
+#                          ^^ source.lazuli variable.other.query-key.lazuli
+#                            ^ source.lazuli punctuation.separator.type.lazuli
+#                             ^ source.lazuli
+#                              ^^ source.lazuli support.type.primitive.lazuli
+>
+>    query.lookup by_slug by slug: @semantic.Slug
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+#                        ^ source.lazuli
+#                         ^^ source.lazuli keyword.control.statement.lazuli
+#                           ^ source.lazuli
+#                            ^^^^ source.lazuli variable.other.query-key.lazuli
+#                                ^ source.lazuli punctuation.separator.type.lazuli
+#                                 ^ source.lazuli
+#                                  ^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>    query.sql top_sellers
+#^^^^ source.lazuli
+#    ^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>      returns TopSellerRow[]
+#^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                          ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                           ^ source.lazuli punctuation.definition.generic.end.lazuli
+>
+>      params
+#^^^^^^ source.lazuli
+#      ^^^^^^ source.lazuli keyword.control.section.lazuli
+>        days: Integer optional
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                     ^ source.lazuli
+#                      ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>
+>      scope
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.section.lazuli
+>        org = ctx.user.org
+#^^^^^^^^^^^^ source.lazuli
+#            ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli
+#              ^^^ source.lazuli support.variable.context.lazuli
+#                 ^^^^^^^^^ source.lazuli variable.other.member.lazuli
+>
+>      sql "./queries/top_sellers.sql"
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                    ^ source.lazuli string.quoted.double.lazuli
+>
+>    rule "archived products cannot be republished"
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#        ^ source.lazuli
+#         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.rule-name.lazuli
+>      deny Product.publish when self.status = ProductStatus.archived
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                  ^^^^^^^^ source.lazuli variable.other.member.lazuli
+#                          ^^^^^^ source.lazuli
+#                                ^^^^ source.lazuli support.variable.context.lazuli
+#                                    ^^^^^^^ source.lazuli variable.other.member.lazuli
+#                                           ^ source.lazuli
+#                                            ^ source.lazuli keyword.operator.comparison.lazuli
+#                                             ^ source.lazuli
+#                                              ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                                                           ^^^^^^^^^ source.lazuli variable.other.member.lazuli
+>      message @translation.republish_archived_blocked
+#^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>      tests
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.section.lazuli
+>        denies when self.status = archived
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#              ^^^^^^ source.lazuli
+#                    ^^^^ source.lazuli support.variable.context.lazuli
+#                        ^^^^^^^ source.lazuli variable.other.member.lazuli
+#                               ^ source.lazuli
+#                                ^ source.lazuli keyword.operator.comparison.lazuli
+#                                 ^^^^^^^^^^ source.lazuli
+>        allows when self.status = draft
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#              ^^^^^^ source.lazuli
+#                    ^^^^ source.lazuli support.variable.context.lazuli
+#                        ^^^^^^^ source.lazuli variable.other.member.lazuli
+#                               ^ source.lazuli
+#                                ^ source.lazuli keyword.operator.comparison.lazuli
+#                                 ^^^^^^^ source.lazuli
+>
+>    event_group product_* on Product
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^ source.lazuli entity.name.function.event-group.lazuli
+#                         ^ source.lazuli
+#                          ^^ source.lazuli storage.modifier.lazuli
+#                            ^ source.lazuli
+#                             ^^^^^^^ source.lazuli support.type.domain.lazuli
+>      payload
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.event-group.lazuli
+>        product_id = id
+#^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                   ^ source.lazuli keyword.operator.comparison.lazuli
+#                    ^^^^ source.lazuli
+>        org_id = org.id
+#^^^^^^^^^^^^^^^ source.lazuli
+#               ^ source.lazuli keyword.operator.comparison.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        by_id = ctx.user.id when @actor.user
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^ source.lazuli keyword.operator.comparison.lazuli
+#               ^ source.lazuli
+#                ^^^ source.lazuli support.variable.context.lazuli
+#                   ^^^^^^^^ source.lazuli variable.other.member.lazuli
+#                           ^^^^^^ source.lazuli
+#                                 ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>      event created
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>        sku: Text
+#^^^^^^^^ source.lazuli
+#        ^^^ source.lazuli variable.other.field.lazuli
+#           ^ source.lazuli punctuation.separator.type.lazuli
+#            ^ source.lazuli
+#             ^^^^ source.lazuli support.type.primitive.lazuli
+>        tier: PriceTier
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>
+>      event status_changed
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>        from: ProductStatus
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>        to: ProductStatus
+#^^^^^^^^ source.lazuli
+#        ^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>
+>      event published
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>
+>      event archived
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>
+>      event.trace price_recalculated
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>        old_price: Integer
+#^^^^^^^^ source.lazuli
+#        ^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^ source.lazuli support.type.primitive.lazuli
+>        new_price: Integer
+#^^^^^^^^ source.lazuli
+#        ^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^ source.lazuli support.type.primitive.lazuli
+>
+>  policies
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    create: @role.admin, @role.merchandiser
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#          ^ source.lazuli punctuation.separator.key-value.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                       ^ source.lazuli punctuation.separator.comma.lazuli
+#                        ^ source.lazuli
+#                         ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    update: @role.admin, @role.merchandiser
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#          ^ source.lazuli punctuation.separator.key-value.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                       ^ source.lazuli punctuation.separator.comma.lazuli
+#                        ^ source.lazuli
+#                         ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    publish: @role.admin
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#           ^ source.lazuli punctuation.separator.key-value.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    archive: @role.admin
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#           ^ source.lazuli punctuation.separator.key-value.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    delete: @role.admin
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#          ^ source.lazuli punctuation.separator.key-value.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    read: @scope.same_org
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#        ^ source.lazuli punctuation.separator.key-value.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>    fields Product
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.section.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli support.type.domain.lazuli
+>      external_id
+#^^^^^^^^^^^^^^^^^^ source.lazuli
+>        read: @role.admin, @role.integrations_admin
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#            ^ source.lazuli punctuation.separator.key-value.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                         ^ source.lazuli punctuation.separator.comma.lazuli
+#                          ^ source.lazuli
+#                           ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>        write: @actor.system
+#^^^^^^^^ source.lazuli
+#        ^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#             ^ source.lazuli punctuation.separator.key-value.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>      price_cents
+#^^^^^^^^^^^^^^^^^^ source.lazuli
+>        read: @scope.same_org
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#            ^ source.lazuli punctuation.separator.key-value.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>        write: @role.admin
+#^^^^^^^^ source.lazuli
+#        ^^^^^ source.lazuli entity.name.function.statement.policy.lazuli
+#             ^ source.lazuli punctuation.separator.key-value.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>
+>  errors
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.section.lazuli
+>    default hide
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.errors.lazuli
+#           ^^^^^^ source.lazuli
+>    expose client 4xx message, code
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.errors.lazuli
+#          ^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                             ^ source.lazuli punctuation.separator.comma.lazuli
+#                              ^^^^^^ source.lazuli
+>    expose client 5xx code
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.errors.lazuli
+#          ^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>  translation
+#^^ source.lazuli
+#  ^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    catalog "./i18n/catalog.<locale>.json"
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.translation.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                         ^ source.lazuli string.quoted.double.lazuli
+>
+>    key republish_archived_blocked
+#^^^^^^^ source.lazuli entity.name.function.statement.translation.lazuli
+#       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>      pt-BR "Não é possível publicar um produto arquivado"
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli constant.language.locale-tag.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                         ^ source.lazuli string.quoted.double.lazuli
+>      en-US "Cannot republish an archived product"
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli constant.language.locale-tag.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                 ^ source.lazuli string.quoted.double.lazuli
+>
+>  command create
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#         ^ source.lazuli
+#          ^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    input
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.section.lazuli
+>      name: Text required
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli support.type.primitive.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      sku: Text required
+#^^^^^^ source.lazuli
+#      ^^^ source.lazuli variable.other.field.lazuli
+#         ^ source.lazuli punctuation.separator.type.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli support.type.primitive.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      tier: PriceTier required
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                     ^ source.lazuli
+#                      ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      price_cents: Integer required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                          ^ source.lazuli
+#                           ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>    policy @policy.create
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    rate_limit "30 per hour per ip"
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                  ^ source.lazuli string.quoted.double.lazuli
+>    creates Product
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^ source.lazuli support.type.domain.lazuli
+>      name = input.name
+#^^^^^^^^^^^ source.lazuli
+#           ^ source.lazuli keyword.operator.comparison.lazuli
+#            ^ source.lazuli
+#             ^^^^^ source.lazuli support.variable.context.lazuli
+#                  ^^^^^ source.lazuli variable.other.member.lazuli
+>      sku = input.sku
+#^^^^^^^^^^ source.lazuli
+#          ^ source.lazuli keyword.operator.comparison.lazuli
+#           ^ source.lazuli
+#            ^^^^^ source.lazuli support.variable.context.lazuli
+#                 ^^^^ source.lazuli variable.other.member.lazuli
+>      tier = input.tier
+#^^^^^^^^^^^ source.lazuli
+#           ^ source.lazuli keyword.operator.comparison.lazuli
+#            ^ source.lazuli
+#             ^^^^^ source.lazuli support.variable.context.lazuli
+#                  ^^^^^ source.lazuli variable.other.member.lazuli
+>      price_cents = input.price_cents
+#^^^^^^^^^^^^^^^^^^ source.lazuli
+#                  ^ source.lazuli keyword.operator.comparison.lazuli
+#                   ^ source.lazuli
+#                    ^^^^^ source.lazuli support.variable.context.lazuli
+#                         ^^^^^^^^^^^^ source.lazuli variable.other.member.lazuli
+>      owner = ctx.user
+#^^^^^^^^^^^^ source.lazuli
+#            ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli
+#              ^^^ source.lazuli support.variable.context.lazuli
+#                 ^^^^^ source.lazuli variable.other.member.lazuli
+>    emits product_created from creates
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+#                         ^ source.lazuli
+#                          ^^^^ source.lazuli storage.modifier.lazuli
+#                              ^ source.lazuli
+#                               ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>    invalidates
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>      query.list
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>  command publish
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    route id: ID
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^ source.lazuli variable.other.route-slot.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli support.type.primitive.lazuli
+>    policy @policy.publish
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    rate_limit "60 per minute per user"
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                      ^ source.lazuli string.quoted.double.lazuli
+>    audit actor, target.id
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.audit-fields.lazuli
+>      emit_to audit_log
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.audit.lazuli
+#             ^^^^^^^^^^^ source.lazuli
+>    updates Product
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^ source.lazuli support.type.domain.lazuli
+>      status = ProductStatus.active
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^ source.lazuli
+#             ^ source.lazuli keyword.operator.comparison.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                            ^^^^^^^ source.lazuli variable.other.member.lazuli
+>    emits product_published
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>    invalidates
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>      query.list
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>      query.by_id(id: route.id)
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                 ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                  ^^ source.lazuli
+#                    ^ source.lazuli punctuation.separator.key-value.lazuli
+#                     ^ source.lazuli
+#                      ^^^^^ source.lazuli support.variable.context.lazuli
+#                           ^^^ source.lazuli variable.other.member.lazuli
+#                              ^ source.lazuli punctuation.section.parens.end.lazuli
+>
+>  command archive
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    previously migrated deactivate
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^ source.lazuli storage.modifier.lazuli
+#                       ^^^^^^^^^^^^ source.lazuli
+>    deprecated since "2026.04" replacement publish sunset "2026-12-31"
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^^^^^^^ source.lazuli
+#                     ^ source.lazuli string.quoted.double.lazuli
+#                      ^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                             ^ source.lazuli string.quoted.double.lazuli
+#                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                                                          ^ source.lazuli string.quoted.double.lazuli
+#                                                           ^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                                     ^ source.lazuli string.quoted.double.lazuli
+>    route id: ID
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^ source.lazuli variable.other.route-slot.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli support.type.primitive.lazuli
+>    policy @policy.archive
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    rate_limit "60 per minute per user"
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                      ^ source.lazuli string.quoted.double.lazuli
+>    approval
+#^^^^ source.lazuli
+#    ^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>      required_when target.tier = premium
+#^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.approval.lazuli
+#                   ^ source.lazuli
+#                    ^^^^^^ source.lazuli support.variable.context.lazuli
+#                          ^^^^^ source.lazuli variable.other.member.lazuli
+#                               ^ source.lazuli
+#                                ^ source.lazuli keyword.operator.comparison.lazuli
+#                                 ^^^^^^^^^ source.lazuli
+>      by @role.admin
+#^^^^^^^^ source.lazuli entity.name.function.statement.approval.lazuli
+#        ^ source.lazuli
+#         ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      timeout "24h"
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.approval.lazuli
+#             ^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^ source.lazuli string.quoted.double.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+>      then deny
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.approval.lazuli
+#          ^^^^^^ source.lazuli
+>    updates Product
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^ source.lazuli support.type.domain.lazuli
+>      status = ProductStatus.archived
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^ source.lazuli
+#             ^ source.lazuli keyword.operator.comparison.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                            ^^^^^^^^^ source.lazuli variable.other.member.lazuli
+>    emits product_archived
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.event.lazuli
+>    invalidates
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>      query.list
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>      query.by_id(id: route.id)
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                 ^ source.lazuli punctuation.section.parens.begin.lazuli
+#                  ^^ source.lazuli
+#                    ^ source.lazuli punctuation.separator.key-value.lazuli
+#                     ^ source.lazuli
+#                      ^^^^^ source.lazuli support.variable.context.lazuli
+#                           ^^^ source.lazuli variable.other.member.lazuli
+#                              ^ source.lazuli punctuation.section.parens.end.lazuli
+>
+>  api search
+#^^ source.lazuli
+#  ^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    method GET
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^ source.lazuli constant.language.http-method.lazuli
+>    path "/api/products/search"
+#^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#        ^ source.lazuli
+#         ^ source.lazuli string.quoted.double.lazuli
+#          ^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                              ^ source.lazuli string.quoted.double.lazuli
+>    output ProductSummary[]
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                         ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                          ^ source.lazuli punctuation.definition.generic.end.lazuli
+>    policy @policy.read
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    handler "./api/search_products.go"
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                     ^ source.lazuli string.quoted.double.lazuli
+>
+>  api restock
+#^^ source.lazuli
+#  ^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    method POST
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli constant.language.http-method.lazuli
+>    path "/api/products/:id/restock"
+#^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#        ^ source.lazuli
+#         ^ source.lazuli string.quoted.double.lazuli
+#          ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                   ^ source.lazuli string.quoted.double.lazuli
+>    route id: ID
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^ source.lazuli variable.other.route-slot.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli support.type.primitive.lazuli
+>    input
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.section.lazuli
+>      quantity: Integer required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^ source.lazuli variable.other.field.lazuli
+#              ^ source.lazuli punctuation.separator.type.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>    output Product
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^ source.lazuli support.type.domain.lazuli
+>    policy @policy.update
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    rate_limit "10 per minute per user"
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                      ^ source.lazuli string.quoted.double.lazuli
+>    handler "./api/restock_product.go"
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                     ^ source.lazuli string.quoted.double.lazuli
+>
+>  job recompute_prices
+#^^ source.lazuli
+#  ^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#     ^ source.lazuli
+#      ^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    trigger schedule "0 3 * * *"
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                    ^ source.lazuli
+#                     ^ source.lazuli string.quoted.double.lazuli
+#                      ^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                               ^ source.lazuli string.quoted.double.lazuli
+>    fanout tenants org
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^^^^^^^^^^^^^ source.lazuli
+>    idempotency by tenant.org_id, schedule.day
+#^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#               ^ source.lazuli
+#                ^^ source.lazuli storage.modifier.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^ source.lazuli support.variable.context.lazuli
+#                         ^^^^^^^ source.lazuli variable.other.member.lazuli
+#                                ^ source.lazuli punctuation.separator.comma.lazuli
+#                                 ^ source.lazuli
+#                                  ^^^^^^^^ source.lazuli support.variable.context.lazuli
+#                                          ^^^^ source.lazuli variable.other.member.lazuli
+>    retry 3 backoff exponential
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli constant.numeric.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    handler "./jobs/recompute_prices.go"
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                       ^ source.lazuli string.quoted.double.lazuli
+>
+>  channel catalog_activity
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    tenant_from org
+#^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#               ^^^^^ source.lazuli
+>    policy @policy.read
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    payload ProductSummary
+#^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>
+>  extensions
+#^^ source.lazuli
+#  ^^^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    client status_cell: CellRenderer[Product]
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli entity.name.function.statement.extension.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^ source.lazuli entity.name.function.extension-point.lazuli
+#                      ^ source.lazuli punctuation.separator.type.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^^^^^^^ source.lazuli support.type.extension.lazuli
+#                                    ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                                     ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                                            ^ source.lazuli punctuation.definition.generic.end.lazuli
+>    hook before_publish: Hook[PublishProduct]
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli entity.name.function.statement.extension.lazuli
+#        ^ source.lazuli
+#         ^^^^^^^^^^^^^^ source.lazuli entity.name.function.extension-point.lazuli
+#                       ^ source.lazuli punctuation.separator.type.lazuli
+#                        ^ source.lazuli
+#                         ^^^^ source.lazuli support.type.extension.lazuli
+#                             ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                              ^^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                                            ^ source.lazuli punctuation.definition.generic.end.lazuli
+>    fn risk_score: Function[Product, Integer]
+#^^^^ source.lazuli
+#    ^^ source.lazuli entity.name.function.statement.extension.lazuli
+#      ^ source.lazuli
+#       ^^^^^^^^^^ source.lazuli entity.name.function.extension-point.lazuli
+#                 ^ source.lazuli punctuation.separator.type.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^^ source.lazuli support.type.extension.lazuli
+#                           ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                            ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                                   ^ source.lazuli punctuation.separator.comma.lazuli
+#                                    ^ source.lazuli
+#                                     ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                            ^ source.lazuli punctuation.definition.generic.end.lazuli
+>    fn lifetime_value: Function[ID, Integer] at "./domain/lifetime_value.go"
+#^^^^ source.lazuli
+#    ^^ source.lazuli entity.name.function.statement.extension.lazuli
+#      ^ source.lazuli
+#       ^^^^^^^^^^^^^^ source.lazuli entity.name.function.extension-point.lazuli
+#                     ^ source.lazuli punctuation.separator.type.lazuli
+#                      ^ source.lazuli
+#                       ^^^^^^^^ source.lazuli support.type.extension.lazuli
+#                               ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                                ^^ source.lazuli support.type.primitive.lazuli
+#                                  ^ source.lazuli punctuation.separator.comma.lazuli
+#                                   ^ source.lazuli
+#                                    ^^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                           ^ source.lazuli punctuation.definition.generic.end.lazuli
+#                                            ^ source.lazuli
+#                                             ^^ source.lazuli storage.modifier.lazuli
+#                                               ^ source.lazuli
+#                                                ^ source.lazuli string.quoted.double.lazuli
+#                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                                           ^ source.lazuli string.quoted.double.lazuli
+>    query_modifier product_scope: QueryModifier[Product] at "./queries/product_scope.go"
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.extension.lazuli
+#                  ^ source.lazuli
+#                   ^^^^^^^^^^^^^ source.lazuli entity.name.function.extension-point.lazuli
+#                                ^ source.lazuli punctuation.separator.type.lazuli
+#                                 ^ source.lazuli
+#                                  ^^^^^^^^^^^^^ source.lazuli support.type.extension.lazuli
+#                                               ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                                                ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                                                       ^ source.lazuli punctuation.definition.generic.end.lazuli
+#                                                        ^ source.lazuli
+#                                                         ^^ source.lazuli storage.modifier.lazuli
+#                                                           ^ source.lazuli
+#                                                            ^ source.lazuli string.quoted.double.lazuli
+#                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                                                       ^ source.lazuli string.quoted.double.lazuli
+>    validator price_check: Validator[Product.price_cents] at "./hooks/validate_price.go"
+#^^^^ source.lazuli
+#    ^^^^^^^^^ source.lazuli entity.name.function.statement.extension.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^^^^ source.lazuli entity.name.function.extension-point.lazuli
+#                         ^ source.lazuli punctuation.separator.type.lazuli
+#                          ^ source.lazuli
+#                           ^^^^^^^^^ source.lazuli support.type.extension.lazuli
+#                                    ^ source.lazuli punctuation.definition.generic.begin.lazuli
+#                                     ^^^^^^^ source.lazuli support.type.domain.lazuli
+#                                            ^^^^^^^^^^^^ source.lazuli variable.other.member.lazuli
+#                                                        ^ source.lazuli punctuation.definition.generic.end.lazuli
+#                                                         ^ source.lazuli
+#                                                          ^^ source.lazuli storage.modifier.lazuli
+#                                                            ^ source.lazuli
+#                                                             ^ source.lazuli string.quoted.double.lazuli
+#                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                                                       ^ source.lazuli string.quoted.double.lazuli
+>

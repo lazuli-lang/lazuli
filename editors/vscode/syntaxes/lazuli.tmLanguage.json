@@ -396,7 +396,7 @@
         { "include": "#comments" },
         { "include": "#strings" },
         {
-          "name": "constant.other.enum-member.lazuli",
+          "name": "constant.language.enum-member.lazuli",
           "match": "^\\s+([a-z_][a-z0-9_]*)\\b"
         },
         { "include": "#operators" },
@@ -730,7 +730,7 @@
           "match": "^\\s+(catalog|key|plural)\\b"
         },
         {
-          "name": "constant.other.locale-tag.lazuli",
+          "name": "constant.language.locale-tag.lazuli",
           "match": "\\b[a-z]{2,3}-[A-Z]{2,4}\\b"
         },
         { "include": "#references" },
@@ -916,7 +916,7 @@
           "match": "^\\s+(default|supported|fallback|locale_negotiate|source|strategy)\\b"
         },
         {
-          "name": "constant.other.locale-tag.lazuli",
+          "name": "constant.language.locale-tag.lazuli",
           "match": "\\b[a-z]{2,3}-[A-Z]{2,4}\\b"
         },
         { "include": "#operators" },
@@ -953,7 +953,7 @@
           "match": "^\\s+(source|strategy|fallback)\\b"
         },
         {
-          "name": "constant.other.locale-tag.lazuli",
+          "name": "constant.language.locale-tag.lazuli",
           "match": "\\b[a-z]{2,3}-[A-Z]{2,4}\\b"
         },
         { "include": "#references" },
@@ -1361,7 +1361,7 @@
       "begin": "^(\\s+)(audit)(\\s+(?:none|default|[a-z_][a-z0-9_\\.,\\s]*))?\\s*$",
       "beginCaptures": {
         "2": { "name": "keyword.control.statement.lazuli" },
-        "3": { "name": "entity.name.audit.fields.lazuli" }
+        "3": { "name": "variable.other.audit-fields.lazuli" }
       },
       "end": "^(?!\\1\\s)(?=\\s*\\S)",
       "patterns": [
@@ -1494,7 +1494,7 @@
           "match": "^\\s+(returns|paginate|sql|modifier|policy|cache|search|filter|key|mode|over|rate_limit|audit)\\b"
         },
         {
-          "name": "constant.other.direction.lazuli",
+          "name": "constant.language.direction.lazuli",
           "match": "\\b(asc|desc)\\b"
         },
         { "include": "#references" },
@@ -1538,7 +1538,7 @@
       "captures": {
         "1": { "name": "keyword.control.statement.lazuli" },
         "2": { "name": "constant.language.verify.lazuli" },
-        "3": { "name": "constant.other.verify-alg.lazuli" }
+        "3": { "name": "constant.language.verify-alg.lazuli" }
       }
     },
     "replay-block": {
@@ -2151,7 +2151,7 @@
           "captures": {
             "1": { "name": "keyword.control.statement.lazuli" },
             "2": { "name": "variable.other.sort-field.lazuli" },
-            "3": { "name": "constant.other.direction.lazuli" }
+            "3": { "name": "constant.language.direction.lazuli" }
           }
         },
         {
@@ -2159,7 +2159,7 @@
           "match": "^\\s+(by|default)\\b"
         },
         {
-          "name": "constant.other.direction.lazuli",
+          "name": "constant.language.direction.lazuli",
           "match": "\\b(asc|desc)\\b"
         },
         { "include": "#references" },
@@ -2547,7 +2547,7 @@
     "references": {
       "patterns": [
         {
-          "name": "entity.name.reference.package.lazuli",
+          "name": "entity.name.namespace.package.lazuli",
           "match": "@(?:runtime|plugin)/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*"
         },
         {
@@ -2564,7 +2564,7 @@
           }
         },
         {
-          "name": "entity.name.reference.semantic.lazuli",
+          "name": "variable.other.property.semantic.lazuli",
           "match": "\\b[a-z_][a-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b"
         },
         {
@@ -2629,7 +2629,7 @@
           "match": "\\b[0-9]+(?:\\.[0-9]+)?\\b"
         },
         {
-          "name": "constant.other.wildcard.lazuli",
+          "name": "constant.language.wildcard.lazuli",
           "match": "(?<![A-Za-z0-9_])\\*(?![A-Za-z0-9_])"
         }
       ]

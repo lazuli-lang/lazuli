@@ -47,7 +47,7 @@ these scope families and you'll cover 95% of tokens:
 | `entity.name.namespace.lazurite.toml` (Lazurite.toml only)           | Known table headers (`[lazuli]`, `[lazurite]`, etc.) — "namespace" color        |
 | `entity.name.tag.lazurite-target.toml` (Lazurite.toml only)          | Dotted suffix (`go` in `[generate.go]`) — "tag" color                           |
 | `support.function.lazurite-key.toml` (Lazurite.toml only)            | Known keys (runtime/template/strict/etc.) — "function/key" color                |
-| `entity.name.reference.plugin.lazuli` (Lazurite.toml only)           | `@plugin/X` module references — "decorator" / "reference" color                 |
+| `entity.name.tag.plugin.lazuli` (Lazurite.toml only)           | `@plugin/X` module references — "decorator" / "reference" color                 |
 
 ## Full scope catalog
 
@@ -375,12 +375,12 @@ specifically). All of them share the same default coloring guidance:
 - **Used in:** `references` repository.
 - **Suggested theme color:** "type" color (slightly muted) or "namespace".
 
-#### `entity.name.reference.package.lazuli`
+#### `entity.name.namespace.package.lazuli`
 - **Role:** package import references `@runtime/foo` and `@plugin/foo`.
 - **Used in:** `references` repository (highest priority of the `entity.name.reference.*` family).
 - **Suggested theme color:** "namespace" / "package" color. Distinct from decorators.
 
-#### `entity.name.reference.semantic.lazuli`
+#### `variable.other.property.semantic.lazuli`
 - **Role:** dotted paths starting with a lowercase letter (`item.title`, `params.id`). The unscoped lowercase counterpart of `model-path`.
 - **Used in:** `references` repository.
 - **Suggested theme color:** "variable.other" / "property" color. Optionally muted.
@@ -392,7 +392,7 @@ specifically). All of them share the same default coloring guidance:
 - **Used in:** `decorators` repository.
 - **Suggested theme color:** "decorator" / "tag" color (often a distinct hue like teal or yellow).
 
-### `entity.name.audit.fields.lazuli`
+### `variable.other.audit-fields.lazuli`
 - **Role:** the field-list / `none` / `default` payload that follows `audit` on an `audit ...` line opener.
 - **Used in:** `audit-block` (begin capture, group 3).
 - **Note:** This is the only scope in the grammar that does NOT follow the `entity.name.{type,function,label,reference,tag,namespace,...}` convention — the leaf `audit` is a custom subnamespace. Worth refactoring to `variable.other.audit-fields.lazuli` or `entity.name.label.audit-fields.lazuli` for consistency.
@@ -500,27 +500,27 @@ identically to standard "constant.language" tokens.
 
 ### `constant.other.*`
 
-#### `constant.other.direction.lazuli`
+#### `constant.language.direction.lazuli`
 - **Role:** sort direction tokens (`asc`, `desc`).
 - **Used in:** `query-block`.
 - **Suggested theme color:** "constant" color.
 
-#### `constant.other.enum-member.lazuli`
+#### `constant.language.enum-member.lazuli`
 - **Role:** a bare identifier that is a member inside an `enum` body.
 - **Used in:** `enum-block`.
 - **Suggested theme color:** "constant" color, optionally bolder than other `constant.other` variants.
 
-#### `constant.other.locale-tag.lazuli`
+#### `constant.language.locale-tag.lazuli`
 - **Role:** BCP-47–style locale tags (`en-US`, `pt-BR`, etc.) inside locale/translation contexts.
 - **Used in:** `translation-block`, `locale-block`.
 - **Suggested theme color:** "constant" / "tag" color.
 
-#### `constant.other.verify-alg.lazuli`
+#### `constant.language.verify-alg.lazuli`
 - **Role:** the optional algorithm name on a `verify hmac sha256`-style line.
 - **Used in:** `verify-block`.
 - **Suggested theme color:** "constant" color.
 
-#### `constant.other.wildcard.lazuli`
+#### `constant.language.wildcard.lazuli`
 - **Role:** the bare `*` wildcard token.
 - **Used in:** `constants` repository.
 - **Suggested theme color:** "constant" color.
@@ -585,9 +585,9 @@ host-provided TOML grammar.
 - **Role:** known Lazurite manifest keys (`name`, `module`, `schema`, `runtime`, `template`, `template_version`, `app_dir`, `out`, `gofmt`, `strict`, `emit_main`, `submodule`, `dev_replace`, `target`, `source`, `audiences`, `generated`, `manual`, `strategy`, `dir`, `auto`, `plugin_paths`, `version`, `path`).
 - **Suggested theme color:** "function name" / "key" color, or "keyword" if you want manifest keys to read like keywords.
 
-#### `entity.name.reference.plugin.lazuli`
+#### `entity.name.tag.plugin.lazuli`
 - **Role:** a `@plugin/foo` quoted-string key inside a `[plugins]` table.
-- **Suggested theme color:** "namespace" / "decorator" color, ideally aligned with `entity.name.reference.package.lazuli` so the same import looks the same in `.lzi` and `Lazurite.toml`.
+- **Suggested theme color:** "namespace" / "decorator" color, ideally aligned with `entity.name.namespace.package.lazuli` so the same import looks the same in `.lzi` and `Lazurite.toml`.
 
 #### Standard TOML scopes also emitted
 

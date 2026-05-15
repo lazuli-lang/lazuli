@@ -1,0 +1,187 @@
+># Grammar snapshot fixture — Lazurite.toml manifest.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+># Exercises every known table header and key.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>
+>[project]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#        ^ source.lazurite-toml punctuation.definition.table.toml
+>name = "snapshot-app"
+#^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#    ^ source.lazurite-toml
+#     ^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>module = "github.com/lazuli-lang/example-snapshot-app"
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>schema = 1
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^ source.lazurite-toml
+>
+>[lazuli]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#       ^ source.lazurite-toml punctuation.definition.table.toml
+>runtime = "0.13.0"
+#^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#       ^ source.lazurite-toml
+#        ^^^^^^^^^^^ source.lazurite-toml
+>
+>[lazurite]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#         ^ source.lazurite-toml punctuation.definition.table.toml
+>template = "lazurite-default"
+#^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#        ^ source.lazurite-toml
+#         ^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>template_version = "0.1.0"
+#^^^^^^^^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#                ^ source.lazurite-toml
+#                 ^^^^^^^^^^ source.lazurite-toml
+>app_dir = "."
+#^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#       ^ source.lazurite-toml
+#        ^^^^^^ source.lazurite-toml
+>
+>[generate.go]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#         ^ source.lazurite-toml punctuation.accessor.toml
+#          ^^ source.lazurite-toml entity.name.tag.lazurite-target.toml
+#            ^ source.lazurite-toml punctuation.definition.table.toml
+>out = "dist/go"
+#^^^ source.lazurite-toml support.function.lazurite-key.toml
+#   ^ source.lazurite-toml
+#    ^^^^^^^^^^^^ source.lazurite-toml
+>gofmt = true
+#^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#     ^ source.lazurite-toml
+#      ^^^^^^^ source.lazurite-toml
+>strict = true
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^^^^ source.lazurite-toml
+>emit_main = true
+#^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#         ^ source.lazurite-toml
+#          ^^^^^^^ source.lazurite-toml
+>submodule = true
+#^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#         ^ source.lazurite-toml
+#          ^^^^^^^ source.lazurite-toml
+>dev_replace = true
+#^^^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#           ^ source.lazurite-toml
+#            ^^^^^^^ source.lazurite-toml
+>
+>[generate.ts]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#         ^ source.lazurite-toml punctuation.accessor.toml
+#          ^^ source.lazurite-toml entity.name.tag.lazurite-target.toml
+#            ^ source.lazurite-toml punctuation.definition.table.toml
+>out = "dist/ts"
+#^^^ source.lazurite-toml support.function.lazurite-key.toml
+#   ^ source.lazurite-toml
+#    ^^^^^^^^^^^^ source.lazurite-toml
+>target = "esnext"
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^^^^^^^^ source.lazurite-toml
+>
+>[frontends.web]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#          ^ source.lazurite-toml punctuation.accessor.toml
+#           ^^^ source.lazurite-toml entity.name.tag.lazurite-target.toml
+#              ^ source.lazurite-toml punctuation.definition.table.toml
+>source = "frontends/web"
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>audiences = ["admin", "public"]
+#^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#         ^ source.lazurite-toml
+#          ^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>
+>[frontends.mobile]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#          ^ source.lazurite-toml punctuation.accessor.toml
+#           ^^^^^^ source.lazurite-toml entity.name.tag.lazurite-target.toml
+#                 ^ source.lazurite-toml punctuation.definition.table.toml
+>source = "frontends/mobile"
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>audiences = ["sales"]
+#^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#         ^ source.lazurite-toml
+#          ^^^^^^^^^^^^ source.lazurite-toml
+>
+>[migrations]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#           ^ source.lazurite-toml punctuation.definition.table.toml
+>generated = "dist/go/migrations"
+#^^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#         ^ source.lazurite-toml
+#          ^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>manual = "migrations"
+#^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#      ^ source.lazurite-toml
+#       ^^^^^^^^^^^^^^^ source.lazurite-toml
+>strategy = "auto"
+#^^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#        ^ source.lazurite-toml
+#         ^^^^^^^^^ source.lazurite-toml
+>
+>[seeds]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#      ^ source.lazurite-toml punctuation.definition.table.toml
+>dir = "seeds"
+#^^^ source.lazurite-toml support.function.lazurite-key.toml
+#   ^ source.lazurite-toml
+#    ^^^^^^^^^^ source.lazurite-toml
+>
+>[plugins]
+#^ source.lazurite-toml punctuation.definition.table.toml
+# ^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
+#        ^ source.lazurite-toml punctuation.definition.table.toml
+>"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
+#^ source.lazurite-toml punctuation.definition.string.begin.toml
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml entity.name.tag.plugin.lazuli
+#                                ^ source.lazurite-toml punctuation.definition.string.end.toml
+#                                 ^ source.lazurite-toml
+#                                  ^^^ source.lazurite-toml
+#                                     ^ source.lazurite-toml
+#                                      ^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#                                            ^ source.lazurite-toml
+#                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+#                                                                                                ^ source.lazurite-toml
+#                                                                                                 ^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#                                                                                                        ^ source.lazurite-toml
+#                                                                                                         ^^^^^^^^^^^^^ source.lazurite-toml
+>"@plugin/example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0", path = "../local-pack" }
+#^ source.lazurite-toml punctuation.definition.string.begin.toml
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml entity.name.tag.plugin.lazuli
+#                                 ^ source.lazurite-toml punctuation.definition.string.end.toml
+#                                  ^ source.lazurite-toml
+#                                   ^^^ source.lazurite-toml
+#                                      ^ source.lazurite-toml
+#                                       ^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#                                             ^ source.lazurite-toml
+#                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+#                                                                                                  ^ source.lazurite-toml
+#                                                                                                   ^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#                                                                                                          ^ source.lazurite-toml
+#                                                                                                           ^^^^^^^^^^^ source.lazurite-toml
+#                                                                                                                      ^ source.lazurite-toml
+#                                                                                                                       ^^^^ source.lazurite-toml support.function.lazurite-key.toml
+#                                                                                                                           ^ source.lazurite-toml
+#                                                                                                                            ^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml
+>

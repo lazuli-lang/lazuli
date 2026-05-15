@@ -1,0 +1,594 @@
+># Grammar snapshot fixture — app manifest.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># Exercises every app-level block including the new
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># `headers`/`cookie`/`proxy`/`limits` (CL.C.1 + CL.C.5) plus
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># `encryption` with a `@key.<scope>` binding.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>
+>app SnapshotApp
+#^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#   ^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli entity.name.type.app.lazuli
+>  title "Snapshot Demo"
+#^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#       ^ source.lazuli
+#        ^ source.lazuli string.quoted.double.lazuli
+#         ^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                      ^ source.lazuli string.quoted.double.lazuli
+>  version "0.1.0"
+#^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^^^ source.lazuli string.quoted.double.lazuli
+#                ^ source.lazuli string.quoted.double.lazuli
+>  default_timezone "America/Sao_Paulo"
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#                  ^ source.lazuli
+#                   ^ source.lazuli string.quoted.double.lazuli
+#                    ^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                     ^ source.lazuli string.quoted.double.lazuli
+>  lazuli_version "0.13"
+#^^^^^^^^^^^^^^^^^ source.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+#                  ^^^^ source.lazuli string.quoted.double.lazuli
+#                      ^ source.lazuli string.quoted.double.lazuli
+>
+>  locale
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    default "pt-BR"
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.locale.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^ source.lazuli string.quoted.double.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+>    supported "pt-BR", "en-US"
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.locale.lazuli
+#             ^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^^^ source.lazuli string.quoted.double.lazuli
+#                    ^ source.lazuli string.quoted.double.lazuli
+#                     ^ source.lazuli punctuation.separator.comma.lazuli
+#                      ^ source.lazuli
+#                       ^ source.lazuli string.quoted.double.lazuli
+#                        ^^^^^ source.lazuli string.quoted.double.lazuli
+#                             ^ source.lazuli string.quoted.double.lazuli
+>    fallback "en-US" -> "pt-BR"
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.locale.lazuli
+#            ^ source.lazuli
+#             ^ source.lazuli string.quoted.double.lazuli
+#              ^^^^^ source.lazuli string.quoted.double.lazuli
+#                   ^ source.lazuli string.quoted.double.lazuli
+#                    ^ source.lazuli
+#                     ^^ source.lazuli keyword.operator.transition.lazuli
+#                       ^ source.lazuli
+#                        ^ source.lazuli string.quoted.double.lazuli
+#                         ^^^^^ source.lazuli string.quoted.double.lazuli
+#                              ^ source.lazuli string.quoted.double.lazuli
+>
+>  auth_failed_redirect public_login
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#                      ^^^^^^^^^^^^^^ source.lazuli
+>  not_found public_not_found
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#           ^^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>  uses
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.section.lazuli
+>    catalog
+#^^^^^^^^^^^^ source.lazuli
+>    account
+#^^^^^^^^^^^^ source.lazuli
+>    billing
+#^^^^^^^^^^^^ source.lazuli
+>
+>  bindings
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    catalog.crm = integrations.crm
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#               ^^^ source.lazuli
+#                  ^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>  targets
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    backend go
+#^^^^^^^^^^^^^^^ source.lazuli
+>    web react
+#^^^^^^^^^^^^^^ source.lazuli
+>    mobile expo
+#^^^^^^^^^^^^^^^^ source.lazuli
+>
+>  environments
+#^^ source.lazuli
+#  ^^^^^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    local
+#^^^^^^^^^^ source.lazuli
+>    staging
+#^^^^^^^^^^^^ source.lazuli
+>    production
+#^^^^^^^^^^^^^^^ source.lazuli
+>
+>  urls
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    web local "http://localhost:3000"
+#^^^^ source.lazuli
+#    ^^^ source.lazuli variable.other.url-key.lazuli
+#       ^^^^^^^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                    ^ source.lazuli string.quoted.double.lazuli
+>    api local "http://localhost:8080"
+#^^^^ source.lazuli
+#    ^^^ source.lazuli variable.other.url-key.lazuli
+#       ^^^^^^^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                    ^ source.lazuli string.quoted.double.lazuli
+>    web production "https://app.snapshot.example"
+#^^^^ source.lazuli
+#    ^^^ source.lazuli variable.other.url-key.lazuli
+#       ^^^^^^^^^^^^ source.lazuli
+#                   ^ source.lazuli string.quoted.double.lazuli
+#                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                ^ source.lazuli string.quoted.double.lazuli
+>    api production "https://api.snapshot.example"
+#^^^^ source.lazuli
+#    ^^^ source.lazuli variable.other.url-key.lazuli
+#       ^^^^^^^^^^^^ source.lazuli
+#                   ^ source.lazuli string.quoted.double.lazuli
+#                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                ^ source.lazuli string.quoted.double.lazuli
+>
+>  cors
+#^^^^^^^ source.lazuli
+>    allow_origins production "https://app.snapshot.example"
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                             ^ source.lazuli string.quoted.double.lazuli
+#                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                          ^ source.lazuli string.quoted.double.lazuli
+>    allow_origins local "http://localhost:3000"
+#^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                        ^ source.lazuli string.quoted.double.lazuli
+#                         ^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                              ^ source.lazuli string.quoted.double.lazuli
+>    allow_credentials true
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                      ^^^^ source.lazuli constant.language.boolean.lazuli
+>    max_age "1h"
+#^^^^^^^^^^^^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^ source.lazuli string.quoted.double.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+>
+>  headers
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    csp "default-src 'self'; script-src 'self' 'unsafe-inline'"
+#^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+#       ^ source.lazuli
+#        ^ source.lazuli string.quoted.double.lazuli
+#         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                              ^ source.lazuli string.quoted.double.lazuli
+>    x_frame_options DENY
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+#                   ^ source.lazuli
+#                    ^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>    x_content_type_options nosniff
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+#                          ^ source.lazuli
+#                           ^^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>    referrer_policy strict-origin-when-cross-origin
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+#                   ^ source.lazuli
+#                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>    permissions_policy "geolocation=(), camera=()"
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+#                      ^ source.lazuli
+#                       ^ source.lazuli string.quoted.double.lazuli
+#                        ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                 ^ source.lazuli string.quoted.double.lazuli
+>    hsts
+#^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+>      max_age 63072000
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+#             ^ source.lazuli
+#              ^^^^^^^^ source.lazuli constant.numeric.lazuli
+>      include_subdomains
+#^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+>      preload
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.headers.lazuli
+>
+>  cookie
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    default
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+>      signed true
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#            ^ source.lazuli
+#             ^^^^ source.lazuli constant.language.boolean.lazuli
+>      secure true
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#            ^ source.lazuli
+#             ^^^^ source.lazuli constant.language.boolean.lazuli
+>      http_only true
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#               ^ source.lazuli
+#                ^^^^ source.lazuli constant.language.boolean.lazuli
+>      same_site strict
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#               ^ source.lazuli
+#                ^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>      max_age "7d"
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#             ^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^ source.lazuli string.quoted.double.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+>    session
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+>      same_site lax
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#               ^ source.lazuli
+#                ^^^ source.lazuli constant.language.closed-catalog.lazuli
+>      max_age "12h"
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#             ^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^ source.lazuli string.quoted.double.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+>    csrf
+#^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+>      http_only true
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#               ^ source.lazuli
+#                ^^^^ source.lazuli constant.language.boolean.lazuli
+>      same_site strict
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#               ^ source.lazuli
+#                ^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>
+>  proxy
+#^^ source.lazuli
+#  ^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    trusted 10.0.0.0/8, 172.16.0.0/12
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.proxy.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli constant.numeric.lazuli
+#                ^ source.lazuli punctuation.accessor.lazuli
+#                 ^^^ source.lazuli constant.numeric.lazuli
+#                    ^ source.lazuli
+#                     ^ source.lazuli constant.numeric.lazuli
+#                      ^ source.lazuli punctuation.separator.comma.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^ source.lazuli constant.numeric.lazuli
+#                              ^ source.lazuli punctuation.accessor.lazuli
+#                               ^^^ source.lazuli constant.numeric.lazuli
+#                                  ^ source.lazuli
+#                                   ^^ source.lazuli constant.numeric.lazuli
+>    real_ip_header X-Forwarded-For
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.proxy.lazuli
+#                  ^^^^^^^^^^^^^^^^^ source.lazuli
+>    forwarded_proto_header X-Forwarded-Proto
+#^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.proxy.lazuli
+#                          ^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    forwarded_host_header X-Forwarded-Host
+#^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.proxy.lazuli
+#                         ^^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>  limits
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    body_size "10mb"
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.limits.lazuli
+#             ^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^^ source.lazuli string.quoted.double.lazuli
+#                   ^ source.lazuli string.quoted.double.lazuli
+>    header_size "16kb"
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.limits.lazuli
+#               ^ source.lazuli
+#                ^ source.lazuli string.quoted.double.lazuli
+#                 ^^^^ source.lazuli string.quoted.double.lazuli
+#                     ^ source.lazuli string.quoted.double.lazuli
+>    upload_size "100mb"
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.limits.lazuli
+#               ^ source.lazuli
+#                ^ source.lazuli string.quoted.double.lazuli
+#                 ^^^^^ source.lazuli string.quoted.double.lazuli
+#                      ^ source.lazuli string.quoted.double.lazuli
+>    timeout "30s"
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.limits.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^ source.lazuli string.quoted.double.lazuli
+#                ^ source.lazuli string.quoted.double.lazuli
+>
+>  architecture
+#^^ source.lazuli
+#  ^^^^^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    mode modular_monolith
+#^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#        ^^^^^^^^^^^^^^^^^^ source.lazuli
+>    service_ready true
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#                 ^ source.lazuli
+#                  ^^^^ source.lazuli constant.language.boolean.lazuli
+>    enforce_service_boundaries true
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#                              ^ source.lazuli
+#                               ^^^^ source.lazuli constant.language.boolean.lazuli
+>
+>  services
+#^^ source.lazuli
+#  ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    service identity
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#           ^^^^^^^^^^ source.lazuli
+>      owns account
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#          ^^^^^^^^^ source.lazuli
+>      exposes
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+>        command account.command.login
+#^^^^^^^^^^^^^^^^ source.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>      publishes account.user_*
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                             ^^ source.lazuli
+>
+>    service catalog_svc
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#           ^^^^^^^^^^^^^ source.lazuli
+>      owns catalog
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#          ^^^^^^^^^ source.lazuli
+>      exposes
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+>        query catalog.query.list
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        query catalog.query.by_id
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        command catalog.command.create
+#^^^^^^^^^^^^^^^^ source.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        command catalog.command.publish
+#^^^^^^^^^^^^^^^^ source.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>      publishes catalog.product_*
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                                ^^ source.lazuli
+>      consumes billing.invoice_paid
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.services.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>
+>  communication
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    internal sync rpc
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.communication.lazuli
+#            ^^^^^^^^^^ source.lazuli
+>    external http
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.communication.lazuli
+#            ^^^^^^ source.lazuli
+>    async event_bus
+#^^^^^^^^^ source.lazuli entity.name.function.statement.communication.lazuli
+#         ^^^^^^^^^^^ source.lazuli
+>    propagate actor, tenant, trace_id, request_id
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.communication.lazuli
+#             ^^^^^^ source.lazuli
+#                   ^ source.lazuli punctuation.separator.comma.lazuli
+#                    ^^^^^^^ source.lazuli
+#                           ^ source.lazuli punctuation.separator.comma.lazuli
+#                            ^^^^^^^^^ source.lazuli
+#                                     ^ source.lazuli punctuation.separator.comma.lazuli
+#                                      ^^^^^^^^^^^^ source.lazuli
+>    timeout default "2s"
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.communication.lazuli
+#           ^^^^^^^^^ source.lazuli
+#                    ^ source.lazuli string.quoted.double.lazuli
+#                     ^^ source.lazuli string.quoted.double.lazuli
+#                       ^ source.lazuli string.quoted.double.lazuli
+>    retry default 2 backoff exponential
+#^^^^^^^^^^^^^^^^^^ source.lazuli
+#                  ^ source.lazuli constant.numeric.lazuli
+#                   ^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>
+>  runtime
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    unit api
+#^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#        ^^^^^ source.lazuli
+>      serves queries, commands, webhooks, apis
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#            ^^^^^^^^ source.lazuli
+#                    ^ source.lazuli punctuation.separator.comma.lazuli
+#                     ^^^^^^^^^ source.lazuli
+#                              ^ source.lazuli punctuation.separator.comma.lazuli
+#                               ^^^^^^^^^ source.lazuli
+#                                        ^ source.lazuli punctuation.separator.comma.lazuli
+#                                         ^^^^^^ source.lazuli
+>      healthcheck "/healthz"
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#                 ^ source.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+#                   ^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                           ^ source.lazuli string.quoted.double.lazuli
+>      readiness "/readyz"
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#               ^ source.lazuli
+#                ^ source.lazuli string.quoted.double.lazuli
+#                 ^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                        ^ source.lazuli string.quoted.double.lazuli
+>      locale_negotiate
+#^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>        source accept_language
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>        strategy best_match
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>        fallback "pt-BR"
+#^^^^^^^^^^^^^^^^^ source.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+#                  ^^^^^ source.lazuli string.quoted.double.lazuli
+#                       ^ source.lazuli string.quoted.double.lazuli
+>
+>    unit web
+#^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#        ^^^^^ source.lazuli
+>      serves surfaces web
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#            ^^^^^^^^^^^^^^ source.lazuli
+>
+>    unit worker
+#^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#        ^^^^^^^^ source.lazuli
+>      runs jobs *
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#          ^^^^^^ source.lazuli
+#                ^ source.lazuli constant.language.wildcard.lazuli
+>
+>    unit scheduler
+#^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#        ^^^^^^^^^^^ source.lazuli
+>      runs schedules *
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.runtime.lazuli
+#          ^^^^^^^^^^^ source.lazuli
+#                     ^ source.lazuli constant.language.wildcard.lazuli
+>
+>  deploy
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    migrations before_deploy
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#              ^^^^^^^^^^^^^^^ source.lazuli
+>    migration_lock required
+#^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#                  ^^^^^^^^^^ source.lazuli
+>    destructive_migrations require_approval
+#^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#                          ^^^^^^^^^^^^^^^^^^ source.lazuli
+>    rollback on_failed_healthcheck
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#            ^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    strategy rolling
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^ source.lazuli constant.language.deploy.lazuli
+>    lock_timeout "30s"
+#^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#                ^ source.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+#                  ^^^ source.lazuli string.quoted.double.lazuli
+#                     ^ source.lazuli string.quoted.double.lazuli
+>    pre_migration_hook "./hooks/migration_pre.sh"
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#                      ^ source.lazuli
+#                       ^ source.lazuli string.quoted.double.lazuli
+#                        ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                ^ source.lazuli string.quoted.double.lazuli
+>    post_migration_hook "./hooks/migration_post.sh"
+#^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#                       ^ source.lazuli
+#                        ^ source.lazuli string.quoted.double.lazuli
+#                         ^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                  ^ source.lazuli string.quoted.double.lazuli
+>    checkpoint baseline "./checkpoints/snapshot.snapshot.json"
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.deploy.lazuli
+#              ^^^^^^^^^^ source.lazuli
+#                        ^ source.lazuli string.quoted.double.lazuli
+#                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                             ^ source.lazuli string.quoted.double.lazuli
+>
+>  logging
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    level info
+#^^^^^^^^^ source.lazuli entity.name.function.statement.logging.lazuli
+#         ^ source.lazuli
+#          ^^^^ source.lazuli constant.language.log-level.lazuli
+>    format json
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.logging.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli constant.language.log-level.lazuli
+>    redact pii
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.logging.lazuli
+#          ^ source.lazuli
+#           ^^^ source.lazuli constant.language.log-level.lazuli
+>
+>  tracing
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    propagate true
+#^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tracing.lazuli
+#             ^ source.lazuli
+#              ^^^^ source.lazuli constant.language.boolean.lazuli
+>    sample_rate 0.1
+#^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tracing.lazuli
+#               ^ source.lazuli
+#                ^^^ source.lazuli constant.numeric.lazuli
+>
+>  encryption
+#^^ source.lazuli
+#  ^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    key @key.app
+#^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#       ^ source.lazuli
+#        ^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      source env.CRYPT_KEY_APP
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>      algorithm aes_256_gcm
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>      rotation manual
+#^^^^^^ source.lazuli
+#      ^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#              ^ source.lazuli
+#               ^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>    key @key.tenant
+#^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#       ^ source.lazuli
+#        ^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      source env.CRYPT_KEY_TENANT_{tenant_id}
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+#                                  ^^^^^^^^^^^^ source.lazuli
+>      algorithm aes_256_gcm
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>      rotation manual
+#^^^^^^ source.lazuli
+#      ^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#              ^ source.lazuli
+#               ^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>      rotation_profile default
+#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.encryption.lazuli
+#                      ^^^^^^^^^ source.lazuli
+>

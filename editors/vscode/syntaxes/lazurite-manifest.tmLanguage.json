@@ -39,7 +39,7 @@
       "match": "^\\s*(\")(@plugin/[A-Za-z0-9_./-]+)(\")\\s*(?==)",
       "captures": {
         "1": { "name": "punctuation.definition.string.begin.toml" },
-        "2": { "name": "entity.name.reference.plugin.lazuli" },
+        "2": { "name": "entity.name.tag.plugin.lazuli" },
         "3": { "name": "punctuation.definition.string.end.toml" }
       }
     },
