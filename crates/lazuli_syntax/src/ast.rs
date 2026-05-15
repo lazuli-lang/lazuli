@@ -877,11 +877,20 @@ pub struct CommandDecl {
     /// Phase L Tier 4 follow-up — `idempotency by <field>[, ...]`.
     /// Mirrors `Job.idempotency_by`.
     pub idempotency_by: Option<String>,
+    /// `write_window by <path> within <duration_or_ref>`.
+    pub write_window: Option<CommandWriteWindow>,
     /// `tests` block — captured as raw lines until a typed test grammar
     /// lands. The body is the indented child list, trimmed.
     pub tests: Vec<String>,
     /// OpenAPI bucket cycle — `deprecated [since ".." replacement <ref> sunset ".."]`.
     pub deprecated: Option<CommandDeprecatedDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandWriteWindow {
+    pub by: String,
+    pub within: String,
     pub span: Span,
 }
 

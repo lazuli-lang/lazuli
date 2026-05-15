@@ -1086,6 +1086,7 @@ fn lower_command(
         timeout: None,
         retry: None,
         idempotency: None,
+        write_window: None,
         deprecated: None,
         tests: None,
         previous_names: Vec::new(),
@@ -2646,6 +2647,11 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         .as_deref()
         .map(lower_path_string)
         .map(|path| ir::IdempotencyKey { by: path });
+    let write_window = c.write_window.as_ref().map(|w| ir::CommandWriteWindow {
+        by: lower_path_string(&w.by),
+        within: w.within.clone(),
+        span_ref: Some(span_of(w.span)),
+    });
     let policy_expr = c.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Command {
         name: c.name.clone(),
@@ -2666,6 +2672,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         timeout,
         retry,
         idempotency,
+        write_window,
         deprecated,
         tests: None,
         previous_names: c.previously.clone(),

@@ -848,6 +848,9 @@ pub struct Command {
     /// Mirrors `Job.idempotency`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency: Option<IdempotencyKey>,
+    /// `write_window by <path> within <duration_or_ref>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_window: Option<CommandWriteWindow>,
     /// OpenAPI bucket cycle — `deprecated [since "..." replacement <ref>
     /// sunset "..."]`. `None` for live commands; `Some` for those flagged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -856,6 +859,14 @@ pub struct Command {
     pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandWriteWindow {
+    pub by: Path,
+    pub within: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

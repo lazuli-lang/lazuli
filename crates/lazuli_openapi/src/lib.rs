@@ -909,6 +909,7 @@ mod tests {
             timeout: None,
             retry: None,
             idempotency: None,
+            write_window: None,
             deprecated: None,
             tests: None,
             previous_names: Vec::new(),

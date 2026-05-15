@@ -11,6 +11,7 @@ use crate::ast::{
     AuthPassword, AuthSessions, BindingRefAst, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
     CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
     CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
+    CommandWriteWindow,
     ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
     DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
     EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
@@ -4185,6 +4186,7 @@ fn parse_command_decl(
     let mut timeout: Option<String> = None;
     let mut retry: Option<JobRetry> = None;
     let mut idempotency_by: Option<String> = None;
+    let mut write_window: Option<CommandWriteWindow> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -4326,6 +4328,10 @@ fn parse_command_decl(
             idempotency_by = Some(rest.trim().to_owned());
             last_end = line.end;
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("write_window ") {
+            write_window = Some(parse_command_write_window(line, rest)?);
+            last_end = line.end;
+            i += 1;
         } else if trimmed.starts_with("gate ") {
             // PG.A — `gate behind plan.feature: ...` / `gate quota plan.limit: ...`.
             // These directives are lifted via the side-channel
@@ -4354,7 +4360,7 @@ fn parse_command_decl(
         } else {
             return Err(line_error(
                 line,
-                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, or `tests`",
+                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, `write_window`, or `tests`",
             ));
         }
     }
@@ -4382,12 +4388,47 @@ fn parse_command_decl(
             timeout,
             retry,
             idempotency_by,
+            write_window,
             tests,
             deprecated,
             span: Span::new(header.start, last_end),
         },
         i,
     ))
+}
+
+fn parse_command_write_window(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<CommandWriteWindow, ParseError> {
+    let Some(rest) = rest.trim().strip_prefix("by ") else {
+        return Err(line_error(
+            line,
+            "`write_window` must be `write_window by <path> within <duration_or_ref>`",
+        ));
+    };
+    let Some((by, within)) = rest.trim().split_once(" within ") else {
+        return Err(line_error(
+            line,
+            "`write_window by <path>` requires `within <duration_or_ref>`",
+        ));
+    };
+    let by = by.trim();
+    let within = within.trim();
+    if by.is_empty() {
+        return Err(line_error(line, "`write_window by` requires a path"));
+    }
+    if within.is_empty() {
+        return Err(line_error(
+            line,
+            "`write_window within` requires a duration or reference",
+        ));
+    }
+    Ok(CommandWriteWindow {
+        by: by.to_owned(),
+        within: within.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
 }
 
 /// Parse `deprecated [since "<X>"] [replacement <ref>] [sunset "<Y>"]` —
@@ -14408,6 +14449,46 @@ feature slug
             Some("^[a-z]+$")
         );
         assert!(slots[0].required);
+    }
+
+    #[test]
+    fn command_write_window_parses_duration_literal() {
+        let source = r#"
+feature billing
+  command create_invoice
+    input customer, issued_at
+    write_window by input.issued_at within 30d
+    policy @policy.create
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let write_window = features[0].commands[0]
+            .write_window
+            .as_ref()
+            .expect("write_window");
+        assert_eq!(write_window.by, "input.issued_at");
+        assert_eq!(write_window.within, "30d");
+    }
+
+    #[test]
+    fn command_write_window_requires_by() {
+        let source = r#"
+feature billing
+  command create_invoice
+    write_window input.issued_at within 30d
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("write_window"));
+    }
+
+    #[test]
+    fn command_write_window_requires_within() {
+        let source = r#"
+feature billing
+  command create_invoice
+    write_window by input.issued_at
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("within"));
     }
 }
 

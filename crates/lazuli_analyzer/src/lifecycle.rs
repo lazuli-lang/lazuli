@@ -192,6 +192,7 @@ fn lower_transition_command(
         timeout: None,
         retry: None,
         idempotency: None,
+        write_window: None,
         deprecated: None,
         tests: lower_tests(&transition.tests, transition.span),
         previous_names: transition.previously.clone(),
