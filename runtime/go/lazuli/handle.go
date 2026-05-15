@@ -16,8 +16,8 @@ import (
 // Pipeline:
 //  1. enforce policy
 //  2. run validators (placeholder; Phase F)
-//  3. open transaction
-//  4. apply effect (insert / update / delete)
+//  3. open transaction for SQL effects
+//  4. apply effect (insert / update / delete / return)
 //  5. publish events (post-commit, best-effort)
 //  6. write audit (placeholder; later phase)
 //  7. invalidate caches (placeholder; Phase H)
@@ -50,18 +50,26 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		}
 	}
 
-	// 3-4. effect inside a transaction
 	var output O
-	err := withTx(ctx, func(tx pgx.Tx) error {
-		out, err := applyEffect[I, O](ctx, tx, c.Effect, input)
+	if eff, ok := c.Effect.(ReturnsEffect); ok {
+		out, err := applyReturns[I, O](ctx, eff, input)
 		if err != nil {
-			return err
+			return zero, err
 		}
 		output = out
-		return nil
-	})
-	if err != nil {
-		return zero, err
+	} else {
+		// 3-4. SQL effects run inside a transaction.
+		err := withTx(ctx, func(tx pgx.Tx) error {
+			out, err := applyEffect[I, O](ctx, tx, c.Effect, input)
+			if err != nil {
+				return err
+			}
+			output = out
+			return nil
+		})
+		if err != nil {
+			return zero, err
+		}
 	}
 
 	// 5. emits (post-commit, best-effort).
@@ -271,10 +279,33 @@ func applyEffect[I, O any](ctx *Ctx, tx pgx.Tx, effect Effect, input I) (O, erro
 		return applyUpdates[I, O](ctx, tx, eff, input)
 	case DeletesEffect:
 		return applyDeletes[I, O](ctx, tx, eff, input)
+	case ReturnsEffect:
+		return applyReturns[I, O](ctx, eff, input)
 	default:
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown effect kind: %T", effect)}
 	}
+}
+
+// applyReturns calls the user-authored pure handler without entering the SQL
+// effect pipeline. Policy, validators, rate limiting, and audit hooks live
+// above this dispatch point in Command.Handle.
+func applyReturns[I, O any](ctx *Ctx, eff ReturnsEffect, input I) (O, error) {
+	var zero O
+	if eff.Handler == nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "returns effect requires Handler"}
+	}
+	raw, err := eff.Handler(ctx, input)
+	if err != nil {
+		return zero, err
+	}
+	out, ok := raw.(O)
+	if !ok {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "returns handler produced output of wrong type"}
+	}
+	return out, nil
 }
 
 // applyCreates resolves the bindings, builds an `INSERT ... RETURNING *`,

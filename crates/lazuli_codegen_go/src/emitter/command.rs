@@ -118,6 +118,12 @@ pub fn emit_command_file(
         imports.add("lazuli.dev/runtime/lazuli/billing");
         imports.add(&format!("{module_name}/plan"));
     }
+    if commands
+        .iter()
+        .any(|command| matches!(command.effect, CommandEffect::Returns(_)))
+    {
+        imports.add(&format!("{module_name}/{}/handlers", feature.name));
+    }
     for command in &commands {
         if let CommandInput::Typed(slots) = &command.input {
             for slot in slots {
@@ -274,7 +280,9 @@ fn emit_command(
         .collect();
     emit_effect(
         p,
+        &command.name,
         &command.effect,
+        &input_type,
         ctx,
         &let_bindings,
         lifecycle_transition.as_ref(),
@@ -502,11 +510,12 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
 }
 
 /// Emit the Effect literal — picks one of Lazuli Go lib's `Creates`,
-/// `Updates`, `Deletes` builders or falls through with a TODO comment
-/// for `Returns`/`None`.
+/// `Updates`, `Deletes`, or `Returns` builders.
 fn emit_effect(
     p: &mut GoPrinter,
+    command_name: &str,
     effect: &CommandEffect,
+    input_type: &str,
     ctx: &TypeCtx<'_>,
     let_bindings: &BTreeMap<&str, &Expr>,
     lifecycle_transition: Option<&LifecycleCommand<'_>>,
@@ -518,18 +527,16 @@ fn emit_effect(
         }
         CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete),
         CommandEffect::Returns(ret) => {
-            // `Returns` doesn't fit the side-effect axis; the runtime
-            // would dispatch to a user-authored handler. Lazuli Go lib
-            // doesn't yet model this — emit a TODO so the gap is
-            // visible without breaking the build.
-            let (ty, _import) = types::go_type_for(&ret.return_type, ctx);
+            let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
+            let handler = pascal_case(command_name);
+            p.line(&format!("Effect: lazuli.Returns(handlers.{handler}),"));
             p.line(&format!(
-                "// TODO(returns): Command.effect = Returns({ty}) — Lazuli Go lib has no"
+                "// Wire handlers.{handler} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`"
             ));
-            p.line("// pure-handler Command shape yet (proposal §4.1 / §10.5).");
         }
         CommandEffect::None => {
-            p.line("// TODO(effect): command declares no effect; legacy lowering path.");
+            p.line("Effect: nil,");
+            p.line("// No-effect commands are pure-read legacy APIs invoked via command.Invoke.");
         }
     }
 }
@@ -1877,6 +1884,39 @@ mod tests {
         assert!(out.contains("Effect: lazuli.Creates(&customerResource, lazuli.Bindings{"));
         assert!(out.contains("\"name\": lazuli.FromInput(\"name\"),"));
         assert!(out.contains("\"email\": lazuli.FromInput(\"email\"),"));
+    }
+
+    #[test]
+    fn returns_command_emits_returns_effect_and_handler_signature_comment() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("summary");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Returns(ReturnsEffect {
+            return_type: TypeRef::Builtin(BuiltinType::Text),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("\"lazuli/test/customer/handlers\""));
+        assert!(out.contains("var summaryResult = lazuli.Command[SummaryResultInput, string]{"));
+        assert!(out.contains("Effect: lazuli.Returns(handlers.Summary),"));
+        assert!(out.contains(
+            "// Wire handlers.Summary as `func(ctx *lazuli.Ctx, input SummaryResultInput) (string, error)`"
+        ));
+        assert!(!out.contains("TODO(returns):"));
+    }
+
+    #[test]
+    fn no_effect_command_emits_nil_effect_without_legacy_todo() {
+        let mut feature = base_feature("customer");
+        feature.commands.push(base_command("summary"));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("Effect: nil,"));
+        assert!(out.contains(
+            "// No-effect commands are pure-read legacy APIs invoked via command.Invoke."
+        ));
+        assert!(!out.contains("TODO(effect):"));
     }
 
     #[test]

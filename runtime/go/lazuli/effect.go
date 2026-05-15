@@ -4,8 +4,8 @@ package lazuli
 // the effect transactionally inside `Command.Handle()` after policy and
 // validators pass.
 //
-// Concrete effects are produced by the `Creates`, `Updates`, and `Deletes`
-// builders. Generated code never implements `Effect` directly.
+// Concrete effects are produced by the `Creates`, `Updates`, `Deletes`, and
+// `Returns` builders. Generated code never implements `Effect` directly.
 type Effect interface {
 	effectKind() effectKind
 }
@@ -16,6 +16,7 @@ const (
 	effectCreates effectKind = iota
 	effectUpdates
 	effectDeletes
+	effectReturns
 )
 
 // Bindings maps a target field (resource column or input field) to the
@@ -108,4 +109,30 @@ func (DeletesEffect) effectKind() effectKind { return effectDeletes }
 // Deletes builds a DeletesEffect. `where` selects the row(s) to remove.
 func Deletes[T any](r *Resource[T], where Bindings) DeletesEffect {
 	return DeletesEffect{Resource: r.erased(), Where: where}
+}
+
+// ReturnsEffect carries a pure handler that produces an output without
+// writing through the standard Creates/Updates/Deletes SQL pipeline.
+// Used for command shapes like `command summary returns CustomerSummary`
+// where the body computes data rather than mutating it. The runtime
+// still runs policy, validators, rate_limit, and audit; it skips the
+// transactional INSERT/UPDATE/DELETE step.
+type ReturnsEffect struct {
+	Handler func(ctx *Ctx, input any) (any, error)
+}
+
+func (ReturnsEffect) effectKind() effectKind { return effectReturns }
+
+func Returns[I, O any](handler func(ctx *Ctx, input I) (O, error)) ReturnsEffect {
+	return ReturnsEffect{
+		Handler: func(ctx *Ctx, input any) (any, error) {
+			typed, ok := input.(I)
+			if !ok {
+				var zero I
+				return zero, &Error{Status: 500, Code: CodeInternal,
+					Message: "returns handler received input of wrong type"}
+			}
+			return handler(ctx, typed)
+		},
+	}
 }
