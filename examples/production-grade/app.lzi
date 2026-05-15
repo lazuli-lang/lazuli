@@ -1,9 +1,9 @@
-# Corbanx-class fixture — B2B finance app shape.
+# production-grade fixture — B2B finance app shape.
 # Multi-tenant Companies, RBAC, async provider queries, encrypted credentials, exports.
 # Generic placeholder vocabulary (no proprietary terms).
 
-app CorbanxClass
-  title "Corbanx-Class Demo"
+app ProductionGrade
+  title "Production-Grade Demo"
   version "0.1.0"
   default_timezone "America/Sao_Paulo"
 
@@ -37,12 +37,12 @@ app CorbanxClass
 
   urls
     api local "http://localhost:8080"
-    api production "https://api.corbanx-class.example"
+    api production "https://api.production-grade.example"
     web local "http://localhost:3000"
-    web production "https://app.corbanx-class.example"
+    web production "https://app.production-grade.example"
 
   cors
-    allow_origins production "https://app.corbanx-class.example"
+    allow_origins production "https://app.production-grade.example"
     allow_origins local "http://localhost:3000"
     allow_credentials true
     max_age "1h"

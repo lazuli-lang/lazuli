@@ -1,6 +1,6 @@
 [project]
-name = "corbanx-class"
-module = "github.com/lazuli-lang/example-corbanx-class"
+name = "production-grade"
+module = "github.com/lazuli-lang/example-production-grade"
 schema = 1
 
 [lazuli]

@@ -10,8 +10,8 @@ TypeScript/Go.
 
 **Date**: 2026-05-14.
 
-**Pilot bucket**: corbanx-class readiness cell #8
-(`docs/proposals/corbanx-class-readiness.md:39`). Same wave as
+**Pilot bucket**: production-grade readiness cell #8
+(`docs/proposals/production-readiness.md:39`). Same wave as
 `encryption-vocab`, `report-vocab`, `poller-vocab`, `plan-and-gate-vocab`.
 
 **Companions / non-overlap**:
@@ -48,8 +48,8 @@ TypeScript/Go.
   permissions for skill-tree authoring and review actions.
 - Hostpoint Phase 1 Auth port (Phase D, downstream) — multi-tenant
   marketplace with role-per-tenant assignments.
-- Corbanx-class apps generally (`admin / supervisor / vendedor /
-  operacional` per `c:/Users/lucas/dev-trabalho/corbanx/apps/api/src/
+- production-grade apps generally (`admin / supervisor / vendedor /
+  operacional` per `c:/Users/lucas/dev-trabalho/production-grade/apps/api/src/
   building-blocks/auth/permissions.ts`). The TS file is the negative
   reference: hardcoded `ROLE_PERMISSIONS` map ≈ 90 LOC of pure data
   that should be DSL.
@@ -75,8 +75,8 @@ Three concrete shortcomings:
    `report:repasse:mark`, ...). Lazuli has no DSL surface for them;
    they live in handler files, registry strings, or are smuggled in
    as policy atom names that pretend to be roles. The
-   corbanx `Actions` enum
-   (`c:/Users/lucas/dev-trabalho/corbanx/apps/api/src/building-blocks/auth/permissions.ts:36-65`)
+   production-grade `Actions` enum
+   (`c:/Users/lucas/dev-trabalho/production-grade/apps/api/src/building-blocks/auth/permissions.ts:36-65`)
    is the canonical negative example: 17 named verbs hand-rolled in
    TS, with a separate `ROLE_PERMISSIONS` map at L75-92 mapping each
    role to a literal list of verbs.
@@ -96,7 +96,7 @@ Three concrete shortcomings:
    reading the fixture cannot summarize the role contract; today it
    can only summarize *one feature's view* of the role.
 
-The corbanx file `permissions.ts` is the textbook miniature of this
+The production-grade file `permissions.ts` is the textbook miniature of this
 problem: roles + actions + role-permission map + helper functions =
 **90 LOC of pure data** that has zero business logic but is also
 zero-decidable from `.lzi` source. Lazuli should own this contract.
@@ -182,7 +182,7 @@ permission report:repasse:mark
   Empty segments rejected. Colon-prefix or colon-suffix rejected.
 - Convention encouraged: `<resource>:<action>` for 2-segment;
   `<resource>:<action>:<scope>` for 3-segment when the same action
-  splits by `own | team | company` style scopes (corbanx exemplar).
+  splits by `own | team | company` style scopes (production-grade exemplar).
   v0.1 does **not** enforce semantic interpretation of segments —
   they are opaque identifiers — but the LSP can offer completions
   scoped by the most common prefix.
@@ -195,7 +195,7 @@ permission report:repasse:mark
 - `:` is unused in Lazuli `.lzi` for anything but type binding
   (`name: Text`), where it appears in field context only. A bare
   `users:read` token at policy-predicate position cannot collide.
-- Corbanx + every comparable codebase (Casbin, AWS IAM, GCP IAM,
+- a production-grade app + every comparable codebase (Casbin, AWS IAM, GCP IAM,
   Auth0) uses `:` for permission strings. Aligning with the de-
   facto industry corpus reduces LLM confusion.
 
@@ -248,7 +248,7 @@ role admin
 
 **Why a block, not a flat list**:
 
-- The corbanx exemplar
+- The production-grade exemplar
   (`permissions.ts:75-92`) has 4 roles × up to 18 permissions each;
   a flat list `grants [users:read, proposals:read, ...]` is
   unreadable past ~5 entries. Indented one-per-line is the standard
@@ -282,7 +282,7 @@ Rationale, in order of weight:
    same anti-pattern that produced the 2026-05-12 incident in a
    different bucket.
 
-2. **The corbanx exemplar is single-parent.** `ROLE_PERMISSIONS`
+2. **The production-grade exemplar is single-parent.** `ROLE_PERMISSIONS`
    declares 4 roles, each independent — there is no inheritance in
    the TS source. If the user *wanted* inheritance, the natural
    shape is `supervisor` inherits-from `vendedor`, which is a chain,
@@ -429,9 +429,9 @@ Pilot question for future evolution: is `role: @role required` a
 useful shape that makes the field strongly typed against the
 catalog? **Out of scope for v0.1** — see "Open questions" below.
 
-### Surface example: corbanx-shaped
+### Surface example: production-shaped
 
-The corbanx exemplar from `permissions.ts` lowered to v0.1 surface:
+The production-grade exemplar from `permissions.ts` lowered to v0.1 surface:
 
 ```lzi
 # features/auth/auth.lzi (top level — siblings of `feature <name>`)
@@ -480,7 +480,7 @@ role admin
   grants_all
 ```
 
-24 lines of catalog (vs the corbanx TS file's 92 lines), with full
+24 lines of catalog (vs the production-grade TS file's 92 lines), with full
 doctor cross-checks and one canonical declaration. An LLM reading
 cold can answer "what can `supervisor` do?" by walking
 `supervisor` → `vendedor` and unioning the grants. No grep across N
@@ -956,7 +956,7 @@ multi_bank:consult` and codegen emits the expected Go + TS shape.
    axis?** Some products want "everyone in role X can do Y *except*
    in case Z" — a deny-list overlay on top of grants. v0.1
    intentionally has no `denies` because every concrete pilot we
-   have seen (corbanx, pleiades v2, hostpoint shape) models the same
+   have seen (production-grade, pleiades v2, hostpoint shape) models the same
    thing as a narrower scope (`proposals:update:own` vs
    `proposals:update:team`). The pilot test is whether two pilots
    independently produce a "narrower scope" workaround that is
@@ -1001,7 +1001,7 @@ cells S1-S7 do not launch.
   pattern in the auth bucket inventory.
 - `docs/project-structure.md` — recommend
   `features/auth/auth.lzi` as the canonical catalog placement.
-- `docs/proposals/corbanx-class-readiness.md` — flip gap #8 from
+- `docs/proposals/production-readiness.md` — flip gap #8 from
   ⬜ → 🟡 (proposal exists) → 🟢 (implemented after cells land).
 - `docs/proposals/bucket-admin-cycle.md` — append a one-line note in
   §"Cross-checks" pointing at this proposal as the role/permission

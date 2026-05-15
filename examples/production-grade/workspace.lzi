@@ -1,4 +1,4 @@
-workspace CorbanxClass
+workspace ProductionGrade
   apps
     api at "./app.lzi"
 

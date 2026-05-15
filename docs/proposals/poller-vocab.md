@@ -3,7 +3,7 @@
 **Status:** L0 v0.1 — 2026-05-14. First draft. Not yet architect-graded.
 **Author:** Claude Opus 4.7 (orchestrator)
 **Audit-ready target:** ≥ 9.0 via `lazuli-language-architect`
-**Roadmap row:** `docs/proposals/corbanx-class-readiness.md` gap #5.
+**Roadmap row:** `docs/proposals/production-readiness.md` gap #5.
 **Depends on:** `Job`/`Webhook` IR lift (`docs/proposals/bucket-jobs-scope.md`), existing `audit` / `emits` / `policy` / `retry` / `tenant_from` / `idempotency` vocabulary on jobs.
 **Companion runtime cell:** `runtime/go/lazuli/poller/` (sibling of `runtime/go/lazuli/jobs/`); design sketch in §6, full cell deferred to L2.
 **Honors:** `docs/invariants.md`, `docs/design-principles.md` (Rule Zero — Vocabulary Over Mechanism), `docs/architecture.md` §"Founding principle" (poller NAMES the resolution loop; runtime is wire over `time.Ticker` + `pgx`).
@@ -14,7 +14,7 @@
 
 Real production backends carry one pattern Lazuli's current `kind job` vocabulary cannot express **without falling back to handlers**: a **persistent cursor row that is revisited until resolved**.
 
-The anchoring concrete case is `c:/Users/lucas/dev-trabalho/corbanx/apps/api/src/features/multi-bank/multi-bank.repo.ts` (~ 460 LOC of Express + Drizzle) plus the `v8_pending_consults` and `v8_pending_multibank_consults` tables (`c:/Users/lucas/dev-trabalho/corbanx/packages/database/src/schema/introspected.ts`). The shape repeats across **three** vendor integrations in the same product (V8, Drex, GoFintech) and across **four** other client backends the author has seen in the field. The same fields recur each time:
+The anchoring concrete case is `c:/Users/lucas/dev-trabalho/production-grade/apps/api/src/features/multi-bank/multi-bank.repo.ts` (~ 460 LOC of Express + Drizzle) plus the `v8_pending_consults` and `v8_pending_multibank_consults` tables (`c:/Users/lucas/dev-trabalho/production-grade/packages/database/src/schema/introspected.ts`). The shape repeats across **three** vendor integrations in the same product (V8, Drex, GoFintech) and across **four** other client backends the author has seen in the field. The same fields recur each time:
 
 | Field | Purpose |
 |---|---|
@@ -839,7 +839,7 @@ Mechanical, single-file-per-cell where feasible (per `feedback_claude_plans_code
 | **P.D.1** Doctor rule pack — nineteen structural rules from §5 (one file per rule, registered in `doctor/poller/mod.rs`) | lazuli_cli | doctor/poller/*.rs | +800 (~42 LOC × 19) | Yes (parallel cells, single file each) |
 | **P.E.1** Inspect: `--expand=pollers` projection; add `poller` count to `--expand=summary` | lazuli_cli | inspect/poller.rs | +100 | Yes |
 | **P.E.2** LSP: hover catalog additions for `poller`, `cursor`, `eligible_when`, `retry_quirk`, `tick`, `tenant_from row.*`; completion inside `poller` block | lazuli_lsp | lib.rs | +120 | Yes |
-| **P.F.1** Fixture: add `poller v8_consult_resolver` style fixture to `examples/marketplace-mini/` (synthetic; not corbanx — public repo) | examples | examples/marketplace-mini/marketplace-mini.lzi | +60 | No (Claude) |
+| **P.F.1** Fixture: add `poller v8_consult_resolver` style fixture to `examples/marketplace-mini/` (synthetic; not production-grade — public repo) | examples | examples/marketplace-mini/marketplace-mini.lzi | +60 | No (Claude) |
 | **P.F.2** Highlight: `editors/vscode/syntaxes/lazuli.tmLanguage.json` — color `poller`, `cursor`, `eligible_when`, `tick`, `retry_quirk` | editors | lazuli.tmLanguage.json | +20 | Yes |
 
 **Wave estimate:**
@@ -934,10 +934,10 @@ Total: ~2420 LOC framework + ~60 LOC fixture. ~3 sessions if Codex waves go clea
 - `docs/architecture.md` §"Founding principle" — the poller NAMES the resolution loop; runtime is wire over `pgx` + `time.Ticker`.
 - `docs/proposals/bucket-jobs-cycle.md` + `bucket-jobs-scope.md` — sibling kind; this proposal explicitly distinguishes from. Job is one-shot; poller has persistent cursor.
 - `docs/proposals/lifecycle-vocab.md` — recent well-graded L0 proposal style reference; the §2 boundary table and §3.13 retry-quirk catalog mirror `lifecycle`'s §2 and §3.4 invariant catalog disciplines.
-- `docs/proposals/corbanx-class-readiness.md` — meta-roadmap, gap #5 (this proposal).
+- `docs/proposals/production-readiness.md` — meta-roadmap, gap #5 (this proposal).
 - `runtime/go/lazuli/jobs/dispatch.go` — sibling runtime surface; the poller's `Registry`/`Spec`/`Dispatch` mirror its shape.
 - `crates/lazuli_ir/src/lib.rs:1684` — existing `Job` IR; the `Poller` IR struct is a sibling addition.
-- `c:/Users/lucas/dev-trabalho/corbanx/apps/api/src/features/multi-bank/multi-bank.repo.ts` — anchoring real-world example. Confidential consumer code; pattern abstracted into this proposal.
-- `c:/Users/lucas/dev-trabalho/corbanx/packages/database/src/schema/introspected.ts` — the `v8_pending_consults` / `v8_pending_multibank_consults` schemas concretising the cursor fields shape.
+- `c:/Users/lucas/dev-trabalho/production-grade/apps/api/src/features/multi-bank/multi-bank.repo.ts` — anchoring real-world example. Confidential consumer code; pattern abstracted into this proposal.
+- `c:/Users/lucas/dev-trabalho/production-grade/packages/database/src/schema/introspected.ts` — the `v8_pending_consults` / `v8_pending_multibank_consults` schemas concretising the cursor fields shape.
 - `project_db_driver_choice.md` — pgx/v5 + `RowToStructByName` are the SQL primitives the scheduler uses.
 - `project_handler_audit_lints_2026-05-14.md` — proposal lineage for the doctor-vocabulary-lints discipline this proposal extends with 19 new rules.

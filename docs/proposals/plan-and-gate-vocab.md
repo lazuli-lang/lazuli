@@ -1,7 +1,7 @@
 # Plan & Gate Vocabulary (v0.1, design draft)
 
 **Status**: design proposal. Cell #9 of
-[`corbanx-class-readiness.md`](corbanx-class-readiness.md).
+[`production-readiness.md`](production-readiness.md).
 Architect grade **PASS-WITH-NOTES 8.62/10** (v0.2). Implementation
 landed under cells `PG.PRE.1` → `PG.F` per the wave-2 plan-gate
 phase set; see `git log --grep '^PG\\.' wave2-plan-gate`.
@@ -31,14 +31,14 @@ phase set; see `git log --grep '^PG\\.' wave2-plan-gate`.
 
 **Audience**: Lazuli language team (Rust crates), Lazuli Go runtime
 team, downstream product authors who ship subscription-gated SaaS
-(Corbanx-shaped: free/trial/pro/enterprise + per-feature flags +
+(production-grade-shaped: free/trial/pro/enterprise + per-feature flags +
 per-period quotas).
 
 **Date**: 2026-05-14.
 
 **Pilot bucket**: new `plan` bucket — surface + IR + analyzer +
 doctor + LSP + codegen + runtime contract. Sibling to `auth`,
-`notifications`, `agent`, `storage`. Closes Corbanx gap #9
+`notifications`, `agent`, `storage`. Closes a production-grade app gap #9
 (subscription / plan + feature gating).
 
 **Companion**:
@@ -51,10 +51,10 @@ doctor + LSP + codegen + runtime contract. Sibling to `auth`,
   — structural template for L0→L2 bucket proposals.
 - [`docs/proposals/auth-session-tenant-pin.md`](auth-session-tenant-pin.md)
   — adjacent authorization surface; this proposal MUST NOT overlap.
-- [`docs/proposals/corbanx-class-readiness.md`](corbanx-class-readiness.md)
+- [`docs/proposals/production-readiness.md`](production-readiness.md)
   — parent roadmap.
 
-**First consumer**: Corbanx port (downstream, private repo). The
+**First consumer**: a production-grade app port (downstream, private repo). The
 canonical fixture exercise lands in
 `examples/full-capsule/full-capsule.lzi` once the surface is
 accepted — see §"Fixture exercise" below.
@@ -79,7 +79,7 @@ through to free-form Go handlers:
 Today these live in scattered TypeScript:
 
 ```ts
-// apps/api/src/features/auth/session.service.ts:253-311 (Corbanx)
+// apps/api/src/features/auth/session.service.ts:253-311 (a production-grade app)
 export async function checkSubscription(userId): Promise<{ valid, reason? }> {
   const subscription = supabase.from("subscriptions")
     .select("status, expires_at, plan_type")...
@@ -268,7 +268,7 @@ one pointer:
 
 ```lzi
 # app.lzi
-app corbanx
+app production-grade
   environments dev, staging, prod
   subscription resource users.subscription
   ...
@@ -1171,7 +1171,7 @@ non-stdlib import named.
 - `examples/full-capsule/app.lzi` — add catalog + anchor.
 - `examples/full-capsule/full-capsule.lzi` — add 1 gated command.
 - Re-run codegen; verify outputs land where expected and compile.
-- Update `docs/proposals/corbanx-class-readiness.md` row #9 to 🟢
+- Update `docs/proposals/production-readiness.md` row #9 to 🟢
   with the merge SHA.
 
 **Commit message**: `examples: full-capsule plan/gate exercise`.
@@ -1255,7 +1255,7 @@ After cells land:
 - `docs/invariants.md` — add closed-grammar notes for `plan` /
   `gate` / `subscription resource`; declare the closed catalog rule
   for features/limits.
-- `docs/proposals/corbanx-class-readiness.md` row #9 flips ⬜ → 🟢
+- `docs/proposals/production-readiness.md` row #9 flips ⬜ → 🟢
   with merge SHA.
 - `editors/vscode/syntaxes/lazuli.tmLanguage.json` — done in S8.
 
@@ -1292,7 +1292,7 @@ workspace-wide, the single-app case has to look up through
    billing.
 
 The proposal as written picks (1) — package-wide — to preserve
-self-contained declarations. The risk is that Corbanx-class apps
+self-contained declarations. The risk is that production-grade apps
 that grow into a workspace immediately hit the duplication problem,
 which is the first observable cost of being wrong here.
 

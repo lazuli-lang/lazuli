@@ -1,9 +1,9 @@
-# Corbanx-Class Fixture — Surface Gaps
+# Production-Grade Fixture — Surface Gaps
 
 This document enumerates every spot where the current Lazuli surface forced
 us into a workaround (commented placeholder, handler escape, naming hack) to
 make this fixture compile. Each entry links to the relevant proposal /
-roadmap row in `docs/proposals/corbanx-class-readiness.md`.
+roadmap row in `docs/proposals/production-readiness.md`.
 
 The fixture **passes** `lazuli doctor` today, but only because the
 placeholders below are encoded as comments + Text fields. Once the
@@ -14,7 +14,7 @@ form and the corresponding handler escape disappears.
 
 ## G1 — RBAC catalog missing (`role` / `permission` declarations)
 
-**Roadmap row:** gap #8 in `docs/proposals/corbanx-class-readiness.md`.
+**Roadmap row:** gap #8 in `docs/proposals/production-readiness.md`.
 **Pending proposal:** `docs/proposals/rbac-catalog-vocab.md`.
 
 **Fixture references:**
@@ -40,7 +40,7 @@ become first-class.
 
 ## G2 — Field-level encryption: missing key-management vocabulary
 
-**Roadmap row:** gap #2 in `corbanx-class-readiness.md`.
+**Roadmap row:** gap #2 in `production-readiness.md`.
 **Pending proposal:** `docs/proposals/encryption-vocab.md`.
 
 **Fixture references:**
@@ -60,7 +60,7 @@ underlying AES-GCM primitive; surface still missing.
 
 ## G3 — CSV / XLSX export: no `query.export` or `kind report` surface
 
-**Roadmap row:** gaps #3 + #4 in `corbanx-class-readiness.md`.
+**Roadmap row:** gaps #3 + #4 in `production-readiness.md`.
 **Pending proposal:** `docs/proposals/report-vocab.md`.
 
 **Fixture references:**
@@ -81,7 +81,7 @@ the runtime primitives; surface layer is the gap.
 
 ## G4 — Async polling cursor: no `kind poller` vocabulary
 
-**Roadmap row:** gap #5 in `corbanx-class-readiness.md`.
+**Roadmap row:** gap #5 in `production-readiness.md`.
 **Pending proposal:** `docs/proposals/poller-vocab.md`.
 
 **Fixture references:**
@@ -112,7 +112,7 @@ kind poller resolve_provider_b on QueryResult
 
 ## G5 — Plan + gate vocabulary: no command-gating by subscription plan
 
-**Roadmap row:** gap #9 in `corbanx-class-readiness.md`.
+**Roadmap row:** gap #9 in `production-readiness.md`.
 **Pending proposal:** `docs/proposals/plan-and-gate-vocab.md`.
 
 **Fixture references:**
@@ -135,7 +135,7 @@ the policy `@policy.*` system has to be repurposed (boundary leak —
 
 ## G6 — Locale-aware scalar `@semantic.TaxID` deferred (pt-BR scalar pack)
 
-**Roadmap row:** gap #12 in `corbanx-class-readiness.md` (status: `⛔
+**Roadmap row:** gap #12 in `production-readiness.md` (status: `⛔
 deferred to post-pilot`).
 **Decision source:** `project_validation_strategy_2026-05-14.md` —
 locale scalars become an `@plugin/scalars-<locale>` kit post-pilot.
@@ -161,9 +161,9 @@ ships.
 The `webhook_events.provider_callback` envelope in `registry.lzi:53-60`
 was originally missing `company_id`. Without it, doctor emitted
 `WEBHOOK-SCOPE-001` ("webhook does not declare `tenant_from`"). Added
-`company_id: ID required` to the envelope per the corbanx-shape needs.
+`company_id: ID required` to the envelope per the production-grade-shape needs.
 
-**Note:** in real corbanx, the callback URL embeds the company in a
+**Note:** in real production-grade, the callback URL embeds the company in a
 signed param. The `tenant_from payload.<x>` model assumes the provider
 sends the tenant id in the payload body. Acceptable for fixture.
 
@@ -172,7 +172,7 @@ sends the tenant id in the payload body. Acceptable for fixture.
 ## G8 — No declarative cache-with-TTL on webhook receipt
 
 The proposal-meta-doc lists this as gap #13 in
-`corbanx-class-readiness.md` (status: `🟢` — runtime exists). The fixture
+`production-readiness.md` (status: `🟢` — runtime exists). The fixture
 declares webhook handlers that should write to cache, but there is no
 declarative surface tying a webhook to a cache key+TTL. Today the
 handler imports the runtime cache bucket directly. This is acceptable
@@ -187,7 +187,7 @@ The fixture passes `lazuli doctor` with 5 warnings, none of which point
 to surface gaps:
 
 1. `app-operational-contract` at `app.lzi:10` — false positive on `locale`
-   block (the lint's whitelist is incomplete; not corbanx-shaped).
+   block (the lint's whitelist is incomplete; not production-shaped).
 2. 3× `env-schema-reference` for `PROVIDER_*_WEBHOOK_SECRET` — declared in
    `registry.lzi` but the LSP-tier rule is single-file. Doctor's
    cross-file check passes.
@@ -209,6 +209,6 @@ its intent
 | G6 | Locale scalars | deferred — `@plugin/scalars-pt-BR` post-pilot (gap #12) |
 
 When the five Wave-1 proposals (G1–G5) land + their codegen ships, the
-fixture under `examples/corbanx-class/` becomes the integration test that
+fixture under `examples/production-grade/` becomes the integration test that
 proves each proposal's declarative form replaces a handler escape /
 commented placeholder.

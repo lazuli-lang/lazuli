@@ -8,7 +8,7 @@ pipeline. Pairs with the AES-256-GCM runtime being shipped in parallel
 
 **Date**: 2026-05-14.
 
-**Cell**: #2 under `docs/proposals/corbanx-class-readiness.md`. Closes
+**Cell**: #2 under `docs/proposals/production-readiness.md`. Closes
 gap row 2 (field-level encryption / secret at-rest).
 
 ## Contexto
@@ -344,7 +344,7 @@ request's tenant scope.
   procedure (rewrite env var, re-encrypt rows via job). KMS-managed
   rotation requires a key-version field on every encrypted column
   and a much heavier IR. **Deferred to Wave 2** per
-  `corbanx-class-readiness.md`.
+  `production-readiness.md`.
 - `source = env.* | secrets.*` — two prefixes only. `env.*` resolves
   through the env var schema declared in `registry.lzi`. `secrets.*`
   resolves through `@adapter.secrets` (canonical secret store

@@ -6,6 +6,14 @@ Mirrored verbatim at `AGENTS.md` for tooling that loads `AGENTS.md` (Codex, Aide
 
 ---
 
+## Read this first: scope discipline
+
+Before doing any design or implementation work, read [`docs/scope-discipline.md`](docs/scope-discipline.md). It defines the **80/20 boundary**: what the framework owns (generics) vs what apps own (specifics, via five escape hatches: `@fn` handlers, `handler "./path.go"` on `api`, `query.sql`, `extends @anchor / slot`, user `main.go`). The framework does NOT absorb per-vendor adapters, per-country scalars, per-product UX flows, or per-client business rules. The negative reference is the framework lineage that preceded Lazuli — template-driven full codegen that grew unbounded as every client demand was absorbed, until maintenance cost exceeded value.
+
+**Operational rule**: if a proposal feels like it's making the framework conform to one specific app's specifics, it's a scope violation. Reject or kick to `@plugin/<name>`. The boundary moves only with ≥3-app pilot evidence + an architect-graded proposal (≥ 8.5).
+
+---
+
 ## The founding principle (NEVER violate)
 
 **Lazuli is abstraction; the Lazuli Go runtime is *wire*.**

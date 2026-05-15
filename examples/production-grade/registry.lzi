@@ -1,4 +1,4 @@
-# Corbanx-class capability + integration catalog.
+# production-grade capability + integration catalog.
 # Provider credentials, object storage for exports, queue for async dispatch,
 # cache for webhook payload TTL.
 

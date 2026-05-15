@@ -13,7 +13,7 @@ feature companies
       slug: Text required unique
       # NOTE: tax_id stays Text. A semantic TaxID scalar would be
       # natural but the locale-scalars plugin is gap #12 in
-      # `docs/proposals/corbanx-class-readiness.md` (deferred). See GAPS.md.
+      # `docs/proposals/production-readiness.md` (deferred). See GAPS.md.
       tax_id: Text @pii.contact required unique
 
       soft_delete

@@ -4,13 +4,13 @@
 (B1) two coexisting surfaces violated Rule Zero with no pilot pressure for
 Surface A; (B2) `ReportColumnSource::Constant(String)` widened the column
 grammar without justification; (B3) the proposal claimed to replace the
-corbanx 277-LOC handler while explicitly deferring dynamic columns; (B4)
+production-grade 277-LOC handler while explicitly deferring dynamic columns; (B4)
 `audit ... emit_to audit_log` invented a sub-verb already covered by the
 canonical `audit` block. v0.2 commits to **Surface B only**, drops the
 `Constant` column source, reframes pilot grounding around the
 static-columns gap, and removes the polysemous `emit_to`.
 
-Cell #3 of the corbanx-class-readiness meta-roadmap. Pairs with runtime
+Cell #3 of the production-readiness meta-roadmap. Pairs with runtime
 cells `cdx-report-csv` / `cdx-report-xlsx`
 (`runtime/go/lazuli/report/{csv,xlsx}.go`) shipping in parallel.
 
@@ -20,7 +20,7 @@ cells `cdx-report-csv` / `cdx-report-xlsx`
 
 **Inputs**:
 
-- `docs/proposals/corbanx-class-readiness.md` (gap #3 + #4).
+- `docs/proposals/production-readiness.md` (gap #3 + #4).
 - `docs/proposals/bucket-storage-cycle.md` (typed `@cap.File` lowering — the
   storage primitive this proposal composes onto).
 - `docs/design-principles.md` Rule Zero.
@@ -30,7 +30,7 @@ cells `cdx-report-csv` / `cdx-report-xlsx`
   `output @cap.File(...)` + opaque `handler "./api/export_customers.go"`. This
   is the closest expression of "an export endpoint" today; the export bytes
   are *invisible to the language*. **Primary v0.1 anchor.**
-- `c:/Users/lucas/dev-trabalho/corbanx/apps/api/src/features/multi-bank/multi-bank-report.service.ts`
+- `c:/Users/lucas/dev-trabalho/production-grade/apps/api/src/features/multi-bank/multi-bank-report.service.ts`
   — partial anchor: the *static-columns half* of this handler (header row,
   fixed columns, format dispatch, storage upload, signed URL) is in scope for
   v0.1. The *dynamic per-bank columns half* is out of scope — covered by a
@@ -63,7 +63,7 @@ row.<field> | @fn.<name>(...)`. After v0.1 lands, the `api +
 opaque-handler` pattern is the *escape hatch*, not the default expression.
 
 There is a second pressure — **dynamic columns**, where the column set is
-discovered at runtime (corbanx multi-bank: which banks does the requesting
+discovered at runtime (multi-provider report: which banks does the requesting
 user have credentials for? expand columns accordingly). v0.1 does **not**
 cover that case; §Out of scope and §Risks describe the v0.2 path.
 
@@ -71,7 +71,7 @@ v0.1 of this proposal explicitly **does not extend `query.list`** with an
 `export` slot. An earlier draft proposed a Surface A (`query.list ...
 export csv, xlsx`) for the trivial "download the current list" case
 alongside Surface B. v0.1 drops Surface A: it has no pilot pressure
-(corbanx anchor is a contract-export with a discrete name, audit, and
+(real-world anchor is a contract-export with a discrete name, audit, and
 policy — not a list-export); it created a second way to say the same
 thing; and doctor disambiguation machinery was needed only because the
 language was offering two surfaces for one intent. **See §Surface A —
@@ -113,7 +113,7 @@ What `report` adds over `api + handler`:
 
 What `report` deliberately does NOT add:
 
-- **Dynamic columns** — runtime-discovered column sets (corbanx
+- **Dynamic columns** — runtime-discovered column sets (production-grade
   multi-bank). v0.2 candidate; see §Out of scope.
 - **Scheduling / recurrence** — use `job trigger schedule` for nightly
   runs.
@@ -246,14 +246,14 @@ declared report:
       rate_limit "10 per hour per user"
       audit actor, ctx.now, source.params
 
-**Note on the corbanx anchor**: this worked example covers the
+**Note on the real-world anchor**: this worked example covers the
 static-columns case — a fixed column list, format dispatch, storage
-upload, signed URL. The corbanx multi-bank-report's
+upload, signed URL. The multi-provider report-report's
 *dynamic per-bank columns* (each user's set of authorized banks expands
 into per-bank columns at request time) is **not expressible in v0.1**.
-That handler stays in the corbanx pilot as an `api + handler` until a
+That handler stays in the production-grade pilot as an `api + handler` until a
 v0.2 `expand` modifier ships (see §Open questions). v0.1 covers the
-static half of corbanx exports (header generation, format dispatch,
+static half of production-grade exports (header generation, format dispatch,
 upload, signing) and the entirety of full-capsule's export.
 
 ## IR (Stage 4)
@@ -532,25 +532,25 @@ Add `report` to keyword scope; report-child keywords (`columns`, `from`,
 
 ### Biggest risk
 
-**Dynamic columns are the corbanx anchor's defining trait, and v0.1
+**Dynamic columns are the real-world anchor's defining trait, and v0.1
 explicitly does not cover them.** v0.1 covers the static-columns half —
 header rows, fixed column lists, format dispatch, upload, signing —
 which is the dominant shape across pilots and the entirety of the
 full-capsule fixture. The dynamic-columns half (per-bank column
 expansion at request time) remains an `api + handler` until v0.2 ships
 an `expand` modifier. Mitigation: §Open questions sketches two candidate
-v0.2 shapes; pilot pressure beyond corbanx will resolve which one. v0.1
-is **not** marketed as "replaces the corbanx 277-LOC handler" — it
+v0.2 shapes; pilot pressure beyond production-grade will resolve which one. v0.1
+is **not** marketed as "replaces the production-grade 277-LOC handler" — it
 establishes the surface and replaces the static-columns scaffold inside
 that handler (50-100 LOC of header generation, format dispatch, upload,
 signing — the part least worth hand-rolling). The dynamic-columns
-business logic is what makes the corbanx handler 277 LOC; that piece
+business logic is what makes the production-grade handler 277 LOC; that piece
 survives v0.1 untouched. v0.2 dynamic-columns will fully replace the
-corbanx-shape handler.
+production-grade-shape handler.
 
 ### Biggest open question — dynamic columns (v0.2)
 
-The corbanx multi-bank case: the column set is determined at runtime by
+The multi-provider report case: the column set is determined at runtime by
 which banks the requesting user has credentials for. Two candidate v0.2
 shapes:
 
@@ -569,7 +569,7 @@ vs:
 The first is more declarative but extends the column-source grammar with
 nested `expand` blocks; the second leans on `@fn.*` returning a slice
 and is a smaller language change. Decision deferred until a second site
-beyond corbanx demands it.
+beyond production-grade demands it.
 
 ### Smaller open questions
 
