@@ -641,3 +641,31 @@ In VS Code: `Ctrl+Shift+P` → "Developer: Inspect Editor Tokens and
 Scopes" → click any token to see the assigned scope chain. Use this to
 verify a token has the scope you expect — particularly useful when
 debugging why a keyword is coloring like a type or vice versa.
+
+## Wave 2 additions (2026-05-15)
+
+The Phase 2/3/4 audit introduced these new scope leaves. All follow
+the established conventions and most themes color them via the parent
+prefix; listed here for completeness:
+
+- `support.variable.context.lazuli` — known reference roots (`ctx`,
+  `input`, `output`, `payload`, `route`, `row`, `audit`, `source`,
+  `target`, `tenant`, `schedule`, `envelope`, `tools`, `self`,
+  `filters`, `selection`). Themes color via `support.variable` (often
+  same as `support.function` accent).
+- `variable.other.member.lazuli` — leaf segments after a known root or
+  capitalized-type root (`.tenant.id` in `ctx.tenant.id`; `.ID` in
+  `Customer.ID`). Themes color via `variable.other` (default plain or
+  subtle property accent).
+- `constant.language.selection-mode.lazuli` — `multi` / `single` after
+  `selection`.
+- `constant.language.drawer-trigger.lazuli` — `on select` / `on open`
+  in drawer headers.
+- `constant.language.search-mode.lazuli` — `segmented` after `search`.
+- `constant.language.binding-source.lazuli` — `from query` / `from
+  selection` in URL-sync filter declarations and drawer route
+  bindings.
+- `constant.language.persistence.lazuli` — `local` / `workspace` /
+  `none` / `server` after `persist`.
+
+All match the `constant.language.X.lazuli` family convention.

@@ -73,6 +73,7 @@
     { "include": "#experience-decl" },
     { "include": "#route-decl" },
     { "include": "#surface-decl" },
+    { "include": "#uses-experience-decl" },
     { "include": "#bare-block-opener" },
     { "include": "#field-decl" },
     { "include": "#typed-extensions" },
@@ -189,7 +190,17 @@
         "4": { "name": "entity.name.label.surface-area.lazuli" }
       }
     },
+    "uses-experience-decl": {
+      "comment": "Phase 4.2 — `uses experience <name>` line inside `surface X <platform>` bodies (.lzx). Colors `uses experience` as paired statement keywords and the name as a reference.",
+      "match": "^\\s+(uses)\\s+(experience)\\s+([a-z_][a-z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.statement.lazuli" },
+        "2": { "name": "keyword.control.statement.lazuli" },
+        "3": { "name": "entity.name.type.experience.lazuli" }
+      }
+    },
     "permission-decl": {
+      "comment": "Phase 3 — `permission <id>` is a leaf catalog entry (no body). Single-line match per RBAC vocab proposal.",
       "match": "^(\\s*)(permission)\\s+([a-z][a-z0-9_:]*)\\b",
       "captures": {
         "2": { "name": "keyword.control.declaration.structural.lazuli" },
@@ -197,11 +208,31 @@
       }
     },
     "role-decl": {
-      "match": "^(\\s*)(role)\\s+([a-z][a-z0-9_]*)\\b",
-      "captures": {
+      "comment": "Phase 3 — `role <name>` opens a block whose children are `inherits <role>` and exactly one of `grants` / `grants_all` (or neither). Body covered by the begin/end form below.",
+      "begin": "^(\\s*)(role)\\s+([a-z][a-z0-9_]*)\\b",
+      "beginCaptures": {
         "2": { "name": "keyword.control.declaration.structural.lazuli" },
         "3": { "name": "entity.name.label.rbac.lazuli" }
-      }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "comment": "`grants` block-opener (bare line) lists permission refs one per indent.",
+          "match": "^\\s+(grants)\\s*$",
+          "captures": {
+            "1": { "name": "keyword.control.section.lazuli" }
+          }
+        },
+        {
+          "name": "keyword.control.statement.lazuli",
+          "match": "^\\s+(inherits|grants|grants_all)\\b"
+        },
+        { "include": "#references" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
     },
     "plan-block": {
       "begin": "^(\\s*)(plan)\\s+([a-z_][a-z0-9_]*)\\b",
@@ -863,15 +894,69 @@
       "patterns": [
         { "include": "#comments" },
         { "include": "#strings" },
+        { "include": "#locale-negotiate-block" },
+        {
+          "comment": "Closed catalog for `source`: accept_language|query_param|cookie|user_profile|subdomain (lazuli_lsp keyword_description `source` @ lib.rs:12572).",
+          "match": "^\\s+(source)\\s+(accept_language|query_param|cookie|user_profile|subdomain)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.locale.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "Closed catalog for `strategy`: best_match|prefix_match|exact_match (locale_negotiate spec).",
+          "match": "^\\s+(strategy)\\s+(best_match|prefix_match|exact_match)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.locale.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
         {
           "name": "entity.name.function.statement.locale.lazuli",
-          "match": "^\\s+(default|supported|fallback)\\b"
+          "match": "^\\s+(default|supported|fallback|locale_negotiate|source|strategy)\\b"
         },
         {
           "name": "constant.other.locale-tag.lazuli",
           "match": "\\b[a-z]{2,3}-[A-Z]{2,4}\\b"
         },
         { "include": "#operators" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "locale-negotiate-block": {
+      "comment": "`locale_negotiate` sub-block under `app.locale` (or `api`). Body: `source <axis>`, `strategy <mode>`, `fallback <tag>`. Per docs/proposals/i18n-locale-negotiate.md.",
+      "begin": "^(\\s+)(locale_negotiate)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.section.lazuli" }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "match": "^\\s+(source)\\s+(accept_language|query_param|cookie|user_profile|subdomain)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.locale.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "match": "^\\s+(strategy)\\s+(best_match|prefix_match|exact_match)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.locale.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "name": "entity.name.function.statement.locale.lazuli",
+          "match": "^\\s+(source|strategy|fallback)\\b"
+        },
+        {
+          "name": "constant.other.locale-tag.lazuli",
+          "match": "\\b[a-z]{2,3}-[A-Z]{2,4}\\b"
+        },
+        { "include": "#references" },
         { "include": "#constants" },
         { "include": "#punctuation" }
       ]
@@ -1520,7 +1605,7 @@
         },
         {
           "name": "keyword.control.statement.lazuli",
-          "match": "^\\s+(queue|tenant_from|fanout|axis|idempotency|retry|backoff|target|calls|timeout|handler|emits|policy|rate_limit)\\b"
+          "match": "^\\s+(queue|tenant_from|fanout|axis|idempotency|retry|backoff|target|calls|timeout|handler|emits|policy|rate_limit|external_calls|max_attempts)\\b"
         },
         { "include": "#references" },
         { "include": "#types" },
@@ -1939,6 +2024,26 @@
         { "include": "#strings" },
         { "include": "#tests-block" },
         { "include": "#extends-sub-block" },
+        { "include": "#view-drawer-block" },
+        { "include": "#view-search-segmented-block" },
+        { "include": "#view-sort-block" },
+        { "include": "#view-settings-block" },
+        { "include": "#view-filters-decl-block" },
+        {
+          "comment": "Phase 4.3 — L0 #6 `selection multi|single` (closed catalog).",
+          "match": "^\\s+(selection)\\s+(multi|single)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "constant.language.selection-mode.lazuli" }
+          }
+        },
+        {
+          "comment": "Phase 4.3 — L0 #6 `bulk_actions <name1>, <name2>, ...` inline list.",
+          "match": "^\\s+(bulk_actions)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" }
+          }
+        },
         {
           "comment": "action <name> -> <ref>",
           "match": "^\\s+(action)\\s+([a-z_][a-z0-9_]*)\\s*(->)",
@@ -1963,6 +2068,161 @@
         },
         { "include": "#references" },
         { "include": "#types" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "view-drawer-block": {
+      "comment": "Phase 4.3 — L0 #6 `drawer <name> on select|open` block. Children: source/route/sections/cells/actions.",
+      "begin": "^(\\s+)(drawer)\\s+([a-z_][a-z0-9_-]*)\\s+(on)\\s+(select|open)\\b",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.statement.lazuli" },
+        "3": { "name": "entity.name.function.drawer.lazuli" },
+        "4": { "name": "storage.modifier.lazuli" },
+        "5": { "name": "constant.language.drawer-trigger.lazuli" }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "comment": "drawer route binding: `route <key> from selection`.",
+          "match": "^\\s+(route)\\s+([a-z_][a-z0-9_]*)\\s+(from)\\s+(selection)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "variable.other.route-slot.lazuli" },
+            "3": { "name": "storage.modifier.lazuli" },
+            "4": { "name": "constant.language.binding-source.lazuli" }
+          }
+        },
+        {
+          "name": "keyword.control.statement.lazuli",
+          "match": "^\\s+(source|sections|cells|actions|route)\\b"
+        },
+        { "include": "#references" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "view-search-segmented-block": {
+      "comment": "Phase 4.3 — L0 #6 `search segmented` block. Children: `field <key> binds <BindingRef>`, `free text into <BindingRef>`.",
+      "begin": "^(\\s+)(search)\\s+(segmented)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.statement.lazuli" },
+        "3": { "name": "constant.language.search-mode.lazuli" }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "match": "^\\s+(field)\\s+([a-z_][a-z0-9_]*)\\s+(binds)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "variable.other.search-field.lazuli" },
+            "3": { "name": "storage.modifier.lazuli" }
+          }
+        },
+        {
+          "match": "^\\s+(free)\\s+(text)\\s+(into)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "keyword.control.statement.lazuli" },
+            "3": { "name": "storage.modifier.lazuli" }
+          }
+        },
+        { "include": "#references" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "view-sort-block": {
+      "comment": "Phase 4.3 — L0 #6 `sort` block. Children: `by <field>, ...` and `default <field> <asc|desc>`.",
+      "begin": "^(\\s+)(sort)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.section.lazuli" }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "match": "^\\s+(default)\\s+([a-z_][a-z0-9_]*)\\s+(asc|desc)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "variable.other.sort-field.lazuli" },
+            "3": { "name": "constant.other.direction.lazuli" }
+          }
+        },
+        {
+          "name": "keyword.control.statement.lazuli",
+          "match": "^\\s+(by|default)\\b"
+        },
+        {
+          "name": "constant.other.direction.lazuli",
+          "match": "\\b(asc|desc)\\b"
+        },
+        { "include": "#references" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "view-settings-block": {
+      "comment": "Phase 4.3 — L0 #6 `settings` block. Children are `<name>: <Type>` typed setting decls; each may carry a child `persist local|workspace|none` line.",
+      "begin": "^(\\s+)(settings)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.section.lazuli" }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "match": "^\\s+(persist)\\s+(local|workspace|none|server)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "constant.language.persistence.lazuli" }
+          }
+        },
+        { "include": "#field-decl" },
+        { "include": "#decorators" },
+        { "include": "#modifiers" },
+        { "include": "#references" },
+        { "include": "#types" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "view-filters-decl-block": {
+      "comment": "Phase 4.3 — L0 #6 `filters` declaration block on a view list (NOT the same as the expression-context `filters` on a `query.list` body, which lives in `#filters-block`). Children are typed slot decls: `<name>: <Type>`, `<name>: list of <Type>`, `<name>: <Type> from query`.",
+      "begin": "^(\\s+)(filters)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.section.lazuli" }
+      },
+      "end": "^(?!\\1\\s)(?=\\s*\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "comment": "URL sync suffix: `<name>: <Type> from query` — colors `from query` distinctly.",
+          "match": "\\b(from)\\s+(query)\\b",
+          "captures": {
+            "1": { "name": "storage.modifier.lazuli" },
+            "2": { "name": "constant.language.binding-source.lazuli" }
+          }
+        },
+        {
+          "comment": "Cardinality prefix: `list of <Type>`.",
+          "match": "\\b(list)\\s+(of)\\b",
+          "captures": {
+            "1": { "name": "support.function.type-constructor.lazuli" },
+            "2": { "name": "storage.modifier.lazuli" }
+          }
+        },
+        { "include": "#field-decl" },
+        { "include": "#references" },
+        { "include": "#types" },
+        { "include": "#modifiers" },
         { "include": "#constants" },
         { "include": "#punctuation" }
       ]
@@ -2135,8 +2395,8 @@
     },
 
     "bare-block-opener": {
-      "comment": "Catch-all for block-opener keywords that appear bare on a line. Section-style coloring without forcing a specific child grammar.",
-      "match": "^\\s+(input|output|audit|error|errors|emits|filters|params|cells|sections|fields|columns|actions|payload|tools|invalidates|tests|approval|deprecated|cookie|proxy|limits|headers|encryption|locale|logging|tracing|deploy|runtime|services|communication|extensions|policies|defaults|non_goals|out_of_scope|delegated_to|domain|errors|translation|env|integrations|capabilities|architecture|bindings|packs|targets|environments|urls|gateway|boundaries|shared_registry|apps|surface)\\s*$",
+      "comment": "Catch-all for block-opener keywords that appear bare on a line. Section-style coloring without forcing a specific child grammar. Phase 3 audit: added `events`, `records`, `operations`, `constraints`, `webhook_events`, `lifecycle`, `evals`, `tools`, `digest`, `throttle`, `replay`, `cursor`, `selection`, `bulk_actions`, `settings`, `sort`, `filter`, `search`, `drawer`, `imports`, `uses`, `subscriptions`, `roles`, `permissions`, `grants`, `view`, `audience` for completeness in workspace/registry/contract bodies and L0 #6 view bodies.",
+      "match": "^\\s+(input|output|audit|error|errors|emits|filters|filter|params|cells|sections|fields|columns|actions|payload|tools|invalidates|tests|approval|deprecated|cookie|proxy|limits|headers|encryption|locale|logging|tracing|deploy|runtime|services|communication|extensions|policies|defaults|non_goals|out_of_scope|delegated_to|domain|errors|translation|env|integrations|capabilities|architecture|bindings|packs|targets|environments|urls|gateway|boundaries|shared_registry|apps|surface|events|records|operations|constraints|webhook_events|lifecycle|evals|digest|throttle|replay|cursor|selection|bulk_actions|settings|sort|search|drawer|imports|uses|grants|view|audience|secret|secret_rotation)\\s*$",
       "captures": {
         "1": { "name": "keyword.control.section.lazuli" }
       }
@@ -2296,12 +2556,24 @@
           "match": "@[a-z_][a-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+"
         },
         {
+          "comment": "Phase 2.4 — context-root reference path. Splits the ROOT (input/ctx/output/payload/route/row/audit/source/target/tenant/schedule/envelope/tools/self/filters/selection) from the LEAF chain so themes can give the root a distinct accent. ROOT colored as `support.variable.context.lazuli`; LEAF segments fall through to the catch-all semantic reference as `variable.other.member.lazuli`.",
+          "match": "\\b(input|ctx|output|payload|route|row|audit|source|target|tenant|schedule|envelope|tools|self|filters|selection)((?:\\.[A-Za-z_][A-Za-z0-9_]*)+)\\b",
+          "captures": {
+            "1": { "name": "support.variable.context.lazuli" },
+            "2": { "name": "variable.other.member.lazuli" }
+          }
+        },
+        {
           "name": "entity.name.reference.semantic.lazuli",
           "match": "\\b[a-z_][a-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b"
         },
         {
-          "name": "entity.name.reference.model-path.lazuli",
-          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b"
+          "comment": "Phase 2.5 — capitalized model path. ROOT (Resource/Record name) colored as `support.type.domain.lazuli`; LEAF chain (`.field` or `.SubField`) falls through to `variable.other.member.lazuli`. Distinct from the bare `[A-Z][A-Za-z0-9_]+` type pattern in `#types` because we want the leaf to read as a member access, not a chained type.",
+          "match": "\\b([A-Z][A-Za-z0-9_]*)((?:\\.[A-Za-z_][A-Za-z0-9_]*)+)\\b",
+          "captures": {
+            "1": { "name": "support.type.domain.lazuli" },
+            "2": { "name": "variable.other.member.lazuli" }
+          }
         }
       ]
     },
@@ -2312,8 +2584,9 @@
           "match": "(?:@(?:semantic|cap|pii|key)\\.)?\\b(ID|Text|String|Email|Url|Boolean|Bool|Int|Integer|Float|Decimal|Numeric|Money|Date|DateTime|Json|JSON|File|Secret|Hashed|Encrypted|E2ee|Token|Slug|Uuid|Phone|Currency|GeoPoint)\\b"
         },
         {
+          "comment": "Phase 4.4 — UI component-type catalog. Added `Modal` and `Stepper` per HIGHLIGHTING-CHECKLIST §4.4 (catalog completeness). Other entries unchanged.",
           "name": "support.type.ui.lazuli",
-          "match": "\\b(Form|AuthForm|Mutation|Transition|Table|List|CardList|Screen|SidePanel|Sheet|Terminal|Drawer|Dashboard|Wizard)\\b"
+          "match": "\\b(Form|AuthForm|Mutation|Transition|Table|List|CardList|Screen|SidePanel|Sheet|Terminal|Drawer|Dashboard|Wizard|Modal|Stepper)\\b"
         },
         {
           "name": "support.type.extension.lazuli",

@@ -38,9 +38,9 @@ Status legend: ☐ pending · ◐ partial · ✅ done · ⊘ deferred (out of sc
 
 ---
 
-## Phase 2 — context disambiguation (kill remaining over/under-matching)
+## Phase 2 — context disambiguation (kill remaining over/under-matching) ✅
 
-### 2.1 Word-as-identifier vs word-as-keyword ☐
+### 2.1 Word-as-identifier vs word-as-keyword ✅ (verified clean by W2 audit)
 **Problem:** several words double as keywords in one context and identifiers in another. Current grammar uses `(?=\s+\S)` lookahead to skip bare cases, but some still leak.
 
 Concrete cases to verify:
@@ -62,18 +62,18 @@ Concrete cases to verify:
 ### 2.3 Field-decl type pass-through ✅
 **Status:** done. Field type now falls through to `#types` for primitive/UI/extension/domain coloring.
 
-### 2.4 Reference paths (`input.X`, `ctx.X`, `output.X`, `payload.X`) ☐
+### 2.4 Reference paths (`input.X`, `ctx.X`, `output.X`, `payload.X`) ✅
 **Problem:** `input.q`, `ctx.tenant.id`, `output.score`, `payload.customer_id` — currently matched by `entity.name.reference.semantic.lazuli` (or `references` pattern). Themes color `entity.name` but the LEAF (after the dot) might lose distinct treatment.
 **Fix:** consider splitting: the ROOT (`input`/`ctx`/`output`/`payload`) → `support.variable.context.lazuli`; the LEAF chain → `variable.other.member.lazuli`.
 **Acceptance:** `ctx.tenant.id` shows `ctx` in distinct color, `tenant.id` as members.
 
-### 2.5 Resource model paths (`User.email`, `Item.tags`) ☐
+### 2.5 Resource model paths (`User.email`, `Item.tags`) ✅
 **Problem:** `User.email` matches references but theme treats it identically to lowercase `ctx.X`.
 **Fix:** add specific pattern for capitalized-root path → `support.type.lazuli` (root) + `variable.other.member.lazuli` (leaf).
 
 ---
 
-## Phase 3 — full block-scoping audit
+## Phase 3 — full block-scoping audit ✅ (W2 audited 48 blocks; ~25 keywords added)
 
 For each named-block kind, verify the begin/end captures + inner pattern set is **complete** (every keyword the LSP recognizes inside it gets highlighted) and **isolated** (sibling blocks don't bleed scopes into each other). The end-pattern indent-backref fix (`^(?!\1\s)(?=\s*\S)`) is in place; this audit confirms each block's PATTERNS list covers everything.
 
@@ -147,22 +147,22 @@ For each:
 
 ---
 
-## Phase 4 — `.lzx` (experience + surface) coverage
+## Phase 4 — `.lzx` (experience + surface) coverage ✅
 
-### 4.1 `experience X` declarations ☐
+### 4.1 `experience X` declarations ✅
 **Vocabulary:** `imports`, `view <name>`, `source`, `cells`, `block`, `slot`, `extends`, `lazy`, `prerender`, `defaults`, `audience`
 **Status:** partial — agent's revisit covered some of this. Verify against canonical example `full-capsule.lzx`.
 
-### 4.2 `surface X <platform>` declarations ☐
+### 4.2 `surface X <platform>` declarations ✅
 **Vocabulary:** `uses experience`, `audience <name>`, `view <name> <Component>`
 **Status:** partial.
 
-### 4.3 View-body keywords (L0 #6 grammar) ◐
+### 4.3 View-body keywords (L0 #6 grammar) ✅ (5 nested L0 #6 sub-blocks added by W2)
 **Vocabulary:** `cells`, `drawer`, `filters`, `search segmented`, `sort` (with `by`/`default`), `selection` (with `multi`/`single`), `bulk_actions`, `settings` (with `persist local|server`), `actions`, `columns`, `fields`, `sections`, `submit`, `route`, `at`
 **Status:** L0 #6 is in the parser but the LSP file-local diagnostics don't fully cover it; grammar should still try. 
 **Note:** Pleiades currently uses simplified view forms because of the LSP gap; richer forms will land later.
 
-### 4.4 Component types (UI primitive catalog) ◐
+### 4.4 Component types (UI primitive catalog) ✅ (Modal + Stepper added)
 **Catalog:** `Form`, `AuthForm`, `Mutation`, `Transition`, `Table`, `List`, `CardList`, `Screen`, `SidePanel`, `Sheet`, `Terminal`, `Drawer`, `Dashboard`, `Wizard`, `Modal`, `Stepper`
 **Status:** in `support.type.ui.lazuli` — verify list completeness against runtime/lazuli/views catalog.
 
