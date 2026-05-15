@@ -10,7 +10,43 @@ import (
 	"context"
 	"errors"
 	"net/http"
+
+	"lazuli.dev/runtime/lazuli/plangate"
 )
+
+// preludeRunner is the package-level hook the `billing` package
+// installs at init. Same shape as the dispatcher-side runner in
+// `lazuli.RunPrelude`, scoped to `WebhookContract.Prelude`.
+var preludeRunner func(ctx context.Context, prelude []plangate.GateRef) error
+
+// incrementRunner is the post-success companion to preludeRunner.
+var incrementRunner func(ctx context.Context, prelude []plangate.GateRef) error
+
+// RegisterPreludeRunner is called by `billing.init` to install the
+// gate-prelude evaluator. Tests substitute via the same hook.
+func RegisterPreludeRunner(run func(ctx context.Context, prelude []plangate.GateRef) error) {
+	preludeRunner = run
+}
+
+// RegisterIncrementRunner is called by `billing.init` to install
+// the quota-counter advancer.
+func RegisterIncrementRunner(run func(ctx context.Context, prelude []plangate.GateRef) error) {
+	incrementRunner = run
+}
+
+func runWebhookPrelude(ctx context.Context, prelude []plangate.GateRef) error {
+	if len(prelude) == 0 || preludeRunner == nil {
+		return nil
+	}
+	return preludeRunner(ctx, prelude)
+}
+
+func runWebhookIncrement(ctx context.Context, prelude []plangate.GateRef) error {
+	if len(prelude) == 0 || incrementRunner == nil {
+		return nil
+	}
+	return incrementRunner(ctx, prelude)
+}
 
 // Router is the minimal chi-like router interface the Lazuli runtime
 // relies on. Concrete implementations live in `@runtime/chi`; the
@@ -53,6 +89,10 @@ func handleOne(
 	if contract.WithSource != nil {
 		ctx = contract.WithSource(ctx)
 	}
+	if err := runWebhookPrelude(ctx, contract.Prelude); err != nil {
+		w.WriteHeader(http.StatusPaymentRequired)
+		return
+	}
 	_ = ctx
 	_ = contract
 	_ = handler
@@ -61,6 +101,7 @@ func handleOne(
 	// declared SecretEnv/Header, parse JSON, dedupe via
 	// IdempotencyBy path, resolve TenantFrom, dispatch handler, emit
 	// declared events on success, propagate audit + observability
-	// span.
+	// span. On success, call `runWebhookIncrement(ctx, contract.Prelude)`
+	// so quota-gate counters advance.
 	w.WriteHeader(http.StatusNotImplemented)
 }

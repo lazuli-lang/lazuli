@@ -135,6 +135,113 @@ func TestLookupPlanFailsWithoutStore(t *testing.T) {
 	}
 }
 
+func TestRunPreludeBehindGateShortCircuits(t *testing.T) {
+	catalog := makeCatalog()
+	billing.RegisterCatalog(&catalog)
+	billing.Register(&stubStore{PlanName: "free"})
+	t.Cleanup(func() {
+		billing.RegisterCatalog(nil)
+		billing.Register(nil)
+	})
+	ctx := newCtx()
+	prelude := []lazuli.GateRef{
+		{Kind: lazuli.GateBehind, Name: "bulk_consult"},
+	}
+	err := lazuli.RunPrelude(ctx, prelude)
+	var forbidden billing.ErrPlanFeatureForbidden
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("expected ErrPlanFeatureForbidden from prelude, got %v", err)
+	}
+}
+
+func TestRunPreludeQuotaGateShortCircuits(t *testing.T) {
+	catalog := makeCatalog()
+	billing.RegisterCatalog(&catalog)
+	billing.Register(&stubStore{PlanName: "free"})
+	billing.RegisterUsage(&stubUsage{used: 100})
+	t.Cleanup(func() {
+		billing.RegisterCatalog(nil)
+		billing.Register(nil)
+		billing.RegisterUsage(nil)
+	})
+	ctx := newCtx()
+	prelude := []lazuli.GateRef{
+		{Kind: lazuli.GateQuota, Name: "queries_per_month"},
+	}
+	err := lazuli.RunPrelude(ctx, prelude)
+	var exceeded billing.ErrPlanQuotaExceeded
+	if !errors.As(err, &exceeded) {
+		t.Fatalf("expected ErrPlanQuotaExceeded from prelude, got %v", err)
+	}
+}
+
+func TestRunPreludePassesWhenPlanCovers(t *testing.T) {
+	catalog := makeCatalog()
+	billing.RegisterCatalog(&catalog)
+	billing.Register(&stubStore{PlanName: "pro"})
+	billing.RegisterUsage(&stubUsage{used: 10})
+	t.Cleanup(func() {
+		billing.RegisterCatalog(nil)
+		billing.Register(nil)
+		billing.RegisterUsage(nil)
+	})
+	ctx := newCtx()
+	prelude := []lazuli.GateRef{
+		{Kind: lazuli.GateBehind, Name: "bulk_consult"},
+		{Kind: lazuli.GateQuota, Name: "queries_per_month"},
+	}
+	if err := lazuli.RunPrelude(ctx, prelude); err != nil {
+		t.Fatalf("expected pro tier to pass prelude, got %v", err)
+	}
+}
+
+func TestRunIncrementAdvancesQuotaCounter(t *testing.T) {
+	catalog := makeCatalog()
+	billing.RegisterCatalog(&catalog)
+	billing.Register(&stubStore{PlanName: "free"})
+	usage := &stubUsage{used: 5}
+	billing.RegisterUsage(usage)
+	t.Cleanup(func() {
+		billing.RegisterCatalog(nil)
+		billing.Register(nil)
+		billing.RegisterUsage(nil)
+	})
+	ctx := newCtx()
+	prelude := []lazuli.GateRef{
+		{Kind: lazuli.GateBehind, Name: "search"},
+		{Kind: lazuli.GateQuota, Name: "queries_per_month"},
+	}
+	if err := lazuli.RunIncrement(ctx, prelude); err != nil {
+		t.Fatalf("expected increment to succeed, got %v", err)
+	}
+	if usage.incrs != 1 {
+		t.Fatalf("expected single quota-gate increment, got %d", usage.incrs)
+	}
+}
+
+func TestRunPreludeNoCatalogIsNoOp(t *testing.T) {
+	// `RegisterCatalog(nil)` should make every prelude evaluation
+	// a no-op so unconfigured runtimes preserve back-compat.
+	billing.RegisterCatalog(nil)
+	prelude := []lazuli.GateRef{
+		{Kind: lazuli.GateBehind, Name: "search"},
+	}
+	if err := lazuli.RunPrelude(newCtx(), prelude); err != nil {
+		t.Fatalf("nil catalog should be a no-op, got %v", err)
+	}
+}
+
+func TestGateRefAliasMatchesPlangate(t *testing.T) {
+	// billing.GateRef must remain a type alias of lazuli.GateRef so
+	// generated code (`billing.GateRef{...}`) round-trips through
+	// the `Prelude []lazuli.GateRef` slot on every contract.
+	var ref billing.GateRef = billing.GateRef{Kind: billing.GateQuota, Name: "x"}
+	var ours lazuli.GateRef = ref
+	if ours.Kind != lazuli.GateQuota || ours.Name != "x" {
+		t.Fatalf("alias drift: %+v", ours)
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func makeCatalog() billing.PlanCatalog {

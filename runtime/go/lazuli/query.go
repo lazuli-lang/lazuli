@@ -80,6 +80,14 @@ type Query[A, R any] struct {
 	// runtime default window (60s).
 	Cache *CacheSpec
 
+	// Prelude carries every `gate behind plan.feature` / `gate quota
+	// plan.limit` directive authored on the DSL `query` block. The
+	// runtime dispatcher (typed registry / query execution) calls
+	// `RunPrelude(ctx, q.Prelude)` before invoking the user handler;
+	// successful runs follow up with `RunIncrement` so quota counters
+	// advance. Empty / nil slice is the no-gate fast path.
+	Prelude []GateRef
+
 	// untouched generic erasure marker for registry storage.
 	_ struct{}
 }
@@ -145,6 +153,7 @@ func (q *Query[A, R]) erased() *queryErased {
 		SQL:        q.SQL,
 		Returns:    q.Returns,
 		Cache:      q.Cache,
+		Prelude:    q.Prelude,
 	}
 }
 
@@ -164,4 +173,5 @@ type queryErased struct {
 	SQL        string
 	Returns    string
 	Cache      *CacheSpec
+	Prelude    []GateRef
 }

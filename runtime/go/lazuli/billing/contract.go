@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"lazuli.dev/runtime/lazuli"
+	"lazuli.dev/runtime/lazuli/plangate"
 )
 
 // PlanCatalog is the closed, package-wide set of plans lowered from
@@ -174,17 +175,22 @@ func (e ErrPlanLookupFailed) Error() string {
 // on a callable. The generated `dist/go/plan/catalog.gen.go` exposes
 // a `GatedCallables` map of these so debug / introspection layers can
 // enumerate every gated callable in the package.
-type GateRef struct {
-	Kind GateKind
-	Name string
-}
+//
+// Defined in the leaf `plangate` package (see
+// `runtime/go/lazuli/plangate/types.go`) so every runtime contract —
+// `lazuli.Query`, `lazuli.Api`, `jobs.JobContract`,
+// `webhooks.WebhookContract` — can carry a `Prelude []GateRef`
+// field without cycling through `billing → lazuli → billing`.
+// Aliased here so legacy spellings (`billing.GateRef{...}`,
+// `billing.GateBehind`) keep compiling.
+type GateRef = plangate.GateRef
 
 // GateKind is the closed enum of v0.1 gate axes.
-type GateKind uint8
+type GateKind = plangate.GateKind
 
 const (
 	// GateBehind corresponds to `gate behind plan.feature: <name>`.
-	GateBehind GateKind = iota
+	GateBehind = plangate.GateBehind
 	// GateQuota corresponds to `gate quota plan.limit: <name>`.
-	GateQuota
+	GateQuota = plangate.GateQuota
 )

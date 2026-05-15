@@ -25,6 +25,9 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 	if err := enforcePolicy(ctx, q.Policy); err != nil {
 		return nil, err
 	}
+	if err := RunPrelude(ctx, q.Prelude); err != nil {
+		return nil, err
+	}
 
 	if q.Cache != nil {
 		if hit, ok := lookupQueryCache[[]R](ctx, q.Name, args); ok {
@@ -99,6 +102,7 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 	if q.Cache != nil {
 		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)
 	}
+	_ = RunIncrement(ctx, q.Prelude)
 	return out, nil
 }
 
@@ -111,6 +115,9 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 			Message: "RunLookup called on non-lookup query: " + q.Name}
 	}
 	if err := enforcePolicy(ctx, q.Policy); err != nil {
+		return zero, err
+	}
+	if err := RunPrelude(ctx, q.Prelude); err != nil {
 		return zero, err
 	}
 
@@ -173,6 +180,7 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 	if q.Cache != nil {
 		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)
 	}
+	_ = RunIncrement(ctx, q.Prelude)
 	return out, nil
 }
 

@@ -22,6 +22,7 @@ import (
 	"errors"
 
 	"lazuli.dev/runtime/lazuli/jobs"
+	"lazuli.dev/runtime/lazuli/plangate"
 )
 
 // VerifyScheme is the closed-catalog scheme for inbound webhook
@@ -108,6 +109,12 @@ type WebhookContract struct {
 	Replay        *ReplaySpec
 	DLQ           *DlqSpec
 	Retry         *jobs.RetryPolicy
+	// Prelude carries every `gate behind plan.feature` / `gate
+	// quota plan.limit` directive authored on the DSL `webhook`
+	// block. The receiver runs the prelude before invoking the user
+	// handler; successful runs follow up with a post-success quota
+	// increment.
+	Prelude []plangate.GateRef
 }
 
 // Envelope is the runtime payload threaded through a webhook handler.

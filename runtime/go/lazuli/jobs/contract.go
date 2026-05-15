@@ -14,6 +14,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"lazuli.dev/runtime/lazuli/plangate"
 )
 
 // JobTrigger discriminates between event-reactor and scheduled jobs.
@@ -113,6 +115,13 @@ type JobContract struct {
 	HandlerPath string
 	// Emits lists the events the job publishes on success.
 	Emits []string
+	// Prelude carries every `gate behind plan.feature` / `gate
+	// quota plan.limit` directive authored on the DSL `job` block.
+	// `DispatchJob` evaluates the prelude before handler invocation;
+	// successful handler returns trigger a post-success increment so
+	// quota counters advance. Empty / nil slice is the no-gate fast
+	// path.
+	Prelude []plangate.GateRef
 }
 
 // Typed errors returned by the job dispatcher. Mapped to standard

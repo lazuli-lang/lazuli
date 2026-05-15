@@ -12,7 +12,47 @@ import (
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
+
+	"lazuli.dev/runtime/lazuli/plangate"
 )
+
+// preludeRunner is the package-level hook the `billing` package
+// installs at init (`plangate.Register`). Same shape as the
+// dispatcher-side runner used by `lazuli.RunPrelude`, scoped to
+// `jobs.JobContract.Prelude`. Returns nil for empty preludes or
+// when no runner has been registered (the runtime ignores gates
+// declared on jobs when billing is not wired, preserving
+// backward-compat for product ports that do not opt into plans).
+var preludeRunner func(ctx context.Context, prelude []plangate.GateRef) error
+
+// incrementRunner is the post-success companion to preludeRunner.
+var incrementRunner func(ctx context.Context, prelude []plangate.GateRef) error
+
+// RegisterPreludeRunner is called by `billing.init` to install the
+// gate-prelude evaluator. Tests substitute via the same hook.
+func RegisterPreludeRunner(run func(ctx context.Context, prelude []plangate.GateRef) error) {
+	preludeRunner = run
+}
+
+// RegisterIncrementRunner is called by `billing.init` to install
+// the quota-counter advancer.
+func RegisterIncrementRunner(run func(ctx context.Context, prelude []plangate.GateRef) error) {
+	incrementRunner = run
+}
+
+func runJobPrelude(ctx context.Context, prelude []plangate.GateRef) error {
+	if len(prelude) == 0 || preludeRunner == nil {
+		return nil
+	}
+	return preludeRunner(ctx, prelude)
+}
+
+func runJobIncrement(ctx context.Context, prelude []plangate.GateRef) error {
+	if len(prelude) == 0 || incrementRunner == nil {
+		return nil
+	}
+	return incrementRunner(ctx, prelude)
+}
 
 // Dispatcher is the runtime adapter surface for enqueuing and running
 // jobs. The River adapter (`RiverDispatcher`, below) and any Asynq
@@ -92,6 +132,10 @@ func DispatchJob(
 		defer cancel()
 	}
 
+	if err := runJobPrelude(ctx, contract.Prelude); err != nil {
+		return err
+	}
+
 	var attempts uint32 = 1
 	if contract.Retry != nil {
 		attempts = contract.Retry.Count + 1
@@ -124,6 +168,7 @@ func DispatchJob(
 		}
 		err := handler(ctx, envelope)
 		if err == nil {
+			_ = runJobIncrement(ctx, contract.Prelude)
 			return nil
 		}
 		lastErr = err
@@ -260,6 +305,20 @@ func (d *RiverDispatcher) RegisterHandler(contract JobContract, handler HandlerF
 		next := handler
 		handler = func(ctx context.Context, envelope JobEnvelope) error {
 			return next(contract.WithSource(ctx), envelope)
+		}
+	}
+	if len(contract.Prelude) > 0 {
+		next := handler
+		prelude := contract.Prelude
+		handler = func(ctx context.Context, envelope JobEnvelope) error {
+			if err := runJobPrelude(ctx, prelude); err != nil {
+				return err
+			}
+			if err := next(ctx, envelope); err != nil {
+				return err
+			}
+			_ = runJobIncrement(ctx, prelude)
+			return nil
 		}
 	}
 	kind := jobKindFor(contract)
