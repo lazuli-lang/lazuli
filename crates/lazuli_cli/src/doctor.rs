@@ -16663,6 +16663,9 @@ registry
         )]);
         let diagnostics = package.diagnostics();
         let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"WEBHOOK-EVENT-001"),
+            "expected WEBHOOK-EVENT-001, got {codes:?}"
         );
     }
 

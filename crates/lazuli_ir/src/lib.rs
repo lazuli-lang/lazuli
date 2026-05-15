@@ -24,7 +24,7 @@ pub use encryption::{
 /// (SourceMap companion). Companion is opt-in sidecar emission, so
 /// `Module` shape itself is unchanged; bump signals the companion
 /// exists for downstream tooling.
-pub const LZIR_SCHEMA: &str = "0.13.0";
+pub const LZIR_SCHEMA: &str = "0.14.0";
 
 pub type FileId = u16;
 

@@ -566,7 +566,6 @@ impl ExpandSet {
             || self.migrations
             || self.webhook_events
             || self.notifications
-            || self.tenant_migrations
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -4067,7 +4066,6 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // `throttle` sub-blocks. The scalar fields surface in
             // default inspect; this flag adds the structured shapes.
             "notifications" => set.notifications = true,
-            "tenant_migrations" => set.tenant_migrations = true,
             _ => bail!(
                 "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, or notifications"
             ),
