@@ -12,4 +12,5 @@ pub mod handler_orphan_001;
 pub mod idempotency_attempts_001;
 pub mod max_retries_unbounded_001;
 pub mod no_terminal_001;
+pub mod quirk_catalog_001;
 pub mod terminal_field_enum_001;
