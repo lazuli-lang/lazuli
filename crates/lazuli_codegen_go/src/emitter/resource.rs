@@ -22,7 +22,8 @@
 use std::fmt::Write;
 
 use lazuli_ir::{
-    BuiltinType, Feature, Record, RetentionAction, Resource, Tenancy, TypeRef,
+    BuiltinType, CapabilityRef, Feature, Field, Record, RetentionAction, Resource, Tenancy,
+    TypeRef,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -85,6 +86,14 @@ pub fn emit_resource_file(
         for field in &resource.fields {
             register_imports_for_type(&field.type_ref, &type_ctx, &mut imports);
         }
+        // Encryption helpers (`Encrypt<Resource>` / `Decrypt<Resource>`)
+        // call into `encryption.ForCtx`; register the runtime package
+        // only when the resource actually has at least one
+        // `@cap.Encrypted` or `@cap.E2ee` field. Proposal §Codegen
+        // (`docs/proposals/encryption-vocab.md`).
+        if encrypted_fields(resource).next().is_some() {
+            imports.add("lazuli.dev/runtime/lazuli/encryption");
+        }
     }
     for record in &records {
         for field in &record.fields {
@@ -103,6 +112,14 @@ pub fn emit_resource_file(
         }
         first_block = false;
         emit_resource(&mut p, feature, resource, &type_ctx);
+        // Encryption helpers — only when the resource carries at least
+        // one `@cap.Encrypted` / `@cap.E2ee` field. Emitted right after
+        // the `Resource[T]` value so the helpers visually sit next to
+        // the resource they apply to.
+        if encrypted_fields(resource).next().is_some() {
+            p.blank();
+            emit_encryption_helpers(&mut p, resource);
+        }
     }
     for record in &records {
         if !first_block {
@@ -340,6 +357,194 @@ fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>) {
     write_struct_rows(p, &tagged);
     p.dedent();
     p.line("}");
+}
+
+// ----------------------------------------------------------------------------
+// Encryption helpers (proposal `docs/proposals/encryption-vocab.md` §Codegen)
+// ----------------------------------------------------------------------------
+
+/// Field-encryption metadata extracted from `@cap.Encrypted` /
+/// `@cap.E2ee` field decorators. The codegen threads `key` (the
+/// `@key.<scope>` reference) through to `encryption.ForCtx(...)` at
+/// the SQL boundary; `e2ee` flags fields the server stores but cannot
+/// later decrypt — those get an Encrypt call site but are skipped on
+/// Decrypt per proposal §Codegen rule 3.
+struct EncryptedFieldRef<'a> {
+    field: &'a Field,
+    key: &'a str,
+    e2ee: bool,
+}
+
+/// Iterator over a resource's `@cap.Encrypted` / `@cap.E2ee` fields,
+/// preserving the IR `Vec` order so emission is deterministic. Used
+/// both for the import-side gate (`imports.add("…/encryption")`) and
+/// for the helper-function body.
+fn encrypted_fields(resource: &Resource) -> impl Iterator<Item = EncryptedFieldRef<'_>> {
+    resource.fields.iter().filter_map(|field| match &field.type_ref {
+        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => Some(EncryptedFieldRef {
+            field,
+            key: cap.key.as_str(),
+            e2ee: false,
+        }),
+        TypeRef::Capability(CapabilityRef::E2ee(cap)) => Some(EncryptedFieldRef {
+            field,
+            key: cap.key.as_str(),
+            e2ee: true,
+        }),
+        _ => None,
+    })
+}
+
+/// Emit `Encrypt<Pascal>` and `Decrypt<Pascal>` helpers for one
+/// resource. The helpers operate in-place on `*<Pascal>` (the struct
+/// emitted above) so callers can wrap them around their SQL
+/// boundary without copying rows.
+///
+/// Wire-thin: the body of each helper is, per field,
+/// `encryption.ForCtx(ctx, "@key.<scope>", "")` then `cipher.Encrypt(...)`
+/// or `cipher.Decrypt(...)`. Zero crypto knowledge in codegen.
+///
+/// Decrypt skips `@cap.E2ee` fields (proposal §Codegen rule 3 — the
+/// server stores ciphertext and the user holds the only key). The
+/// `_ = ctx` no-op at the top of `Decrypt<Pascal>` keeps the
+/// function signature uniform when every field is E2ee and the
+/// body is otherwise empty.
+fn emit_encryption_helpers(p: &mut GoPrinter, resource: &Resource) {
+    let pascal = pascal_case(&resource.name);
+    let encrypted: Vec<EncryptedFieldRef<'_>> = encrypted_fields(resource).collect();
+
+    write_section_banner(
+        p,
+        &[
+            format!("Encryption helpers: {pascal}"),
+            "  one Encrypt/Decrypt call per @cap.Encrypted / @cap.E2ee field"
+                .to_owned(),
+        ],
+    );
+
+    // Encrypt — covers every `@cap.Encrypted` AND `@cap.E2ee` field.
+    p.line(&format!(
+        "// Encrypt{pascal} ciphers each `@cap.Encrypted` / `@cap.E2ee` field on row in"
+    ));
+    p.line("// place. Call this immediately before INSERT / UPDATE so the row written");
+    p.line("// to the database holds opaque AES-256-GCM bytes (BYTEA column, see");
+    p.line("// migration_ddl.rs). The cipher is resolved per request via");
+    p.line("// `encryption.ForCtx(ctx, scope, \"\")`; the runtime registry caches the");
+    p.line("// derived key under (scope, resolved-template).");
+    p.line("//lazuli:pattern resource_encrypt v1");
+    p.line(&format!(
+        "func Encrypt{pascal}(ctx *lazuli.Ctx, row *{pascal}) error {{"
+    ));
+    p.indent();
+    for entry in &encrypted {
+        emit_field_encrypt(p, entry);
+    }
+    p.line("return nil");
+    p.dedent();
+    p.line("}");
+    p.blank();
+
+    // Decrypt — skips E2ee per proposal §Codegen rule 3.
+    let decryptable: Vec<&EncryptedFieldRef<'_>> =
+        encrypted.iter().filter(|e| !e.e2ee).collect();
+    p.line(&format!(
+        "// Decrypt{pascal} undoes Encrypt{pascal} for every server-readable encrypted"
+    ));
+    p.line("// field after a SELECT / RETURNING. `@cap.E2ee` fields are intentionally");
+    p.line("// skipped (the server stores ciphertext but cannot decrypt — the client");
+    p.line("// holds the only key). Callers must check the returned error.");
+    p.line("//lazuli:pattern resource_decrypt v1");
+    p.line(&format!(
+        "func Decrypt{pascal}(ctx *lazuli.Ctx, row *{pascal}) error {{"
+    ));
+    p.indent();
+    if decryptable.is_empty() {
+        p.line("// Every encrypted field on this resource is @cap.E2ee; nothing to decrypt.");
+        p.line("_ = ctx");
+        p.line("_ = row");
+    } else {
+        for entry in &decryptable {
+            emit_field_decrypt(p, entry);
+        }
+    }
+    p.line("return nil");
+    p.dedent();
+    p.line("}");
+}
+
+/// Emit one Encrypt call site. Optional fields are guarded by a
+/// `if row.<F> != nil && len(*row.<F>) > 0` check so empty / unset
+/// values never round-trip through the cipher (proposal §Codegen
+/// rule 4). Required fields use `len(row.<F>) > 0` for the same
+/// reason — an unset required field still has the zero `[]byte`
+/// header.
+fn emit_field_encrypt(p: &mut GoPrinter, entry: &EncryptedFieldRef<'_>) {
+    emit_field_cipher_call(p, entry, "Encrypt", "ct");
+}
+
+/// Mirror of `emit_field_encrypt` for the read path.
+fn emit_field_decrypt(p: &mut GoPrinter, entry: &EncryptedFieldRef<'_>) {
+    emit_field_cipher_call(p, entry, "Decrypt", "pt");
+}
+
+fn emit_field_cipher_call(
+    p: &mut GoPrinter,
+    entry: &EncryptedFieldRef<'_>,
+    method: &str,
+    out_var: &str,
+) {
+    let pascal_field = pascal_case(&entry.field.name);
+    let key_literal = go_str_literal(entry.key);
+    let optional = !entry.field.required;
+    let (guard, access) = if optional {
+        (
+            format!("row.{pascal_field} != nil && len(*row.{pascal_field}) > 0"),
+            format!("(*row.{pascal_field})"),
+        )
+    } else {
+        (
+            format!("len(row.{pascal_field}) > 0"),
+            format!("row.{pascal_field}"),
+        )
+    };
+    p.line(&format!("if {guard} {{"));
+    p.indent();
+    p.line(&format!(
+        "cipher, err := encryption.ForCtx(ctx, {key_literal}, \"\")"
+    ));
+    p.line("if err != nil {");
+    p.indent();
+    p.line("return err");
+    p.dedent();
+    p.line("}");
+    p.line(&format!(
+        "{out_var}, err := cipher.{method}({access})"
+    ));
+    p.line("if err != nil {");
+    p.indent();
+    p.line("return err");
+    p.dedent();
+    p.line("}");
+    p.line(&format!("{access} = {out_var}"));
+    p.dedent();
+    p.line("}");
+}
+
+/// Minimal Go string-literal renderer for the `@key.<scope>` key
+/// reference. The scope alphabet is `[a-z._@]` so we never hit
+/// quote-escaping cases, but we keep the helper conservative.
+fn go_str_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
 }
 
 // ----------------------------------------------------------------------------
@@ -913,6 +1118,131 @@ mod tests {
         feature.resources.push(resource);
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("ExternalID lazuli.EncryptedRef"));
+    }
+
+    #[test]
+    fn encrypted_field_emits_encrypt_and_decrypt_helpers_with_runtime_import() {
+        let mut feature = base_feature("customer");
+        let resource = simple_resource(
+            "customer",
+            vec![Field {
+                name: "external_id".to_owned(),
+                type_ref: TypeRef::Capability(CapabilityRef::Encrypted(EncryptedCapability {
+                    key: "@key.tenant".to_owned(),
+                })),
+                required: true,
+                unique: false,
+                default: None,
+                derived_from: None,
+                constraints: lazuli_ir::FieldConstraints::default(),
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+        );
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+
+        // Import wired only when the resource carries encrypted fields.
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/encryption\""),
+            "expected encryption import:\n{out}"
+        );
+        // Helper signatures.
+        assert!(
+            out.contains("func EncryptCustomer(ctx *lazuli.Ctx, row *Customer) error {"),
+            "expected EncryptCustomer signature:\n{out}"
+        );
+        assert!(
+            out.contains("func DecryptCustomer(ctx *lazuli.Ctx, row *Customer) error {"),
+            "expected DecryptCustomer signature:\n{out}"
+        );
+        // Pattern annotations honour the lint contract.
+        assert!(out.contains("//lazuli:pattern resource_encrypt v1"));
+        assert!(out.contains("//lazuli:pattern resource_decrypt v1"));
+        // Cipher resolution lifts the `@key.<scope>` reference verbatim.
+        assert!(
+            out.contains("encryption.ForCtx(ctx, \"@key.tenant\", \"\")"),
+            "expected ForCtx call with @key.tenant scope:\n{out}"
+        );
+        // Required field — no nil-pointer guard, direct len check.
+        assert!(out.contains("if len(row.ExternalID) > 0 {"));
+        assert!(out.contains("cipher.Encrypt(row.ExternalID)"));
+        assert!(out.contains("cipher.Decrypt(row.ExternalID)"));
+    }
+
+    #[test]
+    fn optional_encrypted_field_guards_nil_and_dereferences() {
+        let mut feature = base_feature("customer");
+        let resource = simple_resource(
+            "customer",
+            vec![Field {
+                name: "external_id".to_owned(),
+                type_ref: TypeRef::Capability(CapabilityRef::Encrypted(EncryptedCapability {
+                    key: "@key.tenant".to_owned(),
+                })),
+                required: false,
+                unique: false,
+                default: None,
+                derived_from: None,
+                constraints: lazuli_ir::FieldConstraints::default(),
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+        );
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("if row.ExternalID != nil && len(*row.ExternalID) > 0 {"),
+            "expected pointer-nil guard:\n{out}"
+        );
+        assert!(out.contains("cipher.Encrypt((*row.ExternalID))"));
+        assert!(out.contains("cipher.Decrypt((*row.ExternalID))"));
+    }
+
+    #[test]
+    fn e2ee_field_skipped_on_decrypt_path() {
+        use lazuli_ir::E2eeCapability;
+        let mut feature = base_feature("customer");
+        let resource = simple_resource(
+            "customer",
+            vec![Field {
+                name: "private_note".to_owned(),
+                type_ref: TypeRef::Capability(CapabilityRef::E2ee(E2eeCapability {
+                    key: "@key.user".to_owned(),
+                })),
+                required: true,
+                unique: false,
+                default: None,
+                derived_from: None,
+                constraints: lazuli_ir::FieldConstraints::default(),
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+        );
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        // Encrypt covers E2ee.
+        assert!(out.contains("cipher.Encrypt(row.PrivateNote)"));
+        // Decrypt skips E2ee — the helper body is the E2ee-only sentinel.
+        assert!(
+            out.contains("Every encrypted field on this resource is @cap.E2ee"),
+            "expected E2ee-only Decrypt sentinel:\n{out}"
+        );
+        assert!(!out.contains("cipher.Decrypt(row.PrivateNote)"));
+    }
+
+    #[test]
+    fn resource_without_encrypted_fields_omits_helpers_and_import() {
+        let mut feature = base_feature("customer");
+        let resource = simple_resource(
+            "customer",
+            vec![simple_field("name", BuiltinType::Text, true)],
+        );
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains("lazuli/encryption"));
+        assert!(!out.contains("EncryptCustomer"));
+        assert!(!out.contains("DecryptCustomer"));
     }
 
     #[test]

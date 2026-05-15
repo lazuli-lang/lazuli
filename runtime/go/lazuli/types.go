@@ -62,9 +62,13 @@ type (
 	// never exposes the plaintext.
 	HashedRef = string
 	// EncryptedRef references an encrypted column. The stored value
-	// is the ciphertext envelope; the runtime decrypts lazily via the
-	// configured `@adapter.encryption`.
-	EncryptedRef = string
+	// is the AES-256-GCM ciphertext envelope (`nonce || ciphertext || tag`,
+	// see runtime/go/lazuli/encryption/aes_gcm.go). Per-resource
+	// `Encrypt<Resource>` / `Decrypt<Resource>` helpers emitted into
+	// `<feature>/resource.gen.go` thread these bytes through
+	// `encryption.ForCtx` at the SQL boundary. The corresponding DDL
+	// column type is BYTEA (see migration_ddl.rs).
+	EncryptedRef = []byte
 	// TokenRef references a tokenised column (payment tokens, PII
 	// vault handles, etc.). The token is opaque; the runtime resolves
 	// to the underlying value via the configured `@adapter.tokenization`.

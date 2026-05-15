@@ -454,6 +454,7 @@ fn emit_encryption_bindings(p: &mut GoPrinter, bindings: &[EncryptionBinding]) {
     p.dedent();
     p.line("}");
     p.blank();
+    p.line("//lazuli:pattern encryption_register v1");
     p.line("func init() {");
     p.indent();
     p.line("for _, b := range EncryptionBindings {");
