@@ -151,6 +151,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
+            full_text: false,
             previous_names: vec![],
             span_ref: None,
         }
@@ -174,6 +175,10 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         }
     }
 
@@ -284,6 +289,10 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         };
         let feature = mk_feature("bcrypt", resource);
         let findings = check(&feature, Path::new("x.lzi"));

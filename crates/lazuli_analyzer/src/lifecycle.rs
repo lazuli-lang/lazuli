@@ -84,6 +84,7 @@ fn emit_discriminator_field(
         default: None,
         derived_from: None,
         constraints: ir::FieldConstraints::default(),
+        full_text: false,
         previous_names: Vec::new(),
         span_ref: Some(span_of(lifecycle_ast.span)),
     });
@@ -106,6 +107,7 @@ fn emit_timestamp_fields(resource: &mut ir::Resource, lifecycle_ast: &syntax::Li
             default: None,
             derived_from: None,
             constraints: ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: Some(span_of(transition.span)),
         });

@@ -202,6 +202,10 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         }
     }
 

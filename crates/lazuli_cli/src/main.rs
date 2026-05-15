@@ -9651,6 +9651,8 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+            lock: None,
+            composite_key: None,
         }
     }
 
@@ -9664,6 +9666,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: vec![],
             span_ref: None,
         }

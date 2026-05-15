@@ -223,6 +223,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
+            full_text: false,
             previous_names: vec![],
             span_ref: None,
         }
@@ -243,6 +244,8 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants,
+            lock: None,
+            composite_key: None,
         }
     }
 

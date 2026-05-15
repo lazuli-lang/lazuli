@@ -446,6 +446,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }],
@@ -457,6 +458,8 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
         span_ref: None,
         lifecycle: None,
         invariants: vec![],
+        lock: None,
+        composite_key: None,
     };
     module.features[0].resources.push(resource);
 
@@ -606,6 +609,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }],
@@ -617,6 +621,8 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         span_ref: None,
         lifecycle: None,
         invariants: vec![],
+        lock: None,
+        composite_key: None,
     });
 
     // Add User on `org` feature.
@@ -634,6 +640,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }],
@@ -645,6 +652,8 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         span_ref: None,
         lifecycle: None,
         invariants: vec![],
+        lock: None,
+        composite_key: None,
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());
@@ -706,6 +715,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
                 default: None,
                 derived_from: None,
                 constraints: FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             },
@@ -718,6 +728,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
                 default: None,
                 derived_from: None,
                 constraints: FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             },
@@ -730,6 +741,8 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         span_ref: None,
         lifecycle: None,
         invariants: vec![],
+        lock: None,
+        composite_key: None,
     });
 
     // Command — `customer.create` with typed input + Creates effect.
@@ -1111,6 +1124,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
             default: None,
             derived_from: None,
             constraints: FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }],
@@ -1122,6 +1136,8 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         span_ref: None,
         lifecycle: None,
         invariants: vec![],
+        lock: None,
+        composite_key: None,
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());

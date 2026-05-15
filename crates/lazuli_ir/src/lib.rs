@@ -486,6 +486,61 @@ pub struct Resource {
     /// boundary). Additive: pre-CL.C.4 fixtures deserialize empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invariants: Vec<Invariant>,
+    /// Roadmap §1.5 (CL.C.2) — `lock` decorator. Declares a
+    /// concurrency-control strategy for writes to this resource.
+    /// `None` when no lock is declared (the framework default
+    /// `id BIGSERIAL` row identity is used as-is, races resolved by
+    /// last-write-wins at the SQL layer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock: Option<LockSpec>,
+    /// Roadmap §1.5 (CL.C.2) — `composite_key` block. When `Some` and
+    /// `primary == true`, the migration emitter replaces the implicit
+    /// `id BIGSERIAL PRIMARY KEY` with a `PRIMARY KEY (<fields>)`
+    /// clause over the listed field columns. Doctor cross-checks each
+    /// listed name against `Resource.fields`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composite_key: Option<CompositeKey>,
+}
+
+/// Roadmap §1.5 (CL.C.2) — `lock` resource-level decorator. Closed
+/// catalog of three concurrency-control strategies:
+///
+/// - `Optimistic { version_field }` — writes carry a `WHERE version = ?`
+///   check; the version column is monotonic. Doctor enforces that
+///   `version_field` names an existing `Integer` field on the resource.
+/// - `Pessimistic` — runtime acquires an advisory or row-level lock
+///   for the whole transaction (`SELECT ... FOR UPDATE` style).
+/// - `RowLevel` — `FOR UPDATE` per-row at read time. Distinct from
+///   `Pessimistic` (which is broader); rendered as a runtime hint
+///   today.
+///
+/// DDL impact: `Optimistic` requires the version column to exist (an
+/// authored field; doctor would have already verified the reference).
+/// `Pessimistic` and `RowLevel` produce no DDL change — the runtime
+/// applies `FOR UPDATE` at execution time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum LockSpec {
+    Optimistic { version_field: String },
+    Pessimistic,
+    RowLevel,
+}
+
+/// Roadmap §1.5 (CL.C.2) — `composite_key` resource-level decorator.
+/// Lists the fields participating in the key and whether the key is
+/// the table's `PRIMARY KEY`. When `primary == false`, today this is
+/// equivalent to a unique constraint declaration — kept as a separate
+/// construct so future evolutions (e.g. clustered index, partitioning)
+/// have a place to land without re-purposing `Constraint::Unique`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompositeKey {
+    pub fields: Vec<String>,
+    /// `primary true` — replace the implicit `id BIGSERIAL PRIMARY
+    /// KEY` with `PRIMARY KEY (<fields>)`. When `false`, the implicit
+    /// row identity is kept and the composite is emitted as a UNIQUE
+    /// constraint.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub primary: bool,
 }
 
 /// Phase L Tier 4c — retention policy lifted from
@@ -556,6 +611,13 @@ pub struct Field {
     /// `::DefaultViolatesConstraint`).
     #[serde(default, skip_serializing_if = "FieldConstraints::is_empty")]
     pub constraints: FieldConstraints,
+    /// Roadmap §1.5 (CL.C.2) — `@full_text` field decorator. When
+    /// `true`, the migration emitter adds a Postgres GIN index over
+    /// the `to_tsvector('english', <field>)` projection so the runtime
+    /// can do `tsvector` full-text search. Doctor enforces that the
+    /// field's type is text-like (Text or `@semantic.*` string).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub full_text: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5167,6 +5229,10 @@ mod lifecycle_tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(

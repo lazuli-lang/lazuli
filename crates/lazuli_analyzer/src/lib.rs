@@ -1066,6 +1066,8 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
         span_ref: Some(span_of(aggregate.span)),
         lifecycle: None,
         invariants: Vec::new(),
+        lock: None,
+        composite_key: None,
     };
 
     let commands = aggregate
@@ -1107,6 +1109,7 @@ fn lower_field(field: &syntax::Field) -> ir::Field {
         default,
         derived_from: None,
         constraints: ir::FieldConstraints::default(),
+        full_text: false,
         previous_names: Vec::new(),
         span_ref: Some(span_of(field.span)),
     }
@@ -2531,6 +2534,19 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         .iter()
         .map(lower_invariant_decl)
         .collect::<Vec<_>>();
+    // Roadmap §1.5 (CL.C.2) — lower `lock` decorator into typed IR.
+    let lock = r.lock.as_ref().map(|spec| match spec {
+        syntax::ResourceLock::Optimistic { version_field } => ir::LockSpec::Optimistic {
+            version_field: version_field.clone(),
+        },
+        syntax::ResourceLock::Pessimistic => ir::LockSpec::Pessimistic,
+        syntax::ResourceLock::RowLevel => ir::LockSpec::RowLevel,
+    });
+    // Roadmap §1.5 (CL.C.2) — lower `composite_key` block into typed IR.
+    let composite_key = r.composite_key.as_ref().map(|ck| ir::CompositeKey {
+        fields: ck.fields.clone(),
+        primary: ck.primary,
+    });
     Ok(ir::Resource {
         name: r.name.clone(),
         tenancy,
@@ -2549,6 +2565,8 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         span_ref: Some(span_of(r.span)),
         lifecycle: None,
         invariants,
+        lock,
+        composite_key,
     })
 }
 
@@ -2598,6 +2616,11 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
         default,
         derived_from: f.derived_from.clone(),
         constraints,
+        // Roadmap §1.5 (CL.C.2) — `@full_text` decorator captured by
+        // the parser as a flag on the field declaration; threaded
+        // through to the IR so DDL emission can attach a GIN tsvector
+        // index per marked field.
+        full_text: f.full_text,
         previous_names: f
             .previously
             .iter()

@@ -353,6 +353,17 @@ fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
         detail: error_page_status_detail(value).map(str::to_owned),
         ..CompletionItem::default()
     }));
+    // Roadmap §1.5 (CL.C.2) — closed `lock` strategy catalog.
+    items.extend(
+        RESOURCE_LOCK_STRATEGY_VALUES
+            .iter()
+            .map(|value| CompletionItem {
+                label: (*value).to_owned(),
+                kind: Some(CompletionItemKind::VALUE),
+                detail: resource_lock_strategy_detail(value).map(str::to_owned),
+                ..CompletionItem::default()
+            }),
+    );
     items
 }
 
@@ -12360,6 +12371,18 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "timestamps" => Some("Adds generated created/updated timestamp fields."),
         "soft_delete" => Some("Adds generated soft-delete scope and delete semantics."),
         "retention" => Some("Declares data retention for a resource or feature default."),
+        "lock" => Some(
+            "On a `resource`, declares the concurrency-control strategy for writes. Closed catalog: `optimistic version_field: <field>` (compare-and-set on a monotonic counter), `pessimistic` (transaction-wide row lock), `row_level` (`SELECT ... FOR UPDATE` per row). Doctor: `RESOURCE-LOCK-CONTRACT-001` cross-checks `version_field` against `Resource.fields` and rejects non-Integer types.",
+        ),
+        "composite_key" => Some(
+            "On a `resource`, replaces or augments the implicit `id BIGSERIAL PRIMARY KEY`. Children: `fields <a>, <b>, ...` (required, >=1 name), `primary true|false` (default `false`). With `primary true` emits `PRIMARY KEY (<fields>)`; with `primary false` emits `UNIQUE (<fields>)`. Doctor: `COMPOSITE-KEY-CONTRACT-001` rejects unknown / empty `fields`.",
+        ),
+        "@full_text" => Some(
+            "On a text field, marks the column for a Postgres `GIN (to_tsvector('english', col))` index so the runtime can execute full-text search. Applies to `Text` and the semantic string variants (`@semantic.Email`, `@semantic.Phone`, `@semantic.Url`, `@semantic.Uuid`, `@semantic.Currency`). Doctor: `FULL-TEXT-TYPE-001` rejects non-text types.",
+        ),
+        "version_field" => Some(
+            "On `lock optimistic`, names the integer column carrying the row's monotonic version. Doctor: `RESOURCE-LOCK-CONTRACT-001` rejects unknown / non-Integer fields.",
+        ),
         "paginate" => Some("Declares the positive default page size for a `query.list`."),
         "surface" => Some("Declares UI projections for list, form, and detail views."),
         "input" => Some("Lists fields accepted by a command."),
@@ -13985,7 +14008,33 @@ const KEYWORDS: &[&str] = &[
     "dlq",
     "emit",
     "drop",
+    // Roadmap §1.5 (CL.C.2) — DB resource-level decorators.
+    "lock",
+    "composite_key",
+    "@full_text",
+    "version_field",
+    "primary",
 ];
+
+/// Roadmap §1.5 (CL.C.2) — closed-catalog values for the `lock`
+/// strategy keyword. Surfaced as `VALUE` completions so authors and
+/// LLMs see the canonical set when typing inside `lock`.
+pub const RESOURCE_LOCK_STRATEGY_VALUES: &[&str] = &["optimistic", "pessimistic", "row_level"];
+
+pub fn resource_lock_strategy_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "optimistic" => Some(
+            "`lock optimistic version_field: <field>` - compare-and-set on a monotonic integer version column.",
+        ),
+        "pessimistic" => Some(
+            "`lock pessimistic` - runtime acquires a transaction-wide row lock (`SELECT ... FOR UPDATE`).",
+        ),
+        "row_level" => {
+            Some("`lock row_level` - runtime applies `FOR UPDATE` per row at read time.")
+        }
+        _ => None,
+    }
+}
 
 /// Phase L — closed-catalog tokens offered as completion values for
 /// `auth` subblock slots. The slot context is not inferred today; the

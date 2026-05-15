@@ -802,6 +802,10 @@ mod feature_emit_tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         });
         let mut job = handler_job("recompute_score_after_invoice");
         job.body = JobBody::Declarative(JobDeclarative {

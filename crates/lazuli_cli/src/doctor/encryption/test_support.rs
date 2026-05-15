@@ -113,6 +113,7 @@ pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
         default: None,
         derived_from: None,
         constraints: FieldConstraints::default(),
+        full_text: false,
         previous_names: vec![],
         span_ref: None,
     }
@@ -130,6 +131,7 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
         default: None,
         derived_from: None,
         constraints: FieldConstraints::default(),
+        full_text: false,
         previous_names: vec![],
         span_ref: None,
     }
@@ -150,6 +152,10 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
         span_ref: None,
         lifecycle: None,
         invariants: vec![],
+
+        lock: None,
+
+        composite_key: None,
     }
 }
 

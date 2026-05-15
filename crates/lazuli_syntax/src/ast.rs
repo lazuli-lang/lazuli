@@ -1127,6 +1127,38 @@ pub struct ResourceDecl {
     /// shape with `AggregateDecl.invariants`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invariants: Vec<InvariantDecl>,
+    /// Roadmap §1.5 (CL.C.2) — `lock` decorator. Closed catalog
+    /// `optimistic`/`pessimistic`/`row_level`. At most one per resource.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock: Option<ResourceLock>,
+    /// Roadmap §1.5 (CL.C.2) — `composite_key` block. Lists fields and
+    /// an optional `primary true` flag indicating that the implicit
+    /// `id BIGSERIAL PRIMARY KEY` should be replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composite_key: Option<ResourceCompositeKey>,
+    pub span: Span,
+}
+
+/// Roadmap §1.5 (CL.C.2) — `lock` decorator closed catalog. Variant
+/// data preserved so the analyzer can lift into `ir::LockSpec` and
+/// doctor can cross-check the optimistic `version_field` against
+/// `Resource.fields`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum ResourceLock {
+    Optimistic { version_field: String },
+    Pessimistic,
+    RowLevel,
+}
+
+/// Roadmap §1.5 (CL.C.2) — `composite_key` block AST shape. The parser
+/// walks the children of the `composite_key` line (`fields <list>`,
+/// `primary true|false`) and produces this struct.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceCompositeKey {
+    pub fields: Vec<String>,
+    #[serde(default)]
+    pub primary: bool,
     pub span: Span,
 }
 
@@ -1187,9 +1219,19 @@ pub struct ResourceFieldDecl {
     /// lifts into `ir::FieldConstraints`.
     #[serde(default, skip_serializing_if = "FieldConstraintsDecl::is_empty")]
     pub constraints: FieldConstraintsDecl,
+    /// Roadmap §1.5 (CL.C.2) — `@full_text` decorator marks this field
+    /// for Postgres GIN tsvector index emission. Mutually compatible
+    /// with `required`/`optional`/`unique` modifiers. The analyzer
+    /// rejects `@full_text` on non-text-like types.
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub full_text: bool,
     /// Child `previously migrated <old>` lines beneath the field.
     pub previously: Vec<String>,
     pub span: Span,
+}
+
+fn is_false_bool(value: &bool) -> bool {
+    !*value
 }
 
 /// L0 #3 §10 — parser-side capture of the 6 inline field constraints.

@@ -564,6 +564,8 @@ mod tests {
             span_ref: None,
             lifecycle,
             invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
         }
     }
 

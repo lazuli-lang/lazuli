@@ -955,6 +955,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -975,6 +976,10 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         }
     }
 
@@ -1048,6 +1053,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1198,6 +1204,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1223,6 +1230,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1274,6 +1282,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1305,6 +1314,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1377,6 +1387,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1406,6 +1417,10 @@ mod tests {
             span_ref: None,
             lifecycle: None,
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         });
 
         let module = Module {
@@ -1487,6 +1502,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1504,6 +1520,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1524,6 +1541,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1542,6 +1560,7 @@ mod tests {
             default: None,
             derived_from: None,
             constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -1645,6 +1664,7 @@ mod tests {
                 default: None,
                 derived_from: None,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                full_text: false,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],
@@ -1689,6 +1709,7 @@ mod feature_emit_tests {
                     default: None,
                     derived_from: None,
                     constraints: lazuli_ir::FieldConstraints::default(),
+                    full_text: false,
                     previous_names: Vec::new(),
                     span_ref: None,
                 }],
@@ -1700,6 +1721,8 @@ mod feature_emit_tests {
                 span_ref: None,
                 lifecycle: None,
                 invariants: vec![],
+                lock: None,
+                composite_key: None,
             }],
             events: Vec::new(),
             rules: Vec::new(),

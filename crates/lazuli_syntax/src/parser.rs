@@ -28,8 +28,8 @@ use crate::ast::{
     PackageSkeleton, PermissionDeclAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyExprAst,
     PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
     ReportColumnSourceAst, RoleDeclAst, RoleGrantsAst,
-    ReportDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
-    ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, SearchDeclAst,
+    ReportDecl, ResourceCompositeKey, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
+    ResourceLock, ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, SearchDeclAst,
     SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst,
     SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
     SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
@@ -5926,6 +5926,53 @@ fn parse_resource_decl(
             continue;
         }
 
+        // Roadmap §1.5 (CL.C.2) — `lock optimistic version_field: <name>`,
+        // `lock pessimistic`, `lock row_level`. Single-line decorator;
+        // at most one per resource.
+        if trimmed == "lock" {
+            return Err(line_error(
+                line,
+                "`lock` requires a strategy: `lock optimistic version_field: <field>`, `lock pessimistic`, or `lock row_level`",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("lock ") {
+            if state.lock.is_some() {
+                return Err(line_error(
+                    line,
+                    "a resource may declare at most one `lock` decorator",
+                ));
+            }
+            state.lock = Some(parse_resource_lock(line, rest)?);
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        // Roadmap §1.5 (CL.C.2) — `composite_key` block. Children at
+        // grandchild indent: `fields <a>, <b>, ...` and `primary true|false`.
+        if trimmed == "composite_key" {
+            if state.composite_key.is_some() {
+                return Err(line_error(
+                    line,
+                    "a resource may declare at most one `composite_key` block",
+                ));
+            }
+            let (ck, next) = parse_resource_composite_key(lines, i, grandchild_indent)?;
+            state.composite_key = Some(ck);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("composite_key ") {
+            // Reject inline arguments — composite_key uses a block form
+            // for child fields/primary lines.
+            let _ = rest;
+            return Err(line_error(
+                line,
+                "`composite_key` does not accept inline arguments — list fields under the block",
+            ));
+        }
+
         if trimmed.contains(':')
             && !resource_body_handlers()
                 .iter()
@@ -5971,6 +6018,8 @@ fn parse_resource_decl(
             validates: state.validates,
             lifecycle: state.lifecycle,
             invariants: state.invariants,
+            lock: state.lock,
+            composite_key: state.composite_key,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -5990,6 +6039,10 @@ struct ResourceBodyState {
     lifecycle: Option<LifecycleBlockAst>,
     /// CL.C.4 — resource-scoped `invariant <name>` blocks.
     invariants: Vec<InvariantDecl>,
+    /// Roadmap §1.5 (CL.C.2) — `lock` decorator.
+    lock: Option<ResourceLock>,
+    /// Roadmap §1.5 (CL.C.2) — `composite_key` block.
+    composite_key: Option<ResourceCompositeKey>,
 }
 
 type ResourceBodyHandler =
@@ -7481,6 +7534,13 @@ fn parse_resource_field_decl(
     // so `type_ref_from_*` does not see an unknown token.
     let (type_text, slug) = extract_slug_decorator(&raw_type_text);
 
+    // Roadmap §1.5 (CL.C.2) — `@full_text` field decorator. Sits in
+    // the type/decorator chain alongside `@slug`/`@semantic.X`/`@pii.X`.
+    // We peel it to a typed `Field.full_text` bool. Detection is
+    // depth-aware so it doesn't trip on parenthesised decorator args
+    // (e.g. `@cap.Encrypted(key:@key.tenant)`).
+    let (type_text, full_text) = extract_full_text_marker(header, &type_text)?;
+
     // Consume optional `previously migrated <old>` grandchild lines.
     let mut previously: Vec<String> = Vec::new();
     let mut i = start + 1;
@@ -7513,8 +7573,212 @@ fn parse_resource_field_decl(
             default,
             derived_from,
             constraints,
+            full_text,
             previously,
             span: Span::new(header.start, header.end),
+        },
+        i,
+    ))
+}
+
+/// Roadmap §1.5 (CL.C.2) — peel the `@full_text` decorator off the
+/// type text. Returns the cleaned type text plus a boolean flag. The
+/// marker is rejected if it appears more than once. Depth-aware so
+/// paren-balanced decorator args (e.g. `@cap.Encrypted(key:@key.tenant)`)
+/// are left alone.
+fn extract_full_text_marker(
+    line: &SourceLine<'_>,
+    type_text: &str,
+) -> Result<(String, bool), ParseError> {
+    let bytes = type_text.as_bytes();
+    let needle = b"@full_text";
+    let mut depth = 0i32;
+    let mut hit: Option<usize> = None;
+    let mut i = 0;
+    while i + needle.len() <= bytes.len() {
+        let ch = bytes[i] as char;
+        if ch == '(' || ch == '[' {
+            depth += 1;
+        } else if ch == ')' || ch == ']' {
+            depth -= 1;
+        }
+        if depth == 0 && &bytes[i..i + needle.len()] == needle {
+            // Boundary check: must be preceded by start/whitespace and
+            // followed by end/whitespace so `@full_text_oops` doesn't
+            // match.
+            let before_ok = i == 0 || (bytes[i - 1] as char).is_whitespace();
+            let end = i + needle.len();
+            let after_ok = end == bytes.len() || (bytes[end] as char).is_whitespace();
+            if before_ok && after_ok {
+                if hit.is_some() {
+                    return Err(line_error(
+                        line,
+                        "duplicate `@full_text` decorator on field",
+                    ));
+                }
+                hit = Some(i);
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let Some(start) = hit else {
+        return Ok((type_text.to_owned(), false));
+    };
+    let end = start + needle.len();
+    let mut cleaned = String::with_capacity(type_text.len() - needle.len());
+    cleaned.push_str(type_text[..start].trim_end());
+    let tail = type_text[end..].trim_start();
+    if !cleaned.is_empty() && !tail.is_empty() {
+        cleaned.push(' ');
+    }
+    cleaned.push_str(tail);
+    Ok((cleaned.trim().to_owned(), true))
+}
+
+/// Roadmap §1.5 (CL.C.2) — parse the `lock` strategy from the
+/// single-line decorator. Closed catalog:
+///
+/// - `optimistic version_field: <field>`
+/// - `pessimistic`
+/// - `row_level`
+fn parse_resource_lock(line: &SourceLine<'_>, rest: &str) -> Result<ResourceLock, ParseError> {
+    let rest = rest.trim();
+    if let Some(after) = rest.strip_prefix("optimistic") {
+        let after = after.trim_start();
+        let after = after.strip_prefix("version_field").ok_or_else(|| {
+            line_error(
+                line,
+                "`lock optimistic` requires `version_field: <field>` (e.g. `lock optimistic version_field: lock_version`)",
+            )
+        })?;
+        let after = after.trim_start();
+        let after = after.strip_prefix(':').ok_or_else(|| {
+            line_error(
+                line,
+                "`lock optimistic version_field` expects `:` followed by the column name",
+            )
+        })?;
+        let version_field = after.trim().to_owned();
+        if version_field.is_empty() {
+            return Err(line_error(
+                line,
+                "`lock optimistic version_field:` requires a non-empty field name",
+            ));
+        }
+        return Ok(ResourceLock::Optimistic { version_field });
+    }
+    match rest {
+        "pessimistic" => Ok(ResourceLock::Pessimistic),
+        "row_level" => Ok(ResourceLock::RowLevel),
+        other => Err(line_error_owned(
+            line,
+            format!(
+                "`lock` expects `optimistic version_field: <field>`, `pessimistic`, or `row_level` (got `{}`)",
+                other
+            ),
+        )),
+    }
+}
+
+/// Roadmap §1.5 (CL.C.2) — parse the `composite_key` block. Children
+/// at `grandchild_indent`:
+///
+/// - `fields <a>, <b>, ...` (required, non-empty)
+/// - `primary true|false` (optional; default `false`)
+fn parse_resource_composite_key(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    grandchild_indent: usize,
+) -> Result<(ResourceCompositeKey, usize), ParseError> {
+    let header = &lines[start];
+
+    let mut fields: Vec<String> = Vec::new();
+    let mut primary: bool = false;
+    let mut saw_primary = false;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header.indent {
+            break;
+        }
+        if line.indent != grandchild_indent {
+            return Err(line_error(
+                line,
+                "`composite_key` children use one indentation level deeper than the header",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("fields ") {
+            if !fields.is_empty() {
+                return Err(line_error(
+                    line,
+                    "duplicate `fields` line in `composite_key`",
+                ));
+            }
+            let names: Vec<String> = rest
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if names.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`fields` requires at least one field name (e.g. `fields order, line_number`)",
+                ));
+            }
+            fields = names;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("primary ") {
+            if saw_primary {
+                return Err(line_error(
+                    line,
+                    "duplicate `primary` line in `composite_key`",
+                ));
+            }
+            primary = match rest.trim() {
+                "true" => true,
+                "false" => false,
+                other => {
+                    return Err(line_error_owned(
+                        line,
+                        format!("`primary` expects `true` or `false` (got `{}`)", other),
+                    ));
+                }
+            };
+            saw_primary = true;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+        return Err(line_error(
+            line,
+            "`composite_key` children are `fields <list>` and `primary true|false`",
+        ));
+    }
+
+    if fields.is_empty() {
+        return Err(line_error(
+            header,
+            "`composite_key` requires a `fields <a>, <b>, ...` child",
+        ));
+    }
+
+    Ok((
+        ResourceCompositeKey {
+            fields,
+            primary,
+            span: Span::new(header.start, last_end),
         },
         i,
     ))

@@ -102,6 +102,10 @@ mod tests {
             span_ref: None,
             lifecycle: Some(lifecycle),
             invariants: vec![],
+
+            lock: None,
+
+            composite_key: None,
         };
 
         Feature {
