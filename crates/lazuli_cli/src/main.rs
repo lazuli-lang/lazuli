@@ -1239,6 +1239,20 @@ fn write_command_sdk(
     )
     .ok();
     writeln!(s, "  invalidates: {},", format_string_array(&invalidates)).ok();
+    // Operational metadata (review bug #7, 2026-05-15) — the Go side
+    // already carries Policy / RateLimit / Audit on `lazuli.Command[I,O]`.
+    // The TS SDK previously lost them, so clients had no way to drive
+    // policy-aware affordances or rate-limit-aware backoff without a
+    // separate metadata call.
+    if let Some(policy_literal) = format_policy_ts(&command.policy, feature) {
+        writeln!(s, "  policy: {policy_literal},").ok();
+    }
+    if let Some(rate_limit) = command.rate_limit.as_deref() {
+        writeln!(s, "  rateLimit: \"{}\",", escape_js_string(rate_limit)).ok();
+    }
+    if let Some(audit_literal) = format_audit_ts(command.audit.as_ref()) {
+        writeln!(s, "  audit: {audit_literal},").ok();
+    }
     writeln!(s, "}});").ok();
     writeln!(s).ok();
 }
@@ -1282,6 +1296,13 @@ fn write_query_sdk(
         lazuli_ir::Query::Lookup(_) => lazuli_ir::QueryKind::Lookup,
         lazuli_ir::Query::Sql(_) => lazuli_ir::QueryKind::Sql,
     };
+    // Query-side operational metadata (review bug #7, 2026-05-15).
+    // Today `lazuli_ir::Query` carries no explicit policy/rate_limit at
+    // the variant level — `query.list/lookup/sql` are universally
+    // readable inside a tenant (see audience_sdk.rs's note). The TS
+    // signature already accepts a `DefineQueryOptions` block so when
+    // policy lands on Query the codegen will populate it here without
+    // a runtime contract change.
     writeln!(
         s,
         "export const {} = defineQuery<{}, {}>(\"{}.query.{}\");",
@@ -1725,6 +1746,145 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
             "unknown".to_owned()
         }
     }
+}
+
+/// Lower a `PolicyRef` to a TypeScript object literal matching the
+/// `PolicySpec` shape exported by `@lazuli/runtime/spec`. Returns `None`
+/// when the policy is omitted or explicitly `None` so the caller can
+/// elide the `policy: ...` line entirely (review bug #7).
+fn format_policy_ts(policy: &lazuli_ir::PolicyRef, feature: &lazuli_ir::Feature) -> Option<String> {
+    // Re-prepend `@` when the parser dropped it. PolicyRef::Local
+    // carries either the bare category name (`"update"`) or the
+    // partial-qualified form (`"policy.update"`); PolicyRef::Atom can
+    // arrive with or without the `@` host prefix. Normalize to the
+    // DSL-faithful surface (`@policy.update`, `@role.admin`, …) so
+    // clients see what they wrote.
+    fn ensure_at_prefix(s: &str) -> String {
+        if s.starts_with('@') {
+            s.to_owned()
+        } else {
+            format!("@{}", s)
+        }
+    }
+    let (name, atoms): (String, Vec<&str>) = match policy {
+        lazuli_ir::PolicyRef::None => return None,
+        lazuli_ir::PolicyRef::Local(local) => {
+            let qualified = if local.contains('.') {
+                ensure_at_prefix(local)
+            } else {
+                format!("@policy.{}", local)
+            };
+            let resolved_atoms: Vec<&str> = feature
+                .policies
+                .categories
+                .iter()
+                .find(|cat| cat.name == *local)
+                .map(|cat| cat.atoms.iter().map(String::as_str).collect())
+                .unwrap_or_default();
+            (qualified, resolved_atoms)
+        }
+        lazuli_ir::PolicyRef::Atom(atom) => {
+            let qualified = ensure_at_prefix(atom);
+            // When the parser stored a `@policy.<name>` reference as
+            // an Atom (vs Local), the literal `atom` itself is the
+            // POLICY NAME, not an actual `@role.X`/`@scope.X`/`@actor.X`
+            // atom. Resolve via the feature's policies dictionary to
+            // recover the real atoms; fall back to treating it as a
+            // standalone atom only when no category matches.
+            let body = atom.trim_start_matches('@');
+            let local_name = body.strip_prefix("policy.").unwrap_or("");
+            let resolved_atoms: Vec<&str> = if !local_name.is_empty() {
+                feature
+                    .policies
+                    .categories
+                    .iter()
+                    .find(|cat| cat.name == local_name)
+                    .map(|cat| cat.atoms.iter().map(String::as_str).collect())
+                    .unwrap_or_default()
+            } else {
+                vec![atom.as_str()]
+            };
+            (qualified, resolved_atoms)
+        }
+        lazuli_ir::PolicyRef::External { feature, name } => {
+            (
+                format!("{}.{}", feature, ensure_at_prefix(name)),
+                Vec::new(),
+            )
+        }
+        lazuli_ir::PolicyRef::Unresolved(raw) => (raw.clone(), Vec::new()),
+    };
+    let atoms_lit = if atoms.is_empty() {
+        "[]".to_owned()
+    } else {
+        let entries: Vec<String> = atoms
+            .iter()
+            .filter_map(|atom| parse_policy_atom_ts(atom))
+            .collect();
+        format!("[{}]", entries.join(", "))
+    };
+    Some(format!(
+        "{{ name: \"{}\", atoms: {} }}",
+        escape_js_string(&name),
+        atoms_lit
+    ))
+}
+
+/// Parse a raw policy atom string like `@role.admin` (or `role.admin`
+/// when the parser dropped the host prefix) into the TS
+/// `{ namespace: "role", name: "admin" }` literal. Returns `None` when
+/// the atom does not parse — caller drops it from the literal rather
+/// than emitting an invalid spec.
+fn parse_policy_atom_ts(raw: &str) -> Option<String> {
+    let body = raw.trim_start_matches('@');
+    let (namespace, name) = body.split_once('.')?;
+    if namespace.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{{ namespace: \"{}\", name: \"{}\" }}",
+        escape_js_string(namespace),
+        escape_js_string(name)
+    ))
+}
+
+/// Lower an `AuditSpec` to a TypeScript literal matching the
+/// `AuditSpec` union exported by `@lazuli/runtime/spec`:
+///   - `Some({subjects: [], ..})`        → `"default"` sentinel
+///   - `Some({subjects: ["actor", ..]})` → string array literal
+///   - `None`                             → caller elides the field
+fn format_audit_ts(audit: Option<&lazuli_ir::AuditSpec>) -> Option<String> {
+    let audit = audit?;
+    if audit.subjects.is_empty() {
+        return Some("\"default\"".to_owned());
+    }
+    let entries: Vec<String> = audit
+        .subjects
+        .iter()
+        .map(|s| format!("\"{}\"", escape_js_string(s)))
+        .collect();
+    Some(format!("[{}]", entries.join(", ")))
+}
+
+/// Escape a string for embedding in a TS double-quoted literal. Conservative:
+/// covers `"`, `\`, and control chars that would terminate or break the
+/// literal. Newlines collapse to `\n`; nothing else is interpreted.
+fn escape_js_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", ch as u32));
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn find_enum_decl<'a>(
@@ -8778,6 +8938,120 @@ mod tests {
             output.contains("export type ItemType = typeof ITEM_TYPE_VALUES[number];"),
             "alias must still be emitted at the top of the file when only a UserDefined ref drives it; got:\n{output}"
         );
+    }
+
+    #[test]
+    fn command_sdk_emits_policy_rate_limit_audit_metadata() {
+        // Regression for review bug #7 (2026-05-15): the TS SDK
+        // previously emitted only `invalidates:` on `defineCommand`,
+        // losing the Go-side Policy/RateLimit/Audit. Clients had to
+        // call a separate metadata RPC (which didn't exist) to drive
+        // policy-aware affordances or rate-limit-aware backoff.
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.policies = lazuli_ir::Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "update".to_owned(),
+                atoms: vec!["@role.admin".to_owned(), "@role.sales".to_owned()],
+                previous_names: vec![],
+            }],
+            fields: vec![],
+            span_ref: None,
+        };
+        feature.commands.push(lazuli_ir::Command {
+            name: "update_item".to_owned(),
+            kind: lazuli_ir::CommandKind::Update,
+            route: vec![],
+            input: lazuli_ir::CommandInput::Typed(vec![]),
+            target: None,
+            lets: vec![],
+            effect: lazuli_ir::CommandEffect::None,
+            policy: lazuli_ir::PolicyRef::Atom("policy.update".to_owned()),
+            policy_expr: None,
+            emits: vec![],
+            rate_limit: Some("30 per hour per user".to_owned()),
+            audit: Some(lazuli_ir::AuditSpec {
+                subjects: vec![],
+                emit_to: None,
+            }),
+            approval: None,
+            invalidates: vec![],
+            external_calls: vec![],
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            tests: None,
+            previous_names: vec![],
+            span_ref: None,
+        });
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("policy: { name: \"@policy.update\", atoms: ["),
+            "policy name must qualify with @policy. prefix; got:\n{output}"
+        );
+        assert!(
+            output.contains("{ namespace: \"role\", name: \"admin\" }"),
+            "policy atoms must resolve via feature.policies dictionary; got:\n{output}"
+        );
+        assert!(
+            output.contains("{ namespace: \"role\", name: \"sales\" }"),
+            "all atoms from the matching category must be emitted; got:\n{output}"
+        );
+        assert!(
+            output.contains("rateLimit: \"30 per hour per user\""),
+            "rateLimit must surface to the TS SDK; got:\n{output}"
+        );
+        assert!(
+            output.contains("audit: \"default\""),
+            "empty-subject AuditSpec must lower to the \"default\" sentinel; got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn command_sdk_omits_metadata_when_absent() {
+        // Counterpoint: when the DSL omits a piece of metadata the SDK
+        // must omit the property entirely rather than emit it as
+        // `undefined` (TS `exactOptionalPropertyTypes` discipline).
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.commands.push(lazuli_ir::Command {
+            name: "bare".to_owned(),
+            kind: lazuli_ir::CommandKind::Update,
+            route: vec![],
+            input: lazuli_ir::CommandInput::Typed(vec![]),
+            target: None,
+            lets: vec![],
+            effect: lazuli_ir::CommandEffect::None,
+            policy: lazuli_ir::PolicyRef::None,
+            policy_expr: None,
+            emits: vec![],
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: vec![],
+            external_calls: vec![],
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            tests: None,
+            previous_names: vec![],
+            span_ref: None,
+        });
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(!output.contains("policy:"), "expected no policy line; got:\n{output}");
+        assert!(!output.contains("rateLimit:"), "expected no rateLimit line; got:\n{output}");
+        assert!(!output.contains("audit:"), "expected no audit line; got:\n{output}");
+        // invalidates is always emitted even when empty — that's the
+        // existing contract that this test does not change.
+        assert!(output.contains("invalidates: []"));
     }
 
     #[test]

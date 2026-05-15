@@ -13,8 +13,13 @@ export {
 export {
   defineCommand,
   defineQuery,
+  type AuditSpec,
   type CommandSpec,
   type DefineCommandOptions,
+  type DefineQueryOptions,
+  type PolicyAtom,
+  type PolicySpec,
   type QuerySpec,
+  type RateLimitSpec,
 } from "./spec.js";
 export type { ID, Json, Time } from "./types.js";
