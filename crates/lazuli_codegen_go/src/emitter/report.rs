@@ -367,6 +367,7 @@ mod tests {
             signed_ttl: Some("1h".to_owned()),
             filename: None,
             policy: PolicyRef::Local("global_read".to_owned()),
+            policy_expr: None,
             rate_limit: None,
             audit: None,
             span_ref: None,
