@@ -2648,31 +2648,39 @@ pub struct AppRegistry {
     /// omit `effect`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<RegistryToolEntry>,
-    /// Webhooks expanded cycle — catalog of expected inbound envelope
-    /// shapes (per provider, provider-neutral surface). Referenced by
-    /// `webhook ... payload from webhook_events.<name>`. Treated as
-    /// external-origin: Lazuli does not assume the source is
-    /// trustworthy, only that the contract matches what the provider
-    /// documents.
+    /// Webhook event registry — canonical event schemas emitted to
+    /// consumers. Legacy inbound `webhook ... payload from
+    /// webhook_events.<name>` references also resolve here for named
+    /// provider envelopes, but `webhook_event <name>` itself describes
+    /// outbound contracts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub webhook_events: Vec<WebhookEvent>,
+    pub webhook_events: Vec<WebhookEventRegistry>,
 }
 
-/// Webhooks expanded cycle — single entry in the
-/// `registry.webhook_events` catalog. Mirrors the lightweight `record`
-/// shape (typed field decls + capability annotations) but keeps the
-/// type token verbatim because the envelope is external and Lazuli
-/// does not own its evolution. Doctor uses the field list to
-/// cross-check `tenant_from`, `idempotency by`, and `dlq emit` payload
-/// references; the runtime decodes against the same shape via
-/// generated Go types.
+/// Roadmap §1.11 — canonical outbound webhook event schema declared in
+/// `registry.lzi` via `webhook_event <name>`. The payload is the public
+/// contract consumers receive. Existing inbound `webhook ... payload from
+/// webhook_events.<name>` references use this same catalog entry when a
+/// provider envelope needs to be named.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WebhookEvent {
+pub struct WebhookEventRegistry {
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fields: Vec<WebhookEventField>,
+    pub payload: Vec<WebhookEventField>,
+    #[serde(default = "webhook_event_default_version")]
+    pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deprecated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+pub type WebhookEvent = WebhookEventRegistry;
+
+fn webhook_event_default_version() -> u32 {
+    1
 }
 
 /// Webhooks expanded cycle — one declared field inside a

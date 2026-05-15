@@ -510,6 +510,9 @@ struct ExpandSet {
     /// fields surface in default inspect regardless; this flag adds
     /// the structured sub-blocks so they appear without `--expand=all`.
     notifications: bool,
+    /// Roadmap §1.11 — `--expand=webhook_events` projects the package
+    /// registry's canonical outbound webhook event schemas.
+    webhook_events: bool,
 }
 
 impl ExpandSet {
@@ -536,6 +539,7 @@ impl ExpandSet {
             event_groups: true,
             migrations: true,
             notifications: true,
+            webhook_events: true,
         }
     }
 
@@ -560,6 +564,7 @@ impl ExpandSet {
             || self.webhooks
             || self.event_groups
             || self.migrations
+            || self.webhook_events
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -626,6 +631,9 @@ impl ExpandSet {
         }
         if self.notifications {
             labels.push("notifications");
+        }
+        if self.webhook_events {
+            labels.push("webhook_events");
         }
         labels
     }
@@ -4047,6 +4055,7 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             "jobs" => set.jobs = true,
             "webhooks" => set.webhooks = true,
             "event_groups" => set.event_groups = true,
+            "webhook_events" => set.webhook_events = true,
             // Migrations bucket cycle Route C — projects every lifted
             // `ir::TenantMigration` on the feature + the app deploy
             // block's checkpoint/strategy/lock_timeout/hook fields.
@@ -4057,7 +4066,7 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // default inspect; this flag adds the structured shapes.
             "notifications" => set.notifications = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, migrations, or notifications"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, or notifications"
             ),
         }
     }
@@ -4078,6 +4087,8 @@ struct InspectReport {
     app: Option<lazuli_ir::AppManifest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     registry: Option<lazuli_ir::AppRegistry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webhook_events: Option<Vec<lazuli_ir::WebhookEventRegistry>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     profiles: Vec<lazuli_ir::AppProfile>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -4934,6 +4945,14 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         std::collections::BTreeMap::new()
     };
 
+    let registry = app_manifest::parse_app_registry(source);
+    let webhook_events = expansions.webhook_events.then(|| {
+        registry
+            .as_ref()
+            .map(|registry| registry.webhook_events.clone())
+            .unwrap_or_default()
+    });
+
     InspectReport {
         schema: "lazuli.inspect.v0",
         source: input.display().to_string(),
@@ -4941,7 +4960,8 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         workspace: app_manifest::parse_app_workspace(source),
         contracts: app_manifest::parse_app_contracts(source),
         app: app_manifest::parse_app_manifest(source).or(lzx_app),
-        registry: app_manifest::parse_app_registry(source),
+        registry,
+        webhook_events,
         profiles: app_manifest::parse_app_profiles(source),
         routes,
         experiences,
@@ -10255,6 +10275,33 @@ registry
         assert!(json.contains("\"kind\":\"PaymentGateway\""));
         assert!(json.contains("\"adapter_provenance\":\"runtime\""));
         assert!(json.contains("\"access_token\""));
+    }
+
+    #[test]
+    fn inspect_expand_webhook_events_projects_registry_events() {
+        let source = r#"
+registry
+  webhook_event customer.created
+    payload
+      customer_id: ID
+      email: @semantic.Email
+    version 2
+    previous_version 1
+"#;
+
+        let report = inspect_canonical_source(
+            source,
+            Path::new("registry.lzi"),
+            parse_expand_set("webhook_events").unwrap(),
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        let event = &json["webhook_events"][0];
+
+        assert_eq!(json["expand"][0], "webhook_events");
+        assert_eq!(event["name"], "customer.created");
+        assert_eq!(event["version"], 2);
+        assert_eq!(event["previous_version"], 1);
+        assert_eq!(event["payload"][1]["type_text"], "@semantic.Email");
     }
 
     #[test]

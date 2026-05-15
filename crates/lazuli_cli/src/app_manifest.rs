@@ -918,9 +918,14 @@ pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
 
 pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     let lines: Vec<_> = source.lines().collect();
-    let Some(start) = lines
-        .iter()
-        .position(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")
+    let Some(start) = lines.iter().position(|line| {
+        leading_spaces(line) == 0
+            && line
+                .trim_start()
+                .split_whitespace()
+                .next()
+                .is_some_and(|keyword| keyword == "registry")
+    })
     else {
         return RegistryParseOutput::default();
     };
@@ -945,10 +950,11 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     // commits to `registry.tools` (effect present) or records a defect.
     let mut pending_tool: Option<PendingTool> = None;
     let mut tool_defects: Vec<RegistryToolEntryDefect> = Vec::new();
-    // Webhooks expanded cycle — `webhook_events.<name>` envelope being
-    // built. Each new `<name>` at indent 4 stages a fresh
-    // `current_webhook_event_index` and fields at indent 6 land on it.
+    // Webhook event registry — currently staged event entry. Legacy
+    // plural `webhook_events` puts fields at indent 6; singular
+    // `webhook_event <name>` requires a `payload` child before fields.
     let mut current_webhook_event_index: Option<usize> = None;
+    let mut in_webhook_event_payload = false;
 
     for (offset, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -968,7 +974,21 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                 current_integration_child = None;
                 current_pack = None;
                 current_webhook_event_index = None;
-                current_child = registry_child(trimmed);
+                in_webhook_event_payload = false;
+                if let Some(name) = webhook_event_name(trimmed) {
+                    registry.webhook_events.push(WebhookEvent {
+                        name: name.to_owned(),
+                        payload: Vec::new(),
+                        version: 1,
+                        previous_version: None,
+                        deprecated: false,
+                        span_ref: None,
+                    });
+                    current_webhook_event_index = registry.webhook_events.len().checked_sub(1);
+                    current_child = Some("webhook_event");
+                } else {
+                    current_child = registry_child(trimmed);
+                }
             }
             4 => match current_child {
                 Some("env") => {
@@ -1050,10 +1070,36 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                     } else {
                         registry.webhook_events.push(WebhookEvent {
                             name: name.to_owned(),
-                            fields: Vec::new(),
+                            payload: Vec::new(),
+                            version: 1,
+                            previous_version: None,
+                            deprecated: false,
                             span_ref: None,
                         });
                         current_webhook_event_index = registry.webhook_events.len().checked_sub(1);
+                    }
+                }
+                Some("webhook_event") => {
+                    let Some(idx) = current_webhook_event_index else {
+                        continue;
+                    };
+                    if trimmed == "payload" {
+                        in_webhook_event_payload = true;
+                    } else {
+                        in_webhook_event_payload = false;
+                        if let Some(rest) = trimmed.strip_prefix("version ") {
+                            if let Ok(version) = rest.trim().parse::<u32>() {
+                                registry.webhook_events[idx].version = version;
+                            }
+                        } else if let Some(rest) = trimmed.strip_prefix("previous_version ") {
+                            if let Ok(version) = rest.trim().parse::<u32>() {
+                                registry.webhook_events[idx].previous_version = Some(version);
+                            }
+                        } else if let Some(rest) = trimmed.strip_prefix("deprecated ") {
+                            if let Some(value) = parse_bool(rest.trim()) {
+                                registry.webhook_events[idx].deprecated = value;
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -1130,7 +1176,14 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                         continue;
                     };
                     if let Some(field) = parse_webhook_event_field(trimmed) {
-                        registry.webhook_events[idx].fields.push(field);
+                        registry.webhook_events[idx].payload.push(field);
+                    }
+                } else if current_child == Some("webhook_event") && in_webhook_event_payload {
+                    let Some(idx) = current_webhook_event_index else {
+                        continue;
+                    };
+                    if let Some(field) = parse_webhook_event_field(trimmed) {
+                        registry.webhook_events[idx].payload.push(field);
                     }
                 }
             }
@@ -1613,6 +1666,12 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
         "webhook_events" => Some("webhook_events"),
         _ => None,
     }
+}
+
+fn webhook_event_name(trimmed: &str) -> Option<&str> {
+    let rest = trimmed.strip_prefix("webhook_event ")?;
+    let name = rest.split_whitespace().next()?;
+    (!name.is_empty()).then_some(name)
 }
 
 fn profile_child(trimmed: &str) -> Option<&'static str> {
@@ -2214,6 +2273,91 @@ registry
                 .map(|binding| binding.source.as_str()),
             Some("env.MERCADOPAGO_ACCESS_TOKEN")
         );
+    }
+
+    #[test]
+    fn parses_webhook_event_registry_kind_with_payload_and_version() {
+        let source = r#"
+registry MyApp
+  webhook_event customer.created
+    payload
+      customer_id: ID
+      email: @semantic.Email
+      created_at: DateTime
+    version 1
+    deprecated false
+"#;
+
+        let registry = parse_app_registry(source).unwrap();
+        let event = &registry.webhook_events[0];
+
+        assert_eq!(event.name, "customer.created");
+        assert_eq!(event.version, 1);
+        assert_eq!(event.previous_version, None);
+        assert!(!event.deprecated);
+        assert_eq!(event.payload.len(), 3);
+        assert_eq!(event.payload[1].name, "email");
+        assert_eq!(event.payload[1].type_text, "@semantic.Email");
+        assert!(event.payload[1].required);
+    }
+
+    #[test]
+    fn parses_webhook_event_registry_kind_with_previous_version() {
+        let source = r#"
+registry
+  webhook_event customer.archived
+    payload
+      customer_id: ID
+      reason: Text
+    version 2
+    previous_version 1
+"#;
+
+        let registry = parse_app_registry(source).unwrap();
+        let event = &registry.webhook_events[0];
+
+        assert_eq!(event.name, "customer.archived");
+        assert_eq!(event.version, 2);
+        assert_eq!(event.previous_version, Some(1));
+    }
+
+    #[test]
+    fn parses_webhook_event_registry_kind_with_deprecated_true() {
+        let source = r#"
+registry
+  webhook_event customer.deleted
+    payload
+      customer_id: ID
+    version 3
+    previous_version 2
+    deprecated true
+"#;
+
+        let registry = parse_app_registry(source).unwrap();
+        let event = &registry.webhook_events[0];
+
+        assert_eq!(event.name, "customer.deleted");
+        assert!(event.deprecated);
+    }
+
+    #[test]
+    fn parses_legacy_webhook_events_block_as_registry_payload() {
+        let source = r#"
+registry
+  webhook_events
+    crm_customer_upsert
+      external_id: Text required
+      email: @semantic.Email @pii.contact optional
+"#;
+
+        let registry = parse_app_registry(source).unwrap();
+        let event = &registry.webhook_events[0];
+
+        assert_eq!(event.name, "crm_customer_upsert");
+        assert_eq!(event.version, 1);
+        assert_eq!(event.payload.len(), 2);
+        assert_eq!(event.payload[1].capabilities, ["@pii.contact"]);
+        assert!(!event.payload[1].required);
     }
 
     #[test]

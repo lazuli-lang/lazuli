@@ -3213,7 +3213,10 @@ fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
         if leading_spaces(line) == 0 {
             in_env = trimmed == "env";
             in_app = trimmed.starts_with("app ");
-            in_registry = trimmed == "registry";
+            in_registry = trimmed
+                .split_whitespace()
+                .next()
+                .is_some_and(|keyword| keyword == "registry");
             app_child = None;
             registry_child = None;
             continue;
@@ -7684,12 +7687,13 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 current_integration = false;
                 current_integration_child = None;
                 current_pack = false;
-                current_child = match trimmed {
+                current_child = match trimmed.split_whitespace().next().unwrap_or_default() {
                     "env" => Some("env"),
                     "capabilities" => Some("capabilities"),
                     "integrations" => Some("integrations"),
                     "packs" => Some("packs"),
                     "tools" => Some("tools"),
+                    "webhook_event" => Some("webhook_event"),
                     // Webhooks expanded cycle — registry-side catalog
                     // of expected inbound envelope shapes. Indent-4
                     // entries open new envelopes; indent-6 children
@@ -7704,7 +7708,7 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                             line,
                             DiagnosticSeverity::WARNING,
                             "registry-contract",
-                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, and `webhook_events`.",
+                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, `webhook_event <name>`, and `webhook_events`.",
                         ));
                         None
                     }
@@ -7730,6 +7734,21 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 Some("packs") => {
                     validate_registry_pack_header(&mut diagnostics, line_index, line, trimmed);
                     current_pack = true;
+                }
+                Some("webhook_event") => {
+                    if !(trimmed == "payload"
+                        || trimmed.starts_with("version ")
+                        || trimmed.starts_with("previous_version ")
+                        || trimmed.starts_with("deprecated "))
+                    {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "registry-contract",
+                            "`webhook_event` children use `payload`, `version <n>`, `previous_version <n>`, or `deprecated <bool>`.",
+                        ));
+                    }
                 }
                 _ => {}
             },
@@ -7775,6 +7794,16 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         ));
                     } else {
                         validate_registry_pack_child(&mut diagnostics, line_index, line, trimmed);
+                    }
+                } else if current_child == Some("webhook_event") {
+                    if !trimmed.contains(':') {
+                        diagnostics.push(simple_canonical_diagnostic(
+                            line_index,
+                            line,
+                            DiagnosticSeverity::WARNING,
+                            "registry-contract",
+                            "`webhook_event payload` fields use `<name>: <Type>`.",
+                        ));
                     }
                 }
             }
@@ -12179,7 +12208,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         // OpenAPI bucket cycle — `deprecated` decorator + sub-fields.
         "deprecated" => Some(
-            "Marks the command (or api, post-Tier-4) as deprecated. Inline form: `deprecated [since \"<version>\"] [replacement <ref>] [sunset \"<YYYY-MM-DD>\"]`. Generates OpenAPI `deprecated: true` + `Sunset` HTTP header. Doctor: `deprecated_replacement_unknown`, `deprecated_sunset_date_invalid`, `deprecated_sunset_in_past`.",
+            "Marks a command, api, or outbound `webhook_event` schema as deprecated. Commands/apis use inline metadata; `webhook_event` uses `deprecated <bool>` plus its version trail.",
         ),
         "since" => Some(
             "Version string when the deprecation was declared. Free-form (semver, calendar, git-sha); emitted verbatim as OpenAPI `x-lazuli-deprecated-since`.",
@@ -12392,6 +12421,12 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         // Webhooks expanded cycle — payload/replay/dlq hover catalog.
         "webhook_events" => Some(
             "Registry-side catalog of expected inbound envelope shapes. Each entry under `registry.webhook_events.<name>` is a typed external envelope referenced by `webhook ... payload from webhook_events.<name>`. Treated as external-origin: Lazuli does not assume the source is trustworthy, only that the contract matches what the provider documents.",
+        ),
+        "webhook_event" => Some(
+            "Declares a canonical outbound webhook event schema emitted to consumers. Use `payload` for typed fields, `version <n>`, optional `previous_version <n>`, and `deprecated <bool>`. Distinct from inbound `webhook` blocks.",
+        ),
+        "previous_version" => Some(
+            "Records the prior version in a versioned outbound `webhook_event` schema migration trail.",
         ),
         "payload_from" => Some(
             "Typed reference to a `registry.webhook_events.<name>` envelope. Surface form: `payload from webhook_events.<name>`. Doctor cross-checks the envelope name and validates `tenant_from payload.<axis>` / `idempotency by payload.<axis>` against the declared fields.",
@@ -13506,8 +13541,12 @@ const KEYWORDS: &[&str] = &[
     "unique",
     "default",
     // Webhooks expanded cycle — payload/replay/dlq vocabulary.
+    "webhook_event",
     "webhook_events",
     "payload_from",
+    "version",
+    "previous_version",
+    "deprecated",
     "replay",
     "allow",
     "within",
@@ -17599,6 +17638,30 @@ aggregate Customer {
             assert!(
                 super::notification_digest_template_strategy_detail(value).is_some(),
                 "detail for `{value}` must be available"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_hover_describes_webhook_event_registry_kind() {
+        let hover = keyword_description("webhook_event").expect("webhook_event hover");
+        assert!(hover.contains("outbound"), "{hover}");
+        assert!(hover.contains("Distinct from inbound `webhook`"), "{hover}");
+        assert!(keyword_description("previous_version").is_some());
+    }
+
+    #[test]
+    fn keywords_list_contains_webhook_event_registry_kind() {
+        for kw in [
+            "webhook_event",
+            "payload",
+            "version",
+            "previous_version",
+            "deprecated",
+        ] {
+            assert!(
+                KEYWORDS.contains(&kw),
+                "`KEYWORDS` should list `{kw}` so completions surface it"
             );
         }
     }

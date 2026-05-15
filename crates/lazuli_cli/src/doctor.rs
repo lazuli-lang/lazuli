@@ -1031,6 +1031,9 @@ impl DoctorPackage {
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
         ));
+        diagnostics.extend(webhook_event_registry_diagnostics(
+            self.registry.as_ref(),
+        ));
 
         // Row 34 — `event_group` pattern-prefix rule promoted from LSP
         // to doctor now that `EventGroup` IR exists.
@@ -4093,6 +4096,63 @@ fn tier3_diagnostics(
     diagnostics
 }
 
+fn webhook_event_registry_diagnostics(
+    registry: Option<&DoctorAppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let Some(registry) = registry else {
+        return Vec::new();
+    };
+    let mut diagnostics = Vec::new();
+
+    for event in &registry.manifest.webhook_events {
+        if let Some(previous_version) = event.previous_version {
+            if previous_version > event.version {
+                diagnostics.push(DoctorDiagnostic {
+                    path: registry.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "webhook-event-version-decreasing".to_owned(),
+                    message: format!(
+                        "`webhook_event {}` declares `previous_version {}` greater than current `version {}`.",
+                        event.name, previous_version, event.version
+                    ),
+                });
+            }
+        }
+
+        if event.payload.is_empty() {
+            diagnostics.push(DoctorDiagnostic {
+                path: registry.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "webhook-event-payload-empty".to_owned(),
+                message: format!(
+                    "`webhook_event {}` declares no payload fields; outbound event schemas must be explicit.",
+                    event.name
+                ),
+            });
+        }
+
+        if event.deprecated && event.previous_version.is_none() {
+            diagnostics.push(DoctorDiagnostic {
+                path: registry.path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "webhook-event-deprecated-no-replacement".to_owned(),
+                message: format!(
+                    "`webhook_event {}` is deprecated but declares no replacement trail; add `previous_version <n>` or document the successor inline.",
+                    event.name
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
 fn tier3_job_diagnostics(
     feature: &Tier3FeatureFacts,
     job: &lazuli_ir::Job,
@@ -4225,7 +4285,7 @@ fn tier3_webhook_diagnostics<'a>(
     if let (Some(envelope), Some(tenant_from)) = (envelope, webhook.tenant_from.as_ref())
         && tenant_from.path.segments.first().map(String::as_str) == Some("payload")
         && let Some(axis) = tenant_from.path.segments.get(1)
-        && !envelope.fields.iter().any(|f| &f.name == axis)
+        && !envelope.payload.iter().any(|f| &f.name == axis)
     {
         diagnostics.push(DoctorDiagnostic {
             path: feature.path.clone(),
@@ -16472,9 +16532,67 @@ registry
         )]);
         let diagnostics = package.diagnostics();
         let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        );
+    }
+
+    #[test]
+    fn webhook_event_version_decreasing_previous_exceeds_current() {
+        let package = package_from_sources(vec![(
+            "registry.lzi",
+            r#"
+registry
+  webhook_event customer.archived
+    payload
+      customer_id: ID
+    version 1
+    previous_version 2
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
         assert!(
-            codes.contains(&"WEBHOOK-EVENT-001"),
-            "expected WEBHOOK-EVENT-001, got {codes:?}"
+            codes.contains(&"webhook-event-version-decreasing"),
+            "expected webhook-event-version-decreasing, got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn webhook_event_payload_empty_rejects_empty_schema() {
+        let package = package_from_sources(vec![(
+            "registry.lzi",
+            r#"
+registry
+  webhook_event customer.created
+    payload
+    version 1
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"webhook-event-payload-empty"),
+            "expected webhook-event-payload-empty, got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn webhook_event_deprecated_no_replacement_requires_trail() {
+        let package = package_from_sources(vec![(
+            "registry.lzi",
+            r#"
+registry
+  webhook_event customer.deleted
+    payload
+      customer_id: ID
+    version 3
+    deprecated true
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"webhook-event-deprecated-no-replacement"),
+            "expected webhook-event-deprecated-no-replacement, got {codes:?}"
         );
     }
 
