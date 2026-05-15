@@ -416,6 +416,7 @@ fn diagnostics_for_with_profile(
 ) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
+        diagnostics.extend(feature_unknown_kind_diagnostics(source));
         diagnostics.extend(query_mode_diagnostics(source));
         diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));
@@ -1408,6 +1409,181 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
         "escape_route" => Some(CanonicalBlockKind::EscapeRoute),
         _ => None,
     }
+}
+
+/// Closed catalog of every keyword that can introduce an indent-2
+/// child of `feature X`. Used by `feature_unknown_kind_diagnostics`
+/// to detect typos like `comand` (command) / `quiery` (query) /
+/// `wokflow` (workflow) — surfaced 2026-05-15 when Lucas wrote
+/// `comand move` and the LSP stayed silent.
+///
+/// Keep this list aligned with the parser's accepted feature-body
+/// vocabulary. Sorted alphabetically for diff hygiene.
+const FEATURE_BODY_KINDS: &[&str] = &[
+    "agent",
+    "aggregate",
+    "api",
+    "auth",
+    "cache",
+    "channel",
+    "command",
+    "compatibility",
+    "context",
+    "defaults",
+    "delegated_to",
+    "domain",
+    "enum",
+    "errors",
+    "escape_route",
+    "event",
+    "event.trace",
+    "event_group",
+    "events",
+    "extends",
+    "extensions",
+    "import",
+    "imports",
+    "invariants",
+    "job",
+    "non_goals",
+    "notification",
+    "operation",
+    "out_of_scope",
+    "permission",
+    "poller",
+    "policies",
+    "purpose",
+    "query.list",
+    "query.lookup",
+    "query.sql",
+    "record",
+    "refs",
+    "report",
+    "requires",
+    "role",
+    "secret_rotation",
+    "subscription",
+    "surface",
+    "tenant_migration",
+    "tests",
+    "tools",
+    "translation",
+    "uses",
+    "view",
+    "webhook",
+    "webhook_event",
+    "workflow",
+];
+
+/// 2026-05-15 — file-local diagnostic that flags any indent-2 word
+/// inside `feature X` body which is NOT a known kind keyword.
+/// Suggests the closest known kind via Damerau-Levenshtein distance ≤ 2
+/// when one exists; otherwise lists all valid kinds. Fires as a
+/// WARNING (not ERROR) so the user can keep typing while the squiggle
+/// nudges them to fix.
+///
+/// Ignores comments, blank lines, and lines whose first token starts
+/// with `@` (decorator/anchor reference) or contains `(`/`:` (typed
+/// field decl, namespaced-decorator call, key-value).
+fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut inside_feature = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            inside_feature = trimmed.starts_with("feature ");
+            continue;
+        }
+        if !inside_feature || leading != 2 {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        // Skip decorators, anchors, namespaced refs, key-value lines.
+        if first.starts_with('@')
+            || first.contains('(')
+            || first.contains(':')
+            || first.contains('=')
+        {
+            continue;
+        }
+        if FEATURE_BODY_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_feature_body_kind(first, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown feature block kind `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / workflow / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / context / non_goals / role / permission / etc."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::WARNING,
+            "feature-unknown-kind",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// Damerau-Levenshtein-style closest match against `FEATURE_BODY_KINDS`.
+/// Returns the closest kind when distance ≤ `max_distance`, else `None`.
+/// Plain Levenshtein (no transposition) is enough for our typo cases
+/// (`comand` / `quiery` / `wokflow`) — adjacent-swap support adds
+/// complexity without much gain at our scale.
+fn closest_feature_body_kind(word: &str, max_distance: usize) -> Option<&'static str> {
+    let mut best: Option<(&'static str, usize)> = None;
+    for &candidate in FEATURE_BODY_KINDS {
+        let d = levenshtein(word, candidate);
+        if d > max_distance {
+            continue;
+        }
+        match best {
+            None => best = Some((candidate, d)),
+            Some((_, prev_d)) if d < prev_d => best = Some((candidate, d)),
+            _ => {}
+        }
+    }
+    best.map(|(k, _)| k)
+}
+
+/// Plain Levenshtein edit distance. O(n*m) DP. Used only for short
+/// keyword names so the cost is negligible.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let n = a.len();
+    let m = b.len();
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr: Vec<usize> = vec![0; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (curr[j - 1] + 1)
+                .min(prev[j] + 1)
+                .min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
 }
 
 fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -14289,6 +14465,79 @@ feature customer
 "#;
 
         assert!(diagnostics_for(source).is_empty());
+    }
+
+    #[test]
+    #[test]
+    fn feature_unknown_kind_flags_typo_with_suggestion() {
+        let source = r#"
+feature typo_test
+  domain
+    resource Item
+      id: ID required
+
+  comand move
+    route id: ID
+    policy @policy.member
+"#;
+        let diagnostics = diagnostics_for(source);
+        let unknown_kind: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                d.code.as_ref().and_then(|c| match c {
+                    tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                    _ => None,
+                }) == Some("feature-unknown-kind")
+            })
+            .collect();
+        assert_eq!(
+            unknown_kind.len(),
+            1,
+            "expected exactly one feature-unknown-kind diagnostic for `comand`; got {} (full set: {:#?})",
+            unknown_kind.len(),
+            diagnostics,
+        );
+        assert!(
+            unknown_kind[0].message.contains("comand"),
+            "diagnostic must name the offending typo `comand`; got `{}`",
+            unknown_kind[0].message,
+        );
+        assert!(
+            unknown_kind[0].message.contains("command"),
+            "diagnostic must suggest the closest match `command`; got `{}`",
+            unknown_kind[0].message,
+        );
+    }
+
+    #[test]
+    fn feature_unknown_kind_silent_for_decorators_and_field_decls() {
+        let source = r#"
+feature decorator_test
+  domain
+    resource Item
+      id: ID required
+
+  command create
+    @anchor.something
+    field_name: Text required
+    other_field = ctx.now
+    @cap.File(max_size: "10mb")
+"#;
+        let diagnostics = diagnostics_for(source);
+        let unknown_kind: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                d.code.as_ref().and_then(|c| match c {
+                    tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                    _ => None,
+                }) == Some("feature-unknown-kind")
+            })
+            .collect();
+        assert!(
+            unknown_kind.is_empty(),
+            "decorators / field declarations / assignments / namespaced calls must NOT trip feature-unknown-kind; got {:#?}",
+            unknown_kind,
+        );
     }
 
     #[test]
