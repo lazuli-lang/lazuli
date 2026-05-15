@@ -1,13 +1,14 @@
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCors,
-    AppCorsOriginRule, AppDeploy, AppEnvVar, AppIntegration, AppIntegrationCredentialBinding,
-    AppIntegrationCredentials, AppLocale, AppLogging, AppManifest, AppObservability, AppPack,
-    AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy, AppProfileIntegration, AppProfileUrl,
-    AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, AppWorkspace,
-    ContractEvent, ContractField, ContractImport, ContractOperation, ContractOperationError,
-    ContractRecord, DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation,
-    EncryptionSource, EncryptionTemplate, ErrorPage, FeatureRequirement, LocaleFallback,
-    LocaleNegotiate, QualifiedName, RegistryToolEntry, ToolEffect, WebhookEvent, WebhookEventField,
+    AppCorsOriginRule, AppDeploy, AppEnvVar, AppHeaders, AppHsts, AppIntegration,
+    AppIntegrationCredentialBinding, AppIntegrationCredentials, AppLocale, AppLogging, AppManifest,
+    AppObservability, AppPack, AppPackProvide, AppPackUse, AppProfile, AppProfileDeploy,
+    AppProfileIntegration, AppProfileUrl, AppRegistry, AppRuntimeUnit, AppService,
+    AppServiceExposure, AppTracing, AppUrl, AppWorkspace, ContractEvent, ContractField,
+    ContractImport, ContractOperation, ContractOperationError, ContractRecord, DeployCheckpoint,
+    EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource,
+    EncryptionTemplate, ErrorPage, FeatureRequirement, LocaleFallback, LocaleNegotiate,
+    QualifiedName, RegistryToolEntry, SecretRotation, ToolEffect, WebhookEvent, WebhookEventField,
     WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
     WorkspaceGatewayRoute,
 };
@@ -378,9 +379,13 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let mut current_error_page: Option<usize> = None;
     // Encryption bucket cycle — tracks the open
     // `encryption.key @key.<scope>` binding. Indent-6 lines (`source`,
-    // `algorithm`, `rotation`) populate this index. `None` when no
-    // binding is currently open.
+    // `algorithm`, `rotation`, `rotation_profile`) populate this
+    // index. `None` when no binding is currently open.
     let mut current_encryption_binding: Option<usize> = None;
+    // Roadmap §1.10 — tracks the open `headers.hsts` sub-block.
+    // Indent-6 lines (`max_age`, `include_subdomains`, `preload`)
+    // populate the HSTS struct. `None` when no HSTS body is open.
+    let mut in_headers_hsts: bool = false;
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -401,6 +406,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 current_integration_child = None;
                 current_error_page = None;
                 current_encryption_binding = None;
+                in_headers_hsts = false;
                 if let Some(rest) = trimmed.strip_prefix("title ") {
                     app.title = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
@@ -493,6 +499,39 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         }
                     } else if let Some(rest) = trimmed.strip_prefix("max_age ") {
                         cors.max_age = Some(unquote(rest.trim()).to_owned());
+                    }
+                }
+                // Roadmap §1.10 — `headers` block scalar children.
+                // Each slot maps 1:1 to a production-grade HTTP
+                // security header. The HSTS sub-block opens its own
+                // indent-6 scope via `in_headers_hsts`.
+                Some("headers") => {
+                    let headers = app.headers.get_or_insert_with(AppHeaders::default);
+                    if let Some(rest) = trimmed.strip_prefix("csp ") {
+                        headers.csp = Some(unquote(rest.trim()).to_owned());
+                        in_headers_hsts = false;
+                    } else if let Some(rest) = trimmed.strip_prefix("hsts") {
+                        // `hsts` may carry inline children
+                        // (`hsts max_age 31536000 include_subdomains
+                        // preload`) or open a six-space body. The
+                        // inline form is the canonical sugar.
+                        let hsts = headers.hsts.get_or_insert_with(AppHsts::default);
+                        parse_hsts_inline(rest.trim(), hsts);
+                        in_headers_hsts = true;
+                    } else if let Some(rest) = trimmed.strip_prefix("x_frame_options ") {
+                        headers.x_frame_options = Some(rest.trim().to_owned());
+                        in_headers_hsts = false;
+                    } else if let Some(rest) = trimmed.strip_prefix("x_content_type_options ") {
+                        headers.x_content_type_options = Some(rest.trim().to_owned());
+                        in_headers_hsts = false;
+                    } else if let Some(rest) = trimmed.strip_prefix("referrer_policy ") {
+                        headers.referrer_policy = Some(rest.trim().to_owned());
+                        in_headers_hsts = false;
+                    } else if let Some(rest) = trimmed.strip_prefix("permissions_policy ") {
+                        headers.permissions_policy = Some(unquote(rest.trim()).to_owned());
+                        in_headers_hsts = false;
+                    } else {
+                        in_headers_hsts = false;
                     }
                 }
                 Some("env") => {
@@ -824,11 +863,11 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     }
                 } else if current_child == Some("encryption") {
                     // Encryption bucket cycle — `source`, `algorithm`,
-                    // `rotation` children at indent 6 populate the
-                    // currently open binding. Unknown algorithm/rotation
-                    // tokens are silently kept at the default; doctor
-                    // diagnostics (`ENC-TEMPLATE-AXIS-001` etc.) surface
-                    // shape errors.
+                    // `rotation`, `rotation_profile` children at indent
+                    // 6 populate the currently open binding. Unknown
+                    // algorithm/rotation tokens are silently kept at
+                    // the default; doctor diagnostics surface shape
+                    // errors.
                     let Some(binding_index) = current_encryption_binding else {
                         continue;
                     };
@@ -851,11 +890,32 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         if let Some(alg) = EncryptionAlgorithm::parse(rest.trim()) {
                             binding.algorithm = alg;
                         }
+                    } else if let Some(rest) = trimmed.strip_prefix("rotation_profile ") {
+                        // Roadmap §1.10 — bind this `@key.<scope>` to
+                        // a `registry.secret_rotation <name>` profile.
+                        // The cross-check that the profile exists
+                        // lives in doctor's
+                        // `secret-rotation-binding-unknown`.
+                        let name = rest.trim().to_owned();
+                        if !name.is_empty() {
+                            binding.rotation_profile = Some(name);
+                        }
                     } else if let Some(rest) = trimmed.strip_prefix("rotation ") {
                         if let Some(rot) = EncryptionRotation::parse(rest.trim()) {
                             binding.rotation = rot;
                         }
                     }
+                } else if current_child == Some("headers") && in_headers_hsts {
+                    // Roadmap §1.10 — six-space HSTS body. Children
+                    // are `max_age <n>`, `include_subdomains`,
+                    // `preload`. The inline form `hsts max_age N
+                    // include_subdomains preload` covers the same
+                    // ground.
+                    let Some(headers) = app.headers.as_mut() else {
+                        continue;
+                    };
+                    let hsts = headers.hsts.get_or_insert_with(AppHsts::default);
+                    parse_hsts_inline(trimmed, hsts);
                 }
             }
             8 => {
@@ -961,6 +1021,11 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     // `webhook_event <name>` requires a `payload` child before fields.
     let mut current_webhook_event_index: Option<usize> = None;
     let mut in_webhook_event_payload = false;
+    // Roadmap §1.10 — the `SecretRotation` entry whose indent-4
+    // body (`cadence` / `overlap` / `auto_rollback`) is currently
+    // being populated. Each indent-2 `secret_rotation <name>` line
+    // opens a fresh entry.
+    let mut current_secret_rotation: Option<usize> = None;
 
     for (offset, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
@@ -981,6 +1046,7 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                 current_pack = None;
                 current_webhook_event_index = None;
                 in_webhook_event_payload = false;
+                current_secret_rotation = None;
                 if let Some(name) = webhook_event_name(trimmed) {
                     registry.webhook_events.push(WebhookEvent {
                         name: name.to_owned(),
@@ -994,6 +1060,25 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                     current_child = Some("webhook_event");
                 } else {
                     current_child = registry_child(trimmed);
+                    // Roadmap §1.10 — `secret_rotation <name>` opens a
+                    // named block at indent-2. Stage the entry on the
+                    // registry; indent-4 children populate it.
+                    if current_child == Some("secret_rotation") {
+                        if let Some(rest) = trimmed.strip_prefix("secret_rotation ") {
+                            let name = rest.trim().to_owned();
+                            if !name.is_empty() && !name.contains(char::is_whitespace) {
+                                registry.secret_rotations.push(SecretRotation {
+                                    name,
+                                    cadence: String::new(),
+                                    overlap: String::new(),
+                                    auto_rollback: false,
+                                    span_ref: None,
+                                });
+                                current_secret_rotation =
+                                    registry.secret_rotations.len().checked_sub(1);
+                            }
+                        }
+                    }
                 }
             }
             4 => match current_child {
@@ -1105,6 +1190,25 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                             if let Some(value) = parse_bool(rest.trim()) {
                                 registry.webhook_events[idx].deprecated = value;
                             }
+                        }
+                    }
+                }
+                // Roadmap §1.10 — body of the currently open
+                // `secret_rotation <name>` entry. Closed catalog:
+                // `cadence <duration>` / `overlap <duration>` /
+                // `auto_rollback <bool>`.
+                Some("secret_rotation") => {
+                    let Some(rotation_index) = current_secret_rotation else {
+                        continue;
+                    };
+                    let rotation = &mut registry.secret_rotations[rotation_index];
+                    if let Some(rest) = trimmed.strip_prefix("cadence ") {
+                        rotation.cadence = rest.trim().to_owned();
+                    } else if let Some(rest) = trimmed.strip_prefix("overlap ") {
+                        rotation.overlap = rest.trim().to_owned();
+                    } else if let Some(rest) = trimmed.strip_prefix("auto_rollback ") {
+                        if let Some(value) = parse_bool(rest.trim()) {
+                            rotation.auto_rollback = value;
                         }
                     }
                 }
@@ -1614,6 +1718,11 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         // Encryption bucket cycle — `encryption` block at app indent-2.
         // See `docs/proposals/encryption-vocab.md`.
         "encryption" => Some("encryption"),
+        // Roadmap §1.10 — `headers` block at app indent-2 carries
+        // CSP / HSTS / X-Frame-Options / X-Content-Type-Options /
+        // Referrer-Policy / Permissions-Policy. Child grammar lives
+        // at indent 4 (top-level fields) and indent 6 (HSTS body).
+        "headers" => Some("headers"),
         _ => None,
     }
 }
@@ -1670,6 +1779,12 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
         // Webhooks expanded cycle — `webhook_events` is the registry-side
         // catalog of expected inbound envelope shapes.
         "webhook_events" => Some("webhook_events"),
+        // Roadmap §1.10 — `secret_rotation <name>` is a NAMED block
+        // at indent-2 (not a container with indent-4 children like
+        // `env`). The parser detects the header inline and switches
+        // current_child to `"secret_rotation"`; indent-4 lines feed
+        // the currently open `SecretRotation` entry.
+        "secret_rotation" => Some("secret_rotation"),
         _ => None,
     }
 }
@@ -1695,6 +1810,38 @@ fn parse_bool(value: &str) -> Option<bool> {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,
+    }
+}
+
+/// Roadmap §1.10 — parse the tail of `hsts` (either inline as
+/// `hsts max_age 31536000 include_subdomains preload` or as a
+/// six-space body where each child gets its own line). Tokens are
+/// whitespace-separated; only the named slots write to `hsts`.
+/// Unknown tokens are silently ignored — doctor diagnostics flag
+/// shape errors.
+fn parse_hsts_inline(rest: &str, hsts: &mut AppHsts) {
+    let trimmed = rest.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let mut tokens = trimmed.split_whitespace().peekable();
+    while let Some(token) = tokens.next() {
+        match token {
+            "max_age" => {
+                if let Some(value) = tokens.next() {
+                    if let Ok(n) = value.parse::<u64>() {
+                        hsts.max_age = n;
+                    }
+                }
+            }
+            "include_subdomains" => {
+                hsts.include_subdomains = true;
+            }
+            "preload" => {
+                hsts.preload = true;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -2509,5 +2656,166 @@ app AcmeCRM
         // surfaces this as a separate diagnostic. The block parser
         // only records well-shaped bindings.
         assert!(manifest.encryption_bindings.is_empty());
+    }
+
+    // -------------------------------------------------------------
+    // Roadmap §1.10 — `app.headers` parser tests. Three+ cases per
+    // primitive: scalar children parse, `hsts` inline + body forms,
+    // closed-catalog values preserved verbatim.
+    // -------------------------------------------------------------
+
+    #[test]
+    fn parses_app_headers_scalar_children() {
+        let source = r#"
+app AcmeCRM
+  headers
+    csp "default-src 'self'; script-src 'self' 'unsafe-inline'"
+    x_frame_options DENY
+    x_content_type_options nosniff
+    referrer_policy strict-origin-when-cross-origin
+    permissions_policy "geolocation=(), camera=()"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let headers = manifest.headers.expect("headers block");
+        assert_eq!(
+            headers.csp.as_deref(),
+            Some("default-src 'self'; script-src 'self' 'unsafe-inline'")
+        );
+        assert_eq!(headers.x_frame_options.as_deref(), Some("DENY"));
+        assert_eq!(headers.x_content_type_options.as_deref(), Some("nosniff"));
+        assert_eq!(
+            headers.referrer_policy.as_deref(),
+            Some("strict-origin-when-cross-origin")
+        );
+        assert_eq!(
+            headers.permissions_policy.as_deref(),
+            Some("geolocation=(), camera=()")
+        );
+    }
+
+    #[test]
+    fn parses_app_headers_hsts_inline() {
+        let source = r#"
+app AcmeCRM
+  headers
+    hsts max_age 31536000 include_subdomains preload
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let hsts = manifest
+            .headers
+            .expect("headers block")
+            .hsts
+            .expect("hsts sub-block");
+        assert_eq!(hsts.max_age, 31_536_000);
+        assert!(hsts.include_subdomains);
+        assert!(hsts.preload);
+    }
+
+    #[test]
+    fn parses_app_headers_hsts_body_form() {
+        let source = r#"
+app AcmeCRM
+  headers
+    hsts
+      max_age 63072000
+      include_subdomains
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        let hsts = manifest
+            .headers
+            .expect("headers block")
+            .hsts
+            .expect("hsts sub-block");
+        assert_eq!(hsts.max_age, 63_072_000);
+        assert!(hsts.include_subdomains);
+        assert!(!hsts.preload);
+    }
+
+    #[test]
+    fn parses_app_headers_absent_yields_none() {
+        let source = r#"
+app AcmeCRM
+  title "AcmeCRM"
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        assert!(manifest.headers.is_none());
+    }
+
+    // -------------------------------------------------------------
+    // Roadmap §1.10 — `registry.secret_rotation` parser tests.
+    // Three+ cases per primitive: single profile parses, multiple
+    // profiles round-trip, encryption.key binding picks up the
+    // referenced profile name.
+    // -------------------------------------------------------------
+
+    #[test]
+    fn parses_registry_secret_rotation_default_profile() {
+        let source = r#"
+registry
+  secret_rotation default
+    cadence 90d
+    overlap 24h
+    auto_rollback true
+"#;
+        let registry = parse_app_registry(source).expect("registry");
+        assert_eq!(registry.secret_rotations.len(), 1);
+        let profile = &registry.secret_rotations[0];
+        assert_eq!(profile.name, "default");
+        assert_eq!(profile.cadence, "90d");
+        assert_eq!(profile.overlap, "24h");
+        assert!(profile.auto_rollback);
+    }
+
+    #[test]
+    fn parses_registry_secret_rotation_multiple_profiles() {
+        let source = r#"
+registry
+  secret_rotation default
+    cadence 90d
+    overlap 24h
+    auto_rollback true
+
+  secret_rotation tenant_keys
+    cadence 30d
+    overlap 0h
+    auto_rollback false
+"#;
+        let registry = parse_app_registry(source).expect("registry");
+        assert_eq!(registry.secret_rotations.len(), 2);
+        assert_eq!(registry.secret_rotations[0].name, "default");
+        assert_eq!(registry.secret_rotations[1].name, "tenant_keys");
+        assert_eq!(registry.secret_rotations[1].cadence, "30d");
+        assert_eq!(registry.secret_rotations[1].overlap, "0h");
+        assert!(!registry.secret_rotations[1].auto_rollback);
+    }
+
+    #[test]
+    fn parses_registry_secret_rotation_absent_yields_empty_catalog() {
+        let source = r#"
+registry
+  env
+    server CRYPT_KEY: Secret required
+"#;
+        let registry = parse_app_registry(source).expect("registry");
+        assert!(registry.secret_rotations.is_empty());
+    }
+
+    #[test]
+    fn parses_app_encryption_key_with_rotation_profile() {
+        let source = r#"
+app AcmeCRM
+  encryption
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+      rotation manual
+      rotation_profile default
+"#;
+        let manifest = parse_app_manifest(source).unwrap();
+        assert_eq!(manifest.encryption_bindings.len(), 1);
+        assert_eq!(
+            manifest.encryption_bindings[0].rotation_profile.as_deref(),
+            Some("default")
+        );
     }
 }

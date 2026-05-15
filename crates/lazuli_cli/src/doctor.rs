@@ -1014,6 +1014,19 @@ impl DoctorPackage {
         // declared environments + urls.
         diagnostics.extend(cors_diagnostics(self.app.as_ref()));
 
+        // Roadmap §1.10 — `app.headers` production-completeness +
+        // closed-catalog gate.
+        diagnostics.extend(app_headers_diagnostics(
+            self.app.as_ref(),
+            self.security_profile,
+        ));
+        // Roadmap §1.10 — `secret_rotation` overlap + binding
+        // cross-check.
+        diagnostics.extend(secret_rotation_diagnostics(
+            self.app.as_ref(),
+            self.registry.as_ref().map(|reg| &reg.manifest),
+        ));
+
         // Observability bucket cycle row 36 — `app.logging` and
         // `app.tracing` closed-catalog + range + exporter binding
         // checks.
@@ -8299,6 +8312,233 @@ fn catalog_list(items: &[&str]) -> String {
         .map(|i| format!("`{i}`"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+// -----------------------------------------------------------------------------
+// Roadmap §1.10 — `app.headers` + `secret_rotation` diagnostics
+//
+// Three new doctor codes lift production-grade security defaults from
+// user-territory into the closed catalog:
+//   - `headers-contract`: under the `production` security profile the
+//     app must declare CSP, HSTS, X-Frame-Options, and
+//     X-Content-Type-Options. Closed-catalog values also gate here.
+//   - `secret-rotation-overlap-contract`: overlap > cadence makes the
+//     profile contradictory — the runtime cannot finish a rollover
+//     before it has begun.
+//   - `secret-rotation-binding-unknown`: `app.encryption.key
+//     @key.<scope> rotation_profile <name>` must reference a profile
+//     declared on `registry.secret_rotations`.
+//
+// Runtime wire-of-X (actual header emission, secret rollover scheduling)
+// stays for the follow-up cycle — these diagnostics validate the
+// declarative shape today.
+// -----------------------------------------------------------------------------
+
+/// Required headers under the `production` security profile. Other
+/// profiles emit a warning instead of an error; the catalog itself
+/// stays the same so the message reads consistently across profiles.
+const HEADERS_REQUIRED_IN_PRODUCTION: &[&str] = &[
+    "csp",
+    "hsts",
+    "x_frame_options",
+    "x_content_type_options",
+];
+
+fn app_headers_diagnostics(
+    app: Option<&DoctorAppManifest>,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let Some(app_manifest) = app else {
+        return diagnostics;
+    };
+
+    let headers = app_manifest.manifest.headers.as_ref();
+    let manifest_path = app_manifest.path.clone();
+
+    // Production-profile completeness gate. Two distinct behaviours
+    // keyed off whether the author has opted in by declaring ANY
+    // `app.headers` content:
+    //
+    // 1. Author opted in (headers block present): every profile flags
+    //    missing required slots (Strict/Prototype as warning, Production
+    //    as error). The intent signal is unambiguous.
+    //
+    // 2. No headers block at all: only Production fires. Strict and
+    //    Prototype defer — existing fixtures + feature-port flows must
+    //    keep passing on the default Strict profile.
+    let severity = match security_profile {
+        SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Strict | SecurityProfile::Prototype => DoctorSeverity::Warning,
+    };
+    let author_opted_in = headers.is_some();
+    let production_gate = security_profile == SecurityProfile::Production;
+    let mut missing: Vec<&'static str> = Vec::new();
+    for required in HEADERS_REQUIRED_IN_PRODUCTION {
+        let present = headers
+            .map(|h| match *required {
+                "csp" => h.csp.is_some(),
+                "hsts" => h.hsts.is_some(),
+                "x_frame_options" => h.x_frame_options.is_some(),
+                "x_content_type_options" => h.x_content_type_options.is_some(),
+                _ => true,
+            })
+            .unwrap_or(false);
+        if !present {
+            missing.push(*required);
+        }
+    }
+    if !missing.is_empty() && (author_opted_in || production_gate) {
+        diagnostics.push(DoctorDiagnostic {
+            path: manifest_path.clone(),
+            line: 1,
+            column: 1,
+            severity,
+            code: "headers-contract".to_owned(),
+            message: format!(
+                "`app.headers` is missing the production-grade slots [{}]. Declare them under `app.lzi headers` so the runtime can emit the headers on every response.",
+                missing.join(", "),
+            ),
+        });
+    }
+
+    // Closed-catalog value checks. These are independent of the
+    // profile — `nosniff` is the only legal X-Content-Type-Options
+    // token anywhere, etc.
+    if let Some(headers) = headers {
+        if let Some(value) = headers.x_content_type_options.as_deref() {
+            if !ir::AppHeaders::is_x_content_type_options_known(value) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "headers-contract".to_owned(),
+                    message: format!(
+                        "`app.headers x_content_type_options {value}` is invalid — the only legal token is `nosniff`.",
+                    ),
+                });
+            }
+        }
+        if let Some(value) = headers.x_frame_options.as_deref() {
+            if !ir::AppHeaders::is_x_frame_options_known(value) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "headers-contract".to_owned(),
+                    message: format!(
+                        "`app.headers x_frame_options {value}` is invalid — closed catalog is `DENY`, `SAMEORIGIN`, or `ALLOW-FROM <uri>`.",
+                    ),
+                });
+            }
+        }
+        if let Some(value) = headers.referrer_policy.as_deref() {
+            if !ir::AppHeaders::is_referrer_policy_known(value) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "headers-contract".to_owned(),
+                    message: format!(
+                        "`app.headers referrer_policy {value}` is invalid — closed catalog is [{}].",
+                        ir::AppHeaders::REFERRER_POLICY_CATALOG.join(", "),
+                    ),
+                });
+            }
+        }
+        if let Some(hsts) = headers.hsts.as_ref() {
+            if hsts.max_age == 0 {
+                diagnostics.push(DoctorDiagnostic {
+                    path: manifest_path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity,
+                    code: "headers-contract".to_owned(),
+                    message: "`app.headers hsts max_age 0` disables HSTS — set a positive seconds value (typically 31536000 or higher) so the runtime can opt the browser into HTTPS-only.".to_owned(),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn secret_rotation_diagnostics(
+    app: Option<&DoctorAppManifest>,
+    registry: Option<&ir::AppRegistry>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // overlap > cadence — invalid profile. The path is the registry
+    // file because the profile is authored there.
+    if let Some(registry) = registry {
+        for rotation in &registry.secret_rotations {
+            let cadence_secs = ir::security_duration::duration_seconds(&rotation.cadence);
+            let overlap_secs = ir::security_duration::duration_seconds(&rotation.overlap);
+            if let (Some(cadence), Some(overlap)) = (cadence_secs, overlap_secs) {
+                if overlap > cadence {
+                    // We don't have a registry path on AppRegistry; use
+                    // the app path as a fallback because both files
+                    // live next to each other and the message names the
+                    // profile explicitly. If the app manifest is also
+                    // missing, fall through to a synthesized
+                    // `registry.lzi` path.
+                    let path = app
+                        .map(|a| a.path.clone())
+                        .unwrap_or_else(|| PathBuf::from("registry.lzi"));
+                    diagnostics.push(DoctorDiagnostic {
+                        path,
+                        line: 1,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "secret-rotation-overlap-contract".to_owned(),
+                        message: format!(
+                            "`secret_rotation {name}` declares overlap `{overlap_lit}` longer than cadence `{cadence_lit}`. Overlap is the grace window during which old + new secrets both pass; it must be strictly shorter than the cadence between rolls.",
+                            name = rotation.name,
+                            overlap_lit = rotation.overlap,
+                            cadence_lit = rotation.cadence,
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // `app.encryption.key @key.<scope> rotation_profile <name>`
+    // referencing an undeclared profile.
+    if let Some(app_manifest) = app {
+        let declared: BTreeSet<&str> = registry
+            .map(|r| {
+                r.secret_rotations
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for binding in &app_manifest.manifest.encryption_bindings {
+            let Some(profile) = binding.rotation_profile.as_deref() else {
+                continue;
+            };
+            if !declared.contains(profile) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: app_manifest.path.clone(),
+                    line: 1,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "secret-rotation-binding-unknown".to_owned(),
+                    message: format!(
+                        "`encryption.key {scope} rotation_profile {profile}` references no `secret_rotation {profile}` entry in `registry.lzi`. Declare the profile or remove the reference.",
+                        scope = binding.scope,
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
 }
 
 fn app_observability_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
@@ -17670,6 +17910,213 @@ func Login(ctx *lazuli.Ctx, input LoginInput) (string, error) {
         assert!(
             !codes.contains("AUTH-SESSION-CALLSITE-001"),
             "AUTH-SESSION-CALLSITE-001 must not fire for .gen.go files; got {codes:?}"
+        );
+    }
+
+    // =============================================================
+    // Roadmap §1.10 — `headers-contract` /
+    // `secret-rotation-overlap-contract` /
+    // `secret-rotation-binding-unknown` tests.
+    // =============================================================
+
+    #[test]
+    fn doctor_errors_under_production_when_headers_block_absent() {
+        // Production profile errors when the app has no `headers`
+        // block at all. Strict + Prototype defer until the author
+        // opts in by declaring even a partial block.
+        let mut package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  title "Acme CRM"
+  environments
+    production
+"#,
+        )]);
+        package.security_profile = SecurityProfile::Production;
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            codes.contains("headers-contract"),
+            "expected headers-contract under Production profile; got {:?}",
+            codes
+        );
+    }
+
+    #[test]
+    fn doctor_warns_when_partial_headers_block_misses_required_slots() {
+        // Author opted in by declaring a `headers` block but only
+        // populated one slot. Strict profile (default) emits a
+        // warning naming the missing slots.
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  headers
+    csp "default-src 'self'"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            codes.contains("headers-contract"),
+            "expected headers-contract when partial headers block omits required slots; got {:?}",
+            codes
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_full_app_headers_block() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  headers
+    csp "default-src 'self'"
+    hsts max_age 31536000 include_subdomains preload
+    x_frame_options DENY
+    x_content_type_options nosniff
+    referrer_policy strict-origin-when-cross-origin
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            !codes.contains("headers-contract"),
+            "well-formed headers block must not produce headers-contract; got {:?}",
+            codes
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_unknown_referrer_policy_token() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  headers
+    csp "default-src 'self'"
+    hsts max_age 31536000
+    x_frame_options DENY
+    x_content_type_options nosniff
+    referrer_policy bogus-policy
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            codes.contains("headers-contract"),
+            "expected headers-contract for unknown referrer_policy; got {:?}",
+            codes
+        );
+        let message = diagnostics
+            .iter()
+            .find(|d| d.code == "headers-contract")
+            .map(|d| d.message.as_str())
+            .unwrap_or_default();
+        assert!(
+            message.contains("referrer_policy") || message.contains("bogus-policy"),
+            "diagnostic should name referrer_policy or the bad value; got {message}"
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_secret_rotation_overlap_longer_than_cadence() {
+        let package = package_from_sources(vec![(
+            "registry.lzi",
+            r#"
+registry
+  secret_rotation default
+    cadence 24h
+    overlap 48h
+    auto_rollback true
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            codes.contains("secret-rotation-overlap-contract"),
+            "expected secret-rotation-overlap-contract; got {:?}",
+            codes
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_secret_rotation_overlap_shorter_than_cadence() {
+        let package = package_from_sources(vec![(
+            "registry.lzi",
+            r#"
+registry
+  secret_rotation default
+    cadence 90d
+    overlap 24h
+    auto_rollback true
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            !codes.contains("secret-rotation-overlap-contract"),
+            "well-formed overlap must not fire; got {:?}",
+            codes
+        );
+    }
+
+    #[test]
+    fn doctor_rejects_encryption_key_pointing_at_unknown_rotation_profile() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app AcmeCRM
+  encryption
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+      rotation manual
+      rotation_profile not_declared
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            codes.contains("secret-rotation-binding-unknown"),
+            "expected secret-rotation-binding-unknown for missing profile; got {:?}",
+            codes
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_encryption_key_binding_to_declared_rotation_profile() {
+        let package = package_from_sources(vec![
+            (
+                "app.lzi",
+                r#"
+app AcmeCRM
+  encryption
+    key @key.tenant
+      source env.CRYPT_KEY_TENANT_{tenant_id}
+      algorithm aes_256_gcm
+      rotation manual
+      rotation_profile default
+"#,
+            ),
+            (
+                "registry.lzi",
+                r#"
+registry
+  secret_rotation default
+    cadence 90d
+    overlap 24h
+    auto_rollback true
+"#,
+            ),
+        ]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            !codes.contains("secret-rotation-binding-unknown"),
+            "declared profile must satisfy the binding; got {:?}",
+            codes
         );
     }
 }

@@ -445,6 +445,8 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(reserved_trace_event_diagnostics(source));
         diagnostics.extend(approval_contract_diagnostics(source));
         diagnostics.extend(cors_contract_diagnostics(source));
+        diagnostics.extend(headers_contract_diagnostics(source));
+        diagnostics.extend(secret_rotation_contract_diagnostics(source));
         diagnostics.extend(notification_contract_diagnostics(source));
         diagnostics.extend(emits_derived_diagnostics(source));
         diagnostics.extend(extension_declaration_diagnostics(source));
@@ -4421,6 +4423,234 @@ fn cors_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+/// Roadmap §1.10 — file-local shape checks on the `app.headers`
+/// block. Closed-catalog tokens (`referrer_policy`,
+/// `x_frame_options`, `x_content_type_options`) and basic HSTS
+/// shape gate here so the editor catches typos at the keystroke.
+/// Cross-feature checks (production-profile completeness) live in
+/// doctor's `headers-contract`.
+fn headers_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut in_headers = false;
+    let mut in_hsts_body = false;
+    for (line_index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+
+        if leading == 0 {
+            in_headers = false;
+            in_hsts_body = false;
+            continue;
+        }
+        if leading == 2 {
+            in_headers = trimmed == "headers";
+            in_hsts_body = false;
+            continue;
+        }
+        if !in_headers {
+            continue;
+        }
+        if leading == 4 {
+            // Reset HSTS body tracking on every indent-4 line; if
+            // the line is `hsts ...` it opens a new body, otherwise
+            // we close it.
+            in_hsts_body = false;
+            if let Some(rest) = trimmed.strip_prefix("x_content_type_options ") {
+                let value = rest.trim();
+                if !lazuli_ir::AppHeaders::is_x_content_type_options_known(value) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "headers_contract_diagnostics",
+                        &format!(
+                            "`app.headers x_content_type_options {value}` is invalid — the only legal token is `nosniff`."
+                        ),
+                    ));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("x_frame_options ") {
+                let value = rest.trim();
+                if !lazuli_ir::AppHeaders::is_x_frame_options_known(value) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "headers_contract_diagnostics",
+                        &format!(
+                            "`app.headers x_frame_options {value}` is invalid — closed catalog is `DENY`, `SAMEORIGIN`, or `ALLOW-FROM <uri>`."
+                        ),
+                    ));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("referrer_policy ") {
+                let value = rest.trim();
+                if !lazuli_ir::AppHeaders::is_referrer_policy_known(value) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "headers_contract_diagnostics",
+                        &format!(
+                            "`app.headers referrer_policy {value}` is invalid — closed catalog is `{}`.",
+                            lazuli_ir::AppHeaders::REFERRER_POLICY_CATALOG.join(", "),
+                        ),
+                    ));
+                }
+            } else if trimmed.starts_with("csp ") {
+                let rest = trimmed.strip_prefix("csp ").unwrap().trim();
+                if !rest.starts_with('"') {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "headers_contract_diagnostics",
+                        "`app.headers csp` requires a quoted policy string (e.g. `csp \"default-src 'self'\"`).",
+                    ));
+                }
+            } else if trimmed.starts_with("permissions_policy ") {
+                let rest = trimmed.strip_prefix("permissions_policy ").unwrap().trim();
+                if !rest.starts_with('"') {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "headers_contract_diagnostics",
+                        "`app.headers permissions_policy` requires a quoted policy string.",
+                    ));
+                }
+            } else if trimmed == "hsts" || trimmed.starts_with("hsts ") {
+                in_hsts_body = true;
+            } else {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "headers_contract_diagnostics",
+                    "`app.headers` children are `csp`, `hsts`, `x_frame_options`, `x_content_type_options`, `referrer_policy`, or `permissions_policy`.",
+                ));
+            }
+        } else if leading == 6 && in_hsts_body {
+            // HSTS body: closed catalog is `max_age <n>`,
+            // `include_subdomains`, `preload`.
+            if let Some(rest) = trimmed.strip_prefix("max_age ") {
+                if rest.trim().parse::<u64>().is_err() {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "headers_contract_diagnostics",
+                        "`app.headers hsts max_age` expects a non-negative integer (seconds).",
+                    ));
+                }
+            } else if trimmed != "include_subdomains" && trimmed != "preload" {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "headers_contract_diagnostics",
+                    "`app.headers hsts` children are `max_age <n>`, `include_subdomains`, or `preload`.",
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Roadmap §1.10 — file-local shape checks on `registry.secret_rotation
+/// <name>` profile blocks. Each profile must declare `cadence`,
+/// `overlap`, and `auto_rollback`; the children are closed-catalog
+/// tokens. Cross-feature checks (overlap > cadence, binding to an
+/// unknown profile) live in doctor.
+fn secret_rotation_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut in_registry = false;
+    let mut in_rotation = false;
+    for (line_index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            in_registry = trimmed == "registry";
+            in_rotation = false;
+            continue;
+        }
+        if !in_registry {
+            continue;
+        }
+        if leading == 2 {
+            in_rotation = false;
+            if let Some(rest) = trimmed.strip_prefix("secret_rotation ") {
+                let name = rest.trim();
+                if name.is_empty() || name.contains(char::is_whitespace) {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "secret_rotation_contract_diagnostics",
+                        "`secret_rotation` requires a single identifier name (e.g. `secret_rotation default`).",
+                    ));
+                } else {
+                    in_rotation = true;
+                }
+            }
+        } else if leading == 4 && in_rotation {
+            if let Some(rest) = trimmed.strip_prefix("cadence ") {
+                if lazuli_ir::security_duration::duration_seconds(rest.trim()).is_none() {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "secret_rotation_contract_diagnostics",
+                        "`secret_rotation cadence` expects a duration literal (e.g. `30d`, `24h`).",
+                    ));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("overlap ") {
+                if lazuli_ir::security_duration::duration_seconds(rest.trim()).is_none() {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "secret_rotation_contract_diagnostics",
+                        "`secret_rotation overlap` expects a duration literal (e.g. `24h`, `0h`).",
+                    ));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("auto_rollback ") {
+                let value = rest.trim();
+                if !matches!(value, "true" | "false") {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::ERROR,
+                        "secret_rotation_contract_diagnostics",
+                        &format!(
+                            "`secret_rotation auto_rollback {value}` is invalid — closed catalog is `true` or `false`."
+                        ),
+                    ));
+                }
+            } else {
+                diagnostics.push(simple_canonical_diagnostic(
+                    line_index,
+                    line,
+                    DiagnosticSeverity::ERROR,
+                    "secret_rotation_contract_diagnostics",
+                    "`secret_rotation` children are `cadence <duration>`, `overlap <duration>`, or `auto_rollback <bool>`.",
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
 /// Cut A.9 — file-local checks on `approval` blocks declared inside
 /// commands. Required children present (`by`, `timeout`, `then`),
 /// `then` value in the closed catalog, `by` non-empty. Cross-feature
@@ -7457,6 +7687,13 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 // "unknown app block" warning firing on
                 // `allow_origins` / `allow_credentials` / `max_age`.
                 Some("cors") => {}
+                // Roadmap §1.10 — `headers` children are handled by
+                // `headers_contract_diagnostics` (file-local shape) +
+                // doctor's `headers-contract` (closed catalogs +
+                // production-profile completeness). Skip here so the
+                // "unknown app block" warning does not fire on
+                // `csp` / `hsts` / `x_frame_options` etc.
+                Some("headers") => {}
                 // Observability bucket cycle row 36 — `logging` /
                 // `tracing` children are handled by
                 // `app_logging_tracing_diagnostics` (doctor) and the
@@ -7630,6 +7867,11 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         "environments" => Some("environments"),
         "urls" => Some("urls"),
         "cors" => Some("cors"),
+        // Roadmap §1.10 — `headers` block. Body validated by
+        // `headers_contract_diagnostics`; the LSP only needs to
+        // recognize the header so warnings don't fire on the
+        // children.
+        "headers" => Some("headers"),
         "env" => Some("env"),
         "integrations" => Some("integrations"),
         "capabilities" => Some("capabilities"),
@@ -7711,13 +7953,18 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     // LSP contract diagnostic only suppresses the
                     // unknown-block warning.
                     "webhook_events" => Some("webhook_events"),
+                    // Roadmap §1.10 — `secret_rotation <name>` is
+                    // a NAMED block at indent-2. Body shape
+                    // validated by
+                    // `secret_rotation_contract_diagnostics`.
+                    "secret_rotation" => Some("secret_rotation"),
                     _ => {
                         diagnostics.push(simple_canonical_diagnostic(
                             line_index,
                             line,
                             DiagnosticSeverity::WARNING,
                             "registry-contract",
-                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, `webhook_event <name>`, and `webhook_events`.",
+                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, `webhook_event <name>`, `webhook_events`, or `secret_rotation`.",
                         ));
                         None
                     }
@@ -12321,6 +12568,51 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "rotation" => Some(
             "Key rotation strategy on `encryption.key @key.<scope>`. v0 catalog: `manual` (rewrite env, re-encrypt rows via a job). `kms_managed` is deferred to a future cut.",
+        ),
+        "rotation_profile" => Some(
+            "Binds an `encryption.key @key.<scope>` to a `registry.secret_rotation <name>` profile. Cadence/overlap/auto_rollback live on the profile; the binding is a name reference. Doctor's `secret-rotation-binding-unknown` flags references to undeclared profiles.",
+        ),
+        // Roadmap §1.10 — `app.headers` keywords. Production-grade
+        // HTTP security defaults lifted into the closed catalog.
+        "headers" => Some(
+            "Production-grade HTTP security headers (`app.headers`). Closed-catalog children: `csp`, `hsts`, `x_frame_options`, `x_content_type_options`, `referrer_policy`, `permissions_policy`. Doctor's `headers-contract` flags omissions under the `production` security profile.",
+        ),
+        "csp" => Some(
+            "Content-Security-Policy header value (verbatim policy string). Authored as a quoted W3C CSP directive list, e.g. `csp \"default-src 'self'; script-src 'self' 'unsafe-inline'\"`. The runtime hands the value to the adapter unchanged.",
+        ),
+        "hsts" => Some(
+            "Strict-Transport-Security sub-block on `app.headers`. Inline form `hsts max_age 31536000 include_subdomains preload`; equivalent six-space body. `max_age` (seconds) is required; `include_subdomains` and `preload` are boolean flags.",
+        ),
+        "include_subdomains" => Some(
+            "Boolean flag on `app.headers hsts`. Sets the `includeSubDomains` directive on the Strict-Transport-Security header — opts every subdomain into the HSTS contract.",
+        ),
+        "preload" => Some(
+            "Boolean flag on `app.headers hsts`. Sets the `preload` directive — required for inclusion in the HSTS preload list browsers ship with.",
+        ),
+        "x_frame_options" => Some(
+            "X-Frame-Options header value on `app.headers`. Closed catalog: `DENY` (disallow framing), `SAMEORIGIN` (same-origin only), or `ALLOW-FROM <uri>` (legacy — prefer CSP `frame-ancestors`).",
+        ),
+        "x_content_type_options" => Some(
+            "X-Content-Type-Options header value on `app.headers`. Closed catalog: `nosniff` is the only legal token per the WHATWG fetch spec.",
+        ),
+        "referrer_policy" => Some(
+            "Referrer-Policy header value on `app.headers`. Closed catalog: `no-referrer`, `no-referrer-when-downgrade`, `origin`, `origin-when-cross-origin`, `same-origin`, `strict-origin`, `strict-origin-when-cross-origin`, `unsafe-url`.",
+        ),
+        "permissions_policy" => Some(
+            "Permissions-Policy header value (verbatim policy string). Authored as a quoted W3C Permissions Policy directive list, e.g. `permissions_policy \"geolocation=(), camera=()\"`. Runtime hands the value to the adapter unchanged.",
+        ),
+        // Roadmap §1.10 — `registry.secret_rotation` profile kind.
+        "secret_rotation" => Some(
+            "Declares a secret-rotation policy profile in `registry.lzi`. Body: `cadence <duration>` (how often the secret rolls), `overlap <duration>` (grace window during which both old + new are accepted), `auto_rollback <bool>`. Bind a profile via `app.encryption.key @key.<scope> rotation_profile <name>`.",
+        ),
+        "cadence" => Some(
+            "On `secret_rotation <name>`, declares how often the secret rolls. Closed unit catalog: `s`, `m`, `h`, `d`. Doctor's `secret-rotation-overlap-contract` enforces `overlap < cadence`.",
+        ),
+        "overlap" => Some(
+            "On `secret_rotation <name>`, declares the grace window during which the previous secret is still accepted alongside the new one. Closed unit catalog: `s`, `m`, `h`, `d`. Must be strictly shorter than `cadence`.",
+        ),
+        "auto_rollback" => Some(
+            "On `secret_rotation <name>`, a boolean flag. When `true`, the runtime reverts to the previous secret if a fresh rollover fails its smoke check.",
         ),
         "reason" => Some("Documents why a dangerous declarative override is intentional."),
         "requires" => Some(
