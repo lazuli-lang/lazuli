@@ -201,6 +201,7 @@ mod tests {
             tenant_migrations: vec![],
             translation: None,
             pollers: vec![],
+            channels: vec![],
             auth: Some(Auth {
                 identity: AuthIdentity {
                     field: FieldRef {

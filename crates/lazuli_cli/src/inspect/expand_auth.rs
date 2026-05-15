@@ -149,6 +149,7 @@ mod tests {
             tenant_migrations: vec![],
             translation: None,
             pollers: vec![],
+            channels: vec![],
             auth,
             surfaces: vec![],
             extensions: vec![],

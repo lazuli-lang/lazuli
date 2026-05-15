@@ -314,6 +314,7 @@ mod tests {
             tenant_migrations: vec![],
             translation: None,
             pollers: vec![],
+            channels: vec![],
             auth: None,
             surfaces: vec![],
             extensions: vec![],
