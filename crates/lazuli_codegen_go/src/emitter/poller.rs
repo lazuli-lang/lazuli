@@ -19,6 +19,7 @@ use lazuli_ir::{
 
 use super::casing::pascal_case;
 use super::imports::ImportSet;
+use super::patterns::{PATTERN_POLLER_REGISTER, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/poller.gen.go` for a feature, or `None` when the
@@ -60,6 +61,7 @@ pub fn emit_poller_file(source_label: &str, feature: &Feature) -> Option<String>
     let mut pollers: Vec<&Poller> = feature.pollers.iter().collect();
     pollers.sort_by(|a, b| a.name.cmp(&b.name));
 
+    emit_pattern_header(&mut p, PATTERN_POLLER_REGISTER);
     p.line("func RegisterPollers(r *poller.Registry) {");
     p.indent();
     for poll in &pollers {
@@ -412,6 +414,7 @@ mod tests {
     fn emits_register_function_with_spec_literal() {
         let feat = mk_feature(mk_poller());
         let out = emit_poller_file("multi_bank.lzi", &feat).expect("emits");
+        assert!(out.contains("//lazuli:pattern poller_register v1\nfunc RegisterPollers"));
         assert!(out.contains("func RegisterPollers"));
         assert!(out.contains("poller.Register(r, poller.Spec["));
         assert!(out.contains("\"multi_bank.v8_consult_resolver\""));
