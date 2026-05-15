@@ -868,6 +868,10 @@ impl DoctorPackage {
         for file in &self.files {
             diagnostics.extend(file.local_diagnostics.clone());
         }
+        diagnostics.extend(vocab_grammar_form_diagnostics(
+            &self.files,
+            self.security_profile,
+        ));
 
         diagnostics.extend(lazuli_version_001_diagnostics(
             self.app.as_ref(),
@@ -1095,6 +1099,36 @@ fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
         SecurityProfile::Production => DoctorSeverity::Error,
         SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
     }
+}
+
+fn vocab_grammar_form_diagnostics(
+    files: &[DoctorFile],
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+
+    let severity = doctor_rule_severity(security_profile);
+    files
+        .iter()
+        .filter(|file| is_lzi_path(&file.path))
+        .flat_map(|file| {
+            vocab::vocab_grammar_form_001::check(&file.source, &file.path)
+                .into_iter()
+                .map(move |finding| {
+                    let message = finding.message();
+                    DoctorDiagnostic {
+                        path: finding.path,
+                        line: finding.line,
+                        column: finding.column,
+                        severity,
+                        code: vocab::vocab_grammar_form_001::Finding::CODE.to_owned(),
+                        message,
+                    }
+                })
+        })
+        .collect()
 }
 
 fn folder_layout_diagnostics(

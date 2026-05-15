@@ -1,45 +1,36 @@
-//! VOCAB-GRAMMAR-FORM-001 - legacy curly-brace dialect in `.lzi` source.
+//! VOCAB-GRAMMAR-FORM-001 — deprecated `.lzi` grammar forms.
 //!
-//! Fires when a block keyword opens with `{` rather than the canonical
-//! indentation form. Two forms for one concept is a Rule Zero violation:
-//! agents trained on either form drift.
+//! Fires on compatibility forms that still parse for migration windows but are
+//! no longer canonical authoring vocabulary:
+//! - `validates resource @validator.X`
+//! - `validates field <name> @validator.X`
+//! - inline `previously migrated|alias <old>` on a kind/field header
+//! - `validate "./path.go"`
 //!
-//! NOTE: this rule walks the RAW SOURCE TEXT, not the IR. Lowering strips
-//! the dialect signal.
-//!
-//! Severity: `warning` (strict), `warning` (production).
+//! Severity: `warning` (strict), `error` (production). Prototype callers may
+//! choose to suppress this rule.
 
 use std::path::{Path, PathBuf};
 
-const KEYWORDS_WITH_BLOCK: &[&str] = &[
-    "aggregate",
-    "resource",
-    "feature",
-    "domain",
-    "policies",
-    "command",
-    "query.list",
-    "query.lookup",
-    "query.sql",
-    "workflow",
-    "job",
-    "webhook",
-    "notification",
-];
+use lazuli_syntax::{FeatureSkeleton, ResourceDecl, parse_feature_skeletons};
+
+const RECIPE: &str = "migrations/recipes/v0.X-to-v0.Y/VOCAB-GRAMMAR-FORM-001.md";
 
 // -- output -------------------------------------------------------------------
 
-/// One VOCAB-GRAMMAR-FORM-001 finding: a block opened with `{`.
+/// One VOCAB-GRAMMAR-FORM-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     /// Source `.lzi` file.
     pub path: PathBuf,
     /// 1-indexed source line.
     pub line: usize,
-    /// Offending block keyword.
-    pub keyword: String,
-    /// Original source line.
-    pub raw_line: String,
+    /// 1-indexed source column.
+    pub column: usize,
+    /// Deprecated authored form.
+    pub old: String,
+    /// Canonical replacement.
+    pub new: String,
 }
 
 impl Finding {
@@ -47,42 +38,193 @@ impl Finding {
 
     pub fn message(&self) -> String {
         format!(
-            "line {} uses curly-brace dialect (`{} ... {{`) - Lazuli's canonical \
-             form is indentation-based. Rewrite to indented children. \
-             Rule Zero forbids two grammatical forms for one concept.",
-            self.line, self.keyword
+            "deprecated form '{}'; use '{}'. Hint: see {} if present.",
+            self.old, self.new, RECIPE
         )
     }
 }
 
 // -- detection ----------------------------------------------------------------
 
-/// Run VOCAB-GRAMMAR-FORM-001 over raw `.lzi` source text.
+/// Run VOCAB-GRAMMAR-FORM-001 over one `.lzi` source.
 ///
-/// `path` is the source `.lzi` file - used to anchor findings; no I/O is
-/// performed here. This rule intentionally does not accept IR because lowering
-/// strips the legacy grammar form.
+/// The primary path uses the canonical-indent parser so the rule walks feature
+/// and resource blocks, not package-wide regexes. Inline `previously` provenance
+/// is not preserved by the current AST; for that form we inspect the parsed
+/// resource and field header lines inside their spans.
 pub fn check(source: &str, path: &Path) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    if let Ok(features) = parse_feature_skeletons(source) {
+        for feature in &features {
+            findings.extend(check_feature(source, feature, path));
+        }
+    }
+
+    findings.extend(check_legacy_scoped_validates(source, path));
+    findings.extend(check_inline_previously_headers(source, path));
+    findings.extend(check_legacy_validate_path(source, path));
+    findings.sort_by_key(|finding| (finding.line, finding.column, finding.old.clone()));
+    findings.dedup_by(|left, right| {
+        left.line == right.line && left.column == right.column && left.old == right.old
+    });
+    findings
+}
+
+fn check_feature(source: &str, feature: &FeatureSkeleton, path: &Path) -> Vec<Finding> {
+    feature
+        .resources
+        .iter()
+        .flat_map(|resource| check_resource(source, resource, path))
+        .collect()
+}
+
+fn check_resource(source: &str, resource: &ResourceDecl, path: &Path) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    for validates in &resource.validates {
+        let Some((line, column)) = find_line_in_span(
+            source,
+            resource.span.start,
+            resource.span.end,
+            "validates",
+            validates,
+        ) else {
+            continue;
+        };
+
+        if let Some(rest) = validates.strip_prefix("resource ") {
+            if rest.trim_start().starts_with("@validator.") {
+                findings.push(Finding {
+                    path: path.to_path_buf(),
+                    line,
+                    column,
+                    old: format!("validates resource {}", rest.trim()),
+                    new: format!("validates {}", rest.trim()),
+                });
+            }
+        } else if let Some(rest) = validates.strip_prefix("field ") {
+            let mut parts = rest.split_whitespace();
+            let Some(field_name) = parts.next() else {
+                continue;
+            };
+            let Some(target) = parts.next() else {
+                continue;
+            };
+            if target.starts_with("@validator.") {
+                findings.push(Finding {
+                    path: path.to_path_buf(),
+                    line,
+                    column,
+                    old: format!("validates field {field_name} {target}"),
+                    new: format!("validates {target}"),
+                });
+            }
+        }
+    }
+
+    if let Some(header) = line_at_offset(source, resource.span.start) {
+        if let Some((old, new, column)) = inline_previously_header_form(header.text) {
+            findings.push(Finding {
+                path: path.to_path_buf(),
+                line: header.line,
+                column,
+                old,
+                new,
+            });
+        }
+    }
+
+    for field in &resource.fields {
+        if let Some(header) = line_at_offset(source, field.span.start) {
+            if let Some((old, new, column)) = inline_previously_header_form(header.text) {
+                findings.push(Finding {
+                    path: path.to_path_buf(),
+                    line: header.line,
+                    column,
+                    old,
+                    new,
+                });
+            }
+        }
+    }
+
+    findings
+}
+
+fn check_legacy_validate_path(source: &str, path: &Path) -> Vec<Finding> {
     source
         .lines()
         .enumerate()
         .filter_map(|(idx, raw_line)| {
-            let line_without_comment = strip_comment_outside_string(raw_line);
-            let trimmed = line_without_comment.trim();
-            if trimmed.is_empty() || !line_ends_with_open_brace(trimmed) {
+            let trimmed = strip_comment(raw_line).trim_start().trim_end();
+            let rest = trimmed.strip_prefix("validate ")?;
+            if !rest.trim_start().starts_with('"') {
                 return None;
             }
+            Some(Finding {
+                path: path.to_path_buf(),
+                line: idx + 1,
+                column: raw_line.find("validate").map(|c| c + 1).unwrap_or(1),
+                old: format!("validate {}", rest.trim()),
+                new: format!("validates field <name> {}", rest.trim()),
+            })
+        })
+        .collect()
+}
 
-            let keyword = leading_keyword(trimmed)?;
-            if !KEYWORDS_WITH_BLOCK.contains(&keyword.as_str()) {
+fn check_legacy_scoped_validates(source: &str, path: &Path) -> Vec<Finding> {
+    source
+        .lines()
+        .enumerate()
+        .filter_map(|(idx, raw_line)| {
+            let trimmed = strip_comment(raw_line).trim_start().trim_end();
+            let rest = trimmed.strip_prefix("validates ")?;
+
+            if let Some(target) = rest.strip_prefix("resource ") {
+                let target = target.trim();
+                if target.starts_with("@validator.") {
+                    return Some(Finding {
+                        path: path.to_path_buf(),
+                        line: idx + 1,
+                        column: raw_line.find("validates").map(|c| c + 1).unwrap_or(1),
+                        old: format!("validates resource {target}"),
+                        new: format!("validates {target}"),
+                    });
+                }
+            }
+
+            let field_rest = rest.strip_prefix("field ")?;
+            let mut parts = field_rest.split_whitespace();
+            let field_name = parts.next()?;
+            let target = parts.next()?;
+            if !target.starts_with("@validator.") {
                 return None;
             }
 
             Some(Finding {
                 path: path.to_path_buf(),
                 line: idx + 1,
-                keyword,
-                raw_line: raw_line.to_owned(),
+                column: raw_line.find("validates").map(|c| c + 1).unwrap_or(1),
+                old: format!("validates field {field_name} {target}"),
+                new: format!("validates {target}"),
+            })
+        })
+        .collect()
+}
+
+fn check_inline_previously_headers(source: &str, path: &Path) -> Vec<Finding> {
+    source
+        .lines()
+        .enumerate()
+        .filter_map(|(idx, raw_line)| {
+            let (old, new, column) = inline_previously_header_form(raw_line)?;
+            Some(Finding {
+                path: path.to_path_buf(),
+                line: idx + 1,
+                column,
+                old,
+                new,
             })
         })
         .collect()
@@ -90,64 +232,88 @@ pub fn check(source: &str, path: &Path) -> Vec<Finding> {
 
 // -- internals ----------------------------------------------------------------
 
-fn line_ends_with_open_brace(line: &str) -> bool {
-    let line_without_comment = strip_comment_outside_string(line);
-    let trimmed = line_without_comment.trim_end();
-    trimmed.ends_with('{') && !brace_is_inside_string(trimmed)
+#[derive(Debug, Clone, Copy)]
+struct SourceLine<'a> {
+    line: usize,
+    text: &'a str,
 }
 
-fn leading_keyword(line: &str) -> Option<String> {
-    let line_without_comment = strip_comment_outside_string(line);
-    let mut parts = line_without_comment.split_whitespace();
-    let first = parts.next()?;
-
-    // Require at least one whitespace-separated token after the keyword so
-    // `aggregate {` and `aggregate Customer {` are accepted, but `aggregate{`
-    // is not treated as a grammar form.
-    parts.next()?;
-
-    if first
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
-    {
-        Some(first.to_owned())
-    } else {
-        None
+fn line_at_offset(source: &str, offset: usize) -> Option<SourceLine<'_>> {
+    let mut start = 0usize;
+    for (idx, line) in source.lines().enumerate() {
+        let end = start + line.len();
+        if offset >= start && offset <= end {
+            return Some(SourceLine {
+                line: idx + 1,
+                text: line,
+            });
+        }
+        start = end + 1;
     }
+    None
 }
 
-fn strip_comment_outside_string(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for ch in line.chars() {
-        if ch == '#' && !in_string {
+fn find_line_in_span(
+    source: &str,
+    start: usize,
+    end: usize,
+    keyword: &str,
+    tail: &str,
+) -> Option<(usize, usize)> {
+    let target = format!("{keyword} {tail}");
+    let mut offset = 0usize;
+    for (idx, raw_line) in source.lines().enumerate() {
+        let line_end = offset + raw_line.len();
+        if line_end < start {
+            offset = line_end + 1;
+            continue;
+        }
+        if offset > end {
             break;
         }
 
-        out.push(ch);
-
-        if ch == '"' && !escaped {
-            in_string = !in_string;
+        let without_comment = strip_comment(raw_line);
+        if without_comment.trim() == target {
+            let column = raw_line.find(keyword).map(|col| col + 1).unwrap_or(1);
+            return Some((idx + 1, column));
         }
-
-        escaped = ch == '\\' && !escaped;
-        if ch != '\\' {
-            escaped = false;
-        }
+        offset = line_end + 1;
     }
-
-    out
+    None
 }
 
-fn brace_is_inside_string(line: &str) -> bool {
+fn inline_previously_header_form(line: &str) -> Option<(String, String, usize)> {
+    let stripped = strip_comment(line);
+    let trimmed = stripped.trim();
+    let marker = if let Some(index) = trimmed.find(" previously migrated ") {
+        ("previously migrated", index)
+    } else if let Some(index) = trimmed.find(" previously alias ") {
+        ("previously alias", index)
+    } else {
+        return None;
+    };
+
+    let old_name = trimmed[marker.1 + marker.0.len() + 2..]
+        .split_whitespace()
+        .next()?;
+    let header = trimmed[..marker.1].trim_end();
+    let indent = line.find(header).unwrap_or(0);
+    let child_indent = " ".repeat(indent + 2);
+
+    Some((
+        format!("{header} {} {old_name}", marker.0),
+        format!("{header}\n{child_indent}{} {old_name}", marker.0),
+        line.find(marker.0).map(|col| col + 1).unwrap_or(1),
+    ))
+}
+
+fn strip_comment(line: &str) -> &str {
     let mut in_string = false;
     let mut escaped = false;
 
-    for ch in line.chars() {
-        if ch == '{' && !in_string {
-            return false;
+    for (idx, ch) in line.char_indices() {
+        if ch == '#' && !in_string {
+            return &line[..idx];
         }
 
         if ch == '"' && !escaped {
@@ -160,7 +326,7 @@ fn brace_is_inside_string(line: &str) -> bool {
         }
     }
 
-    true
+    line
 }
 
 // -- tests --------------------------------------------------------------------
@@ -173,80 +339,129 @@ mod tests {
         check(source, Path::new("features/test/test.lzi"))
     }
 
+    fn feature(body: &str) -> String {
+        format!("feature test\n  domain\n{body}")
+    }
+
     #[test]
-    fn positive_aggregate_open_brace_fires() {
-        let findings = check_src("aggregate Customer {\n  ...\n}");
+    fn positive_validates_resource_validator_fires() {
+        let findings = check_src(&feature(
+            "    resource Account\n      id: ID required\n      validates resource @validator.account\n",
+        ));
+
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].line, 1);
-        assert_eq!(findings[0].keyword, "aggregate");
+        assert_eq!(findings[0].old, "validates resource @validator.account");
+        assert_eq!(findings[0].new, "validates @validator.account");
         assert_eq!(Finding::CODE, "VOCAB-GRAMMAR-FORM-001");
     }
 
     #[test]
-    fn positive_resource_open_brace_fires() {
-        let findings = check_src("resource Post {\n  title: Text\n}");
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].line, 1);
-        assert_eq!(findings[0].keyword, "resource");
-    }
-
-    #[test]
-    fn positive_command_with_args_open_brace_fires() {
-        let findings = check_src("command update_status {\n  ...\n}");
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].line, 1);
-        assert_eq!(findings[0].keyword, "command");
-    }
-
-    #[test]
-    fn negative_indented_resource_does_not_fire() {
-        assert!(check_src("resource Post\n  title: Text\n").is_empty());
-    }
-
-    #[test]
-    fn negative_default_inline_literal_does_not_fire() {
-        assert!(check_src("  status: Text default { value: \"draft\" }").is_empty());
-    }
-
-    #[test]
-    fn negative_comment_with_brace_does_not_fire() {
-        assert!(check_src("# aggregate Customer { ... }").is_empty());
-    }
-
-    #[test]
-    fn negative_string_literal_brace_does_not_fire() {
-        assert!(check_src("  body: Text default \"resource {x}\"").is_empty());
-    }
-
-    #[test]
-    fn multiple_fires_one_per_line() {
-        let findings = check_src(
-            "feature crm {\n  domain {\n    resource Customer {\n      name: Text\n    }\n  }\n}",
+    fn negative_canonical_validates_validator_does_not_fire() {
+        assert!(
+            check_src(&feature(
+                "    resource Account\n      id: ID required\n      validates @validator.account\n",
+            ))
+            .is_empty()
         );
+    }
 
-        assert_eq!(findings.len(), 3);
+    #[test]
+    fn positive_validates_field_validator_fires() {
+        let findings = check_src(&feature(
+            "    resource Account\n      email: Text required\n      validates field email @validator.email\n",
+        ));
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].old, "validates field email @validator.email");
+        assert_eq!(findings[0].new, "validates @validator.email");
+    }
+
+    #[test]
+    fn negative_resource_inline_validator_path_does_not_count_as_scoped_validator() {
+        assert!(check_src(&feature(
+            "    resource Account\n      id: ID required\n      validates resource \"./account.go\"\n",
+        ))
+        .is_empty());
+    }
+
+    #[test]
+    fn positive_inline_previously_on_resource_header_fires() {
+        let findings = check_src(&feature(
+            "    resource Account previously migrated Customer\n      id: ID required\n",
+        ));
+
+        assert_eq!(findings.len(), 1);
         assert_eq!(
-            findings.iter().map(|f| f.line).collect::<Vec<_>>(),
-            vec![1, 2, 3]
+            findings[0].old,
+            "resource Account previously migrated Customer"
         );
-        assert_eq!(
+        assert!(
+            findings[0]
+                .new
+                .contains("\n      previously migrated Customer")
+        );
+    }
+
+    #[test]
+    fn negative_child_previously_does_not_fire() {
+        assert!(
+            check_src(&feature(
+                "    resource Account\n      previously migrated Customer\n      id: ID required\n",
+            ))
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn positive_validate_path_fires() {
+        let findings = check_src(&feature(
+            "    resource Account\n      id: ID required\n      validate \"./account.go\"\n",
+        ));
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].old, "validate \"./account.go\"");
+        assert_eq!(findings[0].new, "validates field <name> \"./account.go\"");
+    }
+
+    #[test]
+    fn negative_command_validate_validator_does_not_fire() {
+        assert!(
+            check_src("feature test\n  command create\n    validate @validator.account\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn golden_combines_all_four_forms() {
+        let findings = check_src(&feature(
+            "    resource Account previously alias Customer\n      id: ID required\n      email: Text required previously migrated email_address\n      validates resource @validator.account\n      validates field email @validator.email\n      validate \"./account.go\"\n",
+        ));
+
+        assert_eq!(findings.len(), 5);
+        assert!(
             findings
                 .iter()
-                .map(|f| f.keyword.as_str())
-                .collect::<Vec<_>>(),
-            vec!["feature", "domain", "resource"]
+                .any(|f| f.old == "validates resource @validator.account")
         );
-    }
-
-    #[test]
-    fn negative_comment_after_canonical_line_does_not_fire() {
-        assert!(check_src("resource Post # legacy example {").is_empty());
-    }
-
-    #[test]
-    fn positive_trailing_comment_after_open_brace_fires() {
-        let findings = check_src("resource Post { # legacy dialect");
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].keyword, "resource");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.old == "validates field email @validator.email")
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.old == "resource Account previously alias Customer")
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.old == "email: Text required previously migrated email_address")
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.old == "validate \"./account.go\"")
+        );
     }
 }

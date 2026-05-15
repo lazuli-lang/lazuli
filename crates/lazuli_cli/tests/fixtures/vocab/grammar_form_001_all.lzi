@@ -1,0 +1,9 @@
+# Doctor fixture — VOCAB-GRAMMAR-FORM-001 combined deprecated forms.
+feature grammar_form
+  domain
+    resource Account previously alias Customer
+      id: ID required
+      email: Text required previously migrated email_address
+      validates resource @validator.account
+      validates field email @validator.email
+      validate "./account.go"
