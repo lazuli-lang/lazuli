@@ -139,7 +139,7 @@ fn validate_curated_example(
     let example = load_curated_example(path)?;
     let lzi_path = path.join(format!("{}.lzi", example.name));
 
-    super::check_command(&lzi_path, super::CheckSecurityProfile::Prototype)?;
+    super::check_command(&lzi_path, super::CheckSecurityProfile::Prototype, false)?;
 
     let source = fs::read_to_string(&lzi_path)?;
     let inspect_path = lzi_path.strip_prefix(project_root).unwrap_or(&lzi_path);

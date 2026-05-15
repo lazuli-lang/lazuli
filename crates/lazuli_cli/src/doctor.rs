@@ -32,7 +32,19 @@ pub fn doctor_command(
     input: &Path,
     security_profile: SecurityProfile,
     check_release: bool,
+    allow_version_mismatch: bool,
 ) -> Result<()> {
+    if !allow_version_mismatch {
+        let project_root = doctor_project_root(input);
+        let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+            format!(
+                "failed to load {}",
+                project_root.join("lazurite.toml").display()
+            )
+        })?;
+        crate::version::enforce_manifest_pin(manifest.as_ref())?;
+    }
+
     if check_release {
         return doctor_release_command(input);
     }
@@ -12180,7 +12192,7 @@ runtime = "v0.1.0"
         fs::create_dir_all(&root).expect("create temp doctor project");
         fs::write(root.join("app.lzi"), "app NoManifest\n").expect("write app.lzi");
 
-        let result = doctor_command(&root, SecurityProfile::Strict, false);
+        let result = doctor_command(&root, SecurityProfile::Strict, false, false);
         let _ = fs::remove_dir_all(&root);
 
         result.expect("doctor should pass without lazurite.toml when no @plugin/* refs");
@@ -12189,14 +12201,14 @@ runtime = "v0.1.0"
     #[test]
     fn doctor_passes_full_capsule_without_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/full-capsule");
-        doctor_command(&root, SecurityProfile::Strict, false)
+        doctor_command(&root, SecurityProfile::Strict, false, false)
             .expect("full-capsule should pass without lazurite.toml");
     }
 
     #[test]
     fn doctor_passes_auth_roundtrip_without_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/auth-roundtrip");
-        doctor_command(&root, SecurityProfile::Strict, false)
+        doctor_command(&root, SecurityProfile::Strict, false, false)
             .expect("auth-roundtrip should pass without lazurite.toml");
     }
 
@@ -12218,7 +12230,7 @@ feature billing
         )
         .expect("write app.lzi");
 
-        let result = doctor_command(&root, SecurityProfile::Strict, false);
+        let result = doctor_command(&root, SecurityProfile::Strict, false, false);
         let _ = fs::remove_dir_all(&root);
 
         let error = result.expect_err("doctor should fail when @plugin refs lack lazurite.toml");

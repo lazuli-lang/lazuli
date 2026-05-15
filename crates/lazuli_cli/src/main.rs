@@ -26,6 +26,7 @@ mod profile;
 mod seed;
 mod templates;
 mod upgrade;
+mod version;
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =
@@ -52,11 +53,17 @@ build/
 "#;
 
 #[derive(Debug, Parser)]
-#[command(name = "lazuli")]
+#[command(name = "lazuli", version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Lazuli application metalinguage compiler")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// Skip the lazurite.toml [lazuli] runtime version pin check.
+    ///
+    /// Use when intentionally bumping mid-project; ship a follow-up commit
+    /// updating lazurite.toml to match the new pin.
+    #[arg(long, global = true)]
+    allow_version_mismatch: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -611,12 +618,17 @@ fn main() -> Result<()> {
         Commands::Check {
             input,
             security_profile,
-        } => check_command(&input, security_profile),
+        } => check_command(&input, security_profile, cli.allow_version_mismatch),
         Commands::Doctor {
             input,
             security_profile,
             check_release,
-        } => doctor::doctor_command(&input, security_profile.into(), check_release),
+        } => doctor::doctor_command(
+            &input,
+            security_profile.into(),
+            check_release,
+            cli.allow_version_mismatch,
+        ),
         Commands::Compile { input, out } => compile_command(&input, &out),
         Commands::Inspect {
             input,
@@ -688,6 +700,7 @@ fn main() -> Result<()> {
             lazuli_go_version.as_deref(),
             check,
             with_source,
+            cli.allow_version_mismatch,
         ),
         Commands::Dev {
             path,
@@ -768,7 +781,19 @@ fn generate_command(
     lazuli_go_version: Option<&str>,
     check: bool,
     with_source: bool,
+    allow_version_mismatch: bool,
 ) -> Result<()> {
+    if !allow_version_mismatch {
+        let project_root = project_root_for_input(input);
+        let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+            format!(
+                "failed to read {}",
+                project_root.join("lazurite.toml").display()
+            )
+        })?;
+        version::enforce_manifest_pin(manifest.as_ref())?;
+    }
+
     match kind {
         GenerateKind::Openapi => generate_openapi(input, output, api_version),
         GenerateKind::Go => {
@@ -2934,7 +2959,22 @@ fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-fn check_command(input: &Path, security_profile: CheckSecurityProfile) -> Result<()> {
+fn check_command(
+    input: &Path,
+    security_profile: CheckSecurityProfile,
+    allow_version_mismatch: bool,
+) -> Result<()> {
+    if !allow_version_mismatch {
+        let project_root = project_root_for_input(input);
+        let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+            format!(
+                "failed to read {}",
+                project_root.join("lazurite.toml").display()
+            )
+        })?;
+        version::enforce_manifest_pin(manifest.as_ref())?;
+    }
+
     let source =
         fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
     let diagnostics =
@@ -3548,7 +3588,7 @@ fn run_go_mod_tidy(project: &Path) -> Result<()> {
 }
 
 fn run_doctor_sanity_check(project: &Path) -> Result<()> {
-    doctor::doctor_command(project, SecurityProfile::Strict, false)
+    doctor::doctor_command(project, SecurityProfile::Strict, false, false)
 }
 
 fn run_command(project: &Path, program: &str, args: &[&str]) -> Result<()> {

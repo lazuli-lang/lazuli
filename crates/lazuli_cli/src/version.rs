@@ -1,0 +1,51 @@
+//! Compile-time version pin for Lazuli CLI/runtime compatibility checks.
+
+use anyhow::{Result, bail};
+
+use crate::lazurite_manifest::Manifest;
+
+pub const LAZULI_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub fn manifest_pin_matches(declared: &str) -> bool {
+    declared.trim() == LAZULI_VERSION
+}
+
+pub fn enforce_manifest_pin(manifest: Option<&Manifest>) -> Result<()> {
+    let Some(manifest) = manifest else {
+        return Ok(());
+    };
+    let Some(declared) = manifest.lazuli_runtime_version() else {
+        return Ok(());
+    };
+
+    if manifest_pin_matches(declared) {
+        return Ok(());
+    }
+
+    bail!(
+        "lazurite.toml `[lazuli] runtime = \"{declared}\"` does not match installed Lazuli version `{}`. \
+         Pin mismatch can produce incompatible output. \
+         Pass `--allow-version-mismatch` to override (and update lazurite.toml in a follow-up commit).",
+        LAZULI_VERSION
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_version_matches() {
+        assert!(manifest_pin_matches(LAZULI_VERSION));
+    }
+
+    #[test]
+    fn different_version_does_not_match() {
+        assert!(!manifest_pin_matches("0.0.0"));
+    }
+
+    #[test]
+    fn whitespace_is_trimmed() {
+        assert!(manifest_pin_matches(&format!(" {LAZULI_VERSION} ")));
+    }
+}

@@ -192,6 +192,10 @@ pub fn resolve_in_app_dir(project_root: &Path, file: &str) -> std::path::PathBuf
 }
 
 impl Manifest {
+    pub fn lazuli_runtime_version(&self) -> Option<&str> {
+        Some(self.lazuli.runtime.as_str())
+    }
+
     /// Resolved path to the directory containing `app.lzi`, `design.lzi`,
     /// and `registry.lzi`. Returns `project_root.join(app_dir)` when
     /// `[lazurite] app_dir` is set, otherwise `project_root` itself
