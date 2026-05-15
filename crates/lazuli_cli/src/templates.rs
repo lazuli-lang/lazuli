@@ -353,7 +353,7 @@ pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
 }
 "#;
 
-/// `lazurite.toml [frontends.<x>]` snippet appended when --frontends flag set
+/// `Lazurite.toml [frontends.<x>]` snippet appended when --frontends flag set
 pub const FRONTEND_MANIFEST_WEB_SNIPPET: &str = r#"
 [frontends.web]
 target = "tanstack-vite"

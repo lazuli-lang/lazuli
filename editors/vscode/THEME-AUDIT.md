@@ -131,7 +131,7 @@ The `akamud.vscode-theme-onedark` package was used as a stand-in for the popular
 | `punctuation.separator.comma.lazuli` | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | gen | OK |
 | `punctuation.separator.key-value.lazuli` | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | OK | gen |
 | `punctuation.separator.type.lazuli` | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | gen | gen |
-| `entity.name.namespace.lazurite.toml` | OK | OK | OK | OK | OK | OK | OK | gen |
+| `entity.name.namespace.Lazurite.toml` | OK | OK | OK | OK | OK | OK | OK | gen |
 | `entity.name.tag.lazurite-target.toml` | OK | OK | OK | OK | OK | OK | OK | OK |
 | `support.function.lazurite-key.toml` | gen | gen | gen | gen | gen | gen | gen | gen |
 | `entity.name.reference.plugin.lazuli` | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | **NONE** | gen |
@@ -250,7 +250,7 @@ Five scopes (`anchor`, `decorator`, `model-path`, `package`, `semantic`) plus th
 
 **Suggested grammar change** (a follow-up cell, not part of this audit):
 
-- For `entity.name.reference.package.lazuli` (e.g. `@runtime/postgres`) — add the parallel scope `support.class.import.lazuli` or `entity.name.namespace.package.lazuli`. The `entity.name.namespace` form is universally supported (it already gets `OK` for `entity.name.namespace.lazurite.toml` in 7 of 8 themes).
+- For `entity.name.reference.package.lazuli` (e.g. `@runtime/postgres`) — add the parallel scope `support.class.import.lazuli` or `entity.name.namespace.package.lazuli`. The `entity.name.namespace` form is universally supported (it already gets `OK` for `entity.name.namespace.Lazurite.toml` in 7 of 8 themes).
 - For `entity.name.reference.decorator.lazuli` and `entity.name.reference.anchor.lazuli` — these are decorator-shaped (`@foo.bar` / `@anchor.x`); add a parallel `entity.name.tag.X.lazuli` scope so they pick up the same color as the existing curated decorator catalog (`entity.name.tag.decorator.lazuli` is `OK` in all 8 themes).
 - For `entity.name.reference.model-path.lazuli` (e.g. `Item.tags`) — add a parallel `support.class.model-path.lazuli` or `entity.name.type.reference.lazuli` (the `entity.name.type` parent is `OK` in all 8 themes).
 - For `entity.name.reference.semantic.lazuli` (e.g. `params.id`) — add a parallel `variable.other.property.lazuli`. The `variable.other` parent is universally generic-matched so the token always gets a color.

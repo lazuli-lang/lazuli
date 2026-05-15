@@ -3,7 +3,7 @@
 **Status:** Draft v0.3 — 2026-05-13 (Nuxt-analogy rename + frontend topology + §3.3 Lazuli→Lazurite primitive map; v0.2 was 8.68/10 PASS, v0.1 was 7.6/10 BLOCK; v0.3 graded 9.19/10 PASS pre-§3.3, §3.3 added post-grade as boundary clarification per user query)
 **Author:** Claude Opus 4.7 (orchestrator)
 **Audit-ready target:** ≥ 9.0 via `lazuli-language-architect`
-**Supersedes / amends:** `docs/project-structure.md:101` (older `lazuli.toml` hand-wave deprecated — manifest is now `lazurite.toml`), `docs/architecture.md` (§Lazuli vs Lazurite)
+**Supersedes / amends:** `docs/project-structure.md:101` (older `lazuli.toml` hand-wave deprecated — manifest is now `Lazurite.toml`), `docs/architecture.md` (§Lazuli vs Lazurite)
 **Honors:** `docs/invariants.md:14-15` (app.lzi owns environments+urls; NOT the manifest)
 
 ---
@@ -16,15 +16,15 @@ Today the gap is concrete:
 
 1. `lazuli new <project>` scaffolds **5 files** (app.lzi, registry.lzi, README, .gitignore, features/.gitkeep). A real app needs more shape than that to be productive.
 2. `docs/project-structure.md` describes a rich layout (features/{ui,hooks,domain,queries,jobs,integrations,pages}, `.lazuli/generated/`, contracts/, profiles.lzi, workspace.lzi) but **no code enforces it** — fixtures (`auth-roundtrip`, `smoke-hello`) follow simpler shapes, and the canonical fixture `full-capsule` is flat. The convention is hypothetical.
-3. There is **no project manifest in code**: no place to declare framework version pins, plugin module resolution, codegen output paths, frontend topology, distro template lineage. This proposal names the manifest **`lazurite.toml`** (distro-named per the Nuxt→Vue analogy this proposal itself draws — Nuxt has `nuxt.config.ts`, not `vue.config.ts`). `docs/project-structure.md:101` references an older `lazuli.toml` hand-wave; L8 updates that doc to the new name. The manifest **does NOT duplicate** what `app.lzi` already owns (environments, URLs, deploy gates per `docs/invariants.md:14-15`).
+3. There is **no project manifest in code**: no place to declare framework version pins, plugin module resolution, codegen output paths, frontend topology, distro template lineage. This proposal names the manifest **`Lazurite.toml`** (distro-named per the Nuxt→Vue analogy this proposal itself draws — Nuxt has `nuxt.config.ts`, not `vue.config.ts`). `docs/project-structure.md:101` references an older `lazuli.toml` hand-wave; L8 updates that doc to the new name. The manifest **does NOT duplicate** what `app.lzi` already owns (environments, URLs, deploy gates per `docs/invariants.md:14-15`).
 4. Plugins (`@plugin/<name>`) have a registration API in Go (`plugin_registry.go`) but **no declarative source-of-truth** for which plugins an app uses. Today this lives implicitly in `go.mod` deps.
 5. **Generation output path is inconsistent**: `docs/project-structure.md` says `.lazuli/generated/`; current codegen + tests + `lazuli generate go --out` default to `dist/go/`. Drift.
 
-Lazurite resolves all five gaps by being the **rails** Lazuli was missing — opinionated shapes that turn the framework primitives into a productive starter, with the project manifest (`lazurite.toml`) carrying *only* what `.lzi` doesn't already own.
+Lazurite resolves all five gaps by being the **rails** Lazuli was missing — opinionated shapes that turn the framework primitives into a productive starter, with the project manifest (`Lazurite.toml`) carrying *only* what `.lzi` doesn't already own.
 
 **Why now:** first product port can't start until the rails exist. Phase Prep §1.1/§1.2/§1.3 closed; the bottleneck is no longer "can Lazuli codegen?" but "what shape does a Lazuli app take?". Lazurite is that answer.
 
-**Boundary discipline (the §5 determinism guard):** Per `docs/invariants.md:14-15`, `app.lzi` owns environments, URLs, deploy gates. Per this proposal, `lazurite.toml` owns the framework version pin, plugin module resolution, codegen settings, migration runner policy, distro template lineage. **There is no overlap.** Doctor enforces. See §13.6 for the explicit rejection of `[env.*]` in the manifest.
+**Boundary discipline (the §5 determinism guard):** Per `docs/invariants.md:14-15`, `app.lzi` owns environments, URLs, deploy gates. Per this proposal, `Lazurite.toml` owns the framework version pin, plugin module resolution, codegen settings, migration runner policy, distro template lineage. **There is no overlap.** Doctor enforces. See §13.6 for the explicit rejection of `[env.*]` in the manifest.
 
 ---
 
@@ -39,7 +39,7 @@ The split mirrors Vue→Nuxt: framework owns primitives; distro owns conventions
 | Go runtime (`lazuli.dev/runtime/lazuli/...`) | **Lazuli** | All distros share runtime; no specialization point |
 | Adapter contracts (`@runtime/<name>`, `@plugin/<name>`) | **Lazuli** | Closed catalog of namespaces |
 | Project folder conventions | **Lazurite** | Opinionated shape; Vue/React don't enforce a folder layout, Nuxt/Next do |
-| `lazurite.toml` workspace manifest | **Lazurite** | Distro-specific contract |
+| `Lazurite.toml` workspace manifest | **Lazurite** | Distro-specific contract |
 | `lazuli new` template content | **Lazurite** | Lazuli ships the **verb**; Lazurite ships the **template body** |
 | Default plugins selected for a new app | **Lazurite** | Opinionated choice; another distro may pick differently |
 | Migration runner policy (where files live, naming convention) | **Lazurite** | Convention on top of Lazuli `migrations` primitives |
@@ -59,7 +59,7 @@ The canonical layout a `lazuli new myapp` produces. **Source files are committed
 
 ```
 myapp/
-├── lazurite.toml                    # workspace manifest (see §4)
+├── Lazurite.toml                    # workspace manifest (see §4)
 ├── app.lzi                          # canonical app declaration
 ├── registry.lzi                     # external integrations + plugin bindings
 ├── profiles.lzi                     # optional: env-specific overlays (dev/staging/prod)
@@ -157,7 +157,7 @@ This is the load-bearing claim that prevents distro creep: a future distro (Lazo
 | Webhook verifier | `webhook verify @validator.<name>` | `features/<f>/integrations/<name>.go` | Lazuli, Lazurite |
 | Domain function | `@fn.<name>` (domain-tier) | `features/<f>/domain/<name>.go` | Lazuli, Lazurite |
 | Query SQL | `query.sql @file.<name>` | `features/<f>/queries/<name>.sql` | Lazuli, Lazurite |
-| Adapter binding | `@adapter.<name>` | declared in `registry.lzi` + plugin Go module | Lazuli (catalog), `[plugins]` in `lazurite.toml` (resolution) |
+| Adapter binding | `@adapter.<name>` | declared in `registry.lzi` + plugin Go module | Lazuli (catalog), `[plugins]` in `Lazurite.toml` (resolution) |
 
 #### Escape hatches (deviating from the canonical convention)
 
@@ -178,10 +178,10 @@ This is the load-bearing claim that prevents distro creep: a future distro (Lazo
 | Distributed-system topology | `workspace.lzi` (top-level, optional) | Not scaffolded by default; advanced opt-in (`lazuli new --workspace`) |
 | Environment overlays | `profiles.lzi` (top-level, optional) | Not scaffolded by default; opt-in when app has multi-env complexity beyond `app.lzi environments` |
 | Registry of integrations/packs/capabilities | `registry.lzi` (top-level) | Scaffolded with a header comment + placeholder; populated as user declares adapters/integrations |
-| Deploy gates | `app.lzi deploy { ... }` block | Owned by `app.lzi`; **NOT** in `lazurite.toml` (§13.3 rejection) |
-| Environments + URLs + CORS | `app.lzi environments`/`urls`/`cors` blocks | Owned by `app.lzi`; **NOT** in `lazurite.toml` (§13.6 rejection) |
+| Deploy gates | `app.lzi deploy { ... }` block | Owned by `app.lzi`; **NOT** in `Lazurite.toml` (§13.3 rejection) |
+| Environments + URLs + CORS | `app.lzi environments`/`urls`/`cors` blocks | Owned by `app.lzi`; **NOT** in `Lazurite.toml` (§13.6 rejection) |
 | Audience/tenant declarations | `.lzx audience <name>` (per-feature) | Lazurite reads audiences via `[frontends.*].audiences` to project per-frontend SDKs (§4.4); does NOT re-declare audiences |
-| Plugin modules | `lazurite.toml [plugins]` + `go.mod` | **Resolution** is in Lazurite manifest; **DSL reference** (`@plugin/<name>`) stays in `.lzi` |
+| Plugin modules | `Lazurite.toml [plugins]` + `go.mod` | **Resolution** is in Lazurite manifest; **DSL reference** (`@plugin/<name>`) stays in `.lzi` |
 
 #### Sanity check: what Lazurite is *not* allowed to do
 
@@ -196,13 +196,13 @@ If a distro genuinely needs a new primitive, the primitive **must enter Lazuli f
 
 ---
 
-## §4. `lazurite.toml` — workspace manifest
+## §4. `Lazurite.toml` — workspace manifest
 
 A single TOML file at the project root that holds **build/run environment glue** the DSL doesn't own — version pins, codegen settings, plugin module resolution, distro template lineage. TOML over `.lzi` because: (a) CI/Dependabot/IDE-plugin-friendly without the Lazuli parser, (b) the DSL is for *declarations* and *contracts*; the manifest is *environment glue*.
 
-**Strict boundary (this is the §5 determinism fix):** `lazurite.toml` does NOT duplicate anything `.lzi` already owns. Per `docs/invariants.md:14-15`, `app.lzi` owns **environments, URLs, generated targets, runtime units, provider-neutral deploy gates, and logical service boundaries**. The manifest never re-declares those. Doctor enforces the boundary (see §4.8 + §7.1).
+**Strict boundary (this is the §5 determinism fix):** `Lazurite.toml` does NOT duplicate anything `.lzi` already owns. Per `docs/invariants.md:14-15`, `app.lzi` owns **environments, URLs, generated targets, runtime units, provider-neutral deploy gates, and logical service boundaries**. The manifest never re-declares those. Doctor enforces the boundary (see §4.8 + §7.1).
 
-**Name rationale**: `lazurite.toml` (distro-named, **Nuxt→Vue analogy**). Three reasons: (i) Nuxt has `nuxt.config.ts`, not `vue.config.ts` — the distro names the project manifest, not the framework; (ii) Lazuli alone needs no manifest (`examples/full-capsule/` proves this — pure Lazuli, no Lazurite, no manifest); (iii) future distros (Lazonyx ERP, Lazpipe automation) each ship their own `<distro>.toml` with their own conventions, cleanly separated. Sections inside the file CAN carry framework-level concerns (`[lazuli]`, `[plugins]`, `[generate]`) — same as `nuxt.config.ts` carries Vue-level keys — but the file itself is distro-owned.
+**Name rationale**: `Lazurite.toml` (distro-named, **Nuxt→Vue analogy**). Three reasons: (i) Nuxt has `nuxt.config.ts`, not `vue.config.ts` — the distro names the project manifest, not the framework; (ii) Lazuli alone needs no manifest (`examples/full-capsule/` proves this — pure Lazuli, no Lazurite, no manifest); (iii) future distros (Lazonyx ERP, Lazpipe automation) each ship their own `<distro>.toml` with their own conventions, cleanly separated. Sections inside the file CAN carry framework-level concerns (`[lazuli]`, `[plugins]`, `[generate]`) — same as `nuxt.config.ts` carries Vue-level keys — but the file itself is distro-owned.
 
 ### §4.1 Required minimum
 
@@ -224,7 +224,7 @@ runtime = "0.1.0"
 
 [lazurite]
 # Distro template that scaffolded this app (informational + upgrade target).
-# Absent or "bare" = no Lazurite conventions assumed; doctor treats lazurite.toml
+# Absent or "bare" = no Lazurite conventions assumed; doctor treats Lazurite.toml
 # as advisory rather than enforcing the Lazurite app shape (§14.5).
 template = "lazurite-default"
 template_version = "0.1.0"
@@ -340,7 +340,7 @@ manual = "migrations"
 strategy = "auto"
 ```
 
-**Boundary note**: `app.lzi` declares `deploy { migrations before_deploy }` style gates (see `examples/full-capsule/app.lzi`); `lazurite.toml [migrations].strategy` is the *runtime* policy for whether migrations apply at boot. They compose: DSL says "migrations must precede deploy"; manifest says "apply them automatically at boot". Doctor cross-checks (`MIGRATION-STRATEGY-CONFLICT-001` if `strategy = "manual"` but `deploy_gates.migrations.before_deploy = true`).
+**Boundary note**: `app.lzi` declares `deploy { migrations before_deploy }` style gates (see `examples/full-capsule/app.lzi`); `Lazurite.toml [migrations].strategy` is the *runtime* policy for whether migrations apply at boot. They compose: DSL says "migrations must precede deploy"; manifest says "apply them automatically at boot". Doctor cross-checks (`MIGRATION-STRATEGY-CONFLICT-001` if `strategy = "manual"` but `deploy_gates.migrations.before_deploy = true`).
 
 ### §4.6 Seeds
 
@@ -384,13 +384,13 @@ plugin_paths = { "@plugin/mercadopago" = "../lazuli-plugin-mercadopago" }
 
 The proposal must close the AI-first gap: declarations outside the IR are invisible to LLMs reading `lazuli inspect` output.
 
-Resolution: `lazuli inspect --include=manifest` (and the default `lazuli inspect --format=json` when `lazurite.toml` exists) surfaces the manifest as a derived JSON node alongside the IR graph. Shape:
+Resolution: `lazuli inspect --include=manifest` (and the default `lazuli inspect --format=json` when `Lazurite.toml` exists) surfaces the manifest as a derived JSON node alongside the IR graph. Shape:
 
 ```json
 {
   "ir": { ... canonical IR ... },
   "manifest": {
-    "origin": "lazurite.toml",
+    "origin": "Lazurite.toml",
     "project": { "name": "myapp", "module": "github.com/myorg/myapp", "schema": 1 },
     "lazuli": { "runtime": "0.1.0" },
     "lazurite": { "template": "lazurite-default", "template_version": "0.1.0" },
@@ -427,7 +427,7 @@ For `lazuli new myapp` (default Lazurite template):
 
 ```
 myapp/
-├── lazurite.toml                # populated with module path + lazuli v pin
+├── Lazurite.toml                # populated with module path + lazuli v pin
 ├── app.lzi                      # `app Myapp\n  urls\n    dev: "http://localhost:3000"`
 ├── registry.lzi                 # placeholder declarations
 ├── features/
@@ -529,7 +529,7 @@ Lazurite tightens this:
 
 ### §7.1 Declarative wiring
 
-`lazurite.toml` `[plugins]` lists every `@plugin/<name>` the app uses. Codegen reads this and emits:
+`Lazurite.toml` `[plugins]` lists every `@plugin/<name>` the app uses. Codegen reads this and emits:
 
 ```go
 // dist/go/main.go (excerpt)
@@ -544,9 +544,9 @@ import (
 ```
 
 Doctor diagnostics:
-- `PLUGIN-NOT-DECLARED-001` — `.lzi` references `@plugin/<X>`, `lazurite.toml` doesn't declare it (error).
-- `PLUGIN-UNUSED-001` — `lazurite.toml` declares `@plugin/<X>`, no `.lzi` references it (warning).
-- `PLUGIN-NAMESPACE-MISMATCH-001` — `.lzi` or `lazurite.toml` uses wrong namespace for a known adapter (e.g. `@runtime/mercadopago` should be `@plugin/mercadopago` per `project_plugin_namespace_policy`). Cross-checked against `crates/lazuli_lsp::is_allowed_reference_namespace` catalog (error).
+- `PLUGIN-NOT-DECLARED-001` — `.lzi` references `@plugin/<X>`, `Lazurite.toml` doesn't declare it (error).
+- `PLUGIN-UNUSED-001` — `Lazurite.toml` declares `@plugin/<X>`, no `.lzi` references it (warning).
+- `PLUGIN-NAMESPACE-MISMATCH-001` — `.lzi` or `Lazurite.toml` uses wrong namespace for a known adapter (e.g. `@runtime/mercadopago` should be `@plugin/mercadopago` per `project_plugin_namespace_policy`). Cross-checked against `crates/lazuli_lsp::is_allowed_reference_namespace` catalog (error).
 - `SUBMODULE-DRIFT-001` — `dist/go/go.mod` Lazuli runtime version differs from root `go.mod` (error; applies only when `[generate.go].submodule = true`).
 - `MIGRATION-STRATEGY-CONFLICT-001` — `[migrations].strategy = "manual"` but `app.lzi deploy { migrations before_deploy }` (warning; signals operator intent mismatch).
 
@@ -555,10 +555,10 @@ Doctor diagnostics:
 ### §7.2 Plugin authoring contract
 
 A `@plugin/<name>` repo (e.g. `github.com/lazuli-lang/lazuli-plugin-mercadopago`):
-- Go module path matches `lazurite.toml` `[plugins].<ref>.module`.
+- Go module path matches `Lazurite.toml` `[plugins].<ref>.module`.
 - `init()` calls `lazuli.RegisterAdapter("@plugin/<name>", &MyAdapter{})`.
 - Adapter type implements the bucket-specific interface (e.g. `payments.PaymentGateway`).
-- Repo carries a `plugin.lazurite.toml` declaring which buckets + DSL refs it satisfies (for the doctor's cross-check).
+- Repo carries a `plugin.Lazurite.toml` declaring which buckets + DSL refs it satisfies (for the doctor's cross-check).
 
 Reserved namespace policy (from memory `project_plugin_namespace_policy`):
 - `@runtime/<name>` = commodity OSS infra (postgres/redis/s3). Lives in Lazuli core. Not in `[plugins]`.
@@ -578,18 +578,18 @@ Verbs (post-Lazurite design):
 | Verb | Owner | Status | Notes |
 |---|---|---|---|
 | `lazuli check` / `lazuli parse` | Lazuli | shipped | DSL parsing |
-| `lazuli doctor` | Lazuli | shipped | Cross-package invariants; **extended** to read `lazurite.toml` |
+| `lazuli doctor` | Lazuli | shipped | Cross-package invariants; **extended** to read `Lazurite.toml` |
 | `lazuli inspect` | Lazuli | shipped | IR → JSON |
 | `lazuli plan` | Lazuli | shipped | Schema/migration diff plan |
 | `lazuli generate <target>` | Lazuli | shipped | Codegen entry |
 | `lazuli dev` | Lazuli | shipped (PP3) | Watch + regen + run |
 | `lazuli new <project>` | Lazuli verb / **Lazurite template** | shipped (minimal) | Verb is Lazuli; template content is Lazurite |
 | `lazuli init <path>` | Lazuli | shipped | Writes a single `app.lzi` (for in-place adoption) |
-| `lazuli migrate <up\|down\|status>` | **Lazurite** | proposed | Reads `lazurite.toml` migration policy + applies via runtime |
+| `lazuli migrate <up\|down\|status>` | **Lazurite** | proposed | Reads `Lazurite.toml` migration policy + applies via runtime |
 | `lazuli seed` | **Lazurite** | proposed | Runs `seeds/` scripts after migrations |
-| `lazuli plugins <add\|list>` | **Lazurite** | future | Edits `lazurite.toml` + `go.mod` |
+| `lazuli plugins <add\|list>` | **Lazurite** | future | Edits `Lazurite.toml` + `go.mod` |
 
-"Owner: Lazurite" means the verb's *behavior* depends on `lazurite.toml`; if a project doesn't have one, the verb prints a hint to run `lazuli init --lazurite` to upgrade.
+"Owner: Lazurite" means the verb's *behavior* depends on `Lazurite.toml`; if a project doesn't have one, the verb prints a hint to run `lazuli init --lazurite` to upgrade.
 
 ---
 
@@ -599,7 +599,7 @@ Builds on the existing `runtime/go/lazuli/migrations/` primitives.
 
 ```
 myapp/
-├── lazurite.toml             # [migrations] policy
+├── Lazurite.toml             # [migrations] policy
 ├── features/account/
 │   └── migrations/           # MANUAL migrations (rare)
 │       └── 20260513_001_backfill_users.sql
@@ -657,7 +657,7 @@ Phased plan:
 Location: `lazurite/` directory at repo root. Contents:
 - `lazurite/templates/default/` — files included by `lazuli new` via `include_dir!`. The starter template.
 - `lazurite/SPEC.md` — this proposal becomes the canonical spec doc.
-- `lazurite/schemas/lazurite.toml.schema.json` — JSON schema for IDE autocomplete on lazurite.toml.
+- `lazurite/schemas/Lazurite.toml.schema.json` — JSON schema for IDE autocomplete on Lazurite.toml.
 
 CLI integration: `crates/lazuli_cli/src/main.rs` reads templates from `../../lazurite/templates/` via `include_dir!` at build time.
 
@@ -672,7 +672,7 @@ Once Lazurite is exercised against 2+ real apps (first product port + at least o
 
 Indicators that L0→L1 is ready:
 - Two real apps shipped on Lazurite without unforeseen folder restructuring.
-- `lazurite.toml` schema hasn't changed in 60 days.
+- `Lazurite.toml` schema hasn't changed in 60 days.
 - Plugin ecosystem has 3+ external `@plugin/*` repos using the standard plugin authoring contract.
 
 ### §11.3 Phase L2 — Multiple distros (out of v0 scope)
@@ -687,21 +687,21 @@ Sequenced for parallel-friendly execution. Each ≤ ~200 LOC. Sizing/sequencing 
 
 | Cell | Scope | Files | Type | Depends on |
 |---|---|---|---|---|
-| **L0** | Doctor treats `lazurite.toml` as **optional** (not required) — current fixtures (`full-capsule`, `auth-roundtrip`, `smoke-hello`) must continue passing without one. | `crates/lazuli_cli/src/doctor.rs` (guard around manifest-aware diagnostics) | Rust, edit | — |
-| **L1** | `lazurite.toml` parser (serde + validation) + `inspect --include=manifest` integration | `crates/lazuli_cli/src/lazuli_manifest.rs` (new), `crates/lazuli_cli/src/inspect.rs` (edit) | Rust, new+edit | L0 |
-| **L2** | Doctor diagnostics for `lazurite.toml` (PLUGIN-NOT-DECLARED, PLUGIN-NAMESPACE-MISMATCH, SUBMODULE-DRIFT, MIGRATION-STRATEGY-CONFLICT). All gated by manifest-present check from L0. | `crates/lazuli_cli/src/doctor.rs` (additive) | Rust, edit | **L1** (needs parser output) |
+| **L0** | Doctor treats `Lazurite.toml` as **optional** (not required) — current fixtures (`full-capsule`, `auth-roundtrip`, `smoke-hello`) must continue passing without one. | `crates/lazuli_cli/src/doctor.rs` (guard around manifest-aware diagnostics) | Rust, edit | — |
+| **L1** | `Lazurite.toml` parser (serde + validation) + `inspect --include=manifest` integration | `crates/lazuli_cli/src/lazuli_manifest.rs` (new), `crates/lazuli_cli/src/inspect.rs` (edit) | Rust, new+edit | L0 |
+| **L2** | Doctor diagnostics for `Lazurite.toml` (PLUGIN-NOT-DECLARED, PLUGIN-NAMESPACE-MISMATCH, SUBMODULE-DRIFT, MIGRATION-STRATEGY-CONFLICT). All gated by manifest-present check from L0. | `crates/lazuli_cli/src/doctor.rs` (additive) | Rust, edit | **L1** (needs parser output) |
 | **L3** | `lazurite/templates/default/` directory tree + `include_dir!` wiring. Template content uses `{{app_name}}`/`{{module}}` placeholders. | `lazurite/templates/default/**`, `crates/lazuli_cli/Cargo.toml` | Mixed | — (independent) |
-| **L4** | `lazuli new` evolved — read embedded template, substitute placeholders, write files. Includes `--template=bare` path that skips Lazurite assumptions (no `lazurite.toml`). | `crates/lazuli_cli/src/main.rs` (replaces `new_command`) | Rust, edit | L1, L3 |
+| **L4** | `lazuli new` evolved — read embedded template, substitute placeholders, write files. Includes `--template=bare` path that skips Lazurite assumptions (no `Lazurite.toml`). | `crates/lazuli_cli/src/main.rs` (replaces `new_command`) | Rust, edit | L1, L3 |
 | **L5** | `lazuli migrate <up\|down\|status>` verb (reads `[migrations]` policy, runs runtime migrator) | `crates/lazuli_cli/src/migrate.rs`, runtime wire | Rust + Go | L1 |
 | **L6** | `lazuli seed` verb (executes `seeds/` scripts) | `crates/lazuli_cli/src/seed.rs` | Rust | L1 |
 | **L7** | Codegen Go reads `[plugins]` → emits anonymous `_ "<module>"` imports in `main.go`. Codegen reads `[generate.go].submodule` → emits `dist/go/go.mod` + root `go.work`. | `crates/lazuli_codegen_go/src/emitter/root.rs`, `module.rs` | Rust | L1 |
 | **L7b** | `[frontends.*]` parsing + doctor diagnostics (`FRONTEND-AUDIENCE-UNKNOWN`, `FRONTEND-TARGET-MISSING`, `FRONTEND-OUT-COLLISION`). **TS codegen itself is post-v0** — this cell ships the manifest surface + validation only. | `crates/lazuli_cli/src/lazurite_manifest.rs` (extend L1), `crates/lazuli_cli/src/doctor.rs` | Rust | L1 |
-| **L8** | Update `docs/project-structure.md` to reflect `dist/` decision + Lazurite shape + manifest name (`lazurite.toml`). **Must wait for L1's final schema** to avoid lying. | `docs/project-structure.md`, `docs/invariants.md` (add Lazurite/manifest invariants) | Doc | **L1, L7** (needs final schema decisions) |
-| **L9** | Migrate `examples/marketplace-mini/` to Lazurite shape; verify first product port works against new shape. Acts as gate — if migration reveals schema gap, **rerun L1-L8**. | `examples/marketplace-mini/**`, add `lazurite.toml`, restructure to `features/<f>/` | Fixture | All prior |
+| **L8** | Update `docs/project-structure.md` to reflect `dist/` decision + Lazurite shape + manifest name (`Lazurite.toml`). **Must wait for L1's final schema** to avoid lying. | `docs/project-structure.md`, `docs/invariants.md` (add Lazurite/manifest invariants) | Doc | **L1, L7** (needs final schema decisions) |
+| **L9** | Migrate `examples/marketplace-mini/` to Lazurite shape; verify first product port works against new shape. Acts as gate — if migration reveals schema gap, **rerun L1-L8**. | `examples/marketplace-mini/**`, add `Lazurite.toml`, restructure to `features/<f>/` | Fixture | All prior |
 | **L10** | (post-L9 if needed) Schema refinement based on L9 findings. May be no-op if Lazurite shape survives migration. | TBD | — | L9 |
 
 **Sequencing rules** (post-grade fixes):
-- **L0 must land first**: doctor must treat `lazurite.toml` as optional before any L1+ work merges, so existing fixtures keep passing.
+- **L0 must land first**: doctor must treat `Lazurite.toml` as optional before any L1+ work merges, so existing fixtures keep passing.
 - **L1 is the schema author**: L2, L5, L6, L7, L8 all consume the schema L1 ships. They cannot run truly in parallel — they can be **kicked off in parallel** once L1 lands, but L1 is gating.
 - **L3 is parallel to L1**: template files don't depend on the manifest schema (placeholders are independent).
 - **L4 depends on both L1 and L3**: needs parser to substitute, template to read.
@@ -714,7 +714,7 @@ Sequenced for parallel-friendly execution. Each ≤ ~200 LOC. Sizing/sequencing 
 
 ## §13. Cuts considered & rejected
 
-### §13.1 `lazurite.lzi` instead of `lazurite.toml` (rejected)
+### §13.1 `lazurite.lzi` instead of `Lazurite.toml` (rejected)
 
 Considered: making the manifest a `.lzi` file for consistency with the DSL.
 
@@ -737,9 +737,9 @@ The plugin authoring contract is well-defined enough that a scaffold verb makes 
 
 ### §13.5 `workspace.lzi` as workspace manifest (rejected as primary, kept as advanced feature)
 
-`workspace.lzi` exists per `project-structure.md` for monorepo/polyrepo roots. Kept for that purpose — declares multiple apps + their wiring. But it's not the *project* manifest; that's `lazurite.toml`. Multi-app workspaces have both: each app has `lazurite.toml`, the workspace root has `workspace.lzi`.
+`workspace.lzi` exists per `project-structure.md` for monorepo/polyrepo roots. Kept for that purpose — declares multiple apps + their wiring. But it's not the *project* manifest; that's `Lazurite.toml`. Multi-app workspaces have both: each app has `Lazurite.toml`, the workspace root has `workspace.lzi`.
 
-### §13.6 `[env.<name>]` blocks in `lazurite.toml` (rejected — boundary leak)
+### §13.6 `[env.<name>]` blocks in `Lazurite.toml` (rejected — boundary leak)
 
 v0.1 of this proposal included `[env.dev]`, `[env.staging]`, `[env.prod]` blocks in the manifest carrying per-env URLs and database connection strings. Rejected by `lazuli-language-architect` grade at 5.5/10 on determinism.
 
@@ -765,15 +765,15 @@ Reconsider for Phase L1 when Lazurite ships as separate repo (then template vers
 
 ## §14. Open questions
 
-### §14.1 Should the `lazurite.toml` `[plugins]` block also accept `path = "..."` for local development?
+### §14.1 Should the `Lazurite.toml` `[plugins]` block also accept `path = "..."` for local development?
 
 Yes, but limited to dev. Doctor should warn if a deployed env (`[env.prod]`) references a path-based plugin. Spec'd in v0.2.
 
 ### §14.2 How does `lazuli dev` resolve plugin paths during file watching?
 
-Today `lazuli dev` (PP3) re-runs `lazuli generate go --out dist/go/` on change. After Lazurite, it should also re-read `lazurite.toml` and reload plugin imports. Probably: invalidate generated `main.go` whenever `lazurite.toml` mtime changes. Easy.
+Today `lazuli dev` (PP3) re-runs `lazuli generate go --out dist/go/` on change. After Lazurite, it should also re-read `Lazurite.toml` and reload plugin imports. Probably: invalidate generated `main.go` whenever `Lazurite.toml` mtime changes. Easy.
 
-### §14.3 Profile overlays (`profiles.lzi`) vs `[env.*]` in `lazurite.toml`
+### §14.3 Profile overlays (`profiles.lzi`) vs `[env.*]` in `Lazurite.toml`
 
 Both exist:
 - `profiles.lzi` — DSL-level overlays (e.g. enable certain features in staging).
@@ -781,27 +781,27 @@ Both exist:
 
 Boundary: profiles change *which features* run; envs change *where they run*. Doctor enforces.
 
-### §14.4 What's the upgrade path for an existing app with no `lazurite.toml`?
+### §14.4 What's the upgrade path for an existing app with no `Lazurite.toml`?
 
-`lazuli init --lazurite` (proposed verb) reads the existing `app.lzi` + scans for `@plugin/*` refs + scans `go.mod` + writes a `lazurite.toml` skeleton.
+`lazuli init --lazurite` (proposed verb) reads the existing `app.lzi` + scans for `@plugin/*` refs + scans `go.mod` + writes a `Lazurite.toml` skeleton.
 
-### §14.5 When is `lazurite.toml` required vs optional?
+### §14.5 When is `Lazurite.toml` required vs optional?
 
 Resolution (drives cell L0):
 
-| Scenario | `lazurite.toml` required? | Doctor behavior |
+| Scenario | `Lazurite.toml` required? | Doctor behavior |
 |---|---|---|
 | Fixture for codegen testing (`examples/full-capsule/`, `examples/smoke-hello/`) | **No** | Doctor passes with no manifest; manifest-aware diagnostics (`PLUGIN-NAMESPACE-MISMATCH`, etc.) skipped. |
 | App with no `@plugin/*` refs in `.lzi` | **No** (recommended) | Doctor emits info: "consider `lazuli init --lazurite` to formalize project metadata". Build still works. |
 | App with `@plugin/*` refs | **Yes** | Doctor errors `MANIFEST-REQUIRED-001` when manifest missing but `.lzi` uses `@plugin/`. |
 | App scaffolded via `lazuli new` (default, non-bare) | **Yes** (written automatically) | Standard diagnostics apply. |
-| App scaffolded via `lazuli new --template=bare` | **No** | No manifest; only the canonical Lazuli framework verbs work; Lazurite-specific verbs (`lazuli migrate`, `lazuli seed`, `lazuli plugins`) print "this verb requires `lazurite.toml` (try `lazuli init --lazurite`)". |
+| App scaffolded via `lazuli new --template=bare` | **No** | No manifest; only the canonical Lazuli framework verbs work; Lazurite-specific verbs (`lazuli migrate`, `lazuli seed`, `lazuli plugins`) print "this verb requires `Lazurite.toml` (try `lazuli init --lazurite`)". |
 
-**Auto-detection rule**: Doctor checks for manifest presence at `<project_root>/lazurite.toml`. If present, manifest-aware mode. If absent + no `@plugin/*` refs in IR, advisory mode. If absent + `@plugin/*` refs present, error.
+**Auto-detection rule**: Doctor checks for manifest presence at `<project_root>/Lazurite.toml`. If present, manifest-aware mode. If absent + no `@plugin/*` refs in IR, advisory mode. If absent + `@plugin/*` refs present, error.
 
-### §14.6 How does `lazuli dev` (PP3) handle `lazurite.toml` changes?
+### §14.6 How does `lazuli dev` (PP3) handle `Lazurite.toml` changes?
 
-PP3's file watcher (`crates/lazuli_cli/src/dev.rs`) watches `*.lzi`/`*.lzx` today. After Lazurite: also watch `lazurite.toml`. On change → invalidate generated `main.go` (re-run codegen). Easy add to existing watcher.
+PP3's file watcher (`crates/lazuli_cli/src/dev.rs`) watches `*.lzi`/`*.lzx` today. After Lazurite: also watch `Lazurite.toml`. On change → invalidate generated `main.go` (re-run codegen). Easy add to existing watcher.
 
 ---
 
@@ -810,8 +810,8 @@ PP3's file watcher (`crates/lazuli_cli/src/dev.rs`) watches `*.lzi`/`*.lzx` toda
 The end-to-end validation against `examples/marketplace-mini/` ran post Wave 1 + Wave 2 cherry-picks. Findings:
 
 **What worked:**
-- `lazuli generate go examples/marketplace-mini --out examples/marketplace-mini/dist/go` emits 20 files including `main.go`, `go.mod`, `go.work`, per-feature `*.gen.go`, and migrations. Codegen reads `lazurite.toml` (L7 wiring) and `[generate.go].submodule` defaults to sub-module emission.
-- `doctor` passes marketplace-mini once `lazurite.toml` is added (resolves `MANIFEST-REQUIRED-001` from L2).
+- `lazuli generate go examples/marketplace-mini --out examples/marketplace-mini/dist/go` emits 20 files including `main.go`, `go.mod`, `go.work`, per-feature `*.gen.go`, and migrations. Codegen reads `Lazurite.toml` (L7 wiring) and `[generate.go].submodule` defaults to sub-module emission.
+- `doctor` passes marketplace-mini once `Lazurite.toml` is added (resolves `MANIFEST-REQUIRED-001` from L2).
 - Workspace resolution: `go work sync` + `use ../../runtime/go` makes `lazuli.dev/runtime` (and all bucket sub-packages) resolvable locally without a published v0.1.0 tag. Transitive deps (`pgx`, `river`, etc.) auto-populate from runtime's `go.mod`.
 - `[frontends.*]` topology validated independently via the `lazurite-multifrontend` fixture (3 frontends, 4 audiences).
 
@@ -848,7 +848,7 @@ After L9 lands clean, Lazurite v0 is **shipped** and we kick **Product Phase 1 (
 
 | Risk | P | Impact | Mitigation |
 |---|---|---|---|
-| `lazurite.toml` shape needs a v2 before first product port lands | 30% | Re-template all existing fixtures | Keep schema additive; only add sections, never rename in v1 |
+| `Lazurite.toml` shape needs a v2 before first product port lands | 30% | Re-template all existing fixtures | Keep schema additive; only add sections, never rename in v1 |
 | Plugin registry causes confusion vs `go.mod` deps | 40% | Doctor friction | Doctor cross-checks: plugin in toml but not go.mod = error; vice versa = warn |
 | `dist/` regen on every `lazuli dev` change feels slow (full feature regen) | 50% | DX hit | Incremental codegen via `.lazuli/graph.json` snapshot — future cut, not v0 |
 | Bootstrap-in-repo (L0) makes Lazurite/Lazuli boundary fuzzy | 25% | Drift | Hard rule in CLAUDE.md: nothing in `lazurite/` may import Lazuli internals |
@@ -870,7 +870,7 @@ After L9 lands clean, Lazurite v0 is **shipped** and we kick **Product Phase 1 (
 
 | Concern | Nuxt | Next | Rails | Lazurite |
 |---|---|---|---|---|
-| Project manifest | `nuxt.config.ts` | `next.config.js` | `config/application.rb` | `lazurite.toml` |
+| Project manifest | `nuxt.config.ts` | `next.config.js` | `config/application.rb` | `Lazurite.toml` |
 | Pages/features dir | `pages/` | `app/` or `pages/` | `app/controllers/` + `app/views/` | `features/<name>/` |
 | Convention enforcement | Strong (file = route) | Strong (file = route) | Strong (RESTful resources) | Strong (one feature = one DSL surface) |
 | Code style | Editable by user | Editable by user | Editable by user | **Generated code is non-editable** (regen-only) |
@@ -885,7 +885,7 @@ Lazurite occupies the same slot as the rightmost convention layer in each row, w
 
 For existing fixtures (full-capsule, auth-roundtrip) to become Lazurite-shaped:
 
-1. Add `lazurite.toml` at root (minimal: `[project] name="..." module="..." schema=1`; `[lazuli] runtime="0.1.0"`). Per §13.6, `[env.*]` blocks are NOT in the manifest — environments stay in `app.lzi environments`/`urls`.
+1. Add `Lazurite.toml` at root (minimal: `[project] name="..." module="..." schema=1`; `[lazuli] runtime="0.1.0"`). Per §13.6, `[env.*]` blocks are NOT in the manifest — environments stay in `app.lzi environments`/`urls`.
 2. Move feature `.lzi` files into `features/<name>/<name>.lzi` if currently flat.
 3. Move handler files into `features/<name>/handlers/`.
 4. Update doctor invocation to use the project root.

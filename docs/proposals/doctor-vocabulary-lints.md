@@ -66,7 +66,7 @@ This mirrors `security-opt-out` (warning in strict, error in production). The po
 
 ### Severity overrides
 
-`lazurite.toml` adds:
+`Lazurite.toml` adds:
 
 ```toml
 [doctor.vocab]
@@ -508,7 +508,7 @@ The doctor today walks the IR once and dispatches each rule. The new vocab rules
 
 ### Configuration parsing
 
-`lazurite.toml` `[doctor.vocab]` table is parsed by `crates/lazuli_cli/src/manifest.rs` (or the equivalent toml-load site). Each entry maps a rule code to one of `off | info | warning | error`. The parser rejects unknown rule codes (you can't override a rule that doesn't exist).
+`Lazurite.toml` `[doctor.vocab]` table is parsed by `crates/lazuli_cli/src/manifest.rs` (or the equivalent toml-load site). Each entry maps a rule code to one of `off | info | warning | error`. The parser rejects unknown rule codes (you can't override a rule that doesn't exist).
 
 **Comment-required check on overrides.** Each override entry MUST have a comment on either the line above OR inline on the same line. The toml parser raises a doctor warning `DOCTOR-OVERRIDE-NEEDS-REASON-001` when an override lacks a neighbouring comment. Rationale: overrides leak design debates into product configs (risk #2 below); requiring a justification line keeps the override discoverable when someone audits the project's vocab posture later.
 
@@ -613,7 +613,7 @@ A new rule must NOT change verdict (PASS → BLOCK) on any pre-existing fixture 
 
 1. **False positives erode trust.** A rule that fires on 30% of legitimate uses becomes noise; humans/agents start ignoring all `VOCAB-*` warnings. Mitigation: each rule ships with ≥2 negative test cases AND a real-world false-positive case from the v2 dogfood (or proven not to apply). If a rule can't pass the "ran on Pleiades + Atelier + Erudito without a false positive that the project genuinely accepts" test, it doesn't ship in v0.1.
 
-2. **Severity overrides leak design debates into product configs.** If every project starts disabling `VOCAB-UNION-001`, the language is wrong. Mitigation: `lazurite.toml` `[doctor.vocab]` overrides require a comment (parser warns when override has no neighbouring comment line); periodic audit of override frequency across known products.
+2. **Severity overrides leak design debates into product configs.** If every project starts disabling `VOCAB-UNION-001`, the language is wrong. Mitigation: `Lazurite.toml` `[doctor.vocab]` overrides require a comment (parser warns when override has no neighbouring comment line); periodic audit of override frequency across known products.
 
 3. **Vocabulary-rule sprawl.** With every new vocabulary primitive shipping a companion lint, the catalog grows monotonically. Mitigation: each rule must justify itself in the proposal that introduces the vocabulary; rules retire when their vocabulary retires. The catalog isn't open-ended like ESLint's; it's bounded by the count of primitives.
 

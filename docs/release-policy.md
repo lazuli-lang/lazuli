@@ -37,7 +37,7 @@ the 20% caudal and pre-paying its cost is wasteful before evidence.
 | Public CLI verbs (`lazuli generate`, `lazuli inspect`, `lazuli doctor`, `lazuli dev`, `lazuli new`, `lazuli upgrade`, `lazuli debug`, `lazuli examples`, `lazuli profile`, `lazuli migrate`, `lazuli seed`) | yes | semver of the CLI binary |
 | Adapter/plugin namespace policy (`@runtime/<name>`, `@plugin/<publisher>/<name>`) | yes | this document + memory `project_plugin_namespace_policy.md` |
 | `//line`, `//lazuli:pattern <id> <version>` codegen markers | yes | per-pattern semver tracked in `crates/lazuli_codegen_go` |
-| `lazurite.toml` manifest schema | yes (`[project].schema`) | integer schema in manifest |
+| `Lazurite.toml` manifest schema | yes (`[project].schema`) | integer schema in manifest |
 
 Not covered: internal crate APIs across `crates/lazuli_*`, Lazuli Go lib
 *internal* helpers (anything not exported), adapter implementations
@@ -101,7 +101,7 @@ migrations/recipes/0.11-to-0.12/
     README.md            # one-paragraph rationale
 ```
 
-CI gate: any commit that bumps `LZIR_SCHEMA` or the `app.lzi`/`lazurite.toml`
+CI gate: any commit that bumps `LZIR_SCHEMA` or the `app.lzi`/`Lazurite.toml`
 schema **must** add at least one recipe directory, and the `lazuli upgrade`
 smoke test must pass `input.lzi → output.lzi` for every recipe in the from/to
 window. Recipes without compile + run validation rot in silence; the gate

@@ -263,7 +263,7 @@ audience admin
     actions update, delete
 ```
 
-Emits hook that consumes `useParams` from the router lib selected via `lazurite.toml [frontends.<x>] target`. The emitter switches the import line per target — generated `.gen.ts` is target-specific, not router-agnostic at runtime:
+Emits hook that consumes `useParams` from the router lib selected via `Lazurite.toml [frontends.<x>] target`. The emitter switches the import line per target — generated `.gen.ts` is target-specific, not router-agnostic at runtime:
 
 | `target` value | Import emitted |
 |---|---|
@@ -357,7 +357,7 @@ export function useAdminSlugCreateView() {
 
 ## §7. Audience-scoped SDK projection
 
-Each frontend in `lazurite.toml [frontends.<name>] audiences = [...]` filters which commands/queries appear in that frontend's bundled SDK.
+Each frontend in `Lazurite.toml [frontends.<name>] audiences = [...]` filters which commands/queries appear in that frontend's bundled SDK.
 
 Example: a product with two frontends:
 ```toml
@@ -498,7 +498,7 @@ The `view create` hook (§6.3) auto-wires `zodResolver(<command>InputSchema)` in
 
 ### §9.1 Configuration
 
-`lazurite.toml`:
+`Lazurite.toml`:
 ```toml
 [generate.ts]
 out = "dist/ts-web"

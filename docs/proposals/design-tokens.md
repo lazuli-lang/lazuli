@@ -54,7 +54,7 @@ Tokens are the *atomic glue* between design intent and rendered UI. The renderin
    - `@plugin/design-restyle` — Shopify Restyle theme (RN)
 8. **Doctor rules**: `design-token-undefined`, `design-token-hex-leak`, `design-token-px-leak`. Severity escalates from `prototype` (warning) to `production` (error).
 9. **Import/export round-trip**: `lazuli design import --from <path>` lifts Figma JSON / Style Dictionary into `design.lzi`. `lazuli design export --target figma --out <path>` reverses.
-10. **`lazurite.toml [design]` configuration** for target selection (`tailwind-v3` vs `tailwind-v4`, mobile yes/no, plugin emitters opt-in).
+10. **`Lazurite.toml [design]` configuration** for target selection (`tailwind-v3` vs `tailwind-v4`, mobile yes/no, plugin emitters opt-in).
 
 ### Non-goals
 
@@ -65,7 +65,7 @@ Tokens are the *atomic glue* between design intent and rendered UI. The renderin
 5. **Multi-theme axes beyond `dark`** — `high-contrast`, `compact`, `cozy`, custom user-named themes — deferred. v0 ships only `light/dark`.
 6. **Sub-token composition** — `primary.hover derived from primary.base shade(-10)` — deferred to a future cut. v0 requires explicit hex per state.
 7. **Token granularity per component** — `button.primary.hover.shadow` — never. Components consume base tokens; component-specific tokens are an anti-pattern (`docs/design-principles.md` §"Self-Contained Declarations").
-8. **CSS-in-JS style strategy** — Tailwind / vanilla-extract / Panda / styled-components — emitter choice via `lazurite.toml`, not core opinion.
+8. **CSS-in-JS style strategy** — Tailwind / vanilla-extract / Panda / styled-components — emitter choice via `Lazurite.toml`, not core opinion.
 9. **Locale-aware tokens** (RTL spacing, language-specific font stacks) — deferred. v0 is single-direction LTR.
 
 ---
@@ -269,7 +269,7 @@ design hostpoint
 
 Inheritance is **token-level**, not block-level: `primary.base` and `primary.hover` override, `primary.active` and `primary.foreground` inherit from `pleiades`. No deep merging beyond named-key override.
 
-`lazurite.toml` selects active theme:
+`Lazurite.toml` selects active theme:
 ```toml
 [design]
 active = "pleiades"          # or "hostpoint" for white-label build
@@ -539,7 +539,7 @@ Tailwind v4 reads `@theme` directly as the source of utility classes. User `glob
 @import "@/dist/ts-web/design/tailwind.theme.css";
 ```
 
-No `tailwind.config.ts` needed for v4. `lazurite.toml [design] target = "tailwind-v4"` switches emission. Tailwind v4 is the recommended default; v3 emitter stays for projects on v3.
+No `tailwind.config.ts` needed for v4. `Lazurite.toml [design] target = "tailwind-v4"` switches emission. Tailwind v4 is the recommended default; v3 emitter stays for projects on v3.
 
 ### §4.6 Mobile `tokens.ts` (RN/Expo)
 
@@ -590,14 +590,14 @@ export const tokens = {
 ```
 
 Conversion rules from `design.lzi`:
-- `rem` → `px` (1rem = 16px assumed; configurable via `lazurite.toml [design] rem_base = 16`).
+- `rem` → `px` (1rem = 16px assumed; configurable via `Lazurite.toml [design] rem_base = 16`).
 - **`shadow` mobile emission**: the CSS string in `design.lzi` follows the closed single-layer grammar `<offset-x> <offset-y> <blur-radius> [<spread-radius>] <color>` (e.g. `"0 1px 3px 0 rgb(0 0 0 / 0.1)"`). Multi-layer shadows (`"0 1px 2px ..., 0 4px 6px ..."`) are **rejected at lowering** (`DESIGN-SHADOW-MULTI-LAYER`) — declare separate tokens (`shadow.elevated_outer`, `shadow.elevated_inner`) and compose at component level. The closed grammar deterministically maps to RN `{ shadowColor, shadowOffset: { width, height }, shadowOpacity, shadowRadius, elevation }`.
 - `cubic-bezier(...)` CSS → RN `Easing.bezier(a, b, c, d)` (caller adapts; the token in `design.lzi` stays in CSS cubic-bezier string form).
 - `breakpoint` and `z` not emitted to mobile (RN dimensions are runtime, not media queries; z is `zIndex` on a per-component basis).
 
 ### §4.7 Plugin emitters
 
-Opt-in via `lazurite.toml [plugins]`:
+Opt-in via `Lazurite.toml [plugins]`:
 
 ```toml
 [plugins]
@@ -614,7 +614,7 @@ Out of L0 #2 scope: plugin implementations themselves. The plugin protocol is do
 
 ---
 
-## §5. `lazurite.toml [design]` configuration
+## §5. `Lazurite.toml [design]` configuration
 
 ```toml
 [design]
@@ -883,7 +883,7 @@ L0 PASS condition: the proposal answers, for any Lazurite-shaped product, the fo
 3. **How does dark mode work?** → `dark <hex>` suffix per color value; emits `[data-theme="dark"]` CSS override; user-side theme provider switches the attribute (§3.3, non-goal §2).
 4. **How does a React component use a token?** → import `tokens` from `dist/ts-web/design/tokens.ts` OR Tailwind class via preset (§8.2).
 5. **What does Doctor do when a user writes `style={{ color: "#7c3aed" }}`?** → emits `design-token-hex-leak` (§6.1).
-6. **How does Tailwind v3 vs v4 work?** → `lazurite.toml [design] target = "tailwind-v4"` (default) emits `@theme` CSS; `target = "tailwind-v3"` emits `lazuliPreset` JS (§4.4, §4.5).
+6. **How does Tailwind v3 vs v4 work?** → `Lazurite.toml [design] target = "tailwind-v4"` (default) emits `@theme` CSS; `target = "tailwind-v3"` emits `lazuliPreset` JS (§4.4, §4.5).
 7. **How does Figma sync?** → `@plugin/design-figma` (opt-in) emits W3C Design Tokens JSON; `lazuli design import/export` round-trips (§7).
 8. **What's the mobile emission?** → `dist/ts-mobile/design/tokens.ts` with px numbers, RN-shaped shadow objects, easing-name strings (§4.6).
 

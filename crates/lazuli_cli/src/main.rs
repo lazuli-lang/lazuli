@@ -62,10 +62,10 @@ build/
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-    /// Skip the lazurite.toml [lazuli] runtime version pin check.
+    /// Skip the Lazurite.toml [lazuli] runtime version pin check.
     ///
     /// Use when intentionally bumping mid-project; ship a follow-up commit
-    /// updating lazurite.toml to match the new pin.
+    /// updating Lazurite.toml to match the new pin.
     #[arg(long, global = true)]
     allow_version_mismatch: bool,
 }
@@ -248,7 +248,7 @@ enum Commands {
         #[arg(long, default_value_t = 300)]
         debounce: u64,
     },
-    /// Apply, roll back, or inspect SQL migrations from lazurite.toml.
+    /// Apply, roll back, or inspect SQL migrations from Lazurite.toml.
     Migrate {
         #[command(subcommand)]
         sub: MigrateCommand,
@@ -270,7 +270,7 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Run seed scripts from lazurite.toml [seeds].dir.
+    /// Run seed scripts from Lazurite.toml [seeds].dir.
     Seed {
         /// Run only one seed file by filename.
         #[arg(long)]
@@ -881,7 +881,7 @@ fn generate_command(
         let manifest = lazurite_manifest::load(&project_root).with_context(|| {
             format!(
                 "failed to read {}",
-                project_root.join("lazurite.toml").display()
+                project_root.join("Lazurite.toml").display()
             )
         })?;
         version::enforce_manifest_pin(manifest.as_ref())?;
@@ -921,13 +921,13 @@ fn generate_command(
 /// L0 #3 — emit TypeScript user-code for a Lazuli/Lazurite project.
 /// Walks the package, runs every TS-side emitter (design tokens, per-feature
 /// SDK, .lzx view hooks, slot interfaces, Zod schemas), and writes to
-/// `dist/ts-<frontend>/`. Honors `lazurite.toml [frontends.<name>]`.
+/// `dist/ts-<frontend>/`. Honors `Lazurite.toml [frontends.<name>]`.
 fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
     let project_root = project_root_for_input(input);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(
             "failed to read {}",
-            project_root.join("lazurite.toml").display()
+            project_root.join("Lazurite.toml").display()
         )
     })?;
     let module = build_module_from_path(input)?;
@@ -2297,7 +2297,7 @@ pub(crate) fn generate_go(
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(
             "failed to read {}",
-            project_root.join("lazurite.toml").display()
+            project_root.join("Lazurite.toml").display()
         )
     })?;
     let (module_ir, source_context) = if with_source {
@@ -3339,7 +3339,7 @@ fn check_command(
         let manifest = lazurite_manifest::load(&project_root).with_context(|| {
             format!(
                 "failed to read {}",
-                project_root.join("lazurite.toml").display()
+                project_root.join("Lazurite.toml").display()
             )
         })?;
         version::enforce_manifest_pin(manifest.as_ref())?;
@@ -3500,7 +3500,7 @@ fn inspect_json_value(
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(
             "failed to read {}",
-            project_root.join("lazurite.toml").display()
+            project_root.join("Lazurite.toml").display()
         )
     })?;
 
@@ -3707,7 +3707,7 @@ fn new_in_place_command(
         Some(project) => project.to_path_buf(),
         None => std::env::current_dir().context("failed to determine current directory")?,
     };
-    let manifest = project_root.join("lazurite.toml");
+    let manifest = project_root.join("Lazurite.toml");
     if !manifest
         .try_exists()
         .with_context(|| format!("failed to inspect {}", manifest.display()))?
@@ -9787,7 +9787,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
@@ -9803,7 +9803,7 @@ mod tests {
         )
         .unwrap();
 
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert!(manifest.contains("[lazuli]"));
         assert!(manifest.contains("[frontends.web]"));
         assert!(manifest.contains("target = \"tanstack-vite\""));
@@ -9815,7 +9815,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
@@ -9848,7 +9848,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
@@ -9908,7 +9908,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
@@ -10005,7 +10005,7 @@ mod tests {
         assert!(bare.join("README.md").is_file());
         assert!(bare.join(".gitignore").is_file());
         assert!(bare.join("features").join(".gitkeep").is_file());
-        assert!(!bare.join("lazurite.toml").exists());
+        assert!(!bare.join("Lazurite.toml").exists());
         assert!(!bare.join("features").join("account").exists());
 
         let _ = fs::remove_dir_all(root);
@@ -10103,7 +10103,7 @@ mod tests {
             "app/design.lzi",
             "go.mod",
             "go.work",
-            "lazurite.toml",
+            "Lazurite.toml",
             "app/registry.lzi",
             "app/features/account/account.lzi",
             "app/features/account/handlers/hash_password.go",
@@ -10481,7 +10481,7 @@ app Marketplace
         )
         .unwrap();
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             r#"
 [project]
 name = "marketplace"
@@ -10515,7 +10515,7 @@ strategy = "auto"
         let source = fs::read_to_string(&app_path).unwrap();
         let json = inspect_json_value(&source, &app_path, ExpandSet::default(), &[]).unwrap();
 
-        assert_eq!(json["manifest"]["origin"], "lazurite.toml");
+        assert_eq!(json["manifest"]["origin"], "Lazurite.toml");
         assert_eq!(json["manifest"]["project"]["name"], "marketplace");
         assert_eq!(
             json["manifest"]["plugins"][0]["ref"],

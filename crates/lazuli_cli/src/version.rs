@@ -23,9 +23,9 @@ pub fn enforce_manifest_pin(manifest: Option<&Manifest>) -> Result<()> {
     }
 
     bail!(
-        "lazurite.toml `[lazuli] runtime = \"{declared}\"` does not match installed Lazuli version `{}`. \
+        "Lazurite.toml `[lazuli] runtime = \"{declared}\"` does not match installed Lazuli version `{}`. \
          Pin mismatch can produce incompatible output. \
-         Pass `--allow-version-mismatch` to override (and update lazurite.toml in a follow-up commit).",
+         Pass `--allow-version-mismatch` to override (and update Lazurite.toml in a follow-up commit).",
         LAZULI_VERSION
     )
 }

@@ -31,7 +31,7 @@ pub fn run_migrate(
     let manifest = crate::lazurite_manifest::load(project_root)?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "lazuli migrate requires lazurite.toml — run `lazuli init --lazurite`",
+            "lazuli migrate requires Lazurite.toml — run `lazuli init --lazurite`",
         )
     })?;
 
@@ -393,7 +393,7 @@ mod tests {
         let err = run_migrate(&root, MigrateAction::Status).unwrap_err();
         assert!(
             err.to_string()
-                .contains("lazuli migrate requires lazurite.toml")
+                .contains("lazuli migrate requires Lazurite.toml")
         );
 
         let _ = fs::remove_dir_all(root);
@@ -404,7 +404,7 @@ mod tests {
         let root = temp_project("check-only");
         fs::create_dir_all(&root).unwrap();
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             r#"
 [project]
 name = "myapp"

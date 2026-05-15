@@ -2,7 +2,7 @@
 //!
 //! Creates `<app_dir>/features/<name>/` with canonical Lazurite folder structure
 //! per L0 #1 §6.2. Frontend subdirs (`web/`, `mobile/`) are only created
-//! when the project's `lazurite.toml` declares matching frontends.
+//! when the project's `Lazurite.toml` declares matching frontends.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 
 /// Run the subcommand. `project_root` is the directory containing
-/// `lazurite.toml` (or the CWD if no manifest).
+/// `Lazurite.toml` (or the CWD if no manifest).
 pub fn run(name: &str, project_root: &Path) -> Result<()> {
     validate_feature_name(name)?;
 
@@ -37,7 +37,7 @@ pub fn run(name: &str, project_root: &Path) -> Result<()> {
 
 fn app_root(project_root: &Path) -> Result<PathBuf> {
     let manifest = crate::lazurite_manifest::load(project_root)
-        .map_err(|err| anyhow!("failed to load lazurite.toml: {err}"))?;
+        .map_err(|err| anyhow!("failed to load Lazurite.toml: {err}"))?;
     Ok(manifest
         .as_ref()
         .map(|manifest| manifest.app_root(project_root))
@@ -74,7 +74,7 @@ struct DetectedFrontends {
 }
 
 fn detect_frontends(project_root: &Path) -> Result<DetectedFrontends> {
-    let manifest_path = project_root.join("lazurite.toml");
+    let manifest_path = project_root.join("Lazurite.toml");
     if !manifest_path.exists() {
         return Ok(DetectedFrontends {
             web: false,
@@ -219,7 +219,7 @@ mod tests {
     }
 
     fn write_manifest(root: &Path, content: &str) {
-        fs::write(root.join("lazurite.toml"), content).unwrap();
+        fs::write(root.join("Lazurite.toml"), content).unwrap();
     }
 
     fn frontend_manifest(extra: &str) -> String {

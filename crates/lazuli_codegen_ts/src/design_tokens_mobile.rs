@@ -24,7 +24,7 @@ use std::fmt::Write;
 use super::ir::{ColorStateKind, ColorToken, Design, ShadowToken};
 
 /// Emit `dist/ts-mobile/design/tokens.ts` for the given `Design`. The
-/// `rem_base` parameter feeds rem→px conversion (default in `lazurite.toml
+/// `rem_base` parameter feeds rem→px conversion (default in `Lazurite.toml
 /// [design]` is `16`).
 pub fn emit_tokens_mobile_ts(design: &Design, rem_base: u32) -> String {
     let mut s = String::new();

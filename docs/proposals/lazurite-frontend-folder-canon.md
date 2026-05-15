@@ -72,7 +72,7 @@ This boundary is the same one separating Rails (`app/models/`, `app/controllers/
 
 ### In scope
 
-1. **Top-level project layout** for a Lazurite-shaped product. Root carries tooling configs + Docker + git/agent meta + a single `app/` source folder. Lazuli sources (`app.lzi`, `design.lzi`, `registry.lzi`) live inside `app/`. `lazurite.toml` continues at root (manifest is tooling, read before `app/` is even discovered).
+1. **Top-level project layout** for a Lazurite-shaped product. Root carries tooling configs + Docker + git/agent meta + a single `app/` source folder. Lazuli sources (`app.lzi`, `design.lzi`, `registry.lzi`) live inside `app/`. `Lazurite.toml` continues at root (manifest is tooling, read before `app/` is even discovered).
 2. **Per-feature frontend layout** (`app/features/<feat>/web/`, `app/features/<feat>/mobile/`) for cells (`@client.*` slot implementations) and views (audience-scoped page-level React/RN code).
 3. **Cross-feature `app/` directory** as the closed catalog of source-roles: `features/`, `shell/`, `theme/`, `ui/`, `lib/`, `hooks/`. No other top-level subdir inside `app/` is canonical.
 4. **Doctor rules** that enforce the canon and reject React/Vite-style anti-patterns.
@@ -100,7 +100,7 @@ The complete layout a Lazurite product produces. Single `app/` source folder at 
 
 ```
 myapp/
-├── lazurite.toml                       # workspace manifest (tooling — declares `[lazurite] app_dir = "app"`)
+├── Lazurite.toml                       # workspace manifest (tooling — declares `[lazurite] app_dir = "app"`)
 ├── package.json                        # node deps (root level — frontends share)
 ├── tsconfig.json                       # path aliases: `@/*` → `./app/*`
 ├── tailwind.config.ts                  # imports preset from dist
@@ -332,7 +332,7 @@ Doctor enforces folder canon via path + import checks. Rules listed by code; sev
 | `cell-missing-impl` | `<feat>.web.lzx` declares `cells <field> @client.<slot>`, but `app/features/<feat>/web/cells/<slot>.tsx` does not exist | error | Create the file. Lazuli emits the slot interface at `dist/ts-web/<feat>/cells/<slot>.gen.ts`; user `.tsx` implements it |
 | `cell-prop-mismatch` | Cell `.tsx` default-exports a component whose prop type does not satisfy the generated slot interface | error | Fix the prop shape. Generated interface is single source of truth |
 | `view-missing-impl` | `<feat>.web.lzx` declares `view <kind> <name>` inside `audience <a>`, but `app/features/<feat>/web/views/<a>/<kind>.tsx` does not exist | warning | Create the file (or remove the view declaration) |
-| `audience-frontend-empty` | `lazurite.toml [frontends.<x>] audiences = [...]` lists an audience that has zero views declared in any `<feat>.<x>.lzx` | warning | Either drop the audience from the frontend or declare at least one view for it |
+| `audience-frontend-empty` | `Lazurite.toml [frontends.<x>] audiences = [...]` lists an audience that has zero views declared in any `<feat>.<x>.lzx` | warning | Either drop the audience from the frontend or declare at least one view for it |
 | `app-ui-feature-import` | File in `app/ui/<…>` imports from `app/features/<feat>/` | error | Generic UI primitives must not depend on specific features. Move the import-er to `app/features/<feat>/web/cells/` if feature-specific |
 
 ### §5.3 Acceptable patterns Doctor explicitly allows
@@ -359,7 +359,7 @@ lazuli new pleiades --frontends web
 
 Produces the canonical layout including:
 
-- `lazurite.toml` with `[frontends.web]` block pre-filled:
+- `Lazurite.toml` with `[frontends.web]` block pre-filled:
   ```toml
   [frontends.web]
   target = "vite-react"
@@ -473,7 +473,7 @@ User fills the JSX. Doctor stops complaining (`cell-missing-impl` resolves). Hoo
 
 | Fixture | Today | Action |
 |---|---|---|
-| `examples/full-capsule/` | All `.lzx` at top level (`full-capsule.lzx`, `full-capsule.account.web.lzx`, `.admin.web.lzx`, `.public.web.lzx`, `.sales.mobile.lzx`); no `features/<feat>/` decomposition | **Grandfather** as "monolithic legacy fixture" via Doctor flag `legacy-monolithic-fixture` (allowed only when `lazurite.toml [doctor] legacy_monolithic_fixture = true`). Acts as backstop for cross-feature view extensions (`extends @anchor.*`). New fixtures must follow canon. |
+| `examples/full-capsule/` | All `.lzx` at top level (`full-capsule.lzx`, `full-capsule.account.web.lzx`, `.admin.web.lzx`, `.public.web.lzx`, `.sales.mobile.lzx`); no `features/<feat>/` decomposition | **Grandfather** as "monolithic legacy fixture" via Doctor flag `legacy-monolithic-fixture` (allowed only when `Lazurite.toml [doctor] legacy_monolithic_fixture = true`). Acts as backstop for cross-feature view extensions (`extends @anchor.*`). New fixtures must follow canon. |
 | `examples/auth-roundtrip/` | `features/account/account.lzi` only | Add `account.web.lzx` + `web/views/admin/login.tsx` stub once L0 #3 ships |
 | `examples/smoke-hello/` | Minimal | Leave alone (smoke fixture; no frontend) |
 | `examples/marketplace-mini/` | Backend port reference | Add `web/` skeleton when used as a frontend port reference |
@@ -574,7 +574,7 @@ Implementation lives in `@plugin/scaffold-<pack>` repos, not the Lazuli core. Ou
 
 ### §9.2 Per-frontend feature filtering
 
-Some frontends consume only a subset of features (e.g. a public marketing site needs `slug` and `account` but not `trigger`). Should `lazurite.toml [frontends.<x>] features = [...]` filter? Or should that come from `audiences` (audience reachability already implies feature subset)?
+Some frontends consume only a subset of features (e.g. a public marketing site needs `slug` and `account` but not `trigger`). Should `Lazurite.toml [frontends.<x>] features = [...]` filter? Or should that come from `audiences` (audience reachability already implies feature subset)?
 
 Defer. Audience-based filtering is sufficient for v0; explicit feature filter only if real cases need it.
 
@@ -622,7 +622,7 @@ L0 PASS condition: the proposal answers, for any Lazurite-shaped product, the fo
 4. **Where does the app root / providers / router mount live?**
    → `app/shell/web/root.tsx` (or `mobile/root.tsx`)
 5. **Where do design tokens live?**
-   → `app/design.lzi` (L0 #2); root `lazurite.toml` declares `[lazurite] app_dir = "app"` so the CLI resolves the path.
+   → `app/design.lzi` (L0 #2); root `Lazurite.toml` declares `[lazurite] app_dir = "app"` so the CLI resolves the path.
 6. **What does Doctor do when a user creates `src/components/SlugTable.tsx`?**
    → Emits `feature-orphan-component` warning (strict) or error (production), with a fix suggestion pointing at `app/features/slug/web/views/admin/list.tsx` or `app/ui/`.
 7. **What does `lazuli new pleiades --frontends web` produce?**

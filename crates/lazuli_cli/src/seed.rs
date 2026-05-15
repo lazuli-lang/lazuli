@@ -9,7 +9,7 @@ pub fn run_seed(project_root: &Path, only: Option<&str>, force: bool) -> SeedRes
     let manifest = crate::lazurite_manifest::load(project_root)?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "lazuli seed requires lazurite.toml",
+            "lazuli seed requires Lazurite.toml",
         )
     })?;
 
@@ -127,7 +127,7 @@ mod tests {
 
     fn write_manifest(root: &Path) {
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             r#"
 [project]
 name = "seed-test"
@@ -151,7 +151,7 @@ auto = false
         let result = run_seed(&root, None, false);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("lazurite.toml"));
+        assert!(result.unwrap_err().to_string().contains("Lazurite.toml"));
 
         let _ = fs::remove_dir_all(root);
     }

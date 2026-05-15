@@ -352,7 +352,7 @@ func init() {
 ```
 
 Codegen reads the resolved adapter import path from the
-registry's plugin manifest (`lazurite.toml [plugins]` map),
+registry's plugin manifest (`Lazurite.toml [plugins]` map),
 identical to how `payment_gateway` and `channel_dispatcher`
 adapters resolve today.
 
@@ -432,7 +432,7 @@ adapter is pinned in `go.mod`.
        integration block in `registry.lzi` (new optional field
        added in V2; the canonical place when authors care).
     2. `[plugins."@plugin/<name>".vectorstore]` table in
-       `lazurite.toml` with key `dimension = <int>` (adapter-level
+       `Lazurite.toml` with key `dimension = <int>` (adapter-level
        default the plugin author ships).
     3. The bound `embedder`'s `DimensionHint()` (runtime probe;
        used only when neither of the above is declared).
@@ -448,7 +448,7 @@ adapter is pinned in `go.mod`.
   call sites and emits a warning citing file + line. The body
   names the bound adapter so the author can confirm the raw shape
   is provider-supported. Adapters MAY register a `RawSchema()`
-  hint via the adapter manifest (`lazurite.toml`
+  hint via the adapter manifest (`Lazurite.toml`
   `[plugins."@plugin/<name>".vectorstore.raw_schema]`) and doctor
   upgrades the warning to **error** if the keys in `Raw` do not
   validate against that schema. Closed-catalog forms (`Tags`,
@@ -519,7 +519,7 @@ vectorstore.VectorStore`.
 |---|---|
 | Multiple competing Chroma Go clients (community vs upstream) | V6's adapter pins one at scaffold time; if upstream ships an official client later, the adapter becomes a one-file rewrite (~150 LOC) without touching the Lazuli contract. |
 | Adapter authors abuse `VectorFilter.Raw` to ship vendor-coupled queries | Two-layer defence (added v0.2 per polish P1): (1) `docs/plugin-authoring.md` rule that adapters document the `Raw` surface in their README; (2) **doctor code `VECTOR-RAW-001`** walks IR call sites with non-empty `Raw` and warns at design time. Adapters MAY register a `RawSchema()` via the plugin manifest, in which case doctor upgrades the warning to an error when keys do not validate. Closed-catalog forms (`Tags`, `Equals`) cover ≥ 90 % of real queries. |
-| Embedder dimension mismatch across providers | `DimensionHint() int` is the runtime check. Doctor `VECTOR-DIM-001` warns at design time. **Source-of-truth pinned v0.2 per polish P2**: precedence is (1) `dimension <int>` on the `vector_store: VectorStore` registry block (canonical), (2) `[plugins."@plugin/<name>".vectorstore]` table in `lazurite.toml` (adapter default), (3) `Embedder.DimensionHint()` (runtime fallback). |
+| Embedder dimension mismatch across providers | `DimensionHint() int` is the runtime check. Doctor `VECTOR-DIM-001` warns at design time. **Source-of-truth pinned v0.2 per polish P2**: precedence is (1) `dimension <int>` on the `vector_store: VectorStore` registry block (canonical), (2) `[plugins."@plugin/<name>".vectorstore]` table in `Lazurite.toml` (adapter default), (3) `Embedder.DimensionHint()` (runtime fallback). |
 | pgvector requires schema migrations | Out of scope for this bucket. `@plugin/pgvector` ships its migration recipe via the existing `migrations` bucket. The contract surface stays identical. |
 | Embedding latency dominates request time | Out of scope for the contract. Embedder adapters handle batching + caching internally; observability bucket already exposes the timing via pprof labels (per `bucket-ai-debug-loop-cycle.md` D7). |
 | Embeddings model drift (OpenAI deprecates a model) | Adapter authors version-pin in adapter config. Lazuli core does not pin. |

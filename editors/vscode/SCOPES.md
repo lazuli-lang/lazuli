@@ -44,7 +44,7 @@ these scope families and you'll cover 95% of tokens:
 | `comment.line.number-sign.lazuli`                                    | Comments — "comment" color                                                      |
 | `punctuation.X.lazuli`                                               | Punctuation — usually "punctuation" or theme default                            |
 | `storage.modifier.lazuli`                                            | Modifier words (required/optional/readonly/at/from/etc.) — "modifier" color     |
-| `entity.name.namespace.lazurite.toml` (Lazurite.toml only)           | Known table headers (`[lazuli]`, `[lazurite]`, etc.) — "namespace" color        |
+| `entity.name.namespace.Lazurite.toml` (Lazurite.toml only)           | Known table headers (`[lazuli]`, `[lazurite]`, etc.) — "namespace" color        |
 | `entity.name.tag.lazurite-target.toml` (Lazurite.toml only)          | Dotted suffix (`go` in `[generate.go]`) — "tag" color                           |
 | `support.function.lazurite-key.toml` (Lazurite.toml only)            | Known keys (runtime/template/strict/etc.) — "function/key" color                |
 | `entity.name.tag.plugin.lazuli` (Lazurite.toml only)           | `@plugin/X` module references — "decorator" / "reference" color                 |
@@ -573,7 +573,7 @@ The TOML overlay only adds a handful of scopes on top of the standard
 TOML grammar (`source.toml`); everything else falls through to the
 host-provided TOML grammar.
 
-#### `entity.name.namespace.lazurite.toml`
+#### `entity.name.namespace.Lazurite.toml`
 - **Role:** known top-level table headers — `[lazuli]`, `[lazurite]`, `[plugins]`, `[project]`, `[migrations]`, `[seeds]`, `[dev]`, `[runtime]`, `[targets]`, plus the namespace part of dotted headers `[generate.X]` and `[frontends.X]`.
 - **Suggested theme color:** "namespace" / "type" color.
 

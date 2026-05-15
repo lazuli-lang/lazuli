@@ -258,7 +258,7 @@ pub(crate) fn format_string_array(items: &[String]) -> String {
 /// tuple. The `router_target` parameter feeds the per-target
 /// `useParams` import for `view detail` hooks (per §6.2 table); list
 /// and create views ignore it. `app_name` is the project name from
-/// `lazurite.toml [project] name` — used as the localStorage namespace
+/// `Lazurite.toml [project] name` — used as the localStorage namespace
 /// prefix for `settings ... persist local` so two apps don't collide
 /// on the same view name (proposal §3.7). Empty string falls back to
 /// the feature name.

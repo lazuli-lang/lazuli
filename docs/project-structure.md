@@ -3,12 +3,12 @@
 Feature folders are the source of truth. Generated output is disposable.
 
 A Lazurite-scaffolded app (the default produced by `lazuli new`) follows the
-shape below. Bare-mode (`lazuli new --template=bare`) omits `lazurite.toml`
+shape below. Bare-mode (`lazuli new --template=bare`) omits `Lazurite.toml`
 and may keep sources at the root; the full Lazurite shape uses `app/` as the
 product kernel and `frontends/<target>/` as delivery adapters.
 
 ```txt
-lazurite.toml                # workspace manifest (Lazurite distro)
+Lazurite.toml                # workspace manifest (Lazurite distro)
 app/
   app.lzi                    # app entrypoint: envs, urls, uses, deploy gates
   design.lzi                 # design tokens
@@ -119,7 +119,7 @@ README.md
 
 These are authored and committed:
 
-- `lazurite.toml` (Lazurite-scaffolded apps; see §"Lazurite manifest" below)
+- `Lazurite.toml` (Lazurite-scaffolded apps; see §"Lazurite manifest" below)
 - `app/features/**/<feature>.lzi`
 - `app/app.lzi`
 - `app/design.lzi`
@@ -147,7 +147,7 @@ mechanics remain in the pack/adapters.
 product has multiple apps, external services, shared event contracts, or
 gateway edges. It points at app entrypoints and external contracts; repo URLs,
 branches, local ports, broker providers, proxy implementations, and deploy
-mechanics belong in `lazurite.toml` or adapter config.
+mechanics belong in `Lazurite.toml` or adapter config.
 
 `contracts/**/*.lzi` contains external service contracts, not service
 implementations. A contract can import OpenAPI, AsyncAPI, Proto, JSON Schema,
@@ -158,7 +158,7 @@ other stack.
 
 ## Lazurite manifest
 
-`lazurite.toml` at the project root holds environment glue the DSL doesn't
+`Lazurite.toml` at the project root holds environment glue the DSL doesn't
 own — framework version pin, plugin module resolution, codegen settings,
 frontend topology, migration runner policy, seed policy, local-dev overrides.
 The manifest is owned by the **Lazurite distro** (Lazuli's opinionated

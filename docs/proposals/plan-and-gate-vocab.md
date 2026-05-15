@@ -13,7 +13,7 @@ phase set; see `git log --grep '^PG\\.' wave2-plan-gate`.
   (prose) and callable-scope `gate` directives (closed grammar). The
   word `gate` is not a parser keyword anywhere else; the only on-disk
   appearance was the English phrase "deploy gates" in
-  `invariants.md:15` and `lazurite.toml:501`. No surface rename.
+  `invariants.md:15` and `Lazurite.toml:501`. No surface rename.
 - **PG.PRE.2** — `examples/billing.lzi` reconciled with v0.1 surface
   via PG.F: a `plans` catalog block (`free`/`pro` + `invoices_per_month`
   limit) lifts into a single `subscription resource` anchor under the

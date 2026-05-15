@@ -48,7 +48,7 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
 
 fn app_root(project_root: &Path) -> Result<PathBuf> {
     let manifest = crate::lazurite_manifest::load(project_root)
-        .map_err(|err| anyhow!("failed to load lazurite.toml: {err}"))?;
+        .map_err(|err| anyhow!("failed to load Lazurite.toml: {err}"))?;
     Ok(manifest
         .as_ref()
         .map(|manifest| manifest.app_root(project_root))
@@ -145,7 +145,7 @@ mod tests {
 
     fn write_app_dir_manifest(root: &Path) {
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             r#"[project]
 name = "demo"
 module = "github.com/acme/demo"

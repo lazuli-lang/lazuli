@@ -17,7 +17,7 @@ source that only fails later.
   behavior.
 - The word "gate" appears at two unrelated scopes in Lazuli and authors must
   not conflate them. **App-level deploy gates** are free-form English in
-  `app.lzi deploy { ... }` and `lazurite.toml` prose (release-promotion
+  `app.lzi deploy { ... }` and `Lazurite.toml` prose (release-promotion
   policy: migrations, destructive_migrations, rollback). **Callable-scope
   `gate` directives** (`gate behind plan.feature: ...` /
   `gate quota plan.limit: ...`) are children of a single
@@ -544,12 +544,12 @@ source that only fails later.
 
 ## Lazurite Distro Boundary
 
-The Lazurite distro layer (`lazurite.toml` manifest + `lazuli new` template +
+The Lazurite distro layer (`Lazurite.toml` manifest + `lazuli new` template +
 folder conventions) is a thin opinionated layer **on top of** Lazuli. It
 NEVER adds language mechanisms; it only ships project shape conventions. The
 invariants below pin where the distro's reach starts and stops.
 
-- `lazurite.toml` at the project root holds environment glue the DSL does
+- `Lazurite.toml` at the project root holds environment glue the DSL does
   not own: framework version pin (`[lazuli]`), distro template lineage
   (`[lazurite]`), plugin module resolution (`[plugins]`), Go codegen
   settings (`[generate.go]`), frontend topology (`[frontends.*]`),
@@ -557,25 +557,25 @@ invariants below pin where the distro's reach starts and stops.
   and local-dev overrides (`[dev]`). Doctor parses the manifest via
   `crates/lazuli_cli/src/lazurite_manifest.rs` and `lazuli inspect
   --include=manifest` surfaces it in derived JSON.
-- `lazurite.toml` MUST NOT declare environments, URLs, CORS, deploy gates,
+- `Lazurite.toml` MUST NOT declare environments, URLs, CORS, deploy gates,
   audiences, locale settings, or any other slot already owned by
   `app.lzi`/`profiles.lzi`/`.lzx`. The DSL is the single source of truth
   for declarations and contracts; the manifest is glue. Doctor enforces:
-  - `[env.*]` blocks in `lazurite.toml` are rejected (use `app.lzi
+  - `[env.*]` blocks in `Lazurite.toml` are rejected (use `app.lzi
     environments`/`urls`/`cors`).
   - `[deploy]` block is rejected (use `app.lzi deploy { ... }`).
-- `lazurite.toml [plugins]` keys MUST start with `@plugin/`. The
+- `Lazurite.toml [plugins]` keys MUST start with `@plugin/`. The
   `@runtime/<name>` namespace lists OSS commodity infrastructure that
   lives in the Lazuli core runtime — it is wired automatically and never
   appears in `[plugins]`. Doctor emits `PLUGIN-NAMESPACE-MISMATCH-001`
   when a wrong-namespace adapter is declared.
 - A project that uses any `@plugin/*` reference in `.lzi` MUST have a
-  `lazurite.toml` declaring that plugin. Doctor emits
+  `Lazurite.toml` declaring that plugin. Doctor emits
   `MANIFEST-REQUIRED-001` otherwise. Projects with no `@plugin/*` refs
   may omit the manifest entirely (advisory mode); fixture suites used
   by codegen tests (`examples/full-capsule/`, `examples/smoke-hello/`,
   etc.) continue to pass doctor without one.
-- `lazurite.toml [frontends.<name>]` declares per-frontend audience-scoped
+- `Lazurite.toml [frontends.<name>]` declares per-frontend audience-scoped
   SDK projection. Each frontend has `target` (closed enum: `tanstack-vite`
   | `expo` | `next` | `tauri` | `cli`), `out` (output dir), and
   `audiences` (list of audience names declared in `.lzx`). Per-frontend

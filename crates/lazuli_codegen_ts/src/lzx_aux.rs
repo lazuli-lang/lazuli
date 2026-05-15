@@ -682,7 +682,7 @@ mod tests {
         // Bug #4: localStorage key was `<feature>:<view>:<setting>` —
         // collision risk across apps that share a feature/view name.
         // Per proposal §3.7 the namespace should be the app/project
-        // name from `lazurite.toml`.
+        // name from `Lazurite.toml`.
         let mut view = view();
         view.settings.push(SettingDecl {
             name: "grid_size".to_owned(),

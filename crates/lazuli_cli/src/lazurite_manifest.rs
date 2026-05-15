@@ -163,11 +163,32 @@ pub enum ManifestError {
     FrontendOutCollision(String, String),
 }
 
+/// Canonical manifest filename. Capitalized following the Cargo
+/// convention (`Cargo.toml`, `Cargo.lock`) — the capital signals
+/// "this is THE manifest file" in a file tree. The lowercase
+/// `lazurite.toml` form is also accepted during the migration window;
+/// new projects emit the capitalized form.
+pub const MANIFEST_FILENAME: &str = "Lazurite.toml";
+
+/// Legacy lowercase filename. Recognized for back-compat with projects
+/// scaffolded before the rename (2026-05-15). When found, `load()`
+/// reads it transparently; future `lazuli upgrade` step will rename.
+pub const LEGACY_MANIFEST_FILENAME: &str = "lazurite.toml";
+
 pub fn load(project_root: &Path) -> Result<Option<Manifest>, ManifestError> {
-    let path = project_root.join("lazurite.toml");
-    if !path.exists() {
+    // Prefer the canonical capitalized name; fall back to the legacy
+    // lowercase form. On filesystems that are case-insensitive (NTFS,
+    // APFS default) both `exists()` calls return true for a single
+    // file — that's fine, we always read the canonical path first.
+    let canonical = project_root.join(MANIFEST_FILENAME);
+    let legacy = project_root.join(LEGACY_MANIFEST_FILENAME);
+    let path = if canonical.exists() {
+        canonical
+    } else if legacy.exists() {
+        legacy
+    } else {
         return Ok(None);
-    }
+    };
 
     let contents = std::fs::read_to_string(&path)?;
     let manifest: Manifest = toml::from_str(&contents)?;
@@ -176,7 +197,7 @@ pub fn load(project_root: &Path) -> Result<Option<Manifest>, ManifestError> {
 }
 
 /// Resolve `<project_root>/<app_dir>/<file>`, where `<app_dir>` comes
-/// from `lazurite.toml`'s `[lazurite] app_dir` field. Falls back to
+/// from `Lazurite.toml`'s `[lazurite] app_dir` field. Falls back to
 /// `<project_root>/<file>` when no manifest exists or no `app_dir` is
 /// set — preserving the original convention where Lazuli sources lived
 /// at the project root.
@@ -233,7 +254,7 @@ impl Manifest {
 
     pub fn inspect_view(&self) -> InspectManifest<'_> {
         InspectManifest {
-            origin: "lazurite.toml",
+            origin: MANIFEST_FILENAME,
             project: &self.project,
             lazuli: &self.lazuli,
             lazurite: self.lazurite.as_ref(),
@@ -281,7 +302,7 @@ impl fmt::Display for ManifestError {
             ManifestError::Io(err) => write!(f, "{err}"),
             ManifestError::Toml(err) => write!(f, "{err}"),
             ManifestError::UnsupportedSchema(schema) => {
-                write!(f, "unsupported lazurite.toml schema version {schema}")
+                write!(f, "unsupported Lazurite.toml schema version {schema}")
             }
             ManifestError::InvalidPluginNamespace(key) => {
                 write!(f, "plugin key `{key}` must start with `@plugin/`")
@@ -484,5 +505,36 @@ audiences = ["host"]
         assert!(
             matches!(err, ManifestError::FrontendOutCollision(name, out) if name == "web" && out == "dist/ts")
         );
+    }
+
+    /// Lazurite.toml rename (2026-05-15) — `load()` must accept both
+    /// the canonical capitalized name and the legacy lowercase form.
+    /// Cargo-style: new projects emit `Lazurite.toml`, but existing
+    /// projects scaffolded before the rename keep working.
+    #[test]
+    fn loader_accepts_both_canonical_and_legacy_filenames() {
+        use std::fs;
+
+        let body = r#"
+[project]
+name = "casing-test"
+module = "github.com/myorg/casing-test"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#;
+
+        // Canonical capitalized form.
+        let canonical = tempfile::tempdir().unwrap();
+        fs::write(canonical.path().join(MANIFEST_FILENAME), body).unwrap();
+        let manifest = load(canonical.path()).unwrap().expect("manifest");
+        assert_eq!(manifest.project.name, "casing-test");
+
+        // Legacy lowercase form (back-compat for existing projects).
+        let legacy = tempfile::tempdir().unwrap();
+        fs::write(legacy.path().join(LEGACY_MANIFEST_FILENAME), body).unwrap();
+        let manifest = load(legacy.path()).unwrap().expect("manifest");
+        assert_eq!(manifest.project.name, "casing-test");
     }
 }

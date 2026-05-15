@@ -1068,7 +1068,7 @@ fn compute_diff(current: &Design, incoming: &Design) -> DiffReport {
 // =============================================================================
 
 /// Canonical `design.lzi` path under `project_root`. Honors
-/// `lazurite.toml [lazurite] app_dir` when present (default: project
+/// `Lazurite.toml [lazurite] app_dir` when present (default: project
 /// root). Exists for the orchestrator wire-up; the CLI parses `--out`
 /// / `--from` directly.
 pub fn default_design_path(project_root: &Path) -> PathBuf {

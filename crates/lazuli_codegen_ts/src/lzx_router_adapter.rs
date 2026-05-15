@@ -3,7 +3,7 @@
 //! detail view emission needs it.
 //!
 //! Per `docs/proposals/lzx-integration-codegen.md` §6.2 the import line
-//! switches off the frontend `target` setting in `lazurite.toml`:
+//! switches off the frontend `target` setting in `Lazurite.toml`:
 //!
 //! | target       | Import emitted                                                     |
 //! |--------------|--------------------------------------------------------------------|
@@ -15,7 +15,7 @@
 //! `cli` is intentionally absent — headless CLI frontends do not support
 //! `view detail` and the emission walker rejects that target upstream.
 
-/// Frontend router target — mirrors `lazurite.toml [frontends.<x>] target`.
+/// Frontend router target — mirrors `Lazurite.toml [frontends.<x>] target`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouterTarget {
     /// Vite + React + TanStack Router (the canonical web target).

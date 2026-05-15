@@ -41,7 +41,7 @@ pub fn doctor_command(
         let manifest = lazurite_manifest::load(&project_root).with_context(|| {
             format!(
                 "failed to load {}",
-                project_root.join("lazurite.toml").display()
+                project_root.join("Lazurite.toml").display()
             )
         })?;
         crate::version::enforce_manifest_pin(manifest.as_ref())?;
@@ -309,7 +309,7 @@ impl DoctorPackage {
         let lazurite_manifest = lazurite_manifest::load(&project_root).with_context(|| {
             format!(
                 "failed to load {}",
-                project_root.join("lazurite.toml").display()
+                project_root.join("Lazurite.toml").display()
             )
         })?;
 
@@ -1976,7 +1976,7 @@ fn doctor_project_root(input: &Path) -> PathBuf {
 }
 
 fn project_has_lazurite_manifest(project_root: &Path) -> bool {
-    project_root.join("lazurite.toml").is_file()
+    project_root.join("Lazurite.toml").is_file()
 }
 
 fn project_uses_plugin_refs(project_root: &Path) -> bool {
@@ -2001,12 +2001,12 @@ fn manifest_required_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
     }
 
     vec![DoctorDiagnostic {
-        path: project_root.join("lazurite.toml"),
+        path: project_root.join("Lazurite.toml"),
         line: 1,
         column: 1,
         severity: DoctorSeverity::Error,
         code: "MANIFEST-REQUIRED-001".to_owned(),
-        message: "project uses @plugin/* references but is missing lazurite.toml.".to_owned(),
+        message: "project uses @plugin/* references but is missing Lazurite.toml.".to_owned(),
     }]
 }
 
@@ -2270,7 +2270,7 @@ fn check_plugin_not_declared(
             severity: DoctorSeverity::Error,
             code: "PLUGIN-NOT-DECLARED-001".to_owned(),
             message: format!(
-                "`.lzi` references `{}`, but lazurite.toml does not declare it in `[plugins]`.",
+                "`.lzi` references `{}`, but Lazurite.toml does not declare it in `[plugins]`.",
                 reference.reference
             ),
         })
@@ -2288,13 +2288,13 @@ fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<Doct
         .keys()
         .filter(|plugin_ref| !used.contains(*plugin_ref))
         .map(|plugin_ref| DoctorDiagnostic {
-            path: package.project_root.join("lazurite.toml"),
+            path: package.project_root.join("Lazurite.toml"),
             line: 1,
             column: 1,
             severity: DoctorSeverity::Warning,
             code: "PLUGIN-UNUSED-001".to_owned(),
             message: format!(
-                "lazurite.toml declares `{plugin_ref}`, but no `.lzi` file references it."
+                "Lazurite.toml declares `{plugin_ref}`, but no `.lzi` file references it."
             ),
         })
         .collect()
@@ -2315,7 +2315,7 @@ fn check_plugin_namespace_mismatch(
         if let Some(namespace) = reference_namespace(key) {
             if namespace != "plugin" {
                 diagnostics.push(DoctorDiagnostic {
-                    path: package.project_root.join("lazurite.toml"),
+                    path: package.project_root.join("Lazurite.toml"),
                     line: 1,
                     column: 1,
                     severity: DoctorSeverity::Error,
@@ -2341,7 +2341,7 @@ fn check_plugin_namespace_mismatch(
                     severity: DoctorSeverity::Error,
                     code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
                     message: format!(
-                        "`{}` uses the local adapter namespace, but lazurite.toml declares `@plugin/{}`; use the plugin reference.",
+                        "`{}` uses the local adapter namespace, but Lazurite.toml declares `@plugin/{}`; use the plugin reference.",
                         reference.reference, reference.name
                     ),
                 });
@@ -2356,7 +2356,7 @@ fn check_plugin_namespace_mismatch(
                     severity: DoctorSeverity::Error,
                     code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
                     message: format!(
-                        "`{}` uses unknown namespace `@{}`, but lazurite.toml declares `@plugin/{}`; use the plugin reference.",
+                        "`{}` uses unknown namespace `@{}`, but Lazurite.toml declares `@plugin/{}`; use the plugin reference.",
                         reference.reference, reference.namespace, reference.name
                     ),
                 });
@@ -2461,7 +2461,7 @@ fn check_frontend_audience_unknown(
         for audience in &frontend.audiences {
             if !known.contains(audience) {
                 diagnostics.push(DoctorDiagnostic {
-                    path: package.project_root.join("lazurite.toml"),
+                    path: package.project_root.join("Lazurite.toml"),
                     line: 1,
                     column: 1,
                     severity: DoctorSeverity::Error,
@@ -2490,7 +2490,7 @@ fn check_audience_no_frontend(
         .into_iter()
         .filter(|audience| !shipped.contains(audience.as_str()))
         .map(|audience| DoctorDiagnostic {
-            path: package.project_root.join("lazurite.toml"),
+            path: package.project_root.join("Lazurite.toml"),
             line: 1,
             column: 1,
             severity: DoctorSeverity::Warning,
@@ -2511,7 +2511,7 @@ fn check_frontend_out_collision(
     for (name, frontend) in &manifest.frontends {
         if let Some(first) = first_by_out.insert(frontend.out.as_str(), name.as_str()) {
             diagnostics.push(DoctorDiagnostic {
-                path: package.project_root.join("lazurite.toml"),
+                path: package.project_root.join("Lazurite.toml"),
                 line: 1,
                 column: 1,
                 severity: DoctorSeverity::Error,
@@ -13274,7 +13274,7 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).expect("create temp manifest project");
-        fs::write(root.join("lazurite.toml"), manifest_source).expect("write lazurite.toml");
+        fs::write(root.join("Lazurite.toml"), manifest_source).expect("write Lazurite.toml");
         package.project_root = root;
         package.lazurite_manifest = Some(toml::from_str(manifest_source).unwrap());
         package
@@ -13318,21 +13318,21 @@ runtime = "v0.1.0"
         let result = doctor_command(&root, SecurityProfile::Strict, false, false);
         let _ = fs::remove_dir_all(&root);
 
-        result.expect("doctor should pass without lazurite.toml when no @plugin/* refs");
+        result.expect("doctor should pass without Lazurite.toml when no @plugin/* refs");
     }
 
     #[test]
     fn doctor_passes_full_capsule_without_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/full-capsule");
         doctor_command(&root, SecurityProfile::Strict, false, false)
-            .expect("full-capsule should pass without lazurite.toml");
+            .expect("full-capsule should pass without Lazurite.toml");
     }
 
     #[test]
     fn doctor_passes_auth_roundtrip_without_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/auth-roundtrip");
         doctor_command(&root, SecurityProfile::Strict, false, false)
-            .expect("auth-roundtrip should pass without lazurite.toml");
+            .expect("auth-roundtrip should pass without Lazurite.toml");
     }
 
     #[test]
@@ -13356,7 +13356,7 @@ feature billing
         let result = doctor_command(&root, SecurityProfile::Strict, false, false);
         let _ = fs::remove_dir_all(&root);
 
-        let error = result.expect_err("doctor should fail when @plugin refs lack lazurite.toml");
+        let error = result.expect_err("doctor should fail when @plugin refs lack Lazurite.toml");
         assert!(
             error.to_string().contains("failed Lazuli doctor checks"),
             "unexpected error: {error:?}"

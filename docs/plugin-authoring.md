@@ -13,7 +13,7 @@ implements one or more bucket contracts (e.g.
 `maps.Geocoder`, `payments.PaymentGateway`,
 `notifications.ChannelDispatcher`). The DSL declares
 `adapter @plugin/<name>` in `registry.lzi`; the runtime resolves it
-via a static mapping in `lazurite.toml [plugins]` to a concrete Go
+via a static mapping in `Lazurite.toml [plugins]` to a concrete Go
 module + (when applicable) TS packages.
 
 Plugins live in **separate (often private) repos** under
@@ -72,7 +72,7 @@ lazuli-plugin-<name>/
 
 Why same repo across languages: one source of truth for the contract;
 versions bump together; codegen resolves all three faces from a
-single `[plugins]` entry in `lazurite.toml`.
+single `[plugins]` entry in `Lazurite.toml`.
 
 ## Go server adapter pattern
 
@@ -219,7 +219,7 @@ Strict rules (also in `CLAUDE.md §Namespace policy` + memory
 
 1. Lazuli DSL declares `adapter @plugin/<name>` in `registry.lzi`
    under an `integrations.<slot>: <BucketInterface>` entry.
-2. App's `lazurite.toml` `[plugins]` block maps the DSL ref to a
+2. App's `Lazurite.toml` `[plugins]` block maps the DSL ref to a
    Go module path: `"@plugin/<name>" = { module = "github.com/lazuli-lang/lazuli-plugin-<name>", version = "v0.1.0" }`.
 3. Codegen emits `dist/go/main.go` with `_ "github.com/lazuli-lang/lazuli-plugin-<name>"`
    anonymous-import + a `requires integration <slot>: <BucketInterface>`
@@ -278,7 +278,7 @@ provider adapters, with the target encoded after `design-`:
 - **Plugin namespace**: `@plugin/design-<target>`, where `<target>` is
   kebab-case. Examples: `figma`, `style-dictionary`, `panda`,
   `vanilla-extract`, `tamagui`, `restyle`.
-- **Activation**: declared in `lazurite.toml [plugins]` with the module
+- **Activation**: declared in `Lazurite.toml [plugins]` with the module
   path and version.
 - **Input**: the lowered `Design` IR slice, represented in the
   compiler as the typed Rust struct from `lazuli_ir::Design`. Treat
@@ -380,7 +380,7 @@ competing plugin names from claiming the same ecosystem target.
 Reserved does not mean implemented in Lazuli core. It means the name is
 held for the ecosystem target. The implementation still lives in its
 own plugin repo and is activated only when the product lists it in
-`lazurite.toml [plugins]`.
+`Lazurite.toml [plugins]`.
 
 Reserved also does not make a provider/vendor part of the runtime. The
 namespace stays `@plugin/design-<target>` because these targets are
@@ -395,7 +395,7 @@ the Lazuli namespace stable and point it at the private module:
 ```
 
 This keeps authored Lazuli source portable. Moving from a private fork
-back to the canonical plugin should be a `lazurite.toml` change, not a
+back to the canonical plugin should be a `Lazurite.toml` change, not a
 DSL rewrite.
 
 ### Activation example

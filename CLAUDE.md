@@ -175,7 +175,7 @@ features/<feature>/
 
 contracts/<service>.lzi   # External service contracts
 i18n/common.<locale>.json # App-wide translation catalogs
-lazurite.toml             # Workspace manifest (distros use distro-named TOML)
+Lazurite.toml             # Workspace manifest (distros use distro-named TOML)
 ```
 
 ### Generated (gitignored unless committed deliberately)
@@ -198,7 +198,7 @@ See: `docs/project-structure.md`, `docs/proposals/lazurite-scaffold.md` §3 + §
 ## Lazuli vs Lazurite vocabulary
 
 - **Lazuli** = the framework. Language (`.lzi`/`.lzx`) + IR + compiler (Rust crates in `crates/`) + Go runtime lib (`runtime/go/lazuli/`) + CLI (`lazuli` binary).
-- **Lazurite** = the opinionated distribution on top of Lazuli. Folder conventions + `lazurite.toml` manifest + `lazuli new` template body. **One distro currently shipped** but the design space supports others.
+- **Lazurite** = the opinionated distribution on top of Lazuli. Folder conventions + `Lazurite.toml` manifest + `lazuli new` template body. **One distro currently shipped** but the design space supports others.
 - **NOT** "Drusa" — retired vocabulary (pre-2026-05-11). Old commits may reference it; ignore.
 - **NOT** "Aerocoding" — the lead's prior project; negative reference (template-driven full codegen that became unmaintainable). Mentioned only as a "don't do this" comparison.
 
@@ -278,7 +278,7 @@ Avoid relitigating these. Each has a memory entry with the rationale.
 | Migrations | `atlas` (declarative diff) | docs/architecture.md technology picks |
 | Background jobs | `river` (Postgres-backed) | same |
 | Event bus | In-process for v0 (Go channels) + River for durable | same |
-| Manifest format | TOML (`lazurite.toml`), NOT `.lzi` (distro-named per Nuxt analogy) | `docs/proposals/lazurite-scaffold.md` §4 |
+| Manifest format | TOML (`Lazurite.toml`), NOT `.lzi` (distro-named per Nuxt analogy) | `docs/proposals/lazurite-scaffold.md` §4 |
 | Manifest scope | Framework version pin, plugins, codegen, frontend topology. Does NOT duplicate `app.lzi` envs/urls/deploy | same + `docs/invariants.md:14-15` |
 | Generated output path | `dist/` (NOT `.lazuli/generated/`). `.lazuli/` is internal cache only | `docs/proposals/lazurite-scaffold.md` §6 |
 | `dist/go/go.mod` | Sub-module by default; `go.work` at root | same §6.1 |

@@ -35,7 +35,7 @@ use crate::templates;
 /// - `frontends/web/{tailwind.config.ts,tsconfig.json,vite.config.ts,package.json}`
 /// - root `.gitignore`
 ///
-/// Appends `[frontends.web]` to `lazurite.toml` if no such block exists.
+/// Appends `[frontends.web]` to `Lazurite.toml` if no such block exists.
 pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;
 
@@ -93,7 +93,7 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     )?;
 
     append_manifest_block(
-        &project_root.join("lazurite.toml"),
+        &project_root.join("Lazurite.toml"),
         "[frontends.web]",
         templates::FRONTEND_MANIFEST_WEB_SNIPPET,
     )?;
@@ -109,7 +109,7 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 ///   is kept separate because Expo and Vite-react ecosystems pin
 ///   incompatible `react`/`react-dom` versions today).
 ///
-/// Appends `[frontends.mobile]` to `lazurite.toml` if no such block exists.
+/// Appends `[frontends.mobile]` to `Lazurite.toml` if no such block exists.
 pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;
 
@@ -130,7 +130,7 @@ pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<
     )?;
 
     append_manifest_block(
-        &project_root.join("lazurite.toml"),
+        &project_root.join("Lazurite.toml"),
         "[frontends.mobile]",
         templates::FRONTEND_MANIFEST_MOBILE_SNIPPET,
     )?;
@@ -160,7 +160,7 @@ fn write_if_absent(path: &Path, content: &str) -> Result<()> {
 /// Append `snippet` to `manifest_path` unless `header` already appears
 /// in the existing manifest (idempotency: re-running won't double-append).
 /// If the manifest does not exist, it is created from scratch with just
-/// the snippet (orchestrator usually writes `lazurite.toml` itself; this
+/// the snippet (orchestrator usually writes `Lazurite.toml` itself; this
 /// branch exists for tests / `--in-place` usage).
 fn append_manifest_block(manifest_path: &Path, header: &str, snippet: &str) -> Result<()> {
     let manifest_buf: PathBuf = manifest_path.to_path_buf();
@@ -313,14 +313,14 @@ mod tests {
 
         // pre-existing manifest with no frontends block
         fs::write(
-            root.join("lazurite.toml"),
+            root.join("Lazurite.toml"),
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
 
         scaffold_frontend_web(root, "demo").unwrap();
 
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.web]"));
         assert!(manifest.contains("target = \"tanstack-vite\""));
         assert!(manifest.contains("source = \"frontends/web\""));
@@ -335,11 +335,11 @@ mod tests {
 
         // manifest already has the block; helper must NOT append again
         let initial = "[frontends.web]\ntarget = \"tanstack-vite\"\nsource = \"frontends/web\"\nout = \"dist/ts-web\"\naudiences = [\"admin\"]\n";
-        fs::write(root.join("lazurite.toml"), initial).unwrap();
+        fs::write(root.join("Lazurite.toml"), initial).unwrap();
 
         scaffold_frontend_web(root, "demo").unwrap();
 
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         let count = manifest.matches("[frontends.web]").count();
         assert_eq!(
             count, 1,
@@ -363,7 +363,7 @@ mod tests {
             "mobile package.json missing"
         );
 
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.mobile]"));
         assert!(manifest.contains("target = \"expo\""));
         assert!(manifest.contains("source = \"frontends/mobile\""));
@@ -395,7 +395,7 @@ mod tests {
         );
 
         // manifest still has exactly one block
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert_eq!(manifest.matches("[frontends.web]").count(), 1);
     }
 
@@ -413,7 +413,7 @@ mod tests {
         let after = fs::read_to_string(root.join("frontends/mobile/shell/root.tsx")).unwrap();
         assert_eq!(after, edited);
 
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert_eq!(manifest.matches("[frontends.mobile]").count(), 1);
     }
 
@@ -428,7 +428,7 @@ mod tests {
         assert!(root.join("frontends/web/shell/root.tsx").exists());
         assert!(root.join("frontends/mobile/shell/root.tsx").exists());
 
-        let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();
+        let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.web]"));
         assert!(manifest.contains("[frontends.mobile]"));
     }
