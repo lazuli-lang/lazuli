@@ -1,0 +1,320 @@
+{
+  "Feature declaration": {
+    "scope": "lazuli-feature",
+    "prefix": "feature",
+    "body": [
+      "feature ${1:name}",
+      "  defaults",
+      "    tenancy ${2|workspace,organization,user,global|}",
+      "",
+      "  domain",
+      "    resource ${3:Resource}",
+      "      $0"
+    ],
+    "description": "Lazuli feature scaffold with default tenancy and a starter domain resource."
+  },
+  "App manifest": {
+    "scope": "lazuli-feature",
+    "prefix": "app",
+    "body": [
+      "app ${1:AppName}",
+      "  title \"${2:App Title}\"",
+      "  version \"${3:0.1.0}\"",
+      "",
+      "  targets",
+      "    backend go",
+      "    web react",
+      "    mobile expo",
+      "",
+      "  environments",
+      "    local",
+      "    staging",
+      "    production",
+      "",
+      "  urls",
+      "    web local \"${4:http://localhost:3000}\"",
+      "    api local \"${5:http://localhost:8080}\"",
+      "",
+      "  runtime",
+      "    unit api",
+      "      serves queries, commands, webhooks, apis",
+      "      healthcheck \"/healthz\"",
+      "      readiness \"/readyz\"",
+      "    unit web",
+      "      serves surfaces web",
+      "    unit worker",
+      "      runs jobs *",
+      "",
+      "  deploy",
+      "    migrations before_deploy",
+      "    rollback on_failed_healthcheck",
+      "    strategy rolling",
+      "  $0"
+    ],
+    "description": "Top-level app.lzi manifest with targets, environments, urls, runtime, and deploy."
+  },
+  "Registry": {
+    "scope": "lazuli-feature",
+    "prefix": "registry",
+    "body": [
+      "registry",
+      "  env",
+      "    group ${1:default}",
+      "      server ${2:SECRET_NAME}: Secret required in production",
+      "",
+      "  capabilities",
+      "    database postgres",
+      "    queue background_jobs",
+      "    object_storage files",
+      "    mailer transactional",
+      "    event_bus internal",
+      "  $0"
+    ],
+    "description": "Package registry skeleton with env group + capabilities."
+  },
+  "Workspace": {
+    "scope": "lazuli-feature",
+    "prefix": "workspace",
+    "body": [
+      "workspace ${1:WorkspaceName}",
+      "  apps",
+      "    ${2:app_name} at \"${3:./app.lzi}\"",
+      "",
+      "  shared_registry \"${4:./registry.lzi}\"",
+      "  $0"
+    ],
+    "description": "Workspace scaffold with apps + shared_registry."
+  },
+  "Profile": {
+    "scope": "lazuli-feature",
+    "prefix": "profile",
+    "body": [
+      "profile ${1|local,staging,production|}",
+      "  urls",
+      "    web \"${2:http://localhost:3000}\"",
+      "    api \"${3:http://localhost:8080}\"",
+      "  bindings",
+      "    ${4:feature}.${5:integration} = integrations.${5:integration}",
+      "  $0"
+    ],
+    "description": "Environment profile with urls + bindings."
+  },
+  "Resource": {
+    "scope": "lazuli-feature",
+    "prefix": "resource",
+    "body": [
+      "resource ${1:Name}",
+      "  ${2:field}: ${3|Text,ID,Integer,Boolean,DateTime,JSON|} required",
+      "  $0"
+    ],
+    "description": "Domain resource with a starter required field."
+  },
+  "Record (DTO)": {
+    "scope": "lazuli-feature",
+    "prefix": "record",
+    "body": [
+      "record ${1:Name}",
+      "  ${2:field}: ${3|Text,Integer,Boolean,JSON|}",
+      "  $0"
+    ],
+    "description": "Non-persisted typed record / DTO shape."
+  },
+  "Enum": {
+    "scope": "lazuli-feature",
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name}",
+      "  ${2:value_one}",
+      "  ${3:value_two}",
+      "  $0"
+    ],
+    "description": "Closed enum with starter members."
+  },
+  "Query list": {
+    "scope": "lazuli-feature",
+    "prefix": "querylist",
+    "body": [
+      "query.list ${1:name}",
+      "  filters",
+      "    ${2:workspace_id} = ctx.tenant.id",
+      "  $0"
+    ],
+    "description": "Generated collection query scoped to the current tenant."
+  },
+  "Query lookup": {
+    "scope": "lazuli-feature",
+    "prefix": "querylookup",
+    "body": [
+      "query.lookup by_${1:id}",
+      "  params",
+      "    ${1:id}: ID required",
+      "  filters",
+      "    ${1:id} = input.${1:id}",
+      "  $0"
+    ],
+    "description": "Generated single-record lookup query."
+  },
+  "Command": {
+    "scope": "lazuli-feature",
+    "prefix": "command",
+    "body": [
+      "command ${1:name}",
+      "  input",
+      "    ${2:field}: ${3:Text} required",
+      "  policy ${4:@policy.member}",
+      "  rate_limit \"${5:60 per minute per actor}\"",
+      "  audit default",
+      "  ${6|creates,updates,deletes|} ${7:Resource}",
+      "    $0"
+    ],
+    "description": "Write command with input, policy, rate_limit, audit, and a write effect."
+  },
+  "API endpoint": {
+    "scope": "lazuli-feature",
+    "prefix": "api",
+    "body": [
+      "api ${1:name}",
+      "  method ${2|GET,POST,PUT,PATCH,DELETE|}",
+      "  path \"${3:/path}\"",
+      "  output ${4|JSON,Item|}",
+      "  policy ${5:@policy.member}",
+      "  handler ${6:@fn.handler_name}",
+      "  $0"
+    ],
+    "description": "Custom typed HTTP endpoint outside command/query/webhook semantics."
+  },
+  "View": {
+    "scope": "lazuli-feature,lazuli-experience",
+    "prefix": "view",
+    "body": [
+      "view ${1:name} ${2|Table,Form,SidePanel,Sheet,Terminal,Drawer|}",
+      "  $0"
+    ],
+    "description": "View block with one of the canonical surface kinds."
+  },
+  "Webhook": {
+    "scope": "lazuli-feature",
+    "prefix": "webhook",
+    "body": [
+      "webhook ${1:name}",
+      "  path \"${2:/webhook}\"",
+      "  payload from webhook_events.${3:event}",
+      "  verify hmac sha256",
+      "    secret ${4:env.WEBHOOK_SECRET}",
+      "  handler ${5:@fn.handle_webhook}",
+      "  $0"
+    ],
+    "description": "Verified inbound webhook with HMAC verification."
+  },
+  "Job": {
+    "scope": "lazuli-feature",
+    "prefix": "job",
+    "body": [
+      "job ${1:name}",
+      "  trigger ${2|schedule,event|} ${3:\"*/5 * * * *\"}",
+      "  fanout tenants ${4:workspace}",
+      "  idempotency by ${5:ctx.tenant.id, ctx.now.minute}",
+      "  handler ${6:@fn.run_job}",
+      "  $0"
+    ],
+    "description": "Background job with trigger, fanout, idempotency, and handler."
+  },
+  "Agent (LLM)": {
+    "scope": "lazuli-feature",
+    "prefix": "agent",
+    "body": [
+      "agent ${1:name}",
+      "  model ${2:@llm.gpt4}",
+      "  prompt \"${3:You are a helpful assistant.}\"",
+      "  output ${4:String}",
+      "  policy ${5:@policy.member}",
+      "  $0"
+    ],
+    "description": "LLM-powered capability with model, prompt, output, and policy."
+  },
+  "Notification": {
+    "scope": "lazuli-feature",
+    "prefix": "notification",
+    "body": [
+      "notification ${1:name}",
+      "  channels ${2:email}",
+      "  template ${3:@template.welcome}",
+      "  audience ${4:user}",
+      "  $0"
+    ],
+    "description": "Multi-channel outbound notification."
+  },
+  "Route": {
+    "scope": "lazuli-feature,lazuli-experience",
+    "prefix": "route",
+    "body": [
+      "route ${1:name}",
+      "  path \"${2:/path}\"",
+      "  to ${3:feature.view.name}",
+      "  surface ${4:web}",
+      "  audience ${5:admin}",
+      "  $0"
+    ],
+    "description": "App-level route binding a path to a view on a surface and audience."
+  },
+  "Policies block": {
+    "scope": "lazuli-feature",
+    "prefix": "policies",
+    "body": [
+      "policies",
+      "  ${1:member}: ${2:@scope.workspace_member}",
+      "  $0"
+    ],
+    "description": "Feature-local policy categories."
+  },
+  "Emits": {
+    "scope": "lazuli-feature",
+    "prefix": "emits",
+    "body": [
+      "emits ${1:event.name}",
+      "  payload ${2:Resource}",
+      "  $0"
+    ],
+    "description": "Declares an event emission with a typed payload."
+  },
+  "Route slot": {
+    "scope": "lazuli-feature",
+    "prefix": "route_slot",
+    "body": [
+      "route ${1:id}: ${2|ID,Text,Integer|}"
+    ],
+    "description": "Route slot binding inside a command/api/view body."
+  },
+  "Field": {
+    "scope": "lazuli-feature",
+    "prefix": "field",
+    "body": [
+      "${1:name}: ${2|Text,ID,Integer,Boolean,DateTime,JSON|} ${3|required,optional|}"
+    ],
+    "description": "Typed field declaration with required/optional modifier."
+  },
+  "Audit default": {
+    "scope": "lazuli-feature",
+    "prefix": "audit",
+    "body": [
+      "audit default"
+    ],
+    "description": "Enable default audit-log for the enclosing command."
+  },
+  "Rate limit": {
+    "scope": "lazuli-feature",
+    "prefix": "ratelimit",
+    "body": [
+      "rate_limit \"${1:60} per ${2|minute,hour,second|} per ${3|actor,ip,tenant|}\""
+    ],
+    "description": "Per-call rate limit string."
+  },
+  "Policy reference": {
+    "scope": "lazuli-feature",
+    "prefix": "policy_ref",
+    "body": [
+      "policy @policy.${1:member}"
+    ],
+    "description": "Reference to a feature-local policy."
+  }
+}

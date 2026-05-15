@@ -81,6 +81,10 @@
         "scopeName": "source.lazurite-toml",
         "path": "./syntaxes/lazurite-manifest.tmLanguage.json"
       }
+    ],
+    "snippets": [
+      { "language": "lazuli-feature", "path": "./snippets/lazuli.code-snippets" },
+      { "language": "lazuli-experience", "path": "./snippets/lazuli.code-snippets" }
     ]
   },
   "dependencies": {

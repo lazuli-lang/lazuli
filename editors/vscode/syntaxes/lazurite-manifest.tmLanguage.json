@@ -3,6 +3,60 @@
   "name": "Lazurite Manifest",
   "scopeName": "source.lazurite-toml",
   "patterns": [
+    {
+      "comment": "Lazurite-known top-level table headers (no dot in name)",
+      "match": "^\\s*(\\[)(lazuli|lazurite|plugins|project|migrations|seeds|dev|runtime|targets)(\\])\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.table.toml" },
+        "2": { "name": "entity.name.namespace.lazurite.toml" },
+        "3": { "name": "punctuation.definition.table.toml" }
+      }
+    },
+    {
+      "comment": "Lazurite-known dotted table header — [generate.go] / [generate.ts]",
+      "match": "^\\s*(\\[)(generate)(\\.)(go|ts)(\\])\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.table.toml" },
+        "2": { "name": "entity.name.namespace.lazurite.toml" },
+        "3": { "name": "punctuation.accessor.toml" },
+        "4": { "name": "entity.name.tag.lazurite-target.toml" },
+        "5": { "name": "punctuation.definition.table.toml" }
+      }
+    },
+    {
+      "comment": "Lazurite-known dotted table header — [frontends.<name>] (user-named frontend)",
+      "match": "^\\s*(\\[)(frontends)(\\.)([A-Za-z_][A-Za-z0-9_-]*)(\\])\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.table.toml" },
+        "2": { "name": "entity.name.namespace.lazurite.toml" },
+        "3": { "name": "punctuation.accessor.toml" },
+        "4": { "name": "entity.name.tag.lazurite-target.toml" },
+        "5": { "name": "punctuation.definition.table.toml" }
+      }
+    },
+    {
+      "comment": "Plugin module references (\"@plugin/<name>\") — keys inside [plugins]",
+      "match": "^\\s*(\")(@plugin/[A-Za-z0-9_./-]+)(\")\\s*(?==)",
+      "captures": {
+        "1": { "name": "punctuation.definition.string.begin.toml" },
+        "2": { "name": "entity.name.reference.plugin.lazuli" },
+        "3": { "name": "punctuation.definition.string.end.toml" }
+      }
+    },
+    {
+      "comment": "Lazurite-known top-level keys across all known tables",
+      "match": "^\\s*(name|module|schema|runtime|template|template_version|app_dir|out|gofmt|strict|emit_main|submodule|dev_replace|target|source|audiences|generated|manual|strategy|dir|auto|plugin_paths|version|path)\\s*(?==)",
+      "captures": {
+        "1": { "name": "support.function.lazurite-key.toml" }
+      }
+    },
+    {
+      "comment": "Inline-table key: module / version / path inside a plugin definition",
+      "match": "(?<=\\{|,)\\s*(module|version|path)\\s*(?==)",
+      "captures": {
+        "1": { "name": "support.function.lazurite-key.toml" }
+      }
+    },
     { "include": "source.toml" }
   ]
 }

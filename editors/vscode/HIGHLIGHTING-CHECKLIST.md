@@ -8,24 +8,24 @@ Status legend: ☐ pending · ◐ partial · ✅ done · ⊘ deferred (out of sc
 
 ---
 
-## Phase 1 — high-ROI polish (visible in 5 minutes of usage)
+## Phase 1 — high-ROI polish (visible in 5 minutes of usage) ✅
 
-### 1.1 Decorator namespace coloring ☐
+### 1.1 Decorator namespace coloring ✅
 **Problem:** `@policy.member`, `@scope.workspace_member`, `@fn.X`, `@cap.X`, `@semantic.X`, `@pii.X`, `@key.X`, `@anchor.X`, `@actor.X`, `@role.X`, `@runtime.X`, `@plugin.X`, `@validator.X`, `@hook.X`, `@client.X`, `@translation.X`, `@adapter.X`, `@query_modifier.X`, `@tool.X`, `@llm.X`, `@slug.X`, `@full_text.X` are all rendering plain because `entity.name.reference.decorator.lazuli` isn't in most themes.
 **Fix:** change to `entity.name.tag.lazuli` (HTML-tag-style, universally colored) OR `support.type.decorator.lazuli` (less standard but specific). Test against Default Dark+ + Material Icon Theme.
 **Acceptance:** `@policy.X` shows distinct color (likely orange/coral) in any default theme.
 
-### 1.2 HTTP method constants ☐
+### 1.2 HTTP method constants ✅
 **Problem:** `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS` after `method` keyword need to read as constants (not as identifiers).
 **Fix:** add pattern `\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b` → `constant.language.http-method.lazuli` inside api-block.
 **Acceptance:** `method GET` shows `GET` in constant color (typically blue/cyan).
 
-### 1.3 Closed-catalog enum-like values ☐
+### 1.3 Closed-catalog enum-like values ✅
 **Problem:** values like `cascade`, `restrict`, `nullify`, `lax`, `strict`, `none` (cookie same_site), `DENY`, `SAMEORIGIN` (frame options), `manual`, `kms_managed` (rotation), `argon2id`, `bcrypt`, `scrypt` (hash algorithms), `aes_256_gcm` (encryption), `lazy`, `eager`, `merge`, `append` (digest strategy), `nosniff` show plain.
 **Fix:** add `constant.language.closed-catalog.lazuli` patterns scoped to their respective blocks (cookie/encryption/headers/auth/digest/etc.) for each known value list.
 **Acceptance:** values in closed catalogs show as constants (color match `true`/`false`/numbers).
 
-### 1.4 Audit `@decorator` argument names ☐
+### 1.4 Audit `@decorator` argument names ✅
 **Problem:** inside `@cap.File(max_size:..., accept:..., visibility:..., signed_ttl:...)` — the keys (`max_size`, `accept`, `visibility`, `signed_ttl`, `algorithm`, etc.) are arg names but currently render plain.
 **Fix:** add pattern inside the decorator-paren content: match `[a-z_]+\s*:` as `variable.parameter.decorator-arg.lazuli`.
 **Acceptance:** `@cap.File(max_size:"10mb")` shows `max_size` distinctly.
@@ -171,12 +171,12 @@ Inside `audience X`, lines like `requires @scope.X` (legacy, may come back) — 
 
 ---
 
-## Phase 5 — `Lazurite.toml` (manifest grammar) ◐
+## Phase 5 — `Lazurite.toml` (manifest grammar) ✅
 
 ### 5.1 Reuse standard TOML grammar ✅
 **Status:** done. `lazurite-manifest.tmLanguage.json` includes `source.toml`.
 
-### 5.2 Lazurite-specific keys ☐
+### 5.2 Lazurite-specific keys ✅
 **Polish:** highlight known top-level tables (`[lazuli]`, `[lazurite]`, `[plugins]`, `[generate.go]`, `[generate.ts]`, `[frontends.X]`, `[migrations]`, `[seeds]`) with a distinct injection scope so they pop vs arbitrary TOML tables.
 **Acceptance:** `[lazuli]` reads as a known table; arbitrary `[my-stuff]` reads as plain TOML.
 
@@ -184,9 +184,8 @@ Inside `audience X`, lines like `requires @scope.X` (legacy, may come back) — 
 
 ## Phase 6 — embedded language injections (advanced)
 
-### 6.1 SQL embedding inside `query.sql X` body ☐
-**Approach:** TextMate `injection` rule — embed `source.sql` inside the `sql` block content.
-**ROI:** moderate — power-user feature; useful for long SQL queries. ~30min work.
+### 6.1 SQL embedding inside `query.sql X` body ⊘ deferred (no inline SQL form in Lazuli)
+**Investigation 2026-05-15 (W1.sql agent):** Lazuli's `query.sql` does NOT have an inline triple-quoted form. The actual syntax is `sql "./path/to/query.sql"` — an EXTERNAL `.sql` file reference (verified at `crates/lazuli_syntax/src/parser.rs:8601-8627`). The external `.sql` file already gets `source.sql` highlighting from VS Code's SQL extension via the file extension. No grammar change made; if a future Lazuli proposal adds inline SQL syntax, this can be revisited.
 
 ### 6.2 Cron embedding inside `trigger schedule "..."` ⊘ deferred (1.5)
 
@@ -200,7 +199,7 @@ For `validate pattern "..."` — embed `source.regexp` — niche but nice.
 
 ## Phase 7 — non-grammar polish
 
-### 7.1 Code folding ☐
+### 7.1 Code folding ✅ (indent-based default; no markers needed)
 **Add:** `language-configuration.json` `folding.markers` for `^.*\b(feature|app|workspace|registry|profile|contract|experience|route|resource|record|enum|query\.|command|api|view|event|job|webhook|agent|notification|poller|report|channel|cache|secret_rotation|aggregate|permission|role|plan)\b` start markers + indent-based close.
 **Acceptance:** click the gutter triangle next to `feature item` to fold the whole feature.
 
@@ -208,7 +207,7 @@ For `validate pattern "..."` — embed `source.regexp` — niche but nice.
 
 ### 7.3 Indent guides ✅ (VS Code default)
 
-### 7.4 Snippets for common patterns ☐
+### 7.4 Snippets for common patterns ✅ (25 snippets at `editors/vscode/snippets/lazuli.code-snippets`)
 **Targets:** `feature`, `command`, `query.list`, `api`, `resource`, `enum`, `policies`, `webhook`, `job`, `agent`, `notification`, `route`. Each snippet expands a skeleton ready to fill. Lives in `editors/vscode/snippets/lazuli.code-snippets`.
 
 ### 7.5 Auto-pairs / surrounding pairs ✅ (already configured)
@@ -230,8 +229,8 @@ Open Pleiades `item.lzi` in each:
 
 For each, screenshot a 30-line slice with mixed token types. Note any token that disappears or overlaps badly. File issues per theme.
 
-### 8.2 Document scope-name → semantic role mapping ☐
-**Output:** `editors/vscode/SCOPES.md` listing every TextMate scope used by the grammar + which role it represents + suggested theme color guidance.
+### 8.2 Document scope-name → semantic role mapping ✅
+**Output:** `editors/vscode/SCOPES.md` (133 main grammar scopes + 8 Lazurite.toml scopes documented). Includes "quick reference" table for theme authors and inspection tip via VS Code's "Developer: Inspect Editor Tokens and Scopes" command.
 
 ---
 

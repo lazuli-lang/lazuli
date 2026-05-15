@@ -242,6 +242,14 @@
         { "include": "#composite-key-block" },
         { "include": "#lock-block" },
         {
+          "comment": "Relation `on_delete` closed catalog: cascade | restrict | nullify (modifiers list at lib.rs:2151 and IR has_many semantics).",
+          "match": "^\\s+(on_delete)\\s+(cascade|restrict|nullify)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.resource.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
           "name": "entity.name.function.statement.resource.lazuli",
           "match": "^\\s+(tenancy|soft_delete|timestamps|no_timestamps|retention|validates|validate|unique|index|on_delete|derived|has_many|inverse|previously|migrated|alias|composite_key|lock|invariant|invariants)\\b"
         },
@@ -623,6 +631,30 @@
         { "include": "#comments" },
         { "include": "#strings" },
         {
+          "comment": "Hash algorithm closed catalog (lazuli_lsp AUTH_CATALOG_VALUES @ lib.rs:14064; LSP doctor enforces `argon2id`/`bcrypt` only at lib.rs:2906). `scrypt` recognized for forward-compat.",
+          "match": "^\\s+(algorithm)\\s+(argon2id|bcrypt|scrypt)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "OAuth provider closed catalog (lazuli_lsp AUTH_CATALOG_VALUES @ lib.rs:14064-14074).",
+          "match": "^\\s+(oauth)\\s+(google|github|microsoft|apple)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "MFA method closed catalog (lazuli_lsp AUTH_CATALOG_VALUES @ lib.rs:14064-14074).",
+          "match": "^\\s+(mfa)\\s+(totp)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
           "name": "keyword.control.statement.lazuli",
           "match": "^\\s+(identity|password|oauth|mfa|sessions|adapter|enroll|verify|hash|algorithm|refresh|ttl|resource|rate_limit)\\b"
         },
@@ -686,6 +718,30 @@
         { "include": "#comments" },
         { "include": "#strings" },
         {
+          "comment": "x_frame_options closed catalog (lazuli_ir AppHeaders::X_FRAME_OPTIONS_CATALOG @ lib.rs:2810).",
+          "match": "^\\s+(x_frame_options)\\s+(DENY|SAMEORIGIN)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.headers.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "x_content_type_options closed catalog (lazuli_ir AppHeaders::is_x_content_type_options_known @ lib.rs:2824).",
+          "match": "^\\s+(x_content_type_options)\\s+(nosniff)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.headers.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "referrer_policy closed catalog (lazuli_ir AppHeaders::REFERRER_POLICY_CATALOG @ lib.rs:2800-2809).",
+          "match": "^\\s+(referrer_policy)\\s+(no-referrer-when-downgrade|no-referrer|origin-when-cross-origin|origin|same-origin|strict-origin-when-cross-origin|strict-origin|unsafe-url)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.headers.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
           "name": "entity.name.function.statement.headers.lazuli",
           "match": "^\\s+(csp|hsts|x_frame_options|x_content_type_options|referrer_policy|permissions_policy|max_age|include_subdomains|preload)\\b"
         },
@@ -704,11 +760,19 @@
         { "include": "#comments" },
         { "include": "#strings" },
         {
+          "comment": "same_site closed catalog (lazuli_ir CookieProfile.same_site @ lib.rs:2860-2862).",
+          "match": "^\\s+(same_site)\\s+(lax|strict|none)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.cookie.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
           "name": "entity.name.function.statement.cookie.lazuli",
           "match": "^\\s+(default|session|csrf|signed|secure|http_only|same_site|max_age|domain|path)\\b"
         },
         {
-          "name": "constant.language.cookie.lazuli",
+          "name": "constant.language.closed-catalog.lazuli",
           "match": "\\b(lax|strict|none)\\b"
         },
         { "include": "#references" },
@@ -762,12 +826,28 @@
         { "include": "#comments" },
         { "include": "#strings" },
         {
+          "comment": "algorithm closed catalog (lazuli_ir EncryptionAlgorithm @ encryption.rs:150-167). v0 = `aes_256_gcm`; chacha20_poly1305 deferred but recognized for forward-compat.",
+          "match": "^\\s+(algorithm)\\s+(aes_256_gcm|chacha20_poly1305)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.encryption.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "rotation closed catalog (lazuli_ir EncryptionRotation @ encryption.rs:170-180). v0 = `manual`; kms_managed deferred but recognized.",
+          "match": "^\\s+(rotation)\\s+(manual|kms_managed)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.encryption.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
           "name": "entity.name.function.statement.encryption.lazuli",
           "match": "^\\s+(key|source|algorithm|rotation|rotation_profile)\\b"
         },
         {
-          "name": "constant.language.rotation.lazuli",
-          "match": "\\b(manual|kms_managed)\\b"
+          "name": "constant.language.closed-catalog.lazuli",
+          "match": "\\b(manual|kms_managed|aes_256_gcm|chacha20_poly1305)\\b"
         },
         { "include": "#references" },
         { "include": "#constants" },
@@ -1104,6 +1184,7 @@
           "name": "keyword.control.statement.lazuli",
           "match": "^\\s+(method|path|input|output|policy|handler|rate_limit|audit|route|deprecated|expose|gate|previously)\\b"
         },
+        { "include": "#http-methods" },
         { "include": "#references" },
         { "include": "#types" },
         { "include": "#modifiers" },
@@ -1359,6 +1440,7 @@
           "name": "keyword.control.statement.lazuli",
           "match": "^\\s+(path|payload|payload_from|verify|secret|header|tenant_from|idempotency|retry|backoff|replay|dlq|handler|emits|policy|rate_limit|audit|from)\\b"
         },
+        { "include": "#http-methods" },
         { "include": "#references" },
         { "include": "#types" },
         { "include": "#modifiers" },
@@ -1514,6 +1596,7 @@
           "name": "keyword.control.statement.lazuli",
           "match": "^\\s+(path|route|input|output|policy|rate_limit)\\b"
         },
+        { "include": "#http-methods" },
         { "include": "#references" },
         { "include": "#types" },
         { "include": "#constants" },
@@ -1591,11 +1674,19 @@
         { "include": "#comments" },
         { "include": "#strings" },
         {
+          "comment": "template_strategy closed catalog (lazuli_lsp NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES @ lib.rs:14175).",
+          "match": "^\\s+(template_strategy)\\s+(merge|append)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.digest.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
           "name": "entity.name.function.statement.digest.lazuli",
           "match": "^\\s+(every|group_by|max_size|template_strategy)\\b"
         },
         {
-          "name": "constant.language.template-strategy.lazuli",
+          "name": "constant.language.closed-catalog.lazuli",
           "match": "\\b(merge|append)\\b"
         },
         { "include": "#references" },
@@ -1880,7 +1971,7 @@
       "begin": "^(\\s+)(extends)\\s+(@anchor\\.[a-z_][a-z0-9_]*)",
       "beginCaptures": {
         "2": { "name": "keyword.control.statement.lazuli" },
-        "3": { "name": "entity.name.reference.anchor.lazuli" }
+        "3": { "name": "entity.name.tag.lazuli" }
       },
       "end": "^(?!\\1\\s)(?=\\s*\\S)",
       "patterns": [
@@ -1909,7 +2000,7 @@
       "begin": "^(\\s*)(extends)\\s+(@anchor\\.[a-z_][a-z0-9_]*)",
       "beginCaptures": {
         "2": { "name": "keyword.control.declaration.structural.lazuli" },
-        "3": { "name": "entity.name.reference.anchor.lazuli" }
+        "3": { "name": "entity.name.tag.lazuli" }
       },
       "end": "^(?=\\S)",
       "patterns": [
@@ -2155,8 +2246,41 @@
     "decorators": {
       "patterns": [
         {
-          "name": "entity.name.tag.decorator.lazuli",
-          "match": "@(?:semantic|cap|pii|key|slug|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation)\\b(?:\\.[A-Za-z_][A-Za-z0-9_]*)?(?:\\([^)]*\\))?"
+          "comment": "Parameterized decorator with named args, e.g. `@cap.File(max_size: \"10mb\", accept: \"png\")`. Uses begin/end so arg-keys inside parens can be highlighted as `variable.parameter`.",
+          "begin": "(@(?:semantic|cap|pii|key|policy|scope|fn|hook|validator|adapter|client|query_modifier|llm|tool|anchor|actor|role|runtime|plugin|slug|full_text|translation|template)\\.)([A-Z][A-Za-z0-9_]*)\\s*(\\()",
+          "beginCaptures": {
+            "1": { "name": "entity.name.tag.lazuli" },
+            "2": { "name": "entity.name.tag.lazuli" },
+            "3": { "name": "punctuation.section.parens.begin.lazuli" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.lazuli" }
+          },
+          "patterns": [
+            {
+              "comment": "Named decorator arg, e.g. `max_size:` or `accept :`.",
+              "match": "\\b([a-z_][a-z_0-9]*)\\s*(:)",
+              "captures": {
+                "1": { "name": "variable.parameter.decorator-arg.lazuli" },
+                "2": { "name": "punctuation.separator.key-value.lazuli" }
+              }
+            },
+            { "include": "#strings" },
+            { "include": "#constants" },
+            { "include": "#references" },
+            { "include": "#punctuation" }
+          ]
+        },
+        {
+          "comment": "Non-parameterized decorator with a Name suffix, e.g. `@semantic.GeoPoint`.",
+          "name": "entity.name.tag.lazuli",
+          "match": "@(?:semantic|cap|pii|key|slug|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation|template)\\.[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "comment": "Bare decorator namespace (no `.Name`), e.g. `@cap` standalone.",
+          "name": "entity.name.tag.lazuli",
+          "match": "@(?:semantic|cap|pii|key|slug|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation|template)\\b"
         }
       ]
     },
@@ -2167,7 +2291,8 @@
           "match": "@(?:runtime|plugin)/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*"
         },
         {
-          "name": "entity.name.reference.decorator.lazuli",
+          "comment": "Decorator references with a lowercase member, e.g. `@policy.member`, `@scope.workspace_member`, `@fn.hash_password`. Colored as HTML-tag for theme compatibility.",
+          "name": "entity.name.tag.lazuli",
           "match": "@[a-z_][a-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+"
         },
         {
@@ -2233,6 +2358,15 @@
         {
           "name": "constant.other.wildcard.lazuli",
           "match": "(?<![A-Za-z0-9_])\\*(?![A-Za-z0-9_])"
+        }
+      ]
+    },
+    "http-methods": {
+      "comment": "Generic HTTP method tokens. Inclusion-only; emit `constant.language` so themes color them like `true`/`false`.",
+      "patterns": [
+        {
+          "name": "constant.language.http-method.lazuli",
+          "match": "\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\b"
         }
       ]
     },
