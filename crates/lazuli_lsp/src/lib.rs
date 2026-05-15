@@ -6180,11 +6180,20 @@ fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
 
 fn idempotency_key_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    let mut in_tenant_migration = false;
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
+        let indent = line.len().saturating_sub(trimmed.len());
 
-        if trimmed.starts_with("idempotency ") && !trimmed.starts_with("idempotency by ") {
+        if indent <= 2 {
+            in_tenant_migration = indent == 2 && trimmed.starts_with("tenant_migration ");
+        }
+
+        if trimmed.starts_with("idempotency ")
+            && !trimmed.starts_with("idempotency by ")
+            && !in_tenant_migration
+        {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
@@ -12178,7 +12187,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "expose" => Some("Declares which error fields are visible to generated clients."),
         "write_window" => Some("Declares the temporal write window checked before a command runs."),
         "idempotency" => Some(
-            "Declares a dedupe key for jobs, webhooks, and notifications. `idempotency by <path>` — re-fires sharing the same key are no-ops. Common paths: `envelope.id`, `payload.batch_id`, `tenant.org_id, schedule.day`.",
+            "Declares a dedupe key. Jobs, webhooks, and notifications use `idempotency by <path>`; tenant migrations use `idempotency <path>`. Re-fires sharing the same key are no-ops.",
         ),
         "job" => Some(
             "Declares a unit of asynchronous or scheduled work. `trigger event ...` runs as a reactor; `trigger schedule \"<cron>\"` runs as scheduled. Add `queue <lane>` to enqueue rather than run inline. Body is either `handler \"./...\"` or a declarative target / let / updates / emits chain.",
@@ -12189,8 +12198,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         // Migrations bucket cycle Route C — `tenant_migration` kind +
         // deploy block expansion. See `docs/proposals/bucket-migrations-cycle.md`.
         "tenant_migration" => Some(
-            "Per-tenant idempotent schema migration. Closed body: `target tenants <axis>` (required), `idempotency by <path>` (required), `retry`, `timeout`, `handler \"./...\"`. No `emits` or business effects.",
+            "Per-tenant idempotent data migration. Closed body: `target query.<name>|command.<name>`, `axis <tenant_axis>`, `idempotency <path>`, `retry`, `timeout`, and `handler \"./...\"`.",
         ),
+        "axis" => Some("Names the tenant axis for a `tenant_migration`; doctor checks it against feature `defaults.tenancy`."),
         "strategy" => Some(
             "Migration deployment strategy. Closed catalog: `rolling` (zero-downtime), `blue_green` (parallel cutover), `canary` (incremental traffic shift). Doctor: `DEPLOY-STRATEGY-001`.",
         ),
@@ -12894,6 +12904,10 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
         ],
     ),
     ("error_page", &["template", "audience"]),
+    (
+        "tenant_migration",
+        &["target", "axis", "idempotency", "timeout", "retry", "handler"],
+    ),
 ];
 
 /// Closed catalog of effect verbs offered as completion when the
@@ -13498,6 +13512,7 @@ const KEYWORDS: &[&str] = &[
     "queue",
     "tenant_from",
     "fanout",
+    "axis",
     "external_calls",
     "payload",
     "payload_group",
@@ -17444,6 +17459,15 @@ aggregate Customer {
     }
 
     #[test]
+    fn keyword_hover_describes_tenant_migration_children() {
+        let description = keyword_description("tenant_migration").unwrap();
+        assert!(description.contains("target query."));
+        assert!(description.contains("axis <tenant_axis>"));
+        assert!(description.contains("idempotency <path>"));
+        assert!(keyword_description("axis").unwrap().contains("defaults.tenancy"));
+    }
+
+    #[test]
     fn keywords_list_contains_storage_arguments() {
         for kw in ["max_size", "accept", "visibility", "signed_ttl"] {
             assert!(
@@ -17978,6 +18002,19 @@ aggregate Customer {
     }
 
     #[test]
+    fn completion_inside_tenant_migration_offers_closed_body() {
+        let source = "feature customer\n  tenant_migration backfill\n    \n";
+        let items = completions_at(source, 2, 4);
+        let labels = labels(&items);
+        for child in ["target", "axis", "idempotency", "timeout", "retry", "handler"] {
+            assert!(
+                labels.contains(&child),
+                "tenant_migration completion must offer `{child}`; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
     fn completion_after_policy_namespace_offers_declared_categories() {
         let source = "feature customer\n  policies\n    create: @role.admin\n    read: @scope.same_org\n    update: @role.admin\n\n  command create\n    policy @policy.\n";
         // Cursor sits immediately after `@policy.` on line 7
@@ -18087,7 +18124,7 @@ aggregate Customer {
     #[test]
     fn kind_child_completions_cover_seven_target_kinds() {
         let kinds: Vec<&str> = KIND_CHILD_COMPLETIONS.iter().map(|(k, _)| *k).collect();
-        for required in ["command", "query.list", "query.lookup", "query.sql", "api"] {
+        for required in ["command", "query.list", "query.lookup", "query.sql", "api", "tenant_migration"] {
             assert!(
                 kinds.contains(&required),
                 "kind catalog must include `{required}`; got {kinds:?}"

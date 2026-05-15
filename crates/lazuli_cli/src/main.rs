@@ -565,6 +565,8 @@ impl ExpandSet {
             || self.event_groups
             || self.migrations
             || self.webhook_events
+            || self.notifications
+            || self.tenant_migrations
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -4059,14 +4061,15 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // Migrations bucket cycle Route C — projects every lifted
             // `ir::TenantMigration` on the feature + the app deploy
             // block's checkpoint/strategy/lock_timeout/hook fields.
-            "migrations" => set.migrations = true,
+            "migrations" | "tenant_migrations" => set.migrations = true,
             // Notifications expanded bucket cycle — projects every
             // lifted `ir::Notification` with typed `digest` /
             // `throttle` sub-blocks. The scalar fields surface in
             // default inspect; this flag adds the structured shapes.
             "notifications" => set.notifications = true,
+            "tenant_migrations" => set.tenant_migrations = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, or notifications"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, or notifications"
             ),
         }
     }
@@ -10326,6 +10329,33 @@ registry
         let expansions = parse_expand_set("tools").unwrap();
         assert!(expansions.tools);
         assert!(!expansions.summary);
+    }
+
+    #[test]
+    fn inspect_expand_tenant_migrations_alias_projects_ir() {
+        let source = r#"
+feature customer
+  defaults
+    tenancy org
+
+  domain
+    query.lookup by_id by id: ID
+
+  tenant_migration backfill_lifecycle_stage
+    target query.by_id
+    axis org
+    idempotency envelope.tenant_id
+    handler "./migrations/backfill_lifecycle_stage.go"
+"#;
+        let expansions = parse_expand_set("tenant_migrations").unwrap();
+        let report = inspect_canonical_source(source, Path::new("customer.lzi"), expansions);
+        let projected = report.features[0]
+            .tenant_migrations
+            .as_ref()
+            .expect("tenant migrations projection");
+        assert_eq!(projected[0].name, "backfill_lifecycle_stage");
+        assert_eq!(projected[0].target.axis, "org");
+        assert!(projected[0].target.operation.is_some());
     }
 
     #[test]

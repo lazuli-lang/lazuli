@@ -1921,9 +1921,14 @@ pub struct EventGroup {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantMigration {
     pub name: String,
-    /// `target tenants <axis>` — required.
+    /// `target query.<name>` / `target command.<name>` — required by the
+    /// current surface. The legacy `target tenants <axis>` form leaves this
+    /// unset and stores the axis below.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+    /// `axis <name>` or legacy `target tenants <axis>` — required.
     pub target_axis: String,
-    /// `idempotency by <path>` — mandatory per `TM-IDEMP-001`; stored
+    /// `idempotency <path>` / legacy `idempotency by <path>` — mandatory; stored
     /// as `Option<String>` so the parser surfaces the absence as an
     /// IR-level diagnostic rather than a parse error (matches `Job`).
     pub idempotency_by: Option<String>,

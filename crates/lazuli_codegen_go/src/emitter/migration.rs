@@ -399,6 +399,7 @@ mod feature_emit_tests {
         TenantMigration {
             name: name.to_owned(),
             target: TenantMigrationTarget {
+                operation: None,
                 axis: "org".to_owned(),
             },
             idempotency: IdempotencyKey {

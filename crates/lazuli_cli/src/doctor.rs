@@ -4796,10 +4796,27 @@ fn migrations_diagnostics(
     app: Option<&DoctorAppManifest>,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
+    let mut queries_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut commands_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for feature in tier3_facts {
+        queries_by_feature.insert(
+            feature.feature.as_str(),
+            feature.queries.iter().map(query_name).collect(),
+        );
+        commands_by_feature.insert(
+            feature.feature.as_str(),
+            feature.commands.iter().map(|c| c.name.as_str()).collect(),
+        );
+    }
 
     for feature in tier3_facts {
         previously_diagnostics(feature, &mut diagnostics);
-        tenant_migration_diagnostics(feature, &mut diagnostics);
+        tenant_migration_diagnostics(
+            feature,
+            &queries_by_feature,
+            &commands_by_feature,
+            &mut diagnostics,
+        );
     }
 
     if let Some(app) = app {
@@ -4808,6 +4825,14 @@ fn migrations_diagnostics(
     }
 
     diagnostics
+}
+
+fn query_name(query: &lazuli_ir::Query) -> &str {
+    match query {
+        lazuli_ir::Query::List(q) => &q.name,
+        lazuli_ir::Query::Lookup(q) => &q.name,
+        lazuli_ir::Query::Sql(q) => &q.name,
+    }
 }
 
 fn previously_diagnostics(feature: &Tier3FeatureFacts, diagnostics: &mut Vec<DoctorDiagnostic>) {
@@ -4931,6 +4956,8 @@ fn tier3_iter_resource_previously_pairs<'a>(
 
 fn tenant_migration_diagnostics(
     feature: &Tier3FeatureFacts,
+    queries_by_feature: &BTreeMap<&str, BTreeSet<&str>>,
+    commands_by_feature: &BTreeMap<&str, BTreeSet<&str>>,
     diagnostics: &mut Vec<DoctorDiagnostic>,
 ) {
     for tm in &feature.tenant_migrations {
@@ -4940,7 +4967,64 @@ fn tenant_migration_diagnostics(
             .copied()
             .unwrap_or(feature.feature_line);
 
-        // TM-AXIS-001 — target axis must match the feature's tenancy axis.
+        if let Some(operation) = &tm.target.operation {
+            let (kind, target_feature, name, index) = match operation {
+                lazuli_ir::TenantMigrationTargetOperation::Query { feature: target_feature, name } => {
+                    (
+                        "query",
+                        target_feature.as_deref().unwrap_or(feature.feature.as_str()),
+                        name.as_str(),
+                        queries_by_feature,
+                    )
+                }
+                lazuli_ir::TenantMigrationTargetOperation::Command { feature: target_feature, name } => {
+                    (
+                        "command",
+                        target_feature.as_deref().unwrap_or(feature.feature.as_str()),
+                        name.as_str(),
+                        commands_by_feature,
+                    )
+                }
+            };
+            if !index
+                .get(target_feature)
+                .map(|names| names.contains(name))
+                .unwrap_or(false)
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "tenant-migration-target-unknown".to_owned(),
+                    message: format!(
+                        "tenant_migration `{}` targets unknown {} `{}.{}`.",
+                        tm.name, kind, target_feature, name
+                    ),
+                });
+            }
+        }
+
+        let handler_path = feature
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(&tm.handler.path);
+        if !handler_path.is_file() {
+            diagnostics.push(DoctorDiagnostic {
+                path: feature.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "tenant-migration-handler-missing".to_owned(),
+                message: format!(
+                    "tenant_migration `{}` handler `{}` does not exist on disk.",
+                    tm.name, tm.handler.path
+                ),
+            });
+        }
+
+        // Target axis must match the feature's tenancy axis.
         if let Some(axis) = &feature.tenancy_axis {
             if &tm.target.axis != axis {
                 diagnostics.push(DoctorDiagnostic {
@@ -4948,9 +5032,9 @@ fn tenant_migration_diagnostics(
                     line,
                     column: 1,
                     severity: DoctorSeverity::Error,
-                    code: "TM-AXIS-001".to_owned(),
+                    code: "tenant-migration-axis-mismatch".to_owned(),
                     message: format!(
-                        "tenant_migration `{}` declares `target tenants {}` but feature `{}` uses tenancy axis `{}`.",
+                        "tenant_migration `{}` declares `axis {}` but feature `{}` uses tenancy axis `{}`.",
                         tm.name, tm.target.axis, feature.feature, axis
                     ),
                 });
@@ -4961,15 +5045,15 @@ fn tenant_migration_diagnostics(
                 line,
                 column: 1,
                 severity: DoctorSeverity::Error,
-                code: "TM-AXIS-001".to_owned(),
+                code: "tenant-migration-axis-mismatch".to_owned(),
                 message: format!(
-                    "tenant_migration `{}` declares `target tenants {}` but feature `{}` did not declare a `defaults.tenancy` axis.",
+                    "tenant_migration `{}` declares `axis {}` but feature `{}` did not declare a `defaults.tenancy` axis.",
                     tm.name, tm.target.axis, feature.feature
                 ),
             });
         }
 
-        // TM-IDEMP-001 — `idempotency by <path>` is mandatory; absence
+        // `idempotency <path>` is mandatory; absence
         // surfaces as an empty `IdempotencyKey.by` Path.
         if tm.idempotency.by.segments.is_empty() {
             diagnostics.push(DoctorDiagnostic {
@@ -4977,9 +5061,9 @@ fn tenant_migration_diagnostics(
                 line,
                 column: 1,
                 severity: DoctorSeverity::Error,
-                code: "TM-IDEMP-001".to_owned(),
+                code: "tenant-migration-idempotency-required".to_owned(),
                 message: format!(
-                    "tenant_migration `{}` does not declare `idempotency by <path>` — schema migrations are not safely re-runnable without an idempotency key.",
+                    "tenant_migration `{}` does not declare `idempotency <path>` — tenant migrations are not safely re-runnable without an idempotency key.",
                     tm.name
                 ),
             });
@@ -15920,6 +16004,31 @@ feature customer_auth
         include_str!("../tests/fixtures/migrations/deploy_checkpoint_path_invalid.lzi");
     const MIGRATIONS_STRATEGY_INVALID_FIXTURE: &str =
         include_str!("../tests/fixtures/migrations/deploy_strategy_invalid.lzi");
+    const MIGRATIONS_TM_TARGET_UNKNOWN_FIXTURE: &str = r#"
+feature x
+  defaults
+    tenancy org
+
+  tenant_migration backfill_x
+    target query.missing
+    axis org
+    idempotency envelope.tenant_id
+    handler "./migrations/backfill_x.go"
+"#;
+    const MIGRATIONS_TM_HANDLER_MISSING_FIXTURE: &str = r#"
+feature x
+  defaults
+    tenancy org
+
+  domain
+    query.lookup by_id by id: ID
+
+  tenant_migration backfill_x
+    target query.by_id
+    axis org
+    idempotency envelope.tenant_id
+    handler "./migrations/backfill_x.go"
+"#;
 
     #[test]
     fn previously_forward_unresolved_fires() {
@@ -15959,8 +16068,8 @@ feature customer_auth
         let package = package_from_sources(vec![("x.lzi", MIGRATIONS_TM_AXIS_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics).contains("TM-AXIS-001"),
-            "expected TM-AXIS-001 in {:?}",
+            codes(&diagnostics).contains("tenant-migration-axis-mismatch"),
+            "expected tenant-migration-axis-mismatch in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
@@ -15970,8 +16079,30 @@ feature customer_auth
         let package = package_from_sources(vec![("x.lzi", MIGRATIONS_TM_IDEMP_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert!(
-            codes(&diagnostics).contains("TM-IDEMP-001"),
-            "expected TM-IDEMP-001 in {:?}",
+            codes(&diagnostics).contains("tenant-migration-idempotency-required"),
+            "expected tenant-migration-idempotency-required in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn tenant_migration_target_unknown_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_TM_TARGET_UNKNOWN_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("tenant-migration-target-unknown"),
+            "expected tenant-migration-target-unknown in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn tenant_migration_handler_missing_fires() {
+        let package = package_from_sources(vec![("x.lzi", MIGRATIONS_TM_HANDLER_MISSING_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("tenant-migration-handler-missing"),
+            "expected tenant-migration-handler-missing in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

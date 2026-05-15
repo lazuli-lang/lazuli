@@ -3865,11 +3865,10 @@ pub struct Channel {
 /// Migrations bucket cycle Route C — `tenant_migration <name>` declaration.
 ///
 /// Mirrors `Job`'s spine (idempotency / retry / timeout / handler) but is
-/// scoped to per-tenant schema migrations. The closed body shape is:
-/// `target tenants <axis>`, `idempotency by <path>` (mandatory),
-/// `retry <count> backoff <strategy>`, `timeout "<duration>"`, and
-/// `handler "<path>"`. No `emits`, no `target query.*`, no `policy`:
-/// schema migrations are by design free of business effects.
+/// scoped to per-tenant data/schema migrations. The closed body shape is:
+/// `target query.<name>|command.<name>`, `axis <name>`, `idempotency <path>`
+/// (mandatory), `retry <count> backoff <strategy>`, `timeout "<duration>"`,
+/// and `handler "<path>"`.
 ///
 /// Doctor cross-checks:
 ///   - `TM-AXIS-001` — `target` axis matches a `defaults.tenancy` axis
@@ -3899,7 +3898,16 @@ pub struct TenantMigration {
 /// cross-checks against `defaults.tenancy` declared in the same feature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantMigrationTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<TenantMigrationTargetOperation>,
     pub axis: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TenantMigrationTargetOperation {
+    Query { feature: Option<String>, name: String },
+    Command { feature: Option<String>, name: String },
 }
 
 // =============================================================================

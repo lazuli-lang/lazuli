@@ -3763,6 +3763,7 @@ pub fn lower_tenant_migration(
     Ok(ir::TenantMigration {
         name: tm.name.clone(),
         target: ir::TenantMigrationTarget {
+            operation: tm.target_ref.as_deref().map(lower_tenant_migration_target),
             axis: tm.target_axis.clone(),
         },
         idempotency,
@@ -3772,6 +3773,32 @@ pub fn lower_tenant_migration(
         previous_names: Vec::new(),
         span_ref: Some(span_of(tm.span)),
     })
+}
+
+fn lower_tenant_migration_target(raw: &str) -> ir::TenantMigrationTargetOperation {
+    let parts: Vec<&str> = raw.split('.').collect();
+    match parts.as_slice() {
+        ["query", name] => ir::TenantMigrationTargetOperation::Query {
+            feature: None,
+            name: (*name).to_owned(),
+        },
+        [feature, "query", name] => ir::TenantMigrationTargetOperation::Query {
+            feature: Some((*feature).to_owned()),
+            name: (*name).to_owned(),
+        },
+        ["command", name] => ir::TenantMigrationTargetOperation::Command {
+            feature: None,
+            name: (*name).to_owned(),
+        },
+        [feature, "command", name] => ir::TenantMigrationTargetOperation::Command {
+            feature: Some((*feature).to_owned()),
+            name: (*name).to_owned(),
+        },
+        _ => ir::TenantMigrationTargetOperation::Query {
+            feature: None,
+            name: raw.to_owned(),
+        },
+    }
 }
 
 fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {

@@ -8958,9 +8958,10 @@ fn parse_external_call(
 }
 
 /// Migrations bucket cycle Route C — `tenant_migration <name>` block
-/// parser. Body shape is closed (5 children: `target tenants <axis>`,
-/// `idempotency by <path>`, `retry`, `timeout`, `handler`); any other
-/// child token is a parse error. Mirrors `parse_job`'s structure.
+/// parser. Body shape is closed: `target query.*|command.*`, `axis <name>`,
+/// `idempotency <path>`, `retry`, `timeout`, `handler`. The older
+/// `target tenants <axis>` and `idempotency by <path>` spellings remain
+/// accepted for compatibility with existing fixtures.
 fn parse_tenant_migration(
     lines: &[SourceLine<'_>],
     start: usize,
@@ -8983,7 +8984,9 @@ fn parse_tenant_migration(
         ));
     }
 
+    let mut target_ref: Option<String> = None;
     let mut target_axis: Option<String> = None;
+    let mut legacy_target_tenants = false;
     let mut idempotency_by: Option<String> = None;
     let mut retry: Option<JobRetry> = None;
     let mut timeout: Option<String> = None;
@@ -9013,9 +9016,30 @@ fn parse_tenant_migration(
 
         if let Some(rest) = trimmed.strip_prefix("target tenants ") {
             target_axis = Some(rest.trim().to_owned());
+            legacy_target_tenants = true;
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("target ") {
+            let target = rest.trim();
+            if target.is_empty() {
+                return Err(line_error(line, "`target` requires `query.<name>` or `command.<name>`"));
+            }
+            target_ref = Some(target.to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("axis ") {
+            let axis = rest.trim();
+            if axis.is_empty() {
+                return Err(line_error(line, "`axis` requires a tenant axis name"));
+            }
+            target_axis = Some(axis.to_owned());
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
+            idempotency_by = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("idempotency ") {
             idempotency_by = Some(rest.trim().to_owned());
             last_end = line.end;
             i += 1;
@@ -9034,23 +9058,27 @@ fn parse_tenant_migration(
         } else {
             return Err(line_error(
                 line,
-                "tenant_migration children are `target tenants <axis>`, `idempotency by <path>`, `retry`, `timeout`, or `handler`",
+                "tenant_migration children are `target query.<name>|command.<name>`, `axis <name>`, `idempotency <path>`, `retry`, `timeout`, or `handler`",
             ));
         }
     }
 
     let target_axis = target_axis.ok_or_else(|| {
-        line_error(
-            header,
-            "`tenant_migration` requires `target tenants <axis>`",
-        )
+        line_error(header, "`tenant_migration` requires `axis <name>`")
     })?;
+    if target_ref.is_none() && !legacy_target_tenants {
+        return Err(line_error(
+            header,
+            "`tenant_migration` requires `target query.<name>` or `target command.<name>`",
+        ));
+    }
     let handler = handler
         .ok_or_else(|| line_error(header, "`tenant_migration` requires `handler \"<path>\"`"))?;
 
     Ok((
         TenantMigration {
             name,
+            target_ref,
             target_axis,
             idempotency_by,
             retry,
@@ -13698,6 +13726,78 @@ feature customer
             message.contains("<kinds>: <atom>"),
             "error should require explicit `:` (got {message:?})"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Migrations bucket cycle — `tenant_migration` block parser slice
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn tenant_migration_full_block_parses() {
+        let source = r#"
+feature customer
+  tenant_migration backfill_lifecycle_stage
+    target query.by_id
+    axis org_id
+    idempotency envelope.tenant_id
+    timeout 10m
+    retry 3 backoff exponential
+    handler "./migrations/backfill_lifecycle_stage.go"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let tm = &features[0].tenant_migrations[0];
+        assert_eq!(tm.name, "backfill_lifecycle_stage");
+        assert_eq!(tm.target_ref.as_deref(), Some("query.by_id"));
+        assert_eq!(tm.target_axis, "org_id");
+        assert_eq!(tm.idempotency_by.as_deref(), Some("envelope.tenant_id"));
+        assert_eq!(tm.timeout.as_deref(), Some("10m"));
+        assert_eq!(tm.retry.as_ref().expect("retry").count, 3);
+        assert_eq!(tm.handler, "./migrations/backfill_lifecycle_stage.go");
+    }
+
+    #[test]
+    fn tenant_migration_legacy_target_and_idempotency_parses() {
+        let source = r#"
+feature customer
+  tenant_migration backfill
+    target tenants org
+    idempotency by tenant.org_id
+    handler "./migrations/backfill.go"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let tm = &features[0].tenant_migrations[0];
+        assert!(tm.target_ref.is_none());
+        assert_eq!(tm.target_axis, "org");
+        assert_eq!(tm.idempotency_by.as_deref(), Some("tenant.org_id"));
+    }
+
+    #[test]
+    fn tenant_migration_missing_axis_errors() {
+        let source = r#"
+feature customer
+  tenant_migration backfill
+    target query.by_id
+    idempotency envelope.tenant_id
+    handler "./migrations/backfill.go"
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("axis <name>"), "got {message}");
+    }
+
+    #[test]
+    fn tenant_migration_unknown_child_errors() {
+        let source = r#"
+feature customer
+  tenant_migration backfill
+    target query.by_id
+    axis org
+    emits changed
+    handler "./migrations/backfill.go"
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("tenant_migration children"), "got {message}");
     }
 
     // -------------------------------------------------------------------------
