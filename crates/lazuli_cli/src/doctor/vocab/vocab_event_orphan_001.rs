@@ -106,6 +106,7 @@ mod tests {
                 assignments: vec![],
             }),
             policy: PolicyRef::None,
+            policy_expr: None,
             emits: emits.iter().map(|s| s.to_string()).collect(),
             rate_limit: None,
             audit: None,

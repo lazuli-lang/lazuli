@@ -132,6 +132,7 @@ mod tests {
             idempotency: None,
             retry: None,
             policy: None,
+            policy_expr: None,
             tenant_from: None,
             fanout: None,
             timeout: None,

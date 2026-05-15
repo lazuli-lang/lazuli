@@ -593,6 +593,7 @@ mod tests {
             lets: Vec::new(),
             effect: ir::CommandEffect::None,
             policy: ir::PolicyRef::Unresolved("allow".to_owned()),
+            policy_expr: None,
             emits: Vec::new(),
             rate_limit: None,
             audit: None,

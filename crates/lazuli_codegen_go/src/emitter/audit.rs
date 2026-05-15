@@ -253,6 +253,7 @@ mod tests {
             lets: Vec::new(),
             effect: CommandEffect::None,
             policy: PolicyRef::None,
+            policy_expr: None,
             emits: Vec::new(),
             rate_limit: None,
             audit: None,

@@ -112,6 +112,7 @@ mod tests {
             signed_ttl: ttl.map(str::to_owned),
             filename: None,
             policy: PolicyRef::None,
+            policy_expr: None,
             rate_limit: None,
             audit: None,
             span_ref: None,

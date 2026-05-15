@@ -190,6 +190,7 @@ mod tests {
                 return_type: TypeRef::Builtin(BuiltinType::Boolean),
             }),
             policy: PolicyRef::None,
+            policy_expr: None,
             emits: vec![],
             rate_limit: None,
             audit: None,

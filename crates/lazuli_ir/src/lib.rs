@@ -807,6 +807,13 @@ pub struct Command {
     pub lets: Vec<LetBinding>,
     pub effect: CommandEffect,
     pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form when the authored
+    /// policy contained predicates (`has_role` / `has_permission` /
+    /// `authenticated`) or boolean combinators. Coexists with `policy`
+    /// (legacy atom ref) for back-compat. `None` when the policy is
+    /// a bare atom or absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
     /// Phase L Tier 4b — `rate_limit "<N per period per scope>"` literal.
@@ -2370,6 +2377,36 @@ pub struct PolicyAtom {
     pub name: String,
 }
 
+/// RB.S6 — structured `policy <expr>` form used by command / query /
+/// job / webhook / api / notification declarations. Coexists with the
+/// existing `PolicyRef` field for back-compat; populated only when the
+/// authored policy text contained `has_role` / `has_permission` /
+/// `authenticated` predicates or boolean combinators.
+///
+/// See `docs/proposals/rbac-catalog-vocab.md` §"Composition with the
+/// existing `policy` block" for the dictionary-vs-predicate split.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum PolicyExpr {
+    /// `authenticated` — true when the actor is a logged-in user.
+    Authenticated,
+    /// `has_role <name>` — true when actor's role matches `name` (the
+    /// catalog closure subsumes inheritance at codegen time).
+    HasRole(String),
+    /// `has_permission <resource>:<action>[:...]` — true when actor's
+    /// role grants the permission via the catalog closure.
+    HasPermission(String),
+    /// `@<ns>.<name>` atom embedded in an expression.
+    Atom(PolicyAtom),
+    /// `<a> and <b>` — boolean conjunction (n-ary; collected from
+    /// left-associative parse).
+    And(Vec<PolicyExpr>),
+    /// `<a> or <b>` — boolean disjunction (n-ary).
+    Or(Vec<PolicyExpr>),
+    /// `not <a>` — boolean negation.
+    Not(Box<PolicyExpr>),
+}
+
 // =============================================================================
 // Experience IR — `.lzx`
 // =============================================================================
@@ -3312,6 +3349,9 @@ pub struct Job {
     pub retry: Option<RetryPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyRef>,
+    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
     /// Lowered from the canonical-indent slice; doctor cross-checks
     /// the path against the resource tenancy axis.
@@ -3422,6 +3462,9 @@ pub struct Webhook {
     pub idempotency: Option<IdempotencyKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyRef>,
+    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     pub handler: PathRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub returns: Option<TypeRef>,
@@ -3597,6 +3640,9 @@ pub struct Notification {
     pub template: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyRef>,
+    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant_from: Option<TenantFromSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3981,6 +4027,9 @@ pub struct Api {
     pub method: HttpMethod,
     pub path: String,
     pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<String>,
     /// `output <TypeRef>` — required for canonical APIs today. Captured
@@ -4024,6 +4073,9 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<ReportFilenamePattern>,
     pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<String>,
     /// Canonical audit block reused from commands/queries/jobs/webhooks.

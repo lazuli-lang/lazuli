@@ -151,6 +151,7 @@ mod tests {
             lets: vec![],
             effect,
             policy: PolicyRef::None,
+            policy_expr: None,
             emits: emits.into_iter().map(str::to_owned).collect(),
             rate_limit: None,
             audit,

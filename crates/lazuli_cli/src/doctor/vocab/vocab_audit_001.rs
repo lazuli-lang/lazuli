@@ -111,6 +111,7 @@ mod tests {
             lets: vec![],
             effect,
             policy: PolicyRef::None,
+            policy_expr: None,
             emits,
             rate_limit: None,
             audit,

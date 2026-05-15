@@ -453,6 +453,7 @@ mod feature_emit_tests {
             tenant_from: None,
             idempotency: None,
             policy: None,
+            policy_expr: None,
             handler: PathRef::authored(format!("./webhooks/{name}.go")),
             returns: None,
             emits: Vec::new(),

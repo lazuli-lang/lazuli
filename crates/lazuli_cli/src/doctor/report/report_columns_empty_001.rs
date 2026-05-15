@@ -96,6 +96,7 @@ mod tests {
             signed_ttl: Some("1h".into()),
             filename: None,
             policy: PolicyRef::Atom("@policy.read".into()),
+            policy_expr: None,
             rate_limit: None,
             audit: None,
             span_ref: None,

@@ -139,6 +139,7 @@ mod tests {
                 tokens: vec![],
             }),
             policy: PolicyRef::None,
+            policy_expr: None,
             rate_limit: None,
             audit: None,
             span_ref: None,

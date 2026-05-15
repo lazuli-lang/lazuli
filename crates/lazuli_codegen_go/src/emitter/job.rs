@@ -659,6 +659,7 @@ mod feature_emit_tests {
             idempotency: None,
             retry: None,
             policy: None,
+            policy_expr: None,
             tenant_from: None,
             fanout: None,
             timeout: None,

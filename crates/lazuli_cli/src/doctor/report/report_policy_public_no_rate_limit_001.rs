@@ -114,6 +114,7 @@ mod tests {
             signed_ttl: Some("1h".into()),
             filename: None,
             policy,
+            policy_expr: None,
             rate_limit: rate_limit.map(str::to_owned),
             audit: None,
             span_ref: None,

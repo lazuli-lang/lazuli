@@ -463,6 +463,7 @@ mod tests {
             method: HttpMethod::Get,
             path: format!("/api/{name}"),
             policy: PolicyRef::None,
+            policy_expr: None,
             rate_limit: None,
             output,
             handler: PathRef::authored("./api/handler.go"),

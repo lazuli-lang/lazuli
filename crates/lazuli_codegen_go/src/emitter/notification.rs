@@ -542,6 +542,7 @@ mod feature_emit_tests {
             recipient: "target.email".to_owned(),
             template: "./outreach/welcome_email.mjml".to_owned(),
             policy: None,
+            policy_expr: None,
             tenant_from: None,
             idempotency: None,
             retry: None,

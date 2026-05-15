@@ -182,6 +182,7 @@ fn lower_transition_command(
             .or(transition.requires.as_deref())
             .map(lower_policy_ref)
             .unwrap_or(ir::PolicyRef::None),
+        policy_expr: None,
         emits: transition.emits.clone(),
         rate_limit: None,
         audit: transition.audit.as_deref().map(lower_audit_spec),

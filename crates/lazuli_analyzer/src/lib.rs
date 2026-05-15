@@ -1076,6 +1076,7 @@ fn lower_command(
         lets: Vec::new(),
         effect,
         policy,
+        policy_expr: None,
         emits: command.emits.clone(),
         rate_limit: None,
         audit: None,
@@ -2645,6 +2646,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         .as_deref()
         .map(lower_path_string)
         .map(|path| ir::IdempotencyKey { by: path });
+    let policy_expr = c.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Command {
         name: c.name.clone(),
         kind,
@@ -2654,6 +2656,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         lets,
         effect,
         policy,
+        policy_expr,
         emits,
         rate_limit: c.rate_limit.clone(),
         audit,
@@ -2723,11 +2726,13 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         .as_deref()
         .map(ir::PathRef::authored)
         .unwrap_or_else(|| ir::PathRef::convention(format!("./api/{}.go", a.name)));
+    let policy_expr = a.policy_expr.as_ref().map(lower_policy_expr);
     ir::Api {
         name: a.name.clone(),
         method,
         path: a.path.clone(),
         policy,
+        policy_expr,
         rate_limit: a.rate_limit.clone(),
         output: type_ref_from_text(&a.output),
         handler,
@@ -2799,6 +2804,7 @@ fn lower_report_decl(
         emit_to: a.emit_to.clone(),
     });
 
+    let policy_expr = r.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Report {
         name: r.name.clone(),
         source,
@@ -2809,6 +2815,7 @@ fn lower_report_decl(
         signed_ttl: r.signed_ttl.clone(),
         filename,
         policy,
+        policy_expr,
         rate_limit: r.rate_limit.clone(),
         audit,
         span_ref: Some(span_of(r.span)),
@@ -3006,6 +3013,7 @@ pub fn lower_job(feature: &str, job: &syntax::Job) -> Result<ir::Job, AnalyzeErr
     };
     let body = lower_job_body(&job.body);
 
+    let policy_expr = job.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Job {
         name: job.name.clone(),
         trigger,
@@ -3013,6 +3021,7 @@ pub fn lower_job(feature: &str, job: &syntax::Job) -> Result<ir::Job, AnalyzeErr
         idempotency,
         retry,
         policy,
+        policy_expr,
         tenant_from,
         fanout,
         timeout: job.timeout.clone(),
@@ -3296,6 +3305,7 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
     // Inbound retry shares the jobs `RetryPolicy` shape (Atrito #5).
     let retry = webhook.retry.as_ref().map(lower_retry);
 
+    let policy_expr = webhook.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Webhook {
         name: webhook.name.clone(),
         route: webhook.route.clone(),
@@ -3304,6 +3314,7 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         tenant_from,
         idempotency,
         policy,
+        policy_expr,
         handler,
         returns,
         emits: webhook.emits.clone(),
@@ -3345,6 +3356,7 @@ pub fn lower_notification(
         .throttle
         .as_ref()
         .map(lower_notification_throttle);
+    let policy_expr = notification.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Notification {
         name: notification.name.clone(),
         trigger,
@@ -3352,6 +3364,7 @@ pub fn lower_notification(
         recipient: notification.recipient.clone(),
         template: notification.template.clone(),
         policy,
+        policy_expr,
         tenant_from,
         idempotency,
         retry,
@@ -4056,6 +4069,34 @@ fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
         ir::PolicyRef::Atom(rest.to_owned())
     } else {
         ir::PolicyRef::Local(atom.to_owned())
+    }
+}
+
+/// RB.S6 — lower the structured AST policy expression (parser
+/// already validated permission-ref shape + closed keyword catalog).
+/// The lowering is purely structural; catalog cross-checks (role/perm
+/// existence) live in doctor (`RBAC-ROLE-UNDECLARED-001` /
+/// `RBAC-PERM-UNDECLARED-001`).
+fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
+    match expr {
+        syntax::PolicyExprAst::Authenticated => ir::PolicyExpr::Authenticated,
+        syntax::PolicyExprAst::HasRole(name) => ir::PolicyExpr::HasRole(name.clone()),
+        syntax::PolicyExprAst::HasPermission(perm) => {
+            ir::PolicyExpr::HasPermission(perm.clone())
+        }
+        syntax::PolicyExprAst::Atom(atom) => ir::PolicyExpr::Atom(ir::PolicyAtom {
+            namespace: atom.namespace.clone(),
+            name: atom.name.clone(),
+        }),
+        syntax::PolicyExprAst::And(terms) => {
+            ir::PolicyExpr::And(terms.iter().map(lower_policy_expr).collect())
+        }
+        syntax::PolicyExprAst::Or(terms) => {
+            ir::PolicyExpr::Or(terms.iter().map(lower_policy_expr).collect())
+        }
+        syntax::PolicyExprAst::Not(inner) => {
+            ir::PolicyExpr::Not(Box::new(lower_policy_expr(inner)))
+        }
     }
 }
 
