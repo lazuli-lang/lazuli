@@ -540,12 +540,20 @@ fn foreign_key_owner<'a>(
     qname: &'a lazuli_ir::QualifiedName,
     cross_index: &CrossFeatureIndex<'a>,
 ) -> Option<&'a str> {
+    // Resolve the owning feature regardless of whether the reference is
+    // cross-feature or same-feature. The previous filter dropped
+    // same-feature refs entirely, which silently lost referential
+    // integrity for in-feature relations (e.g. a `Category.parent:
+    // Category` parent-child link emitted no FK constraint at all).
+    //
+    // Discovered while writing the cross-feature regression test for
+    // bug #9 (2026-05-15) — `Membership.workspace: Workspace` in the
+    // same feature as `Workspace` produced no FK while the cross-feature
+    // `Membership.user: User` did. Now both paths emit an FK pointing at
+    // the matching `CREATE TABLE`.
     let owner = match qname.feature.as_deref() {
-        Some(owner) if owner != feature.name => Some(owner),
-        Some(_) => None,
-        None => cross_index
-            .owner(&qname.name)
-            .filter(|owner| *owner != feature.name),
+        Some(owner) => Some(owner),
+        None => cross_index.owner(&qname.name),
     }?;
 
     feature_declares_resource(module, owner, &qname.name).then_some(owner)
@@ -1047,6 +1055,50 @@ DROP TABLE IF EXISTS \"customer\";
         assert!(
             !order_sql.contains("customer_customer"),
             "legacy `<feature>_<resource>` FK target leaked back in:\n{order_sql}"
+        );
+    }
+
+    #[test]
+    fn emits_foreign_key_for_same_feature_resource_ref() {
+        // Regression for the same-feature FK gap (discovered during
+        // bug #9 cross-feature work, 2026-05-15). A resource referencing
+        // another resource in the SAME feature (e.g. `Category.parent:
+        // Category` parent-child link, or `Membership.workspace:
+        // Workspace` when both live in the `org` feature) must emit a
+        // FOREIGN KEY constraint just like the cross-feature case.
+        // Previously `foreign_key_owner` returned `None` for these and
+        // the constraint silently disappeared.
+        let mut org = base_feature("org");
+        org.resources.push(resource(
+            "Workspace",
+            vec![builtin("name", BuiltinType::Text, true)],
+        ));
+        org.resources.push(resource(
+            "Membership",
+            vec![field(
+                "workspace",
+                TypeRef::UserDefined(QualifiedName {
+                    feature: None,
+                    name: "Workspace".to_owned(),
+                }),
+                true,
+            )],
+        ));
+
+        let files = emit_migrations(&base_module(vec![org]), "saas");
+        let membership_sql = files
+            .iter()
+            .find(|file| file.path == "migrations/001_org_membership.sql")
+            .map(|file| file.contents.as_str())
+            .unwrap();
+
+        assert!(
+            membership_sql.contains("workspace BIGINT NOT NULL,"),
+            "expected workspace FK column; got:\n{membership_sql}"
+        );
+        assert!(
+            membership_sql.contains("FOREIGN KEY (workspace) REFERENCES \"workspace\" (id)"),
+            "same-feature FK must reference the actual table; got:\n{membership_sql}"
         );
     }
 
