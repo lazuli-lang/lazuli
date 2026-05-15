@@ -14,4 +14,5 @@ pub mod max_retries_unbounded_001;
 pub mod no_terminal_001;
 pub mod quirk_catalog_001;
 pub mod terminal_field_enum_001;
+pub mod terminal_no_emit_001;
 pub mod tick_too_fast_001;
