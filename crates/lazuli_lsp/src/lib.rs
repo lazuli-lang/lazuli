@@ -544,6 +544,7 @@ fn is_canonical_source(source: &str) -> bool {
         || has_canonical_profile_block(source)
         || has_canonical_workspace_block(source)
         || has_canonical_contract_block(source)
+        || has_canonical_design_block(source)
 }
 
 fn has_canonical_app_block(source: &str) -> bool {
@@ -589,6 +590,16 @@ fn has_canonical_contract_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("contract "))
+}
+
+/// `design.lzi` is a separate sub-grammar (parsed by
+/// `parse_design_document`); marking it canonical short-circuits the
+/// LSP's pest fallback so `design <name>` doesn't trip
+/// `expected program`.
+fn has_canonical_design_block(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("design "))
 }
 
 fn is_lzx_source(source: &str) -> bool {
@@ -8636,6 +8647,11 @@ fn is_app_scalar_child(trimmed: &str) -> bool {
         Some(
             "title"
                 | "version"
+                // ABI pin enforced by doctor LAZULI-VERSION-001;
+                // accept here so the LSP doesn't redundantly warn
+                // that `lazuli_version "0.14"` isn't a recognized
+                // app block.
+                | "lazuli_version"
                 | "default_locale"
                 | "default_timezone"
                 | "auth_failed_redirect"
