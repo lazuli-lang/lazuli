@@ -667,6 +667,7 @@ mod feature_emit_tests {
             group_by: Some("customer_id".to_owned()),
             max_size: Some(50),
             template_strategy: Some(DigestStrategy::Merge),
+            invalid_template_strategy: None,
         });
         alpha.throttle = Some(NotificationThrottle {
             max_per: "1 hour".to_owned(),
@@ -706,6 +707,7 @@ mod feature_emit_tests {
             group_by: None,
             max_size: None,
             template_strategy: Some(DigestStrategy::Append),
+            invalid_template_strategy: None,
         });
         notification.throttle = Some(NotificationThrottle {
             max_per: "1 day".to_owned(),

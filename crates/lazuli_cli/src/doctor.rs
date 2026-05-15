@@ -4263,7 +4263,7 @@ fn tier3_webhook_diagnostics<'a>(
 fn tier3_notification_diagnostics(
     feature: &Tier3FeatureFacts,
     notification: &lazuli_ir::Notification,
-    event_payload_index: &BTreeMap<String, BTreeSet<String>>,
+    _event_payload_index: &BTreeMap<String, BTreeSet<String>>,
     diagnostics: &mut Vec<DoctorDiagnostic>,
 ) {
     let line = feature
@@ -4321,7 +4321,7 @@ fn tier3_notification_diagnostics(
     // ---------------------------------------------------------------
 
     if let Some(digest) = notification.digest.as_ref() {
-        // NOTIF-DIGEST-002 — `every` must parse as `<N> <unit>` where
+        // NOTIF-DIGEST-001 — `every` must parse as `<N> <unit>` where
         // unit is in the closed catalog (seconds, minutes, hours,
         // days). The catalog mirrors Go's `time.ParseDuration` plus
         // `days` so authors can write "1 day" without dropping into
@@ -4333,7 +4333,7 @@ fn tier3_notification_diagnostics(
                 line,
                 column: 1,
                 severity: DoctorSeverity::Error,
-                code: "NOTIF-DIGEST-002".to_owned(),
+                code: "NOTIF-DIGEST-001".to_owned(),
                 message: format!(
                     "notification `{}` declares `digest every \"{}\"` outside the closed shape `<N> (seconds|minutes|hours|days)`.",
                     notification.name, digest.every
@@ -4341,7 +4341,7 @@ fn tier3_notification_diagnostics(
             });
         }
 
-        // NOTIF-DIGEST-003 — `max_size` must be in (0, 10_000].
+        // NOTIF-DIGEST-002 — `max_size` must be in (0, 10_000].
         // Above the ceiling, the adapter would buffer arbitrarily
         // many payloads per window; doctor caps it explicitly so the
         // contract states the bound rather than leaving it implicit.
@@ -4352,7 +4352,7 @@ fn tier3_notification_diagnostics(
                     line,
                     column: 1,
                     severity: DoctorSeverity::Error,
-                    code: "NOTIF-DIGEST-003".to_owned(),
+                    code: "NOTIF-DIGEST-002".to_owned(),
                     message: format!(
                         "notification `{}` declares `digest max_size {}` outside the supported range 1..=10000.",
                         notification.name, max_size
@@ -4361,56 +4361,25 @@ fn tier3_notification_diagnostics(
             }
         }
 
-        // NOTIF-DIGEST-001 — `group_by` must reference a field present
-        // in the trigger event's payload. Resolution walks the
-        // cross-feature event-payload index built once for this
-        // package; an unknown axis at design time is always a runtime
-        // crash, so doctor surfaces it as an Error.
-        if let Some(group_by) = digest.group_by.as_deref() {
-            // The path is captured verbatim — strip a leading
-            // `payload.` if the author wrote it (allowed for symmetry
-            // with `tenant_from`). Then take the first segment as
-            // the field the runtime keys on.
-            let bare = group_by.strip_prefix("payload.").unwrap_or(group_by);
-            let head = bare.split('.').next().unwrap_or("").trim();
-            if let lazuli_ir::JobTrigger::Event { event } = &notification.trigger {
-                let qname = qualified_event_key(&feature.feature, event);
-                if let Some(payload_fields) = event_payload_index.get(&qname) {
-                    if !head.is_empty() && !payload_fields.contains(head) {
-                        let mut hint: Vec<&str> =
-                            payload_fields.iter().map(String::as_str).collect();
-                        hint.sort();
-                        diagnostics.push(DoctorDiagnostic {
-                            path: feature.path.clone(),
-                            line,
-                            column: 1,
-                            severity: DoctorSeverity::Error,
-                            code: "NOTIF-DIGEST-001".to_owned(),
-                            message: format!(
-                                "notification `{}` declares `digest group_by {}` but trigger event `{}` does not expose a `{}` payload field. Available fields: {}.",
-                                notification.name,
-                                group_by,
-                                qname,
-                                head,
-                                if hint.is_empty() {
-                                    "<none>".to_owned()
-                                } else {
-                                    hint.join(", ")
-                                }
-                            ),
-                        });
-                    }
-                }
-            }
+        // NOTIF-DIGEST-003 — `template_strategy` is a closed catalog.
+        if let Some(strategy) = digest.invalid_template_strategy.as_deref() {
+            diagnostics.push(DoctorDiagnostic {
+                path: feature.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "NOTIF-DIGEST-003".to_owned(),
+                message: format!(
+                    "notification `{}` declares `digest template_strategy {}` outside the closed catalog (merge, append).",
+                    notification.name, strategy
+                ),
+            });
         }
     }
 
     if let Some(throttle) = notification.throttle.as_ref() {
-        // NOTIF-THROTTLE-001 — `max_per` must parse as `<N> <unit>`.
-        // Same duration shape as `digest every`; the catalog is
-        // closed at the language layer so adapters never see
-        // ambiguous units like "month" or "weekday".
-        if !is_valid_notification_duration(&throttle.max_per) {
+        // NOTIF-THROTTLE-001 — at least one key axis is required.
+        if !throttle.per_recipient && !throttle.per_channel {
             diagnostics.push(DoctorDiagnostic {
                 path: feature.path.clone(),
                 line,
@@ -4418,35 +4387,33 @@ fn tier3_notification_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: "NOTIF-THROTTLE-001".to_owned(),
                 message: format!(
-                    "notification `{}` declares `throttle max_per \"{}\"` outside the closed shape `<N> (seconds|minutes|hours|days)`.",
-                    notification.name, throttle.max_per
-                ),
-            });
-        }
-
-        // NOTIF-THROTTLE-002 — declaring `throttle` without any of
-        // `per_recipient`/`per_channel`/`burst` is a useless block.
-        // The adapter has nothing to key the bucket on beyond the
-        // notification kind, which is identical to the absent case.
-        if !throttle.per_recipient && !throttle.per_channel && throttle.burst.is_none() {
-            diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: "NOTIF-THROTTLE-002".to_owned(),
-                message: format!(
-                    "notification `{}` declares `throttle` with no `per_recipient`, `per_channel`, or `burst` axis — the bucket has nothing to key on. Add at least one axis or drop the block.",
+                    "notification `{}` declares `throttle` without `per_recipient` or `per_channel`; at least one throttle axis is required.",
                     notification.name
                 ),
             });
         }
 
-        // NOTIF-THROTTLE-003 — `burst > 0` only makes sense per
-        // recipient. Without `per_recipient`, a global burst would
-        // open the floodgates for any caller hammering the same
-        // notification kind, which defeats the purpose of throttling.
-        if throttle.burst.map(|b| b > 0).unwrap_or(false) && !throttle.per_recipient {
+        if let Some(max_per_seconds) = parse_notification_duration_seconds(&throttle.max_per) {
+            // NOTIF-THROTTLE-002 — `burst` cannot exceed the max-per
+            // window expressed in seconds. This keeps an immediate
+            // burst from being larger than the configured bucket.
+            if let Some(burst) = throttle.burst {
+                if u64::from(burst) > max_per_seconds {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "NOTIF-THROTTLE-002".to_owned(),
+                        message: format!(
+                            "notification `{}` declares `throttle burst {}` greater than `max_per \"{}\"`.",
+                            notification.name, burst, throttle.max_per
+                        ),
+                    });
+                }
+            }
+        } else {
+            // NOTIF-THROTTLE-003 — `max_per` must parse as `<N> <unit>`.
             diagnostics.push(DoctorDiagnostic {
                 path: feature.path.clone(),
                 line,
@@ -4454,67 +4421,47 @@ fn tier3_notification_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: "NOTIF-THROTTLE-003".to_owned(),
                 message: format!(
-                    "notification `{}` declares `throttle burst {}` without `per_recipient` — a global burst sidesteps the throttle entirely. Add `per_recipient` or drop the burst.",
-                    notification.name,
-                    throttle.burst.unwrap_or(0)
+                    "notification `{}` declares `throttle max_per \"{}\"` outside the closed shape `<N> (seconds|minutes|hours|days)`.",
+                    notification.name, throttle.max_per
                 ),
             });
         }
     }
 }
 
-/// Notifications expanded bucket cycle — qualify the trigger event
-/// reference against the notification's owning feature. `customer
-/// .customer_activated` stays qualified; bare local names like
-/// `customer_activated` resolve to `<feature>.customer_activated`.
-fn qualified_event_key(local_feature: &str, event: &lazuli_ir::QualifiedName) -> String {
-    let feature = event.feature.as_deref().unwrap_or(local_feature);
-    format!("{}.{}", feature, event.name)
-}
-
 /// Notifications expanded bucket cycle — closed-catalog duration
-/// matcher reused by `NOTIF-DIGEST-002` and `NOTIF-THROTTLE-001`.
+/// matcher reused by `NOTIF-DIGEST-001` and `NOTIF-THROTTLE-003`.
 /// Accepts `<N> <unit>` and `<N><unit>` (Go-style), with units in
 /// `{s,sec,secs,second,seconds,m,min,mins,minute,minutes,h,hr,hour,hours,d,day,days}`.
 /// The runtime resolves the final string via Go's `time.ParseDuration`;
 /// doctor's job is to reject obviously wrong literals at design
 /// time so the adapter never sees `"1 month"` or `"forever"`.
 fn is_valid_notification_duration(raw: &str) -> bool {
+    parse_notification_duration_seconds(raw).is_some()
+}
+
+fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return false;
+        return None;
     }
     let (num_part, unit_part) = trimmed
         .find(|c: char| !c.is_ascii_digit())
         .map(|idx| trimmed.split_at(idx))
         .unwrap_or(("", ""));
     if num_part.is_empty() {
-        return false;
+        return None;
     }
-    if num_part.parse::<u64>().ok().is_none() {
-        return false;
-    }
+    let n = num_part.parse::<u64>().ok()?;
     let unit = unit_part.trim().to_ascii_lowercase();
-    matches!(
-        unit.as_str(),
-        "s" | "sec"
-            | "secs"
-            | "second"
-            | "seconds"
-            | "m"
-            | "min"
-            | "mins"
-            | "minute"
-            | "minutes"
-            | "h"
-            | "hr"
-            | "hrs"
-            | "hour"
-            | "hours"
-            | "d"
-            | "day"
-            | "days"
-    )
+    let multiplier = match unit.as_str() {
+        "s" | "sec" | "secs" | "second" | "seconds" => 1,
+        "m" | "min" | "mins" | "minute" | "minutes" => 60,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
+        "d" | "day" | "days" => 24 * 60 * 60,
+        _ => return None,
+    };
+    n.checked_mul(multiplier)
 }
 
 /// Notifications expanded bucket cycle — cross-feature event-payload
@@ -16397,11 +16344,43 @@ registry
     // `notification.digest` and `notification.throttle`.
     // =========================================================================
 
-    /// `NOTIF-DIGEST-001` fires when `digest group_by <path>` references
-    /// a field absent from the trigger event's payload (union of the
-    /// event's own payload + any matching `event_group` payload).
+    fn notification_package(extra_children: &str) -> DoctorPackage {
+        let source = format!(
+            r#"
+feature customer
+  domain
+    event_group customer_* on Customer
+      payload
+        customer_id = id
+        org_id = org.id
+      event activated
+
+feature customer_outreach
+  uses customer
+  domain
+  notification welcome_email
+    channel email
+    recipient target.email
+    trigger event customer.customer_activated
+    template "./welcome.mjml"
+    policy @policy.notify
+{extra_children}
+"#
+        );
+        package_from_sources(vec![("package.lzi", source.as_str())])
+    }
+
+    fn assert_notification_diag(code: &str, extra_children: &str) {
+        let package = notification_package(extra_children);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(codes.contains(&code), "expected {code}, got {codes:?}");
+    }
+
+    /// `NOTIF-DIGEST-001` fires when `digest every "<duration>"` does
+    /// not match the closed shape `<N> (seconds|minutes|hours|days)`.
     #[test]
-    fn notif_digest_001_group_by_unknown_payload_field() {
+    fn notif_digest_001_every_invalid_shape() {
         let package = package_from_sources(vec![(
             "package.lzi",
             r#"
@@ -16423,8 +16402,8 @@ feature customer_outreach
     template "./welcome.mjml"
     policy @policy.notify
     digest
-      every "1 hour"
-      group_by nonexistent_field
+      every "1 month"
+      group_by customer_id
 "#,
         )]);
         let diagnostics = package.diagnostics();
@@ -16435,47 +16414,11 @@ feature customer_outreach
         );
     }
 
-    /// `NOTIF-DIGEST-002` fires when `digest every "<duration>"` does
-    /// not match the closed shape `<N> (seconds|minutes|hours|days)`.
-    #[test]
-    fn notif_digest_002_every_invalid_shape() {
-        let package = package_from_sources(vec![(
-            "package.lzi",
-            r#"
-feature customer
-  domain
-    event_group customer_* on Customer
-      payload
-        customer_id = id
-      event activated
-
-feature customer_outreach
-  uses customer
-  domain
-  notification welcome_email
-    channel email
-    recipient target.email
-    trigger event customer.customer_activated
-    template "./welcome.mjml"
-    policy @policy.notify
-    digest
-      every "1 month"
-      group_by customer_id
-"#,
-        )]);
-        let diagnostics = package.diagnostics();
-        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
-        assert!(
-            codes.contains(&"NOTIF-DIGEST-002"),
-            "expected NOTIF-DIGEST-002, got {codes:?}"
-        );
-    }
-
-    /// `NOTIF-DIGEST-003` fires when `digest max_size` is 0 or above
+    /// `NOTIF-DIGEST-002` fires when `digest max_size` is 0 or above
     /// the 10_000 ceiling. Both extremes are authoring smells: 0 is
     /// dead; > 10k blows up the in-window buffer.
     #[test]
-    fn notif_digest_003_max_size_out_of_range() {
+    fn notif_digest_002_max_size_out_of_range() {
         let package = package_from_sources(vec![(
             "package.lzi",
             r#"
@@ -16504,15 +16447,124 @@ feature customer_outreach
         let diagnostics = package.diagnostics();
         let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
         assert!(
+            codes.contains(&"NOTIF-DIGEST-002"),
+            "expected NOTIF-DIGEST-002, got {codes:?}"
+        );
+    }
+
+    /// `NOTIF-DIGEST-003` fires when `digest template_strategy` is not
+    /// in the closed catalog.
+    #[test]
+    fn notif_digest_003_template_strategy_unknown() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+feature customer
+  domain
+    event_group customer_* on Customer
+      payload
+        customer_id = id
+      event activated
+
+feature customer_outreach
+  uses customer
+  domain
+  notification welcome_email
+    channel email
+    recipient target.email
+    trigger event customer.customer_activated
+    template "./welcome.mjml"
+    policy @policy.notify
+    digest
+      every "1 hour"
+      group_by customer_id
+      template_strategy squash
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
             codes.contains(&"NOTIF-DIGEST-003"),
             "expected NOTIF-DIGEST-003, got {codes:?}"
         );
     }
 
-    /// `NOTIF-THROTTLE-001` fires when `throttle max_per` does not
+    /// `NOTIF-THROTTLE-001` fires when neither `per_recipient` nor
+    /// `per_channel` is present.
+    #[test]
+    fn notif_throttle_001_axis_missing() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+feature customer
+  domain
+    event_group customer_* on Customer
+      payload
+        customer_id = id
+      event activated
+
+feature customer_outreach
+  uses customer
+  domain
+  notification welcome_email
+    channel email
+    recipient target.email
+    trigger event customer.customer_activated
+    template "./welcome.mjml"
+    policy @policy.notify
+    throttle
+      max_per "1 hour"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"NOTIF-THROTTLE-001"),
+            "expected NOTIF-THROTTLE-001, got {codes:?}"
+        );
+    }
+
+    /// `NOTIF-THROTTLE-002` fires when `burst` is larger than the
+    /// parsed `max_per` window.
+    #[test]
+    fn notif_throttle_002_burst_exceeds_max_per() {
+        let package = package_from_sources(vec![(
+            "package.lzi",
+            r#"
+feature customer
+  domain
+    event_group customer_* on Customer
+      payload
+        customer_id = id
+      event activated
+
+feature customer_outreach
+  uses customer
+  domain
+  notification welcome_email
+    channel email
+    recipient target.email
+    trigger event customer.customer_activated
+    template "./welcome.mjml"
+    policy @policy.notify
+    throttle
+      max_per "1 second"
+      per_recipient
+      burst 2
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            codes.contains(&"NOTIF-THROTTLE-002"),
+            "expected NOTIF-THROTTLE-002, got {codes:?}"
+        );
+    }
+
+    /// `NOTIF-THROTTLE-003` fires when `throttle max_per` does not
     /// match `<N> (seconds|minutes|hours|days)`.
     #[test]
-    fn notif_throttle_001_max_per_invalid_shape() {
+    fn notif_throttle_003_max_per_invalid_shape() {
         let package = package_from_sources(vec![(
             "package.lzi",
             r#"
@@ -16540,83 +16592,52 @@ feature customer_outreach
         let diagnostics = package.diagnostics();
         let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
         assert!(
-            codes.contains(&"NOTIF-THROTTLE-001"),
-            "expected NOTIF-THROTTLE-001, got {codes:?}"
-        );
-    }
-
-    /// `NOTIF-THROTTLE-002` fires when `throttle` is authored with
-    /// none of `per_recipient`/`per_channel`/`burst` — the bucket
-    /// has no axis to key on.
-    #[test]
-    fn notif_throttle_002_axis_missing() {
-        let package = package_from_sources(vec![(
-            "package.lzi",
-            r#"
-feature customer
-  domain
-    event_group customer_* on Customer
-      payload
-        customer_id = id
-      event activated
-
-feature customer_outreach
-  uses customer
-  domain
-  notification welcome_email
-    channel email
-    recipient target.email
-    trigger event customer.customer_activated
-    template "./welcome.mjml"
-    policy @policy.notify
-    throttle
-      max_per "1 hour"
-"#,
-        )]);
-        let diagnostics = package.diagnostics();
-        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
-        assert!(
-            codes.contains(&"NOTIF-THROTTLE-002"),
-            "expected NOTIF-THROTTLE-002, got {codes:?}"
-        );
-    }
-
-    /// `NOTIF-THROTTLE-003` fires when `throttle burst <N>` is
-    /// declared without `per_recipient`. A global burst defeats the
-    /// throttle entirely.
-    #[test]
-    fn notif_throttle_003_burst_without_per_recipient() {
-        let package = package_from_sources(vec![(
-            "package.lzi",
-            r#"
-feature customer
-  domain
-    event_group customer_* on Customer
-      payload
-        customer_id = id
-      event activated
-
-feature customer_outreach
-  uses customer
-  domain
-  notification welcome_email
-    channel email
-    recipient target.email
-    trigger event customer.customer_activated
-    template "./welcome.mjml"
-    policy @policy.notify
-    throttle
-      max_per "1 hour"
-      per_channel
-      burst 3
-"#,
-        )]);
-        let diagnostics = package.diagnostics();
-        let codes: Vec<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
-        assert!(
             codes.contains(&"NOTIF-THROTTLE-003"),
             "expected NOTIF-THROTTLE-003, got {codes:?}"
         );
+    }
+
+    /// Two extra cases per new diagnostic, paired with the focused
+    /// tests above, give each code three covered variants without
+    /// repeating a full package fixture 18 times.
+    #[test]
+    fn notif_digest_throttle_diagnostics_cover_three_cases_each() {
+        for extra in [
+            "    digest\n      every forever\n",
+            "    digest\n      every \"\"\n",
+        ] {
+            assert_notification_diag("NOTIF-DIGEST-001", extra);
+        }
+        for extra in [
+            "    digest\n      every 1h\n      max_size 0\n",
+            "    digest\n      every 1h\n      max_size 10001\n",
+        ] {
+            assert_notification_diag("NOTIF-DIGEST-002", extra);
+        }
+        for extra in [
+            "    digest\n      every 1h\n      template_strategy replace\n",
+            "    digest\n      every 1h\n      template_strategy \"merge\"\n",
+        ] {
+            assert_notification_diag("NOTIF-DIGEST-003", extra);
+        }
+        for extra in [
+            "    throttle\n      max_per 1h\n",
+            "    throttle\n      max_per 1h\n      burst 1\n",
+        ] {
+            assert_notification_diag("NOTIF-THROTTLE-001", extra);
+        }
+        for extra in [
+            "    throttle\n      max_per 1s\n      per_channel\n      burst 2\n",
+            "    throttle\n      max_per 0s\n      per_recipient\n      burst 1\n",
+        ] {
+            assert_notification_diag("NOTIF-THROTTLE-002", extra);
+        }
+        for extra in [
+            "    throttle\n      max_per later\n      per_channel\n",
+            "    throttle\n      max_per \"1 month\"\n      per_recipient\n",
+        ] {
+            assert_notification_diag("NOTIF-THROTTLE-003", extra);
+        }
     }
 
     // -------------------------------------------------------------------------

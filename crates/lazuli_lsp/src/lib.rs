@@ -11959,7 +11959,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "On `notification.digest`, sets the aggregation window. Closed shape: `<N> (seconds|minutes|hours|days)`. Example: `every \"15 minutes\"`.",
         ),
         "group_by" => Some(
-            "On `notification.digest`, keys the aggregation bucket on a payload path. Doctor cross-checks the path against the trigger event's payload schema (`NOTIF-DIGEST-001`).",
+            "On `notification.digest`, keys the aggregation bucket on a payload path.",
         ),
         "max_size" => Some(
             "On `notification.digest`, caps items per digest window. Range: 1..=10000. Above the ceiling buffers unbounded payloads.",
@@ -11971,13 +11971,13 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "On `notification.throttle`, sets the refill window for the rate-limit bucket. Closed shape: `<N> (seconds|minutes|hours|days)`.",
         ),
         "per_recipient" => Some(
-            "On `notification.throttle`, keys the throttle bucket on the notification's `recipient <path>`. Required when `burst` is set.",
+            "On `notification.throttle`, keys the throttle bucket on the notification's `recipient <path>`. At least one of `per_recipient` or `per_channel` is required.",
         ),
         "per_channel" => Some(
             "On `notification.throttle`, gives each channel of a multi-channel notification its own bucket (e.g., email and `in_app` throttled independently).",
         ),
         "burst" => Some(
-            "On `notification.throttle`, number of immediate dispatches the bucket allows before throttling starts. Useful for OTP / login flows. Requires `per_recipient`.",
+            "On `notification.throttle`, number of immediate dispatches the bucket allows before throttling starts. Useful for OTP / login flows.",
         ),
         "model" => {
             Some("On an `agent`, references the LLM model under the `@llm.<name>` namespace.")

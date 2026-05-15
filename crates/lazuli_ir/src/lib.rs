@@ -3699,24 +3699,27 @@ pub struct Notification {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationDigest {
     /// `every "15 minutes"` / `every "1 hour"` / `every "1 day"`.
-    /// Captured verbatim; doctor `NOTIF-DIGEST-002` rejects shapes
+    /// Captured verbatim; doctor `NOTIF-DIGEST-001` rejects shapes
     /// outside `<N> (seconds|minutes|hours|days)`.
     pub every: String,
     /// `group_by <payload-path>` — typically the recipient axis
     /// (`customer_id`, `target.email`). Optional: when absent, the
-    /// digest groups globally per notification kind. Doctor
-    /// `NOTIF-DIGEST-001` cross-checks the segment against the trigger
-    /// event's payload schema.
+    /// digest groups globally per notification kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_by: Option<String>,
     /// `max_size <N>` — hard cap on items per digest. Doctor
-    /// `NOTIF-DIGEST-003` rejects `<= 0` or `> 10000`.
+    /// `NOTIF-DIGEST-002` rejects `<= 0` or `> 10000`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_size: Option<u32>,
     /// `template_strategy merge|append` — closed catalog. None defaults
     /// to `merge` at the adapter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_strategy: Option<DigestStrategy>,
+    /// Raw authored `template_strategy` when it was outside the closed
+    /// catalog. Kept only so doctor can report `NOTIF-DIGEST-003`
+    /// after lowering without widening `DigestStrategy`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid_template_strategy: Option<String>,
 }
 
 /// Notifications expanded bucket cycle — closed catalog for
@@ -3739,12 +3742,13 @@ pub enum DigestStrategy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationThrottle {
     /// `max_per "1 hour"` / `max_per "1 day"`. Window over which the
-    /// bucket refills. Doctor `NOTIF-THROTTLE-001` rejects shapes
+    /// bucket refills. Doctor `NOTIF-THROTTLE-003` rejects shapes
     /// outside `<N> (seconds|minutes|hours|days)`.
     pub max_per: String,
     /// `per_recipient` — when set, the throttle bucket is keyed on the
-    /// notification's `recipient <path>` value. Required when `burst`
-    /// is set (doctor `NOTIF-THROTTLE-003`).
+    /// notification's `recipient <path>` value. At least one of
+    /// `per_recipient` or `per_channel` is required by doctor
+    /// `NOTIF-THROTTLE-001`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub per_recipient: bool,
     /// `per_channel` — when set, each channel of a multi-channel

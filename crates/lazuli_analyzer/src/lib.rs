@@ -3683,23 +3683,23 @@ pub fn lower_notification(
 
 /// Notifications expanded bucket cycle — lower AST `NotificationDigest`
 /// into the typed IR. `template_strategy` falls through `merge` /
-/// `append` into the closed-catalog enum; unknown values become None
-/// so doctor's `NOTIF-DIGEST-003` can flag them with a precise
-/// message rather than the lowering failing silently.
+/// `append` into the closed-catalog enum; unknown values are preserved
+/// in `invalid_template_strategy` so doctor can report
+/// `NOTIF-DIGEST-003` without widening the enum.
 fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
-    let template_strategy = digest
-        .template_strategy
-        .as_deref()
-        .and_then(|raw| match raw {
-            "merge" => Some(ir::DigestStrategy::Merge),
-            "append" => Some(ir::DigestStrategy::Append),
-            _ => None,
-        });
+    let (template_strategy, invalid_template_strategy) =
+        match digest.template_strategy.as_deref() {
+            Some("merge") => (Some(ir::DigestStrategy::Merge), None),
+            Some("append") => (Some(ir::DigestStrategy::Append), None),
+            Some(raw) => (None, Some(raw.to_owned())),
+            None => (None, None),
+        };
     ir::NotificationDigest {
         every: digest.every.clone(),
         group_by: digest.group_by.clone(),
         max_size: digest.max_size,
         template_strategy,
+        invalid_template_strategy,
     }
 }
 
