@@ -158,7 +158,14 @@ enum Commands {
         #[arg(long)]
         in_place: bool,
     },
-    Lsp,
+    Lsp {
+        /// Accepted (and ignored) for compatibility with
+        /// `vscode-languageclient`, which appends `--stdio` to the
+        /// server command when `TransportKind.stdio` is used. The
+        /// Lazuli LSP only supports stdio, so the flag is a no-op.
+        #[arg(long, hide = true)]
+        stdio: bool,
+    },
     /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
     /// files from a runtime spec. Without `--spec`, uses the in-process
     /// `customer_spike()` fixture; with `--spec <path>`, loads a JSON
@@ -745,7 +752,7 @@ fn main() -> Result<()> {
             frontends,
             in_place,
         ),
-        Commands::Lsp => lsp_command(),
+        Commands::Lsp { stdio: _ } => lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
         Commands::Generate {

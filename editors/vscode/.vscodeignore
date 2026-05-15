@@ -1,0 +1,8 @@
+.vscode/**
+.gitignore
+scripts/**
+**/*.map
+**/*.ts
+**/tsconfig.json
+.eslintrc*
+README-DEV.md

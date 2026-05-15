@@ -1,7 +1,7 @@
 {
   "name": "lazuli-vscode",
   "displayName": "Lazuli",
-  "description": "Language support for Lazuli .lzi and .lzx files.",
+  "description": "Language support for Lazuli .lzi / .lzx files plus Lazurite.toml manifests. Bundles the Lazuli language server (lazuli lsp) for diagnostics, hover, completion.",
   "version": "0.1.0",
   "publisher": "lazuli",
   "license": "MIT",
@@ -9,40 +9,90 @@
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onLanguage:lazuli"
+    "onStartupFinished"
   ],
   "main": "./extension.js",
   "contributes": {
-    "configurationDefaults": {
-      "files.associations": {
-        "*.lzi": "lazuli",
-        "*.lzx": "lazuli"
+    "configuration": {
+      "title": "Lazuli",
+      "properties": {
+        "lazuli.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the lazuli executable used as the language server. When empty, the extension prefers the bundled binary, then falls back to `lazuli` on PATH. Set this to point at a custom build (e.g. `C:/Users/you/lazuli/target/release/lazuli.exe`)."
+        },
+        "lazuli.trace.server": {
+          "type": "string",
+          "scope": "window",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace LSP messages between VS Code and the lazuli server."
+        }
       }
     },
     "languages": [
       {
-        "id": "lazuli",
-        "aliases": [
-          "Lazuli",
-          "lazuli"
-        ],
-        "extensions": [
-          ".lzi",
-          ".lzx"
-        ],
-        "configuration": "./language-configuration.json"
+        "id": "lazuli-feature",
+        "aliases": ["Lazuli Feature", "lzi"],
+        "extensions": [".lzi"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/lzi.png",
+          "dark": "./icons/lzi.png"
+        }
+      },
+      {
+        "id": "lazuli-experience",
+        "aliases": ["Lazuli Experience", "lzx"],
+        "extensions": [".lzx"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/lzx.png",
+          "dark": "./icons/lzx.png"
+        }
+      },
+      {
+        "id": "lazurite-manifest",
+        "aliases": ["Lazurite Manifest"],
+        "filenames": ["Lazurite.toml", "lazurite.toml"],
+        "icon": {
+          "light": "./icons/lazurite.png",
+          "dark": "./icons/lazurite.png"
+        }
       }
     ],
     "grammars": [
       {
-        "language": "lazuli",
+        "language": "lazuli-feature",
         "scopeName": "source.lazuli",
         "path": "./syntaxes/lazuli.tmLanguage.json"
+      },
+      {
+        "language": "lazuli-experience",
+        "scopeName": "source.lazuli",
+        "path": "./syntaxes/lazuli.tmLanguage.json"
+      },
+      {
+        "language": "lazurite-manifest",
+        "scopeName": "source.lazurite-toml",
+        "path": "./syntaxes/lazurite-manifest.tmLanguage.json"
       }
     ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.0"
+  },
+  "scripts": {
+    "package": "vsce package --target win32-x64",
+    "bundle-server": "node scripts/bundle-server.js"
   }
 }
