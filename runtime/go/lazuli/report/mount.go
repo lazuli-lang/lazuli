@@ -5,6 +5,15 @@
 // per (contract × format). lazuli.Mux() calls this so the routes are
 // available out of the box without main.go boilerplate.
 //
+// Per-route pipeline (R.C.4):
+//  1. apply rate-limit gate when `Contract.RateLimit` is non-empty
+//     and a `RateLimiter` hook is installed.
+//  2. evaluate `Contract.Atoms` against the request context via the
+//     installed `PolicyChecker` hook; deny with 403 on failure.
+//  3. invoke the registered `Runner` and translate its result into
+//     the HTTP response shape (302 redirect / 200 JSON envelope /
+//     501 stub error).
+//
 // Response shape:
 //   - Visibility == Signed → 302 redirect to the signed URL.
 //   - Visibility == Public / Private → 200 JSON envelope `{"url":"..."}`
@@ -38,16 +47,30 @@ func Mount(mux *http.ServeMux) {
 		for _, format := range reg.Contract.Formats {
 			format := format
 			path := "GET /api/reports/" + reg.Contract.Name + "." + format.Token()
-			mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				serve(w, r, reg, format)
 			})
+			if reg.Contract.RateLimit != "" && rateLimiter != nil {
+				handler = rateLimiter(reg.Contract.RateLimit, handler)
+			}
+			mux.Handle(path, handler)
 		}
 	}
 }
 
-// serve runs the registered runner and translates its result into the
-// HTTP response shape (302 vs. JSON envelope).
+// serve enforces policy, runs the registered runner and translates its
+// result into the HTTP response shape (302 vs. JSON envelope).
 func serve(w http.ResponseWriter, r *http.Request, reg Registration, format Format) {
+	if len(reg.Contract.Atoms) > 0 {
+		if policyChecker == nil {
+			http.Error(w, "policy checker not installed", http.StatusForbidden)
+			return
+		}
+		if err := policyChecker(r, reg.Contract.Atoms); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
 	url, err := reg.Runner(r.Context(), format)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotImplemented)

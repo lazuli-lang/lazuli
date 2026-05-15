@@ -12,7 +12,8 @@
 //! See `docs/proposals/report-vocab.md` v0.2.
 
 use lazuli_ir::{
-    Feature, FileVisibility, PolicyRef, Report, ReportColumnSource, ReportFormat, ReportSource,
+    Feature, FileVisibility, PolicyExpr, PolicyRef, Report, ReportColumnSource, ReportFormat,
+    ReportSource,
 };
 
 use super::casing::pascal_case;
@@ -149,6 +150,22 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
     }
 
     p.line(&format!("Policy: {:?},", policy_atom(&report.policy)));
+
+    // R.C.4 — emit resolved policy atoms so the auto-mount route can
+    // call the policy evaluator before invoking the runner.
+    if let Some(atoms) = report_policy_atoms(&report.policy, report.policy_expr.as_ref()) {
+        if atoms.is_empty() {
+            p.line("Atoms: nil,");
+        } else {
+            p.line("Atoms: []report.PolicyAtom{");
+            p.indent();
+            for atom in atoms {
+                p.line(&atom);
+            }
+            p.dedent();
+            p.line("},");
+        }
+    }
 
     if let Some(rate_limit) = &report.rate_limit {
         p.line(&format!("RateLimit: {:?},", rate_limit));
@@ -294,6 +311,94 @@ fn policy_atom(policy: &PolicyRef) -> String {
     }
 }
 
+/// R.C.4 — resolve a report's policy into the closed atom slice the
+/// runtime evaluator consumes. Returns `None` when no atoms are
+/// derivable (the route ships open w.r.t. the auto-mount evaluator;
+/// the verbatim `Policy: "@policy.<name>"` field stays for audit and
+/// for future feature-local resolution).
+///
+/// Structured `policy_expr` takes precedence (it carries the full
+/// `has_role` / `has_permission` / combinator tree). When only the
+/// simple `policy @<ns>.<name>` form is present, lower a single atom
+/// directly; feature-local `@policy.<name>` references stay unresolved
+/// until `policies` lowering lands.
+fn report_policy_atoms(
+    policy: &PolicyRef,
+    policy_expr: Option<&PolicyExpr>,
+) -> Option<Vec<String>> {
+    if let Some(expr) = policy_expr {
+        let mut out = Vec::new();
+        walk_report_policy_expr_atoms(expr, &mut out);
+        return Some(out);
+    }
+    match policy {
+        PolicyRef::Atom(atom) => {
+            let stripped = atom.strip_prefix('@').unwrap_or(atom);
+            if stripped.starts_with("policy.") {
+                return None;
+            }
+            let mut parts = stripped.splitn(2, '.');
+            let ns = parts.next().unwrap_or("");
+            let nm = parts.next().unwrap_or("");
+            Some(vec![format!(
+                "{{Namespace: {:?}, Name: {:?}}},",
+                ns, nm
+            )])
+        }
+        PolicyRef::Local(_) | PolicyRef::External { .. } | PolicyRef::Unresolved(_) | PolicyRef::None => None,
+    }
+}
+
+fn walk_report_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
+    match expr {
+        PolicyExpr::Authenticated => {
+            out.push("{Namespace: \"predicate\", Name: \"authenticated\"},".to_owned());
+        }
+        PolicyExpr::HasRole(name) => {
+            out.push(format!(
+                "{{Namespace: \"rbac.role\", Name: {:?}}},",
+                name
+            ));
+        }
+        PolicyExpr::HasPermission(perm) => {
+            out.push(format!(
+                "{{Namespace: \"rbac.permission\", Name: {:?}}},",
+                perm
+            ));
+        }
+        PolicyExpr::Atom(atom) => {
+            out.push(format!(
+                "{{Namespace: {:?}, Name: {:?}}},",
+                atom.namespace, atom.name
+            ));
+        }
+        PolicyExpr::And(terms) => {
+            out.push("{Namespace: \"predicate\", Name: \"(\"},".to_owned());
+            for (i, term) in terms.iter().enumerate() {
+                if i > 0 {
+                    out.push("{Namespace: \"predicate\", Name: \"and\"},".to_owned());
+                }
+                walk_report_policy_expr_atoms(term, out);
+            }
+            out.push("{Namespace: \"predicate\", Name: \")\"},".to_owned());
+        }
+        PolicyExpr::Or(terms) => {
+            out.push("{Namespace: \"predicate\", Name: \"(\"},".to_owned());
+            for (i, term) in terms.iter().enumerate() {
+                if i > 0 {
+                    out.push("{Namespace: \"predicate\", Name: \"or\"},".to_owned());
+                }
+                walk_report_policy_expr_atoms(term, out);
+            }
+            out.push("{Namespace: \"predicate\", Name: \")\"},".to_owned());
+        }
+        PolicyExpr::Not(inner) => {
+            out.push("{Namespace: \"predicate\", Name: \"not\"},".to_owned());
+            walk_report_policy_expr_atoms(inner, out);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +538,52 @@ mod tests {
         let daily_pos = out.find("DailySummaryReport").expect("daily declared");
         let monthly_pos = out.find("MonthlyAuditReport").expect("monthly declared");
         assert!(daily_pos < monthly_pos, "expected sorted output");
+    }
+
+    // R.C.4 — Atoms emission from `policy_expr`.
+
+    #[test]
+    fn report_with_policy_expr_emits_atoms_slice() {
+        let mut feature = base_feature("customer");
+        let mut report = mk_report("monthly_audit", vec![ReportFormat::Csv]);
+        report.policy_expr = Some(PolicyExpr::And(vec![
+            PolicyExpr::Authenticated,
+            PolicyExpr::HasPermission("reports:read".to_owned()),
+        ]));
+        feature.reports.push(report);
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+        assert!(out.contains("Atoms: []report.PolicyAtom{"));
+        assert!(out.contains("{Namespace: \"predicate\", Name: \"(\"}"));
+        assert!(out.contains("{Namespace: \"predicate\", Name: \"authenticated\"}"));
+        assert!(out.contains("{Namespace: \"predicate\", Name: \"and\"}"));
+        assert!(out.contains("{Namespace: \"rbac.permission\", Name: \"reports:read\"}"));
+        assert!(out.contains("{Namespace: \"predicate\", Name: \")\"}"));
+    }
+
+    #[test]
+    fn report_with_policy_atom_emits_single_resolved_atom() {
+        let mut feature = base_feature("customer");
+        let mut report = mk_report("public_data", vec![ReportFormat::Csv]);
+        report.policy = PolicyRef::Atom("scope.public".to_owned());
+        feature.reports.push(report);
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+        assert!(out.contains("Atoms: []report.PolicyAtom{"));
+        assert!(out.contains("{Namespace: \"scope\", Name: \"public\"}"));
+    }
+
+    #[test]
+    fn report_with_unresolved_policy_local_skips_atoms() {
+        // PolicyRef::Local("global_read") — feature-local; not yet
+        // resolved through the `policies` block. Emitter should NOT
+        // synthesise atoms (would deny incorrectly).
+        let mut feature = base_feature("customer");
+        feature
+            .reports
+            .push(mk_report("monthly_audit", vec![ReportFormat::Csv]));
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+        assert!(!out.contains("Atoms: []report.PolicyAtom{"));
+        // Verbatim Policy: field stays for audit.
+        assert!(out.contains("Policy: \"@policy.global_read\""));
     }
 
     #[test]

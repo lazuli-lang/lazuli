@@ -17,6 +17,7 @@ package report
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 )
 
@@ -128,3 +129,36 @@ func Reset() {
 	defer registryMu.Unlock()
 	registry = make(map[string]Registration)
 }
+
+// ---------------------------------------------------------------------------
+// Auto-mount hooks (R.C.4)
+// ---------------------------------------------------------------------------
+
+// PolicyChecker walks resolved policy atoms against the request's
+// context and returns a non-nil error when the active actor fails the
+// policy. The parent `lazuli` package installs the closed evaluator via
+// `SetPolicyChecker`; left unset, the auto-mount route fails closed for
+// any contract carrying atoms.
+type PolicyChecker func(r *http.Request, atoms []PolicyAtom) error
+
+// RateLimiter wraps a handler with a rate-limit gate parsed from the
+// verbatim `RateLimit` literal (e.g. "10 per hour per user"). The
+// parent `lazuli` package installs the closed implementation via
+// `SetRateLimiter`; left unset, the limit literal is recorded for
+// audit but not enforced (no-op).
+type RateLimiter func(limit string, next http.Handler) http.Handler
+
+var (
+	policyChecker PolicyChecker
+	rateLimiter   RateLimiter
+)
+
+// SetPolicyChecker installs the runtime policy hook. The Lazuli
+// runtime's init wires this to `lazuli.EvalPolicy`. Passing nil clears
+// the hook (fail-closed on atoms).
+func SetPolicyChecker(c PolicyChecker) { policyChecker = c }
+
+// SetRateLimiter installs the runtime rate-limit hook. The Lazuli
+// runtime's init wires this to `lazuli.RateLimitMiddleware`. Passing
+// nil disables enforcement.
+func SetRateLimiter(rl RateLimiter) { rateLimiter = rl }

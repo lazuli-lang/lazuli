@@ -65,9 +65,29 @@ type Contract struct {
 	// policies map.
 	Policy string
 
+	// Atoms is the resolved policy atom list (R.C.4). When non-empty,
+	// the auto-mount route in `mount.go` evaluates them via the
+	// installed `PolicyChecker` hook before invoking the runner.
+	// Codegen populates this from the feature's `policies` block plus
+	// any structured `policy <expr>` form (rbac.role/permission/
+	// predicate atoms). Empty means "open route — no policy gate".
+	Atoms []PolicyAtom
+
 	// RateLimit is the verbatim rate-limit literal. Empty when the
-	// declaration omits the slot.
+	// declaration omits the slot. The auto-mount route wraps the
+	// handler with `RateLimiter` when this is non-empty.
 	RateLimit string
+}
+
+// PolicyAtom mirrors `lazuli.PolicyAtom` inside the report package so
+// `report.Contract` can carry resolved atoms without importing the
+// parent `lazuli` package (which would invert the dependency
+// direction). The shape is identical; lazuli installs the evaluator
+// via `SetPolicyChecker` at init time.
+type PolicyAtom struct {
+	Namespace string
+	Name      string
+	Reason    string
 }
 
 // Column is one entry in the report's column list. Either `RowField`
