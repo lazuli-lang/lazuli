@@ -22,7 +22,7 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: "RunList called on non-list query: " + q.Name}
 	}
-	if err := enforcePolicy(ctx, q.Policy); err != nil {
+	if err := EvalPolicy(ctx, q.Policy); err != nil {
 		return nil, err
 	}
 	if err := RunPrelude(ctx, q.Prelude); err != nil {
@@ -114,7 +114,7 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "RunLookup called on non-lookup query: " + q.Name}
 	}
-	if err := enforcePolicy(ctx, q.Policy); err != nil {
+	if err := EvalPolicy(ctx, q.Policy); err != nil {
 		return zero, err
 	}
 	if err := RunPrelude(ctx, q.Prelude); err != nil {

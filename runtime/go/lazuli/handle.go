@@ -28,7 +28,7 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	var zero O
 
 	// 1. policy
-	if err := enforcePolicy(ctx, c.Policy); err != nil {
+	if err := EvalPolicy(ctx, c.Policy); err != nil {
 		return zero, err
 	}
 
@@ -174,11 +174,12 @@ func rowToMap(v any) map[string]any {
 	return out
 }
 
-// enforcePolicy walks the resolved atom list and grants access on the first
-// match (OR semantics). Empty atom lists are a registration bug per the DSL
-// invariant — fail closed with 500.
+// atomMatches reports whether the active context satisfies one leaf
+// policy atom. The full policy walker (`EvalPolicy` in policy.go)
+// composes these results across `and` / `or` / `not` combinators when
+// the atom slice carries a structured expression.
 //
-// Atom semantics for the spike:
+// Atom semantics:
 //
 //	@actor.user        → ctx.Actor == ActorUser
 //	@actor.system      → ctx.Actor == ActorSystem
@@ -188,21 +189,9 @@ func rowToMap(v any) map[string]any {
 //	@scope.authenticated → ctx.User != nil
 //	@scope.same_org    → ctx.Tenant != nil
 //	@scope.self/owner  → returns false until target loading lands
-func enforcePolicy(ctx *Ctx, p Policy) error {
-	if len(p.Atoms) == 0 {
-		return &Error{Status: 500, Code: CodeInternal,
-			Message: "command/query registered with empty policy: " + p.Name}
-	}
-	for _, atom := range p.Atoms {
-		if atomMatches(ctx, atom) {
-			return nil
-		}
-	}
-	return &Error{Status: 403, Code: CodePolicyDenied,
-		Message: "no policy atom matches the active actor for " + p.Name}
-}
-
-// atomMatches reports whether the active context satisfies one policy atom.
+//	rbac.role.<n>      → any of ctx.User.Roles satisfies HasRole(role, n)
+//	rbac.permission.X  → any of ctx.User.Roles satisfies HasPermission(role, X)
+//	predicate.authenticated → ctx.User != nil (combinator leaf)
 func atomMatches(ctx *Ctx, atom PolicyAtom) bool {
 	switch atom.Namespace {
 	case "actor":
@@ -237,6 +226,30 @@ func atomMatches(ctx *Ctx, atom PolicyAtom) bool {
 			// Target binding is deferred; these atoms always fail closed
 			// for now.
 			return false
+		}
+	case "rbac.role":
+		if ctx.User == nil {
+			return false
+		}
+		for _, r := range ctx.User.Roles {
+			if rbacHasRole(r, atom.Name) {
+				return true
+			}
+		}
+		return false
+	case "rbac.permission":
+		if ctx.User == nil {
+			return false
+		}
+		for _, r := range ctx.User.Roles {
+			if rbacHasPermission(r, atom.Name) {
+				return true
+			}
+		}
+		return false
+	case "predicate":
+		if atom.Name == "authenticated" {
+			return ctx.User != nil
 		}
 	}
 	return false
