@@ -20,6 +20,9 @@ mod debug;
 mod dev;
 mod doctor;
 mod examples_bundle;
+mod inspect {
+    pub mod expand_auth;
+}
 mod lazurite_manifest;
 mod migrate;
 mod profile;
@@ -4175,6 +4178,7 @@ struct InspectMimeType {
 
 #[derive(Debug, Serialize)]
 struct InspectAuth {
+    origin: InspectOrigin,
     identity: InspectAuthIdentity,
     #[serde(skip_serializing_if = "Option::is_none")]
     password: Option<InspectAuthPassword>,
@@ -4192,6 +4196,7 @@ struct InspectAuthIdentity {
     /// don't need to reassemble it.
     field: String,
     resource: String,
+    origin: InspectOrigin,
 }
 
 #[derive(Debug, Serialize)]
@@ -4201,6 +4206,7 @@ struct InspectAuthPassword {
     verify: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     rate_limit: Option<String>,
+    origin: InspectOrigin,
 }
 
 #[derive(Debug, Serialize)]
@@ -4208,6 +4214,7 @@ struct InspectAuthSessions {
     resource: String,
     ttl: String,
     refresh: bool,
+    origin: InspectOrigin,
 }
 
 #[derive(Debug, Serialize)]
@@ -4217,12 +4224,21 @@ struct InspectAuthMfa {
     verify: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     adapter: Option<String>,
+    origin: InspectOrigin,
 }
 
 #[derive(Debug, Serialize)]
 struct InspectAuthOAuthProvider {
     provider: String,
     adapter: String,
+    origin: InspectOrigin,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct InspectOrigin {
+    feature: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -5044,7 +5060,11 @@ fn inspect_feature(
     // "no auth declared" from "auth declared but empty".
     let auth = expansions
         .auth
-        .then(|| auth_by_feature.get(&name).map(project_auth))
+        .then(|| {
+            auth_by_feature
+                .get(&name)
+                .map(|auth| project_auth(&name, auth))
+        })
         .flatten();
 
     // Phase L Tier 2 — storage projection harvests every `@cap.File(...)`
@@ -5512,31 +5532,37 @@ fn project_file_capability(file: &lazuli_ir::FileCapability) -> InspectFileCapab
 /// `InspectAuth`. Mirrors the IR structure 1:1; the only translation is
 /// joining `FieldRef` back into a `<Resource>.<field>` string so the
 /// json projection reads exactly like the source surface.
-fn project_auth(auth: &lazuli_ir::Auth) -> InspectAuth {
+fn project_auth(feature_name: &str, auth: &lazuli_ir::Auth) -> InspectAuth {
+    let origin = inspect_origin(feature_name, auth.span_ref);
     InspectAuth {
+        origin: origin.clone(),
         identity: InspectAuthIdentity {
             field: format!(
                 "{}.{}",
                 auth.identity.field.resource.name, auth.identity.field.field
             ),
             resource: auth.identity.field.resource.name.clone(),
+            origin: origin.clone(),
         },
         password: auth.password.as_ref().map(|p| InspectAuthPassword {
             algorithm: p.algorithm.clone(),
             hash: p.hash.clone(),
             verify: p.verify.clone(),
             rate_limit: p.rate_limit.clone(),
+            origin: origin.clone(),
         }),
         sessions: auth.sessions.as_ref().map(|s| InspectAuthSessions {
             resource: s.resource.name.clone(),
             ttl: s.ttl.clone(),
             refresh: s.refresh,
+            origin: origin.clone(),
         }),
         mfa: auth.mfa.as_ref().map(|m| InspectAuthMfa {
             method: m.method.clone(),
             enroll: m.enroll.clone(),
             verify: m.verify.clone(),
             adapter: m.adapter.clone(),
+            origin: origin.clone(),
         }),
         oauth: auth
             .oauth
@@ -5544,8 +5570,16 @@ fn project_auth(auth: &lazuli_ir::Auth) -> InspectAuth {
             .map(|o| InspectAuthOAuthProvider {
                 provider: o.provider.clone(),
                 adapter: o.adapter.clone(),
+                origin: origin.clone(),
             })
             .collect(),
+    }
+}
+
+fn inspect_origin(feature_name: &str, span_ref: Option<lazuli_ir::SpanRef>) -> InspectOrigin {
+    InspectOrigin {
+        feature: feature_name.to_owned(),
+        line: span_ref.map(|span| span.start),
     }
 }
 
@@ -10436,16 +10470,22 @@ feature customer_auth
         let json = serde_json::to_value(&report).unwrap();
         let auth = &json["features"][0]["auth"];
         assert!(!auth.is_null(), "auth projection should be present: {json}");
+        assert_eq!(auth["origin"]["feature"], "customer_auth");
         assert_eq!(auth["identity"]["field"], "Customer.email");
         assert_eq!(auth["identity"]["resource"], "Customer");
+        assert_eq!(auth["identity"]["origin"]["feature"], "customer_auth");
         assert_eq!(auth["password"]["algorithm"], "argon2id");
         assert_eq!(auth["password"]["hash"], "@fn.hash_customer_password");
+        assert_eq!(auth["password"]["origin"]["feature"], "customer_auth");
         assert_eq!(auth["mfa"]["method"], "totp");
         assert_eq!(auth["mfa"]["enroll"], "@fn.enroll_customer_totp");
         assert_eq!(auth["mfa"]["verify"], "@validator.verify_customer_totp");
+        assert_eq!(auth["mfa"]["origin"]["feature"], "customer_auth");
         assert_eq!(auth["sessions"]["ttl"], "7 days");
         assert_eq!(auth["sessions"]["refresh"], false);
+        assert_eq!(auth["sessions"]["origin"]["feature"], "customer_auth");
         assert_eq!(auth["oauth"][0]["provider"], "google");
+        assert_eq!(auth["oauth"][0]["origin"]["feature"], "customer_auth");
     }
 
     #[test]
