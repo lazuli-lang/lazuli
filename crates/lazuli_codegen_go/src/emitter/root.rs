@@ -671,6 +671,7 @@ mod tests {
             environments: Vec::new(),
             urls: Vec::new(),
             cors: None,
+            headers: None,
             cookie: None,
             proxy: None,
             limits: None,
@@ -947,6 +948,7 @@ mod tests {
             )),
             algorithm: EncryptionAlgorithm::Aes256Gcm,
             rotation: EncryptionRotation::Manual,
+            rotation_profile: None,
             span_ref: None,
         });
         let module = module_with(Vec::new(), Some(app));

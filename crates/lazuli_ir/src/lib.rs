@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod encryption;
+pub mod security_duration;
 pub use encryption::{
     E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope,
     EncryptionRotation, EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
@@ -2625,6 +2626,79 @@ pub struct AppManifest {
     /// Roadmap §1.2 — typed `limits` block (CL.C.1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<AppLimits>,
+    /// Roadmap §1.10 — typed security `headers` block (CL.C.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<AppHeaders>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Roadmap §1.10 — typed `app.headers` block (CL.C.5).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppHeaders {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hsts: Option<AppHsts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_frame_options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_content_type_options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub referrer_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppHsts {
+    pub max_age: u64,
+    #[serde(default)]
+    pub include_subdomains: bool,
+    #[serde(default)]
+    pub preload: bool,
+}
+
+impl AppHeaders {
+    pub const REFERRER_POLICY_CATALOG: &'static [&'static str] = &[
+        "no-referrer",
+        "no-referrer-when-downgrade",
+        "origin",
+        "origin-when-cross-origin",
+        "same-origin",
+        "strict-origin",
+        "strict-origin-when-cross-origin",
+        "unsafe-url",
+    ];
+    pub const X_FRAME_OPTIONS_CATALOG: &'static [&'static str] = &["DENY", "SAMEORIGIN"];
+
+    pub fn is_referrer_policy_known(value: &str) -> bool {
+        Self::REFERRER_POLICY_CATALOG.contains(&value)
+    }
+    pub fn is_x_frame_options_known(value: &str) -> bool {
+        if Self::X_FRAME_OPTIONS_CATALOG.contains(&value) {
+            return true;
+        }
+        value
+            .strip_prefix("ALLOW-FROM ")
+            .map(|tail| !tail.trim().is_empty())
+            .unwrap_or(false)
+    }
+    pub fn is_x_content_type_options_known(value: &str) -> bool {
+        value == "nosniff"
+    }
+}
+
+/// Roadmap §1.10 — `secret_rotation <name>` profile (CL.C.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecretRotation {
+    pub name: String,
+    pub cadence: String,
+    pub overlap: String,
+    #[serde(default)]
+    pub auto_rollback: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -2815,6 +2889,11 @@ pub struct AppRegistry {
     /// outbound contracts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub webhook_events: Vec<WebhookEventRegistry>,
+    /// Roadmap §1.10 — `secret_rotation <name>` policy profiles
+    /// (CL.C.5). Bound by `app.encryption.key @key.<scope>
+    /// rotation_profile <name>` via `EncryptionBinding.rotation_profile`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secret_rotations: Vec<SecretRotation>,
 }
 
 /// Roadmap §1.11 — canonical outbound webhook event schema declared in

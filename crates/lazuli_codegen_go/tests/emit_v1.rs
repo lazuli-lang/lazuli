@@ -98,6 +98,7 @@ fn minimal_app_manifest(name: &str) -> AppManifest {
         environments: Vec::new(),
         urls: Vec::new(),
         cors: None,
+        headers: None,
         cookie: None,
         proxy: None,
         limits: None,

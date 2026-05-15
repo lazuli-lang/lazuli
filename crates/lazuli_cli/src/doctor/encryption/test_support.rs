@@ -32,6 +32,7 @@ pub fn empty_app() -> AppManifest {
         environments: Vec::new(),
         urls: Vec::new(),
         cors: None,
+        headers: None,
         cookie: None,
         proxy: None,
         limits: None,
@@ -55,6 +56,7 @@ pub fn make_binding(scope: &str, template_literal: &str) -> EncryptionBinding {
         source: EncryptionSource::Env(EncryptionTemplate::parse(template_literal)),
         algorithm: EncryptionAlgorithm::Aes256Gcm,
         rotation: EncryptionRotation::Manual,
+        rotation_profile: None,
         span_ref: None,
     }
 }

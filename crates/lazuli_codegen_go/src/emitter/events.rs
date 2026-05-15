@@ -674,6 +674,7 @@ mod tests {
             environments: Vec::new(),
             urls: Vec::new(),
             cors: None,
+            headers: None,
             cookie: None,
             proxy: None,
             limits: None,

@@ -832,6 +832,7 @@ mod tests {
             environments: Vec::new(),
             urls: Vec::new(),
             cors: None,
+            headers: None,
             cookie: None,
             proxy: None,
             limits: None,
@@ -857,6 +858,7 @@ mod tests {
             packs: Vec::new(),
             tools: Vec::new(),
             webhook_events: Vec::new(),
+            secret_rotations: Vec::new(),
         }
     }
 

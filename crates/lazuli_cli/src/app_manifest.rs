@@ -348,6 +348,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         environments: Vec::new(),
         urls: Vec::new(),
         cors: None,
+        headers: None,
         env: Vec::new(),
         integrations: Vec::new(),
         capabilities: Vec::new(),
@@ -738,6 +739,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                                 }),
                                 algorithm: EncryptionAlgorithm::Aes256Gcm,
                                 rotation: EncryptionRotation::Manual,
+                                rotation_profile: None,
                                 span_ref: None,
                             });
                             current_encryption_binding =
@@ -940,6 +942,7 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
         packs: Vec::new(),
         tools: Vec::new(),
         webhook_events: Vec::new(),
+        secret_rotations: Vec::new(),
     };
     let mut current_child: Option<&str> = None;
     let mut current_env_group: Option<String> = None;

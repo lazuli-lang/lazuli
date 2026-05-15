@@ -39,6 +39,11 @@ pub struct EncryptionBinding {
     pub algorithm: EncryptionAlgorithm,
     /// v0: `Manual`. `KmsManaged` deferred.
     pub rotation: EncryptionRotation,
+    /// CL.C.5 — optional binding to a `registry.secret_rotation <name>`
+    /// profile. Doctor's `secret-rotation-binding-unknown` flags
+    /// references to undeclared profiles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation_profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
