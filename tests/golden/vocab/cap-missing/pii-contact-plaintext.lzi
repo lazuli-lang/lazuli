@@ -1,0 +1,9 @@
+# VOCAB-CAP-MISSING-001 positive fixture.
+# Expected:
+# field `Customer.email` carries `@pii.contact` but no `@cap.Hashed/Encrypted/Token` - sensitive data stored in plaintext
+
+feature customer
+  resource Customer
+    email: @semantic.Email @pii.contact required
+    score: Integer @pii.derived = 0
+    external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
