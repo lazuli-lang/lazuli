@@ -223,6 +223,7 @@ mod tests {
             registry: None,
             profiles: Vec::new(),
             design: None,
+            rbac: None,
             features: vec![Feature {
                 name: "item".to_owned(),
                 purpose: None,

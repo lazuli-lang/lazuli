@@ -14,6 +14,7 @@
 //! or `PolicyRef::Unresolved` rather than fabricated facts.
 
 mod lifecycle;
+pub mod rbac;
 pub mod source_map;
 
 use std::collections::BTreeSet;
@@ -251,6 +252,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         registry: None,
         profiles: Vec::new(),
         design: None,
+        rbac: None,
         features: vec![feature],
     })
 }

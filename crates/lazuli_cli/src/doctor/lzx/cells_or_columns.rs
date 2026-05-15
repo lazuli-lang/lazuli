@@ -106,6 +106,7 @@ mod tests {
             registry: None,
             profiles: vec![],
             design: None,
+            rbac: None,
             features: vec![Feature {
                 name: "slug".into(),
                 purpose: None,

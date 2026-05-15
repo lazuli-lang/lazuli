@@ -2545,6 +2545,7 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         registry: None,
         profiles: Vec::new(),
         design: None,
+        rbac: None,
         features: Vec::new(),
     };
 
@@ -2718,6 +2719,7 @@ fn build_module_with_source_from_path(
         registry: None,
         profiles: Vec::new(),
         design: None,
+        rbac: None,
         features: Vec::new(),
     };
     let mut source_map = lazuli_ir::SourceMap { files: Vec::new() };
@@ -8695,6 +8697,7 @@ mod tests {
             registry: None,
             profiles: vec![],
             design: None,
+            rbac: None,
             features: vec![feature.clone()],
         };
         (feature, module)

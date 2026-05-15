@@ -81,7 +81,65 @@ pub struct Module {
     /// design-tokens.md` and `Design` below.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub design: Option<Design>,
+    /// RBAC catalog — package-scoped `permission` / `role` declarations.
+    /// `None` when the package has no catalog (legacy `@role.*` text-walk
+    /// stays in effect for back-compat per
+    /// `docs/proposals/rbac-catalog-vocab.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rbac: Option<RbacCatalog>,
     pub features: Vec<Feature>,
+}
+
+// -----------------------------------------------------------------------------
+// RBAC catalog IR — produced by `lazuli_analyzer::analyze_rbac_catalog`
+// from the surface AST (`PackageSkeleton.permissions` / `.roles`).
+// Closure is analyzer-derived, baked into the IR for downstream
+// consumers (codegen, doctor, inspect) so they never recompute.
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RbacCatalog {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<PermissionEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RoleEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionEntry {
+    /// Full identifier (`users:read`).
+    pub name: String,
+    /// Colon-split segments.
+    pub segments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleEntry {
+    pub name: String,
+    /// Single-parent inheritance ref (v0.1). `None` for root roles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherits: Option<String>,
+    pub grants: RoleGrants,
+    /// Analyzer-computed flat permission list (closure of own grants
+    /// plus transitively inherited grants). Sorted for determinism.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closure: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum RoleGrants {
+    /// Explicit `grants` block — direct permission refs (closure also
+    /// folds in inherited).
+    Explicit(Vec<String>),
+    /// `grants_all` shorthand. Closure = every declared permission.
+    All,
+    /// No `grants*` block. Closure = inherited only.
+    InheritedOnly,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -672,6 +672,7 @@ mod tests {
             registry: None,
             profiles: vec![],
             design,
+            rbac: None,
             features: vec![],
         }
     }

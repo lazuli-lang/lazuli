@@ -117,6 +117,7 @@ fn minimal_module(app_name: &str, feature_name: &str) -> Module {
         registry: None,
         profiles: Vec::new(),
         design: None,
+        rbac: None,
         features: vec![empty_feature(feature_name)],
     }
 }
@@ -1345,6 +1346,7 @@ fn full_capsule_emits_expected_integration_snapshot_structure() {
         registry: None,
         profiles: Vec::new(),
         design: None,
+        rbac: None,
         features,
     };
     let files = generate_v1(&module, &GoEmitOptions::default());

@@ -424,6 +424,7 @@ mod tests {
             registry: None,
             profiles: Vec::new(),
             design: None,
+            rbac: None,
             features,
         }
     }
@@ -765,6 +766,7 @@ mod feature_emit_tests {
             registry: None,
             profiles: Vec::new(),
             design: None,
+            rbac: None,
             features: vec![feature],
         };
         let cross_index = CrossFeatureIndex::build(&module);

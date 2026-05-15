@@ -12314,6 +12314,31 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "from" => Some(
             "Catalog hop. In `payload from webhook_events.<name>`, points at the registry-side envelope shape. The `webhook_events.` prefix is mandatory at the surface so the catalog is obvious to a cold-reading author.",
         ),
+        // RBAC catalog vocab — `permission` / `role` top-level kinds +
+        // `inherits` / `grants` / `grants_all` children and the
+        // `has_role` / `has_permission` policy predicates. See
+        // `docs/proposals/rbac-catalog-vocab.md`.
+        "permission" => Some(
+            "Declares one closed-catalog permission at top level. Identifier is colon-separated, 2-4 segments (`<resource>:<action>` ... `<resource>:<action>:<scope>:<qualifier>`). Catalog is package-scoped; placement convention is `features/auth/auth.lzi`.",
+        ),
+        "role" => Some(
+            "Declares one closed-catalog role at top level. Body accepts optional `inherits <role>` (single-parent) and exactly one of `grants` (indented list of permission refs) or `grants_all` (shorthand for every declared permission), or neither (inherits-only).",
+        ),
+        "inherits" => Some(
+            "On `role`: single-parent inheritance (`inherits <role>`). Multi-parent (`inherits A, B`) is rejected in v0.1 — declare a chain instead. Closure is computed at compile time.",
+        ),
+        "grants" => Some(
+            "On `role`: block listing the permissions granted by this role (one per line, indent 4). Each entry is a bare permission identifier resolved against the catalog. Mutually exclusive with `grants_all`.",
+        ),
+        "grants_all" => Some(
+            "On `role`: shorthand granting every declared permission in the catalog. Mutually exclusive with `grants`. Newly added permissions are automatically included (useful for `admin`-style roles; LSP hover surfaces the resolved closure).",
+        ),
+        "has_role" => Some(
+            "Closed predicate inside a `policy` expression: `has_role <name>` evaluates to true when the actor's current role is `<name>` or transitively inherits from it. Use `@role.<name>` inside `policies` dictionary entries instead.",
+        ),
+        "has_permission" => Some(
+            "Closed predicate inside a `policy` expression: `has_permission <resource>:<action>` evaluates to true when the actor's current role grants the permission via the catalog closure. Reference must resolve against a declared `permission`.",
+        ),
         _ => None,
     }
 }

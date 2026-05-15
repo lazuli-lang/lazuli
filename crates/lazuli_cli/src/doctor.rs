@@ -5,6 +5,7 @@ pub mod folder;
 pub mod lifecycle;
 pub mod lzx;
 pub mod poller;
+pub mod rbac;
 pub mod report;
 pub mod vocab;
 
@@ -931,8 +932,31 @@ impl DoctorPackage {
             &self.feature_resources,
         ));
 
+        // RB.B — RBAC catalog diagnostics.
+        // Run BEFORE legacy `collect_known_roles`/approval checks so
+        // `@role.*` resolution uses the catalog when present and falls
+        // back to text-walk only when no catalog is declared.
+        let (rbac_diags, rbac_catalog) = rbac_catalog_diagnostics(&self.files);
+        diagnostics.extend(rbac_diags);
+        if let Some(catalog) = &rbac_catalog {
+            diagnostics.extend(rbac_role_undeclared_diagnostics(&self.files, catalog));
+        }
+        diagnostics.extend(rbac_catalog_missing_diagnostics(
+            &self.files,
+            rbac_catalog.is_some(),
+        ));
+        diagnostics.extend(rbac_missing_policy_diagnostics(&self.files));
+
         // Cut A.9 — `approval` primitive contract + role resolution.
-        let known_roles = collect_known_roles(&self.files);
+        // When the RBAC catalog is present, prefer its role set; fall
+        // back to the legacy `collect_known_roles` text walk when no
+        // catalog is declared (back-compat per
+        // `docs/proposals/rbac-catalog-vocab.md` §Backwards compatibility).
+        let known_roles = if let Some(catalog) = &rbac_catalog {
+            catalog.roles.iter().map(|r| r.name.clone()).collect()
+        } else {
+            collect_known_roles(&self.files)
+        };
         diagnostics.extend(approval_diagnostics(&self.tier3_facts, &known_roles));
         diagnostics.extend(approval_missing_children_diagnostics(
             &self.approval_presences,
@@ -8455,6 +8479,309 @@ fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
                 roles.insert(name[..end].to_owned());
             }
         }
+    }
+}
+
+// =============================================================================
+// RB.B — RBAC catalog diagnostics.
+//
+// Aggregate the package-level catalog by re-parsing each `.lzi` file
+// via `parse_package_skeleton` and folding the permission/role decls.
+// Pass through `analyze_rbac_catalog` for closure + cycle issues,
+// then layer two package-level checks on top:
+//   - RBAC-CATALOG-MISSING-001 (info): `@role.*` references exist but
+//     no catalog declared.
+//   - RBAC-ROLE-UNDECLARED-001 (error): `@role.X` references a role
+//     not in the catalog (when a catalog IS declared).
+//   - RBAC-MISSING-POLICY-001 (warning): a feature with ≥2 policied
+//     commands has a sibling command/query without explicit policy.
+// =============================================================================
+
+/// Aggregate the package-level RBAC catalog by re-parsing each `.lzi`
+/// file and concatenating `permission` / `role` decls. Cross-file
+/// duplicates are caught by the analyzer's per-package pass.
+fn collect_package_rbac_catalog(
+    files: &[DoctorFile],
+) -> (
+    Option<lazuli_ir::RbacCatalog>,
+    Vec<(PathBuf, lazuli_analyzer::rbac::RbacIssue)>,
+) {
+    use lazuli_syntax::{
+        PackageSkeleton, PermissionDeclAst, RoleDeclAst, parse_package_skeleton,
+    };
+
+    let mut all_permissions: Vec<PermissionDeclAst> = Vec::new();
+    let mut all_roles: Vec<RoleDeclAst> = Vec::new();
+    let mut file_of_decl: BTreeMap<usize, PathBuf> = BTreeMap::new();
+
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let Ok(pkg) = parse_package_skeleton(&file.source) else {
+            continue;
+        };
+        for p in pkg.permissions {
+            file_of_decl.insert(all_permissions.len(), file.path.clone());
+            all_permissions.push(p);
+        }
+        for r in pkg.roles {
+            // Use a disjoint key space (roles indexed by 1_000_000 + i)
+            // to avoid collision with permission indices.
+            file_of_decl.insert(1_000_000 + all_roles.len(), file.path.clone());
+            all_roles.push(r);
+        }
+    }
+
+    if all_permissions.is_empty() && all_roles.is_empty() {
+        return (None, Vec::new());
+    }
+
+    let pkg = PackageSkeleton {
+        features: Vec::new(),
+        permissions: all_permissions,
+        roles: all_roles,
+    };
+    let (catalog, issues) = lazuli_analyzer::rbac::analyze_rbac_catalog(&pkg);
+    // For now, attach the first .lzi file with rbac decls to each issue.
+    let representative = files
+        .iter()
+        .find(|f| is_lzi_path(&f.path) && f.source.contains("\nrole ") || f.source.starts_with("role "))
+        .or_else(|| files.iter().find(|f| is_lzi_path(&f.path)))
+        .map(|f| f.path.clone())
+        .unwrap_or_default();
+    let issues_with_path: Vec<(PathBuf, _)> =
+        issues.into_iter().map(|i| (representative.clone(), i)).collect();
+    (catalog, issues_with_path)
+}
+
+/// Convert analyzer-emitted RBAC issues into doctor diagnostics.
+fn rbac_catalog_diagnostics(
+    files: &[DoctorFile],
+) -> (Vec<DoctorDiagnostic>, Option<lazuli_ir::RbacCatalog>) {
+    let (catalog, issues) = collect_package_rbac_catalog(files);
+    let mut out: Vec<DoctorDiagnostic> = Vec::new();
+    for (path, issue) in issues {
+        let line = if let Some((start, _)) = issue.span {
+            line_col_for_offset_from_files(files, &path, start).0
+        } else {
+            1
+        };
+        let severity = match issue.code {
+            "RBAC-PERM-UNUSED-001" => DoctorSeverity::Warning,
+            _ => DoctorSeverity::Error,
+        };
+        out.push(DoctorDiagnostic {
+            path,
+            line,
+            column: 1,
+            severity,
+            code: issue.code.to_owned(),
+            message: issue.message,
+        });
+    }
+    (out, catalog)
+}
+
+/// Resolve a byte offset within a given file path to (line, column).
+fn line_col_for_offset_from_files(
+    files: &[DoctorFile],
+    path: &Path,
+    offset: usize,
+) -> (usize, usize) {
+    for f in files {
+        if f.path == path {
+            return line_col_for_offset(&f.source, offset);
+        }
+    }
+    (1, 1)
+}
+
+/// RBAC-ROLE-UNDECLARED-001 — when a catalog IS declared, every
+/// `@role.X` mention in `policies` / `policy_for` must resolve to a
+/// catalog role. Returns one diagnostic per orphan reference (deduped).
+fn rbac_role_undeclared_diagnostics(
+    files: &[DoctorFile],
+    catalog: &lazuli_ir::RbacCatalog,
+) -> Vec<DoctorDiagnostic> {
+    let mut out = Vec::new();
+    let catalog_roles: BTreeSet<String> = catalog.roles.iter().map(|r| r.name.clone()).collect();
+    let mentioned = collect_known_roles(files);
+    for role in mentioned.difference(&catalog_roles) {
+        // Find the first file that mentions this role.
+        for file in files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            let needle = format!("@role.{}", role);
+            if let Some(idx) = file.source.find(&needle) {
+                let (line, _) = line_col_for_offset(&file.source, idx);
+                out.push(DoctorDiagnostic {
+                    path: file.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "RBAC-ROLE-UNDECLARED-001".to_owned(),
+                    message: format!(
+                        "`@role.{}` references a role not declared in the RBAC catalog (declare `role {}` at top level or remove the reference).",
+                        role, role
+                    ),
+                });
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// RBAC-CATALOG-MISSING-001 (info advisory) — fires when the legacy
+/// implicit-role-set has entries but no `role` / `permission` blocks
+/// were authored at top level. Migration hint per
+/// `docs/proposals/rbac-catalog-vocab.md` §Backwards compatibility.
+fn rbac_catalog_missing_diagnostics(
+    files: &[DoctorFile],
+    catalog_present: bool,
+) -> Vec<DoctorDiagnostic> {
+    if catalog_present {
+        return Vec::new();
+    }
+    let implicit = collect_known_roles(files);
+    if implicit.is_empty() {
+        return Vec::new();
+    }
+    // Surface a single hint on the first `.lzi` file that mentions a
+    // role. Severity is `Info` mapped to LSP Hint.
+    let role_names: Vec<String> = implicit.into_iter().collect();
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let needle = format!("@role.{}", role_names[0]);
+        if let Some(idx) = file.source.find(&needle) {
+            let (line, _) = line_col_for_offset(&file.source, idx);
+            return vec![DoctorDiagnostic {
+                path: file.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Info,
+                code: "RBAC-CATALOG-MISSING-001".to_owned(),
+                message: format!(
+                    "package uses `@role.*` references ({}) but declares no `role` / `permission` catalog. Consider migrating to a top-level RBAC catalog (see docs/proposals/rbac-catalog-vocab.md).",
+                    role_names.join(", ")
+                ),
+            }];
+        }
+    }
+    Vec::new()
+}
+
+/// RBAC-MISSING-POLICY-001 — feature mixes policied + unpoliced
+/// commands/queries. Suspicious gap; explicit `policy @scope.public`
+/// opts out. Warning level. Per-feature; scans for indent-2 `command`/
+/// `query.*` blocks and checks if their indent-4 children include a
+/// `policy ` line.
+fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
+    let mut out = Vec::new();
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        let lines: Vec<&str> = file.source.lines().collect();
+        let mut feature: Option<String> = None;
+        let mut feature_line: usize = 0;
+        // For each feature, count callables with/without `policy`.
+        let mut policied: Vec<String> = Vec::new();
+        let mut unpoliced: Vec<(String, usize)> = Vec::new();
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
+            let trimmed = line.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                i += 1;
+                continue;
+            }
+            if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
+                // Flush prior feature.
+                if let Some(_fname) = feature.take() {
+                    flush_missing_policy(&mut out, &file.path, &policied, &unpoliced);
+                }
+                feature = trimmed
+                    .strip_prefix("feature ")
+                    .map(|n| n.trim().to_owned());
+                feature_line = i + 1;
+                policied.clear();
+                unpoliced.clear();
+                i += 1;
+                continue;
+            }
+            let _ = feature_line;
+            if leading_spaces(line) == 2
+                && (trimmed.starts_with("command ")
+                    || trimmed.starts_with("query.list ")
+                    || trimmed.starts_with("query.lookup ")
+                    || trimmed.starts_with("query.sql ")
+                    || trimmed.starts_with("api "))
+            {
+                let name = trimmed
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("")
+                    .to_owned();
+                // Scan body at indent 4 for a `policy ` line.
+                let mut has_policy = false;
+                let mut j = i + 1;
+                while j < lines.len() {
+                    let inner = lines[j];
+                    let inner_trim = inner.trim_start();
+                    if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                        j += 1;
+                        continue;
+                    }
+                    if leading_spaces(inner) <= 2 {
+                        break;
+                    }
+                    if leading_spaces(inner) == 4 && inner_trim.starts_with("policy ") {
+                        has_policy = true;
+                        break;
+                    }
+                    j += 1;
+                }
+                if has_policy {
+                    policied.push(name);
+                } else {
+                    unpoliced.push((name, i + 1));
+                }
+            }
+            i += 1;
+        }
+        if let Some(_fname) = feature.take() {
+            flush_missing_policy(&mut out, &file.path, &policied, &unpoliced);
+        }
+    }
+    out
+}
+
+fn flush_missing_policy(
+    out: &mut Vec<DoctorDiagnostic>,
+    path: &Path,
+    policied: &[String],
+    unpoliced: &[(String, usize)],
+) {
+    if policied.len() < 2 || unpoliced.is_empty() {
+        return;
+    }
+    for (name, line) in unpoliced {
+        out.push(DoctorDiagnostic {
+            path: path.to_path_buf(),
+            line: *line,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "RBAC-MISSING-POLICY-001".to_owned(),
+            message: format!(
+                "`{}` declares no explicit `policy` while sibling callables do; add `policy <atoms>` (or `policy @scope.public` to opt out) for visibility.",
+                name
+            ),
+        });
     }
 }
 

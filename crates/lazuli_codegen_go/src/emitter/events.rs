@@ -693,6 +693,7 @@ mod tests {
             registry: None,
             profiles: Vec::new(),
             design: None,
+            rbac: None,
             features: vec![feature],
         }
     }
@@ -935,6 +936,7 @@ mod feature_emit_tests {
             registry: None,
             profiles: Vec::new(),
             design: None,
+            rbac: None,
             features: vec![feature],
         }
     }
