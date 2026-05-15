@@ -2003,6 +2003,56 @@ pub(crate) fn generate_go(
         .map(|s| s.to_owned())
         .unwrap_or_else(|| lazuli_codegen_go::LAZULI_GO_VERSION.to_owned());
 
+    // Closed §6.2.1 error catalog (CODEGEN-GO-PLUGIN-001,
+    // CODEGEN-GO-TYPE-007, …). Run BEFORE codegen so the emitter never
+    // produces broken Go for a module that already fails policy. Errors
+    // abort the run; warnings stream to stderr but still allow emission.
+    let issues = lazuli_codegen_go::emitter::check::run_checks(&module_ir);
+    let errors: Vec<_> = issues
+        .iter()
+        .filter(|i| matches!(i.severity, lazuli_codegen_go::emitter::check::Severity::Error))
+        .collect();
+    let warnings: Vec<_> = issues
+        .iter()
+        .filter(|i| !matches!(i.severity, lazuli_codegen_go::emitter::check::Severity::Error))
+        .collect();
+    for w in &warnings {
+        eprintln!(
+            "[{}] warn: {}{}{}",
+            w.code,
+            w.message,
+            w.feature
+                .as_deref()
+                .map(|f| format!(" (feature `{f}`)"))
+                .unwrap_or_default(),
+            w.site
+                .as_deref()
+                .map(|s| format!(" at {s}"))
+                .unwrap_or_default(),
+        );
+    }
+    if !errors.is_empty() {
+        for e in &errors {
+            eprintln!(
+                "[{}] error: {}{}{}",
+                e.code,
+                e.message,
+                e.feature
+                    .as_deref()
+                    .map(|f| format!(" (feature `{f}`)"))
+                    .unwrap_or_default(),
+                e.site
+                    .as_deref()
+                    .map(|s| format!(" at {s}"))
+                    .unwrap_or_default(),
+            );
+        }
+        anyhow::bail!(
+            "lazuli generate go: {} blocking issue(s) in the closed codegen error catalog",
+            errors.len()
+        );
+    }
+
     // PG.C — compute plan-and-gate facts from the .lzi sources so
     // codegen emits `dist/go/plan/catalog.gen.go` when the package
     // authors plans.
@@ -2033,9 +2083,9 @@ pub(crate) fn generate_go(
     };
 
     if check {
-        // Coarse pass/fail signal; the closed §6.2.1 error catalog
-        // (CODEGEN-GO-PLUGIN-001, etc.) lands in cell I4. Today we
-        // just enumerate what the emitter would produce and exit 0.
+        // Coarse pass/fail signal (catalog above already aborted on
+        // Error severity; the closed §6.2.1 catalog continues to grow
+        // in cell I4). Enumerates what would be written.
         println!("lazuli generate go --check");
         println!("would emit {} file(s):", files.len());
         for file in &files {

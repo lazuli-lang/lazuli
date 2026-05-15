@@ -1,6 +1,8 @@
 package lazuli
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -25,7 +27,22 @@ var GlobalRegistry = &Registry{
 
 type commandRegistration struct{ Name, Feature string }
 type queryRegistration struct{ Name, Feature string }
-type apiRegistration struct{ Name, Feature, Path string }
+type apiRegistration struct {
+	Name, Feature, Path string
+	// HandlerChecker reports whether the user has wired the typed
+	// Api[I, O].Handler field at the time of the call. The codegen
+	// emits Api values without handlers (extension-point pattern) and
+	// expects user code to assign each `Handler` before serving.
+	// Capturing a closure over the typed pointer lets the registry
+	// observe Handler assignment even when it happens AFTER the
+	// generated init() block calls RegisterApi.
+	//
+	// `nil` means the registration was made via the legacy
+	// `Registry.RegisterApi(apiRegistration{...})` path (no typed
+	// pointer available); ValidateApiHandlers treats those as opaque
+	// and skips them.
+	HandlerChecker func() bool
+}
 
 // RegisterResource adds a type-erased resource to this registry.
 func (r *Registry) RegisterResource(name string, erased *resourceErased) {
@@ -193,10 +210,62 @@ func RegisterQuery[A, R any](query *Query[A, R]) {
 // RegisterApi registers an Api in the typed registry.
 func RegisterApi[I, O any](api *Api[I, O]) {
 	GlobalRegistry.RegisterApi(apiRegistration{
-		Name:    api.Name,
-		Feature: api.Feature,
-		Path:    api.Path,
+		Name:           api.Name,
+		Feature:        api.Feature,
+		Path:           api.Path,
+		HandlerChecker: func() bool { return api.Handler != nil },
 	})
+}
+
+// ValidateApiHandlers walks every registered API on this Registry and
+// returns an error listing the endpoints whose `Handler` field is
+// still nil. The codegen emits `var customerExport = lazuli.Api[...]{...}`
+// declarations WITHOUT handlers (review bug #1, 2026-05-15): the user
+// is responsible for assigning a Handler in `main.go` (or wherever
+// extension code lives) before serving. Without this check the server
+// boots successfully and the unwired endpoint silently returns
+// `500: api handler not set: <name>` on every request.
+//
+// Call once right before starting the HTTP listener:
+//
+//	if err := lazuli.ValidateApiHandlers(); err != nil { log.Fatal(err) }
+//
+// Registrations made through `Registry.RegisterApi(apiRegistration{...})`
+// directly (no typed pointer captured) are skipped — only entries that
+// flowed through the typed `RegisterApi[I, O]` generic are inspected.
+func (r *Registry) ValidateApiHandlers() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var missing []string
+	for name, reg := range r.apis {
+		if reg.HandlerChecker == nil {
+			continue
+		}
+		if !reg.HandlerChecker() {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return fmt.Errorf(
+		"lazuli: %d api endpoint(s) registered without Handler — wire each one (e.g. `customerExport.Handler = handleCustomerExport`) before serving:\n  - %s",
+		len(missing),
+		strings.Join(missing, "\n  - "),
+	)
+}
+
+// ValidateApiHandlers is the process-wide entry point — delegates to
+// `GlobalRegistry.ValidateApiHandlers()`. Typical user-code pattern:
+//
+//	if err := lazuli.Boot(ctx, dbURL); err != nil { log.Fatal(err) }
+//	// ... user-code assigns handlers ...
+//	if err := lazuli.ValidateApiHandlers(); err != nil { log.Fatal(err) }
+//	http.ListenAndServe(...)
+func ValidateApiHandlers() error {
+	return GlobalRegistry.ValidateApiHandlers()
 }
 
 func (api *Api[I, O]) register() {

@@ -145,13 +145,26 @@ fn emit_api(
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
     emit_gate_annotations(p, emit_ctx.gates_for("api", &api.name));
-    p.line("// TODO(extension-points): user-authored handler via");
-    p.line(&format!(
-        "// lazuli.RegisterApi(\"{}\", func(ctx, input) (O, error) {{...}})",
-        escape_string(&api.name)
-    ));
     p.dedent();
     p.line("}");
+    p.blank();
+    // Self-register the typed API value into the global registry so
+    // `lazuli.ValidateApiHandlers()` can see it. The user is
+    // responsible for assigning `<var>.Handler = ...` in their
+    // application code (typically `main.go`) BEFORE calling
+    // `ValidateApiHandlers` — otherwise validation fails fast with a
+    // listing of unwired endpoints instead of the server silently
+    // returning `500: api handler not set` on the first hit.
+    //
+    // See review bug #1 (2026-05-15): the previous emission left an
+    // inert `// TODO(extension-points): ...` comment with no
+    // registration; the endpoint vanished into the void unless the
+    // user happened to call `RegisterApi` themselves.
+    p.line(&format!("func init() {{ lazuli.RegisterApi(&{var_name}) }}"));
+    p.line(&format!(
+        "// Wire {var_name}.Handler in your application code, then call"
+    ));
+    p.line("// `lazuli.ValidateApiHandlers()` at startup to fail fast on omissions.");
 }
 
 /// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
@@ -598,14 +611,24 @@ mod tests {
         );
         assert!(!out.contains("var customerExport = struct {"));
         assert!(!out.contains("TODO(runtime):"));
-        assert!(out.contains("// TODO(extension-points): user-authored handler via"));
-        assert!(out.contains(
-            "// lazuli.RegisterApi(\"customer_export\", func(ctx, input) (O, error) {...})"
-        ));
+        // Codegen now emits a `func init()` that registers the typed
+        // API value, plus an inline hint pointing to
+        // `ValidateApiHandlers`. The previous inert `TODO` comment
+        // never registered anything (review bug #1, 2026-05-15).
+        assert!(out.contains("func init() { lazuli.RegisterApi(&customerExport) }"));
+        assert!(out.contains("// Wire customerExport.Handler in your application code"));
+        assert!(out.contains("lazuli.ValidateApiHandlers()"));
+        assert!(
+            !out.contains("// TODO(extension-points)"),
+            "legacy TODO comment must be gone"
+        );
         assert!(out.contains("Method:    lazuli.MethodGet,"));
         assert!(out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"));
         assert!(out.contains("RateLimit: \"10 per hour per user\","));
-        assert!(!out.contains("Handler:"));
+        // Generated Api value still leaves Handler unset — the user
+        // wires it post-codegen. Validation happens at boot via
+        // `ValidateApiHandlers()`.
+        assert!(!out.contains("\tHandler:"));
     }
 
     #[test]
@@ -681,12 +704,17 @@ mod tests {
 	Path:      "/api/customer/{id}/summary",
 	Policy:    lazuli.Policy{Name: "@policy.read"},
 	RateLimit: "60 per minute per user",
-	// TODO(extension-points): user-authored handler via
-	// lazuli.RegisterApi("customer_summary", func(ctx, input) (O, error) {...})
-}"#
+}
+
+func init() { lazuli.RegisterApi(&customerSummary) }
+// Wire customerSummary.Handler in your application code, then call
+// `lazuli.ValidateApiHandlers()` at startup to fail fast on omissions."#
         ));
         assert!(!out.contains("TODO(runtime):"));
-        assert!(!out.contains("Handler:"));
+        // Handler still not inlined — extension-point pattern. But the
+        // value is now registered via init(), unlike the prior
+        // emission that silently dropped the endpoint.
+        assert!(!out.contains("\tHandler:"));
     }
 
     #[test]

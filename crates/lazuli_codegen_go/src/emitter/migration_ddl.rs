@@ -512,8 +512,19 @@ fn foreign_key_constraints<'a>(
             let TypeRef::UserDefined(qname) = &field.type_ref else {
                 return None;
             };
-            let owner = foreign_key_owner(module, feature, qname, cross_index)?;
-            let target_table = format!("{}_{}", lower_snake(owner), lower_snake(&qname.name));
+            // `foreign_key_owner` returns `Some` only when the target
+            // resource is declared in a different feature of the same
+            // module — used here purely to confirm the FK target's
+            // migration will exist before we point at it.
+            let _owner = foreign_key_owner(module, feature, qname, cross_index)?;
+            // FK target = the bare table name emitted by
+            // `emit_resource_migration` (line 88) and stored on
+            // `lazuli.Resource[T].Name` (consumed by the Go runtime in
+            // `handle.go` `INSERT INTO eff.Resource.Name`). The
+            // previous `<feature>_<resource>` form drifted from those
+            // call sites and produced FKs pointing to non-existent
+            // tables — migrations would refuse to apply.
+            let target_table = lower_snake(&qname.name);
             Some(SqlColumn::raw(&format!(
                 "FOREIGN KEY ({}) REFERENCES {} (id)",
                 sql_ident(&field.name),
@@ -1025,7 +1036,111 @@ DROP TABLE IF EXISTS \"customer\";
             .unwrap();
 
         assert!(order_sql.contains("customer BIGINT NOT NULL,"));
-        assert!(order_sql.contains("FOREIGN KEY (customer) REFERENCES \"customer_customer\" (id)"));
+        // FK target must match the table name emitted by
+        // `emit_resource_migration` (bare `"customer"`, not the legacy
+        // `<feature>_<resource>` form that produced broken migrations).
+        // See migration_ddl.rs::foreign_key_constraints for the contract.
+        assert!(
+            order_sql.contains("FOREIGN KEY (customer) REFERENCES \"customer\" (id)"),
+            "FK target must match CREATE TABLE name; got:\n{order_sql}"
+        );
+        assert!(
+            !order_sql.contains("customer_customer"),
+            "legacy `<feature>_<resource>` FK target leaked back in:\n{order_sql}"
+        );
+    }
+
+    #[test]
+    fn fk_target_table_matches_actual_create_table_name() {
+        // Regression guard for the `<feature>_<resource>` FK drift —
+        // every FOREIGN KEY emitted across the module must reference a
+        // table that some `CREATE TABLE` statement actually creates in
+        // the same module. Without this guard the codegen can produce
+        // migrations that fail to apply with `relation "X" does not
+        // exist`.
+        //
+        // Scope note: this test only covers **cross-feature** FKs.
+        // Same-feature FKs are intentionally not emitted today
+        // (`foreign_key_owner` filters out same-feature refs); when
+        // that gap closes the test will need a same-feature case too.
+        use std::collections::HashSet;
+
+        // Two cross-feature references: `Membership.user → account.User`
+        // and `Membership.workspace → org.Workspace`. Both are
+        // cross-feature so both should produce FK constraints.
+        let mut account = base_feature("account");
+        account.resources.push(resource(
+            "User",
+            vec![builtin("email", BuiltinType::SemanticEmail, true)],
+        ));
+        let mut org = base_feature("org");
+        org.resources.push(resource(
+            "Workspace",
+            vec![builtin("name", BuiltinType::Text, true)],
+        ));
+        let mut members = base_feature("members");
+        members.resources.push(resource(
+            "Membership",
+            vec![
+                field(
+                    "user",
+                    TypeRef::UserDefined(QualifiedName {
+                        feature: None,
+                        name: "User".to_owned(),
+                    }),
+                    true,
+                ),
+                field(
+                    "workspace",
+                    TypeRef::UserDefined(QualifiedName {
+                        feature: None,
+                        name: "Workspace".to_owned(),
+                    }),
+                    true,
+                ),
+            ],
+        ));
+
+        let files = emit_migrations(&base_module(vec![account, org, members]), "saas");
+
+        // Collect every quoted identifier that appears after `CREATE TABLE`
+        // and every one that appears after `REFERENCES`. The second set
+        // must be a subset of the first.
+        let mut created: HashSet<String> = HashSet::new();
+        let mut referenced: HashSet<String> = HashSet::new();
+        for file in &files {
+            for line in file.contents.lines() {
+                if let Some(rest) = line.trim_start().strip_prefix("CREATE TABLE IF NOT EXISTS ") {
+                    if let Some(name) = rest
+                        .split_whitespace()
+                        .next()
+                        .and_then(|tok| tok.strip_prefix('"').and_then(|s| s.strip_suffix('"')))
+                    {
+                        created.insert(name.to_owned());
+                    }
+                }
+                if let Some(idx) = line.find("REFERENCES \"") {
+                    let after = &line[idx + "REFERENCES \"".len()..];
+                    if let Some(end) = after.find('"') {
+                        referenced.insert(after[..end].to_owned());
+                    }
+                }
+            }
+        }
+
+        for table in &referenced {
+            assert!(
+                created.contains(table),
+                "FK references {:?} but no CREATE TABLE emits it; created = {:?}",
+                table,
+                created
+            );
+        }
+        assert!(
+            referenced.contains("user") && referenced.contains("workspace"),
+            "expected cross-feature FKs to `user` and `workspace`; got {:?}",
+            referenced
+        );
     }
 
     #[test]

@@ -204,7 +204,14 @@ fn emit_resource(
         } else {
             go_type
         };
-        let json_suffix = if optional {
+        // Secret-bearing capability fields (`@cap.Hashed/Encrypted/E2ee/
+        // Token/Secret`) never appear in JSON output. The server stores
+        // them; the wire MUST NOT carry the hash/ciphertext/token to
+        // clients. `json:"-"` is Go stdlib's "skip" sentinel — `omitempty`
+        // is not enough because a non-zero value would still serialize.
+        let json_suffix = if is_secret_capability(&field.type_ref) {
+            "-".to_owned()
+        } else if optional {
             format!("{},omitempty", field.name)
         } else {
             field.name.clone()
@@ -374,7 +381,14 @@ fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>) {
         } else {
             go_type
         };
-        let json_suffix = if optional {
+        // Secret-bearing capability fields (`@cap.Hashed/Encrypted/E2ee/
+        // Token/Secret`) never appear in JSON output. The server stores
+        // them; the wire MUST NOT carry the hash/ciphertext/token to
+        // clients. `json:"-"` is Go stdlib's "skip" sentinel — `omitempty`
+        // is not enough because a non-zero value would still serialize.
+        let json_suffix = if is_secret_capability(&field.type_ref) {
+            "-".to_owned()
+        } else if optional {
             format!("{},omitempty", field.name)
         } else {
             field.name.clone()
@@ -758,6 +772,27 @@ fn is_geo_point(type_ref: &TypeRef) -> bool {
         type_ref,
         TypeRef::Builtin(BuiltinType::SemanticGeoPoint)
     )
+}
+
+/// True for capability-typed fields whose value the wire must never
+/// carry: password hashes, encrypted/E2EE blobs, tokens, and the legacy
+/// `@cap.Secret` builtin. Drives the `json:"-"` carve-out so a generic
+/// `json.Marshal(resource)` cannot leak credentials.
+///
+/// `CapabilityRef::File` is intentionally NOT included — file refs are
+/// public handles to storage, not secrets.
+fn is_secret_capability(type_ref: &TypeRef) -> bool {
+    match type_ref {
+        TypeRef::Builtin(BuiltinType::CapSecret) => true,
+        TypeRef::Capability(cap) => matches!(
+            cap,
+            CapabilityRef::Hashed(_)
+                | CapabilityRef::Encrypted(_)
+                | CapabilityRef::E2ee(_)
+                | CapabilityRef::Token(_)
+        ),
+        _ => false,
+    }
 }
 
 /// Register every import surfaced by a `TypeRef` onto the file-level
@@ -1408,6 +1443,189 @@ mod tests {
             out.contains("\"lazuli/test/org\""),
             "expected cross-feature import `lazuli/test/org`, got:\n{out}"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Secret-bearing capability fields must not appear in JSON output.
+    // A leaking `password_hash` or token in a generic `json.Marshal`
+    // response would be a credential disclosure; the codegen carves
+    // these out with `json:"-"` regardless of required/optional axis.
+    // -----------------------------------------------------------------
+
+    fn hashed_field(name: &str, required: bool) -> Field {
+        use lazuli_ir::{HashAlgorithm, HashedCapability};
+        Field {
+            name: name.to_owned(),
+            type_ref: TypeRef::Capability(CapabilityRef::Hashed(HashedCapability {
+                algorithm: HashAlgorithm::Argon2id,
+            })),
+            required,
+            unique: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn encrypted_field(name: &str, required: bool) -> Field {
+        Field {
+            name: name.to_owned(),
+            type_ref: TypeRef::Capability(CapabilityRef::Encrypted(EncryptedCapability {
+                key: "@key.tenant".to_owned(),
+            })),
+            required,
+            unique: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn token_field(name: &str, required: bool) -> Field {
+        use lazuli_ir::{TokenCapability, TokenStore};
+        Field {
+            name: name.to_owned(),
+            type_ref: TypeRef::Capability(CapabilityRef::Token(TokenCapability {
+                ttl: "24h".to_owned(),
+                single_use: false,
+                store: TokenStore::Hashed,
+            })),
+            required,
+            unique: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn e2ee_field(name: &str, required: bool) -> Field {
+        use lazuli_ir::E2eeCapability;
+        Field {
+            name: name.to_owned(),
+            type_ref: TypeRef::Capability(CapabilityRef::E2ee(E2eeCapability {
+                key: "@key.user".to_owned(),
+            })),
+            required,
+            unique: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    #[test]
+    fn hashed_field_emits_json_skip_sentinel() {
+        let mut feature = base_feature("account");
+        let resource = simple_resource("user", vec![hashed_field("password_hash", true)]);
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("json:\"-\""),
+            "expected json:\"-\" carve-out for @cap.Hashed field, got:\n{out}"
+        );
+        assert!(
+            !out.contains("json:\"password_hash\""),
+            "hashed field MUST NOT leak via JSON name, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn encrypted_field_emits_json_skip_sentinel() {
+        let mut feature = base_feature("customer");
+        let resource = simple_resource("customer", vec![encrypted_field("external_id", true)]);
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("json:\"-\""),
+            "expected json:\"-\" carve-out for @cap.Encrypted field, got:\n{out}"
+        );
+        assert!(!out.contains("json:\"external_id\""));
+    }
+
+    #[test]
+    fn e2ee_field_emits_json_skip_sentinel() {
+        let mut feature = base_feature("customer");
+        let resource = simple_resource("customer", vec![e2ee_field("private_note", true)]);
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("json:\"-\""),
+            "expected json:\"-\" carve-out for @cap.E2ee field, got:\n{out}"
+        );
+        assert!(!out.contains("json:\"private_note\""));
+    }
+
+    #[test]
+    fn token_field_emits_json_skip_sentinel() {
+        let mut feature = base_feature("auth");
+        let resource = simple_resource("session", vec![token_field("refresh_token", true)]);
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("json:\"-\""),
+            "expected json:\"-\" carve-out for @cap.Token field, got:\n{out}"
+        );
+        assert!(!out.contains("json:\"refresh_token\""));
+    }
+
+    #[test]
+    fn legacy_cap_secret_emits_json_skip_sentinel() {
+        let mut feature = base_feature("auth");
+        let resource = simple_resource(
+            "credential",
+            vec![simple_field("api_key", BuiltinType::CapSecret, true)],
+        );
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("json:\"-\""),
+            "expected json:\"-\" carve-out for @cap.Secret (legacy) field, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn optional_hashed_field_still_skips_json() {
+        // `json:"-"` must beat `,omitempty` — an optional hashed value
+        // is still a secret if present.
+        let mut feature = base_feature("account");
+        let resource = simple_resource("user", vec![hashed_field("password_hash", false)]);
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("json:\"-\""));
+        assert!(!out.contains("password_hash,omitempty"));
+    }
+
+    #[test]
+    fn cap_file_field_keeps_json_tag() {
+        // `@cap.File` is a public handle to storage, not a secret —
+        // the JSON tag must remain so clients can address uploads.
+        let mut feature = base_feature("docs");
+        let resource = simple_resource(
+            "document",
+            vec![Field {
+                name: "blob".to_owned(),
+                type_ref: TypeRef::Builtin(BuiltinType::CapFile),
+                required: true,
+                unique: false,
+                default: None,
+                derived_from: None,
+                constraints: lazuli_ir::FieldConstraints::default(),
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+        );
+        feature.resources.push(resource);
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("json:\"blob\""));
+        assert!(!out.contains("json:\"-\""));
     }
 }
 

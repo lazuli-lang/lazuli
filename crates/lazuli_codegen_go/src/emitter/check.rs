@@ -20,6 +20,19 @@ pub const CODE_ADAPTER: &str = "CODEGEN-GO-ADAPTER-003";
 pub const CODE_SEMANTIC: &str = "CODEGEN-GO-SEMANTIC-004";
 pub const CODE_CAP: &str = "CODEGEN-GO-CAP-005";
 pub const CODE_FN: &str = "CODEGEN-GO-FN-006";
+/// `TypeRef::Unresolved` with a non-`@` raw name reached the codegen.
+/// The analyzer could not resolve a record/resource/enum reference, so
+/// the emitter would either inline a Go-invalid name or silently fall
+/// back to a placeholder. Fail loudly instead so users see broken
+/// references at `lazuli generate go` time, not at runtime.
+pub const CODE_TYPE_UNRESOLVED: &str = "CODEGEN-GO-TYPE-007";
+
+/// Synthetic ref literal used to flag a `TypeRef::Unresolved(raw)` so
+/// `run_checks` can emit `CODE_TYPE_UNRESOLVED` without changing the
+/// signature of the recursive collectors. The prefix is illegal in any
+/// authored DSL (no `@` host, double underscore) so it cannot collide
+/// with a real reference.
+const UNRESOLVED_TYPE_PREFIX: &str = "__lazuli_type_unresolved__/";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckIssue {
@@ -110,6 +123,22 @@ pub fn run_checks(module: &Module) -> Vec<CheckIssue> {
                     &reference,
                 );
             }
+        } else if let Some(name) = reference.literal.strip_prefix(UNRESOLVED_TYPE_PREFIX) {
+            // Bare unresolved type identifier — analyzer could not map
+            // it to a resource/record/enum. Without this hard fail the
+            // emitter inlines a sanitised placeholder and the Go build
+            // breaks with a confusing "undeclared name" downstream.
+            push_issue(
+                &mut issues,
+                &mut seen,
+                CODE_TYPE_UNRESOLVED,
+                Severity::Error,
+                format!(
+                    "type reference `{}` does not resolve to a known resource, record, or enum",
+                    name
+                ),
+                &reference,
+            );
         } else if reference.literal.starts_with("@adapter.") {
             // Stub for CODEGEN-GO-ADAPTER-003. RegisterAdapter discovery
             // needs filesystem/runtime integration context that this pure
@@ -558,7 +587,26 @@ fn collect_type_ref(type_ref: &TypeRef, feature: &str, site: &str, refs: &mut Ve
             collect_type_ref(inner, feature, site, refs);
         }
         TypeRef::Unresolved(raw) => {
+            // First, let the legacy text-extractor pick up any nested
+            // `@plugin/`, `@semantic.`, `@cap.` references inside the
+            // raw string — that preserves existing diagnostics for
+            // fixtures that author e.g. `TypeRef::Unresolved("@semantic.Currency")`.
             collect_text_refs(raw, feature, site, refs);
+            // Then, if the raw string is NOT an @-prefixed reference
+            // (i.e. it's a bare identifier like `"Customer"` that the
+            // analyzer failed to resolve to a UserDefined qname), push
+            // a synthetic literal so `run_checks` emits
+            // `CODE_TYPE_UNRESOLVED` on it. Silent fallthrough at this
+            // point produced non-compiling Go output without any
+            // codegen-time warning (review bug #6, 2026-05-15).
+            if !raw.trim_start().starts_with('@') {
+                push_ref(
+                    &format!("{}{}", UNRESOLVED_TYPE_PREFIX, raw),
+                    feature,
+                    site,
+                    refs,
+                );
+            }
         }
     }
 }
@@ -946,5 +994,62 @@ mod tests {
         let issues = run_checks(&module_with_feature(feature));
 
         assert!(issues.is_empty());
+    }
+
+    // ---------------------------------------------------------------
+    // CODE_TYPE_UNRESOLVED (CODEGEN-GO-TYPE-007) — analyzer failed to
+    // resolve a bare type identifier. The codegen MUST fail loudly
+    // instead of inlining a sanitised placeholder that breaks the Go
+    // build downstream.
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn bare_unresolved_type_reference_reports_type_007() {
+        let mut feature = empty_feature("orders");
+        feature.resources.push(resource_with_field(TypeRef::Unresolved(
+            "MysteryShape".to_owned(),
+        )));
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert_eq!(codes(&issues), vec![CODE_TYPE_UNRESOLVED]);
+        assert_eq!(issues[0].severity, Severity::Error);
+        assert_eq!(issues[0].site.as_deref(), Some("resource Customer.value"));
+        assert!(
+            issues[0].message.contains("MysteryShape"),
+            "diagnostic must name the unresolved identifier; got: {}",
+            issues[0].message
+        );
+    }
+
+    #[test]
+    fn bare_unresolved_inside_many_still_reports_type_007() {
+        let mut feature = empty_feature("orders");
+        feature.resources.push(resource_with_field(TypeRef::Many(Box::new(
+            TypeRef::Unresolved("MysteryShape".to_owned()),
+        ))));
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert_eq!(codes(&issues), vec![CODE_TYPE_UNRESOLVED]);
+    }
+
+    #[test]
+    fn at_prefixed_unresolved_keeps_specific_namespace_code() {
+        // Regression guard: when the unresolved string starts with `@`,
+        // the bare-name branch must NOT fire — the namespace-specific
+        // code (CODE_SEMANTIC/CAP/etc.) wins.
+        let mut feature = empty_feature("customer");
+        feature.resources.push(resource_with_field(TypeRef::Unresolved(
+            "@semantic.Locale".to_owned(),
+        )));
+
+        let issues = run_checks(&module_with_feature(feature));
+
+        assert_eq!(codes(&issues), vec![CODE_SEMANTIC]);
+        assert!(
+            !issues.iter().any(|i| i.code == CODE_TYPE_UNRESOLVED),
+            "namespace refs must not double-fire on TYPE-007"
+        );
     }
 }
