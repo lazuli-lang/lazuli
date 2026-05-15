@@ -1243,16 +1243,19 @@ import (
 // {fn_name} is the user-authored implementation of `{escaped_literal}`.
 //   Site: {escaped_site}
 // IMPLEMENT ME
+//
+// Note: the calling `lazuli.Command[I, O].Handle()` has already stamped
+// the source tag on ctx via the Command's `WithSource` field. The
+// previous stub re-stamped it inside the handler body, which silently
+// overwrote the caller's tag and surfaced as a duplicate-tag smell on
+// observability inspection (review bug #8, 2026-05-15). Re-add a local
+// WithSource only if your handler is intentionally re-scoping the
+// context for a sub-operation.
 //lazuli:pattern {pattern_id} {pattern_version}
 func {fn_name}(ctx *lazuli.Ctx, input {input_type}) ({output_type}, error) {{
 	if ctx.Context == nil {{
 		ctx.Context = context.Background()
 	}}
-	ctx.Context = lazuli.WithSource(ctx.Context, lazuli.SourceTag{{
-		Feature: "{feature}",
-		Kind:    "handler",
-		Op:      "{op}",
-	}})
 	var endOp func()
 	ctx.Context, endOp = observability.StartOp(ctx.Context)
 	defer endOp()
@@ -1269,13 +1272,11 @@ func zero[T any]() T {{
 }}
 "#,
         package = stub.feature,
-        feature = escape_string(&stub.feature),
         fn_name = fn_name,
         escaped_literal = escaped_literal,
         escaped_site = escaped_site,
         pattern_id = PATTERN_EXTENSION_STUB.0,
         pattern_version = PATTERN_EXTENSION_STUB.1,
-        op = escape_string(&stub.name),
         input_type = stub.input_type,
         output_type = stub.output_type,
         escaped_error = escaped_error,
@@ -1575,9 +1576,21 @@ mod tests {
             "return zero[lazuli.HashedRef](), errors.New(\"hash_password not yet implemented\")"
         ));
         assert!(hash.contents.contains("//lazuli:pattern extension_stub v1"));
+        // Source-tag duplication cleanup (review bug #8, 2026-05-15):
+        // the previous stub re-stamped `lazuli.WithSource(...)` inside
+        // the handler body, silently overwriting the tag already
+        // stamped by the calling `lazuli.Command[I, O]`. The starter
+        // stub now leaves that to the caller and only keeps the
+        // observability StartOp scope (which is intentionally local).
         assert!(
+            !hash.contents.contains("lazuli.WithSource("),
+            "starter stub must not re-stamp source tag; got:\n{}",
             hash.contents
-                .contains("ctx.Context = lazuli.WithSource(ctx.Context, lazuli.SourceTag{")
+        );
+        assert!(
+            !hash.contents.contains("lazuli.SourceTag{"),
+            "starter stub must not construct SourceTag inline; got:\n{}",
+            hash.contents
         );
         assert!(
             hash.contents
