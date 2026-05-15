@@ -1,3 +1,5 @@
+pub mod dsl;
+
 use crate::lazurite_manifest::{MigrationStrategy, Migrations};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
