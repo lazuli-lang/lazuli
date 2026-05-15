@@ -1,0 +1,279 @@
+//! POLLER-CURSOR-FIELD-TYPE-001 — `cursor.eligible_when` fields must be
+//! `DateTime`.
+//!
+//! Pollers walk pending rows by checking `eligible_when` timestamps;
+//! integer/text columns can't be compared with `ctx.now()`. Doctor rejects
+//! any non-DateTime field referenced in `cursor.eligible_when`.
+//!
+//! Severity: error / error.
+//! Reference: docs/proposals/poller-vocab.md §5.
+
+use std::path::{Path, PathBuf};
+
+use lazuli_ir::{BuiltinType, Feature, Poller, Resource, TypeRef};
+
+pub const CODE: &str = "POLLER-CURSOR-FIELD-TYPE-001";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finding {
+    pub path: PathBuf,
+    pub feature: String,
+    pub poller: String,
+    pub source: String,
+    pub field: String,
+    pub found: String,
+}
+
+impl Finding {
+    pub const CODE: &'static str = CODE;
+
+    pub fn message(&self) -> String {
+        format!(
+            "{}: poller '{}' cursor.eligible_when field '{}' must be DateTime; found {}.",
+            Self::CODE,
+            self.poller,
+            self.field,
+            self.found,
+        )
+    }
+}
+
+pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for poller in &feature.pollers {
+        let Some(resource) = feature.resources.iter().find(|r| r.name == poller.source) else {
+            // Cross-feature / unknown source is handled by separate poller
+            // source rules; skip here so this rule only reports type mismatch.
+            continue;
+        };
+
+        findings.extend(
+            check_poller(poller, resource)
+                .into_iter()
+                .map(|mut finding| {
+                    finding.path = path.to_path_buf();
+                    finding.feature = feature.name.clone();
+                    finding
+                }),
+        );
+    }
+    findings
+}
+
+fn check_poller(poller: &Poller, source: &Resource) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for field_name in [
+        &poller.cursor.next_at_field,
+        &poller.cursor.resolved_at_field,
+    ] {
+        let Some(field) = source.fields.iter().find(|f| &f.name == field_name) else {
+            // POLLER-CURSOR-MISSING-001 owns missing cursor fields.
+            continue;
+        };
+
+        if !matches!(field.type_ref, TypeRef::Builtin(BuiltinType::DateTime)) {
+            findings.push(Finding {
+                path: PathBuf::new(),
+                feature: String::new(),
+                poller: poller.name.clone(),
+                source: source.name.clone(),
+                field: field.name.clone(),
+                found: type_name(&field.type_ref),
+            });
+        }
+    }
+    findings
+}
+
+fn type_name(type_ref: &TypeRef) -> String {
+    match type_ref {
+        TypeRef::Builtin(builtin) => format!("{builtin:?}"),
+        TypeRef::UserDefined(name) => format!("{name:?}"),
+        TypeRef::EnumRef(name) => format!("{name:?}"),
+        TypeRef::Many(inner) => format!("Many<{}>", type_name(inner)),
+        TypeRef::Unresolved(name) => name.clone(),
+        TypeRef::Capability(capability) => format!("{capability:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lazuli_ir::{
+        Defaults, Field, FieldConstraints, HandlerRef, IdempotencyKey, Path as IrPath, Policies,
+        PollerBackoff, PollerCursor, PollerRetry, PollerState, PollerStateKind, PollerTick,
+    };
+
+    fn mk_poller(name: &str, next_at: &str, resolved_at: &str) -> Poller {
+        Poller {
+            name: name.into(),
+            source: "Src".into(),
+            cursor: PollerCursor {
+                next_at_field: next_at.into(),
+                resolved_at_field: resolved_at.into(),
+                attempts_field: "attempts".into(),
+                span_ref: None,
+            },
+            retry: PollerRetry {
+                max_attempts: 30,
+                backoff: PollerBackoff::Fixed { base: None },
+                span_ref: None,
+            },
+            states: vec![PollerState {
+                name: "resolved".into(),
+                kind: PollerStateKind::Terminal,
+                span_ref: None,
+            }],
+            resolve_handler: HandlerRef {
+                namespace: "fn".into(),
+                name: "h".into(),
+                span_ref: None,
+            },
+            terminal_status_field: None,
+            terminal_result_field: None,
+            tick: PollerTick {
+                every: "30s".into(),
+                batch: 100,
+            },
+            tenant_from: None,
+            idempotency: IdempotencyKey {
+                by: IrPath::from_segments(["row.id"]),
+            },
+            audit: None,
+            emits: vec![],
+            retry_quirks: vec![],
+            span_ref: None,
+        }
+    }
+
+    fn mk_field(name: &str, builtin: BuiltinType) -> Field {
+        Field {
+            name: name.into(),
+            type_ref: TypeRef::Builtin(builtin),
+            required: false,
+            unique: false,
+            default: None,
+            derived_from: None,
+            constraints: FieldConstraints::default(),
+            previous_names: vec![],
+            span_ref: None,
+        }
+    }
+
+    fn mk_feature(fields: Vec<(&str, BuiltinType)>, pollers: Vec<Poller>) -> Feature {
+        Feature {
+            name: "f".into(),
+            purpose: None,
+            non_goals: vec![],
+            context_path: None,
+            defaults: Defaults::default(),
+            uses: vec![],
+            requirements: vec![],
+            enums: vec![],
+            resources: vec![Resource {
+                name: "Src".into(),
+                tenancy: None,
+                soft_delete: false,
+                timestamps: None,
+                fields: fields
+                    .into_iter()
+                    .map(|(name, builtin)| mk_field(name, builtin))
+                    .collect(),
+                constraints: vec![],
+                validate: None,
+                validates: vec![],
+                retention: None,
+                previous_names: vec![],
+                span_ref: None,
+                lifecycle: None,
+            }],
+            events: vec![],
+            rules: vec![],
+            policies: Policies::default(),
+            commands: vec![],
+            apis: vec![],
+            records: vec![],
+            queries: vec![],
+            workflows: vec![],
+            jobs: vec![],
+            webhooks: vec![],
+            notifications: vec![],
+            event_groups: vec![],
+            tenant_migrations: vec![],
+            translation: None,
+            pollers,
+            auth: None,
+            surfaces: vec![],
+            extensions: vec![],
+            escape_routes: vec![],
+            agents: vec![],
+            reports: vec![],
+            previous_names: vec![],
+            span_ref: None,
+        }
+    }
+
+    #[test]
+    fn quiet_for_multiple_pollers_with_datetime_fields() {
+        let feat = mk_feature(
+            vec![
+                ("next_check_at", BuiltinType::DateTime),
+                ("resolved_at", BuiltinType::DateTime),
+                ("retry_at", BuiltinType::DateTime),
+                ("done_at", BuiltinType::DateTime),
+            ],
+            vec![
+                mk_poller("p1", "next_check_at", "resolved_at"),
+                mk_poller("p2", "retry_at", "done_at"),
+            ],
+        );
+
+        assert!(check(&feat, Path::new("f.lzi")).is_empty());
+    }
+
+    #[test]
+    fn fires_for_integer_eligible_when_field() {
+        let feat = mk_feature(
+            vec![
+                ("next_check_at", BuiltinType::Integer),
+                ("resolved_at", BuiltinType::DateTime),
+            ],
+            vec![mk_poller("p", "next_check_at", "resolved_at")],
+        );
+
+        let findings = check(&feat, Path::new("f.lzi"));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].field, "next_check_at");
+        assert_eq!(findings[0].found, "Integer");
+    }
+
+    #[test]
+    fn fires_for_text_eligible_when_field() {
+        let feat = mk_feature(
+            vec![
+                ("next_check_at", BuiltinType::DateTime),
+                ("resolved_at", BuiltinType::Text),
+            ],
+            vec![mk_poller("p", "next_check_at", "resolved_at")],
+        );
+
+        let findings = check(&feat, Path::new("f.lzi"));
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message().contains("found Text"));
+    }
+
+    #[test]
+    fn mixed_datetime_and_integer_reports_only_integer() {
+        let feat = mk_feature(
+            vec![
+                ("next_check_at", BuiltinType::DateTime),
+                ("resolved_at", BuiltinType::Integer),
+            ],
+            vec![mk_poller("p", "next_check_at", "resolved_at")],
+        );
+
+        let findings = check(&feat, Path::new("f.lzi"));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].field, "resolved_at");
+    }
+}
