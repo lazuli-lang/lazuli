@@ -13255,6 +13255,111 @@ feature customer_auth
         );
     }
 
+    // Per `docs/proposals/auth-lowering-scope.md` Route A: dedicated
+    // happy-path tests for each `auth` child block so a regression in
+    // `parse_auth_password` / `parse_auth_sessions` / `parse_auth_oauth` /
+    // `parse_auth_mfa` is pinned to the specific child instead of being
+    // detected only by the multi-child happy-path test.
+
+    #[test]
+    fn auth_password_child_parses_with_rate_limit() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
+      rate_limit "5 per 10 minutes"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let password = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .password
+            .as_ref()
+            .expect("password child");
+        assert_eq!(password.algorithm, "argon2id");
+        assert_eq!(password.hash, "@fn.hash_customer_password");
+        assert_eq!(password.verify, "@fn.verify_customer_password");
+        assert_eq!(password.rate_limit.as_deref(), Some("5 per 10 minutes"));
+    }
+
+    #[test]
+    fn auth_sessions_child_parses_with_refresh_true() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "30 days"
+      refresh true
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let sessions = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .sessions
+            .as_ref()
+            .expect("sessions child");
+        assert_eq!(sessions.resource, "CustomerSession");
+        assert_eq!(sessions.ttl, "30 days");
+        assert!(sessions.refresh);
+    }
+
+    #[test]
+    fn auth_oauth_child_parses_multiple_providers() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    oauth google
+      adapter @adapter.google_oauth
+
+    oauth github
+      adapter @adapter.github_oauth
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let oauth = &features[0].auth.as_ref().expect("auth").oauth;
+        assert_eq!(oauth.len(), 2);
+        assert_eq!(oauth[0].provider, "google");
+        assert_eq!(oauth[0].adapter, "@adapter.google_oauth");
+        assert_eq!(oauth[1].provider, "github");
+        assert_eq!(oauth[1].adapter, "@adapter.github_oauth");
+    }
+
+    #[test]
+    fn auth_mfa_child_parses_with_validator_verify() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    mfa totp
+      enroll @fn.enroll_customer_totp
+      verify @validator.verify_customer_totp
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let mfa = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .mfa
+            .as_ref()
+            .expect("mfa child");
+        assert_eq!(mfa.method, "totp");
+        assert_eq!(mfa.enroll, "@fn.enroll_customer_totp");
+        assert_eq!(mfa.verify, "@validator.verify_customer_totp");
+        assert!(mfa.adapter.is_none());
+    }
+
     // -------------------------------------------------------------------------
     // Phase L Tier 4a — `defaults` block parser slice
     // -------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod design;
 pub mod correctness;
 pub mod encryption;
