@@ -87,6 +87,15 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: "list scan failed: " + err.Error()}
 	}
+	// Decrypt every row's server-readable encrypted fields before
+	// returning. Resources without `@cap.Encrypted` skip the callback
+	// (nil-guarded inside `decryptScannedRow`).
+	for i := range out {
+		if err := decryptScannedRow(ctx, res, &out[i]); err != nil {
+			return nil, &Error{Status: 500, Code: CodeInternal,
+				Message: "list decrypt failed: " + err.Error()}
+		}
+	}
 	if q.Cache != nil {
 		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)
 	}
@@ -156,6 +165,10 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 	if err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "lookup scan failed: " + err.Error()}
+	}
+	if err := decryptScannedRow(ctx, res, &out); err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "lookup decrypt failed: " + err.Error()}
 	}
 	if q.Cache != nil {
 		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)

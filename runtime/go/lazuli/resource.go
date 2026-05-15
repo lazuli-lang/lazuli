@@ -45,6 +45,28 @@ type Resource[T any] struct {
 	// inverse query and FK contract.
 	HasMany []HasMany
 
+	// EncryptedColumns names the columns declared with
+	// `@cap.Encrypted` / `@cap.E2ee` and maps each to its `@key.<scope>`
+	// reference. The runtime walks this at the SQL boundary
+	// (`applyCreates`/`applyUpdates`) to wrap each resolved binding value
+	// through `encryption.ForCtx(ctx, scope, "")` before INSERT/UPDATE.
+	// Nil when the resource has no encrypted fields — the runtime skips
+	// the loop in that case. See `runtime/go/lazuli/encryption/registry.go`
+	// for the resolver contract and
+	// `docs/proposals/encryption-vocab.md` §Codegen for the rule.
+	EncryptedColumns map[string]string
+
+	// Decrypt is the per-resource decrypt callback emitted by codegen
+	// alongside the `Decrypt<Resource>` helper. The runtime calls it on
+	// every scanned row right after `pgx.CollectOneRow` / `pgx.CollectRows`
+	// (insert/update/delete RETURNING * and query list/lookup) so that
+	// in-memory rows hold plaintext while DB columns hold ciphertext.
+	// Nil when the resource has no server-readable encrypted fields. The
+	// callback receives a `*T`-shaped pointer via the `any` interface;
+	// codegen wraps the typed `DecryptResource(ctx, *T)` helper into
+	// this shape at the `Resource[T]` literal site.
+	Decrypt func(ctx *Ctx, row any) error
+
 	// untouched: erased generic parameter so `*Resource[T]` is comparable when
 	// stored in a heterogeneous registry. Generated code does not touch this.
 	_ struct{}
@@ -54,30 +76,34 @@ type Resource[T any] struct {
 // Generated code does not call this directly.
 func (r *Resource[T]) erased() *resourceErased {
 	return &resourceErased{
-		Name:       r.Name,
-		Feature:    r.Feature,
-		Tenancy:    r.Tenancy,
-		SoftDelete: r.SoftDelete,
-		Retention:  r.Retention,
-		PIIFields:  r.PIIFields,
-		Validators: r.Validators,
-		Indexes:    r.Indexes,
-		HasMany:    r.HasMany,
+		Name:             r.Name,
+		Feature:          r.Feature,
+		Tenancy:          r.Tenancy,
+		SoftDelete:       r.SoftDelete,
+		Retention:        r.Retention,
+		PIIFields:        r.PIIFields,
+		Validators:       r.Validators,
+		Indexes:          r.Indexes,
+		HasMany:          r.HasMany,
+		EncryptedColumns: r.EncryptedColumns,
+		Decrypt:          r.Decrypt,
 	}
 }
 
 // resourceErased is the runtime's view of any Resource[T]. It drops the
 // type parameter so the registry can hold all resources in one slice.
 type resourceErased struct {
-	Name       string
-	Feature    string
-	Tenancy    TenancyMode
-	SoftDelete bool
-	Retention  *RetentionSpec
-	PIIFields  []string
-	Validators []ValidatorRef
-	Indexes    []Index
-	HasMany    []HasMany
+	Name             string
+	Feature          string
+	Tenancy          TenancyMode
+	SoftDelete       bool
+	Retention        *RetentionSpec
+	PIIFields        []string
+	Validators       []ValidatorRef
+	Indexes          []Index
+	HasMany          []HasMany
+	EncryptedColumns map[string]string
+	Decrypt          func(ctx *Ctx, row any) error
 }
 
 // Index declares an explicit DB index from the DSL `constraints` block.

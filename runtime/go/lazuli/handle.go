@@ -289,6 +289,16 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 		placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
 	}
 
+	// Encrypt @cap.Encrypted / @cap.E2ee bound columns before they
+	// reach the driver. The runtime walks `Resource.EncryptedColumns`
+	// (populated by codegen) and replaces each plaintext value with
+	// AES-256-GCM ciphertext via `encryption.ForCtx`. No-op when the
+	// resource has no encrypted fields.
+	if err := encryptColumnValues(ctx, eff.Resource, cols, values); err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "insert encrypt failed: " + err.Error()}
+	}
+
 	sql := fmt.Sprintf(
 		`INSERT INTO %s (%s) VALUES (%s) RETURNING *`,
 		quoteIdent(eff.Resource.Name),
@@ -307,6 +317,12 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	if err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "insert scan failed: " + err.Error()}
+	}
+	// Decrypt server-readable encrypted fields on the returned row so
+	// downstream code (events, response bodies, audit) sees plaintext.
+	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "insert decrypt failed: " + err.Error()}
 	}
 	return out, nil
 }
@@ -327,13 +343,27 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 
 	values := make([]any, 0, len(eff.Bind)+len(eff.Where))
 	sets := make([]string, 0, len(eff.Bind))
+	// Track the bind-side column names parallel to `values[0..n-1]` so
+	// `encryptColumnValues` can match each value to its `EncryptedColumns`
+	// scope. The WHERE-side bindings appended later are intentionally
+	// excluded — encrypted columns are never WHERE-keys (the cipher
+	// nonce makes equality lookups impossible).
+	bindCols := make([]string, 0, len(eff.Bind))
 	for col, src := range eff.Bind {
 		val, err := resolveSource(ctx, src, input)
 		if err != nil {
 			return zero, err
 		}
 		values = append(values, val)
+		bindCols = append(bindCols, col)
 		sets = append(sets, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+	}
+	// Encrypt @cap.Encrypted / @cap.E2ee bound columns before the
+	// WHERE values are appended. Only the SET-side bindings are
+	// candidates.
+	if err := encryptColumnValues(ctx, eff.Resource, bindCols, values[:len(bindCols)]); err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "update encrypt failed: " + err.Error()}
 	}
 	// Always bump updated_at if the table has it.
 	sets = append(sets, `"updated_at" = now()`)
@@ -371,6 +401,10 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 	if err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "update scan failed: " + err.Error()}
+	}
+	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "update decrypt failed: " + err.Error()}
 	}
 	return out, nil
 }
@@ -425,6 +459,10 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 	if err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: "delete scan failed: " + err.Error()}
+	}
+	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
+		return zero, &Error{Status: 500, Code: CodeInternal,
+			Message: "delete decrypt failed: " + err.Error()}
 	}
 	return out, nil
 }

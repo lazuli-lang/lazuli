@@ -295,8 +295,48 @@ fn emit_resource(
         p.dedent();
         p.line("},");
     }
+    // Encryption wiring — emit the column→scope map and the
+    // typed-`*<Pascal>` Decrypt callback so the runtime can encrypt
+    // bindings before INSERT/UPDATE and decrypt scanned rows after
+    // RETURNING * / SELECT (per `docs/proposals/encryption-vocab.md`
+    // §Runtime + §Codegen). Skipped entirely when the resource has no
+    // encrypted fields so resources without encryption stay free of
+    // the metadata.
+    let encrypted_for_value: Vec<EncryptedFieldRef<'_>> = encrypted_fields(resource).collect();
+    if !encrypted_for_value.is_empty() {
+        emit_resource_value_encryption_fields(p, &pascal, &encrypted_for_value);
+    }
     p.dedent();
     p.line("}");
+}
+
+/// Emit the `EncryptedColumns` + `Decrypt` fields on a `Resource[T]`
+/// value literal. Both fields are typed against the runtime's
+/// `Resource[T]` shape; the runtime uses them to wire the call sites
+/// in `applyCreates`/`applyUpdates`/`applyDeletes`, `RunList`, and
+/// `RunLookup`. Decrypt is a typed wrapper around the generated
+/// `Decrypt<Pascal>` helper so the callback's `any` parameter type
+/// matches the runtime's `func(*lazuli.Ctx, any) error` field while
+/// the body stays typed against `*<Pascal>`.
+fn emit_resource_value_encryption_fields(
+    p: &mut GoPrinter,
+    pascal: &str,
+    encrypted: &[EncryptedFieldRef<'_>],
+) {
+    p.line("EncryptedColumns: map[string]string{");
+    p.indent();
+    // Walk in declared order — `encrypted_fields` already preserves
+    // the IR `Vec` ordering so the emitted map literal is deterministic.
+    for entry in encrypted {
+        let col = &entry.field.name;
+        let key = &entry.key;
+        p.line(&format!("\"{col}\": \"{key}\","));
+    }
+    p.dedent();
+    p.line("},");
+    p.line(&format!(
+        "Decrypt: func(ctx *lazuli.Ctx, row any) error {{ return Decrypt{pascal}(ctx, row.(*{pascal})) }},"
+    ));
 }
 
 /// Walk a `Record` — typed struct only, no resource value. Records
