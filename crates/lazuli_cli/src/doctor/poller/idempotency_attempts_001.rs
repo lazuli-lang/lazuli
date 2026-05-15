@@ -136,6 +136,7 @@ mod tests {
             escape_routes: vec![],
             agents: vec![],
             reports: vec![],
+            channels: vec![],
             previous_names: vec![],
             span_ref: None,
         }

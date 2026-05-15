@@ -206,6 +206,20 @@ source that only fails later.
   remain SPECULATIVE pending pilot pressure (per-provider outcome
   catalogs + cross-channel polysemy block the closed-catalog gate
   today).
+- `channel <name>` declares a typed, tenant-scoped, policy-gated
+  realtime push stream (realtime bucket cycle MVP). Required
+  children: `tenant_from <axis>`, `policy @policy.<name>`,
+  `payload <RecordType>`. The payload must resolve to a `record`
+  or `resource` in the same feature (doctor:
+  `CHANNEL-PAYLOAD-001`). Transport (WebSocket / SSE) is
+  adapter-resolved at runtime; the language declares the contract.
+  `presence`, `subscription`, `broadcast`, and surface `subscribe`
+  locator remain SPECULATIVE pending ≥3-app pilot pressure per
+  `docs/scope-discipline.md`. Provider names
+  (Pusher / Ably / Supabase Realtime) live in `@plugin/<vendor>`
+  repos. The `channel` keyword overlaps with `notification.channel`
+  (delivery-list child); the two are disambiguated by indent level
+  + parent kind.
 - Validators are referenced through `validates @validator.<name>`. The
   validator's `Validator[<scope>]` type in `extensions` declares the scope —
   field (`Validator[Resource.field]`) or whole-resource

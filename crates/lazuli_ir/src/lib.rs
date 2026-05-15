@@ -373,6 +373,13 @@ pub struct Feature {
     /// `docs/proposals/report-vocab.md`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reports: Vec<Report>,
+    /// Realtime bucket cycle MVP — `channel <name>` declarations
+    /// (see `docs/proposals/bucket-realtime-cycle.md`). Sibling slot
+    /// of `events` / `notifications` / `pollers`. Each entry models
+    /// a typed, tenant-scoped, policy-gated push stream. Additive:
+    /// pre-realtime fixtures deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<Channel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3782,6 +3789,46 @@ pub struct EventGroup {
     /// rule (`event_group_can_own_short_event_declarations`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+// =============================================================================
+// Realtime bucket cycle MVP — `channel <name>` kind
+//
+// See `docs/proposals/bucket-realtime-cycle.md` and
+// `docs/proposals/bucket-realtime-scope.md`.
+//
+// The MVP grammar locks three required children: `tenant_from <axis>`,
+// `policy @policy.<name>`, `payload <RecordType>`. Optional children
+// (`audit`, `rate_limit`, presence/subscription/broadcast wiring) are
+// deferred pending ≥3-app pilot evidence per `docs/scope-discipline.md`.
+//
+// Doctor cross-check at MVP: `CHANNEL-PAYLOAD-001` resolves the payload
+// reference against `Feature.records` / `Feature.resources`. Tenant
+// axis and policy lattice checks ride the existing tenant_axis /
+// policy_lattice diagnostic infrastructure.
+// =============================================================================
+
+/// Realtime bucket cycle MVP — `channel <name>` declaration.
+///
+/// Typed, tenant-scoped, policy-gated declaration of a push stream.
+/// Sibling of `event` (durable bus) but on a push transport. The
+/// runtime materializes WebSocket / SSE; the language declares the
+/// contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Channel {
+    pub name: String,
+    /// `tenant_from <axis>` — axis name verbatim (`org`, `team`, ...).
+    /// Resolved against the feature's `defaults.tenancy` lattice via
+    /// the same plumbing `Job.tenant_from` uses.
+    pub tenant_from: TenantFromSpec,
+    /// `policy @policy.<name>` — read policy gating subscribers.
+    pub policy: PolicyRef,
+    /// `payload <RecordType>` — verbatim type name. Doctor
+    /// `CHANNEL-PAYLOAD-001` resolves it against
+    /// `Feature.records` / `Feature.resources`.
+    pub payload: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

@@ -8,5 +8,6 @@
 //! Full dispatch into `DoctorPackage::diagnostics()` is a separate cell;
 //! each rule's `#[cfg(test)] mod tests` exercises the logic until then.
 
+pub mod channel_payload_unresolved_001;
 pub mod command_input_shadows_field_001;
 pub mod hook_target_001;

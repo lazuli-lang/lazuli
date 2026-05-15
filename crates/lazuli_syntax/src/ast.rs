@@ -579,6 +579,12 @@ pub struct FeatureSkeleton {
     /// `docs/proposals/report-vocab.md`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reports: Vec<ReportDecl>,
+    /// Realtime bucket cycle MVP — `channel <name>` block(s).
+    /// Sibling slot of `notifications`/`pollers`. See
+    /// `docs/proposals/bucket-realtime-cycle.md`. Closed body
+    /// (three required children: `tenant_from`, `policy`, `payload`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<Channel>,
     pub span: Span,
 }
 
@@ -1844,6 +1850,27 @@ pub struct NotificationDigest {
     pub max_size: Option<u32>,
     /// `template_strategy <merge|append>` — optional.
     pub template_strategy: Option<String>,
+    pub span: Span,
+}
+
+/// Realtime bucket cycle MVP — `channel <name>` AST surface.
+///
+/// Closed three-child body: `tenant_from <axis>`, `policy @policy.<name>`,
+/// `payload <RecordType>`. All three are required; missing any one
+/// yields a parse error at lowering time so authors get a precise
+/// diagnostic. Optional children (audit, rate_limit, broadcast wiring)
+/// are deferred per `docs/proposals/bucket-realtime-scope.md` pending
+/// pilot evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Channel {
+    pub name: String,
+    /// `tenant_from <axis>` — axis name verbatim.
+    pub tenant_from: String,
+    /// `policy @policy.<name>` — verbatim atom.
+    pub policy: String,
+    /// `payload <RecordType>` — verbatim type-name reference.
+    /// Doctor `CHANNEL-PAYLOAD-001` resolves it.
+    pub payload: String,
     pub span: Span,
 }
 

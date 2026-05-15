@@ -11,7 +11,7 @@ use crate::ast::{
     AuthPassword, AuthSessions, BindingRefAst, CellBindingAst, ColorStateAst, ColorTokenAst, Command,
     CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
     CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
-    CommandWriteWindow,
+    Channel, CommandWriteWindow,
     ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
     DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
     EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
@@ -3274,6 +3274,7 @@ fn parse_feature_skeleton(
     let mut translation: Option<TranslationDecl> = None;
     let mut pollers: Vec<PollerBlockAst> = Vec::new();
     let mut reports: Vec<ReportDecl> = Vec::new();
+    let mut channels: Vec<Channel> = Vec::new();
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -3348,6 +3349,17 @@ fn parse_feature_skeleton(
             let (parsed, next) = parse_poller_block(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             pollers.push(parsed);
+            i = next;
+            continue;
+        }
+
+        // Realtime bucket cycle MVP — `channel <name>` block. Closed
+        // three-child body (`tenant_from`, `policy`, `payload`). See
+        // `docs/proposals/bucket-realtime-cycle.md`.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("channel ") {
+            let (parsed, next) = parse_channel(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            channels.push(parsed);
             i = next;
             continue;
         }
@@ -3541,6 +3553,7 @@ fn parse_feature_skeleton(
             translation,
             pollers,
             reports,
+            channels,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -9413,6 +9426,117 @@ fn parse_webhook_verify(
             algorithm: algorithm.trim().to_owned(),
             secret_env,
             header: header_lit,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// Realtime bucket cycle MVP — parse a `channel <name>` feature-level
+/// block. Closed three-child body:
+///
+/// ```ignore
+/// channel customer_activity
+///   tenant_from org
+///   policy @policy.read
+///   payload CustomerActivityEvent
+/// ```
+///
+/// All three children are required. Missing any one yields a parse
+/// error citing the missing key. Unknown child keys are rejected so
+/// the catalog stays closed; new realtime grammar (audit, rate_limit,
+/// presence, broadcast wiring) must enter through a new cycle with
+/// pilot evidence per `docs/scope-discipline.md`.
+///
+/// Doctor `CHANNEL-PAYLOAD-001` runs against the IR-lifted form; this
+/// parser is purely syntactic.
+fn parse_channel(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(Channel, usize), ParseError> {
+    let header = &lines[start];
+    let header_trimmed = header.text.trim_start();
+    let name = header_trimmed
+        .strip_prefix("channel ")
+        .map(|rest| rest.trim().to_owned())
+        .ok_or_else(|| line_error(header, "channel header must be `channel <name>`"))?;
+    if name.is_empty() {
+        return Err(line_error(header, "channel header requires a name"));
+    }
+
+    let mut tenant_from: Option<String> = None;
+    let mut policy: Option<String> = None;
+    let mut payload: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_AGENT_CHILD {
+            return Err(line_error(
+                line,
+                "channel body children use four-space indentation",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("tenant_from ") {
+            tenant_from = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("policy ") {
+            policy = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("payload ") {
+            payload = Some(rest.trim().to_owned());
+            last_end = line.end;
+            i += 1;
+        } else {
+            return Err(line_error(
+                line,
+                "channel children are `tenant_from <axis>`, `policy @policy.<name>`, \
+                 and `payload <RecordType>` (additional kinds — audit, rate_limit, \
+                 broadcast, presence — deferred per docs/scope-discipline.md)",
+            ));
+        }
+    }
+
+    let tenant_from = tenant_from.ok_or_else(|| {
+        line_error(
+            header,
+            "`channel` requires a `tenant_from <axis>` declaration",
+        )
+    })?;
+    let policy = policy.ok_or_else(|| {
+        line_error(
+            header,
+            "`channel` requires a `policy @policy.<name>` declaration",
+        )
+    })?;
+    let payload = payload.ok_or_else(|| {
+        line_error(
+            header,
+            "`channel` requires a `payload <RecordType>` declaration",
+        )
+    })?;
+
+    Ok((
+        Channel {
+            name,
+            tenant_from,
+            policy,
+            payload,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -15715,5 +15839,50 @@ mod poller_parser_tests {
         let source = "feature multi_bank\n  poller bad\n    source X\n    tenant_from payload.org_id\n";
         let err = parse_feature_skeletons(source).unwrap_err();
         assert!(err.to_string().contains("row."));
+    }
+
+    // -----------------------------------------------------------------
+    // Realtime bucket cycle MVP — `channel` parser tests.
+    //
+    // Three cases per the cycle proposal: minimal happy path; rejects
+    // when a required child is missing; rejects unknown child key. The
+    // doctor diagnostic `CHANNEL-PAYLOAD-001` covers payload-resolution
+    // separately (in `lazuli_cli`'s doctor suite).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn channel_parses_minimal() {
+        let source = "feature customer\n  channel customer_activity\n    tenant_from org\n    policy @policy.read\n    payload CustomerActivityEvent\n";
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features.len(), 1);
+        let channels = &features[0].channels;
+        assert_eq!(channels.len(), 1);
+        let c = &channels[0];
+        assert_eq!(c.name, "customer_activity");
+        assert_eq!(c.tenant_from, "org");
+        assert_eq!(c.policy, "@policy.read");
+        assert_eq!(c.payload, "CustomerActivityEvent");
+    }
+
+    #[test]
+    fn channel_rejects_missing_payload() {
+        let source = "feature customer\n  channel customer_activity\n    tenant_from org\n    policy @policy.read\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("payload"),
+            "error should mention missing payload, got: {err}"
+        );
+    }
+
+    #[test]
+    fn channel_rejects_unknown_child_key() {
+        // `transport ws` is one of the explicitly rejected anti-proposals
+        // — transport is adapter-resolved, never authored on the channel.
+        let source = "feature customer\n  channel customer_activity\n    tenant_from org\n    policy @policy.read\n    payload CustomerActivityEvent\n    transport ws\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("channel children"),
+            "error should mention closed catalog, got: {err}"
+        );
     }
 }

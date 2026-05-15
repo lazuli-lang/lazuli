@@ -291,6 +291,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         escape_routes: Vec::new(),
         agents: Vec::new(),
         reports: Vec::new(),
+        channels: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
             start: document.span.start,
@@ -2128,6 +2129,7 @@ pub fn lower_feature_skeleton(
         escape_routes: Vec::new(),
         agents,
         reports,
+        channels: skeleton.channels.iter().map(lower_channel).collect(),
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
@@ -3609,6 +3611,25 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         previous_names: Vec::new(),
         span_ref: Some(span_of(webhook.span)),
     })
+}
+
+/// Realtime bucket cycle MVP — lower a canonical-indent `channel`
+/// block into `ir::Channel`. Mechanical projection: the parser
+/// already enforces presence of all three required children, so the
+/// lowering only wraps the verbatim strings into the typed shapes
+/// (`TenantFromSpec`, `PolicyRef::Atom`, payload string verbatim).
+/// Doctor `CHANNEL-PAYLOAD-001` resolves the payload reference
+/// downstream.
+pub fn lower_channel(channel: &syntax::Channel) -> ir::Channel {
+    ir::Channel {
+        name: channel.name.clone(),
+        tenant_from: ir::TenantFromSpec {
+            path: lower_path_string(&channel.tenant_from),
+        },
+        policy: lower_policy_atom(&channel.policy),
+        payload: channel.payload.clone(),
+        span_ref: Some(span_of(channel.span)),
+    }
 }
 
 /// Phase L Tier 3 — lower a canonical-indent `notification` block into

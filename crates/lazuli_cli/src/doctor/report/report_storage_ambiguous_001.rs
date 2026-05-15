@@ -86,6 +86,7 @@ mod tests {
             agents: vec![],
         pollers: vec![],
             reports,
+            channels: vec![],
             previous_names: vec![],
             span_ref: None,
         }

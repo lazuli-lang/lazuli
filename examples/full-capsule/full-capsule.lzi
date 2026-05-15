@@ -129,6 +129,11 @@ feature customer
       risk_score: Integer
       reason: Text
 
+    record CustomerActivityEvent
+      customer_id: ID
+      kind: Text
+      at: DateTime
+
     query.list list
       modifier @query_modifier.query_scope_modifier
 
@@ -459,6 +464,11 @@ feature customer
     retry 3 backoff exponential
     timeout "5m"
     handler "./migrations/backfill_customer_score.go"
+
+  channel customer_activity
+    tenant_from org
+    policy @policy.read
+    payload CustomerActivityEvent
 
   extensions
     client status_cell: CellRenderer[Customer]

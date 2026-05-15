@@ -11892,7 +11892,14 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Declares a multi-channel outbound notification with `channel`, `recipient`, `trigger`, `template`, and `policy`. the runtime generates dispatch wiring; adapters (Sendgrid/SES/Twilio/APNs/FCM) handle transport.",
         ),
         "channel" => Some(
-            "On a `notification`, declares one or more delivery channels: `email`, `push`, `sms`, `in_app`.",
+            "Two distinct uses, disambiguated by indent level:\n\n\
+             • Feature-level kind: `channel <name>` declares a typed, tenant-scoped, \
+               policy-gated push stream (realtime bucket cycle MVP). Required children: \
+               `tenant_from <axis>`, `policy @policy.<name>`, `payload <RecordType>`. \
+               Transport (WebSocket / SSE) is adapter-resolved at runtime; the language \
+               declares the contract. Doctor: `CHANNEL-PAYLOAD-001`.\n\n\
+             • On a `notification`, declares one or more delivery channels: \
+               `email`, `push`, `sms`, `in_app`.",
         ),
         "recipient" => Some(
             "On a `notification`, declares the recipient expression (e.g., `target.email`, `payload.user_id`).",

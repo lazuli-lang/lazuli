@@ -10584,7 +10584,8 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         escape_routes: Vec::new(),
         agents: fact.agents.clone(),
         reports: fact.reports.clone(),
-    pollers: vec![],
+        pollers: vec![],
+        channels: Vec::new(),
         previous_names: Vec::new(),
         span_ref: None,
     }

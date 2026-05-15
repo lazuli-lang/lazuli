@@ -729,6 +729,7 @@ mod tests {
             escape_routes: Vec::new(),
             agents: Vec::new(),
             reports: Vec::new(),
+            channels: Vec::new(),
             previous_names: Vec::new(),
             span_ref: None,
         }

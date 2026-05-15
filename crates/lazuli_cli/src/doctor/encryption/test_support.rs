@@ -87,6 +87,7 @@ pub fn empty_feature(name: &str) -> Feature {
         agents: vec![],
         pollers: vec![],
         reports: vec![],
+        channels: vec![],
         previous_names: vec![],
         span_ref: None,
     }
