@@ -134,19 +134,30 @@ impl LanguageServer for Backend {
         let Some(word) = word_at_position(source, position) else {
             return Ok(None);
         };
-        let description = if is_design_lzi_uri(&uri) {
-            design_keyword_description(&word).or_else(|| keyword_description(&word))
+        // Rich Markdown hover for the LSP-extended kinds
+        // (`command`/`query.*`/`api`/`policy`/`effect`/`audit`/
+        // `rate_limit`) — fall back to the brief one-line
+        // description for every other keyword so unrelated tooling
+        // stays unaffected.
+        let hover_markdown = if !is_design_lzi_uri(&uri) {
+            if let Some(markdown) = rich_keyword_hover(&word) {
+                Some(markdown)
+            } else {
+                keyword_description(&word).map(|d| format!("`{word}`\n\n{d}"))
+            }
         } else {
-            keyword_description(&word)
+            design_keyword_description(&word)
+                .or_else(|| keyword_description(&word))
+                .map(|d| format!("`{word}`\n\n{d}"))
         };
-        let Some(description) = description else {
+        let Some(value) = hover_markdown else {
             return Ok(None);
         };
 
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
-                value: format!("`{word}`\n\n{description}"),
+                value,
             }),
             range: None,
         }))
@@ -180,7 +191,17 @@ impl LanguageServer for Backend {
 
         let documents = self.documents.read().await;
         if let Some(source) = documents.get(&uri) {
+            // `@cap.File(...)` value completion fires first because
+            // it is the narrowest context (cursor inside the
+            // capability parenthesised body on a single line).
             if let Some(items) = cap_file_value_completions(source, position) {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
+            // Wave B — context-aware kind-child / namespace-prefix /
+            // rate-limit axis completion for `command`/`query.*`/
+            // `api`/`agent`/`policy`/`effect`/`audit`/`rate_limit`.
+            // Returns `None` to fall back to the global keyword list.
+            if let Some(items) = context_aware_completions(source, position) {
                 return Ok(Some(CompletionResponse::Array(items)));
             }
         }
@@ -11986,6 +12007,21 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "audit" => Some(
             "Declares an operation as audited. Use `audit` for default fields, `audit <field>, <field>` for explicit entries, or `audit none` to opt out.",
         ),
+        // Wave B — `effect` closed-catalog verbs on commands. Cursor
+        // hover on the verb shows the one-liner; richer Markdown
+        // template lives in `rich_keyword_hover("effect")`.
+        "creates" => Some(
+            "Command write effect — creates a new row of `<Resource>`. Body assigns input/derived values to fields. One mutating effect per command.",
+        ),
+        "updates" => Some(
+            "Command write effect — mutates the loaded `target` of `<Resource>`. Body assigns the changed fields. One mutating effect per command.",
+        ),
+        "deletes" => Some(
+            "Command write effect — removes the loaded `target` of `<Resource>`. Soft-delete is automatic when the resource declares `soft_delete`.",
+        ),
+        "returns" => Some(
+            "Command non-mutating effect — returns a `<Record>` shape without writing to a resource. Also valid on `query.sql` as `returns <Type>`.",
+        ),
         // PG.B — Plan & Gate vocabulary hovers.
         "plan" => Some(
             "Subscription tier declaration. Declares a feature set and a limit set, optionally with a `trial` revert policy. The catalog is package-wide; the union of every plan's `features`/`limits` forms the closed set for `gate` directives.",
@@ -12353,6 +12389,738 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         _ => None,
     }
+}
+
+/// Rich Markdown hover for the closed-catalog DSL kinds the LSP knows
+/// best. Each entry renders a one-line summary, required-children
+/// bullets, optional-children bullets, a worked example, and a doc
+/// anchor link. Markdown intentionally uses only the conservative
+/// subset (headings via `**bold**`, bullet lists, fenced code blocks,
+/// inline `[label](path)` links) so VS Code and Helix both render it
+/// the same way; we don't use VS Code-only renderer features.
+///
+/// Falls back to `keyword_description` (one-liner) when no rich
+/// template exists, so adding a kind here is strictly additive and
+/// cannot regress unrelated hover output.
+///
+/// The seven canonical kinds covered today: `command`, `query.list`,
+/// `query.lookup`, `query.sql`, `api`, `policy`, `effect`, `audit`,
+/// `rate_limit`. `agent` keeps its existing one-line description plus
+/// the enriched markdown here so the canonical hover pattern from the
+/// agent cycle remains the reference shape.
+pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
+    match keyword {
+        "command" => Some(
+            [
+                "**`command`** — write operation on an aggregate. Lazuli owns the contract; the runtime emits a typed handler that runs effects, emits events, and invalidates queries.",
+                "",
+                "**Required children**",
+                "- `policy @policy.<name>` — feature-local authorization category.",
+                "- An effect line — exactly one of `creates`/`updates`/`deletes`, or a non-mutating `returns <Record>` shape.",
+                "",
+                "**Optional children**",
+                "- `input` / short-form `input name, email` — submitted fields.",
+                "- `route <name>: <Type>` — URL/context slots.",
+                "- `rate_limit \"<N> per <window> per <axis>\"` — required when the policy includes `@scope.public` or the command mutates state.",
+                "- `audit` / `audit <field>+` / `audit none` — audit-log contract.",
+                "- `emits <event> [from creates|updates|deletes]` — domain event publication.",
+                "- `invalidates query.<name>` — cache fan-out.",
+                "- `approval` — conditional human sign-off block.",
+                "- `validate @validator.<name>` — blocking validator.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "command create",
+                "  input",
+                "    name: Text required",
+                "  policy @policy.create",
+                "  rate_limit \"30 per hour per ip\"",
+                "  creates Customer",
+                "    name = input.name",
+                "  emits customer_created from creates",
+                "```",
+                "",
+                "See [quickref.md §Minimal Feature](docs/quickref.md) and [invariants.md §Security And Crypto](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "query.list" => Some(
+            [
+                "**`query.list`** — generated collection query. Defaults to `order created_at desc`; simple equality filters derive language-managed indexes.",
+                "",
+                "**Required children**",
+                "- None at the syntax level — a bare `query.list <name>` is valid.",
+                "",
+                "**Optional children**",
+                "- `params` — typed read arguments.",
+                "- `filters` — equality / `when params.*` filter rows; derives indexes.",
+                "- `search params.<name> over <field>...` with `mode contains|prefix|exact` — text matching (does not derive indexes).",
+                "- `order <field> asc|desc` — override the `created_at desc` default.",
+                "- `paginate <positive-int>` — generated default page size, not a hard maximum.",
+                "- `cache key <expr> ttl <duration>` (+ optional `tags`, `namespace`).",
+                "- `scope override` (+ `reason`) — cross-tenant / admin queries.",
+                "- `policy @policy.<name>` — explicit category (required under `scope override`).",
+                "- `modifier @query_modifier.<name>` — query-modifier extension.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "query.list list",
+                "  params",
+                "    status: CustomerStatus optional",
+                "  filters",
+                "    status when params.status",
+                "  paginate 50",
+                "```",
+                "",
+                "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "query.lookup" => Some(
+            [
+                "**`query.lookup`** — generated single-record query. Single-key form sugars to `query.lookup <name> by <field>: <Type>`; composite/reshaped lookups use a `params`/`key` body.",
+                "",
+                "**Required slots**",
+                "- A key spec — either `by <field>: <Type>` (single-key sugar) or a `params`/`key` body for composite lookups.",
+                "",
+                "**Optional children**",
+                "- `params` — composite-key arguments (when `by` shorthand is not used).",
+                "- `key` — explicit key composition for composite lookups.",
+                "- `policy @policy.<name>` — explicit category.",
+                "- `cache key <expr> ttl <duration>`.",
+                "- `scope override` (+ `reason`) — cross-tenant lookups.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "query.lookup by_id by id: ID",
+                "",
+                "query.lookup by_email by email: @semantic.Email",
+                "```",
+                "",
+                "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "query.sql" => Some(
+            [
+                "**`query.sql`** — SQL-backed query wrapper. The result type must resolve to a `record`, resource, or registered contract before codegen; Lazuli does not infer result shape from SQL text.",
+                "",
+                "**Required children**",
+                "- `returns <Type>` or `returns <Type>[]` — must resolve to a `record`, resource, or contract.",
+                "- `sql \"./queries/<name>.sql\"` — relative path to the SQL file.",
+                "",
+                "**Optional children**",
+                "- `params` — typed query arguments referenced inside the SQL file.",
+                "- `scope` — tenancy or filter scope applied at codegen.",
+                "- `policy @policy.<name>` — explicit category.",
+                "- `cache key <expr> ttl <duration>`.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "query.sql lifetime_value",
+                "  returns CustomerLtv[]",
+                "  scope",
+                "    org = ctx.user.org",
+                "  sql \"./queries/customer_lifetime_value.sql\"",
+                "```",
+                "",
+                "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "api" => Some(
+            [
+                "**`api`** — custom typed HTTP endpoint outside `command`/`query`/`webhook` semantics. Use it when the handler does meaningful work beyond translating HTTP to a single dispatch; otherwise prefer `expose http` on an `agent` or a generated command/query.",
+                "",
+                "**Required children**",
+                "- `method <GET|POST|PUT|PATCH|DELETE>` — HTTP verb.",
+                "- `path \"<url>\"` — concrete URL path; `:slot` placeholders bind via `route`.",
+                "- `output <Type>` — response shape (record, resource, or `@cap.File(...)`).",
+                "- `policy @policy.<name>` — authorization category.",
+                "- `handler @fn.<name>` or `handler \"./path.go\"` — handler reference.",
+                "",
+                "**Optional children**",
+                "- `input <Type>` — request body shape.",
+                "- `route <name>: <Type>` — one per `:slot` placeholder.",
+                "- `rate_limit \"<N> per <window> per <axis>\"` — per-call throttle (required when policy includes `@scope.public`).",
+                "- `audit` / `audit <field>+` / `audit none`.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "api me",
+                "  method GET",
+                "  path \"/me\"",
+                "  output User",
+                "  policy @policy.authenticated",
+                "  handler @fn.me",
+                "```",
+                "",
+                "See [quickref.md §Security Checklist](docs/quickref.md) and [invariants.md §Security And Crypto](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "policy" => Some(
+            [
+                "**`policy`** — feature-local authorization category reference on a `command`/`query`/`api`/`webhook`/`job`. The category resolves against the same feature's `policies` block unless feature-qualified.",
+                "",
+                "**Forms**",
+                "- `policy @policy.<name>` — single category from the feature `policies` dictionary.",
+                "- `policy @policy.<feature>.<name>` — cross-feature category (rarely needed).",
+                "- On `policies` entry lines (atom decomposition): `<category>: <atom>[, <atom>]+` where each atom is `@role.*`, `@scope.*`, or `@actor.*`.",
+                "- Predicate combinators inside categories: comma = OR, `and` = AND, parentheses for grouping (canonical closed predicate language).",
+                "",
+                "**Rules**",
+                "- Commands declare `policy` explicitly — there is no implicit `creates -> @policy.create`.",
+                "- Direct atoms (`@role.*`, `@scope.*`, `@actor.*`) belong in `policies` entries, not on individual command lines. Jobs / webhooks / escape routes may use atoms directly where appropriate.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "policies",
+                "  create: @role.admin, @role.sales",
+                "  read: @scope.same_org",
+                "",
+                "command reassign",
+                "  policy @policy.update",
+                "```",
+                "",
+                "See [quickref.md §Policy Vocabulary](docs/quickref.md) and [invariants.md §Policies](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "effect" => Some(
+            [
+                "**`effect`** — write effect on a `command`. The closed catalog is `creates` / `updates` / `deletes` / `returns`. Exactly one mutating effect per command; `returns` is non-mutating.",
+                "",
+                "**Closed catalog**",
+                "- `creates <Resource>` — new row; body assigns input/derived values to fields.",
+                "- `updates <Resource>` — mutates the loaded `target`; body assigns changed fields.",
+                "- `deletes <Resource>` — removes the loaded `target`. Soft-delete is automatic when the resource declares `soft_delete`.",
+                "- `returns <Record>` — non-mutating command (no row write); the handler returns a typed record.",
+                "",
+                "**Rules**",
+                "- One mutating effect per command. Multi-effect commands are rejected.",
+                "- `target` is loaded before `updates`/`deletes` (explicit `target query.by_id(...)` or sugar when route/lookup match).",
+                "- Event derivation works with effects: `emits <event> from creates|updates|deletes` maps the effect's bindings into the event payload by name.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "command create",
+                "  policy @policy.create",
+                "  creates Customer",
+                "    name = input.name",
+                "    email = input.email",
+                "  emits customer_created from creates",
+                "```",
+                "",
+                "See [quickref.md §Canonical Sugar Table](docs/quickref.md) and [invariants.md §Source And Derived Views](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        "audit" => Some(
+            [
+                "**`audit`** — declares an operation as audited so generated audit-log codegen has a typed contract instead of relying on event-name conventions. Surfaces in `lazuli inspect --expand=security`.",
+                "",
+                "**Forms**",
+                "- `audit` — emit the default audit fields (`actor`, `tenant`, `target.id`, `ctx.now`).",
+                "- `audit <field>, <field>, ...` — explicit field list. Each entry resolves against the command's binding namespaces (`input.*`, `route.*`, `target.*`, `ctx.*`, `payload.*`, etc.).",
+                "- `audit none` — opt out of audit-log generation. Doctor records the opt-out so security review can see it.",
+                "",
+                "**Optional child**",
+                "- `emit_to <stream>` — direct audit emission to a specific stream (e.g. `audit_log`).",
+                "",
+                "**Rules**",
+                "- Valid on `command`, `query.*`, `job`, `webhook`, and `report` (and `api` via `policy` linkage).",
+                "- Audit declarations do not replace `emits`; events and audits are different contracts.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "command reassign",
+                "  policy @policy.update",
+                "  audit actor, target.id, input.owner_id",
+                "    emit_to audit_log",
+                "  updates Customer",
+                "    owner = resolved_owner",
+                "```",
+                "",
+                "See [invariants.md §Source And Derived Views](docs/invariants.md) (audit fields paragraph) and [quickref.md §Security Checklist](docs/quickref.md).",
+            ]
+            .join("\n"),
+        ),
+        "rate_limit" => Some(
+            [
+                "**`rate_limit`** — per-call throttle on a `command`, `api`, `agent.expose http`, or `auth password`. Distinct from `notification.throttle` (which keys on recipient/channel axes).",
+                "",
+                "**Grammar**",
+                "- `rate_limit \"<N> per <window> per <axis>\"`",
+                "- `<N>` — positive integer.",
+                "- `<window>` — duration string (`second`, `minute`, `hour`, `day`, or `<N> <unit>` like `\"5 10 minutes\"` for explicit count).",
+                "- `<axis>` — closed catalog: `ip`, `user`, `org`, `tenant`.",
+                "- `rate_limit none` (with `reason \"...\"`) — explicit opt-out; required when the strict security profile demands a decision.",
+                "",
+                "**When required**",
+                "- Commands that mutate state.",
+                "- Commands / APIs whose effective policy includes `@scope.public`.",
+                "- `auth password` flows.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "command create",
+                "  policy @policy.create",
+                "  rate_limit \"30 per hour per ip\"",
+                "  creates Customer",
+                "```",
+                "",
+                "See [quickref.md §Security Checklist](docs/quickref.md) and [invariants.md §Security And Crypto](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
+        _ => None,
+    }
+}
+
+/// Children offered as completion when the cursor sits on an indented
+/// blank line inside a known kind block. The first slice element is
+/// the kind keyword (matched by `block_kind_at`), the second is the
+/// closed-catalog children offered as `CompletionItem`s. Required and
+/// optional children are merged so authors / LLMs see the full
+/// vocabulary; the per-token hover (via `keyword_description`) tells
+/// them which are required.
+///
+/// The kind matcher is forgiving: any line whose first non-space token
+/// starts with one of these prefixes (e.g. `command capture_lead`)
+/// counts as the matching block.
+const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
+    (
+        "command",
+        &[
+            "input",
+            "route",
+            "policy",
+            "rate_limit",
+            "audit",
+            "validate",
+            "let",
+            "creates",
+            "updates",
+            "deletes",
+            "returns",
+            "handler",
+            "emits",
+            "invalidates",
+            "approval",
+            "tests",
+            "previously",
+            "deprecated",
+            "gate",
+            "idempotency",
+            "write_window",
+        ],
+    ),
+    (
+        "query.list",
+        &[
+            "params",
+            "filters",
+            "search",
+            "order",
+            "paginate",
+            "cache",
+            "policy",
+            "modifier",
+            "scope",
+            "rate_limit",
+            "audit",
+        ],
+    ),
+    (
+        "query.lookup",
+        &["params", "key", "policy", "cache", "scope", "audit"],
+    ),
+    (
+        "query.sql",
+        &["returns", "sql", "params", "scope", "policy", "cache", "audit"],
+    ),
+    (
+        "api",
+        &[
+            "method",
+            "path",
+            "input",
+            "output",
+            "policy",
+            "handler",
+            "rate_limit",
+            "audit",
+            "route",
+        ],
+    ),
+    (
+        "agent",
+        &[
+            "input",
+            "context",
+            "policy",
+            "rate_limit",
+            "output",
+            "model",
+            "prompt",
+            "tools",
+            "safety",
+            "evals",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "seed",
+            "expose",
+            "audit",
+        ],
+    ),
+];
+
+/// Closed catalog of effect verbs offered as completion when the
+/// cursor is positioned where an effect would go inside a `command`.
+/// `returns` is the non-mutating sibling shipped on commands like the
+/// `smoke-hello` fixture's `greet` command.
+const EFFECT_VERBS: &[&str] = &["creates", "updates", "deletes", "returns"];
+
+/// Closed catalog of `rate_limit` axis tokens for the
+/// `"<N> per <window> per <axis>"` grammar. Surfaced inside double
+/// quotes after `per` so authors / LLMs see the closed set instead of
+/// guessing tenant-style words.
+const RATE_LIMIT_AXES: &[&str] = &["ip", "user", "org", "tenant"];
+
+/// Detect which kind block the cursor is in by walking the source
+/// backwards from `position.line` looking for the closest header line
+/// at the parent indent. Returns the kind keyword (e.g. `command`,
+/// `query.list`, `api`) or `None` when the cursor is at the top
+/// level / outside a recognised block.
+///
+/// We treat header-line indent as "parent" if it's strictly less than
+/// the cursor line's indent. The first kind keyword we find at that
+/// shallower indent wins. This handles the canonical Lazurite layout
+/// where `command capture_lead` sits at indent 2 inside a feature and
+/// its children at indent 4.
+fn block_kind_at(source: &str, position: Position) -> Option<&'static str> {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = position.line as usize;
+    if cursor_line_idx >= lines.len() {
+        // The completion handler can be called past EOL; treat as the
+        // last real line.
+    }
+    let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
+    let cursor_indent = leading_spaces(cursor_line);
+
+    // Walk backwards looking for a header line at indent < cursor_indent.
+    for idx in (0..cursor_line_idx).rev() {
+        let line = lines[idx];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent < cursor_indent {
+            // Try each known kind prefix. Match the longest first to
+            // distinguish `query.list` from a hypothetical `query`.
+            let mut kinds: Vec<&str> =
+                KIND_CHILD_COMPLETIONS.iter().map(|(k, _)| *k).collect();
+            kinds.sort_by_key(|k| std::cmp::Reverse(k.len()));
+            for kind in kinds {
+                if trimmed == kind
+                    || trimmed.starts_with(&format!("{kind} "))
+                    || trimmed.starts_with(&format!("{kind}\t"))
+                {
+                    return Some(kind);
+                }
+            }
+            // Found a shallower line but it isn't one of our kinds —
+            // stop walking; we're inside a sibling/parent block we
+            // don't have a rich completion for yet.
+            return None;
+        }
+    }
+    None
+}
+
+/// Context-aware completions covering the seven LSP-extended kinds.
+/// Returns `None` to fall back to the flat keyword list; returns
+/// `Some(items)` when a context is recognised. Three contexts handled:
+///
+/// 1. `@policy.` / `@validator.` / `@fn.` / `@hook.` / `@role.` /
+///    `@scope.` / `@actor.` immediately before the cursor — offers
+///    every declared name from the same source.
+/// 2. Indented blank line inside a known kind block — offers the
+///    closed-catalog children (`KIND_CHILD_COMPLETIONS`). When the
+///    block is a `command` the effect verbs are tagged as
+///    `ENUM_MEMBER` so editors render them distinctly.
+/// 3. Inside a `rate_limit "..."` value after the second `per ` —
+///    offers the closed axis catalog (`ip`/`user`/`org`/`tenant`).
+fn context_aware_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let cursor = (position.character as usize).min(line.len());
+    let before = &line[..cursor];
+
+    // 1. `@<ns>.` prefix completion.
+    if let Some(items) = namespace_prefix_completions(source, before) {
+        return Some(items);
+    }
+
+    // 3. `rate_limit "...per <axis>"` — checked before the indent
+    // path so we don't drop into kind-child completion while the
+    // cursor is inside a string literal on a `rate_limit` line.
+    if let Some(items) = rate_limit_axis_completions(before) {
+        return Some(items);
+    }
+
+    // 2. Indent-aware kind child.
+    // Only fire when the prefix is whitespace (cursor on a blank
+    // indented line) or a partial child keyword. We don't want to
+    // shadow `@cap.File(...)` value completion (handled earlier in
+    // the dispatch chain) or general keyword completion mid-token in
+    // an unrelated context.
+    let trimmed_before = before.trim_start();
+    let is_blank_indented = trimmed_before.is_empty() && !before.is_empty();
+    let is_partial_word =
+        !trimmed_before.is_empty() && trimmed_before.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !(is_blank_indented || is_partial_word) {
+        return None;
+    }
+    let kind = block_kind_at(source, position)?;
+    let (_, children) = KIND_CHILD_COMPLETIONS.iter().find(|(k, _)| *k == kind)?;
+    let mut items: Vec<CompletionItem> = children
+        .iter()
+        .map(|child| CompletionItem {
+            label: (*child).to_owned(),
+            kind: Some(if EFFECT_VERBS.contains(child) {
+                CompletionItemKind::ENUM_MEMBER
+            } else {
+                CompletionItemKind::KEYWORD
+            }),
+            detail: keyword_description(child).map(str::to_owned),
+            ..CompletionItem::default()
+        })
+        .collect();
+    // Sort effects to the top of `command` completions so authors see
+    // the canonical write verbs at-a-glance.
+    if kind == "command" {
+        items.sort_by_key(|item| {
+            (
+                !EFFECT_VERBS.contains(&item.label.as_str()),
+                item.label.clone(),
+            )
+        });
+    }
+    Some(items)
+}
+
+/// Scan `source` for declared names under the namespace pointed to by
+/// the immediately-preceding `@<ns>.` marker before the cursor. Returns
+/// `None` when the cursor isn't sitting on such a marker.
+///
+/// Supported namespaces and how their names are collected from text:
+/// - `@policy.<name>` → keys on lines inside a `policies` block
+///   (e.g. `create: @role.admin` contributes `create`).
+/// - `@validator.<name>` / `@fn.<name>` / `@hook.<name>` →
+///   `<keyword> <name>` lines inside an `extensions` block.
+/// - `@role.<name>` / `@scope.<name>` / `@actor.<name>` → atom
+///   tokens used anywhere in the policies block (declared catalogs
+///   live in `app.lzi` policy blocks; the LSP file-locally surfaces
+///   what appears in this document).
+fn namespace_prefix_completions(source: &str, before_cursor: &str) -> Option<Vec<CompletionItem>> {
+    // The token under construction is the run of word chars at the
+    // end of `before_cursor`; everything before it should end with
+    // `@<ns>.`.
+    let token_start = before_cursor
+        .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let prefix = &before_cursor[..token_start];
+    let trimmed_prefix = prefix.trim_end();
+    let ns = if trimmed_prefix.ends_with("@policy.") {
+        "policy"
+    } else if trimmed_prefix.ends_with("@validator.") {
+        "validator"
+    } else if trimmed_prefix.ends_with("@fn.") {
+        "fn"
+    } else if trimmed_prefix.ends_with("@hook.") {
+        "hook"
+    } else if trimmed_prefix.ends_with("@role.") {
+        "role"
+    } else if trimmed_prefix.ends_with("@scope.") {
+        "scope"
+    } else if trimmed_prefix.ends_with("@actor.") {
+        "actor"
+    } else {
+        return None;
+    };
+
+    let names = collect_namespace_names(source, ns);
+    if names.is_empty() {
+        return Some(Vec::new());
+    }
+    Some(
+        names
+            .into_iter()
+            .map(|name| CompletionItem {
+                label: name,
+                kind: Some(CompletionItemKind::REFERENCE),
+                ..CompletionItem::default()
+            })
+            .collect(),
+    )
+}
+
+/// Collect declared names for a closed-namespace prefix by scanning
+/// the document. Cheap text-based scan rather than a full IR walk —
+/// matches the existing LSP convention used elsewhere in this crate.
+fn collect_namespace_names(source: &str, ns: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let lines: Vec<&str> = source.lines().collect();
+
+    match ns {
+        "policy" => {
+            // Walk `policies` blocks: each child line of form
+            // `<name>: <atoms>` declares one feature-local category.
+            let mut inside_policies = false;
+            let mut block_indent: usize = 0;
+            for line in &lines {
+                let trimmed = line.trim_start();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let indent = leading_spaces(line);
+                if trimmed == "policies" || trimmed.starts_with("policies ") {
+                    inside_policies = true;
+                    block_indent = indent;
+                    continue;
+                }
+                if inside_policies {
+                    if indent <= block_indent {
+                        inside_policies = false;
+                        continue;
+                    }
+                    // Child line: `<name>: ...` or `policy_for ...`.
+                    if let Some(colon) = trimmed.find(':') {
+                        let name = trimmed[..colon].trim();
+                        if !name.is_empty()
+                            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                            && seen.insert(name.to_owned())
+                        {
+                            names.push(name.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        "validator" | "fn" | "hook" => {
+            // Walk `extensions` blocks: child lines of form
+            // `<kind> <name>: ...` declare an extension.
+            let mut inside_ext = false;
+            let mut block_indent: usize = 0;
+            for line in &lines {
+                let trimmed = line.trim_start();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let indent = leading_spaces(line);
+                if trimmed == "extensions" {
+                    inside_ext = true;
+                    block_indent = indent;
+                    continue;
+                }
+                if inside_ext {
+                    if indent <= block_indent {
+                        inside_ext = false;
+                        continue;
+                    }
+                    let kind_prefix = format!("{ns} ");
+                    if let Some(rest) = trimmed.strip_prefix(&kind_prefix) {
+                        let name: String = rest
+                            .chars()
+                            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                            .collect();
+                        if !name.is_empty() && seen.insert(name.clone()) {
+                            names.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        "role" | "scope" | "actor" => {
+            // Scan every `@<ns>.<name>` token already used in the
+            // document. This is best-effort surfacing rather than a
+            // declaration index.
+            let needle = format!("@{ns}.");
+            for line in &lines {
+                let mut rest: &str = line;
+                while let Some(idx) = rest.find(&needle) {
+                    let after = &rest[idx + needle.len()..];
+                    let name_len = after
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .map(|c| c.len_utf8())
+                        .sum::<usize>();
+                    if name_len > 0 {
+                        let name = after[..name_len].to_owned();
+                        if seen.insert(name.clone()) {
+                            names.push(name);
+                        }
+                    }
+                    if name_len == 0 {
+                        // No more tokens on this line — break to
+                        // avoid an infinite loop on bare `@ns.`.
+                        break;
+                    }
+                    rest = &after[name_len..];
+                }
+            }
+        }
+        _ => {}
+    }
+    names
+}
+
+/// Inside a `rate_limit "<N> per <window> per "` value, offer the
+/// closed axis catalog. Returns `None` outside that context.
+fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
+    // We must be inside an open double-quoted string on a line whose
+    // first non-space token is `rate_limit`.
+    let quote_open = before_cursor.rfind('"')?;
+    let already_closed = before_cursor[quote_open + 1..].contains('"');
+    if already_closed {
+        return None;
+    }
+    let line_prefix = &before_cursor[..quote_open];
+    let trimmed_prefix = line_prefix.trim_start();
+    if !trimmed_prefix.starts_with("rate_limit") {
+        return None;
+    }
+    let string_so_far = &before_cursor[quote_open + 1..];
+    // We expect `<N> per <window> per ` before the cursor; require at
+    // least two `per ` occurrences.
+    let per_count = string_so_far.matches(" per ").count();
+    let ends_with_per_space = string_so_far.ends_with(" per ")
+        || string_so_far.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').ends_with(" per ");
+    if per_count < 2 || !ends_with_per_space {
+        return None;
+    }
+    Some(
+        RATE_LIMIT_AXES
+            .iter()
+            .map(|axis| CompletionItem {
+                label: (*axis).to_owned(),
+                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                detail: Some(match *axis {
+                    "ip" => "Per source IP (rate-limit axis).".to_owned(),
+                    "user" => "Per authenticated user (rate-limit axis).".to_owned(),
+                    "org" => "Per tenant org (rate-limit axis).".to_owned(),
+                    "tenant" => "Per generic tenant axis (rate-limit axis).".to_owned(),
+                    _ => String::new(),
+                }),
+                ..CompletionItem::default()
+            })
+            .collect(),
+    )
 }
 
 const DESIGN_KEYWORDS: &[&str] = &[
@@ -16634,5 +17402,441 @@ aggregate Customer {
                 "detail for `{value}` must be available"
             );
         }
+    }
+
+    // ----------------------------------------------------------------
+    // Wave B — LSP hover + completion coverage for
+    // `command`/`query.list`/`query.lookup`/`query.sql`/`api`/`policy`/
+    // `effect`/`audit`/`rate_limit`. Each kind gets one hover
+    // assertion and one completion assertion so the closed catalogs
+    // surface to editors instead of being shape-only strings.
+    // ----------------------------------------------------------------
+
+    use super::{
+        EFFECT_VERBS, KIND_CHILD_COMPLETIONS, RATE_LIMIT_AXES, block_kind_at,
+        context_aware_completions, rich_keyword_hover,
+    };
+    use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
+
+    /// Helper: assert the rich Markdown hover for `keyword` exists and
+    /// contains every snippet in `expected_fragments`. Fragments
+    /// double as a smoke test that required-children / optional-
+    /// children / example / doc anchor all land in the output.
+    fn assert_rich_hover_contains(keyword: &str, expected_fragments: &[&str]) {
+        let rendered = rich_keyword_hover(keyword)
+            .unwrap_or_else(|| panic!("rich hover for `{keyword}` must be present"));
+        for fragment in expected_fragments {
+            assert!(
+                rendered.contains(fragment),
+                "rich hover for `{keyword}` must contain `{fragment}`; got:\n{rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn rich_hover_for_command_describes_required_and_optional_children() {
+        assert_rich_hover_contains(
+            "command",
+            &[
+                "**`command`**",
+                "**Required children**",
+                "policy @policy.",
+                "creates",
+                "**Optional children**",
+                "rate_limit",
+                "audit",
+                "emits",
+                "invalidates",
+                "**Example**",
+                "```lazuli",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_query_list_calls_out_default_order_and_paginate() {
+        assert_rich_hover_contains(
+            "query.list",
+            &[
+                "**`query.list`**",
+                "order created_at desc",
+                "paginate",
+                "search",
+                "cache",
+                "**Example**",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_query_lookup_documents_single_key_and_composite_forms() {
+        assert_rich_hover_contains(
+            "query.lookup",
+            &[
+                "**`query.lookup`**",
+                "by <field>: <Type>",
+                "params",
+                "key",
+                "**Example**",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_query_sql_requires_returns_and_sql_path() {
+        assert_rich_hover_contains(
+            "query.sql",
+            &[
+                "**`query.sql`**",
+                "**Required children**",
+                "returns",
+                "sql \"./queries",
+                "record",
+                "**Example**",
+                "docs/invariants.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_api_lists_method_path_output_policy_handler() {
+        assert_rich_hover_contains(
+            "api",
+            &[
+                "**`api`**",
+                "method <GET|POST|PUT|PATCH|DELETE>",
+                "path \"<url>\"",
+                "output",
+                "policy @policy.",
+                "handler",
+                "**Example**",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_policy_documents_forms_and_predicate_combinators() {
+        assert_rich_hover_contains(
+            "policy",
+            &[
+                "**`policy`**",
+                "@policy.<name>",
+                "@role.",
+                "@scope.",
+                "@actor.",
+                "policies",
+                "**Example**",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_effect_lists_closed_catalog_of_four_verbs() {
+        assert_rich_hover_contains(
+            "effect",
+            &[
+                "**`effect`**",
+                "creates",
+                "updates",
+                "deletes",
+                "returns",
+                "One mutating effect per command",
+                "**Example**",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_audit_lists_three_forms() {
+        assert_rich_hover_contains(
+            "audit",
+            &[
+                "**`audit`**",
+                "`audit`",
+                "audit <field>",
+                "audit none",
+                "emit_to",
+                "**Example**",
+                "docs/invariants.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_rate_limit_documents_grammar_and_axes() {
+        assert_rich_hover_contains(
+            "rate_limit",
+            &[
+                "**`rate_limit`**",
+                "<N> per <window> per <axis>",
+                "ip",
+                "user",
+                "org",
+                "tenant",
+                "rate_limit none",
+                "**Example**",
+                "docs/quickref.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_returns_none_for_unrelated_keywords() {
+        // `domain` is a plain keyword that keeps its brief one-line
+        // description; rich hover should not invent Markdown for it.
+        assert!(
+            rich_keyword_hover("domain").is_none(),
+            "rich hover must stay scoped to LSP-extended kinds; `domain` should fall back to keyword_description"
+        );
+    }
+
+    /// Helper: drive `context_aware_completions` and unwrap the
+    /// returned items. Panics with a helpful message when the
+    /// completion context isn't recognised so test failures point at
+    /// the unrecognised path immediately.
+    fn completions_at(source: &str, line: u32, character: u32) -> Vec<CompletionItem> {
+        context_aware_completions(
+            source,
+            Position {
+                line,
+                character,
+            },
+        )
+        .unwrap_or_else(|| panic!("expected context-aware completion at line {line}:{character}"))
+    }
+
+    fn labels(items: &[CompletionItem]) -> Vec<&str> {
+        items.iter().map(|i| i.label.as_str()).collect()
+    }
+
+    #[test]
+    fn completion_inside_command_offers_effect_verbs_and_children() {
+        let source = "feature customer\n  command create\n    policy @policy.create\n    \n";
+        // Line 3 (0-indexed) is the indented blank line; cursor at
+        // character 4 sits inside the indent.
+        let items = completions_at(source, 3, 4);
+        let labels = labels(&items);
+        for child in [
+            "creates",
+            "updates",
+            "deletes",
+            "returns",
+            "policy",
+            "rate_limit",
+            "audit",
+            "emits",
+            "invalidates",
+            "input",
+        ] {
+            assert!(
+                labels.contains(&child),
+                "command completion must offer `{child}`; got {labels:?}"
+            );
+        }
+        // Effect verbs lead the list inside `command`.
+        assert_eq!(labels[..4], ["creates", "deletes", "returns", "updates"]);
+    }
+
+    #[test]
+    fn completion_inside_query_list_offers_closed_catalog_children() {
+        let source = "feature customer\n  query.list list\n    \n";
+        let items = completions_at(source, 2, 4);
+        let labels = labels(&items);
+        for child in [
+            "params",
+            "filters",
+            "search",
+            "order",
+            "paginate",
+            "cache",
+            "policy",
+            "modifier",
+            "scope",
+        ] {
+            assert!(
+                labels.contains(&child),
+                "query.list completion must offer `{child}`; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_inside_query_lookup_offers_params_and_key() {
+        let source = "feature customer\n  query.lookup by_id\n    \n";
+        let items = completions_at(source, 2, 4);
+        let labels = labels(&items);
+        for child in ["params", "key", "policy", "cache", "scope"] {
+            assert!(
+                labels.contains(&child),
+                "query.lookup completion must offer `{child}`; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_inside_query_sql_offers_returns_sql_params() {
+        let source = "feature customer\n  query.sql lifetime_value\n    \n";
+        let items = completions_at(source, 2, 4);
+        let labels = labels(&items);
+        for child in ["returns", "sql", "params", "scope", "policy"] {
+            assert!(
+                labels.contains(&child),
+                "query.sql completion must offer `{child}`; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_inside_api_offers_method_path_output_policy_handler() {
+        let source = "feature hello\n  api greet\n    \n";
+        let items = completions_at(source, 2, 4);
+        let labels = labels(&items);
+        for child in [
+            "method",
+            "path",
+            "output",
+            "policy",
+            "handler",
+            "rate_limit",
+            "input",
+            "audit",
+            "route",
+        ] {
+            assert!(
+                labels.contains(&child),
+                "api completion must offer `{child}`; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_after_policy_namespace_offers_declared_categories() {
+        let source = "feature customer\n  policies\n    create: @role.admin\n    read: @scope.same_org\n    update: @role.admin\n\n  command create\n    policy @policy.\n";
+        // Cursor sits immediately after `@policy.` on line 7
+        // (0-indexed). Compute the character position.
+        let line = "    policy @policy.";
+        let items = completions_at(source, 7, line.len() as u32);
+        let mut labels = labels(&items);
+        labels.sort();
+        assert_eq!(labels, vec!["create", "read", "update"]);
+    }
+
+    #[test]
+    fn completion_after_validator_namespace_offers_declared_extensions() {
+        let source = "feature customer\n  extensions\n    validator verify_totp: Validator[Customer]\n    fn lifetime_value: Fn[Customer]\n    hook before_create: Hook[CreateCustomer]\n\n  command create\n    validate @validator.\n";
+        let line = "    validate @validator.";
+        let items = completions_at(source, 7, line.len() as u32);
+        let labels = labels(&items);
+        assert_eq!(labels, vec!["verify_totp"]);
+    }
+
+    #[test]
+    fn completion_after_fn_namespace_offers_declared_fns() {
+        let source = "feature customer\n  extensions\n    validator verify_totp: Validator[Customer]\n    fn lifetime_value: Fn[Customer]\n    hook before_create: Hook[CreateCustomer]\n\n  command create\n    let v = @fn.\n";
+        let line = "    let v = @fn.";
+        let items = completions_at(source, 7, line.len() as u32);
+        let labels = labels(&items);
+        assert_eq!(labels, vec!["lifetime_value"]);
+    }
+
+    #[test]
+    fn completion_for_rate_limit_axis_offers_closed_catalog() {
+        let source = "feature customer\n  command create\n    rate_limit \"30 per hour per ";
+        // Cursor sits inside the open string after `per `.
+        let line_text = "    rate_limit \"30 per hour per ";
+        let items = completions_at(source, 2, line_text.len() as u32);
+        let mut labels = labels(&items);
+        labels.sort();
+        let mut expected: Vec<&str> = RATE_LIMIT_AXES.to_vec();
+        expected.sort();
+        assert_eq!(labels, expected);
+        // Each item carries an `ENUM_MEMBER` kind so VS Code and
+        // Helix render the closed set as values, not keywords.
+        for item in &items {
+            assert_eq!(item.kind, Some(CompletionItemKind::ENUM_MEMBER));
+        }
+    }
+
+    #[test]
+    fn completion_falls_back_outside_known_blocks() {
+        // Top-level cursor — not inside command/query/api/agent —
+        // returns None so the global keyword list still surfaces.
+        let source = "feature customer\n  \n";
+        let result = context_aware_completions(
+            source,
+            Position {
+                line: 1,
+                character: 2,
+            },
+        );
+        assert!(
+            result.is_none(),
+            "top-level / unknown context must fall back; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn block_kind_detection_handles_nested_indent() {
+        // A `command` block at indent 2 with a child line at indent
+        // 4 — block_kind_at must walk back to the header.
+        let source = "feature customer\n  command create\n    policy @policy.create\n    ";
+        let kind = block_kind_at(
+            source,
+            Position {
+                line: 3,
+                character: 4,
+            },
+        );
+        assert_eq!(kind, Some("command"));
+    }
+
+    #[test]
+    fn block_kind_detection_distinguishes_query_kinds() {
+        for (block_header, expected) in [
+            ("query.list list", "query.list"),
+            ("query.lookup by_id by id: ID", "query.lookup"),
+            ("query.sql lifetime_value", "query.sql"),
+            ("api greet", "api"),
+            ("agent summarize", "agent"),
+            ("command create", "command"),
+        ] {
+            let source = format!("feature x\n  {block_header}\n    ");
+            let kind = block_kind_at(
+                &source,
+                Position {
+                    line: 2,
+                    character: 4,
+                },
+            );
+            assert_eq!(
+                kind,
+                Some(expected),
+                "header `{block_header}` should resolve to `{expected}` kind"
+            );
+        }
+    }
+
+    #[test]
+    fn kind_child_completions_cover_seven_target_kinds() {
+        let kinds: Vec<&str> = KIND_CHILD_COMPLETIONS.iter().map(|(k, _)| *k).collect();
+        for required in ["command", "query.list", "query.lookup", "query.sql", "api"] {
+            assert!(
+                kinds.contains(&required),
+                "kind catalog must include `{required}`; got {kinds:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn effect_verbs_catalog_is_the_canonical_four() {
+        let mut verbs = EFFECT_VERBS.to_vec();
+        verbs.sort();
+        assert_eq!(verbs, vec!["creates", "deletes", "returns", "updates"]);
     }
 }
