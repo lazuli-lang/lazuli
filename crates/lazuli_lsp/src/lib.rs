@@ -2384,6 +2384,18 @@ fn policy_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         };
 
+        // RB.S6 — structured `policy <expr>` form. The first token may
+        // be `authenticated`, `has_role`, `has_permission`, `not`, or
+        // `(` — all valid expression heads. Skip the legacy single-atom
+        // check; the parser already validated the expression shape.
+        if matches!(
+            policy_ref,
+            "authenticated" | "has_role" | "has_permission" | "not"
+        ) || policy_ref.starts_with('(')
+        {
+            continue;
+        }
+
         let is_policy_category_ref = policy_ref.strip_prefix("@policy.").unwrap_or(policy_ref);
 
         let is_local_category = current_feature
