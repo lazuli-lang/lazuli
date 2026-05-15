@@ -83,8 +83,13 @@ fn emit_api(
     emit_ctx: &EmitContext<'_>,
 ) {
     let qualified_name = format!("{}.{}", feature.name, api.name);
+    // Suffix `Api` on the var + args type so `api <name>` and
+    // `query.list <name>` declared on the same feature don't collide
+    // at the package scope. Surfaced by Pleiades item.lzi where
+    // `query.list search` and `api search` both emitted `var search`
+    // / `type SearchArgs` and the resulting Go failed to compile.
     let args_type = api_args_type_name(&api.name);
-    let var_name = lower_camel(&api.name);
+    let var_name = format!("{}Api", lower_camel(&api.name));
     let (output_type, _import) = go_type_for_api_output(&api.output, ctx);
 
     write_section_banner(
@@ -174,6 +179,7 @@ fn emit_api(
     // inert `// TODO(extension-points): ...` comment with no
     // registration; the endpoint vanished into the void unless the
     // user happened to call `RegisterApi` themselves.
+    p.line("//lazuli:pattern api_register v1");
     p.line(&format!("func init() {{ lazuli.RegisterApi(&{var_name}) }}"));
     p.line(&format!(
         "// Wire {var_name}.Handler in your application code, then call"
@@ -386,7 +392,10 @@ fn method_const_name(method: HttpMethod) -> &'static str {
 }
 
 fn api_args_type_name(name: &str) -> String {
-    format!("{}Args", pascal_case(name))
+    // Suffix `ApiArgs` so the type doesn't collide with a sibling
+    // `query.list <name>` (which uses `<Name>Args`). See the var-name
+    // comment on `emit_api` for the full story.
+    format!("{}ApiArgs", pascal_case(name))
 }
 
 fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
@@ -633,18 +642,18 @@ mod tests {
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
         assert!(!out.contains("\"lazuli/test/customer/api\""));
-        assert!(out.contains("type CustomerExportArgs struct{}"));
+        assert!(out.contains("type CustomerExportApiArgs struct{}"));
         assert!(
-            out.contains("var customerExport = lazuli.Api[CustomerExportArgs, storage.FileRef]{")
+            out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
         );
-        assert!(!out.contains("var customerExport = struct {"));
+        assert!(!out.contains("var customerExportApi = struct {"));
         assert!(!out.contains("TODO(runtime):"));
         // Codegen now emits a `func init()` that registers the typed
         // API value, plus an inline hint pointing to
         // `ValidateApiHandlers`. The previous inert `TODO` comment
         // never registered anything (review bug #1, 2026-05-15).
-        assert!(out.contains("func init() { lazuli.RegisterApi(&customerExport) }"));
-        assert!(out.contains("// Wire customerExport.Handler in your application code"));
+        assert!(out.contains("func init() { lazuli.RegisterApi(&customerExportApi) }"));
+        assert!(out.contains("// Wire customerExportApi.Handler in your application code"));
         assert!(out.contains("lazuli.ValidateApiHandlers()"));
         assert!(
             !out.contains("// TODO(extension-points)"),
@@ -677,7 +686,7 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
         assert!(
-            out.contains("var customerExport = lazuli.Api[CustomerExportArgs, storage.FileRef]{")
+            out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
         );
         assert!(!out.contains("_cap_File"));
     }
@@ -699,7 +708,7 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
         assert!(
-            out.contains("var customerExport = lazuli.Api[CustomerExportArgs, storage.FileRef]{")
+            out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
         );
         assert!(!out.contains("_cap_File"));
     }
@@ -721,11 +730,11 @@ mod tests {
         feature.apis.push(api);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("type CustomerSummaryArgs struct {"));
+        assert!(out.contains("type CustomerSummaryApiArgs struct {"));
         assert!(out.contains("ID lazuli.ID `json:\"id\"`"));
         assert!(out.contains("// TODO(ir): Api path parameters have no typed IR slots"));
         assert!(out.contains(
-            r#"var customerSummary = lazuli.Api[CustomerSummaryArgs, CustomerSummary]{
+            r#"var customerSummaryApi = lazuli.Api[CustomerSummaryApiArgs, CustomerSummary]{
 	Name:      "customer_summary",
 	Feature:   "customer",
 	Method:    lazuli.MethodGet,
@@ -734,8 +743,9 @@ mod tests {
 	RateLimit: "60 per minute per user",
 }
 
-func init() { lazuli.RegisterApi(&customerSummary) }
-// Wire customerSummary.Handler in your application code, then call
+//lazuli:pattern api_register v1
+func init() { lazuli.RegisterApi(&customerSummaryApi) }
+// Wire customerSummaryApi.Handler in your application code, then call
 // `lazuli.ValidateApiHandlers()` at startup to fail fast on omissions."#
         ));
         assert!(!out.contains("TODO(runtime):"));
@@ -773,7 +783,7 @@ func init() { lazuli.RegisterApi(&customerSummary) }
         let module = module_with_features(vec![customer, org]);
         let out = emit_from_module(&module, 0).expect("must emit");
         assert!(out.contains("\"lazuli/test/org\""));
-        assert!(out.contains("var ownerProfile = lazuli.Api[OwnerProfileArgs, org.UserProfile]{"));
+        assert!(out.contains("var ownerProfileApi = lazuli.Api[OwnerProfileApiArgs, org.UserProfile]{"));
         assert!(out.contains("Method:  lazuli.MethodPost,"));
         assert!(out.contains("OwnerID lazuli.ID `json:\"owner_id\"`"));
     }
@@ -1023,9 +1033,9 @@ mod feature_emit_tests {
         assert!(!out.is_empty());
         assert!(out.contains("// Code generated by lazuli; DO NOT EDIT."));
         assert!(out.contains("package catalog"));
-        assert!(out.contains("type ListProductsArgs struct {"));
+        assert!(out.contains("type ListProductsApiArgs struct {"));
         assert!(out.contains("CategoryID lazuli.ID `json:\"category_id\"`"));
-        assert!(out.contains("var listProducts = lazuli.Api[ListProductsArgs, []string]{"));
+        assert!(out.contains("var listProductsApi = lazuli.Api[ListProductsApiArgs, []string]{"));
         assert!(out.contains("Method:    lazuli.MethodGet,"));
         assert!(out.contains("RateLimit: \"30 per minute per user\","));
     }
