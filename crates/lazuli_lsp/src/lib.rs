@@ -12452,7 +12452,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Locale fallback edge: `fallback <src> -> <dst>`. When a translation is missing in the source tag, the runtime walks fallbacks before defaulting to `app.locale.default`.",
         ),
         "cache" => Some(
-            "Query cache contract: `key <expr>` + `ttl <duration>` (+ optional `tags <label>...` for fan-out invalidation, `namespace <label>` for cross-feature scoping). Requires a `cache <name>` capability in `registry.lzi`.",
+            "Cache contract. Two shapes: (1) feature-level `cache <name>` profile (`key`/`ttl` required; optional `namespace`, `tags`, `stale_while_revalidate`, `coalesce`, `sliding`) — queries opt in via `cache <profile>`. (2) Inline `cache` block under a query for one-off `key`/`ttl` pairs. Requires a `cache <name>` capability in `registry.lzi`.",
         ),
         "key" => Some("Declares a cache key, lookup key, or dedupe key depending on context."),
         "ttl" => Some(
@@ -12463,6 +12463,15 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         ),
         "namespace" => Some(
             "Cache namespace label. Scopes the cache key beyond the default `<feature>.query.<name>` to avoid collisions in workspace / pack deployments. One namespace per query.",
+        ),
+        "stale_while_revalidate" => Some(
+            "Cache stale-while-revalidate window (closed unit catalog: `s`, `m`, `h`, `d`). After `ttl` expires, the runtime may serve the stale value for up to this duration while a background refresh runs. Must be <= `ttl`.",
+        ),
+        "coalesce" => Some(
+            "Cache request coalescing. `coalesce true` makes concurrent misses on the same key wait on a single populate (stampede protection); `coalesce false` lets each miss populate independently. Defaults to the runtime's policy (today: `false`).",
+        ),
+        "sliding" => Some(
+            "Cache sliding TTL. `sliding true` extends the TTL window on every read (access-recency cache); `sliding false` keeps a fixed expiry. Requires a typed `ttl` literal (`<int>s|m|h|d`) so the runtime can slide deterministically.",
         ),
         "invalidates" => Some("Declares queries that become stale after a command succeeds."),
         "error" => Some("Declares a named public error case with status and exposure fields."),
@@ -13243,6 +13252,21 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
         "query.sql",
         &["returns", "sql", "params", "scope", "policy", "cache", "audit"],
     ),
+    // CL.C.3 — feature-level `cache <name>` profile children. The
+    // inline (per-query) cache shape reuses these same keywords; the
+    // context-aware completion uses the block kind, not the shape.
+    (
+        "cache",
+        &[
+            "key",
+            "ttl",
+            "namespace",
+            "tags",
+            "stale_while_revalidate",
+            "coalesce",
+            "sliding",
+        ],
+    ),
     (
         "api",
         &[
@@ -13886,6 +13910,12 @@ const KEYWORDS: &[&str] = &[
     "cache",
     "key",
     "ttl",
+    // Cache bucket cycle (CL.C.3) — feature-level `cache <name>` profile
+    // decorators. `tags` / `namespace` already covered above as keywords;
+    // these three are the CL.C.3 additions.
+    "stale_while_revalidate",
+    "coalesce",
+    "sliding",
     "invalidates",
     "error",
     "expose",

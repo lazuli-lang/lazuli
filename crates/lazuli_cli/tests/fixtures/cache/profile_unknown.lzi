@@ -1,0 +1,14 @@
+# Doctor fixture — `cache-profile-unknown` (CL.C.3).
+# A query references `cache <profile>` where no feature-level
+# `cache <profile>` declaration exists. The reference is captured in
+# the IR with `profile_ref = Some("phantom")`; doctor flags the
+# dangling reference at the query header.
+
+feature catalog
+  domain
+    resource Product
+      id: ID required
+      name: Text required
+
+    query.list list
+      cache phantom

@@ -203,6 +203,16 @@ struct Tier3FeatureFacts {
     /// `query_name -> source line` lookup. Anchors `cache_*` diagnostics
     /// at the query header.
     query_lines: BTreeMap<String, usize>,
+    /// Cache bucket cycle (CL.C.3) — feature-level `cache <name>`
+    /// profile declarations lifted from the canonical-indent slice.
+    /// Doctor uses this to (1) resolve query `cache <profile>`
+    /// references for `cache-profile-unknown`, (2) build the package-
+    /// wide tag index for `cache-tag-unknown`, and (3) cross-check TTL
+    /// shape invariants for `cache-ttl-contract`.
+    caches: Vec<lazuli_ir::CacheProfile>,
+    /// `cache_profile_name -> source line` lookup. Anchors CL.C.3
+    /// diagnostics at the profile header.
+    cache_lines: BTreeMap<String, usize>,
     /// OpenAPI bucket cycle — every `api <name>` declaration in this
     /// feature (text-pattern era, before Tier 4 lift). Doctor uses this
     /// to surface `openapi_text_pattern_api_block`.
@@ -595,6 +605,15 @@ impl DoctorPackage {
                                                 .map(|r| r.name.as_str())
                                                 .collect(),
                                         );
+                                        let cache_lines = collect_construct_lines(
+                                            &file.source,
+                                            "cache ",
+                                            feature
+                                                .caches
+                                                .iter()
+                                                .map(|c| c.name.as_str())
+                                                .collect(),
+                                        );
                                         let translation_line = feature
                                             .translation
                                             .as_ref()
@@ -639,6 +658,8 @@ impl DoctorPackage {
                                             command_lines,
                                             queries: feature.queries.clone(),
                                             query_lines,
+                                            caches: feature.caches.clone(),
+                                            cache_lines,
                                             api_names_text_pattern,
                                             apis: feature.apis.clone(),
                                             api_lines,
@@ -11276,6 +11297,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         reports: fact.reports.clone(),
         pollers: vec![],
         channels: Vec::new(),
+            caches: Vec::new(),
         aggregates: fact.aggregates.clone(),
         previous_names: Vec::new(),
         span_ref: None,
@@ -11854,14 +11876,23 @@ fn openapi_today_pivot() -> (u16, u8, u8) {
 }
 
 // =============================================================================
-// Cache bucket cycle (row 51) — `cache_*` diagnostics.
+// Cache bucket cycle (row 51 + CL.C.3) — `cache_*` diagnostics.
 // =============================================================================
 
-/// Row 51 — emits five Cache-related diagnostics:
+/// Row 51 + CL.C.3 — emits Cache-related diagnostics:
 /// `cache_ttl_unit_invalid`, `cache_invalidates_target_unresolved`,
 /// `cache_tags_referenced_but_undeclared`, `cache_namespace_collision`,
-/// `cache_capability_undeclared`. See
-/// `docs/proposals/bucket-cache-cycle.md` §Doctor/LSP.
+/// `cache_capability_undeclared` (legacy bucket cycle), plus the
+/// CL.C.3 trio:
+///  * `cache-profile-unknown` — query authored `cache <name>` where no
+///    matching `cache <name>` profile exists in the feature.
+///  * `cache-tag-unknown` — an `invalidates tag:<label>` references a
+///    tag not declared by any cache (inline or profile) anywhere.
+///  * `cache-ttl-contract` — invalid TTL literal, `stale_while_revalidate`
+///    larger than `ttl`, or `sliding true` without `ttl`.
+///
+/// See `docs/proposals/bucket-cache-cycle.md` §Doctor/LSP +
+/// `docs/proposals/bucket-cache-scope.md` (CL.C.3 row).
 fn cache_diagnostics(
     facts: &[Tier3FeatureFacts],
     registry: Option<&lazuli_ir::AppRegistry>,
@@ -11891,6 +11922,20 @@ fn cache_diagnostics(
                         .or_default()
                         .insert(feature.feature.clone());
                 }
+            }
+        }
+        // CL.C.3 — feature-level cache profiles also contribute to the
+        // tag and namespace indexes. A profile referenced by a query is
+        // a cached query; queue the capability check too.
+        for profile in &feature.caches {
+            for tag in &profile.tags {
+                all_tags.insert(tag.clone());
+            }
+            if let Some(ns) = &profile.namespace {
+                namespace_owners
+                    .entry(ns.clone())
+                    .or_default()
+                    .insert(feature.feature.clone());
             }
         }
     }
@@ -12041,6 +12086,151 @@ fn cache_diagnostics(
         // `query.<name>(...)`). When the parser surfaces tag targets,
         // this branch tests `all_tags.contains(label)`. The rule stays
         // wired so the LSP fallback continues to cover the surface.
+
+        // CL.C.3 — `cache-profile-unknown`: a query referenced
+        // `cache <name>` but no feature-level `cache <name>` profile
+        // matches.
+        let profile_names: BTreeSet<&str> =
+            feature.caches.iter().map(|c| c.name.as_str()).collect();
+        for query in &feature.queries {
+            let (qname, cache) = query_name_and_cache(query);
+            let Some(cache) = cache else { continue };
+            let Some(profile_name) = cache.profile_ref.as_deref() else {
+                continue;
+            };
+            if profile_names.contains(profile_name) {
+                continue;
+            }
+            let line = feature
+                .query_lines
+                .get(qname)
+                .copied()
+                .unwrap_or(feature.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                path: feature.path.clone(),
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "cache-profile-unknown".to_owned(),
+                message: format!(
+                    "`cache {profile_name}` on query `{qname}` does not resolve: no feature-level `cache {profile_name}` profile declared in feature `{}`.",
+                    feature.feature
+                ),
+            });
+        }
+
+        // CL.C.3 — `cache-ttl-contract`: closed-catalog TTL shape
+        // invariants on feature-level profiles.
+        for profile in &feature.caches {
+            let line = feature
+                .cache_lines
+                .get(&profile.name)
+                .copied()
+                .unwrap_or(feature.feature_line);
+
+            // (1) Empty quoted prose TTL.
+            if let lazuli_ir::CacheTtl::Quoted(prose) = &profile.ttl {
+                if prose.trim().is_empty() {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "cache-ttl-contract".to_owned(),
+                        message: format!(
+                            "`cache {}` has an empty `ttl`. Use a typed duration (`<int>s|m|h|d`) or non-empty quoted prose.",
+                            profile.name
+                        ),
+                    });
+                }
+            }
+
+            // (2) SWR > TTL.
+            if let Some(swr) = &profile.stale_while_revalidate {
+                if let (Some(ttl_secs), Some(swr_secs)) = (
+                    cache_ttl_as_seconds(&profile.ttl),
+                    cache_ttl_as_seconds(swr),
+                ) {
+                    if swr_secs > ttl_secs {
+                        diagnostics.push(DoctorDiagnostic {
+                            path: feature.path.clone(),
+                            line,
+                            column: 1,
+                            severity: DoctorSeverity::Error,
+                            code: "cache-ttl-contract".to_owned(),
+                            message: format!(
+                                "`cache {}` has `stale_while_revalidate` ({swr_secs}s) larger than `ttl` ({ttl_secs}s). SWR must extend the freshness window, not invert it.",
+                                profile.name
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // (3) `sliding true` without a typed TTL literal.
+            if profile.sliding == Some(true)
+                && !matches!(profile.ttl, lazuli_ir::CacheTtl::Literal(_))
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "cache-ttl-contract".to_owned(),
+                    message: format!(
+                        "`cache {}` declares `sliding true` but its `ttl` is not a typed duration literal. Use `<int>s|m|h|d` so the runtime can slide the window deterministically.",
+                        profile.name
+                    ),
+                });
+            }
+        }
+
+        // CL.C.3 — `cache-tag-unknown`: a query carrying inline tags
+        // names a tag that no other site declares.
+        for query in &feature.queries {
+            let (qname, cache) = query_name_and_cache(query);
+            let Some(cache) = cache else { continue };
+            if cache.tags.is_empty() {
+                continue;
+            }
+            let line = feature
+                .query_lines
+                .get(qname)
+                .copied()
+                .unwrap_or(feature.feature_line);
+            for tag in &cache.tags {
+                let declarers = facts.iter().fold(0usize, |acc, f| {
+                    let from_queries = f
+                        .queries
+                        .iter()
+                        .filter(|q| {
+                            query_name_and_cache(q)
+                                .1
+                                .map(|c| c.tags.iter().any(|t| t == tag))
+                                .unwrap_or(false)
+                        })
+                        .count();
+                    let from_profiles = f
+                        .caches
+                        .iter()
+                        .filter(|p| p.tags.iter().any(|t| t == tag))
+                        .count();
+                    acc + from_queries + from_profiles
+                });
+                if declarers <= 1 {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Warning,
+                        code: "cache-tag-unknown".to_owned(),
+                        message: format!(
+                            "`cache tags {tag}` on query `{qname}` is the only declarer of `{tag}`. Either declare it on another query/profile or remove it — tags without a second declarer cannot fan out invalidation.",
+                        ),
+                    });
+                }
+            }
+        }
     }
 
     diagnostics
@@ -12053,6 +12243,21 @@ fn query_name_and_cache(q: &lazuli_ir::Query) -> (&str, Option<&lazuli_ir::Query
         lazuli_ir::Query::List(l) => (l.name.as_str(), l.cache.as_ref()),
         lazuli_ir::Query::Lookup(l) => (l.name.as_str(), None),
         lazuli_ir::Query::Sql(s) => (s.name.as_str(), s.cache.as_ref()),
+    }
+}
+
+/// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
+/// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
+/// (adapter-parsed; we don't second-guess the runtime there).
+fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
+    match ttl {
+        lazuli_ir::CacheTtl::Literal(lit) => Some(match lit {
+            lazuli_ir::CacheTtlLiteral::Seconds(n) => *n as u64,
+            lazuli_ir::CacheTtlLiteral::Minutes(n) => *n as u64 * 60,
+            lazuli_ir::CacheTtlLiteral::Hours(n) => *n as u64 * 60 * 60,
+            lazuli_ir::CacheTtlLiteral::Days(n) => *n as u64 * 60 * 60 * 24,
+        }),
+        lazuli_ir::CacheTtl::Quoted(_) => None,
     }
 }
 
@@ -12798,6 +13003,11 @@ mod tests {
                                     "report ",
                                     feature.reports.iter().map(|r| r.name.as_str()).collect(),
                                 );
+                                let cache_lines = collect_construct_lines(
+                                    &file.source,
+                                    "cache ",
+                                    feature.caches.iter().map(|c| c.name.as_str()).collect(),
+                                );
                                 let translation_line = feature
                                     .translation
                                     .as_ref()
@@ -12829,6 +13039,8 @@ mod tests {
                                     command_lines,
                                     queries: feature.queries.clone(),
                                     query_lines,
+                                    caches: feature.caches.clone(),
+                                    cache_lines,
                                     api_names_text_pattern,
                                     apis: feature.apis.clone(),
                                     api_lines,
@@ -12981,6 +13193,8 @@ mod tests {
                                     command_lines: BTreeMap::new(),
                                     queries: feature.queries.clone(),
                                     query_lines: BTreeMap::new(),
+                                    caches: feature.caches.clone(),
+                                    cache_lines: BTreeMap::new(),
                                     api_names_text_pattern: Vec::new(),
                                     apis: feature.apis.clone(),
                                     api_lines: BTreeMap::new(),
@@ -17202,6 +17416,12 @@ feature customer
         include_str!("../tests/fixtures/cache/namespace_collision.lzi");
     const CACHE_CAPABILITY_UNDECLARED_FIXTURE: &str =
         include_str!("../tests/fixtures/cache/capability_undeclared.lzi");
+    // CL.C.3 — feature-level `cache <name>` profile diagnostics.
+    const CACHE_PROFILE_UNKNOWN_FIXTURE: &str =
+        include_str!("../tests/fixtures/cache/profile_unknown.lzi");
+    const CACHE_TAG_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/cache/tag_unknown.lzi");
+    const CACHE_TTL_CONTRACT_SWR_FIXTURE: &str =
+        include_str!("../tests/fixtures/cache/ttl_contract_swr_exceeds.lzi");
 
     #[test]
     fn cache_invalidates_target_unresolved_fires() {
@@ -17249,6 +17469,7 @@ feature customer
             ttl: lazuli_ir::CacheTtl::Quoted("".into()),
             tags: Vec::new(),
             namespace: None,
+            profile_ref: None,
         };
         let query = lazuli_ir::Query::List(lazuli_ir::ListQuery {
             name: "list".into(),
@@ -17286,6 +17507,8 @@ feature customer
             command_lines: BTreeMap::new(),
             queries: vec![query],
             query_lines: BTreeMap::new(),
+            caches: Vec::new(),
+            cache_lines: BTreeMap::new(),
             api_names_text_pattern: Vec::new(),
             apis: Vec::new(),
             api_lines: BTreeMap::new(),
@@ -17307,6 +17530,44 @@ feature customer
         assert!(
             codes(&diagnostics).contains("cache_ttl_unit_invalid"),
             "expected cache_ttl_unit_invalid in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // CL.C.3 — feature-level `cache <name>` profile diagnostics:
+    // `cache-profile-unknown`, `cache-tag-unknown`, `cache-ttl-contract`.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn cache_profile_unknown_fires() {
+        let package = package_from_sources(vec![("x.lzi", CACHE_PROFILE_UNKNOWN_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache-profile-unknown"),
+            "expected cache-profile-unknown in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cache_tag_unknown_fires() {
+        let package = package_from_sources(vec![("x.lzi", CACHE_TAG_UNKNOWN_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache-tag-unknown"),
+            "expected cache-tag-unknown in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cache_ttl_contract_swr_exceeds_fires() {
+        let package = package_from_sources(vec![("x.lzi", CACHE_TTL_CONTRACT_SWR_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("cache-ttl-contract"),
+            "expected cache-ttl-contract in {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
@@ -17345,6 +17606,8 @@ feature customer
             command_lines: BTreeMap::new(),
             queries: Vec::new(),
             query_lines: BTreeMap::new(),
+            caches: Vec::new(),
+            cache_lines: BTreeMap::new(),
             api_names_text_pattern: vec!["customer_legacy".to_owned()],
             apis: Vec::new(),
             api_lines: BTreeMap::new(),

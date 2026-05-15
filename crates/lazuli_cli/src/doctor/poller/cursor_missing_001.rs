@@ -174,6 +174,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            caches: vec![],
             aggregates: vec![],
             previous_names: vec![],
             span_ref: None,

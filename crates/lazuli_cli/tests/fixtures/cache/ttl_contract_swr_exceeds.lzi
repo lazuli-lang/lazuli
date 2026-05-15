@@ -1,0 +1,17 @@
+# Doctor fixture — `cache-ttl-contract` (CL.C.3).
+# A feature-level `cache <name>` profile sets
+# `stale_while_revalidate` larger than `ttl`. SWR must extend the
+# freshness window, not invert it.
+
+feature catalog
+  cache product_view
+    key "product:{product_id}"
+    ttl 5m
+    stale_while_revalidate 1h
+
+  domain
+    resource Product
+      id: ID required
+
+    query.list list
+      cache product_view

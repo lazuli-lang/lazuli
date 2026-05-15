@@ -1,0 +1,15 @@
+# Doctor fixture — `cache-tag-unknown` (CL.C.3).
+# A query authors `cache tags <X>` but no other site (query or
+# feature-level profile) declares the same tag, so the tag cannot be
+# fan-out-invalidated. Single-site tags are dangling.
+
+feature catalog
+  domain
+    resource Product
+      id: ID required
+
+    query.list list
+      cache
+        key "product-list"
+        ttl 5m
+        tags lonely-tag

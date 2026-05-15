@@ -594,6 +594,14 @@ pub struct FeatureSkeleton {
     /// (three required children: `tenant_from`, `policy`, `payload`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<Channel>,
+    /// Cache bucket cycle (CL.C.3) — feature-level `cache <name>`
+    /// profile declarations. Sibling slot of `notifications`/`channels`.
+    /// Each entry models a named cache contract (key/ttl + optional
+    /// namespace/tags/SWR/coalesce/sliding) that queries opt into via
+    /// `cache <profile_name>`. The inline `cache { key, ttl }` shape on
+    /// a query stays for one-off ttl/key pairs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub caches: Vec<CacheProfileDecl>,
     /// CL.C.4 — `aggregate <Name>` block(s) (DDD consistency
     /// boundary). Sibling slot of `resources`/`commands`/`policies`.
     /// Each entry carries a root resource + closed contains list +
@@ -1299,8 +1307,14 @@ pub struct ListQueryDecl {
     pub filters: Vec<String>,
     /// `search params.<key> over <fields>` line with optional `mode contains`.
     pub search: Option<QuerySearch>,
-    /// `cache` block — verbatim lines.
+    /// `cache` block — verbatim lines (inline shape).
     pub cache: Vec<String>,
+    /// Cache bucket cycle (CL.C.3) — `cache <profile_name>` reference
+    /// form. Single-line shape pointing at a feature-level `cache
+    /// <name>` profile. Mutually exclusive with the inline `cache`
+    /// block at parse time; the parser rejects the combination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_profile_ref: Option<String>,
     /// `paginate <N>` page size.
     pub paginate: Option<u32>,
     /// `order <field> <asc|desc>` declarations.
@@ -1932,6 +1946,38 @@ pub struct Channel {
     /// `payload <RecordType>` — verbatim type-name reference.
     /// Doctor `CHANNEL-PAYLOAD-001` resolves it.
     pub payload: String,
+    pub span: Span,
+}
+
+/// Cache bucket cycle (CL.C.3) — feature-level `cache <name>` profile
+/// AST. Required body children: `key <expr>`, `ttl <literal-or-prose>`.
+/// Optional: `namespace <label>`, `tags <l1>[, <l2>...]`,
+/// `stale_while_revalidate <literal>`, `coalesce <bool>`, `sliding <bool>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CacheProfileDecl {
+    /// Profile identifier (lowercase, dashes allowed).
+    pub name: String,
+    /// `key <expr>` — opaque template stored verbatim.
+    pub key: String,
+    /// `ttl <literal>` — raw token (e.g. `5m`, `"5 minutes"`).
+    /// Lowering parses it into the typed `CacheTtl` enum.
+    pub ttl: String,
+    /// `namespace <label>` — single label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// `tags <l1>[, <l2>, ...]` — comma-separated labels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// `stale_while_revalidate <literal>` — raw token; lowered into
+    /// `CacheTtl`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_while_revalidate: Option<String>,
+    /// `coalesce <bool>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coalesce: Option<bool>,
+    /// `sliding <bool>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sliding: Option<bool>,
     pub span: Span,
 }
 

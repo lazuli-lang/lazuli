@@ -292,6 +292,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         agents: Vec::new(),
         reports: Vec::new(),
         channels: Vec::new(),
+        caches: Vec::new(),
         aggregates: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
@@ -2097,7 +2098,11 @@ pub fn lower_feature_skeleton(
         .iter()
         .map(lower_resource_decl)
         .collect::<Result<Vec<_>, _>>()?;
-    let queries = skeleton.queries.iter().map(lower_query_decl).collect();
+    let queries = skeleton
+        .queries
+        .iter()
+        .map(|q| lower_query_decl(q, &skeleton.caches))
+        .collect();
     let records = skeleton
         .records
         .iter()
@@ -2152,6 +2157,11 @@ pub fn lower_feature_skeleton(
         agents,
         reports,
         channels: skeleton.channels.iter().map(lower_channel).collect(),
+        caches: skeleton
+            .caches
+            .iter()
+            .map(lower_cache_profile_decl)
+            .collect(),
         aggregates,
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
@@ -2206,7 +2216,13 @@ fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
 /// Phase L Tier 4d — lower a canonical-indent query declaration into
 /// `ir::Query`. The three shapes (`query.list`, `query.lookup`,
 /// `query.sql`) project onto the existing IR variants.
-fn lower_query_decl(q: &syntax::QueryDecl) -> ir::Query {
+///
+/// Cache (CL.C.3): if the query authors `cache <profile_name>`, the
+/// inline `cache` field is populated by resolving the profile against
+/// `caches`. When the profile is unknown, lowering preserves the
+/// reference (so doctor can fire `cache-profile-unknown`) without
+/// inventing a body.
+fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) -> ir::Query {
     match q {
         syntax::QueryDecl::List(list) => ir::Query::List(ir::ListQuery {
             name: list.name.clone(),
@@ -2221,7 +2237,11 @@ fn lower_query_decl(q: &syntax::QueryDecl) -> ir::Query {
             order: Vec::new(),
             paginate: list.paginate,
             modifier: list.modifier.clone(),
-            cache: lower_query_cache(&list.cache),
+            cache: lower_query_cache_with_profile(
+                &list.cache,
+                list.cache_profile_ref.as_deref(),
+                caches,
+            ),
             previous_names: Vec::new(),
             span_ref: Some(span_of(list.span)),
         }),
@@ -2297,7 +2317,72 @@ fn lower_query_cache(lines: &[String]) -> Option<ir::QueryCache> {
         ttl,
         tags,
         namespace,
+        profile_ref: None,
     })
+}
+
+/// Cache bucket cycle (CL.C.3) — resolve a query's cache reference,
+/// preferring the inline body when present, otherwise looking up the
+/// `cache_profile_ref` against the feature's `caches`. Returns `None`
+/// when no cache is authored at all.
+///
+/// When the profile reference is unknown (no matching feature-level
+/// `cache <name>`), this returns a stub `QueryCache` carrying the
+/// `profile_ref` and no body so doctor can fire
+/// `cache-profile-unknown`. The defensive shape (`key`/`ttl` left
+/// empty) is OK because doctor blocks before codegen consumes it.
+fn lower_query_cache_with_profile(
+    inline_lines: &[String],
+    profile_ref: Option<&str>,
+    caches: &[syntax::CacheProfileDecl],
+) -> Option<ir::QueryCache> {
+    // Inline form wins when both are present (parser already rejects
+    // the combination; this is defensive).
+    if let Some(inline) = lower_query_cache(inline_lines) {
+        return Some(inline);
+    }
+    let name = profile_ref?;
+    if let Some(profile) = caches.iter().find(|c| c.name == name) {
+        // Resolve: copy body fields from the profile and record the
+        // reference name so inspect/codegen can preserve author intent.
+        return Some(ir::QueryCache {
+            key: profile.key.clone(),
+            ttl: parse_cache_ttl(&profile.ttl),
+            tags: profile.tags.clone(),
+            namespace: profile.namespace.clone(),
+            profile_ref: Some(name.to_owned()),
+        });
+    }
+    // Unknown profile — emit a stub so the IR records author intent
+    // and doctor can flag the dangling reference. `key`/`ttl` are
+    // intentionally empty placeholders.
+    Some(ir::QueryCache {
+        key: String::new(),
+        ttl: ir::CacheTtl::Quoted(String::new()),
+        tags: Vec::new(),
+        namespace: None,
+        profile_ref: Some(name.to_owned()),
+    })
+}
+
+/// Cache bucket cycle (CL.C.3) — lower a feature-level
+/// `cache <name>` profile AST into `ir::CacheProfile`. Mirrors
+/// the inline-shape lowering for `key`/`ttl`/`tags`/`namespace` and
+/// adds the four CL.C.3 decorators (`stale_while_revalidate`,
+/// `coalesce`, `sliding`). Closed-catalog enforcement (units, boolean
+/// shape, SWR <= TTL) lives in doctor.
+fn lower_cache_profile_decl(decl: &syntax::CacheProfileDecl) -> ir::CacheProfile {
+    ir::CacheProfile {
+        name: decl.name.clone(),
+        key: decl.key.clone(),
+        ttl: parse_cache_ttl(&decl.ttl),
+        namespace: decl.namespace.clone(),
+        tags: decl.tags.clone(),
+        stale_while_revalidate: decl.stale_while_revalidate.as_deref().map(parse_cache_ttl),
+        coalesce: decl.coalesce,
+        sliding: decl.sliding,
+        span_ref: Some(span_of(decl.span)),
+    }
 }
 
 fn parse_cache_ttl(value: &str) -> ir::CacheTtl {

@@ -94,6 +94,7 @@ pub fn empty_feature(name: &str) -> Feature {
         pollers: vec![],
         reports: vec![],
         channels: vec![],
+            caches: vec![],
         aggregates: vec![],
         previous_names: vec![],
         span_ref: None,

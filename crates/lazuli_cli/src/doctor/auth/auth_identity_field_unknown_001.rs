@@ -200,6 +200,7 @@ mod tests {
             translation: None,
             pollers: vec![],
             channels: vec![],
+            caches: vec![],
             aggregates: vec![],
             auth: Some(Auth {
                 identity: AuthIdentity {

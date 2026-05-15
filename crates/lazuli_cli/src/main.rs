@@ -519,6 +519,13 @@ struct ExpandSet {
     /// fields surface in default inspect regardless; this flag adds
     /// the structured sub-blocks so they appear without `--expand=all`.
     notifications: bool,
+    /// Cache bucket cycle (CL.C.3) — `--expand=caches` projects every
+    /// feature-level `cache <name>` profile (lifted `ir::CacheProfile`)
+    /// per feature. Sibling of `--expand=jobs`/`webhooks`/`notifications`.
+    /// Inline (per-query) cache blocks remain visible on each query's
+    /// `cache` slot regardless of this flag; this flag controls the
+    /// dedicated profile array.
+    caches: bool,
     /// Roadmap §1.11 — `--expand=webhook_events` projects the package
     /// registry's canonical outbound webhook event schemas.
     webhook_events: bool,
@@ -554,6 +561,7 @@ impl ExpandSet {
             event_groups: true,
             migrations: true,
             notifications: true,
+            caches: true,
             webhook_events: true,
             aggregates: true,
         }
@@ -583,6 +591,7 @@ impl ExpandSet {
             || self.migrations
             || self.webhook_events
             || self.notifications
+            || self.caches
             || self.aggregates
     }
 
@@ -653,6 +662,9 @@ impl ExpandSet {
         }
         if self.notifications {
             labels.push("notifications");
+        }
+        if self.caches {
+            labels.push("caches");
         }
         if self.webhook_events {
             labels.push("webhook_events");
@@ -4091,11 +4103,16 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // `throttle` sub-blocks. The scalar fields surface in
             // default inspect; this flag adds the structured shapes.
             "notifications" => set.notifications = true,
+            // Cache bucket cycle (CL.C.3) — projects every lifted
+            // `ir::CacheProfile` on the feature. Inline (per-query)
+            // cache slots remain visible regardless of this flag;
+            // this flag controls the dedicated profile array.
+            "caches" => set.caches = true,
             // CL.C.4 — projects every lifted `ir::Aggregate` on the
             // feature (root + contains + invariants). Roadmap §1.7.
             "aggregates" => set.aggregates = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, or aggregates"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, or aggregates"
             ),
         }
     }
@@ -4215,6 +4232,13 @@ struct InspectFeature {
     /// `ir::TenantMigration` on the feature.
     #[serde(skip_serializing_if = "Option::is_none")]
     tenant_migrations: Option<Vec<lazuli_ir::TenantMigration>>,
+    /// Cache bucket cycle (CL.C.3) — populated only when
+    /// `--expand=caches` is set. Every lifted feature-level
+    /// `cache <name>` profile (`ir::CacheProfile`) on the feature.
+    /// Inline (per-query) cache slots are projected on each query's
+    /// `cache` field regardless of this flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    caches: Option<Vec<lazuli_ir::CacheProfile>>,
     /// CL.C.4 — populated only when `--expand=aggregates` is set.
     /// Every lifted `ir::Aggregate` on the feature. Roadmap §1.7.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5003,6 +5027,7 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         || expansions.policies
         || expansions.tests
         || expansions.migrations
+        || expansions.caches
         || expansions.aggregates)
         && !is_lzx
     {
@@ -5070,6 +5095,7 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 tenant_migrations: feature_ir.tenant_migrations,
                 notifications: feature_ir.notifications,
                 policies: feature_ir.policies,
+                caches: feature_ir.caches,
                 aggregates: feature_ir.aggregates,
             },
         );
@@ -5094,6 +5120,9 @@ struct Tier3FeatureSlice {
     /// `inspect_tests` consume; retires the `collect_policy_atoms`
     /// text walker.
     policies: lazuli_ir::Policies,
+    /// Cache bucket cycle (CL.C.3) — lifted feature-level
+    /// `cache <name>` profile declarations. Powers `--expand=caches`.
+    caches: Vec<lazuli_ir::CacheProfile>,
     /// CL.C.4 — lifted `aggregate <Name>` declarations. Powers
     /// `--expand=aggregates`.
     aggregates: Vec<lazuli_ir::Aggregate>,
@@ -5260,6 +5289,13 @@ fn inspect_feature(
             })
             .unwrap_or_default()
     });
+    // Cache bucket cycle (CL.C.3) — `--expand=caches`. Surfaces every
+    // lifted feature-level `cache <name>` profile on the feature.
+    // Empty arrays still surface so consumers can distinguish "flag
+    // not set" from "no profiles declared".
+    let caches_projection = expansions
+        .caches
+        .then(|| tier3.map(|t| t.caches.clone()).unwrap_or_default());
 
     InspectFeature {
         name,
@@ -5288,6 +5324,7 @@ fn inspect_feature(
         webhooks: webhooks_projection,
         event_groups: event_groups_projection,
         tenant_migrations: tenant_migrations_projection,
+        caches: caches_projection,
         aggregates: aggregates_projection,
     }
 }
@@ -9581,6 +9618,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             channels: vec![],
+            caches: vec![],
             aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
@@ -10350,6 +10388,65 @@ app AcmeCRM
         assert!(json.contains("\"communication\""));
         assert!(json.contains("\"runtime\""));
         assert!(json.contains("\"migrations\":\"before_deploy\""));
+    }
+
+    #[test]
+    fn inspect_expand_caches_projects_feature_level_profiles() {
+        // CL.C.3 — `--expand=caches` surfaces every feature-level
+        // `cache <name>` profile typed end-to-end (key + ttl literal +
+        // optional namespace/tags/SWR/coalesce/sliding). The query's
+        // inline `cache` slot keeps its own projection.
+        let source = r#"
+feature catalog
+  cache product_view
+    key "product:{product_id}"
+    ttl 5m
+    namespace catalog
+    tags product, listing
+    stale_while_revalidate 30s
+    coalesce true
+    sliding true
+
+  domain
+    resource Product
+      id: ID required
+
+    query.list list
+      cache product_view
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.caches = true;
+        let report = inspect_canonical_source(source, Path::new("catalog.lzi"), expansions);
+        let json = serde_json::to_string(&report).unwrap();
+
+        // Expand label surfaces in the report header.
+        assert!(
+            json.contains("\"expand\":[\"caches\"]"),
+            "expected expand label, got {json}"
+        );
+        // Profile shows up in the `caches` projection.
+        assert!(
+            json.contains("\"caches\":["),
+            "expected caches array, got {json}"
+        );
+        assert!(
+            json.contains("\"name\":\"product_view\""),
+            "expected profile name, got {json}"
+        );
+        assert!(
+            json.contains("\"namespace\":\"catalog\""),
+            "expected namespace, got {json}"
+        );
+        assert!(json.contains("\"product\""), "expected tags, got {json}");
+        assert!(json.contains("\"listing\""), "expected tags, got {json}");
+        assert!(
+            json.contains("\"coalesce\":true"),
+            "expected coalesce, got {json}"
+        );
+        assert!(
+            json.contains("\"sliding\":true"),
+            "expected sliding, got {json}"
+        );
     }
 
     #[test]

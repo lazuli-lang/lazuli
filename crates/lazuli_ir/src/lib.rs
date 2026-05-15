@@ -383,6 +383,14 @@ pub struct Feature {
     /// pre-realtime fixtures deserialize with an empty vec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<Channel>,
+    /// Cache bucket cycle (CL.C.3) — feature-level `cache <name>`
+    /// profiles. Sibling slot of `jobs`/`webhooks`/`notifications`.
+    /// Queries reference profiles by name (`cache product_view`); the
+    /// inline `cache { key, ttl }` form on a query stays for one-off
+    /// ttl/key pairs. Additive: pre-CL.C.3 fixtures deserialize with
+    /// an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub caches: Vec<CacheProfile>,
     /// CL.C.4 — `aggregate <Name>` declarations (DDD consistency
     /// boundary). Each entry pins a root resource + a closed set of
     /// member resources + invariants spanning the cluster. Sibling
@@ -1139,6 +1147,14 @@ impl Query {
 /// Adapters parse `key` verbatim; `ttl` is closed-catalog literal or
 /// quoted prose; `tags`/`namespace` are author-defined labels used for
 /// fan-out invalidation cross-checks.
+///
+/// Two shapes coexist on a query:
+///  * Inline (legacy `cache { key, ttl, tags?, namespace? }`) — every
+///    decorator authored at the query site.
+///  * Profile reference (`cache <name>`) — `profile_ref: Some(name)` and
+///    the resolved `key`/`ttl`/... mirror the feature-level
+///    [`CacheProfile`] body. Lowering copies the body into this struct
+///    so codegen / runtime never have to redo the lookup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryCache {
     /// `cache key <expr>` — opaque template stored verbatim.
@@ -1152,6 +1168,63 @@ pub struct QueryCache {
     /// feature name at runtime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    /// `cache <profile_name>` reference form. `None` for the inline
+    /// shape; `Some(name)` when the query referenced a feature-level
+    /// [`CacheProfile`] by name (`cache product_view`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_ref: Option<String>,
+}
+
+/// Cache bucket cycle (CL.C.3) — feature-level `cache <name>` profile.
+///
+/// First-class declaration sibling to `job`/`webhook`/`notification`.
+/// Queries opt into a profile via `cache <profile_name>`; the inline
+/// `cache { key, ttl, ... }` shape on a query keeps working for
+/// one-off ttl/key pairs that don't need a named profile.
+///
+/// The four decorators beyond `key/ttl/tags/namespace`
+/// (`stale_while_revalidate`, `coalesce`, `sliding`) carry the
+/// runtime contract:
+///  * `stale_while_revalidate` — serve stale value up to N seconds
+///    after expiry while a background refresh runs (RFC 5861-flavoured).
+///  * `coalesce` — single-flight populate when multiple readers miss
+///    the same key concurrently.
+///  * `sliding` — every read extends the TTL window.
+///
+/// The runtime owns the execution semantics; this struct declares the
+/// contract typed end-to-end so doctor/codegen can cross-check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CacheProfile {
+    /// Profile identifier. Lowercase identifier; dash-separated allowed.
+    pub name: String,
+    /// `key <expr>` — opaque template stored verbatim. Required.
+    pub key: String,
+    /// `ttl <literal>` — typed duration or quoted prose. Required.
+    pub ttl: CacheTtl,
+    /// `namespace <label>` — single label; `None` defaults to the
+    /// feature name at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// `tags <label>[, <label>...]` — lowercase identifiers used by
+    /// `invalidates tag:<label>` on commands for fan-out invalidation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// `stale_while_revalidate <duration>` — typed duration. `None`
+    /// means the runtime refreshes synchronously on TTL miss.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_while_revalidate: Option<CacheTtl>,
+    /// `coalesce <bool>` — single-flight populate on concurrent miss.
+    /// `None` means "runtime default" (today: false). The boolean is
+    /// the language-visible knob; per-key window tuning is a runtime
+    /// adapter concern.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coalesce: Option<bool>,
+    /// `sliding <bool>` — sliding TTL semantics (read extends expiry).
+    /// `None` means fixed TTL. Requires `ttl` (doctor enforces).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sliding: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 /// Cache bucket cycle — `ttl` literal or quoted prose.

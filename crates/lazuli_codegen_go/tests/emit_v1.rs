@@ -68,6 +68,7 @@ fn empty_feature(name: &str) -> Feature {
         agents: Vec::new(),
         reports: Vec::new(),
         channels: Vec::new(),
+            caches: Vec::new(),
         aggregates: vec![],
         previous_names: Vec::new(),
         span_ref: None,

@@ -92,6 +92,7 @@ mod tests {
         pollers: vec![],
             reports,
             channels: vec![],
+            caches: vec![],
             aggregates: vec![],
             previous_names: vec![],
             span_ref: None,
