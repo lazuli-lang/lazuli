@@ -24,6 +24,7 @@
 | Vocab — notifications | WAR-VOCAB-NOTIFICATIONS-01 | inbox query + mark-read command |
 | Vocab — host home | WAR-VOCAB-HOSTHOME-01..02 | my_host return type, account-pendings query |
 | Vocab — host property detail | WAR-VOCAB-HOSTPROPDETAIL-01..03 | denormalized property-detail read, mutation return type, ID type mismatch |
+| Vocab — host property create | WAR-VOCAB-PROPERTYCREATE-01..02 | catalog asset-upload commands not implemented, expo-image-picker web fallback |
 | Vocab — operations | WAR-VOCAB-OPERATIONS-01..02 | denormalized agenda query, pending-reviews query |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
@@ -398,6 +399,24 @@
 - **Annotated in:** `apps/hostpoint-app/src/routes/HostOperations.tsx` header comment.
 - **Removal criterion:** a Review BC (or `trust.Review`) ships with `Review` resource (transaction reference, rating, comment, host_reply, status) + `query.list mine_pending_reviews_as_host()` actor-side query + `command leave_host_reply(review_id, reply)`. The operations agenda then consumes the query via `useLazuliQuery` to surface the prompt. Architecturally this overlaps with the `@trust` bucket (existing scaffold) but no resources are currently authored there.
 - **Surfaced by:** Phase 3.7 host-operations port (this entry).
+
+## WAR-VOCAB-PROPERTYCREATE-01 — Catalog asset-upload commands not implemented
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.5)
+- **Symptom:** the host property-create wizard storybook (Step 4 "Fotos") prompts the host to attach up to 10 photos (1 cover + 9 extras). The generated SDK exposes `requestCatalogAssetUpload` / `confirmCatalogAssetUpload` (cf. `dist/ts-web/catalog/catalog.gen.ts` lines 93-105 + 194-205) — both are catalog handler stubs returning HTTP 500. There is no working path to (a) request a presigned upload URL from S3-protocol storage, (b) PUT the file from the browser, (c) confirm the upload to bind it to the new `Property.cover_photo_id` / `Property.extra_photos`. The Property resource itself models the FK as `cover_photo_id?: ID | null` + `extra_photos: unknown` — the wire is there on the schema side; only the handler implementations are missing.
+- **Workaround in place:** `apps/hostpoint-app/src/routes/HostPropertyCreate.tsx` keeps the picked photos as **local component state only**. The wizard accepts the host's selections (Browser `File` -> `URL.createObjectURL` preview URI) and renders them in the Step 4 grid + Step 9 review, but the photos are NOT sent during the final mutation chain (`createCatalogProperty` -> `updateCatalogProperty` -> `publishCatalogProperty`). The created property ships without photos; the host re-attaches them from the property-detail screen once the asset-upload pair is implemented. The wizard banner does NOT warn the user about this gap (intentional — keep the storybook fidelity until the upload pair lands).
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyCreate.tsx` header comment + `handlePickPhoto` body.
+- **Removal criterion:** `catalog.lzi` ships working handler implementations for `request_asset_upload` + `confirm_asset_upload` (presigned-PUT lifecycle via the storage runtime's `@runtime/storage` adapter). The wizard then dispatches a fan-out of `requestCatalogAssetUpload({ kind: 'property_photo', content_type, size_bytes })` per file at submit time, PUTs each file to the returned URL, calls `confirmCatalogAssetUpload({ asset_id })` for each, and (once `updateCatalogProperty` accepts photo FKs end-to-end) passes the cover + extras during the update step. Implementation depends on @runtime/storage adapter binding to a real bucket (MinIO local + S3 prod).
+- **Surfaced by:** Phase 3.5 host-property-create port (this entry).
+
+## WAR-VOCAB-PROPERTYCREATE-02 — `expo-image-picker` not available on PWA target
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.5; PWA-pivot related per memory `project_hostpoint_pwa_pivot_2026-05-15`)
+- **Symptom:** the legacy storybook used `import * as ImagePicker from 'expo-image-picker'` + `requestMediaLibraryPermissionsAsync` + `launchImageLibraryAsync` for the photo picker. On the PWA target (`tanstack-vite` frontend per `Lazurite.toml`) the expo native modules are not built; even when bundled via `react-native-web`, `expo-image-picker` requires `EXImagePicker` native runtime. The UI primitives `CoverPhotoSlot` / `ExtraPhotosSlot` were deleted from the PWA build for the same reason (cf. `apps/hostpoint-app/src/shared/presentation/ui/index.ts` comment block).
+- **Workaround in place:** wizard inlines a `pickPropertyPhotosWeb()` helper (`apps/hostpoint-app/src/routes/HostPropertyCreate.tsx`) that creates a hidden `<input type="file" multiple>` via `document.createElement('input')`, fires `.click()`, and resolves a `Promise<PropertyPhoto[]>` from the change event using `URL.createObjectURL(file)` for preview thumbnails. Cover-photo slot accepts 1 file; extras slot accepts up to 9. The `CoverPhotoSlot` / `ExtraPhotosSlot` presentation is also inlined locally (`CoverPhotoSlotWeb` / `ExtraPhotosSlotWeb`) since the canonical primitives were deleted. `Platform.OS === 'web'` guard short-circuits the helper to no-op on non-web targets, which means the wizard will not pick photos when the Expo client is restored.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyCreate.tsx` (`pickPropertyPhotosWeb`, `CoverPhotoSlotWeb`, `ExtraPhotosSlotWeb`).
+- **Removal criterion:** EITHER (a) Lazuli ships a `@runtime/image-picker` or `@plugin/image-picker` cross-platform adapter that abstracts file-input vs `expo-image-picker` vs CameraRoll behind a shared TS interface, OR (b) `CoverPhotoSlot` / `ExtraPhotosSlot` are re-introduced in `shared/presentation/ui/forms/` with platform-specific implementations (`*.web.tsx` vs `*.native.tsx`) the way react-native-web typically splits primitives. Path (b) is more aligned with the existing `react-native-web` layering; path (a) is more aligned with the framework's "wire-thin runtime" thesis. Closing this entry retires both inline `*Web` slots + the inline helper.
+- **Surfaced by:** Phase 3.5 host-property-create port (this entry).
 
 ---
 
