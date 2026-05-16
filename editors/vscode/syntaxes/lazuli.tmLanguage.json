@@ -115,11 +115,75 @@
     },
 
     "feature-decl": {
-      "match": "^(\\s*)(feature)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
-      "captures": {
-        "2": { "name": "keyword.control.declaration.structural.lazuli" },
-        "3": { "name": "entity.name.type.feature.lazuli" }
-      }
+      "comment": "F1 (R1.A audit) — feature-decl is now begin/end so the feature body has a stable enclosing scope. Body patterns mirror the top-level set minus other top-level kinds (app/workspace/contract/etc.) and stop at the next top-level declaration via `end: ^(?=\\S)`.",
+      "begin": "^(feature)\\s+([a-z_][a-z0-9_]*)\\b",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.declaration.structural.lazuli" },
+        "2": { "name": "entity.name.type.feature.lazuli" }
+      },
+      "end": "^(?=\\S)",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#enum-block" },
+        { "include": "#filters-block" },
+        { "include": "#scope-block" },
+        { "include": "#tests-block" },
+        { "include": "#policies-block" },
+        { "include": "#errors-block" },
+        { "include": "#audience-block" },
+        { "include": "#emits-block" },
+        { "include": "#extensions-block" },
+        { "include": "#auth-block" },
+        { "include": "#cache-block" },
+        { "include": "#translation-block" },
+        { "include": "#defaults-block" },
+        { "include": "#non-goals-block" },
+        { "include": "#poller-block" },
+        { "include": "#api-block" },
+        { "include": "#command-block" },
+        { "include": "#query-block" },
+        { "include": "#webhook-block" },
+        { "include": "#job-block" },
+        { "include": "#agent-block" },
+        { "include": "#notification-block" },
+        { "include": "#report-block" },
+        { "include": "#channel-block" },
+        { "include": "#tenant-migration-block" },
+        { "include": "#aggregate-block" },
+        { "include": "#event-group-block" },
+        { "include": "#event-trace-block" },
+        { "include": "#workflow-block" },
+        { "include": "#operation-block" },
+        { "include": "#view-block" },
+        { "include": "#experience-block" },
+        { "include": "#extends-block" },
+        { "include": "#secret-rotation-block" },
+        { "include": "#error-page-block" },
+        { "include": "#resource-block" },
+        { "include": "#record-block" },
+        { "include": "#rule-block" },
+        { "include": "#plan-block" },
+        { "include": "#permission-decl" },
+        { "include": "#role-decl" },
+        { "include": "#surface-decl" },
+        { "include": "#uses-experience-decl" },
+        { "include": "#feature-uses-imports-list" },
+        { "include": "#feature-retention-line" },
+        { "include": "#bare-block-opener" },
+        { "include": "#field-decl" },
+        { "include": "#typed-extensions" },
+        { "include": "#statements-feature-meta" },
+        { "include": "#statements-resource" },
+        { "include": "#statements-misc" },
+        { "include": "#modifiers" },
+        { "include": "#decorators" },
+        { "include": "#references" },
+        { "include": "#types" },
+        { "include": "#operators" },
+        { "include": "#constants" },
+        { "include": "#punctuation" }
+      ]
     },
     "app-decl": {
       "match": "^(\\s*)(app)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
@@ -284,6 +348,7 @@
           "name": "entity.name.function.statement.resource.lazuli",
           "match": "^\\s+(tenancy|soft_delete|timestamps|no_timestamps|retention|validates|validate|unique|index|on_delete|derived|has_many|inverse|previously|migrated|alias|composite_key|lock|invariant|invariants)\\b"
         },
+        { "include": "#feature-retention-line" },
         { "include": "#field-decl" },
         { "include": "#decorators" },
         { "include": "#modifiers" },
@@ -1357,11 +1422,13 @@
       ]
     },
     "audit-block": {
-      "comment": "audit field-list line, OR bare audit (block opener) followed by emit_to.",
-      "begin": "^(\\s+)(audit)(\\s+(?:none|default|[a-z_][a-z0-9_\\.,\\s]*))?\\s*$",
+      "comment": "audit field-list line, OR bare audit (block opener) followed by emit_to. R1.A audit fix: `audit none|default` are closed-catalog modes (not field names), so they get `constant.language.audit-mode.lazuli` via the more-specific match below; arbitrary field lists keep `variable.other.audit-fields.lazuli`.",
+      "begin": "^(\\s+)(?:(audit)\\s+(none|default)|(audit)(\\s+[a-z_][a-z0-9_\\.,\\s]*)?)\\s*$",
       "beginCaptures": {
         "2": { "name": "keyword.control.statement.lazuli" },
-        "3": { "name": "variable.other.audit-fields.lazuli" }
+        "3": { "name": "constant.language.audit-mode.lazuli" },
+        "4": { "name": "keyword.control.statement.lazuli" },
+        "5": { "name": "variable.other.audit-fields.lazuli" }
       },
       "end": "^(?!\\1\\s)(?=\\s*\\S)",
       "patterns": [
@@ -1480,6 +1547,14 @@
             "1": { "name": "keyword.control.statement.lazuli" },
             "2": { "name": "variable.other.search-target.lazuli" },
             "3": { "name": "keyword.control.statement.lazuli" }
+          }
+        },
+        {
+          "comment": "F3 (R1.A audit) — `mode contains|prefix|exact` closed-catalog. Used in every faceted `query.list search`. Catalog source: lazuli_lsp keyword_description \"mode contains|prefix|exact\".",
+          "match": "^\\s+(mode)\\s+(contains|prefix|exact)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "constant.language.search-mode.lazuli" }
           }
         },
         {
@@ -2433,11 +2508,42 @@
       ]
     },
     "statements-feature-meta": {
-      "comment": "Feature-scoped metadata that requires a same-line value (kills bare over-color).",
+      "comment": "Feature-scoped metadata that requires a same-line value (kills bare over-color). F4/F7 (R1.A audit): dropped duplicates of `context` and `model`, plus dropped keywords already covered by their dedicated blocks (`trigger`/`schedule`/`queue` → job/notification, `prompt`/`safety`/`stream`/`temperature`/`max_tokens`/`top_p`/`seed`/`tools` → agent, `template` → notification/error_page, `catalog`/`namespace`/`sql`/`topic` → translation/cache/query.sql/event, `tenant_from`/`target`/`targets`/`tenant`/`reason` → command/job/scope). Kept `to` (used in route bodies which lack a dedicated block) and the genuine feature-meta directives.",
       "patterns": [
         {
           "name": "entity.name.function.statement.feature-meta.lazuli",
-          "match": "^\\s+(purpose|context|imports|uses|requires|target|targets|to|tenant|tenant_from|reason|trigger|schedule|queue|owner|owns|exposes|publishes|consumes|service|topic|namespace|catalog|sql|template|prompt|model|safety|context|stream|temperature|max_tokens|top_p|seed|provides|model)\\b(?=\\s+\\S)"
+          "match": "^\\s+(purpose|context|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
+        }
+      ]
+    },
+    "feature-uses-imports-list": {
+      "comment": "F2 (R1.A audit) — `uses`/`imports`/`requires` comma-separated feature-name list. Verb gets statement scope; each identifier in the list gets `entity.name.type.feature.lazuli` for parity with the `feature-decl` capture. The list-of-identifiers regex tolerates whitespace around commas; the verb pattern requires same-line value (avoids matching `uses` as a bare block opener).",
+      "patterns": [
+        {
+          "comment": "Verb + first identifier + remaining (`, ident`)* — verb and first ident captured; trailing identifiers handled by the secondary pattern below.",
+          "match": "^\\s+(uses|imports|requires)\\s+([a-z_][a-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.statement.lazuli" },
+            "2": { "name": "entity.name.type.feature.lazuli" }
+          }
+        }
+      ]
+    },
+    "feature-retention-line": {
+      "comment": "Closed-catalog retention modifiers (R1.A audit — `retention 7y then anonymize`, `retention forever then anonymize`). Two-step: (1) duration `<n><unit>|forever`; (2) `then <action>`. Action catalog drawn from LSP retention semantics: `anonymize|delete|archive`.",
+      "patterns": [
+        {
+          "comment": "`then anonymize|delete|archive` connector inside a retention line.",
+          "match": "\\b(then)\\s+(anonymize|delete|archive)\\b",
+          "captures": {
+            "1": { "name": "keyword.other.retention.lazuli" },
+            "2": { "name": "constant.language.retention-action.lazuli" }
+          }
+        },
+        {
+          "comment": "`forever` token used as a retention duration sentinel.",
+          "name": "constant.language.retention-duration.lazuli",
+          "match": "\\b(forever)\\b"
         }
       ]
     },

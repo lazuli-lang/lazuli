@@ -94,6 +94,11 @@ fn doctor_release_command(input: &Path) -> Result<()> {
 struct DoctorPackage {
     project_root: PathBuf,
     security_profile: SecurityProfile,
+    /// `true` when `lazuli doctor` was invoked on a single `.lzi`/`.lzx`
+    /// file rather than a project directory. Single-file mode skips
+    /// project-level checks (e.g. `MANIFEST-REQUIRED-001`) that depend
+    /// on having a real project root with `app.lzi` + `Lazurite.toml`.
+    single_file_input: bool,
     lazurite_manifest: Option<Manifest>,
     files: Vec<DoctorFile>,
     workspace: Option<DoctorAppWorkspace>,
@@ -305,6 +310,12 @@ impl DoctorPackage {
         if paths.is_empty() {
             bail!("no .lzi or .lzx files found for {}", input.display());
         }
+        // Track whether the doctor was invoked on a single file vs a project
+        // directory so project-level rules (MANIFEST-REQUIRED-001) can skip
+        // when no real project root is present. Audit ref: R1.C sweep
+        // produced 12 false positives because the parent dir of standalone
+        // `.lzi` fixtures was scanned for @plugin/* refs from sibling files.
+        let single_file_input = input.is_file();
         let project_root = doctor_project_root(input);
         let lazurite_manifest = lazurite_manifest::load(&project_root).with_context(|| {
             format!(
@@ -863,6 +874,7 @@ impl DoctorPackage {
         Ok(Self {
             project_root,
             security_profile,
+            single_file_input,
             lazurite_manifest,
             files,
             workspace,
@@ -889,7 +901,10 @@ impl DoctorPackage {
     fn diagnostics(&self) -> Vec<DoctorDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        diagnostics.extend(manifest_required_diagnostics(&self.project_root));
+        diagnostics.extend(manifest_required_diagnostics(
+            &self.project_root,
+            self.single_file_input,
+        ));
         diagnostics.extend(lazurite_manifest_diagnostics(self));
 
         // PG.B — plan-and-gate cross-feature checks.
@@ -914,7 +929,7 @@ impl DoctorPackage {
         }
 
         for file in &self.files {
-            diagnostics.extend(file.local_diagnostics.clone());
+            diagnostics.extend(dedupe_env_contract_diagnostics(&file.local_diagnostics));
         }
         diagnostics.extend(vocab_grammar_form_diagnostics(
             &self.files,
@@ -1995,7 +2010,46 @@ fn project_uses_plugin_refs(project_root: &Path) -> bool {
         })
 }
 
-fn manifest_required_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
+/// LSP emits both `app-env-contract` and `env-schema-contract` on the
+/// same line of a `registry.env` block when the env declaration shape is
+/// invalid — the `app` and `registry` indent-6 branches both call
+/// `validate_app_env_line`, then the dedicated `env-schema-contract`
+/// validator runs over the registry pass. Audit ref: R1.C real-world
+/// sweep produced 9 duplicates (atelier 7×, erudito 2×).
+///
+/// `env-schema-contract` is the more specific registry-scoped rule and
+/// owns the registry env shape; drop the broader `app-env-contract`
+/// diagnostic when the same `(path, line)` already carries it.
+fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) -> Vec<DoctorDiagnostic> {
+    let env_schema_lines: BTreeSet<(PathBuf, usize)> = diagnostics
+        .iter()
+        .filter(|d| d.code == "env-schema-contract")
+        .map(|d| (d.path.clone(), d.line))
+        .collect();
+
+    diagnostics
+        .iter()
+        .filter(|d| {
+            !(d.code == "app-env-contract"
+                && env_schema_lines.contains(&(d.path.clone(), d.line)))
+        })
+        .cloned()
+        .collect()
+}
+
+fn manifest_required_diagnostics(
+    project_root: &Path,
+    single_file_input: bool,
+) -> Vec<DoctorDiagnostic> {
+    // Single-file invocation (`lazuli doctor path/to/file.lzi`) has no
+    // project context — the rule walked the parent directory, picked up
+    // unrelated sibling fixtures' `@plugin/*` refs, and pointed the user
+    // at a phantom `Lazurite.toml`. Audit ref: R1.C real-world sweep
+    // (12 false positives across standalone fixtures).
+    if single_file_input {
+        return Vec::new();
+    }
+
     if !project_uses_plugin_refs(project_root) || project_has_lazurite_manifest(project_root) {
         return Vec::new();
     }
@@ -2052,8 +2106,8 @@ fn lazuli_version_001_diagnostics(
                 severity,
                 code: "LAZULI-VERSION-001".to_owned(),
                 message: format!(
-                    "lazuli_version pin missing. Expected: lazuli_version \"{}\". expected_value = \"{}\". Add this to app.lzi to lock the runtime/IR ABI version.",
-                    current_major_minor, current_major_minor
+                    "lazuli_version pin missing. Expected: lazuli_version \"{}\". Add this to app.lzi to lock the runtime/IR ABI version.",
+                    current_major_minor
                 ),
             }]
         }
@@ -13237,6 +13291,7 @@ mod tests {
         DoctorPackage {
             project_root: PathBuf::from("."),
             security_profile: SecurityProfile::Strict,
+            single_file_input: false,
             lazurite_manifest: None,
             files,
             workspace,
@@ -13360,6 +13415,126 @@ feature billing
         assert!(
             error.to_string().contains("failed Lazuli doctor checks"),
             "unexpected error: {error:?}"
+        );
+    }
+
+    /// Regression for the R1.C real-world sweep — `lazuli doctor file.lzi`
+    /// (single-file invocation) must not emit `MANIFEST-REQUIRED-001`.
+    /// The previous behavior treated the file's parent directory as the
+    /// project root, scanned every sibling `.lzi`, and reported a phantom
+    /// `Lazurite.toml` even when the target file itself had no plugin refs.
+    #[test]
+    fn doctor_skips_manifest_required_on_single_file_invocation() {
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-doctor-single-file-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp doctor project");
+
+        // Sibling file in the parent dir uses @plugin/payments, but we
+        // are NOT going to invoke the doctor on it.
+        fs::write(
+            root.join("sibling.lzi"),
+            r#"
+feature billing
+  command charge
+    policy @plugin/payments
+"#,
+        )
+        .expect("write sibling.lzi");
+
+        // The file we DO invoke the doctor on has no plugin refs.
+        let target = root.join("clean.lzi");
+        fs::write(
+            &target,
+            r#"
+feature greetings
+  query.list hello
+    title "Hello"
+"#,
+        )
+        .expect("write clean.lzi");
+
+        let package = DoctorPackage::load(&target, SecurityProfile::Strict)
+            .expect("load single-file package");
+        let diagnostics = package.diagnostics();
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(
+            !codes(&diagnostics).contains("MANIFEST-REQUIRED-001"),
+            "MANIFEST-REQUIRED-001 should not fire on single-file invocations; got: {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    /// Regression for the R1.C real-world sweep — the LSP fires both
+    /// `app-env-contract` and `env-schema-contract` on the same line of
+    /// a `registry.env` block when the env declaration shape is invalid.
+    /// The doctor layer dedupes them in favor of `env-schema-contract`.
+    #[test]
+    fn doctor_dedupes_env_contract_on_same_line() {
+        // Invalid env declaration (missing `required|optional`) under
+        // `registry.env.group <name>` triggers both `app-env-contract`
+        // (via `validate_app_env_line`) and `env-schema-contract` in
+        // the LSP. The doctor must collapse them into one diagnostic.
+        // Sanity-check the upstream double-emission first via the LSP
+        // directly so this test fails loudly if the LSP wiring changes.
+        let source = r#"registry
+  env
+    group storage
+      server S3_ENDPOINT: Text
+"#;
+        let lsp_diagnostics =
+            lazuli_lsp::diagnostics_for_source_with_profile(source, SecurityProfile::Strict);
+        let lsp_codes: Vec<String> = lsp_diagnostics
+            .iter()
+            .map(|d| {
+                DoctorDiagnostic::from_lsp(PathBuf::from("registry.lzi"), d).code
+            })
+            .collect();
+        // The LSP layer is intentionally left noisy; doctor owns the dedupe.
+        assert!(
+            lsp_codes.iter().any(|c| c == "app-env-contract")
+                && lsp_codes.iter().any(|c| c == "env-schema-contract"),
+            "LSP should still emit both codes (dedupe lives in doctor); got: {lsp_codes:?}"
+        );
+
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-doctor-env-dedupe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp project");
+        let target = root.join("registry.lzi");
+        fs::write(&target, source).expect("write registry.lzi");
+
+        let package = DoctorPackage::load(&target, SecurityProfile::Strict)
+            .expect("load registry.lzi package");
+        let diagnostics = package.diagnostics();
+        let _ = fs::remove_dir_all(&root);
+
+        let env_line_codes: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| {
+                d.line == 4
+                    && (d.code == "app-env-contract" || d.code == "env-schema-contract")
+            })
+            .map(|d| d.code.as_str())
+            .collect();
+
+        assert_eq!(
+            env_line_codes.len(),
+            1,
+            "exactly one of app-env-contract / env-schema-contract should survive dedupe; got: {env_line_codes:?}"
+        );
+        assert_eq!(
+            env_line_codes[0], "env-schema-contract",
+            "env-schema-contract should win the dedupe (registry-scoped owner)"
         );
     }
 
@@ -14857,7 +15032,27 @@ contract acme.ai.v1
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "LAZULI-VERSION-001");
         assert_eq!(diagnostics[0].severity, DoctorSeverity::Warning);
-        assert!(diagnostics[0].message.contains("expected_value = \"0.12\""));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("Expected: lazuli_version \"0.12\""),
+            "user-facing prose should advertise the expected pin: {}",
+            diagnostics[0].message
+        );
+    }
+
+    /// Regression for the R1.C real-world sweep — the user-facing message
+    /// must not leak the internal debug suffix `expected_value = "..."`.
+    #[test]
+    fn lazuli_version_001_message_has_no_debug_leakage() {
+        let package = package_from_sources(vec![("app.lzi", "app Acme\n")]);
+        let diagnostics = lazuli_version_001_diagnostics(package.app.as_ref(), "0.14.0");
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            !diagnostics[0].message.contains("expected_value ="),
+            "LAZULI-VERSION-001 message should not contain debug leakage: {}",
+            diagnostics[0].message
+        );
     }
 
     #[test]

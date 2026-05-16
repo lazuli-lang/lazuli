@@ -73,8 +73,10 @@
 #                               ^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
 >
 >  uses org, account, billing
-#^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
-#      ^^^^ source.lazuli
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.statement.lazuli
+#      ^ source.lazuli
+#       ^^^ source.lazuli entity.name.type.feature.lazuli
 #          ^ source.lazuli punctuation.separator.comma.lazuli
 #           ^^^^^^^^ source.lazuli
 #                   ^ source.lazuli punctuation.separator.comma.lazuli
@@ -243,7 +245,10 @@
 #^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
 >      retention 5y then anonymize
 #^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
-#               ^^^^^^^^^^^^^^^^^^^ source.lazuli
+#               ^^^^ source.lazuli
+#                   ^^^^ source.lazuli keyword.other.retention.lazuli
+#                       ^ source.lazuli
+#                        ^^^^^^^^^ source.lazuli constant.language.retention-action.lazuli
 >
 >      validates @validator.price_check
 #^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.resource.lazuli
@@ -500,8 +505,10 @@
 #                                    ^ source.lazuli punctuation.separator.comma.lazuli
 #                                     ^^^^^ source.lazuli
 >        mode contains
-#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
-#            ^^^^^^^^^^ source.lazuli
+#^^^^^^^^ source.lazuli
+#        ^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^ source.lazuli constant.language.search-mode.lazuli
 >
 >      cache
 #^^^^^^ source.lazuli

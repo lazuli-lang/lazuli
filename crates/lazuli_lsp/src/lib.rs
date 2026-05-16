@@ -417,6 +417,15 @@ fn diagnostics_for_with_profile(
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
         diagnostics.extend(feature_unknown_kind_diagnostics(source));
+        // 2026-05-15 typo-detection sweep — six sibling contexts where
+        // a typo silently drops the block. See `closest_kind`.
+        diagnostics.extend(app_unknown_kind_diagnostics(source));
+        diagnostics.extend(registry_unknown_kind_diagnostics(source));
+        diagnostics.extend(view_unknown_kind_diagnostics(source));
+        diagnostics.extend(surface_unknown_kind_diagnostics(source));
+        diagnostics.extend(command_statement_unknown_diagnostics(source));
+        diagnostics.extend(query_statement_unknown_diagnostics(source));
+        diagnostics.extend(audience_unknown_kind_diagnostics(source));
         diagnostics.extend(query_mode_diagnostics(source));
         diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));
@@ -1549,8 +1558,27 @@ fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// (`comand` / `quiery` / `wokflow`) — adjacent-swap support adds
 /// complexity without much gain at our scale.
 fn closest_feature_body_kind(word: &str, max_distance: usize) -> Option<&'static str> {
+    closest_kind(word, FEATURE_BODY_KINDS, max_distance)
+}
+
+/// Generic closest-kind matcher shared by every `<context>-unknown-kind`
+/// diagnostic. Returns the closest catalog entry when its plain-Levenshtein
+/// edit distance is ≤ `max_distance`, else `None`. The catalog is a
+/// `&'static [&'static str]` so the returned suggestion can flow into the
+/// diagnostic message without heap-allocating per call.
+///
+/// Added 2026-05-15 alongside the typo-detection sweep that promoted six
+/// other contexts (app/registry/view/surface/command-statement/
+/// query-statement/audience) to the same closed-catalog treatment as
+/// `feature_unknown_kind_diagnostics`. Reuse this — do NOT copy-paste the
+/// O(n*m) loop into each new diagnostic.
+fn closest_kind(
+    word: &str,
+    catalog: &[&'static str],
+    max_distance: usize,
+) -> Option<&'static str> {
     let mut best: Option<(&'static str, usize)> = None;
-    for &candidate in FEATURE_BODY_KINDS {
+    for &candidate in catalog {
         let d = levenshtein(word, candidate);
         if d > max_distance {
             continue;
@@ -1590,6 +1618,648 @@ fn levenshtein(a: &str, b: &str) -> usize {
         std::mem::swap(&mut prev, &mut curr);
     }
     prev[m]
+}
+
+// =============================================================================
+// 2026-05-15 — Typo-detection asymmetry sweep (R1.C audit follow-up).
+//
+// `feature_unknown_kind_diagnostics` covers ONE context: indent-2 lines
+// inside `feature X`. The sweep surfaced 7 other contexts where a typo
+// in a kind keyword silently breaks compilation (parser drops the block,
+// IR loses the declaration, regenerated `dist/` looks like the user
+// simply forgot to write the command/api/view). Each helper below
+// follows the same skeleton: walk lines, detect "inside the context",
+// at the appropriate sub-indent check the first token against a closed
+// `<CONTEXT>_BODY_KINDS` catalog, skip decorator/field/assignment lines,
+// and emit ERROR with a `closest_kind` suggestion when the distance is
+// ≤ 2.
+//
+// All diagnostics share the `levenshtein` + `closest_kind` infrastructure
+// — the catalogs are the only per-context state. Each catalog is sorted
+// alphabetically for diff hygiene; keep new entries in order.
+// =============================================================================
+
+/// Closed catalog of indent-2 child kinds inside `app <name>`.
+/// Mirrors `app_child_block` (block headers) ∪ `is_app_scalar_child`
+/// (scalar one-liners). Kept manually in sync with both helpers; if
+/// either grows a new keyword, add it here too.
+/// Sorted alphabetically for diff hygiene.
+const APP_BODY_KINDS: &[&str] = &[
+    "architecture",
+    "auth_failed_redirect",
+    "bindings",
+    "capabilities",
+    "communication",
+    "cookie",
+    "cors",
+    "default_locale",
+    "default_timezone",
+    "deploy",
+    "encryption",
+    "env",
+    "environments",
+    "error_page",
+    "headers",
+    "integrations",
+    "lazuli_version",
+    "limits",
+    "locale",
+    "logging",
+    "not_found",
+    "packs",
+    "proxy",
+    "runtime",
+    "services",
+    "targets",
+    "title",
+    "tracing",
+    "urls",
+    "uses",
+    "version",
+];
+
+/// Closed catalog of indent-2 child kinds inside `registry`.
+/// Mirrors `registry_child` in `lazuli_cli/src/app_manifest.rs` plus
+/// the LSP's own `registry_contract_diagnostics` allow-list. Sorted.
+const REGISTRY_BODY_KINDS: &[&str] = &[
+    "capabilities",
+    "env",
+    "integrations",
+    "packs",
+    "secret_rotation",
+    "tools",
+    "webhook_event",
+    "webhook_events",
+];
+
+/// Closed catalog of view-body keywords. Mirrors `view_body_handlers`
+/// in `lazuli_syntax/src/parser.rs` plus the standalone block handlers
+/// (`drawer`, `filters`, `search`, `sort`, `selection`, `bulk_actions`,
+/// `settings`) and the route/extends/anchor/audience scaffolding from
+/// the L0 #6 grammar.
+const VIEW_BODY_KINDS: &[&str] = &[
+    "actions",
+    "anchor",
+    "audience",
+    "block",
+    "bulk_actions",
+    "cells",
+    "columns",
+    "drawer",
+    "extends",
+    "extensible_by",
+    "fields",
+    "filter",
+    "filters",
+    "lazy",
+    "prerender",
+    "route",
+    "search",
+    "sections",
+    "selection",
+    "settings",
+    "slot",
+    "sort",
+    "source",
+    "submit",
+];
+
+/// Closed catalog of indent-2 child kinds inside `surface X <platform>`
+/// (canonical `.lzi`). The `.lzi` surface accepts both the
+/// audience-grouped form (`audience <name>` with nested views) and the
+/// flat form (`view <name> <Component>` directly under surface). Plus
+/// the `uses experience` declaration. The `uses` prefix-form is
+/// matched on the head token alone.
+const SURFACE_BODY_KINDS: &[&str] = &["audience", "uses", "view"];
+
+/// Closed catalog of indent-4 statement keywords inside a `command X`
+/// body. Mirrors `parse_command_decl`'s prefix dispatch table. The
+/// effect targets (`creates Foo`, `updates Foo`, etc.) are statement
+/// keywords; the resource name they target is filtered out by the
+/// per-line capitalized-identifier check (a bare `Customer` line is a
+/// stray token, not an unknown kind).
+/// Sorted alphabetically.
+const COMMAND_STATEMENT_KINDS: &[&str] = &[
+    "approval",
+    "audit",
+    "calls",
+    "creates",
+    "deletes",
+    "deprecated",
+    "emits",
+    "gate",
+    "handler",
+    "idempotency",
+    "input",
+    "invalidates",
+    "let",
+    "policy",
+    "previously",
+    "rate_limit",
+    "retry",
+    "returns",
+    "route",
+    "target",
+    "tests",
+    "timeout",
+    "updates",
+    "validate",
+    "write_window",
+];
+
+/// Closed catalog of indent-4 statement keywords inside `query.list`,
+/// `query.lookup`, and `query.sql` bodies. Mirrors the prefix-dispatch
+/// arms in `parse_query_list_decl`, `parse_query_lookup_decl`, and
+/// `parse_query_sql_decl`. Includes the union (a `query.lookup` body
+/// will never use `cache`/`paginate`/`order` — but flagging those as
+/// typos would cause false positives across query kinds, so we accept
+/// them and let the parser emit the precise per-kind error).
+/// Sorted alphabetically.
+const QUERY_STATEMENT_KINDS: &[&str] = &[
+    "cache",
+    "filters",
+    "gate",
+    "modifier",
+    "order",
+    "paginate",
+    "params",
+    "policy",
+    "returns",
+    "scope",
+    "search",
+    "sql",
+];
+
+/// Closed catalog of children inside `audience <name>` blocks.
+/// Per `parse_lzx_audience_block`, ONLY `requires @scope.<name>` and
+/// `view list|detail|create <name>` are valid. The `requires` lines
+/// are filtered out by the leading-`@` skip; we catalog the bare kind
+/// keywords here.
+const AUDIENCE_BODY_KINDS: &[&str] = &["requires", "view"];
+
+/// 2026-05-15 — Indent-2 kind keywords inside `app <name>`. Without
+/// this lint, a typo like `urls` → `urs` is silently dropped by the
+/// parser, no diagnostic, and the regenerated app forgets every URL.
+fn app_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut inside_app = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            inside_app = trimmed.starts_with("app ");
+            continue;
+        }
+        if !inside_app || leading != 2 {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if first.starts_with('@')
+            || trimmed.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        if APP_BODY_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, APP_BODY_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown app block kind `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown app block kind `{first}`. Valid kinds: title / version / lazuli_version / targets / bindings / packs / environments / urls / cors / headers / cookie / proxy / limits / env / integrations / capabilities / architecture / services / communication / runtime / deploy / logging / tracing / locale / encryption / error_page / uses / default_locale / default_timezone / auth_failed_redirect / not_found."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "app-unknown-kind",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// 2026-05-15 — Indent-2 kind keywords inside `registry`. A typo like
+/// `webhook_evnts` (vs `webhook_events`) silently drops the registry
+/// catalog, leaving downstream webhooks unable to resolve their typed
+/// envelope shape.
+fn registry_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut inside_registry = false;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+        if leading == 0 {
+            inside_registry = trimmed == "registry" || trimmed.starts_with("registry ");
+            continue;
+        }
+        if !inside_registry || leading != 2 {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if first.starts_with('@')
+            || trimmed.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        if REGISTRY_BODY_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, REGISTRY_BODY_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown registry block kind `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown registry block kind `{first}`. Valid kinds: env / capabilities / integrations / packs / tools / webhook_event / webhook_events / secret_rotation."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "registry-unknown-kind",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// 2026-05-15 — Body kinds inside `view <name> <Component>` (L0 #6
+/// view body). A typo like `selecton` (vs `selection`) silently strips
+/// row-selection from the rendered list view; `colums` (vs `columns`)
+/// produces an empty grid.
+fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    // Stack of (header_indent, body_indent) for the currently open view block.
+    let mut current_view: Option<(usize, usize)> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+
+        // Close view scope when indentation returns to (or above) the header.
+        if let Some((header_indent, _body_indent)) = current_view {
+            if leading <= header_indent {
+                current_view = None;
+            }
+        }
+
+        if current_view.is_none() {
+            // Detect a view header — `view list <name>`, `view detail <name>`,
+            // `view create <name>`, or `view <name> <Component>` (legacy form).
+            if trimmed.starts_with("view ") {
+                current_view = Some((leading, leading + 2));
+            }
+            continue;
+        }
+
+        let (_header_indent, body_indent) = current_view.unwrap();
+        if leading != body_indent {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if first.starts_with('@')
+            || trimmed.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        if VIEW_BODY_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, VIEW_BODY_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown view body kind `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown view body kind `{first}`. Valid kinds: source / submit / columns / fields / sections / cells / route / actions / search / filter / filters / drawer / sort / selection / bulk_actions / settings / block / slot / extends / extensible_by / anchor / audience / lazy / prerender."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "view-unknown-kind",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// 2026-05-15 — Indent-2 kind keywords inside `surface X <platform>`.
+/// Only `uses experience` and `audience` are valid children. A typo
+/// like `audeince` silently drops the entire audience subtree, taking
+/// every view inside it with no diagnostic.
+fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    // Stack of (header_indent, body_indent) for the currently open surface.
+    let mut current_surface: Option<(usize, usize)> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+
+        if let Some((header_indent, _body_indent)) = current_surface {
+            if leading <= header_indent {
+                current_surface = None;
+            }
+        }
+
+        if current_surface.is_none() {
+            if trimmed.starts_with("surface ") {
+                current_surface = Some((leading, leading + 2));
+            }
+            continue;
+        }
+
+        let (_header_indent, body_indent) = current_surface.unwrap();
+        if leading != body_indent {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if first.starts_with('@')
+            || trimmed.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        if SURFACE_BODY_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, SURFACE_BODY_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown surface body kind `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown surface body kind `{first}`. Valid children: `uses experience <name>`, `audience <name>`."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "surface-unknown-kind",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// 2026-05-15 — Indent-4 statement keywords inside `command X` body.
+/// A typo like `audt` silently drops audit metadata; `inalidates`
+/// strips cache invalidation. Both regenerate clean Go that quietly
+/// loses behavior — exactly the silent-failure mode this lint catches.
+///
+/// Skips lines that are NOT keyword-statements: assignments (`x = ...`),
+/// effect targets (capitalized identifier like `Customer`), field-name
+/// lines inside `input`/`output` sub-blocks (which carry `:`).
+fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_command: Option<(usize, usize)> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+
+        if let Some((header_indent, _body_indent)) = current_command {
+            if leading <= header_indent {
+                current_command = None;
+            }
+        }
+
+        if current_command.is_none() {
+            if trimmed.starts_with("command ") {
+                current_command = Some((leading, leading + 2));
+            }
+            continue;
+        }
+
+        let (_header_indent, body_indent) = current_command.unwrap();
+        if leading != body_indent {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        // Skip decorators, namespaced refs, key-value lines, assignments.
+        // The `=` and `:` checks scan the WHOLE trimmed line because
+        // command bodies host `<field> = <expr>` and `<field>: <Type>`
+        // forms where the LHS identifier carries no punctuation.
+        if first.starts_with('@')
+            || first.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        // Skip effect-target "bare resource" lines like `Customer` (a
+        // capitalized identifier on its own is not a statement keyword).
+        if first
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if COMMAND_STATEMENT_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, COMMAND_STATEMENT_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown command statement `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown command statement `{first}`. Valid statements: previously / route / input / policy / rate_limit / audit / approval / target / let / validate / creates / updates / deletes / returns / handler / emits / invalidates / calls / timeout / retry / idempotency / write_window / tests / deprecated / gate."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "command-statement-unknown",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// 2026-05-15 — Indent-4 statement keywords inside `query.list`,
+/// `query.lookup`, and `query.sql` bodies. A typo like `paginat` silently
+/// drops pagination; `cahce` drops the cache profile binding.
+fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_query: Option<(usize, usize)> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+
+        if let Some((header_indent, _body_indent)) = current_query {
+            if leading <= header_indent {
+                current_query = None;
+            }
+        }
+
+        if current_query.is_none() {
+            if trimmed.starts_with("query.list ")
+                || trimmed.starts_with("query.lookup ")
+                || trimmed.starts_with("query.sql ")
+            {
+                current_query = Some((leading, leading + 2));
+            }
+            continue;
+        }
+
+        let (_header_indent, body_indent) = current_query.unwrap();
+        if leading != body_indent {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if first.starts_with('@')
+            || trimmed.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        if QUERY_STATEMENT_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, QUERY_STATEMENT_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown query statement `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown query statement `{first}`. Valid statements: policy / params / filters / scope / modifier / search / cache / paginate / order / returns / sql / gate."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "query-statement-unknown",
+            &message,
+        ));
+    }
+
+    diagnostics
+}
+
+/// 2026-05-15 — Children of `audience <name>` blocks. Per the parser's
+/// strict check (`parse_lzx_audience` line 962), ONLY `view <name>
+/// <Component>` lines are accepted. A typo like `vieww list ItemList`
+/// causes the parser to bail with a generic shape error; this lint
+/// turns it into a precise typo suggestion.
+fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut current_audience: Option<(usize, usize)> = None;
+
+    for (line_index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let leading = leading_spaces(line);
+
+        if let Some((header_indent, _body_indent)) = current_audience {
+            if leading <= header_indent {
+                current_audience = None;
+            }
+        }
+
+        if current_audience.is_none() {
+            if trimmed.starts_with("audience ") {
+                current_audience = Some((leading, leading + 2));
+            }
+            continue;
+        }
+
+        let (_header_indent, body_indent) = current_audience.unwrap();
+        if leading != body_indent {
+            continue;
+        }
+        let Some(first) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if first.starts_with('@')
+            || trimmed.contains('(')
+            || trimmed.contains(':')
+            || trimmed.contains('=')
+        {
+            continue;
+        }
+        if AUDIENCE_BODY_KINDS.contains(&first) {
+            continue;
+        }
+        let suggestion = closest_kind(first, AUDIENCE_BODY_KINDS, 2);
+        let message = match suggestion {
+            Some(suggested) => format!(
+                "unknown audience child `{first}`. Did you mean `{suggested}`?"
+            ),
+            None => format!(
+                "unknown audience child `{first}`. Valid children: `view <name> <Component>` declarations (or `requires @scope.<name>`)."
+            ),
+        };
+        diagnostics.push(simple_canonical_diagnostic(
+            line_index,
+            line,
+            DiagnosticSeverity::ERROR,
+            "audience-unknown-kind",
+            &message,
+        ));
+    }
+
+    diagnostics
 }
 
 fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -14543,6 +15213,370 @@ feature decorator_test
             unknown_kind.is_empty(),
             "decorators / field declarations / assignments / namespaced calls must NOT trip feature-unknown-kind; got {:#?}",
             unknown_kind,
+        );
+    }
+
+    // ========================================================================
+    // 2026-05-15 typo-detection sweep — 7 sibling contexts.
+    //
+    // Each context gets a positive (typo flagged + suggestion present)
+    // and a negative (decorator/assignment/scalar lines stay silent)
+    // test. Tests follow the `feature_unknown_kind_*` shape.
+    // ========================================================================
+
+    fn diagnostics_with_code<'a>(
+        diagnostics: &'a [Diagnostic],
+        target: &str,
+    ) -> Vec<&'a Diagnostic> {
+        diagnostics
+            .iter()
+            .filter(|d| {
+                d.code.as_ref().and_then(|c| match c {
+                    tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                    _ => None,
+                }) == Some(target)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn app_unknown_kind_flags_typo_with_suggestion() {
+        let source = r#"
+app demo
+  title "Demo"
+  urs
+    public "https://example.com"
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "app-unknown-kind");
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one app-unknown-kind diagnostic for `urs`; got {} (full set: {:#?})",
+            hits.len(),
+            diagnostics,
+        );
+        assert!(hits[0].message.contains("urs"));
+        assert!(
+            hits[0].message.contains("urls"),
+            "diagnostic must suggest `urls`; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn app_unknown_kind_silent_for_scalars_and_decorators() {
+        let source = r#"
+app demo
+  title "Demo"
+  version "1.0"
+  lazuli_version "0.14"
+  default_locale "en-US"
+  default_timezone "UTC"
+  urls
+    public "https://example.com"
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "app-unknown-kind");
+        assert!(
+            hits.is_empty(),
+            "valid app body lines must not fire app-unknown-kind; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn registry_unknown_kind_flags_typo_with_suggestion() {
+        let source = r#"
+registry
+  webhook_evnts
+    inbound
+      payload Webhook
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "registry-unknown-kind");
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one registry-unknown-kind diagnostic for `webhook_evnts`; got {} (full set: {:#?})",
+            hits.len(),
+            diagnostics,
+        );
+        assert!(hits[0].message.contains("webhook_evnts"));
+        assert!(
+            hits[0].message.contains("webhook_events"),
+            "diagnostic must suggest `webhook_events`; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn registry_unknown_kind_silent_for_valid_children() {
+        let source = r#"
+registry
+  env
+    server INBOUND_WEBHOOK_SECRET: Secret required
+  capabilities
+  integrations
+  packs
+  tools
+  webhook_events
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "registry-unknown-kind");
+        assert!(
+            hits.is_empty(),
+            "valid registry children must not fire registry-unknown-kind; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn view_unknown_kind_flags_typo_with_suggestion() {
+        // L0 #6 view body: `selecton` is a typo of `selection`.
+        let source = r#"
+feature catalog
+  surface web admin
+    audience admin
+      view list ItemList
+        source query.list
+        columns name, status
+        selecton
+          mode multi
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "view-unknown-kind");
+        assert!(
+            hits.iter().any(|h| h.message.contains("selecton")),
+            "expected view-unknown-kind to flag `selecton`; got {:#?}",
+            hits
+        );
+        assert!(
+            hits.iter().any(|h| h.message.contains("selection")),
+            "diagnostic must suggest `selection`; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn view_unknown_kind_silent_for_valid_body() {
+        let source = r#"
+feature catalog
+  surface web admin
+    audience admin
+      view list ItemList
+        source query.list
+        columns name, status
+        search params.q over name
+        sort
+          by name asc
+        selection
+          mode multi
+        bulk_actions delete
+        actions create, update
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "view-unknown-kind");
+        assert!(
+            hits.is_empty(),
+            "valid view body must not fire view-unknown-kind; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn surface_unknown_kind_flags_typo_with_suggestion() {
+        let source = r#"
+feature catalog
+  surface web admin
+    audeince admin
+      view list ItemList
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "surface-unknown-kind");
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one surface-unknown-kind diagnostic for `audeince`; got {} (full set: {:#?})",
+            hits.len(),
+            diagnostics,
+        );
+        assert!(hits[0].message.contains("audeince"));
+        assert!(
+            hits[0].message.contains("audience"),
+            "diagnostic must suggest `audience`; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn surface_unknown_kind_silent_for_valid_children() {
+        let source = r#"
+feature catalog
+  surface web admin
+    uses experience CatalogExperience
+    audience admin
+      view list ItemList
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "surface-unknown-kind");
+        assert!(
+            hits.is_empty(),
+            "valid surface body must not fire surface-unknown-kind; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn command_statement_unknown_flags_typo_with_suggestion() {
+        let source = r#"
+feature billing
+  command create
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    audt actor, target.id
+    creates Invoice
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "command-statement-unknown");
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one command-statement-unknown diagnostic for `audt`; got {} (full set: {:#?})",
+            hits.len(),
+            diagnostics,
+        );
+        assert!(hits[0].message.contains("audt"));
+        assert!(
+            hits[0].message.contains("audit"),
+            "diagnostic must suggest `audit`; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn command_statement_unknown_silent_for_assignments_and_targets() {
+        // Capitalized identifiers (effect targets) and assignments
+        // (`let x = ...` / `field = expr`) and field-decl colon lines
+        // must NOT fire the lint.
+        let source = r#"
+feature billing
+  command create
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    audit actor, target.id
+    let computed = @fn.score(input)
+    other_field = ctx.now
+    Customer
+    creates Invoice
+    emits invoice_created from creates
+    invalidates query.list
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "command-statement-unknown");
+        assert!(
+            hits.is_empty(),
+            "assignments / capitalized targets / valid statements must not fire command-statement-unknown; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn query_statement_unknown_flags_typo_with_suggestion() {
+        let source = r#"
+feature catalog
+  query.list items
+    policy @policy.read
+    paginat 20
+    order name asc
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "query-statement-unknown");
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one query-statement-unknown diagnostic for `paginat`; got {} (full set: {:#?})",
+            hits.len(),
+            diagnostics,
+        );
+        assert!(hits[0].message.contains("paginat"));
+        assert!(
+            hits[0].message.contains("paginate"),
+            "diagnostic must suggest `paginate`; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn query_statement_unknown_silent_for_valid_body() {
+        let source = r#"
+feature catalog
+  query.list items
+    policy @policy.read
+    params
+      tenant_id: ID required
+    filters
+      status = "active"
+    paginate 20
+    order name asc
+    cache items_cache
+  query.lookup item by id: ID
+    policy @policy.read
+  query.sql item_count
+    policy @policy.read
+    returns Integer
+    sql "./queries/count.sql"
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "query-statement-unknown");
+        assert!(
+            hits.is_empty(),
+            "valid query body must not fire query-statement-unknown; got {:#?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn audience_unknown_kind_flags_typo_with_suggestion() {
+        let source = r#"
+feature catalog
+  surface web admin
+    audience admin
+      vieww list ItemList
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "audience-unknown-kind");
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected one audience-unknown-kind diagnostic for `vieww`; got {} (full set: {:#?})",
+            hits.len(),
+            diagnostics,
+        );
+        assert!(hits[0].message.contains("vieww"));
+        assert!(
+            hits[0].message.contains("view"),
+            "diagnostic must suggest `view`; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn audience_unknown_kind_silent_for_valid_children() {
+        let source = r#"
+feature catalog
+  surface web admin
+    audience admin
+      requires @scope.same_org
+      view list ItemList
+      view detail ItemDetail
+"#;
+        let diagnostics = diagnostics_for(source);
+        let hits = diagnostics_with_code(&diagnostics, "audience-unknown-kind");
+        assert!(
+            hits.is_empty(),
+            "valid audience children must not fire audience-unknown-kind; got {:#?}",
+            hits
         );
     }
 
