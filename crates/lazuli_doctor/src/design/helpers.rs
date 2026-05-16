@@ -83,14 +83,38 @@ impl Allowlist {
 /// "no design.lzi yet, suppress every rule". Returns `None` on parse
 /// failures too; doctor surfaces a separate diagnostic for malformed
 /// allowlist files in a future pass (out of L0 #2 scope).
+///
+/// Closes WAR-DOCTOR-DESIGN-02: also merges `dist/ts-web/design/allowlist.extension.json`
+/// when present. The extension file is hand-authored by the capsule
+/// owner to declare tokens that come from EXTERNAL workspace packages
+/// (e.g. `@hostpoint/design-tokens`) which Lazuli's design.lzi
+/// emitter can't see. Tokens listed in the extension append to the
+/// per-prefix allowlist buckets. Same JSON shape as the canonical file.
 pub fn read_allowlist(root: &Path) -> Option<Allowlist> {
-    let path = root
+    let canonical = root
         .join("dist")
         .join("ts-web")
         .join("design")
         .join("allowlist.json");
-    let raw = fs::read_to_string(&path).ok()?;
-    serde_json::from_str::<Allowlist>(&raw).ok()
+    let raw = fs::read_to_string(&canonical).ok()?;
+    let mut allowlist: Allowlist = serde_json::from_str(&raw).ok()?;
+
+    // Optional extension file for externally-defined design tokens.
+    let extension_path = root
+        .join("dist")
+        .join("ts-web")
+        .join("design")
+        .join("allowlist.extension.json");
+    if let Ok(ext_raw) = fs::read_to_string(&extension_path) {
+        if let Ok(ext) = serde_json::from_str::<Allowlist>(&ext_raw) {
+            for (prefix, mut suffixes) in ext.buckets {
+                let bucket = allowlist.buckets.entry(prefix).or_default();
+                bucket.append(&mut suffixes);
+            }
+        }
+    }
+
+    Some(allowlist)
 }
 
 // ── filesystem walk ──────────────────────────────────────────────────────────

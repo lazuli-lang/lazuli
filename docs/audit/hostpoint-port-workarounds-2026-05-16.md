@@ -316,10 +316,10 @@
 
 ## WAR-DOCTOR-DESIGN-02 — `design-token-undefined` on NativeWind tokens not in `design.lzi`
 
-- **STATUS:** open
-- **Symptom:** doctor flags `Tailwind class 'font-body' uses prefix 'font' with suffix 'body' not declared in design.lzi`. The token IS declared in `@hostpoint/design-tokens` workspace package (Tailwind preset), but Lazuli doesn't know about external token packages.
-- **Workaround in place:** warnings accepted.
-- **Removal criterion:** same as WAR-CODEGEN-TS-03 — Lazuli accepts external design-token packages OR provides a doctor opt-out.
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16) — extension-allowlist mechanism.
+- **Symptom:** doctor flagged Tailwind classes (`font-body`, `rounded-hp-sm`, `bg-surface-subtle`) coming from external workspace packages (`@hostpoint/design-tokens`) because Lazuli's `design.lzi` emitter doesn't see them. Build was green (Tailwind preset resolved them) but doctor noise persisted.
+- **Fix:** `crates/lazuli_doctor/src/design/helpers.rs` `read_allowlist` now also merges `dist/ts-web/design/allowlist.extension.json` when present. The extension file is hand-authored by the capsule owner to declare tokens that come from external packages — same JSON shape as the canonical allowlist; entries append to per-prefix buckets. Hostpoint creates this file once listing tokens from `@hostpoint/design-tokens` (`font: ["body", "display", "mono"]`, `rounded: ["hp-sm", "hp-md", ...]`, etc.); doctor stays silent on those without affecting the rules for in-`design.lzi` tokens.
+- **Pattern**: same as `# doctor:allow` per-field opt-outs — the extension file is the per-project escape hatch for design tokens that legitimately come from outside the capsule.
 - **Surfaced by:** Phase 1.3f UI primitives migration.
 
 ## WAR-DOCTOR-ENV-01 — `env-client-exposure` false positive on vendor-style PUBLIC names
