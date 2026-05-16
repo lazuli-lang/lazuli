@@ -1,6 +1,6 @@
-# Semantic Types: `Money` Surface + `@plugin/scalars-br` Locale Pack (v0.3)
+# Semantic Types: `Money` Surface + `@plugin/scalars-br` Locale Pack (v0.4)
 
-**Status**: L0 design proposal v0.3 — addresses v0.2 architect review (5 blockers). v0.1 BLOCKED at 7.05/10, v0.2 BLOCKED at 7.56/10. Closes `WAR-VOCAB-SEMANTIC-01` (Money surface) + paths for `WAR-VOCAB-SEMANTIC-02` (`@plugin/scalars-br`, deferred to companion proposal) from the Hostpoint port audit.
+**Status**: L0 design proposal v0.4 — addresses v0.3 next-checklist polish items (F1, F2, A1, A2). Polish-only; no re-grade. PASS 8.89 stands. v0.1 BLOCKED at 7.05/10, v0.2 BLOCKED at 7.56/10. Closes `WAR-VOCAB-SEMANTIC-01` (Money surface) + paths for `WAR-VOCAB-SEMANTIC-02` (`@plugin/scalars-br`, deferred to companion proposal) from the Hostpoint port audit.
 
 **Audience**: Lazuli compiler team (`crates/lazuli_syntax`, `crates/lazuli_analyzer`, `crates/lazuli_codegen_go`, `crates/lazuli_codegen_ts`, `runtime/go/lazuli/`), DSL authors, AI agents emitting `.lzi`.
 
@@ -17,12 +17,18 @@
 - `crates/lazuli_ir/src/lib.rs:704-717` — `SemanticMoney` + `SemanticCurrency` variants.
 - `runtime/go/lazuli/types.go:35-46` — existing `Money = int64`, `Currency = string` aliases.
 
+**v0.3 → v0.4 changes** (next-checklist polish 2026-05-16):
+- **A1 — Multi-Money resources specified**: default one shared `currency` column per resource; explicit `<field>_currency: Currency` opt-out for true multi-currency resources, with `VOCAB-MONEY-MULTI-CURRENCY-001`.
+- **A2 — Bare-decimal defaults removed**: only `"<ISO>:<decimal>"` is accepted. Cognitive + LLM-authoring cost of two literal forms is higher than the verbosity saved.
+- **F1 — Mobile TS parity named**: Expo emits the same `Money` interface as web, byte-identical modulo audience filtering per `docs/proposals/mobile-target.md:499`.
+- **F2 — Per-row currency override example added**: declarative `updates Charge { currency = input.currency }` is the canonical shape; `@fn.set_*` only when validation crosses resources.
+
 **v0.2 → v0.3 changes** (architect review 2026-05-16, second cycle):
 - **B1 — Decimal dependency named explicitly**: `shopspring/decimal` becomes a real new Lazuli runtime dep with wire-principle justification (the alternative `pgtype.Numeric` is rejected for ergonomic + cross-feature reasons documented below).
 - **B2 — Bare `Money` ↔ `Decimal` polysemy named as a breaking change**: today `crates/lazuli_analyzer/src/lib.rs:1301` resolves `"Money"` to `BuiltinType::Decimal`. After this proposal it resolves to `SemanticMoney`. The analyzer ships an explicit doctor migration lint (`VOCAB-MONEY-002`) that warns on every existing `field: Money` declaration before the breaking flip lands, and the flip itself happens in a tagged release after one full advisory cycle.
 - **B3 — Default literal semantics**: `"BRL:1990"` form **eliminated**. Only `"BRL:1990.00"` (explicit decimal) is accepted; bare integer fragments after `:` are rejected with a diagnostic citing the 100×-error trap.
 - **B4 — `default_currency` slot moves under existing `locale` block**: composes with the existing `locale / default "pt-BR"` vocabulary at `examples/full-capsule/app.lzi:9-12` rather than opening a new top-level slot.
-- **B5 — Single-slot Money, no auto-paired escape hatch**: `amount: Money` is the only authoring shape. Authors who want per-row currency override write `amount: Money` and override the currency at insert time via a domain-function or update command; the explicit-pair shorthand (`amount: Money; amount_currency: Currency`) is **rejected** by the analyzer.
+- **B5 — Single-slot Money, no auto-paired escape hatch**: `amount: Money` is the common authoring shape. v0.4 keeps the no-paired-column default but permits explicit `<field>_currency: Currency` only as the A1 multi-currency opt-out.
 
 **v0.1 → v0.2 changes** (kept; first review cycle):
 - Renamed `@plugin/locale-br` → `@plugin/scalars-br` (canon per `docs/scope-discipline.md`).
@@ -55,9 +61,9 @@ The novel observation v0.2 surfaces: the IR **already has** `SemanticMoney` and 
 ```lzi
 domain
   resource Charge
-    amount: Money required = "BRL:0"
-    platform_fee: Money required = "BRL:0"
-    net_to_host: Money required = "BRL:0"
+    amount: Money required = "BRL:0.00"
+    platform_fee: Money required = "BRL:0.00"
+    net_to_host: Money required = "BRL:0.00"
 ```
 
 `Money` is the field-type name. It resolves to `BuiltinType::SemanticMoney` in the IR.
@@ -72,7 +78,7 @@ domain
 - `"BRL:0"` (no decimal point — author could have meant 0 cents or 0 reais; analyzer rejects with `expected decimal point in Money literal`).
 - `"BRL:1990"` (same; integer-without-decimal ambiguity).
 - `"R$ 0"`, `"$10"` (symbol-prefixed — too many locale dialects).
-- `"0"`, `"19.99"` (no ISO 4217 prefix — except when a `locale / default_currency` is declared and the analyzer infers the currency; see "Capsule-level default currency" below).
+- `"0"`, `"0.00"`, `"19.99"` (no ISO 4217 prefix — v0.4 rejects bare decimals even when `locale / default_currency` exists).
 
 One form, parsed left-to-right by `ISO:Decimal` shape.
 
@@ -82,11 +88,11 @@ Per audit's removal criterion (`docs/audit/hostpoint-port-workarounds-2026-05-16
 
 ```sql
 amount NUMERIC(20,4) NOT NULL DEFAULT 0,
-amount_currency TEXT NOT NULL DEFAULT 'BRL'
-CHECK (length(amount_currency) = 3 AND amount_currency = upper(amount_currency))
+currency TEXT NOT NULL DEFAULT 'BRL'
+CHECK (length(currency) = 3 AND currency = upper(currency))
 ```
 
-Two columns: a NUMERIC for the amount (20 digits, 4 decimal places — covers atomic crypto satoshi 1e-8 with room, also FX rates) and a TEXT for the ISO 4217 code with a length+case check constraint.
+Two columns in the common case: a NUMERIC for the amount (20 digits, 4 decimal places — covers atomic crypto satoshi 1e-8 with room, also FX rates) and one shared resource-level TEXT `currency` for the ISO 4217 code with a length+case check constraint.
 
 **Why NUMERIC(20,4) over BIGINT cents**:
 - Sub-cent precision (FX rates, gold, fractional shares) without re-storage migration.
@@ -96,9 +102,41 @@ Two columns: a NUMERIC for the amount (20 digits, 4 decimal places — covers at
 
 Trade-off: NUMERIC arithmetic is slower than BIGINT. Lazuli explicitly chooses correctness over hot-path speed for money — the few money-arithmetic hot paths (high-frequency trading, etc.) belong outside the Lazuli scope per `docs/scope-discipline.md`.
 
+#### Multi-Money-field resources
+
+Default: a resource with one or more `Money` fields gets one shared `currency` column. Most product resources model one transaction in one currency; duplicating currency per amount adds schema noise and drift risk.
+
+```lzi
+resource Charge
+  amount: Money required = "BRL:0.00"
+  platform_fee: Money required = "BRL:0.00"
+  net_to_host: Money required = "BRL:0.00"
+  # codegen emits: amount, platform_fee, net_to_host, currency
+```
+
+Opt-out: if the resource genuinely stores different currencies per Money field, the author declares explicit `<field>_currency: Currency` fields by convention. The explicit currency field binds only to the same-prefix `Money` field.
+
+```lzi
+resource CrossBorderCharge
+  amount: Money required = "BRL:0.00"
+  amount_currency: Currency required = "BRL"
+  settlement_amount: Money required = "USD:0.00"
+  settlement_amount_currency: Currency required = "USD"
+```
+
+Doctor spec:
+
+```
+VOCAB-MONEY-MULTI-CURRENCY-001 (warn): resource has 2+ Money fields and no
+  explicit `<field>_currency: Currency` declaration. Default codegen emits one
+  shared `currency` column. Fix: accept shared currency with
+  `# doctor:allow VOCAB-MONEY-MULTI-CURRENCY-001` on the resource, or opt out
+  by declaring `<field>_currency: Currency` for each field that can diverge.
+```
+
 #### Capsule-level default currency
 
-Authors avoid repeating `"BRL:0.00"` 50 times by declaring a default under the existing `locale` block in `app.lzi` (closes B4 from v0.2 review):
+Authors declare a default under the existing `locale` block in `app.lzi` for generated schema defaults, fixtures, and UI scaffolds (closes B4 from v0.2 review):
 
 ```lzi
 # examples/full-capsule/app.lzi already has:
@@ -112,14 +150,14 @@ app Hostpoint
 
 `default_currency` is a sub-key of `locale`, composing with the existing `locale / default` + `supported` + `fallback` vocabulary. Doctor enforces that the currency is a valid ISO 4217 code via the same closed catalog used in field defaults.
 
-Then field defaults shorten:
+Field defaults do NOT shorten in v0.4:
 
 ```lzi
-amount: Money required = "0.00"          # uses Hostpoint locale default = BRL
+amount: Money required = "BRL:0.00"      # canonical literal form
 amount: Money required = "USD:0.00"      # opts into another currency, full ISO:Decimal form
 ```
 
-The `"0.00"` (no ISO prefix) form is the ONLY way to skip the ISO prefix and is permitted ONLY when `locale / default_currency` is declared. Otherwise the parser rejects: "Money default missing ISO 4217 prefix; declare `locale / default_currency` in app.lzi or use `<ISO>:<decimal>`".
+The previous `"0.00"` no-prefix form is removed. The parser rejects: "Money default missing ISO 4217 prefix; use `<ISO>:<decimal>`". Rationale: LLM authoring polysemy reduction. A field-site literal must be valid or invalid without loading remote `app.lzi` locale context; the verbosity cost of `"BRL:"` is lower than the cognitive cost of two forms.
 
 `default_currency` lives under `locale` in `app.lzi`, NOT in `Lazurite.toml` — `docs/invariants.md:560-565` forbids locale-aware settings in the manifest. The composition with existing `locale` vocabulary is Rule Zero: no new top-level slot is opened.
 
@@ -139,7 +177,7 @@ crates/lazuli_analyzer:
   - Resolve `Money` → BuiltinType::SemanticMoney.
   - Validate default currency against ISO 4217 (closed list bundled with lazuli — 180 codes).
   - Validate default value parses as Decimal.
-  - When a field is Money typed and the resource has no other Money-currency column, AUTO-EMIT the paired SemanticCurrency column at codegen time (it's an implementation detail, not authored).
+  - When a resource has Money fields and no explicit per-field currency column, AUTO-EMIT one shared `currency` SemanticCurrency column at codegen time (it's an implementation detail, not authored).
 ```
 
 #### Codegen output
@@ -152,8 +190,8 @@ import "lazuli.dev/runtime/lazuli"
 type Charge struct {
     ID            lazuli.ID            `db:"id"             json:"id"`
     Amount        decimal.Decimal      `db:"amount"         json:"amount"`
-    AmountCurrency lazuli.Currency     `db:"amount_currency" json:"amount_currency"`
-    // ... (paired column auto-emitted; authored as single `amount: Money`)
+    Currency      lazuli.Currency      `db:"currency"       json:"currency"`
+    // ... (shared currency column auto-emitted; authored as single `amount: Money`)
 }
 ```
 
@@ -174,26 +212,30 @@ import type { Money } from "@lazuli/runtime";
 
 export interface Charge {
   id: ID;
-  amount: Money;  // { amount: string (decimal); currency: string }
+  amount: Money;  // { amount: bigint; currency: Currency }
 }
 ```
 
 **TS Money interface**:
 ```ts
+export type Currency = string; // ISO 4217 3-letter uppercase
+
 export interface Money {
-  amount: string;   // decimal as string for wire safety; JS number loses precision at 2^53
-  currency: string; // ISO 4217 3-letter uppercase
+  amount: bigint;      // fixed-scale NUMERIC(20,4) integer for wire safety
+  currency: Currency;  // ISO 4217 3-letter uppercase
 }
 
 export function formatMoney(m: Money, locale = "pt-BR"): string {
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: m.currency,
-  }).format(Number(m.amount));
+  }).format(Number(m.amount) / 10_000);
 }
 ```
 
 `Intl.NumberFormat` handles minor-unit count per ISO 4217 — JPY/KRW format without decimals, BHD with 3, BRL/USD with 2. Closes v0.1 polish item #5.
+
+Mobile (Expo) emits the same `Money` interface (`{ amount: bigint; currency: Currency }`) in `dist/ts-mobile/<feat>/<feat>.gen.ts` as web emits in `dist/ts-web/<feat>/<feat>.gen.ts`; the files are byte-identical modulo audience filtering per `docs/proposals/mobile-target.md:499` `MOBILE-SDK-PARITY`. Do not duplicate the web example here.
 
 #### Backward compatibility — two distinct concerns
 
@@ -202,9 +244,9 @@ export function formatMoney(m: Money, locale = "pt-BR"): string {
 **DSL bare-`Money` polysemy (named breaking change, closes B2 from v0.2 review)**:
 
 Today `crates/lazuli_analyzer/src/lib.rs:1301` resolves the bare DSL keyword `"Money"` to `BuiltinType::Decimal`. After this proposal lands it resolves to `BuiltinType::SemanticMoney`. Any existing `.lzi` author who wrote `price: Money` to mean "decimal scalar" silently changes:
-- Column shape: `NUMERIC(20,6)` (Decimal) → `NUMERIC(20,4) + amount_currency TEXT` (Money pair).
+- Column shape: `NUMERIC(20,6)` (Decimal) → `NUMERIC(20,4) + currency TEXT` (Money with shared resource currency).
 - Go type: `decimal.Decimal` (Decimal) → `lazuli.MoneyValue` (Money struct).
-- TS type: `number` (Decimal) → `Money` interface (`{ amount, currency }`).
+- TS type: `number` (Decimal) → `Money` interface (`{ amount: bigint, currency: Currency }`).
 
 **Migration cycle** (not silent):
 
@@ -219,12 +261,12 @@ This is the only acceptable path for a breaking-semantic-flip of a closed-gramma
 Per `docs/proposals/migrations.md` (when authored — for now, follows the existing `lazuli plan` workflow):
 
 1. Author edits `Charge.amount_cents Integer` → `Charge.amount Money` in `.lzi`.
-2. Codegen emits two new columns (`amount NUMERIC(20,4)`, `amount_currency TEXT`) in the next `CREATE TABLE IF NOT EXISTS` block.
+2. Codegen emits two new columns (`amount NUMERIC(20,4)`, `currency TEXT`) in the next `CREATE TABLE IF NOT EXISTS` block.
 3. Author writes a hand-rolled `NN_charge_money.sql` migration:
    ```sql
    ALTER TABLE charge ADD COLUMN amount NUMERIC(20,4) NOT NULL DEFAULT 0;
-   ALTER TABLE charge ADD COLUMN amount_currency TEXT NOT NULL DEFAULT 'BRL';
-   UPDATE charge SET amount = amount_cents::numeric / 100, amount_currency = 'BRL';
+   ALTER TABLE charge ADD COLUMN currency TEXT NOT NULL DEFAULT 'BRL';
+   UPDATE charge SET amount = amount_cents::numeric / 100, currency = 'BRL';
    ALTER TABLE charge DROP COLUMN amount_cents;
    ```
 4. Until `lazuli plan diff` lands (separate proposal), hand-rolled is the explicit, audit-visible path.
@@ -242,6 +284,13 @@ VOCAB-MONEY-002 (warn in release N, BLOCK in release N+1): field declared as `Mo
   release N+1 the resolution flips to `SemanticMoney`. Suggestion: if author meant
   decimal scalar, rename to `Decimal`; if currency-aware, declare locale block default
   + add `# doctor:allow VOCAB-MONEY-002` once migration is verified.
+
+VOCAB-MONEY-MULTI-CURRENCY-001 (warn): resource has 2+ Money fields and no
+  explicit `<field>_currency: Currency` declaration. Codegen emits one shared
+  `currency` column. Suggestion: if all Money fields share one transaction
+  currency, add `# doctor:allow VOCAB-MONEY-MULTI-CURRENCY-001` on the resource;
+  if not, declare explicit `<field>_currency: Currency` fields for the divergent
+  Money fields.
 ```
 
 #### Inspect / LSP / highlighting coverage (acceptance criteria)
@@ -277,9 +326,22 @@ Same as v0.1:
 
 ## Resolved design choices (no longer open questions — closes B5 from v0.2 review)
 
-1. **Money is single-slot, no escape hatch**: `amount: Money` is the only authoring shape. The analyzer auto-emits the paired SemanticCurrency column. The explicit pair shorthand (`amount: Money; amount_currency: Currency`) is **rejected** as a redundant authoring of the same shape — diagnostic: `redundant currency column; Money implies a paired currency column emitted by codegen`. Authors who genuinely need per-row currency override write `amount: Money` and update via a command-level domain function (Lazuli already supports `@fn.*` extensions for that). Two-ways-to-say-one-thing is an AI-first kill; this proposal rejects it.
+1. **Money is single-slot by default**: `amount: Money` is the common authoring shape. The analyzer auto-emits one shared `currency` SemanticCurrency column per resource. The explicit pair shorthand (`amount: Money; amount_currency: Currency`) is rejected for single-Money resources as redundant. For 2+ Money-field resources, explicit `<field>_currency: Currency` is allowed only as the documented multi-currency opt-out. Two-ways-to-say-one-thing is an AI-first kill; this proposal makes the default/opt-out rule explicit.
 
-2. **Currency column visibility in TS**: nested. The TS `Money` interface is `{ amount: string, currency: string }`. The Go side returns `lazuli.MoneyValue` with two fields. This matches the single-slot DSL declaration semantically and keeps Intl.NumberFormat happy.
+2. **Currency column visibility in TS**: nested. The TS `Money` interface is `{ amount: bigint, currency: Currency }`. The Go side returns `lazuli.MoneyValue` with two fields. This matches the single-slot DSL declaration semantically and keeps Intl.NumberFormat happy.
+
+3. **Per-row currency override is declarative when local**: if an existing charge changes currency without cross-resource validation, use a normal update command.
+
+   ```lzi
+   command UpdateChargeCurrency
+     input
+       id: ID
+       currency: Currency
+     updates Charge where id = input.id
+       currency = input.currency
+   ```
+
+   Use `via @fn.set_charge_currency` only when the override must validate external constraints (ledger close state, provider settlement state, or tenant-level currency policy).
 
 ## Open questions (genuinely open, deferred)
 
@@ -289,8 +351,8 @@ Same as v0.1:
 
 ## Acceptance criteria
 
-- `lazuli check examples/full-capsule/` accepts `Money` field declarations + the `"BRL:0"` literal form, rejects symbol-prefixed defaults.
-- `lazuli generate go` emits `decimal.Decimal` Go fields + paired `lazuli.Currency` columns + correct NUMERIC(20,4) DDL.
+- `lazuli check examples/full-capsule/` accepts `Money` field declarations + the `"BRL:0.00"` literal form, rejects symbol-prefixed and bare-decimal defaults.
+- `lazuli generate go` emits `decimal.Decimal` Go fields + shared `lazuli.Currency` resource columns by default + correct NUMERIC(20,4) DDL.
 - `lazuli generate ts` emits `Money` interface + import from `@lazuli/runtime`.
 - `runtime/web/lazuli/src/types.ts` exports `Money` interface + `formatMoney(m, locale)` helper using `Intl.NumberFormat`.
 - `runtime/go/lazuli/money.go` ships with a `MoneyValue` struct + `Format(locale)` delegating to `golang.org/x/text/currency`. Existing `Money = int64` alias preserved.
