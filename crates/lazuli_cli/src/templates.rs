@@ -303,47 +303,140 @@ dist/
 .lazuli/
 "#;
 
-/// Mobile shell (Expo/RN root). `@lazuli/runtime-native` is a future
-/// package — comment marks the placeholder so users see what to wire
-/// once it ships.
-pub const FRONTEND_MOBILE_ROOT_TSX: &str = r#"import { registerRootComponent } from "expo";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SafeAreaView, Text } from "react-native";
-// NOTE: `@lazuli/runtime-native` is not yet shipped. Once available,
-// import { LazuliProvider, LazuliClient } from it and wrap the tree
-// the same way as `frontends/web/shell/root.tsx`.
+/// Expo Router file-based root layout. User-owned one-line re-export
+/// of the regen body that `lazuli generate ts` writes to
+/// `dist/ts-mobile/runtime/layout`. The user replaces this wrapper
+/// when they want extra providers; Lazuli never overwrites it. See
+/// `docs/proposals/mobile-target.md` §5.4.
+pub const FRONTEND_MOBILE_APP_LAYOUT_TSX: &str = r#"// Replace with your own wrapper if you need extra providers.
+// `lazuli generate ts` will not overwrite this file.
+export { default } from "@/dist/ts-mobile/runtime/layout";
+"#;
 
-const queryClient = new QueryClient();
+/// Placeholder home for Expo Router. Lists nothing useful yet — the
+/// user customizes once a `surface` declares a mobile audience. The
+/// per-view files under `app/<audience>/...` are scaffolded once by
+/// `lazuli generate ts` and consume the matching generated hooks.
+pub const FRONTEND_MOBILE_APP_INDEX_TSX: &str = r#"import { SafeAreaView, Text } from "react-native";
 
-export function App() {
+export default function Home() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <SafeAreaView style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <Text>Lazurite mobile scaffold. Wire your navigator after `lazuli generate ts`.</Text>
-      </SafeAreaView>
-    </QueryClientProvider>
+    <SafeAreaView style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <Text>Lazurite mobile scaffold. Add a `surface ... mobile` and run `lazuli generate ts`.</Text>
+    </SafeAreaView>
   );
 }
+"#;
 
-registerRootComponent(App);
+/// Expo manifest. `scheme` matters for deep-linking; users edit `name`
+/// and `slug` before publishing.
+pub const FRONTEND_MOBILE_APP_JSON: &str = r#"{
+  "expo": {
+    "name": "lazuli-app-mobile",
+    "slug": "lazuli-app-mobile",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "lazuliapp",
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "app.lazuli.mobile"
+    }
+  }
+}
+"#;
+
+/// Expo's babel preset includes `expo-router`'s preset transitively;
+/// users rarely customize this file.
+pub const FRONTEND_MOBILE_BABEL_CONFIG: &str = r#"module.exports = function (api) {
+  api.cache(true);
+  return {
+    presets: ["babel-preset-expo"],
+  };
+};
+"#;
+
+/// Default Expo Metro config. Lazuli does not customize Metro today;
+/// users may extend this file to add custom resolver/serializer config.
+pub const FRONTEND_MOBILE_METRO_CONFIG: &str = r#"const { getDefaultConfig } = require("expo/metro-config");
+
+const config = getDefaultConfig(__dirname);
+
+module.exports = config;
+"#;
+
+/// tsconfig.json for the Expo project. Extends `expo/tsconfig.base`
+/// (shipped by the `expo` package) and adds a `@/` path alias rooted at
+/// the project root so generated `dist/ts-mobile/...` imports resolve
+/// cleanly. Users may add more aliases as needed.
+pub const FRONTEND_MOBILE_TSCONFIG: &str = r#"{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": ["../../*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../../dist/ts-mobile/**/*.ts",
+    "../../dist/ts-mobile/**/*.tsx"
+  ]
+}
+"#;
+
+/// `LazuliClient` construction for the mobile shell. The runtime body
+/// at `dist/ts-mobile/runtime/layout` imports `client` from here and
+/// hands it to `<LazuliProvider>`. Users wire the real API base URL
+/// (typically from `process.env.EXPO_PUBLIC_API_URL`) once.
+pub const FRONTEND_MOBILE_SHELL_CLIENT_TS: &str = r#"import { LazuliClient } from "@lazuli/runtime";
+
+const baseUrl =
+  // EXPO_PUBLIC_* env vars are inlined at build time by Metro.
+  // Set this in `.env` or your CI/build config.
+  // Example: EXPO_PUBLIC_API_URL=https://api.example.com
+  // Falls back to localhost for `expo start --tunnel` flows.
+  // Replace with your real default for production builds.
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8080";
+
+export const client = new LazuliClient({ baseUrl });
+"#;
+
+/// Project-level `.gitignore` additions for the mobile scaffold. Lazuli
+/// appends these alongside the shared web-project ignores so the same
+/// repo can host both targets without churn.
+pub const FRONTEND_MOBILE_GITIGNORE: &str = r#"# Expo
+.expo/
+.expo-shared/
+
+# Native build outputs (rarely committed; uncomment if running prebuild)
+# ios/
+# android/
 "#;
 
 pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
   "name": "lazuli-app-mobile",
   "private": true,
-  "main": "shell/root.tsx",
+  "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios"
   },
   "dependencies": {
+    "@lazuli/runtime": "workspace:*",
+    "@react-native-async-storage/async-storage": "1.23.1",
     "@tanstack/react-query": "^5.51.0",
     "expo": "~51.0.0",
+    "expo-router": "~3.5.0",
     "expo-status-bar": "~1.12.0",
     "react": "18.2.0",
     "react-native": "0.74.5",
-    "react-native-safe-area-context": "4.10.5"
+    "react-native-safe-area-context": "4.10.5",
+    "react-native-screens": "~3.31.1"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

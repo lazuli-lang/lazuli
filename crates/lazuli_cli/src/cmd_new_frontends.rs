@@ -101,32 +101,80 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     Ok(())
 }
 
-/// Scaffold the mobile (Expo) frontend skeleton. Idempotent.
+/// Scaffold the mobile (Expo Router) frontend skeleton. Idempotent.
 ///
-/// Creates (when missing):
-/// - `frontends/mobile/shell/root.tsx`
-/// - `frontends/mobile/package.json` (Expo-specific deps; web's `package.json`
-///   is kept separate because Expo and Vite-react ecosystems pin
-///   incompatible `react`/`react-dom` versions today).
+/// Creates (when missing) under `frontends/mobile/`:
+/// - `app/_layout.tsx` — one-line re-export of the regen body that
+///   `lazuli generate ts` writes to `dist/ts-mobile/runtime/layout`
+///   (per `docs/proposals/mobile-target.md` §5.4).
+/// - `app/index.tsx` — placeholder home; user customizes once a
+///   `surface ... mobile` view scaffolds a real route file.
+/// - `shell/client.ts` — `LazuliClient` construction (baseUrl from
+///   `process.env.EXPO_PUBLIC_API_URL`).
+/// - `app.json` — Expo manifest (name, slug, scheme, expo-router plugin).
+/// - `babel.config.js`, `metro.config.js`, `tsconfig.json` — Expo
+///   project plumbing.
+/// - `package.json` — Expo SDK, expo-router, react-native,
+///   AsyncStorage, `@lazuli/runtime` workspace dep.
+/// - `.gitignore` (project root) gains Expo-specific ignores.
 ///
-/// Appends `[frontends.mobile]` to `Lazurite.toml` if no such block exists.
+/// Appends `[frontends.mobile]` to `Lazurite.toml` if no such block
+/// exists.
 pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;
 
     let mobile_dir = project_root.join("frontends").join("mobile");
+    let app_dir = mobile_dir.join("app");
     let shell_dir = mobile_dir.join("shell");
+    fs::create_dir_all(&app_dir).with_context(|| format!("creating {}", app_dir.display()))?;
     fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
 
     write_if_absent(
-        &shell_dir.join("root.tsx"),
-        templates::FRONTEND_MOBILE_ROOT_TSX,
+        &app_dir.join("_layout.tsx"),
+        templates::FRONTEND_MOBILE_APP_LAYOUT_TSX,
+    )?;
+    write_if_absent(
+        &app_dir.join("index.tsx"),
+        templates::FRONTEND_MOBILE_APP_INDEX_TSX,
+    )?;
+    write_if_absent(
+        &shell_dir.join("client.ts"),
+        templates::FRONTEND_MOBILE_SHELL_CLIENT_TS,
     )?;
 
-    fs::create_dir_all(&mobile_dir)
-        .with_context(|| format!("creating {}", mobile_dir.display()))?;
+    write_if_absent(
+        &mobile_dir.join("app.json"),
+        templates::FRONTEND_MOBILE_APP_JSON,
+    )?;
+    write_if_absent(
+        &mobile_dir.join("babel.config.js"),
+        templates::FRONTEND_MOBILE_BABEL_CONFIG,
+    )?;
+    write_if_absent(
+        &mobile_dir.join("metro.config.js"),
+        templates::FRONTEND_MOBILE_METRO_CONFIG,
+    )?;
+    write_if_absent(
+        &mobile_dir.join("tsconfig.json"),
+        templates::FRONTEND_MOBILE_TSCONFIG,
+    )?;
     write_if_absent(
         &mobile_dir.join("package.json"),
         templates::FRONTEND_MOBILE_PACKAGE_JSON,
+    )?;
+
+    // Project-level .gitignore: prefer the shared web template when
+    // present (it already covers node_modules/, dist/, .vite/, etc.);
+    // append Expo-specific ignores idempotently.
+    let gitignore_path = project_root.join(".gitignore");
+    if !gitignore_path.exists() {
+        fs::write(&gitignore_path, templates::FRONTEND_GITIGNORE)
+            .with_context(|| format!("writing {}", gitignore_path.display()))?;
+    }
+    append_manifest_block(
+        &gitignore_path,
+        "# Expo",
+        templates::FRONTEND_MOBILE_GITIGNORE,
     )?;
 
     append_manifest_block(
@@ -354,14 +402,42 @@ mod tests {
 
         scaffold_frontend_mobile(root, "demo").unwrap();
 
+        // Expo Router app/ tree.
         assert!(
-            root.join("frontends/mobile/shell/root.tsx").exists(),
-            "mobile root.tsx missing"
+            root.join("frontends/mobile/app/_layout.tsx").exists(),
+            "mobile app/_layout.tsx missing"
+        );
+        assert!(
+            root.join("frontends/mobile/app/index.tsx").exists(),
+            "mobile app/index.tsx missing"
+        );
+        // LazuliClient construction lives under shell/.
+        assert!(
+            root.join("frontends/mobile/shell/client.ts").exists(),
+            "mobile shell/client.ts missing"
+        );
+        // Expo project plumbing.
+        assert!(root.join("frontends/mobile/app.json").exists(), "app.json missing");
+        assert!(
+            root.join("frontends/mobile/babel.config.js").exists(),
+            "babel.config.js missing"
+        );
+        assert!(
+            root.join("frontends/mobile/metro.config.js").exists(),
+            "metro.config.js missing"
+        );
+        assert!(
+            root.join("frontends/mobile/tsconfig.json").exists(),
+            "tsconfig.json missing"
         );
         assert!(
             root.join("frontends/mobile/package.json").exists(),
             "mobile package.json missing"
         );
+
+        // _layout.tsx is the user-owned re-export of the regen body.
+        let layout = fs::read_to_string(root.join("frontends/mobile/app/_layout.tsx")).unwrap();
+        assert!(layout.contains("dist/ts-mobile/runtime/layout"));
 
         let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.mobile]"));
@@ -372,6 +448,13 @@ mod tests {
         let pkg = fs::read_to_string(root.join("frontends/mobile/package.json")).unwrap();
         assert!(pkg.contains("\"expo\""));
         assert!(pkg.contains("\"react-native\""));
+        assert!(pkg.contains("\"expo-router\""));
+        assert!(pkg.contains("\"@react-native-async-storage/async-storage\""));
+        assert!(pkg.contains("\"@lazuli/runtime\""));
+
+        // .gitignore covers Expo-specific paths.
+        let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(gitignore.contains(".expo/"));
     }
 
     #[test]
@@ -405,16 +488,20 @@ mod tests {
         let root = project.path();
 
         scaffold_frontend_mobile(root, "demo").unwrap();
-        let edited = "// user-customized mobile root\n";
-        fs::write(root.join("frontends/mobile/shell/root.tsx"), edited).unwrap();
+        let edited = "// user-customized mobile layout\n";
+        fs::write(root.join("frontends/mobile/app/_layout.tsx"), edited).unwrap();
 
         scaffold_frontend_mobile(root, "demo").unwrap();
 
-        let after = fs::read_to_string(root.join("frontends/mobile/shell/root.tsx")).unwrap();
+        let after = fs::read_to_string(root.join("frontends/mobile/app/_layout.tsx")).unwrap();
         assert_eq!(after, edited);
 
         let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert_eq!(manifest.matches("[frontends.mobile]").count(), 1);
+
+        // .gitignore Expo block is only appended once.
+        let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert_eq!(gitignore.matches("# Expo").count(), 1);
     }
 
     #[test]
@@ -426,7 +513,7 @@ mod tests {
         scaffold_frontend_mobile(root, "demo").unwrap();
 
         assert!(root.join("frontends/web/shell/root.tsx").exists());
-        assert!(root.join("frontends/mobile/shell/root.tsx").exists());
+        assert!(root.join("frontends/mobile/app/_layout.tsx").exists());
 
         let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert!(manifest.contains("[frontends.web]"));
@@ -452,7 +539,14 @@ mod tests {
         assert!(!templates::FRONTEND_GITIGNORE.is_empty());
 
         // mobile
-        assert!(!templates::FRONTEND_MOBILE_ROOT_TSX.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_APP_LAYOUT_TSX.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_APP_INDEX_TSX.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_APP_JSON.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_BABEL_CONFIG.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_METRO_CONFIG.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_TSCONFIG.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_SHELL_CLIENT_TS.is_empty());
+        assert!(!templates::FRONTEND_MOBILE_GITIGNORE.is_empty());
         assert!(!templates::FRONTEND_MOBILE_PACKAGE_JSON.is_empty());
 
         // manifest snippets
@@ -479,7 +573,14 @@ mod tests {
             templates::FRONTEND_VITE_CONFIG_TS,
             templates::FRONTEND_PACKAGE_JSON,
             templates::FRONTEND_GITIGNORE,
-            templates::FRONTEND_MOBILE_ROOT_TSX,
+            templates::FRONTEND_MOBILE_APP_LAYOUT_TSX,
+            templates::FRONTEND_MOBILE_APP_INDEX_TSX,
+            templates::FRONTEND_MOBILE_APP_JSON,
+            templates::FRONTEND_MOBILE_BABEL_CONFIG,
+            templates::FRONTEND_MOBILE_METRO_CONFIG,
+            templates::FRONTEND_MOBILE_TSCONFIG,
+            templates::FRONTEND_MOBILE_SHELL_CLIENT_TS,
+            templates::FRONTEND_MOBILE_GITIGNORE,
             templates::FRONTEND_MOBILE_PACKAGE_JSON,
             templates::FRONTEND_MANIFEST_WEB_SNIPPET,
             templates::FRONTEND_MANIFEST_MOBILE_SNIPPET,
