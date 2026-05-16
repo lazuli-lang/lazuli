@@ -342,14 +342,11 @@
   - `command mark_notification_read input { delivery_id } handler @fn.mark_notification_read` — updates `notification_delivery.status` to `read` for the actor's own row.
   Front-end `routes/Notifications.tsx` wires `useLazuliCommand(listMessagingMyNotifications)` + `useLazuliCommand(markMessagingNotificationRead)`. When the back-end returns rows they replace fixtures via `normalizeNotificationEntries`; empty DB keeps the storybook visual. Category derived from `template_key` prefix (reservation / proposal / message / payment / system).
 
-## WAR-VOCAB-HOSTHOME-01 — `host.query.my_host` SDK return type is wrong + missing `full_name`
+## WAR-VOCAB-HOSTHOME-01 — `host.query.my_host` SDK return type is wrong
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.2)
-- **Symptom:** the generated `lookupHostByMyHost` query in `dist/ts-web/host/host.gen.ts` is declared with the wrong response type — it returns `IntermediationTermsAcceptance` instead of `Host`. As a result, consuming the query gives the caller a record with `version` / `accepted_at` fields but no access to `Host.full_name`, the field the host-home greeting (`Ola, <first-name>`) needs. Likely related to WAR-CODEGEN-TS-02 (bucket-prefix issue) but the broken return type is a separate codegen bug.
-- **Workaround in place:** `apps/hostpoint-app/src/routes/HostHome.tsx` keeps `hostName` as a module-local fixture matching storybook (`'Lucas Silva'`). Same pattern as `routes/settings/HostAccountHome.tsx` (host settings home, which already uses a `MOCK` constant per WAR-VOCAB-AUTH-04).
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostHome.tsx`.
-- **Removal criterion:** fix `lazuli generate ts` to emit the correct return type for `host.query.my_host` (should be `Host`, not `IntermediationTermsAcceptance`). Add the same fix-path to the lookup-query codegen logic so all `query.lookup` declarations resolve their actual resource type. Then call sites can use `useLazuliQuery(lookupHostByMyHost, {})` and read `data.full_name`.
-- **Surfaced by:** Phase 3.2 host-home port (this entry).
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16 — `pick_query_resource_ts` heuristic)
+- **Symptom:** `lookupHostByMyHost` returned `IntermediationTermsAcceptance` because the TS codegen unconditionally picked `feature.resources.first()` as the lookup-query return type. The host feature happens to declare `IntermediationTermsAcceptance` before `Host`, so every `query.lookup` / `query.list` in `host.lzi` got the wrong type.
+- **Fix:** `crates/lazuli_cli/src/main.rs` adds `pick_query_resource_ts(feature, query_name)` — finds the resource whose snake-cased name appears as a substring of the query name (or matches the last token for compound names like `ServiceTransaction`). Falls back to `feature.resources.first()` when no match. Verified: `lookupHostByMyHost` → `Host`, `lookupCatalogByPropertyDetail` → `Property`, `listOperationsMineTransactionsAsHost` → `ServiceTransaction[]`.
 
 ## WAR-VOCAB-HOSTHOME-02 — Account-pendings query not modeled
 
@@ -409,12 +406,9 @@
 
 ## WAR-VOCAB-HOSTPROPDETAIL-02 — Catalog command return type is `UploadedAsset`
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.4)
-- **Symptom:** every command in `dist/ts-web/catalog/catalog.gen.ts` is typed as `defineCommand<*Input, UploadedAsset>` — including `publishCatalogProperty`, `unpublishCatalogProperty`, `deleteCatalogProperty`, `createCatalogProperty`, `updateCatalogProperty`, `createCatalogService`, `publishCatalogService`, `unpublishCatalogService`, `deleteCatalogService`, `updateCatalogService`, `createCatalogCustomServiceCategory`, `deleteCatalogCustomServiceCategory`, and the asset-upload command pair. The mutation success payload should be the affected resource (`Property` for property commands, `Service` for service commands, `CustomServiceCategory` for category commands, `UploadedAsset` for the upload pair only). Looks like the codegen path that resolves the return type for commands collapses to the bucket's last-defined record across the bucket, picking up `UploadedAsset` as the universal answer.
-- **Workaround in place:** mutation callers ignore the success payload (or do not consume `data` from the `useLazuliCommand` result). For `HostPropertyDetail.tsx` the `onSuccess` callbacks only flip local UI state — no read from the response.
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyDetail.tsx` header comment.
-- **Removal criterion:** TS codegen resolves the per-command success-payload type from the declared `command` block's `effect: returns <Resource>` annotation (or the implicit `Resource` from `updates`/`creates`). Then `publishCatalogProperty` returns `Property`, `createCatalogService` returns `Service`, etc.
-- **Surfaced by:** Phase 3.4 host-property-detail port (this entry).
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16 — `command_output_ts_type` fix)
+- **Symptom:** every catalog command was typed `defineCommand<Input, UploadedAsset>` because the TS codegen for `CommandEffect::None` (handler-only commands without `creates`/`updates`/`deletes`/`returns`) fell back to `feature.resources.first()`. UploadedAsset was the first resource declared, so it leaked to every fire-and-forget command.
+- **Fix:** `crates/lazuli_cli/src/main.rs` `command_output_ts_type` now returns `"void"` for `CommandEffect::None` instead of the first resource. This is the right shape — `@fn.*` handlers without a declared effect produce `struct{}` on the Go side. Verified: all `publish_*`/`unpublish_*`/`delete_*` commands now type as `defineCommand<I, void>`. The `void` propagates through `useLazuliCommand` so callers cannot accidentally read a meaningful response payload.
 
 ## WAR-VOCAB-HOSTPROPDETAIL-03 — Route param type mismatch with `ID = number`
 

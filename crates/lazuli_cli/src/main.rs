@@ -1375,11 +1375,22 @@ fn write_query_sdk(
             .join("; ");
         format!("{{ {fields} }}")
     };
-    let resource_ty = feature
-        .resources
-        .first()
-        .map(|r| pascal_case(&r.name))
-        .unwrap_or_else(|| "unknown".to_owned());
+    // Pick the resource most likely matching the query's intent.
+    // Previous heuristic was `feature.resources.first()` which produced
+    // wildly wrong types when the first resource isn't the "main" one
+    // (e.g. `host.lookupHostByMyHost` typed as `IntermediationTermsAcceptance`
+    // because that's the first resource declared in `host.lzi`; see
+    // WAR-VOCAB-HOSTHOME-01). New heuristic: find a resource whose
+    // PascalCase name appears as a token in the query name, falling
+    // back to the first resource when no match is found.
+    let resource_ty = pick_query_resource_ts(feature, query.name())
+        .unwrap_or_else(|| {
+            feature
+                .resources
+                .first()
+                .map(|r| pascal_case(&r.name))
+                .unwrap_or_else(|| "unknown".to_owned())
+        });
     let returns = match query {
         lazuli_ir::Query::Lookup(_) => resource_ty,
         lazuli_ir::Query::List(_) | lazuli_ir::Query::Sql(_) => format!("{resource_ty}[]"),
@@ -1659,8 +1670,35 @@ fn ts_slot_from_typed(slot: &lazuli_ir::TypedSlot) -> TsSlot {
     }
 }
 
+/// Pick the most likely resource for a `query.list` / `query.lookup` /
+/// `query.sql` return type. Walks the feature's resources, returns the
+/// one whose snake-cased name appears as a substring of the query
+/// name (e.g. `my_host` → "host" → Host; `property_detail` → "property"
+/// → Property). Returns None when no resource matches; caller falls
+/// back to `feature.resources.first()`. Closes WAR-VOCAB-HOSTHOME-01.
+fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Option<String> {
+    let query_lc = query_name.to_ascii_lowercase();
+    // Prefer the longest match (so "service_transaction" beats
+    // "service" + "transaction" tie). Sort by length desc.
+    let mut candidates: Vec<&lazuli_ir::Resource> = feature.resources.iter().collect();
+    candidates.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+    for resource in candidates {
+        let snake = to_snake_case(&resource.name);
+        if query_lc.contains(&snake) {
+            return Some(pascal_case(&resource.name));
+        }
+        // Also try a token-by-token match for compound names like
+        // "ServiceTransaction" vs query "transaction_detail".
+        let last_token = snake.rsplit('_').next().unwrap_or("");
+        if !last_token.is_empty() && last_token.len() > 3 && query_lc.contains(last_token) {
+            return Some(pascal_case(&resource.name));
+        }
+    }
+    None
+}
+
 fn command_output_ts_type(
-    feature: &lazuli_ir::Feature,
+    _feature: &lazuli_ir::Feature,
     command: &lazuli_ir::Command,
     module: &lazuli_ir::Module,
 ) -> String {
@@ -1671,11 +1709,13 @@ fn command_output_ts_type(
         lazuli_ir::CommandEffect::Returns(effect) => {
             ts_type_for_type_ref(&effect.return_type, module)
         }
-        lazuli_ir::CommandEffect::None => feature
-            .resources
-            .first()
-            .map(|r| pascal_case(&r.name))
-            .unwrap_or_else(|| "unknown".to_owned()),
+        // CommandEffect::None means the command has an `@fn.*` handler
+        // with no declared return effect — the Go side returns `struct{}`
+        // (empty object). TS surface mirrors that as `void`. Previously
+        // this fell back to `feature.resources.first()`, which produced
+        // wildly wrong types (e.g. every catalog command typed as
+        // `UploadedAsset` — see WAR-VOCAB-HOSTPROPDETAIL-02).
+        lazuli_ir::CommandEffect::None => "void".to_owned(),
     }
 }
 
