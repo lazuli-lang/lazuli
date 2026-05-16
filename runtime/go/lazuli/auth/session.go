@@ -66,6 +66,16 @@ var sessionDBProvider = func() sessionDB {
 
 // IssueSession persists a new session row and returns the cookie
 // value the transport layer must set on the response.
+//
+// Tenancy-aware: when the session resource has `org` / `org_id`
+// columns (Lazuli's default tenancy emit), the runtime auto-populates
+// them from `ctx.Tenant.OrgID`. The caller is responsible for setting
+// `ctx.Tenant` to the actor's tenant before calling — typically that's
+// done by the command handler that just looked up the user row.
+//
+// Falls back to a 3-column INSERT (no tenancy) when ctx.Tenant is nil,
+// for capsules whose session resource doesn't carry tenancy (e.g. the
+// auth-roundtrip example).
 func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, userID lazuli.ID, attrs SessionAttrs) (string, time.Time, error) {
 	_ = attrs
 
@@ -74,16 +84,31 @@ func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, userID lazuli.ID, 
 		return "", time.Time{}, err
 	}
 	expiresAt := sessionNow(ctx).Add(sessionTTL(contract.TTL))
-	// Column name `"user"` is intentionally quoted (SQL reserved word).
-	// Lazuli emits each `field: Resource required` as a column named
-	// `<field>` (no `_id` suffix); UserSession has a `user: User
-	// required` field → `"user"` column. WAR-RUNTIME-SESSION-COL-01:
-	// if a future codegen pivots to `<field>_id` columns, mirror here.
-	sql := fmt.Sprintf(
-		`INSERT INTO %s ("user", token_hash, expires_at) VALUES ($1, $2, $3)`,
-		quoteSessionIdent(contract.Resource),
-	)
-	if _, err := sessionDBProvider().Exec(ctxOrBackground(ctx), sql, userID, tokenHash, expiresAt); err != nil {
+
+	var sql string
+	var args []any
+	if ctx != nil && ctx.Tenant != nil {
+		sql = fmt.Sprintf(
+			`INSERT INTO %s (org_id, org, "user", token_hash, expires_at, created_at) VALUES ($1, $1, $2, $3, $4, $5)`,
+			quoteSessionIdent(contract.Resource),
+		)
+		args = []any{ctx.Tenant.OrgID, userID, tokenHash, expiresAt, sessionNow(ctx)}
+	} else if ctx != nil && ctx.User != nil && ctx.User.OrgID != 0 {
+		// Fallback: derive org from the actor User when Tenant wasn't set.
+		sql = fmt.Sprintf(
+			`INSERT INTO %s (org_id, org, "user", token_hash, expires_at, created_at) VALUES ($1, $1, $2, $3, $4, $5)`,
+			quoteSessionIdent(contract.Resource),
+		)
+		args = []any{ctx.User.OrgID, userID, tokenHash, expiresAt, sessionNow(ctx)}
+	} else {
+		sql = fmt.Sprintf(
+			`INSERT INTO %s ("user", token_hash, expires_at) VALUES ($1, $2, $3)`,
+			quoteSessionIdent(contract.Resource),
+		)
+		args = []any{userID, tokenHash, expiresAt}
+	}
+
+	if _, err := sessionDBProvider().Exec(ctxOrBackground(ctx), sql, args...); err != nil {
 		return "", time.Time{}, err
 	}
 	return token, expiresAt, nil
