@@ -353,11 +353,13 @@
 
 ## WAR-VOCAB-HOSTHOME-02 — Account-pendings query not modeled
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.2)
-- **Symptom:** Storybook host-home shows a "Pendencias" section listing global account blockers (configure-receivables, complete-profile, first-property nudge, payments-review). Each item has a typed tone (`brand` / `success` / `warning` / `danger`), an icon, title, subtitle, and a CTA label. No corresponding `account.query.list_mine_pendings` or `account.query.account_health` is authored in `account.lzi` / `host.lzi` — the pendings are a synthesis of multiple feature signals (MP-account-connected flag from `payments`, profile-completion flag from `account`, has-published-properties flag from `catalog`).
-- **Workaround in place:** `routes/HostHome.tsx` inlines a `FIXTURE_DATA` constant matching the storybook `activeData` state byte-for-byte. CTAs route to `/account/host` as a safe destination until the underlying flows are ported.
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostHome.tsx`.
-- **Removal criterion:** Lazuli adds a cross-feature aggregation primitive (`derived` view or `query.list mine_pendings` with `union` over feature-local pendings sources) capable of expressing "list of typed action items derived from feature flags". Alternatively each feature emits its own pendings query (`payments.query.mine_pendings_payments`, `account.query.mine_pendings_account`, etc.) and the host-home screen merges them client-side — heavier-handed but unblocks the port.
+- **STATUS:** **closed** (Hostpoint commit follow-up 2026-05-16)
+- **Symptom:** Storybook host-home "Pendencias" section needed a cross-feature synthesis (MP-account flag from `payments`, profile-completion flag from `account`, has-published-properties flag from `catalog`). No single query expressed this.
+- **Fix:** `host.lzi` declares two new records + one command:
+  - `record HostHomePending` — keyed pending tile (title/subtitle/tone/icon/cta_label/cta_target).
+  - `record HostHomeSnapshot` — identity snapshot (display_name, avatar, unread count, property count, MP-connected).
+  - `command get_host_home returns JSON handler @fn.get_host_home` — single handler queries User + Host + counts on NotificationDelivery + Property + MercadoPagoAccount, then `buildHostHomePendings` synthesizes the cross-feature pendings list. Returns `{snapshot, pendings}` JSON.
+  Front-end `HostHome.tsx` consumes via `useLazuliCommand(getHostHostHome)`; live data overrides fixture, empty/loading keeps the storybook visual. The cross-feature aggregation primitive design space (`union`, `derived` view) is left as future Lazuli work — the handler-based synthesis works because Hostpoint owns all three contributing features.
 - **Surfaced by:** Phase 3.2 host-home port (this entry).
 
 ---
