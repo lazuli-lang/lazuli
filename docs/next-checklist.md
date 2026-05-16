@@ -35,4 +35,22 @@ These items were surfaced by the long external-review conversation that produced
 - [ ] **F2 — `@fn.*` per-row currency override is hand-wavy.** Add a concrete 5-line example: `command UpdateChargeCurrency { input: { id: ID, currency: Currency } via @fn.set_charge_currency }`.
 - [ ] **F3 — `lazuli plan diff` should land before second pilot.** Hostpoint's first pilot of Money will produce ~6 hand-rolled ALTER TABLE migrations. The second pilot should not have to repeat that — graduate the diff-based migration runner.
 
+## From `docs/proposals/audit-skill-mvp.md` v0.3 (PASS 8.93/10, 2026-05-16)
+
+- [ ] **Status-line procedence cleanup.** v0.3 Status field carries inline v0.1→v0.2 trail; per `feedback_normative_not_narrative_2026-05-15`, procedence belongs in a `## §11. Revision history` section. Cosmetic; affects Criterion 1 by ~0.2.
+- [ ] **§5 rule table — Rust-internal vocabulary leak.** Row for `VOCAB-HANDLER-HEAVY-001` carries `Command.effect` / `external_calls` / `Expr::Path` Rust typenames inline. Move the disambiguation to the §5 Note paragraph (already addresses it) so the user-facing table reads in product vocabulary only.
+- [ ] **§7 difference table — `EXAMPLES/*.lzi` migration spec.** When v2 projector lands, RULES.md is regenerated from IR; but the 13 `EXAMPLES/*.lzi` snippets are user-authored test fixtures, not IR-projectable. 2-line addendum to §7 clarifying "EXAMPLES/ stays as snapshot-test corpus when v2 ships; the projector regenerates RULES.md only" closes the orphan-at-migration risk.
+- [ ] **SKILL.md comment-strip guard.** §4.4 acknowledges "command inside a comment" false-positive class but SKILL.md prose doesn't tell the LLM consumer to strip `#`-prefixed lines before applying the catalog walk. 1-line addition behavioralizes the mitigation.
+
+## From `docs/proposals/lsp-symbol-origin.md` v0.2 (PASS 8.92/10, 2026-05-16)
+
+- [ ] **`SymbolKind` naming collision pre-empt.** `ir::SymbolKind` will coexist with `tower_lsp::lsp_types::SymbolKind` (`crates/lazuli_lsp/src/lib.rs:13`). Cell A.3 should explicitly `use lazuli_ir::SymbolKind as IrSymbolKind` at LSP boundary; not fatal but worth pre-empting at the rename site. Add to A.3 cell description.
+- [ ] **Bare-name disambiguation tradeoff (`lazuli inspect Gender`).** Path-wins rule is deterministic but `lazuli inspect host` (where `host` is both a feature name and a project subdirectory) silently switches to path-mode. The user must qualify (`host.Host`) to get symbol-mode. Document the tradeoff in §10.7 with an example. Cosmetic; affects Criterion 5 by ~0.1.
+- [ ] **`SymbolKind::Scalar` populated post-L0 #4.** §6.2 lists `Scalar` as reserved. When L0 #4 ships scalar aliases (per `project_validation_strategy_2026-05-14`), populate the variant + add a JSON example shape to §5.2.1.
+
+## From `docs/style-guide.md` (PASS 9.09/10, 2026-05-16)
+
+- [ ] **Idiom 2 (`shared` feature) tie-breaker example.** Doc states "create `shared` only when ≥ 2 consumers exist AND no feature semantically owns the type without forcing a contortion." Add a concrete worked example showing both the right and wrong place to put `Address`.
+- [ ] **`.lzx` idiom catalog.** Style guide title and out-of-scope kick `.lzx` to a follow-up doc. Author `docs/style-guide-lzx.md` (or extend with §7-§N) once `.lzx` authoring patterns stabilize across Pleiades / Hostpoint. Deferred until pattern frequency ≥ 3 across pilots.
+
 ---
