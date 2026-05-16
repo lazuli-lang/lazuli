@@ -35,6 +35,10 @@ These items were surfaced by the long external-review conversation that produced
 - [ ] **F2 — `@fn.*` per-row currency override is hand-wavy.** Add a concrete 5-line example: `command UpdateChargeCurrency { input: { id: ID, currency: Currency } via @fn.set_charge_currency }`.
 - [ ] **F3 — `lazuli plan diff` should land before second pilot.** Hostpoint's first pilot of Money will produce ~6 hand-rolled ALTER TABLE migrations. The second pilot should not have to repeat that — graduate the diff-based migration runner.
 
+## Pre-existing test failure (surfaced 2026-05-16 during Wave 3a)
+
+- [ ] **`lazuli_cli::doctor::tests::doctor_pipeline_invokes_folder_and_design_rules` FAILED on commit 321c01e (pre-Wave-3 baseline).** Test expects `feature-orphan-component` folder rule to fire; got `["LAZULI-VERSION-001", "app_urls_missing", "design-token-hex-leak"]` instead. Likely tied to recent handler-arch refactor (commits 32fd8be / 4f09b9c) that changed where handlers land. Not introduced by this wave — verified by `git checkout 321c01e -- . && cargo test ...` reproducing the failure. Track as a follow-up.
+
 ## From `docs/proposals/audit-skill-mvp.md` v0.3 (PASS 8.93/10, 2026-05-16)
 
 - [ ] **Status-line procedence cleanup.** v0.3 Status field carries inline v0.1→v0.2 trail; per `feedback_normative_not_narrative_2026-05-15`, procedence belongs in a `## §11. Revision history` section. Cosmetic; affects Criterion 1 by ~0.2.

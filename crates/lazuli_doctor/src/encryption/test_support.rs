@@ -24,7 +24,6 @@ pub fn empty_app() -> AppManifest {
         not_found: None,
         error_pages: Vec::new(),
         uses: Vec::new(),
-        uses_spans: Vec::new(),
         packs: Vec::new(),
         bindings: Vec::new(),
         architecture: None,

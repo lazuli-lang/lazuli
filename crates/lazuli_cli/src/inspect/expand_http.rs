@@ -94,7 +94,6 @@ mod tests {
             auth_failed_redirect: None,
             not_found: None,
             uses: vec![],
-            uses_spans: Vec::new(),
             packs: vec![],
             bindings: vec![],
             architecture: None,
