@@ -60,7 +60,11 @@ These items were surfaced by the long external-review conversation that produced
 
 - [ ] **Event public_contract wiring.** Proposal §5.3 row 6 includes `public contract event.<name> as v<N>` but Wave 4 only wired enum/resource/record/command/query (5 of 7 targets). Add `public_contract` field to `ir::Event` + lower from AST + extend `symbol_origin` walker to populate `contract_version` for events.
 
-- [ ] **Auth identity `public contract identity as v<N>` wiring.** Proposal §3.5 + §5.3 row 7 — policy `actor.*` field references currently bypass the contract gate. Wire `public_contract: Option<PublicContract>` on `ir::Auth` (or wherever identity surface lives), lower from AST, fire CROSS-FEATURE-CONTRACT-MISSING-001 on cross-feature identity references.
+- [x] **Auth identity `public contract identity as v<N>` wiring (surface).** SHIPPED in `e8adda6` (Phase C). AST + IR + parser + analyzer + fixture all wired. Singleton placement (one identity per feature) recognized inside auth block; ordering errors enforced. Doctor walker extension (the rule that fires when policy atoms reference `actor.*` cross-feature and origin lacks `public contract identity`) deferred to a dedicated follow-up cell — bigger scope (requires cross-feature policy-atom walker).
+
+- [ ] **Auth identity doctor walker extension.** Now that the surface is shipped (`e8adda6`), extend `CROSS-FEATURE-CONTRACT-MISSING-001` to detect when a `@policy` atom in feature B references `actor.*` fields owned by feature A's auth, and fire when A's `auth.identity.public_contract` is None. Requires a cross-feature policy-atom walker over actor.* references.
+
+- [ ] **Event public_contract wiring.** Proposal §5.3 row 6 (`public contract event.<name> as v<N>`). DEFERRED per analysis in Phase C — events already cross via `services publishes/consumes` + payload types covered by §3.1 (Wave 4); event-level contracts would be redundant with the existing workspace mechanism. Re-evaluate when a real `microservices` pilot surfaces a pattern that's NOT covered by the existing two mechanisms.
 
 - [ ] **`@runtime/cross-feature-transport` runtime-side proposal.** §6.3 + §10 explicitly defer vendoring strategy, wire codec (Protobuf/JSON/Avro), transport (RPC/gRPC/REST), and schema registry to a future runtime proposal. When the first `microservices` pilot ships, draft this proposal — keep it strictly in the runtime layer per `docs/capability-layering.md` §Decision Test.
 
