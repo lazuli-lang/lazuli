@@ -208,12 +208,13 @@
 
 ## WAR-VOCAB-AUTH-05 — Host "CNPJ" field mismatch with Host.cpf SDK field
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
-- **Symptom:** Storybook host-personal panel displays a read-only "CNPJ" field with the helper "Dado de verificação. Para alterar, fale com o suporte." But the SDK resource has only `Host.cpf: Text required unique` (cf. `host.lzi`). Brazilian hosts are typically registered as legal entities (PJ) and identified by CNPJ, not CPF — the storybook is the source of truth for the PRODUCT, and `host.lzi` underspecifies.
-- **Workaround in place:** `routes/settings/panels/HostPersonal.tsx` displays "CNPJ" with a hard-coded fixture value `32.184.770/0001-58` (storybook fixture). The cached value is forwarded as `cpf` to `saveHostHostBasicDetails` to keep the SDK contract happy. The screen does NOT let the user edit it (read-only per storybook).
-- **Annotated in:** `apps/hostpoint-app/src/routes/settings/panels/HostPersonal.tsx`.
-- **Removal criterion:** `host.lzi` adds `Host.cnpj: @semantic.BrazilianCNPJ required unique` (depends on WAR-VOCAB-SEMANTIC-02 = `@plugin/scalars-br`) and a `host.request_cnpj_change()` command for the support-mediated alteration flow. Optionally model legal-entity vs natural-person hosts (PJ has CNPJ, PF has CPF — different identity scalars).
-- **Surfaced by:** Settings host-personal panel.
+- **STATUS:** **closed (storage side)** — semantic typing (`@semantic.BrazilianCNPJ`) deferred to companion proposal alongside scalars-br.
+- **Symptom:** Storybook host-personal panel showed CNPJ; SDK only had `Host.cpf: Text required unique`. Front-end cached CNPJ as fixture and forwarded as `cpf` to satisfy the SDK contract.
+- **Fix:** `host.lzi` Host resource now declares BOTH:
+  - `cpf: Text optional unique` (was `required unique`)
+  - `cnpj: Text optional unique` (new)
+  Authors choose: natural-person hosts populate `cpf`; legal-entity hosts populate `cnpj`. Both fields are `Text` until `@semantic.BrazilianCPF` / `@semantic.BrazilianCNPJ` ship via `@plugin/scalars-br` (WAR-VOCAB-SEMANTIC-02, separate proposal). The `save_host_basic_details` command accepts both fields as optional input. Front-end HostPersonal panel can drop the fixture-as-cpf forwarding once it wires the cnpj input via `updateHostPersonal`.
+- **Note**: a future `host.request_cnpj_change()` command for support-mediated alteration is tracked in next-checklist.md alongside the audit-trail invariants.
 
 ## WAR-VOCAB-AUTH-06 — CEP autofill (`platform.lookup_postal_code`) not modeled
 
