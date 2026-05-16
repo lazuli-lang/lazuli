@@ -141,6 +141,7 @@ mod tests {
             enums: vec![],
             resources: vec![Resource {
                 name: "Src".into(),
+                public_contract: None,
                 tenancy: None,
                 soft_delete: false,
                 timestamps: None,

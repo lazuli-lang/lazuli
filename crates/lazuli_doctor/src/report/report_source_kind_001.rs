@@ -134,6 +134,7 @@ mod tests {
     fn lookup_source_fires() {
         let lookup = Query::Lookup(LookupQuery {
             name: "by_id".into(),
+            public_contract: None,
             params: vec![],
             keys: vec![KeyClause {
                 path: IrPath::from_segments(["id".to_owned()]),
@@ -155,6 +156,7 @@ mod tests {
     fn list_source_does_not_fire() {
         let list = Query::List(ListQuery {
             name: "list".into(),
+            public_contract: None,
             params: vec![],
             scope: vec![],
             scope_override: false,

@@ -10155,6 +10155,7 @@ mod tests {
         };
         feature.commands.push(lazuli_ir::Command {
             name: "update_item".to_owned(),
+            public_contract: None,
             kind: lazuli_ir::CommandKind::Update,
             route: vec![],
             input: lazuli_ir::CommandInput::Typed(vec![]),
@@ -10215,6 +10216,7 @@ mod tests {
         let (mut feature, mut module) = enum_sdk_fixture(false, false);
         feature.commands.push(lazuli_ir::Command {
             name: "bare".to_owned(),
+            public_contract: None,
             kind: lazuli_ir::CommandKind::Update,
             route: vec![],
             input: lazuli_ir::CommandInput::Typed(vec![]),
@@ -10293,6 +10295,7 @@ mod tests {
     ) -> (lazuli_ir::Feature, lazuli_ir::Module) {
         let mut enums = vec![lazuli_ir::EnumDecl {
             name: "ItemType".to_owned(),
+            public_contract: None,
             variants: vec![
                 lazuli_ir::EnumVariant {
                     name: "Doc".to_owned(),
@@ -10311,6 +10314,7 @@ mod tests {
         if include_unused_enum {
             enums.push(lazuli_ir::EnumDecl {
                 name: "Unused".to_owned(),
+                public_contract: None,
                 variants: vec![lazuli_ir::EnumVariant {
                     name: "Legacy".to_owned(),
                     storage_value: None,
@@ -10403,6 +10407,7 @@ mod tests {
     fn resource(name: &str, fields: Vec<lazuli_ir::Field>) -> lazuli_ir::Resource {
         lazuli_ir::Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

@@ -965,6 +965,7 @@ mod tests {
     fn simple_resource(name: &str, fields: Vec<Field>) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -1026,6 +1027,7 @@ mod tests {
         let mut feature = base_feature("customer");
         feature.records.push(Record {
             name: "CustomerLtv".to_owned(),
+            public_contract: None,
             fields: vec![
                 simple_field("customer_id", BuiltinType::Id, true),
                 simple_field("amount", BuiltinType::SemanticMoney, true),
@@ -1406,6 +1408,7 @@ mod tests {
         org.resources.clear();
         org.resources.push(Resource {
             name: "User".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -1699,6 +1702,7 @@ mod feature_emit_tests {
             enums: Vec::new(),
             resources: vec![Resource {
                 name: "item".to_owned(),
+                public_contract: None,
                 tenancy: None,
                 soft_delete: false,
                 timestamps: None,

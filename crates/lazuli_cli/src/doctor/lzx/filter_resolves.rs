@@ -238,6 +238,7 @@ mod tests {
                 enums,
                 resources: vec![Resource {
                     name: "Item".to_owned(),
+                    public_contract: None,
                     tenancy: None,
                     soft_delete: false,
                     timestamps: None,
@@ -263,6 +264,7 @@ mod tests {
                 records: Vec::new(),
                 queries: vec![Query::List(ListQuery {
                     name: "search".to_owned(),
+                    public_contract: None,
                     params: Vec::new(),
                     scope: Vec::new(),
                     scope_override: false,
@@ -330,6 +332,7 @@ mod tests {
     fn enum_decl(name: &str) -> EnumDecl {
         EnumDecl {
             name: name.to_owned(),
+            public_contract: None,
             variants: Vec::new(),
             previous_names: Vec::new(),
             span_ref: None,

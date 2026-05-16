@@ -170,6 +170,7 @@ mod tests {
     fn mk_resource(fields: Vec<Field>) -> Resource {
         Resource {
             name: "Publication".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -199,6 +200,7 @@ mod tests {
 
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind,
             route: vec![],
             input,

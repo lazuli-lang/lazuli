@@ -154,6 +154,7 @@ mod tests {
     fn mk_resource(name: &str, fields: Vec<Field>, ck: Option<CompositeKey>) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

@@ -186,6 +186,7 @@ mod tests {
     fn mk_cmd(name: &str) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: CommandKind::Returns,
             route: vec![],
             input: CommandInput::Empty,
@@ -250,6 +251,7 @@ mod tests {
     fn mk_record(name: &str) -> Record {
         Record {
             name: name.to_owned(),
+            public_contract: None,
             fields: vec![Field {
                 name: "id".into(),
                 type_ref: TypeRef::Builtin(BuiltinType::Id),
@@ -271,6 +273,7 @@ mod tests {
     fn mk_resource(name: &str) -> Resource {
         Resource {
             name: name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

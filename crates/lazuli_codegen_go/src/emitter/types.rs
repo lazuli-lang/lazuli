@@ -363,6 +363,7 @@ mod tests {
     fn make_resource(name: &str) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -636,6 +637,7 @@ mod tests {
         let mut billing = empty_feature("billing");
         billing.enums.push(lazuli_ir::EnumDecl {
             name: "PlanTier".to_owned(),
+            public_contract: None,
             variants: vec![lazuli_ir::EnumVariant {
                 name: "free".to_owned(),
                 storage_value: None,

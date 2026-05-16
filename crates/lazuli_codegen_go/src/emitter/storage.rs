@@ -410,6 +410,7 @@ mod tests {
     fn resource(name: &str, fields: Vec<Field>) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -732,6 +733,7 @@ mod feature_emit_tests {
         let mut feature = base_feature("documents");
         feature.resources.push(Resource {
             name: "Document".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

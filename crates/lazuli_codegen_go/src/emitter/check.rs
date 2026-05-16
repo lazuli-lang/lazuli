@@ -896,6 +896,7 @@ mod tests {
     fn resource_with_field(type_ref: TypeRef) -> Resource {
         Resource {
             name: "Customer".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

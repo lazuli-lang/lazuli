@@ -144,6 +144,7 @@ mod tests {
 
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind,
             route: vec![],
             input: CommandInput::Empty,

@@ -918,6 +918,7 @@ mod tests {
     fn base_command() -> ir::Command {
         ir::Command {
             name: "reassign".to_owned(),
+            public_contract: None,
             kind: ir::CommandKind::Update,
             route: Vec::new(),
             input: ir::CommandInput::Empty,

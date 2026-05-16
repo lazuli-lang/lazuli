@@ -791,6 +791,7 @@ mod feature_emit_tests {
         let mut feature = base_feature("customer");
         feature.resources.push(Resource {
             name: "Customer".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

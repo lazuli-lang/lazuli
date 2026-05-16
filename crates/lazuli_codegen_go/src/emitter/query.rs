@@ -1073,6 +1073,7 @@ mod tests {
     fn resource(name: &str, fields: Vec<Field>) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -1095,6 +1096,7 @@ mod tests {
     fn record(name: &str) -> Record {
         Record {
             name: name.to_owned(),
+            public_contract: None,
             fields: Vec::new(),
             discriminator_field: None,
             span_ref: None,
@@ -1133,6 +1135,7 @@ mod tests {
         ));
         feature.queries.push(Query::List(ListQuery {
             name: "list".to_owned(),
+            public_contract: None,
             params: vec![
                 slot(
                     "lifecycle_stage",
@@ -1194,6 +1197,7 @@ mod tests {
         customer.resources.push(resource("Customer", Vec::new()));
         customer.queries.push(Query::List(ListQuery {
             name: "list".to_owned(),
+            public_contract: None,
             params: vec![slot("user", TypeRef::Unresolved("User".to_owned()), false)],
             scope: Vec::new(),
             scope_override: false,
@@ -1220,6 +1224,7 @@ mod tests {
         customer.resources.push(resource("Customer", Vec::new()));
         customer.queries.push(Query::List(ListQuery {
             name: "list".to_owned(),
+            public_contract: None,
             params: vec![slot(
                 "reviewers",
                 TypeRef::Many(Box::new(TypeRef::Unresolved("User".to_owned()))),
@@ -1257,6 +1262,7 @@ mod tests {
         ));
         feature.queries.push(Query::Lookup(LookupQuery {
             name: "by_email".to_owned(),
+            public_contract: None,
             params: Vec::new(),
             keys: vec![KeyClause {
                 path: lazuli_ir::Path::from_segments(["email"]),
@@ -1283,6 +1289,7 @@ mod tests {
         feature.records.push(record("CustomerLtv"));
         feature.queries.push(Query::Sql(SqlQuery {
             name: "lifetime_value".to_owned(),
+            public_contract: None,
             params: vec![slot(
                 "min_score",
                 TypeRef::Builtin(BuiltinType::Integer),
@@ -1319,6 +1326,7 @@ mod tests {
         feature.resources.push(resource("Customer", Vec::new()));
         feature.queries.push(Query::List(ListQuery {
             name: "zebra".to_owned(),
+            public_contract: None,
             params: Vec::new(),
             scope: Vec::new(),
             scope_override: false,
@@ -1332,6 +1340,7 @@ mod tests {
         }));
         feature.queries.push(Query::List(ListQuery {
             name: "alpha".to_owned(),
+            public_contract: None,
             params: Vec::new(),
             scope: Vec::new(),
             scope_override: false,
@@ -1361,6 +1370,7 @@ mod tests {
         feature.resources.push(resource("Invoice", Vec::new()));
         feature.queries.push(Query::List(ListQuery {
             name: "list".to_owned(),
+            public_contract: None,
             params: Vec::new(),
             scope: Vec::new(),
             scope_override: false,
@@ -1430,6 +1440,7 @@ mod tests {
         feature.resources.push(resource("Customer", Vec::new()));
         feature.queries.push(Query::List(ListQuery {
             name: "list".to_owned(),
+            public_contract: None,
             params: Vec::new(),
             scope: Vec::new(),
             scope_override: false,
@@ -1574,6 +1585,7 @@ mod feature_emit {
     fn resource(name: &str, fields: Vec<Field>) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -1611,6 +1623,7 @@ mod feature_emit {
         ));
         feature.queries.push(Query::List(ListQuery {
             name: "list".to_owned(),
+            public_contract: None,
             params: vec![slot("search", TypeRef::Builtin(BuiltinType::Text), false)],
             scope: Vec::new(),
             scope_override: false,

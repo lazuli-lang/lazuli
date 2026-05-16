@@ -110,6 +110,7 @@ mod tests {
     fn mk_record(name: &str) -> Record {
         Record {
             name: name.to_owned(),
+            public_contract: None,
             fields: vec![Field {
                 name: "id".to_owned(),
                 type_ref: TypeRef::Builtin(BuiltinType::Id),
@@ -131,6 +132,7 @@ mod tests {
     fn mk_resource(name: &str) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

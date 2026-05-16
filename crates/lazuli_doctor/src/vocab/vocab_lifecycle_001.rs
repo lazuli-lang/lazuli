@@ -219,6 +219,7 @@ mod tests {
     fn mk_enum(name: &str, variants: &[&str]) -> EnumDecl {
         EnumDecl {
             name: name.into(),
+            public_contract: None,
             variants: variants
                 .iter()
                 .map(|variant| EnumVariant {
@@ -251,6 +252,7 @@ mod tests {
     fn mk_resource(name: &str, status_field: &str, lifecycle: Option<Lifecycle>) -> Resource {
         Resource {
             name: name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -309,6 +311,7 @@ mod tests {
     fn mk_cmd(name: &str, resource: &str, status_field: &str, variant: &str) -> Command {
         Command {
             name: name.into(),
+            public_contract: None,
             kind: CommandKind::Update,
             route: vec![],
             input: CommandInput::Empty,

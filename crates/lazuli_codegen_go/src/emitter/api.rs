@@ -566,6 +566,7 @@ mod tests {
     fn simple_record(name: &str) -> Record {
         Record {
             name: name.to_owned(),
+            public_contract: None,
             fields: Vec::new(),
             discriminator_field: None,
             span_ref: None,
@@ -575,6 +576,7 @@ mod tests {
     fn simple_resource(name: &str) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

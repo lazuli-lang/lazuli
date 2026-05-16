@@ -66,6 +66,7 @@ mod tests {
     fn mk_feature_with_lifecycle(resource_name: &str, lc: Lifecycle) -> Feature {
         let resource = Resource {
             name: resource_name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -166,6 +167,7 @@ mod tests {
     fn mk_enum(name: &str) -> EnumDecl {
         EnumDecl {
             name: name.into(),
+            public_contract: None,
             variants: vec![],
             previous_names: vec![],
             span_ref: None,

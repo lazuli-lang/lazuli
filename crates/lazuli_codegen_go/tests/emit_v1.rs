@@ -134,6 +134,7 @@ fn minimal_module(app_name: &str, feature_name: &str) -> Module {
 fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
     Command {
         name: name.to_owned(),
+        public_contract: None,
         kind: CommandKind::Create,
         route: Vec::new(),
         input: CommandInput::Empty,
@@ -435,6 +436,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
     let mut module = minimal_module("marketplace", "customer");
     let resource = Resource {
         name: "customer".to_owned(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,
@@ -506,6 +508,7 @@ fn enum_kind_emits_typed_alias_and_const_block() {
     let mut module = minimal_module("marketplace", "customer");
     module.features[0].enums.push(EnumDecl {
         name: "CustomerStatus".to_owned(),
+        public_contract: None,
         variants: vec![
             EnumVariant {
                 name: "lead".to_owned(),
@@ -595,6 +598,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
     // Add Customer{owner: User} on `customer` feature.
     module.features[0].resources.push(Resource {
         name: "Customer".to_owned(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,
@@ -629,6 +633,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
     // Add User on `org` feature.
     module.features[1].resources.push(Resource {
         name: "User".to_owned(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,
@@ -703,6 +708,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
     // Resource the command targets — same feature.
     module.features[0].resources.push(Resource {
         name: "Customer".to_owned(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,
@@ -749,6 +755,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
     // Command — `customer.create` with typed input + Creates effect.
     module.features[0].commands.push(Command {
         name: "create".to_owned(),
+        public_contract: None,
         kind: CommandKind::Create,
         route: Vec::new(),
         input: CommandInput::Typed(vec![
@@ -1113,6 +1120,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
     let mut module = minimal_module("marketplace", "listing");
     module.features[0].resources.push(Resource {
         name: "Listing".to_owned(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,

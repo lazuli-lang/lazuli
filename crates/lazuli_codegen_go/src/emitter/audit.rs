@@ -250,6 +250,7 @@ mod tests {
     fn base_command(name: &str) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: Vec::new(),
             input: CommandInput::Empty,

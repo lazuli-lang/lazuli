@@ -242,6 +242,7 @@ mod tests {
     fn mk_resource(name: &str, fields: Vec<Field>) -> Resource {
         Resource {
             name: name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -303,6 +304,7 @@ mod tests {
             .collect();
         ir::Command {
             name: "create_cmd".into(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: vec![],
             input: CommandInput::Empty,
@@ -338,6 +340,7 @@ mod tests {
     fn mk_create_from_input_cmd(resource: &str) -> ir::Command {
         ir::Command {
             name: "create_from_input".into(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: vec![],
             input: CommandInput::Empty,

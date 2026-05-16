@@ -88,6 +88,7 @@ mod tests {
     fn mk_feature_with_lifecycle(resource_name: &str, lifecycle: Lifecycle) -> Feature {
         let resource = Resource {
             name: resource_name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

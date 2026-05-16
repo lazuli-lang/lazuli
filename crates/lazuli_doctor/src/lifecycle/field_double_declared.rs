@@ -122,6 +122,7 @@ mod tests {
     fn mk_resource(resource_name: &str, fields: Vec<Field>, lc: Lifecycle) -> Resource {
         Resource {
             name: resource_name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

@@ -99,6 +99,7 @@ mod tests {
     ) -> Feature {
         let resource = Resource {
             name: resource_name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

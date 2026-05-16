@@ -285,6 +285,7 @@ mod tests {
     fn cmd(name: &str, kind: CommandKind) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind,
             route: Vec::new(),
             input: CommandInput::Empty,

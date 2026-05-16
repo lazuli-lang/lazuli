@@ -182,6 +182,7 @@ mod tests {
     fn mk_resource(name: &str, fields: Vec<&str>) -> Resource {
         Resource {
             name: name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -204,6 +205,7 @@ mod tests {
     fn mk_list(name: &str) -> Query {
         Query::List(ListQuery {
             name: name.into(),
+            public_contract: None,
             params: vec![],
             scope: vec![],
             scope_override: false,

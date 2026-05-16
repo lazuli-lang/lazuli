@@ -17668,6 +17668,7 @@ feature customer
         };
         let query = lazuli_ir::Query::List(lazuli_ir::ListQuery {
             name: "list".into(),
+            public_contract: None,
             params: Vec::new(),
             scope: Vec::new(),
             scope_override: false,

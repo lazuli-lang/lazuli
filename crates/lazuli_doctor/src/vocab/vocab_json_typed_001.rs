@@ -213,6 +213,7 @@ mod tests {
     fn mk_enum(name: &str, variants: &[&str]) -> EnumDecl {
         EnumDecl {
             name: name.into(),
+            public_contract: None,
             variants: variants
                 .iter()
                 .map(|variant| EnumVariant {
@@ -229,6 +230,7 @@ mod tests {
     fn mk_resource(name: &str, fields: Vec<Field>) -> Resource {
         Resource {
             name: name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

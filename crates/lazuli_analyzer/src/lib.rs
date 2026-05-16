@@ -1058,6 +1058,7 @@ fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, An
     let resource_name = aggregate.name.clone();
     let resource = ir::Resource {
         name: resource_name.clone(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,
@@ -1147,6 +1148,7 @@ fn lower_command(
 
     Ok(ir::Command {
         name: command.name.clone(),
+        public_contract: None,
         kind: ir::CommandKind::Create,
         route: Vec::new(),
         input: ir::CommandInput::Short(command.input.clone()),
@@ -1192,6 +1194,7 @@ fn lower_query(query: &syntax::Query) -> ir::Query {
 
     ir::Query::List(ir::ListQuery {
         name: query.name.clone(),
+        public_contract: None,
         params: Vec::new(),
         scope: Vec::new(),
         scope_override: false,
@@ -2239,6 +2242,7 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
     match q {
         syntax::QueryDecl::List(list) => ir::Query::List(ir::ListQuery {
             name: list.name.clone(),
+            public_contract: None,
             params: list
                 .params
                 .iter()
@@ -2260,6 +2264,7 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
         }),
         syntax::QueryDecl::Lookup(lookup) => ir::Query::Lookup(ir::LookupQuery {
             name: lookup.name.clone(),
+            public_contract: None,
             params: Vec::new(),
             keys: lookup
                 .keys
@@ -2277,6 +2282,7 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
         }),
         syntax::QueryDecl::Sql(sql) => ir::Query::Sql(ir::SqlQuery {
             name: sql.name.clone(),
+            public_contract: None,
             params: sql
                 .params
                 .iter()
@@ -2442,6 +2448,7 @@ fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError>
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ir::Record {
         name: r.name.clone(),
+        public_contract: None,
         fields,
         discriminator_field: r.discriminator_field.clone(),
         span_ref: Some(span_of(r.span)),
@@ -2493,6 +2500,7 @@ fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
 fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
     ir::EnumDecl {
         name: decl.name.clone(),
+        public_contract: None,
         variants: decl
             .variants
             .iter()
@@ -2559,6 +2567,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
     });
     Ok(ir::Resource {
         name: r.name.clone(),
+        public_contract: None,
         tenancy,
         soft_delete: r.soft_delete,
         timestamps: if r.timestamps { Some(true) } else { None },
@@ -3130,6 +3139,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
     let policy_expr = c.policy_expr.as_ref().map(lower_policy_expr);
     Ok(ir::Command {
         name: c.name.clone(),
+        public_contract: None,
         kind,
         route,
         input,

@@ -324,6 +324,7 @@ mod tests {
     fn make_resource(name: &str) -> Resource {
         Resource {
             name: name.into(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -344,6 +345,7 @@ mod tests {
     fn make_enum(name: &str) -> EnumDecl {
         EnumDecl {
             name: name.into(),
+            public_contract: None,
             variants: vec![],
             previous_names: vec![],
             span_ref: None,
@@ -353,6 +355,7 @@ mod tests {
     fn make_command(name: &str) -> Command {
         Command {
             name: name.into(),
+            public_contract: None,
             kind: CommandKind::Returns,
             route: vec![],
             input: CommandInput::Empty,

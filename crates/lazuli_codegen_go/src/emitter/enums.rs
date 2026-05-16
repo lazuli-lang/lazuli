@@ -326,6 +326,7 @@ mod tests {
     fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDecl {
         EnumDecl {
             name: name.to_owned(),
+            public_contract: None,
             variants,
             previous_names: Vec::new(),
             span_ref: None,

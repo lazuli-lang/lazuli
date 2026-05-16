@@ -1496,6 +1496,7 @@ mod feature_emit_tests {
     fn simple_resource(name: &str) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -1534,6 +1535,7 @@ mod feature_emit_tests {
     fn base_command(name: &str) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: Vec::new(),
             input: CommandInput::Empty,
@@ -1716,6 +1718,7 @@ mod tests {
     fn simple_resource(name: &str) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -1821,6 +1824,7 @@ mod tests {
     fn base_command(name: &str) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: Vec::new(),
             input: CommandInput::Empty,

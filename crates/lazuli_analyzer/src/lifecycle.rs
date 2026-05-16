@@ -45,6 +45,7 @@ fn emit_lifecycle_enum(
 
     feature.enums.push(ir::EnumDecl {
         name: generated_enum.to_owned(),
+        public_contract: None,
         variants: lifecycle_ast
             .states
             .iter()
@@ -155,6 +156,7 @@ fn lower_transition_command(
 
     ir::Command {
         name: transition.name.clone(),
+        public_contract: None,
         kind: ir::CommandKind::Update,
         route: vec![ir::RouteSlot {
             name: "id".to_owned(),

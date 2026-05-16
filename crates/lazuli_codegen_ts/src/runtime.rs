@@ -553,6 +553,7 @@ mod tests {
     fn publication_resource(lifecycle: Option<ir::Lifecycle>) -> ir::Resource {
         ir::Resource {
             name: "publication".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -621,6 +622,7 @@ mod tests {
     fn lifecycle_command(name: &str, input: ir::CommandInput) -> ir::Command {
         ir::Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: ir::CommandKind::Update,
             route: vec![ir::RouteSlot {
                 name: "id".to_owned(),

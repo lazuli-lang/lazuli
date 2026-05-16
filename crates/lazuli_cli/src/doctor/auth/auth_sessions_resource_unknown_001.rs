@@ -100,6 +100,7 @@ mod tests {
     fn mk_resource(name: &str) -> Resource {
         Resource {
             name: name.to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

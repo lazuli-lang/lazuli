@@ -185,12 +185,14 @@ mod tests {
             requirements: vec![],
             enums: vec![EnumDecl {
                 name: "ConsultFinalStatus".into(),
+                public_contract: None,
                 variants: vec![],
                 previous_names: vec![],
                 span_ref: None,
             }],
             resources: vec![Resource {
                 name: "V8PendingConsult".into(),
+                public_contract: None,
                 tenancy: None,
                 soft_delete: false,
                 timestamps: None,

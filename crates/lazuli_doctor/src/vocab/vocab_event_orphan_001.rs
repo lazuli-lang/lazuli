@@ -95,6 +95,7 @@ mod tests {
     fn mk_cmd(name: &str, emits: Vec<&str>) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: vec![],
             input: CommandInput::Empty,

@@ -121,6 +121,26 @@ pub enum SourceLocation {
     Builtin,
 }
 
+/// Cross-feature contract version annotation per
+/// `docs/proposals/cross-feature-contracts.md` §5.1.
+///
+/// When a symbol is referenced from another feature under
+/// `architecture mode microservices`, the origin feature MUST declare
+/// this contract via `public contract <Symbol> as v<N>` adjacent to the
+/// symbol's site. Doctor enforces.
+///
+/// Authored via the parser at `crates/lazuli_syntax/src/parser.rs`;
+/// lowered by `lazuli_analyzer` from `PublicContractDeclAst`.
+///
+/// `version` is monotonic per symbol. `span_ref` anchors the
+/// `public contract` source line for diagnostic origin reporting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicContract {
+    pub version: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
 /// A module is the IR root. It groups the optional app operational manifest
 /// and one or more features that flowed through the same compilation.
 ///
@@ -483,6 +503,8 @@ pub struct FeatureRequirement {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     pub variants: Vec<EnumVariant>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
@@ -514,6 +536,8 @@ pub enum StorageValue {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Resource {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     /// Tenancy axis: `tenancy org`, `tenancy team`, or `tenancy none` (opt-out).
     /// `None` means inherit from feature `defaults`. After lowering's derived
     /// pass this should be resolved.
@@ -629,6 +653,8 @@ pub struct RetentionSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     pub fields: Vec<Field>,
     /// `discriminator <field>` marker — `Some(field_name)` when the
     /// record carries a tagged-union discriminator (Cut A.6). Lowering
@@ -970,6 +996,8 @@ pub struct EnumLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     pub kind: CommandKind,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub route: Vec<RouteSlot>,
@@ -1381,6 +1409,8 @@ pub enum CacheTtlLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListQuery {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<TypedSlot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1407,6 +1437,8 @@ pub struct ListQuery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LookupQuery {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<TypedSlot>,
     pub keys: Vec<KeyClause>,
@@ -1425,6 +1457,8 @@ pub struct LookupQuery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlQuery {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<TypedSlot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -5285,6 +5319,7 @@ mod lifecycle_tests {
     fn resource_with_no_lifecycle_omits_field_in_json() {
         let r = Resource {
             name: "Publication".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

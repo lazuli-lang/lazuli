@@ -141,6 +141,7 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
 pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
     Resource {
         name: name.into(),
+        public_contract: None,
         tenancy: None,
         soft_delete: false,
         timestamps: None,

@@ -143,6 +143,7 @@ mod tests {
     fn mk_cmd_emits(name: &str, emits: Vec<&str>) -> Command {
         Command {
             name: name.to_owned(),
+            public_contract: None,
             kind: CommandKind::Create,
             route: vec![],
             input: CommandInput::Empty,
@@ -349,6 +350,7 @@ mod tests {
     fn no_emits_is_silent() {
         let cmd = Command {
             name: "create_post".to_owned(),
+            public_contract: None,
             kind: CommandKind::Returns,
             route: vec![],
             input: CommandInput::Empty,

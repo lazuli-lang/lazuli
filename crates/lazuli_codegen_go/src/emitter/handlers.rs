@@ -1686,6 +1686,7 @@ mod tests {
         let mut feature = base_feature("customer");
         feature.commands.push(Command {
             name: "recompute_score".to_owned(),
+            public_contract: None,
             kind: CommandKind::Update,
             route: Vec::new(),
             input: CommandInput::Empty,

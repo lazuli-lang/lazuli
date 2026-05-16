@@ -160,6 +160,7 @@ mod tests {
     fn mk_session_resource(hash_algorithm: HashAlgorithm) -> Resource {
         Resource {
             name: "CustomerSession".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,
@@ -275,6 +276,7 @@ mod tests {
         // than guess.
         let resource = Resource {
             name: "CustomerSession".to_owned(),
+            public_contract: None,
             tenancy: None,
             soft_delete: false,
             timestamps: None,

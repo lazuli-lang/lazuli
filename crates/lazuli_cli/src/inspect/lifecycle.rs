@@ -87,6 +87,7 @@ mod tests {
             enums: vec![],
             resources: vec![Resource {
                 name: resource_name.to_owned(),
+                public_contract: None,
                 tenancy: None,
                 soft_delete: false,
                 timestamps: None,
