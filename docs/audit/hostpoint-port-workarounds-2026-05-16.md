@@ -317,13 +317,11 @@
 - **Removal criterion:** same as WAR-CODEGEN-TS-03 — Lazuli accepts external design-token packages OR provides a doctor opt-out.
 - **Surfaced by:** Phase 1.3f UI primitives migration.
 
-## WAR-DOCTOR-ENV-01 — `env-client-exposure` false positive on names already prefixed `PUBLIC_`
+## WAR-DOCTOR-ENV-01 — `env-client-exposure` false positive on vendor-style PUBLIC names
 
-- **STATUS:** open
-- **Symptom:** `client PUBLIC_MERCADOPAGO_KEY: Text required ...` triggers `client env names should use a 'PUBLIC_' prefix` warning. The name already starts with `PUBLIC_`. Maybe the rule expects an exact prefix match counting underscore separators differently.
-- **Workaround in place:** warning accepted.
-- **Removal criterion:** doctor rule recognizes `PUBLIC_*` prefix correctly; warning fires only on names lacking the prefix (e.g. `MERCADOPAGO_PUBLIC_KEY` — `PUBLIC` in the middle).
-- **Surfaced by:** Phase 2.2-4.1 registry.lzi commit `612334a`.
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16)
+- **Symptom:** the original lint required `name.starts_with("PUBLIC_")`, which rejected vendor-imposed shapes like `MERCADOPAGO_PUBLIC_KEY` or `STRIPE_PUBLIC_KEY` where `PUBLIC` appears as a mid-name token rather than the leading prefix. Vendor SDKs impose the latter shape; the lint forced authors to either rename (incompatible with SDK) or accept noise.
+- **Fix:** new `has_public_token(name)` helper accepts `PUBLIC` as any `_`-delimited token in the env name. Both `PUBLIC_API_KEY` and `MERCADOPAGO_PUBLIC_KEY` are now treated as intentional public-exposure declarations. Both LSP and doctor instances of the lint share the helper for consistency. Message updated to: "client env names should contain a `PUBLIC` token (e.g. `PUBLIC_MERCADOPAGO_KEY` or vendor-style `MERCADOPAGO_PUBLIC_KEY`)".
 
 ---
 

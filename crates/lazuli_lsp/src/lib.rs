@@ -9909,13 +9909,13 @@ fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
     }
 
     let name = parts[1].trim_end_matches(':');
-    if parts[0] == "client" && !name.starts_with("PUBLIC_") {
+    if parts[0] == "client" && !has_public_token(name) {
         diagnostics.push(simple_canonical_diagnostic(
             line_index,
             line,
             DiagnosticSeverity::WARNING,
             "env-client-exposure",
-            "client env names should use a `PUBLIC_` prefix so secret/server-only values are not accidentally bundled.",
+            "client env names should contain a `PUBLIC` token (e.g. `PUBLIC_MERCADOPAGO_KEY` or vendor-style `MERCADOPAGO_PUBLIC_KEY`) so secret/server-only values are not accidentally bundled.",
         ));
     }
 
@@ -9928,6 +9928,16 @@ fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
             "mobile env names should use an `EXPO_PUBLIC_` prefix so Expo-visible values are explicit.",
         ));
     }
+}
+
+/// Closes WAR-DOCTOR-ENV-01 false-positive. `PUBLIC` may appear as
+/// the leading token (`PUBLIC_API_KEY`) OR as a mid-name token
+/// (`MERCADOPAGO_PUBLIC_KEY`, `STRIPE_PUBLIC_KEY`). Vendor SDKs
+/// frequently impose the latter shape because their key names are
+/// fixed by the upstream service. As long as `PUBLIC` shows up as a
+/// `_`-delimited token, the author has signalled intent to expose.
+fn has_public_token(name: &str) -> bool {
+    name.split('_').any(|token| token == "PUBLIC")
 }
 
 fn valid_env_declaration_parts(parts: &[&str]) -> bool {
@@ -10443,13 +10453,13 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
         let name = parts[1].trim_end_matches(':');
         declared.insert(name.to_owned());
 
-        if parts[0] == "client" && !name.starts_with("PUBLIC_") {
+        if parts[0] == "client" && !has_public_token(name) {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
                 DiagnosticSeverity::WARNING,
                 "env-client-exposure",
-                "client env names should use a `PUBLIC_` prefix so secret/server-only values are not accidentally bundled.",
+                "client env names should contain a `PUBLIC` token (e.g. `PUBLIC_MERCADOPAGO_KEY` or vendor-style `MERCADOPAGO_PUBLIC_KEY`) so secret/server-only values are not accidentally bundled.",
             ));
         }
 
