@@ -724,9 +724,23 @@ pub struct FieldPolicyDecl {
 // or quoted string).
 // -----------------------------------------------------------------------------
 
+/// Cross-feature contract annotation per
+/// `docs/proposals/cross-feature-contracts.md` §5.1. Appears as the
+/// line `public contract <Symbol> as v<N>` IMMEDIATELY ABOVE the
+/// declaration of `<Symbol>`. Captured during parse; the analyzer
+/// resolves the version into the IR `PublicContract`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicContractDeclAst {
+    /// Version number from `as v<N>`. Monotonic per symbol.
+    pub version: u16,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumDeclAst {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     pub variants: Vec<EnumVariantDecl>,
     pub span: Span,
 }
@@ -852,6 +866,8 @@ pub struct DefaultsPolicyFor {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     /// `previously migrated <old>` (one entry per `previously` line).
     pub previously: Vec<String>,
     /// `route <name>: <Type>` slots.
@@ -1100,6 +1116,8 @@ pub struct InvalidatesDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     /// `previously migrated <old>` (one entry per `previously` line).
     pub previously: Vec<String>,
     /// `tenancy <axis>` resource-local override.
@@ -1324,6 +1342,8 @@ impl QueryDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListQueryDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     /// `policy @policy.<name>`.
     pub policy: Option<String>,
     /// RB.S6 — structured form of `policy <expr>` when predicates
@@ -1367,6 +1387,8 @@ pub struct ListQueryDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LookupQueryDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     /// `policy @policy.<name>`.
     pub policy: Option<String>,
     /// RB.S6 — structured policy expression form.
@@ -1388,6 +1410,8 @@ pub struct LookupKey {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlQueryDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     pub policy: Option<String>,
     /// RB.S6 — structured policy expression form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1417,6 +1441,8 @@ pub struct QuerySearch {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     pub fields: Vec<ResourceFieldDecl>,
     /// `discriminator` field marker name when authored. Cut A.6 used
     /// `record` types with a discriminator field for tagged-union

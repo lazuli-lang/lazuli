@@ -26,7 +26,7 @@ use crate::ast::{
     MotionAst, Notification,
     NotificationDigest, NotificationThrottle, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst,
     PackageSkeleton, PermissionDeclAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyExprAst,
-    PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
+    PolicyCategoryDecl, PublicContractDeclAst, Query, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
     ReportColumnSourceAst, RoleDeclAst, RoleGrantsAst,
     ReportDecl, ResourceCompositeKey, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
     ResourceLock, ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, SearchDeclAst,
@@ -3352,6 +3352,7 @@ fn parse_feature_skeleton(
     let mut caches: Vec<CacheProfileDecl> = Vec::new();
     // CL.C.4 — `aggregate <Name>` blocks (DDD consistency boundaries).
     let mut aggregates: Vec<AggregateDecl> = Vec::new();
+    let mut pending_contract: Option<(String, PublicContractDeclAst)> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
 
@@ -3367,6 +3368,21 @@ fn parse_feature_skeleton(
         // A new top-level construct ends this feature body.
         if line.indent == 0 {
             break;
+        }
+
+        if let Some((symbol, contract)) = parse_public_contract_line(line)? {
+            if pending_contract.is_some() {
+                return Err(line_error(
+                    line,
+                    "two `public contract` declarations may not appear in a row without a matching symbol declaration",
+                ));
+            }
+            // TODO(events): wire up `public contract event.<name>` when
+            // event AST gains a public_contract field.
+            pending_contract = Some((symbol, contract));
+            last_end = line.end;
+            i += 1;
+            continue;
         }
 
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("agent ") {
@@ -3507,7 +3523,9 @@ fn parse_feature_skeleton(
 
         // Phase L Tier 4b — `command <name>` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("command ") {
-            let (parsed, next) = parse_command_decl(lines, i)?;
+            let (mut parsed, next) = parse_command_decl(lines, i)?;
+            parsed.public_contract =
+                take_matching_public_contract(line, &mut pending_contract, "command", &parsed.name)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             commands.push(parsed);
             i = next;
@@ -3541,7 +3559,9 @@ fn parse_feature_skeleton(
         // shape are unambiguous. `parse_resource_decl` enforces the
         // child indent contract relative to its own header.
         if trimmed.starts_with("resource ") {
-            let (parsed, next) = parse_resource_decl(lines, i)?;
+            let (mut parsed, next) = parse_resource_decl(lines, i)?;
+            parsed.public_contract =
+                take_matching_public_contract(line, &mut pending_contract, "resource", &parsed.name)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             resources.push(parsed);
             i = next;
@@ -3555,7 +3575,8 @@ fn parse_feature_skeleton(
             || trimmed.starts_with("query.lookup ")
             || trimmed.starts_with("query.sql ")
         {
-            let (parsed, next) = parse_query_decl(lines, i)?;
+            let (mut parsed, next) = parse_query_decl(lines, i)?;
+            attach_public_contract_to_query(line, &mut pending_contract, &mut parsed)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             queries.push(parsed);
             i = next;
@@ -3564,7 +3585,9 @@ fn parse_feature_skeleton(
 
         // Phase L Tier 4d — `record <Name>` block.
         if trimmed.starts_with("record ") {
-            let (parsed, next) = parse_record_decl(lines, i)?;
+            let (mut parsed, next) = parse_record_decl(lines, i)?;
+            parsed.public_contract =
+                take_matching_public_contract(line, &mut pending_contract, "record", &parsed.name)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             records.push(parsed);
             i = next;
@@ -3591,7 +3614,9 @@ fn parse_feature_skeleton(
         // fixture authors enums inside `domain` at indent 4. Header is
         // recognised unambiguously by the keyword prefix at indent > 2.
         if trimmed.starts_with("enum ") && line.indent > AGENT_INDENT_FEATURE_CHILD {
-            let (parsed, next) = parse_enum_decl(lines, i)?;
+            let (mut parsed, next) = parse_enum_decl(lines, i)?;
+            parsed.public_contract =
+                take_matching_public_contract(line, &mut pending_contract, "enum", &parsed.name)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             enums.push(parsed);
             i = next;
@@ -3636,6 +3661,13 @@ fn parse_feature_skeleton(
         i += 1;
     }
 
+    if pending_contract.is_some() {
+        return Err(line_error(
+            header,
+            "trailing `public contract` declaration with no following matching symbol",
+        ));
+    }
+
     Ok((
         FeatureSkeleton {
             name,
@@ -3664,6 +3696,121 @@ fn parse_feature_skeleton(
         },
         i,
     ))
+}
+
+/// Try to parse a feature-body line as `public contract <Symbol> as v<N>`.
+/// Returns `Some((symbol, decl))` when the line matches; `None` otherwise.
+/// Returns `Err` for malformed `public contract` lines.
+fn parse_public_contract_line(
+    line: &SourceLine<'_>,
+) -> Result<Option<(String, PublicContractDeclAst)>, ParseError> {
+    let trimmed = line.text.trim_start();
+    let Some(rest) = trimmed.strip_prefix("public contract ") else {
+        return Ok(None);
+    };
+
+    let mut parts = rest.split_whitespace();
+    let symbol = parts
+        .next()
+        .ok_or_else(|| line_error(line, "`public contract` requires a symbol name"))?
+        .to_owned();
+    if !is_public_contract_symbol(&symbol) {
+        return Err(line_error(line, "`public contract` requires a symbol name"));
+    }
+
+    let as_kw = parts
+        .next()
+        .ok_or_else(|| line_error(line, "`public contract <X>` requires `as v<N>` suffix"))?;
+    if as_kw != "as" {
+        return Err(line_error(
+            line,
+            "`public contract <X>` requires `as v<N>` suffix",
+        ));
+    }
+
+    let version_token = parts.next().ok_or_else(|| {
+        line_error(
+            line,
+            "`public contract <X> as` requires a version `v<N>`",
+        )
+    })?;
+    let Some(version_digits) = version_token.strip_prefix('v') else {
+        return Err(line_error(
+            line,
+            "version must start with `v`, e.g. `v1`",
+        ));
+    };
+    let version: u16 = version_digits
+        .parse()
+        .map_err(|_| line_error(line, "version must be a positive integer (u16)"))?;
+    if version == 0 {
+        return Err(line_error(line, "version must be a positive integer (u16)"));
+    }
+    if parts.next().is_some() {
+        return Err(line_error(
+            line,
+            "`public contract <X> as v<N>` admits no trailing tokens",
+        ));
+    }
+
+    Ok(Some((
+        symbol,
+        PublicContractDeclAst {
+            version,
+            span: Span::new(line.start, line.end),
+        },
+    )))
+}
+
+fn is_public_contract_symbol(symbol: &str) -> bool {
+    !symbol.is_empty()
+        && symbol.split('.').all(|part| {
+            let mut chars = part.chars();
+            matches!(chars.next(), Some(first) if first.is_ascii_alphabetic())
+                && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+}
+
+fn take_matching_public_contract(
+    line: &SourceLine<'_>,
+    pending_contract: &mut Option<(String, PublicContractDeclAst)>,
+    kind: &str,
+    name: &str,
+) -> Result<Option<PublicContractDeclAst>, ParseError> {
+    let Some((symbol, contract)) = pending_contract.take() else {
+        return Ok(None);
+    };
+    if symbol == name || symbol == format!("{kind}.{name}") {
+        return Ok(Some(contract));
+    }
+    Err(line_error_owned(
+        line,
+        format!(
+            "public contract `{symbol}` precedes a `{kind} {name}` declaration; the name must match the next symbol's name."
+        ),
+    ))
+}
+
+fn attach_public_contract_to_query(
+    line: &SourceLine<'_>,
+    pending_contract: &mut Option<(String, PublicContractDeclAst)>,
+    query: &mut QueryDecl,
+) -> Result<(), ParseError> {
+    match query {
+        QueryDecl::List(q) => {
+            q.public_contract =
+                take_matching_public_contract(line, pending_contract, "query.list", &q.name)?;
+        }
+        QueryDecl::Lookup(q) => {
+            q.public_contract =
+                take_matching_public_contract(line, pending_contract, "query.lookup", &q.name)?;
+        }
+        QueryDecl::Sql(q) => {
+            q.public_contract =
+                take_matching_public_contract(line, pending_contract, "query.sql", &q.name)?;
+        }
+    }
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------
@@ -3969,6 +4116,7 @@ fn parse_enum_decl(
     Ok((
         EnumDeclAst {
             name,
+            public_contract: None,
             variants,
             span: Span::new(header.start, last_end),
         },
@@ -4483,6 +4631,7 @@ fn parse_command_decl(
     Ok((
         CommandDecl {
             name,
+            public_contract: None,
             previously,
             route,
             input,
@@ -6008,6 +6157,7 @@ fn parse_resource_decl(
     Ok((
         ResourceDecl {
             name,
+            public_contract: None,
             previously: state.previously,
             tenancy: state.tenancy,
             fields: state.fields,
@@ -8334,6 +8484,7 @@ fn parse_query_lookup_decl(
     Ok((
         QueryDecl::Lookup(LookupQueryDecl {
             name,
+            public_contract: None,
             policy,
             policy_expr,
             keys,
@@ -8519,6 +8670,7 @@ fn parse_query_list_decl(
     Ok((
         QueryDecl::List(ListQueryDecl {
             name,
+            public_contract: None,
             policy,
             policy_expr,
             modifier,
@@ -8629,6 +8781,7 @@ fn parse_query_sql_decl(
     Ok((
         QueryDecl::Sql(SqlQueryDecl {
             name,
+            public_contract: None,
             policy,
             policy_expr,
             params,
@@ -8864,6 +9017,7 @@ fn parse_record_decl(
     Ok((
         RecordDecl {
             name,
+            public_contract: None,
             fields,
             discriminator_field,
             span: Span::new(header.start, last_end),
@@ -17440,5 +17594,99 @@ mod notification_digest_throttle_parser_tests {
         let source = source_with_notification("    throttle\n      max_per 1h\n      per_user\n");
         let err = parse_feature_skeletons(&source).unwrap_err();
         assert!(err.to_string().contains("throttle"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod public_contract_tests {
+    use super::*;
+
+    #[test]
+    fn parse_public_contract_attaches_to_enum() {
+        let source = r#"
+feature account
+  domain
+    public contract Gender as v1
+    enum Gender
+      female = 1
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let contract = features[0].enums[0].public_contract.as_ref().unwrap();
+        assert_eq!(contract.version, 1);
+    }
+
+    #[test]
+    fn parse_public_contract_attaches_to_resource() {
+        let source = r#"
+feature account
+  domain
+    public contract User as v2
+    resource User
+      email: @semantic.Email required
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let contract = features[0].resources[0].public_contract.as_ref().unwrap();
+        assert_eq!(contract.version, 2);
+    }
+
+    #[test]
+    fn parse_public_contract_attaches_to_command() {
+        let source = r#"
+feature account
+  public contract command.create_user as v3
+  command create_user
+    input
+      email: Text required
+    returns User
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let contract = features[0].commands[0].public_contract.as_ref().unwrap();
+        assert_eq!(contract.version, 3);
+    }
+
+    #[test]
+    fn parse_public_contract_attaches_to_record() {
+        let source = r#"
+feature account
+  domain
+    public contract Address as v4
+    record Address
+      line1: Text required
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let contract = features[0].records[0].public_contract.as_ref().unwrap();
+        assert_eq!(contract.version, 4);
+    }
+
+    #[test]
+    fn parse_public_contract_mismatched_name_errors() {
+        let source = r#"
+feature account
+  domain
+    public contract Gender as v1
+    enum Status
+      active = 1
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("public contract `Gender` precedes a `enum Status` declaration"),
+            "got {message}"
+        );
+    }
+
+    #[test]
+    fn parse_public_contract_trailing_no_symbol_errors() {
+        let source = r#"
+feature account
+  domain
+    public contract Gender as v1
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("trailing `public contract` declaration"),
+            "got {message}"
+        );
     }
 }
