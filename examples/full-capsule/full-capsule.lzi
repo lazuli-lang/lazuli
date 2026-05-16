@@ -25,12 +25,14 @@ feature customer
   uses org, user, billing
 
   domain
+    public contract CustomerStatus as v1
     enum CustomerStatus
       lead = 10
       active = 20
       paused = 30
       archived = 90
 
+    public contract CustomerTier as v1
     enum CustomerTier
       free
       pro
@@ -42,6 +44,7 @@ feature customer
       api
       webhook
 
+    public contract Customer as v1
     resource Customer
       previously migrated Account
       owner: User optional

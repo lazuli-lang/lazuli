@@ -97,7 +97,7 @@ let lookup max_tokens method migrations migration_lock model modifier
 multi_tenant mfa non_goals notification of on on_delete oauth optional
 order otherwise out_of_scope output owner packs paginate params parent
 password path pii platform policies policy policy_for prompt provides
-publishes purpose query query.list query.lookup query.sql rate_limit
+public publishes purpose query query.list query.lookup query.sql rate_limit
 read record recipient refs registry relation required requires resource
 restrict retention retry returns role route rule run schedule scope
 search seed self service services session sessions soft_delete source
@@ -233,6 +233,13 @@ resource_body     = ( previously_clause
                     )+ ;
 
 previously_clause = "previously" ( "migrated" | "alias" ) IDENT_LOWER NEWLINE ;
+
+(* Cross-feature contract annotation. Appears IMMEDIATELY ABOVE the
+   declaration of <Symbol>. See docs/proposals/cross-feature-contracts.md
+   §5.1. Compound keyword `public contract` enters the closed reserved
+   word set; `public` has no other use. The version monotonically
+   increases per symbol. *)
+public_contract_clause = "public" "contract" IDENT_PASCAL "as" "v" INTEGER NEWLINE ;
 
 field_decl        = IDENT_LOWER previously_clause? ":" type_expr field_marker*
                     presence? relation_modifier? NEWLINE ;

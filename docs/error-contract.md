@@ -88,3 +88,13 @@ Envelope shape:
 ```
 
 Soft-error exit policy matches `lazuli doctor` — findings are data, not failures. Scripts consuming the CLI parse the envelope and decide.
+
+## Cross-feature contract diagnostics
+
+Per `docs/proposals/cross-feature-contracts.md` §7. All three rules are gated on `architecture mode microservices`; capsules under `monolith` / `modular_monolith` see no findings from these rules. Module placement: `crates/lazuli_doctor/src/cross_feature/`.
+
+| Code | Severity | Trigger | Resolution |
+|---|---|---|---|
+| `CROSS-FEATURE-CONTRACT-MISSING-001` | error | A cross-feature reference (type/enum/record in field decl, query return, command input, event payload, or identity reference) resolves to a symbol in the origin feature that lacks `public contract`. | Add `public contract <Symbol> as v1` adjacent to the symbol's declaration in the origin feature. |
+| `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` | error (scaffolded v0; full trigger pending consumer-pin syntax) | Consumer feature references `<feature>.<Symbol>` at one version while the origin's current contract is a different version. | Migrate the consumer to the new version (and adjust call sites if breaking) or pin explicitly. Doctor lists each consumer site. |
+| `CROSS-FEATURE-WORKFLOW-SPAN-001` | warning | Workflow transitions touch resources owned by 2+ features; under `microservices` this implies distributed-aggregate / saga semantics. | Declare which feature hosts the saga coordinator and treat cross-feature steps as inter-service calls (no new keyword needed; the analyzer flags the span as a refactoring hint). |

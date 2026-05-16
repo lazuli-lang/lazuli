@@ -15,6 +15,7 @@
 //! that stub, after which `lzx/` can move too.
 
 pub mod correctness;
+pub mod cross_feature;
 pub mod design;
 pub mod domain;
 pub mod encryption;

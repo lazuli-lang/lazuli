@@ -270,6 +270,22 @@ source that only fails later.
 - Every inspect expansion fact must carry provenance through an `origin` field
   or an equivalent typed source marker.
 
+## Cross-Feature Contracts
+
+- In any capsule that may transition to `architecture mode microservices`,
+  cross-feature references must be expressible as contracts. Types,
+  query return shapes, command input shapes, event payloads, and policy
+  `actor.*` references that cross feature boundaries MUST be marked as
+  `public contract <Symbol> as v<N>` in their origin feature.
+- The doctor enforces this only under `architecture mode microservices`;
+  capsules under `monolith` / `modular_monolith` compile unchanged.
+  Cross-feature contract violations surface at compile time, not at
+  runtime. See `docs/proposals/cross-feature-contracts.md` §4.
+- The compound `public contract` keyword is in the closed reserved-word
+  set; `public` has no other use. Versioning is monotonic per symbol;
+  the existing `previously alias` / `previously migrated` clauses carry
+  rename history independent of the contract version.
+
 ## Namespaces
 
 - `@...` references use the closed namespace catalog: `@role`, `@scope`,
