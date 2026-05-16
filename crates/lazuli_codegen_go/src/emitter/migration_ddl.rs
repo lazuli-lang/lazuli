@@ -282,7 +282,7 @@ fn resource_columns<'a>(
         columns.push(SqlColumn::typed("org_id", "BIGINT", true));
     }
 
-    columns.extend(resource.fields.iter().map(|field| {
+    for field in &resource.fields {
         let pg_type = pg_type_for_field(module, feature, field, cross_index);
         let column = SqlColumn::typed_generated(
             &field.name,
@@ -290,11 +290,24 @@ fn resource_columns<'a>(
             field.required,
             field.derived_from.clone(),
         );
-        match encryption_marker_for(field) {
+        let column = match encryption_marker_for(field) {
             Some(marker) => column.with_trailing_comment(marker),
             None => column,
+        };
+        columns.push(column);
+        // Per proposal `semantic-types-money-brazilian.md` v0.3: every
+        // `SemanticMoney` field gets a paired `<field>_currency TEXT`
+        // column auto-emitted alongside, capped at `length 3 + uppercase`
+        // via a CHECK constraint. Authors writing `amount: Money` get
+        // both columns without authoring the pair.
+        if matches!(
+            field.type_ref,
+            lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticMoney)
+        ) {
+            let currency_col_name = format!("{}_currency", field.name);
+            columns.push(SqlColumn::typed(&currency_col_name, "TEXT", field.required));
         }
-    }));
+    }
 
     if uses_timestamps(feature, resource) {
         columns.push(SqlColumn::raw(
@@ -512,7 +525,11 @@ fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
         | BuiltinType::SemanticUrl
         | BuiltinType::SemanticUuid
         | BuiltinType::SemanticCurrency => "TEXT",
-        BuiltinType::SemanticMoney => "BIGINT",
+        // Per proposal `semantic-types-money-brazilian.md` v0.3:
+        // Money stores as `NUMERIC(20,4)` (audit removal criterion at
+        // hostpoint-port-workarounds-2026-05-16.md:134). The paired
+        // `<field>_currency TEXT` is auto-emitted alongside.
+        BuiltinType::SemanticMoney => "NUMERIC(20,4)",
         BuiltinType::SemanticGeoPoint => {
             return PgType {
                 sql: "geography(point, 4326)".to_owned(),

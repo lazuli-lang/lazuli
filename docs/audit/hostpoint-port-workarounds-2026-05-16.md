@@ -127,12 +127,17 @@
 
 ## WAR-VOCAB-SEMANTIC-01 — `@semantic.Money` missing
 
-- **STATUS:** open
-- **Symptom:** `Service.price` and `Charge.amount_cents` are typed as `Integer` (cents) + `currency: Text = "BRL"`. No `@semantic.Money(currency: BRL)` semantic carrying decimal-precision intent + currency-locked formatting.
-- **Workaround in place:** Integer cents + Text currency. Handler-side math + formatting bear the burden.
-- **Annotated in:** `app/features/catalog/catalog.lzi` (Service.price_amount_cents); `app/features/payments/payments.lzi` (Charge.amount_cents + platform_fee_cents + net_to_host_cents).
-- **Removal criterion:** Lazuli ships `@semantic.Money(currency: BRL)` semantic type. Postgres emit becomes `NUMERIC(20,4)` with currency constraint; TS becomes a branded Money type with formatting helpers.
-- **Surfaced by:** Hostpoint payments BC vocab (commit `612334a`).
+- **STATUS:** **closed** (Lazuli + Hostpoint commits follow-up 2026-05-16; ships per proposal `docs/proposals/semantic-types-money-brazilian.md` v0.3 PASS 8.89/10)
+- **Symptom:** `Charge.amount_cents` + `currency: Text = "BRL"` (three columns × `amount + platform_fee + net_to_host`) had no DSL surface saying "this is money". Handler-side `/100` formatting repeated across features; currency was implicit in storage and explicit on display.
+- **Fix:** five-layer landing:
+  - **Analyzer** (`crates/lazuli_analyzer/src/lib.rs:1301`): bare `Money` keyword resolves to `BuiltinType::SemanticMoney` (was `Decimal`).
+  - **Go codegen** (`crates/lazuli_codegen_go/src/emitter/types.rs:160`): emits `lazuli.MoneyValue` (rich struct) instead of legacy `lazuli.Money` (int64 alias preserved for backward compat).
+  - **Go migration DDL** (`crates/lazuli_codegen_go/src/emitter/migration_ddl.rs:515`): `NUMERIC(20,4)` per audit removal criterion. Every Money field auto-emits a paired `<field>_currency TEXT` column.
+  - **TS codegen** (`crates/lazuli_cli/src/main.rs:1976`): emits `Money` interface from `@lazuli/runtime`.
+  - **Go runtime** (`runtime/go/lazuli/money.go`): new `MoneyValue { Amount, Currency }` struct + `BRL/USD/EUR` constructors + `ParseMoneyLiteral` + pgx `Scanner/Valuer` + JSON marshal contracts. Existing `Money = int64` alias preserved.
+  - **TS runtime** (`runtime/web/lazuli/src/types.ts`): new `Money` interface + `formatMoney(m, locale)` helper via `Intl.NumberFormat`.
+  - **Hostpoint**: `Charge.amount_cents Integer + currency Text` → `Charge.amount Money` (× 3 fields). Migration codegen emits 3 NUMERIC + 3 TEXT currency columns. `CreateCheckoutPreference` handler converts legacy cents to decimal string via `formatBRL` helper. e2e 82/82 still green.
+- **Tier 2 (`@plugin/scalars-br` for CPF/CNPJ/CEP/Phone)**: deferred to companion proposal `semantic-types-plugin-locales.md` (per architect grading split). WAR-VOCAB-SEMANTIC-02 remains open until the generic plugin-type-contribution mechanism is graded.
 
 ## WAR-VOCAB-SEMANTIC-02 — Brazilian semantic types missing (`@semantic.Brazilian{CPF,CNPJ,CEP,Phone}`)
 

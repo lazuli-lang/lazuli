@@ -35,6 +35,39 @@ export function tryID(value: string | number | undefined | null): ID | null {
   return null;
 }
 
+// `Money` is the currency-aware semantic value emitted by codegen for
+// `@semantic.Money` / bare `Money` field declarations. Per proposal
+// `docs/proposals/semantic-types-money-brazilian.md` v0.3:
+//   - `amount` is a decimal string (e.g. "19.90") — JS `number` loses
+//     precision above 2^53, so the wire layer stays in string form.
+//   - `currency` is an ISO 4217 3-letter uppercase code.
+//
+//   const total: Money = { amount: "19.90", currency: "BRL" };
+//   formatMoney(total); // -> "R$ 19,90"
+export interface Money {
+  amount: string;
+  currency: string;
+}
+
+// Render a Money value via `Intl.NumberFormat` — handles minor-unit
+// count per ISO 4217 automatically (BRL/USD with 2 decimals, JPY/KRW
+// with 0, BHD/JOD with 3). Default locale is `pt-BR` because Lazuli's
+// first pilot is Brazilian; pass an explicit locale for other UIs.
+export function formatMoney(m: Money, locale = "pt-BR"): string {
+  const numeric = Number(m.amount);
+  if (!Number.isFinite(numeric)) {
+    return `${m.currency} ${m.amount}`;
+  }
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: m.currency,
+    }).format(numeric);
+  } catch {
+    return `${m.currency} ${m.amount}`;
+  }
+}
+
 // JSON-shaped value, used as a fallback for free-form payloads (audit data,
 // event payloads, query.sql results).
 export type Json =

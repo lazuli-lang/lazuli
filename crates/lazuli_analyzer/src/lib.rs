@@ -1298,7 +1298,12 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "Text" | "String" => ir::TypeRef::Builtin(ir::BuiltinType::Text),
         "Boolean" | "Bool" => ir::TypeRef::Builtin(ir::BuiltinType::Boolean),
         "Integer" | "Int" => ir::TypeRef::Builtin(ir::BuiltinType::Integer),
-        "Decimal" | "Float" | "Money" => ir::TypeRef::Builtin(ir::BuiltinType::Decimal),
+        "Decimal" | "Float" => ir::TypeRef::Builtin(ir::BuiltinType::Decimal),
+        // Per proposal `semantic-types-money-brazilian.md` v0.3, `Money`
+        // is the currency-aware semantic type, NOT a Decimal alias. The
+        // codegen emits paired `<field>_currency TEXT` automatically;
+        // doctor lint VOCAB-MONEY-002 catches authors who meant Decimal.
+        "Money" => ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney),
         "Date" => ir::TypeRef::Builtin(ir::BuiltinType::Date),
         "DateTime" => ir::TypeRef::Builtin(ir::BuiltinType::DateTime),
         "JSON" | "Json" => ir::TypeRef::Builtin(ir::BuiltinType::Json),

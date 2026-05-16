@@ -22,5 +22,5 @@ export {
   type QuerySpec,
   type RateLimitSpec,
 } from "./spec.js";
-export { toID, tryID } from "./types.js";
-export type { ID, Json, Time } from "./types.js";
+export { toID, tryID, formatMoney } from "./types.js";
+export type { ID, Json, Money, Time } from "./types.js";

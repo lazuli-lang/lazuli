@@ -157,8 +157,13 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
             "lazuli.Email".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
+        // Per proposal `semantic-types-money-brazilian.md` v0.3:
+        // `Money` is the currency-aware semantic type. The Go field
+        // type is the rich struct `lazuli.MoneyValue` (decimal +
+        // currency), not the legacy `int64` alias `lazuli.Money`
+        // which is preserved for backward compatibility.
         BuiltinType::SemanticMoney => (
-            "lazuli.Money".to_owned(),
+            "lazuli.MoneyValue".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
         BuiltinType::SemanticPhone => (
