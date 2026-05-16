@@ -1,35 +1,38 @@
-// React bindings for the typed LazuliClient. Built on TanStack Query so
-// every typed feature inherits caching, refetch-on-focus, optimistic
-// updates, suspense boundaries, etc., without ad-hoc wiring.
+// PUBLIC TYPE CONTRACT for `@lazuli/runtime/react`.
 //
-//   const list = useLazuliQuery(listCustomers, {});
-//   const create = useLazuliCommand(createCustomer);
-//   await create.mutateAsync({ name, email });
+// This file is the `types` branch of the `./react` exports map in
+// `package.json`. Both `react.web.ts` and `react.native.ts` must
+// re-export every name listed here so the consumer sees a uniform
+// surface regardless of platform. The runtime body lives in those
+// concrete entrypoints; this file declares the contract that both
+// implementations satisfy.
 //
-// The hooks read the ambient client from `<LazuliProvider>`, which in turn
-// reads it from React context. Apps that don't use the provider can pass
-// the client directly via `options.client`.
+// Constraint: this file must NOT import `react-native` modules even
+// at type position. Web consumers running `tsc --noEmit` without RN
+// installed should typecheck cleanly. Inline type aliases (or
+// declarations of the public surface) replace any would-be RN imports.
+//
+// See `docs/proposals/mobile-target.md` §3.3 + §3.5 for the rationale.
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseMutationOptions,
-  type UseMutationResult,
-  type UseQueryOptions,
-  type UseQueryResult,
+import type {
+  UseMutationOptions,
+  UseMutationResult,
+  UseQueryOptions,
+  UseQueryResult,
 } from "@tanstack/react-query";
-import { createContext, createElement, useContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { LazuliClient } from "./client.js";
+import type { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
+import type { DrawerConfig, DrawerSubView } from "./view-helpers.js";
 
+// Universal view-helper types and functions are re-exported as-is from
+// `view-helpers.ts`; they are pure React + JS (no DOM, no RN) and so
+// both entrypoints can re-export them identically through this file.
 export {
   canonicalizeSearch,
   parseSegments,
-  useDrawerSubView,
   useFilterState,
-  useLocalSetting,
   useMultiSelection,
   type DrawerConfig,
   type DrawerSubView,
@@ -43,58 +46,40 @@ export {
   type UrlParams,
 } from "./view-helpers.js";
 
-const LazuliClientContext = createContext<LazuliClient | null>(null);
+// --- LazuliProvider / client hooks ----------------------------------------
 
 export interface LazuliProviderProps {
   client: LazuliClient;
   children: ReactNode;
 }
 
-export function LazuliProvider({ client, children }: LazuliProviderProps) {
-  return createElement(LazuliClientContext.Provider, { value: client }, children);
-}
+export declare function LazuliProvider(props: LazuliProviderProps): ReactNode;
 
-export function useLazuliClient(override?: LazuliClient): LazuliClient {
-  if (override) {
-    return override;
-  }
-  const ctx = useContext(LazuliClientContext);
-  if (!ctx) {
-    throw new Error(
-      "useLazuliClient: no LazuliClient in context. Wrap the app in <LazuliProvider client={...}>.",
-    );
-  }
-  return ctx;
-}
+export declare function useLazuliClient(override?: LazuliClient): LazuliClient;
 
-// queryKeyFor builds the TanStack Query cache key for a typed query.
-// Splitting the prefix `["lazuli", spec.name]` from the args lets command
-// hooks invalidate a whole query (across every args set) by passing
-// `{ queryKey: ["lazuli", spec.name] }`.
-export function queryKeyFor(spec: QuerySpec<unknown, unknown>, args: unknown): unknown[] {
-  return ["lazuli", spec.name, args];
-}
+/**
+ * Build the TanStack Query cache key for a typed query. Splitting the
+ * prefix `["lazuli", spec.name]` from the args lets command hooks
+ * invalidate a whole query (across every args set) by passing
+ * `{ queryKey: ["lazuli", spec.name] }`.
+ */
+export declare function queryKeyFor(
+  spec: QuerySpec<unknown, unknown>,
+  args: unknown,
+): unknown[];
 
-export type UseLazuliQueryOptions<Args, Result> = Omit<
+export type UseLazuliQueryOptions<Result> = Omit<
   UseQueryOptions<Result, Error, Result, unknown[]>,
   "queryKey" | "queryFn"
 > & {
   client?: LazuliClient;
 };
 
-export function useLazuliQuery<Args, Result>(
+export declare function useLazuliQuery<Args, Result>(
   spec: QuerySpec<Args, Result>,
   args: Args,
-  options: UseLazuliQueryOptions<Args, Result> = {},
-): UseQueryResult<Result, Error> {
-  const { client: clientOverride, ...queryOptions } = options;
-  const client = useLazuliClient(clientOverride);
-  return useQuery<Result, Error, Result, unknown[]>({
-    queryKey: queryKeyFor(spec, args),
-    queryFn: () => client.runQuery(spec, args),
-    ...queryOptions,
-  });
-}
+  options?: UseLazuliQueryOptions<Result>,
+): UseQueryResult<Result, Error>;
 
 export type UseLazuliCommandOptions<Input, Output> = Omit<
   UseMutationOptions<Output, Error, Input>,
@@ -103,28 +88,42 @@ export type UseLazuliCommandOptions<Input, Output> = Omit<
   client?: LazuliClient;
 };
 
-export function useLazuliCommand<Input, Output>(
+export declare function useLazuliCommand<Input, Output>(
   spec: CommandSpec<Input, Output>,
-  options: UseLazuliCommandOptions<Input, Output> = {},
-): UseMutationResult<Output, Error, Input> {
-  const { client: clientOverride, onSuccess: userOnSuccess, ...mutationOptions } = options;
-  const client = useLazuliClient(clientOverride);
-  const queryClient = useQueryClient();
-  return useMutation<Output, Error, Input>({
-    mutationFn: (input) => client.runCommand(spec, input),
-    onSuccess: async (...args) => {
-      // Invalidate every TanStack Query cache entry whose key starts with
-      // `["lazuli", <invalidated query name>]`. This matches the server's
-      // `c.Invalidates` evictions: any args-variant of that query refetches.
-      await Promise.all(
-        spec.invalidates.map((name) =>
-          queryClient.invalidateQueries({ queryKey: ["lazuli", name] }),
-        ),
-      );
-      if (userOnSuccess) {
-        await (userOnSuccess as (...a: typeof args) => unknown)(...args);
-      }
-    },
-    ...mutationOptions,
-  });
-}
+  options?: UseLazuliCommandOptions<Input, Output>,
+): UseMutationResult<Output, Error, Input>;
+
+// --- Platform-split hooks --------------------------------------------------
+
+/**
+ * Returns the persisted setting, falling back to `defaultValue`.
+ *
+ * IMPORTANT — first-render contract differs by platform:
+ *   - Web: returns the persisted value synchronously on first render
+ *     (uses useSyncExternalStore + localStorage).
+ *   - Native: returns `defaultValue` on first render; the persisted
+ *     value becomes visible on the next render after AsyncStorage
+ *     resolves.
+ *
+ * Callers MUST treat the value as eventually-consistent. Code that
+ * depends on the persisted value being present on the first frame
+ * (e.g., to pick a theme before paint) must read storage explicitly
+ * via the platform's lower-level API, not via this hook.
+ */
+export declare function useLocalSetting<T>(
+  key: string,
+  defaultValue: T,
+): [T, (next: T) => void];
+
+/**
+ * Drawer state machine. Auto-closes on pathname change, on delete
+ * success, on missing item, and on a platform-specific dismissal
+ * gesture:
+ *   - Web: the `Escape` keyboard key.
+ *   - Native: the Android hardware back button (iOS swipe-back is
+ *     handled by Expo Router for navigated stack screens; `<Modal>`
+ *     consumers wire `onRequestClose` to `close()` themselves).
+ */
+export declare function useDrawerSubView<TInput, TItem>(
+  config?: DrawerConfig<TInput, TItem>,
+): DrawerSubView<TInput, TItem>;

@@ -1,16 +1,15 @@
-// Smoke tests for the L0 #6 view-helpers (C.4b). Cover the pure helpers
-// (`canonicalizeSearch`, `parseSegments`) deterministically and the stateful
-// hooks (`useMultiSelection`, `useLocalSetting`) via RTL's `renderHook`.
-// `useDrawerSubView` / `useFilterState` integration belongs to the C.4a
-// codegen tests — this file only validates the shapes shipped by C.4b.
+// Smoke tests for the universal view-helpers. Covers the pure helpers
+// (`canonicalizeSearch`, `parseSegments`) deterministically and the
+// stateful `useMultiSelection` hook via RTL's `renderHook`. Platform-
+// split hooks (`useLocalSetting`, `useDrawerSubView`) have their own
+// `.web.test.ts` / `.native.test.ts` siblings.
 
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeSearch,
   parseSegments,
-  useLocalSetting,
   useMultiSelection,
 } from "./view-helpers.js";
 
@@ -103,30 +102,3 @@ describe("useMultiSelection", () => {
   });
 });
 
-describe("useLocalSetting", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-
-  afterEach(() => {
-    window.localStorage.clear();
-  });
-
-  it("returns the default value when storage is empty", () => {
-    const { result } = renderHook(() => useLocalSetting("test:key", { gridSize: "sm" as const }));
-    expect(result.current[0]).toEqual({ gridSize: "sm" });
-  });
-
-  it("writes and reads through localStorage", () => {
-    const { result } = renderHook(() => useLocalSetting<{ gridSize: string }>("test:key", { gridSize: "sm" }));
-    act(() => result.current[1]({ gridSize: "lg" }));
-    expect(result.current[0]).toEqual({ gridSize: "lg" });
-    expect(JSON.parse(window.localStorage.getItem("test:key") ?? "null")).toEqual({ gridSize: "lg" });
-  });
-
-  it("reads pre-existing storage value on first render", () => {
-    window.localStorage.setItem("test:key", JSON.stringify({ gridSize: "md" }));
-    const { result } = renderHook(() => useLocalSetting<{ gridSize: string }>("test:key", { gridSize: "sm" }));
-    expect(result.current[0]).toEqual({ gridSize: "md" });
-  });
-});

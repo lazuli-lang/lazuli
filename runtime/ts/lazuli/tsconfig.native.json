@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"]
+  },
+  "include": [
+    "src/react.ts",
+    "src/client.ts",
+    "src/error.ts",
+    "src/index.ts",
+    "src/spec.ts",
+    "src/types.ts",
+    "src/view-helpers.ts",
+    "src/local-setting.native.ts",
+    "src/drawer-sub-view.native.ts",
+    "src/react.native.ts"
+  ],
+  "exclude": []
+}

@@ -2,13 +2,20 @@
   "name": "@lazuli/runtime",
   "version": "0.0.0",
   "private": true,
-  "description": "Lazuli web runtime — typed client + React hooks (TanStack Query) consumed by generated dist/web/<feature> packages.",
+  "description": "Lazuli universal runtime — typed client + React hooks (TanStack Query). One package serves web and React Native via the exports map's `react-native` condition; see docs/proposals/mobile-target.md §3.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./react": "./src/react.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./react": {
+      "types": "./src/react.ts",
+      "react-native": "./src/react.native.ts",
+      "default": "./src/react.web.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -18,12 +25,16 @@
     "search-query-parser": "^1.6.0"
   },
   "peerDependencies": {
+    "@react-native-async-storage/async-storage": ">=1.23.0",
     "@tanstack/react-query": ">=5.0.0",
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "react-native": ">=0.74.0"
   },
   "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": { "optional": true },
     "@tanstack/react-query": { "optional": true },
-    "react": { "optional": true }
+    "react": { "optional": true },
+    "react-native": { "optional": true }
   },
   "devDependencies": {
     "@tanstack/react-query": "^5.59.0",

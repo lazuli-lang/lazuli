@@ -1,17 +1,17 @@
-// View-state helper hooks for `.lzx`-emitted ViewModels (L0 #6 Terminal grammar).
+// Universal view-state helper hooks for `.lzx`-emitted ViewModels
+// (L0 #6 Terminal grammar). Every export in this file is pure React +
+// JS — no DOM, no React Native — so it imports identically into
+// `react.web.ts` and `react.native.ts`.
 //
-// Each helper is wire-thin — it composes React stdlib (`useState`,
-// `useCallback`, `useEffect`, `useRef`, `useSyncExternalStore`) with
-// browser URL + storage APIs and (for `parseSegments`) one OSS dep
-// (`search-query-parser`). Codegen emits the per-view hook body and
-// passes the right router primitives (params / setParams / pathname)
-// at call sites — these helpers stay router-adapter-agnostic so they
-// work for vite-react, nextjs, and expo targets alike.
+// Platform-coupled hooks (`useLocalSetting`, `useDrawerSubView`) live
+// in sibling `.web.ts` / `.native.ts` files and are wired by the per-
+// target entrypoints. See `docs/proposals/mobile-target.md` §3.1 for
+// the full split table.
 //
-// See `docs/proposals/lzx-terminal-grammar.md` §3 + §5.1 for the full
-// design context; cell C.4b of §6 ships this file.
+// See `docs/proposals/lzx-terminal-grammar.md` §3 + §5.1 for the
+// design context; cell C.4b of §6 originally shipped this file.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useRef, useState } from "react";
 import { parse as parseSearchQuery, type SearchParserOptions, type SearchParserResult } from "search-query-parser";
 
 // --- §3.3 filters ----------------------------------------------------------
@@ -221,7 +221,7 @@ export function useMultiSelection<TId extends string>(items: ReadonlyArray<{ id:
   return { ids, has, toggle, selectRange, clear };
 }
 
-// --- §3.9 drawer sub-view --------------------------------------------------
+// --- §3.9 drawer sub-view (types only — bodies live per-platform) --------
 
 export interface DrawerSubView<TInput, TItem> {
   isOpen: boolean;
@@ -244,118 +244,16 @@ export interface DrawerConfig<TInput, TItem> {
   selectionContainsOpenId?: boolean;
 }
 
-/**
- * Drawer state machine — open(id)/close() + auto-close on pathname change,
- * on delete success, on missing item, and on Escape (§3.9). Hook stays
- * router-agnostic: caller passes `pathname` + `lastDeleteSuccess` from
- * the target's router/command hooks.
- */
-export function useDrawerSubView<TInput, TItem>(
-  config: DrawerConfig<TInput, TItem> = {},
-): DrawerSubView<TInput, TItem> {
-  const [id, setId] = useState<TInput | null>(null);
+// `useDrawerSubView` body lives in `drawer-sub-view.web.ts` / `.native.ts`
+// per `docs/proposals/mobile-target.md` §3.1. The web body uses the
+// keyboard `Escape` key; the native body uses Android `BackHandler`.
 
-  const close = useCallback(() => setId(null), []);
-  const open = useCallback((next: TInput) => setId(next), []);
+// --- §3.7 local-persisted settings (body per-platform) -------------------
 
-  // Auto-close on pathname change (NOT search-param change — filters
-  // mutate search params freely without dismissing the drawer).
-  const lastPathRef = useRef<string | undefined>(config.pathname);
-  useEffect(() => {
-    if (lastPathRef.current !== undefined && lastPathRef.current !== config.pathname) {
-      setId(null);
-    }
-    lastPathRef.current = config.pathname;
-  }, [config.pathname]);
-
-  // Auto-close on delete success.
-  const lastDeleteRef = useRef<number | null>(config.lastDeleteSuccess ?? null);
-  useEffect(() => {
-    if (config.lastDeleteSuccess != null && config.lastDeleteSuccess !== lastDeleteRef.current) {
-      setId(null);
-    }
-    lastDeleteRef.current = config.lastDeleteSuccess ?? null;
-  }, [config.lastDeleteSuccess]);
-
-  // Auto-close when the resolved item disappears from the source query.
-  useEffect(() => {
-    if (id !== null && config.itemMissing) setId(null);
-  }, [id, config.itemMissing]);
-
-  // Auto-close on Escape.
-  useEffect(() => {
-    if (id === null) return;
-    if (typeof window === "undefined") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setId(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [id]);
-
-  return {
-    isOpen: id !== null,
-    id,
-    item: id !== null ? (config.item ?? null) : null,
-    open,
-    close,
-  };
-}
-
-// --- §3.7 local-persisted settings ----------------------------------------
-
-function subscribeLocal(key: string, onChange: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  const handler = (e: StorageEvent) => {
-    if (e.key === key || e.key === null) onChange();
-  };
-  window.addEventListener("storage", handler);
-  return () => window.removeEventListener("storage", handler);
-}
-
-/**
- * `useState`-shaped tuple backed by `localStorage`. Listens for `storage`
- * events so two tabs editing the same key converge. JSON-serialized.
- */
-export function useLocalSetting<T>(key: string, defaultValue: T): [T, (next: T) => void] {
-  // Use a ref to bridge useSyncExternalStore (which expects a snapshot
-  // identity) and JSON.parse (which always produces fresh objects).
-  const cacheRef = useRef<{ raw: string | null; value: T }>({ raw: null, value: defaultValue });
-
-  const getSnapshot = useCallback((): T => {
-    if (typeof window === "undefined" || !window.localStorage) return defaultValue;
-    const raw = window.localStorage.getItem(key);
-    if (raw === cacheRef.current.raw) return cacheRef.current.value;
-    try {
-      const parsed = raw === null ? defaultValue : (JSON.parse(raw) as T);
-      cacheRef.current = { raw, value: parsed };
-      return parsed;
-    } catch {
-      cacheRef.current = { raw, value: defaultValue };
-      return defaultValue;
-    }
-  }, [key, defaultValue]);
-
-  const subscribe = useCallback((onChange: () => void) => subscribeLocal(key, onChange), [key]);
-
-  const getServerSnapshot = useCallback((): T => defaultValue, [defaultValue]);
-
-  const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-
-  const setValue = useCallback(
-    (next: T) => {
-      if (typeof window === "undefined" || !window.localStorage) return;
-      const serialized = JSON.stringify(next);
-      window.localStorage.setItem(key, serialized);
-      cacheRef.current = { raw: serialized, value: next };
-      // Fire a synthetic storage event so the same-tab subscriber re-reads.
-      window.dispatchEvent(new StorageEvent("storage", { key, newValue: serialized }));
-    },
-    [key],
-  );
-
-  return [value, setValue];
-}
+// `useLocalSetting` body lives in `local-setting.web.ts` / `.native.ts`
+// per `docs/proposals/mobile-target.md` §3.1. Web reads `localStorage`
+// synchronously; native reads `AsyncStorage` asynchronously. The
+// first-render contract divergence is documented on each body's JSDoc.
 
 // --- §3.4 search helpers --------------------------------------------------
 
