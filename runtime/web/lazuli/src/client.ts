@@ -55,7 +55,7 @@ export class LazuliClient {
   private async post<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
     const headers = new Headers(this.defaultHeaders);
     if (init?.headers) {
-      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+      new Headers(init.headers).forEach((value: string, key: string) => headers.set(key, value));
     }
     headers.set("Content-Type", "application/json");
 
