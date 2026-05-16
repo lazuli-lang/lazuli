@@ -412,12 +412,12 @@
 
 ## WAR-VOCAB-HOSTPROPDETAIL-03 — Route param type mismatch with `ID = number`
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.4)
-- **Symptom:** `@lazuli/runtime` declares `type ID = number` (numeric primary keys, Postgres `serial`/`bigserial`). URLs carry IDs as strings (`/host/properties/:id`). When a route component reads the param via `useParams` and passes it to a mutation typed `{ property_id: ID }`, TypeScript correctly rejects the string. Today every call site does `Number(params.id)` which loses the type contract (non-numeric strings become `NaN`).
-- **Workaround in place:** explicit `Number(...)` coercion at the call site. The numeric-string contract is enforced only at runtime.
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyDetail.tsx` inline comment.
-- **Removal criterion:** either (a) Lazuli ships a branded `BrandedID` (string-typed for URL safety + opaque-int for storage) that the SDK accepts uniformly, OR (b) `useLazuliCommand` accepts a string and the wire layer coerces; OR (c) `tanstack-router` route definitions get a typed `parseParams` hook the SDK can hook into. Either path closes the leak.
-- **Surfaced by:** Phase 3.4 host-property-detail port (this entry).
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16 — typed coercion helpers `toID` + `tryID`)
+- **Symptom:** URL params are typed `string` per tanstack-router; the SDK's `ID = number` rejected them. Every call site did `Number(params.id)` which silently produced `NaN` for non-numeric placeholders.
+- **Fix:** `runtime/web/lazuli/src/types.ts` exports two helpers re-exported from `@lazuli/runtime`:
+  - `toID(value: string | number | undefined | null): ID` — throws on non-numeric input; call this when you require a real ID.
+  - `tryID(value: string | number | undefined | null): ID | null` — returns null on non-numeric input; call this when storybook fixture ids may legitimately appear (`"pousada"`).
+  HostPropertyDetail.tsx demonstrates the closure pattern: `const propertyId = tryID(propertyIdRaw)`, then skip the live query when `propertyId === null`. Type-safe, intent-revealing, and the `NaN` payload risk is gone.
 
 ---
 
