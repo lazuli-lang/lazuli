@@ -35,6 +35,15 @@ mod version;
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =
     "registry\n  # capabilities: name typed\n  # integrations: provider-neutral declarations\n";
+// Closes WAR-SCAFFOLD-GITIGNORE-01. The previous template's blanket
+// `dist/` rule ignored user-authored handler files at
+// `dist/go/<bc>/<name>.go`, violating Lazuli's regen contract (gen
+// files are overwritable, non-gen files are sacred). The granular
+// pattern below ignores ONLY regen-overwritable artifacts:
+//   - `*.gen.go` / `*.gen.ts` / `*.zod.ts` (codegen outputs)
+//   - `dist/go/{main.go,go.mod,go.sum,migrations/}` (full-rewrite slots)
+//   - `dist/{ts-web,ts-mobile}/design/` (design-token snapshots)
+// User-authored files (`dist/go/<bc>/<name>.go` handlers) stay tracked.
 const GITIGNORE_TEMPLATE: &str = r#"# Rust
 /target/
 **/*.rs.bk
@@ -52,8 +61,22 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-dist/
 build/
+
+# Lazuli generated artifacts (regen-overwritable).
+# User-authored handler files at dist/go/<bc>/<name>.go stay tracked.
+dist/**/*.gen.go
+dist/**/*.gen.ts
+dist/**/*.zod.ts
+dist/go/main.go
+dist/go/go.mod
+dist/go/go.sum
+dist/go/migrations/
+dist/ts-web/design/
+dist/ts-mobile/design/
+
+# Lazuli internal cache.
+.lazuli/
 "#;
 
 #[derive(Debug, Parser)]

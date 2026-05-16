@@ -387,11 +387,14 @@
 
 ## WAR-SCAFFOLD-GITIGNORE-01 — `lazuli new` `.gitignore` blanket-ignores `dist/`
 
-- **STATUS:** open (workaround applied at pilot)
-- **Symptom:** scaffolded `.gitignore` line `dist/` ignored EVERYTHING including user-authored handler files at `dist/go/<bc>/<name>.go`. Per Lazuli regen contract (`docs/proposals/codegen-lazuli-go.md`), `.gen.go` files are regen-overwritable but non-`.gen.go` files (handlers) are sacred. Blanket-ignore violates the contract.
-- **Workaround in place:** Hostpoint `.gitignore` rewritten to ignore only `*.gen.go`, `*.gen.ts`, `*.zod.ts`, `dist/go/{main.go,go.mod,go.sum,migrations/}`, `dist/{ts-web,ts-mobile}/design/`. See Hostpoint commit `1c03f30`.
-- **Removal criterion:** `lazuli new` scaffold ships the granular .gitignore by default. Reference Hostpoint commit `1c03f30` for the canonical pattern.
-- **Surfaced by:** Phase 1.2 commit `1c03f30`.
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16)
+- **Symptom:** scaffolded `.gitignore` line `dist/` ignored EVERYTHING including user-authored handler files at `dist/go/<bc>/<name>.go`. Violated Lazuli's regen contract (`.gen.go` overwritable, non-`.gen.go` sacred).
+- **Fix:** `GITIGNORE_TEMPLATE` at `crates/lazuli_cli/src/main.rs:38` now ignores ONLY regen-overwritable artifacts:
+  - `dist/**/*.gen.go`, `dist/**/*.gen.ts`, `dist/**/*.zod.ts` (codegen outputs)
+  - `dist/go/{main.go,go.mod,go.sum,migrations/}` (full-rewrite slots)
+  - `dist/{ts-web,ts-mobile}/design/` (design-token snapshots)
+  - `.lazuli/` (internal cache)
+  User-authored files (handler `.go`/`.ts` at `dist/go/<bc>/<name>.go`) stay tracked. Hostpoint's hand-rewritten `.gitignore` at `1c03f30` was the design source; the scaffold now matches.
 
 ---
 
