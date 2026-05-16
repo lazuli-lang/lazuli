@@ -363,7 +363,7 @@ Same as v0.1:
 - `lazuli check examples/full-capsule/` accepts `Money` field declarations + the `"BRL:0.00"` literal form, rejects symbol-prefixed and bare-decimal defaults.
 - `lazuli generate go` emits `decimal.Decimal` Go fields + shared `lazuli.Currency` resource columns by default + correct NUMERIC(20,4) DDL.
 - `lazuli generate ts` emits `Money` interface + import from `@lazuli/runtime`.
-- `runtime/web/lazuli/src/types.ts` exports `Money` interface + `formatMoney(m, locale)` helper using `Intl.NumberFormat`.
+- `runtime/ts/lazuli/src/types.ts` exports `Money` interface + `formatMoney(m, locale)` helper using `Intl.NumberFormat`.
 - `runtime/go/lazuli/money.go` ships with a `MoneyValue` struct + `Format(locale)` delegating to `golang.org/x/text/currency`. Existing `Money = int64` alias preserved.
 - Hostpoint migration: `Charge.amount_cents Integer` → `Charge.amount Money` produces correct codegen + a hand-rolled ALTER TABLE migration; e2e suite stays 82/82.
 - Doctor `VOCAB-MONEY-001` flags the legacy `*_cents + *_currency` pair with the `# doctor:allow` opt-out.

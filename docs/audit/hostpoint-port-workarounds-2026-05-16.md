@@ -137,7 +137,7 @@
   - **Go migration DDL** (`crates/lazuli_codegen_go/src/emitter/migration_ddl.rs:515`): `NUMERIC(20,4)` per audit removal criterion. Every Money field auto-emits a paired `<field>_currency TEXT` column.
   - **TS codegen** (`crates/lazuli_cli/src/main.rs:1976`): emits `Money` interface from `@lazuli/runtime`.
   - **Go runtime** (`runtime/go/lazuli/money.go`): new `MoneyValue { Amount, Currency }` struct + `BRL/USD/EUR` constructors + `ParseMoneyLiteral` + pgx `Scanner/Valuer` + JSON marshal contracts. Existing `Money = int64` alias preserved.
-  - **TS runtime** (`runtime/web/lazuli/src/types.ts`): new `Money` interface + `formatMoney(m, locale)` helper via `Intl.NumberFormat`.
+  - **TS runtime** (`runtime/ts/lazuli/src/types.ts`): new `Money` interface + `formatMoney(m, locale)` helper via `Intl.NumberFormat`.
   - **Hostpoint**: `Charge.amount_cents Integer + currency Text` → `Charge.amount Money` (× 3 fields). Migration codegen emits 3 NUMERIC + 3 TEXT currency columns. `CreateCheckoutPreference` handler converts legacy cents to decimal string via `formatBRL` helper. e2e 82/82 still green.
 - **Tier 2 (`@plugin/scalars-br` for CPF/CNPJ/CEP/Phone)**: deferred to companion proposal `semantic-types-plugin-locales.md` (per architect grading split). WAR-VOCAB-SEMANTIC-02 remains open until the generic plugin-type-contribution mechanism is graded.
 
@@ -418,7 +418,7 @@
 
 - **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16 — typed coercion helpers `toID` + `tryID`)
 - **Symptom:** URL params are typed `string` per tanstack-router; the SDK's `ID = number` rejected them. Every call site did `Number(params.id)` which silently produced `NaN` for non-numeric placeholders.
-- **Fix:** `runtime/web/lazuli/src/types.ts` exports two helpers re-exported from `@lazuli/runtime`:
+- **Fix:** `runtime/ts/lazuli/src/types.ts` exports two helpers re-exported from `@lazuli/runtime`:
   - `toID(value: string | number | undefined | null): ID` — throws on non-numeric input; call this when you require a real ID.
   - `tryID(value: string | number | undefined | null): ID | null` — returns null on non-numeric input; call this when storybook fixture ids may legitimately appear (`"pousada"`).
   HostPropertyDetail.tsx demonstrates the closure pattern: `const propertyId = tryID(propertyIdRaw)`, then skip the live query when `propertyId === null`. Type-safe, intent-revealing, and the `NaN` payload risk is gone.

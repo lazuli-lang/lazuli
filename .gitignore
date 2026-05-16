@@ -27,9 +27,9 @@ examples/*/.lazuli/
 .claude/agents/lazuli-language-architect.md
 .claude/commands/lazuli-*.md
 
-# TypeScript build artifacts (web spike under runtime/web and dist/web).
+# TypeScript build artifacts (runtime/ts and dist/web).
 node_modules/
-runtime/web/**/dist/
+runtime/ts/**/dist/
 dist/web/**/dist/
 *.tsbuildinfo
 .claude/

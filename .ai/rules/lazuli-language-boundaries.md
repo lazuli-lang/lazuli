@@ -10,7 +10,7 @@ them is the most common failure mode in DSL design.
 | Layer | Owns | Examples |
 |---|---|---|
 | **Language** | Verifiable contracts: `.lzi` / `.lzx` source, IR, doctor, inspect, LSP, syntax highlighting. | `command create`, `route id: ID`, `agent summarize_customer`, `policy @policy.update` |
-| **Runtime** | Codegen + libs that generated code imports: `dist/go/`, `dist/web/`, `runtime/go/`, `runtime/web/`, packs, DI wiring, transport bindings, prompt-template loading, broker clients. | `func CreateCustomer(ctx, in) error`, generated HTTP server, generated TanStack Query hooks, LLM transport |
+| **Runtime** | Codegen + libs that generated code imports: `dist/go/`, `dist/web/`, `runtime/go/`, `runtime/ts/`, packs, DI wiring, transport bindings, prompt-template loading, broker clients. | `func CreateCustomer(ctx, in) error`, generated HTTP server, generated TanStack Query hooks, LLM transport |
 | **Adapters** | Concrete provider implementations under `@runtime/<adapter>` (first-party) or `@plugin/<publisher>/<adapter>` (third-party). | `@runtime/mercadopago`, `@plugin/acme/serasa`, `@adapter.crm` |
 
 ## Inviolable rules

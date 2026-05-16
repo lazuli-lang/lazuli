@@ -7,7 +7,7 @@ consecutive panel runs. This doc captures the thinking that shapes the
 runtime layer we now begin to build.
 
 It is the prerequisite reading before any work in `runtime/go/`,
-`runtime/web/`, `crates/lazuli_codegen_go/`, or `crates/lazuli_codegen_ts/`.
+`runtime/ts/`, `crates/lazuli_codegen_go/`, or `crates/lazuli_codegen_ts/`.
 
 ## What we learned from a previous attempt
 
@@ -102,8 +102,8 @@ boundary rules in `.ai/rules/lazuli-language-boundaries.md`.
 | Layer | Owns | Embodied in |
 |---|---|---|
 | **Language** | Verifiable contracts: `.lzi`/`.lzx` source, IR, doctor, inspect, LSP, syntax highlighting. The grammar is closed; the namespace catalog is closed; the keyword set is closed. | `crates/` (Rust): `lazuli_syntax`, `lazuli_analyzer`, `lazuli_ir`, `lazuli_lsp`, `lazuli_cli`, `lazuli_codegen_*`. |
-| **Runtime** | The substantial Go and TypeScript libraries that the generated code imports and calls. HTTP server, command dispatcher, query engine, event bus, workflow runtime, audit, RBAC, validators, multi-tenant scoping, db pool, transactions, rate limiter, cache, etc. | `runtime/go/lazuli/` (Go module) and `runtime/web/lazuli/` (TS package). To be built. |
-| **Adapters** | Concrete provider implementations: HTTP, gRPC, Kafka, NATS, Postgres, Redis, OpenAI, Anthropic, AWS, Stripe, MercadoPago, etc. Available under `@runtime/<adapter>` (first-party) or `@plugin/<publisher>/<adapter>` (third-party). | `runtime/go/adapters/` (or separate Go modules) and `runtime/web/adapters/`. To be built incrementally. |
+| **Runtime** | The substantial Go and TypeScript libraries that the generated code imports and calls. HTTP server, command dispatcher, query engine, event bus, workflow runtime, audit, RBAC, validators, multi-tenant scoping, db pool, transactions, rate limiter, cache, etc. | `runtime/go/lazuli/` (Go module) and `runtime/ts/lazuli/` (TS package). To be built. |
+| **Adapters** | Concrete provider implementations: HTTP, gRPC, Kafka, NATS, Postgres, Redis, OpenAI, Anthropic, AWS, Stripe, MercadoPago, etc. Available under `@runtime/<adapter>` (first-party) or `@plugin/<publisher>/<adapter>` (third-party). | `runtime/go/adapters/` (or separate Go modules) and `runtime/ts/adapters/`. To be built incrementally. |
 
 ## Pipeline
 
@@ -124,7 +124,7 @@ IR (lazuli_ir)             ← typed canonical semantic graph
    │
    ├── lazuli_codegen_ts  ──→ dist/web/<feature>/*.gen.ts
    │                            ↓ imports
-   │                       runtime/web/lazuli ← runtime library executes
+   │                       runtime/ts/lazuli ← runtime library executes
    │
    ├── lazuli doctor        ← cross-package invariants
    ├── lazuli inspect       ← LLM context pack (JSON)
@@ -282,7 +282,7 @@ Order matters: API first, codegen second. Reversing means regenerating
 `dist/` repeatedly while the runtime API still flutters, which produces
 churn the metaframework architecture exists to prevent.
 
-The same loop applies to the web side later: `runtime/web/lazuli/`
+The same loop applies to the web side later: `runtime/ts/lazuli/`
 shape decided first by hand against `dist/web/customer.gen.ts`, then
 codegen automation.
 
@@ -294,7 +294,7 @@ codegen automation.
 | **Lazurite** | A distribution/ecosystem on top of Lazuli — starter project with conventions and defaults wired. Analogous to Nuxt for Vue. Currently the only distro. |
 | `.lzi` / `.lzx` | The Lazuli source language. `.lzi` is the domain/operational layer; `.lzx` is the experience/view layer. |
 | IR | Internal representation. The typed canonical semantic graph produced by `lazuli_analyzer` and consumed by codegen, doctor, inspect, and future tools. |
-| Runtime | The Go and TypeScript libraries (`runtime/go/lazuli/`, `runtime/web/lazuli/`) that the generated code imports. The runtime executes the contract declared in the DSL. Hand-written and maintained, not generated. |
+| Runtime | The Go and TypeScript libraries (`runtime/go/lazuli/`, `runtime/ts/lazuli/`) that the generated code imports. The runtime executes the contract declared in the DSL. Hand-written and maintained, not generated. |
 | Lazuli Go | Specific qualifier for the Go runtime library when disambiguation is needed. Canonical Go module path: `lazuli.dev/runtime/lazuli` with per-bucket subpackages `lazuli.dev/runtime/lazuli/<bucket>` (e.g. `auth`, `storage`, `jobs`). |
 | Lazuli compiler | The Rust toolchain in `crates/` (lazuli_syntax, lazuli_analyzer, lazuli_ir, lazuli_codegen_go, lazuli_lsp, lazuli_cli, …). |
 | `dist/` | Generated code, regen-only, not user-editable. Imports the runtime library; contains no business logic. |

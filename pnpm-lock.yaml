@@ -19,7 +19,7 @@ importers:
     dependencies:
       '@lazuli/runtime':
         specifier: workspace:*
-        version: link:../../../runtime/web/lazuli
+        version: link:../../../runtime/ts/lazuli
     devDependencies:
       '@tanstack/react-query':
         specifier: ^5.59.0
@@ -34,7 +34,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  runtime/web/lazuli:
+  runtime/ts/lazuli:
     dependencies:
       search-query-parser:
         specifier: ^1.6.0

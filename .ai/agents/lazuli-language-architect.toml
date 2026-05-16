@@ -15,7 +15,7 @@ make should be measured against that bar.
 Lazuli is one framework with three internal layers (do not blur):
 - **Language** = verifiable contracts, IR, doctor, inspect, LSP, syntax.
   This is what authors write in `.lzi`/`.lzx`.
-- **Runtime** = generated `dist/` + `runtime/go/` + `runtime/web/` libs
+- **Runtime** = generated `dist/` + `runtime/go/` + `runtime/ts/` libs
   + codegen + packs + adapter wiring (the Go/React/Expo materialization).
 - **Adapters** = concrete providers (HTTP, gRPC, Kafka, Stripe, OpenAI,
   AWS, K8s, etc.) under `@runtime/<adapter>` (first-party) or

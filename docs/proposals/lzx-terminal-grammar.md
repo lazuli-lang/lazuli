@@ -760,7 +760,7 @@ Mechanical, single-file-per-cell where feasible (per `feedback_claude_plans_code
 | **C.2** Codegen: drawer hook emission (uses `useDrawerSubView` runtime helper; encodes §3.9 auto-close rules + `cellClick` dispatcher) | lazuli_codegen_ts | lzx_view_list.rs | +140 | Yes |
 | **C.3** Codegen: filter state emission (`useFilterState`-based, URL sync per §3.3 repeated-key convention) | lazuli_codegen_ts | `lzx_filters.rs` | +180 | Yes |
 | **C.4a** Codegen: search-segmented emission (calls `search-query-parser` directly; emits `canonicalizeSearch` helper inline; dual `raw`/`derivedFromFilters` fields per §3.4) | lazuli_codegen_ts | `lzx_search.rs` | +140 | Yes |
-| **C.4b** Runtime: `@lazuli/runtime/react` adds `useFilterState`, `useMultiSelection`, `useDrawerSubView`, `useLocalSetting` (thin `useState` + `useSyncExternalStore` adapters; ~150 LOC total, no third-party deps beyond React) | runtime/web/lazuli | `react/view-helpers.ts` | +150 | Yes |
+| **C.4b** Runtime: `@lazuli/runtime/react` adds `useFilterState`, `useMultiSelection`, `useDrawerSubView`, `useLocalSetting` (thin `useState` + `useSyncExternalStore` adapters; ~150 LOC total, no third-party deps beyond React) | runtime/ts/lazuli | `react/view-helpers.ts` | +150 | Yes |
 | **C.5** Codegen: sort / selection (single+multi) / settings emission | lazuli_codegen_ts | `lzx_aux.rs` | +220 | Yes |
 | **D.1** Doctor rule `lzx-list-cells-or-columns` (exactly one of `cells`/`columns`) | lazuli_cli | doctor/lzx/cells_or_columns.rs | +60 | Yes |
 | **D.1b** Doctor rule `lzx-cells-mixed-form` (per-column `cells <field> @client.<slot>` AND grid `cells @client.<slot>` cannot coexist in one view) | lazuli_cli | doctor/lzx/cells_mixed_form.rs | +60 | Yes |
@@ -816,7 +816,7 @@ Total: ~2400 LOC framework + 675 LOC Pleiades authoring (~600 of which is presen
 - IR snapshot stable; `cargo test -p lazuli_ir` green.
 - Codegen emits §5 file deterministically (offset-stable; alphabetical filter/setting order).
 - Doctor rules each fire once on the canonical violation; zero false positives on `examples/full-capsule/`.
-- **Hook-bundle integration test** (folded into C.4b): a React Testing Library suite renders a minimal harness that exercises (a) `cellClick` dispatch table — no-modifier/shift/meta variants land correctly, (b) drawer auto-close on `delete` command success, (c) drawer auto-close on pathname change (NOT on search-param change), (d) filter URL sync round-trip via repeated-key serialization, (e) `search.setRaw("type:doc onboarding")` mutates filters and `derivedFromFilters` reflects new state. Lives in `runtime/web/lazuli/__tests__/view-helpers.test.ts`.
+- **Hook-bundle integration test** (folded into C.4b): a React Testing Library suite renders a minimal harness that exercises (a) `cellClick` dispatch table — no-modifier/shift/meta variants land correctly, (b) drawer auto-close on `delete` command success, (c) drawer auto-close on pathname change (NOT on search-param change), (d) filter URL sync round-trip via repeated-key serialization, (e) `search.setRaw("type:doc onboarding")` mutates filters and `derivedFromFilters` reflects new state. Lives in `runtime/ts/lazuli/__tests__/view-helpers.test.ts`.
 - `item.web.lzx` authoring lifts the §4 example through parse → IR → emit → vite serves the resulting `.tsx` consumer.
 - `lazuli-language-architect` PASS at ≥ 9.0/10 with no individual dimension < 7. **v0.2 achieved 9.05/10.**
 
