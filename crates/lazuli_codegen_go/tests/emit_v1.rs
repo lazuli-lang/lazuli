@@ -1152,7 +1152,14 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
 }
 
 #[test]
-fn emit_go_mod_with_dev_replace_emits_replace_directive() {
+fn emit_go_mod_with_dev_replace_skips_replace_in_workspace_mode() {
+    // Workspace mode (manifest + submodule) writes a sibling `go.work`
+    // that `use`s the runtime directly. `dist/go/go.mod` therefore
+    // omits the `require lazuli.dev/runtime` line — and the
+    // corresponding `replace` directive would be a no-op (replacing a
+    // module that isn't required has no effect). The runtime pin
+    // surfaces in `go.work` via `emit_go_work_with_dev_replace_*`
+    // instead.
     let module = minimal_module("test_app", "customer");
     let manifest = lazurite_manifest(
         Vec::new(),
@@ -1170,9 +1177,12 @@ fn emit_go_mod_with_dev_replace_emits_replace_directive() {
         .find(|f| f.path == "go.mod")
         .expect("expected generated go.mod");
 
-    assert!(go_mod
-        .contents
-        .contains("replace lazuli.dev/runtime => ../../runtime/go"));
+    assert!(
+        !go_mod.contents.contains("lazuli.dev/runtime"),
+        "workspace mode must not name `lazuli.dev/runtime` in dist/go/go.mod:\n{}",
+        go_mod.contents
+    );
+
 }
 
 #[test]

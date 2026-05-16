@@ -10237,6 +10237,12 @@ mod tests {
             "lazuli/my-app",
         )
         .unwrap();
+        // Handler starter `.go` files are not scaffolded — the codegen
+        // handler-stub emitter (`crates/lazuli_codegen_go/src/emitter/
+        // handlers.rs`) lays them down in `dist/go/<feature>/<name>.go`
+        // on first `lazuli generate go`. The scaffold owns `.lzi` /
+        // `.lzx` / `.tmpl` (notification templates) / config; user Go
+        // handlers materialise via the codegen path.
         for relative in [
             ".gitignore",
             "README.md",
@@ -10247,8 +10253,6 @@ mod tests {
             "Lazurite.toml",
             "app/registry.lzi",
             "app/features/account/account.lzi",
-            "app/features/account/handlers/hash_password.go",
-            "app/features/account/handlers/verify_password.go",
             "app/features/account/templates/welcome.en-US",
             "app/features/account/templates/welcome.pt-BR",
             "i18n/common.en-US.json",

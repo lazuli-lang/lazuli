@@ -5,8 +5,18 @@
 //! feature/name pair:
 //!
 //! ```text
-//! <feature>/handlers/<name>.go
+//! <feature>/<name>.go
 //! ```
+//!
+//! **Same-package convention (2026-05-15)**: starter stubs live in the
+//! *feature* Go package (e.g. `dist/go/account/login.go`, `package
+//! account`), alongside the generated `*.gen.go` files. The `.gen.go`
+//! extension is the contract: any file with that suffix is regen-only,
+//! any file without it is user territory. The previous `handlers/`
+//! sub-package added a Go import cycle because feature-local types
+//! (e.g. `LoginResultInput`, `User`) live in the feature package and
+//! handler signatures need them — see the handler-architecture commit
+//! message on 2026-05-15 for the full rationale.
 //!
 //! The files are intentionally user territory. Callers pass the files already
 //! present under the Go output tree; this module skips any matching path so
@@ -1358,7 +1368,7 @@ fn go_type_for_unresolved(raw: &str) -> String {
 }
 
 fn handler_path(feature: &str, name: &str) -> String {
-    format!("{feature}/handlers/{}.go", path_name_for(name))
+    format!("{feature}/{}.go", path_name_for(name))
 }
 
 fn path_exists(existing_files: &BTreeSet<PathBuf>, relative_path: &str) -> bool {
@@ -1564,7 +1574,7 @@ mod tests {
         let files = emit_handler_stubs(&module, &BTreeSet::new());
         let hash = files
             .iter()
-            .find(|file| file.path == "customer_auth/handlers/hash_password.go")
+            .find(|file| file.path == "customer_auth/hash_password.go")
             .expect("hash stub emitted");
 
         assert!(hash.contents.contains("package customer_auth"));
@@ -1619,19 +1629,19 @@ mod tests {
             span_ref: None,
         });
         let module = module_with_features(vec![feature]);
-        let existing = BTreeSet::from([PathBuf::from("customer_auth/handlers/hash_password.go")]);
+        let existing = BTreeSet::from([PathBuf::from("customer_auth/hash_password.go")]);
 
         let files = emit_handler_stubs(&module, &existing);
 
         assert!(
             !files
                 .iter()
-                .any(|file| file.path == "customer_auth/handlers/hash_password.go")
+                .any(|file| file.path == "customer_auth/hash_password.go")
         );
         assert!(
             files
                 .iter()
-                .any(|file| file.path == "customer_auth/handlers/verify_password.go")
+                .any(|file| file.path == "customer_auth/verify_password.go")
         );
     }
 
@@ -1653,7 +1663,7 @@ mod tests {
         });
         let module = module_with_features(vec![feature]);
         let existing = BTreeSet::from([PathBuf::from(
-            "dist/go/customer_auth/handlers/hash_password.go",
+            "dist/go/customer_auth/hash_password.go",
         )]);
 
         let files = emit_handler_stubs(&module, &existing);
@@ -1661,12 +1671,12 @@ mod tests {
         assert!(
             !files
                 .iter()
-                .any(|file| file.path == "customer_auth/handlers/hash_password.go")
+                .any(|file| file.path == "customer_auth/hash_password.go")
         );
         assert!(
             files
                 .iter()
-                .any(|file| file.path == "customer_auth/handlers/verify_password.go")
+                .any(|file| file.path == "customer_auth/verify_password.go")
         );
     }
 
@@ -1719,7 +1729,7 @@ mod tests {
 
         let risk = files
             .iter()
-            .find(|file| file.path == "customer/handlers/risk_score.go")
+            .find(|file| file.path == "customer/risk_score.go")
             .expect("risk_score stub emitted");
         assert!(
             risk.contents
@@ -1749,7 +1759,7 @@ mod tests {
         let files = emit_handler_stubs(&module, &BTreeSet::new());
         let hook = files
             .iter()
-            .find(|file| file.path == "customer/handlers/before_create.go")
+            .find(|file| file.path == "customer/before_create.go")
             .expect("hook stub emitted");
 
         assert!(hook.contents.contains("`@hook.before_create`"));
@@ -1777,7 +1787,7 @@ mod tests {
 
         let risk = files
             .iter()
-            .find(|file| file.path == "customer/handlers/risk_score.go")
+            .find(|file| file.path == "customer/risk_score.go")
             .expect("risk_score declaration stub emitted");
         assert!(
             risk.contents
@@ -1822,7 +1832,7 @@ mod tests {
     fn sanitises_unsafe_path_and_function_name() {
         assert_eq!(
             handler_path("customer", "../risk.score"),
-            "customer/handlers/risk_score.go"
+            "customer/risk_score.go"
         );
         assert_eq!(exported_func_name("123_score"), "Handler123Score");
     }

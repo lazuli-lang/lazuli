@@ -118,12 +118,9 @@ pub fn emit_command_file(
         imports.add("lazuli.dev/runtime/lazuli/billing");
         imports.add(&format!("{module_name}/plan"));
     }
-    if commands
-        .iter()
-        .any(|command| matches!(command.effect, CommandEffect::Returns(_)))
-    {
-        imports.add(&format!("{module_name}/{}/handlers", feature.name));
-    }
+    // Handlers live in the same Go package as the feature (see
+    // `emitter/handlers.rs` module docs) — no extra package import
+    // needed for `lazuli.Returns(<HandlerName>)` calls.
     for command in &commands {
         if let CommandInput::Typed(slots) = &command.input {
             for slot in slots {
@@ -529,9 +526,12 @@ fn emit_effect(
         CommandEffect::Returns(ret) => {
             let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
             let handler = pascal_case(command_name);
-            p.line(&format!("Effect: lazuli.Returns(handlers.{handler}),"));
+            // Handlers live in the same Go package as the feature so the
+            // returned handler value is referenced bare (no `handlers.`
+            // qualifier). See `emitter/handlers.rs` module docs.
+            p.line(&format!("Effect: lazuli.Returns({handler}),"));
             p.line(&format!(
-                "// Wire handlers.{handler} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`"
+                "// Wire {handler} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`"
             ));
         }
         CommandEffect::None => {
@@ -1931,11 +1931,14 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("\"lazuli/test/customer/handlers\""));
+        // Handlers live in the same Go package — no `handlers` import
+        // and no qualifier on the handler value.
+        assert!(!out.contains("\"lazuli/test/customer/handlers\""));
         assert!(out.contains("var summaryResult = lazuli.Command[SummaryResultInput, string]{"));
-        assert!(out.contains("Effect: lazuli.Returns(handlers.Summary),"));
+        assert!(out.contains("Effect: lazuli.Returns(Summary),"));
+        assert!(!out.contains("Effect: lazuli.Returns(handlers.Summary),"));
         assert!(out.contains(
-            "// Wire handlers.Summary as `func(ctx *lazuli.Ctx, input SummaryResultInput) (string, error)`"
+            "// Wire Summary as `func(ctx *lazuli.Ctx, input SummaryResultInput) (string, error)`"
         ));
         assert!(!out.contains("TODO(returns):"));
     }

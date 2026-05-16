@@ -263,6 +263,15 @@ pub fn emit_module(
     // keeps the common case allocation-free.
     let mut files = Vec::with_capacity(features.len() * 4 + 3);
 
+    // Workspace mode: when `manifest` is present and `submodule` is on,
+    // the project root carries a `go.work` that `use`s both the
+    // application module and `dist/go`. Dependency resolution for the
+    // Lazuli Go runtime (`lazuli.dev/runtime/...`) flows through the
+    // workspace, NOT through a `require` line on the generated
+    // `dist/go/go.mod`. That keeps the require list scoped to real
+    // transitive deps (e.g. `github.com/cridenour/go-postgis`) and
+    // avoids pinning a module path the Go proxy never resolves.
+    let workspace_mode = manifest.is_some() && submodule;
     if manifest.is_none() || submodule {
         // Root `go.mod` first so byte-comparison fixtures find it at
         // index 0. In Lazurite sub-module mode this is the generated
@@ -276,6 +285,7 @@ pub fn emit_module(
                 manifest,
                 &transitive_deps,
                 dev_replace_runtime,
+                workspace_mode,
             ),
         });
     }
@@ -668,47 +678,77 @@ fn emit_go_mod(
     manifest: Option<&LazuriteManifest>,
     transitive_deps: &[&'static TransitiveDep],
     dev_replace_runtime: Option<&str>,
+    workspace_mode: bool,
 ) -> String {
     let mut p = GoPrinter::new();
     p.line(&format!("module {}", module_name));
     p.blank();
     p.line(DEFAULT_GO_TOOLCHAIN);
-    p.blank();
-    p.line("require (");
-    p.indent();
-    // The Lazuli Go lib publishes a single Go module at
-    // `lazuli.dev/runtime`; per-bucket subpackages (`auth`, `storage`,
-    // `jobs`, the top-level `lazuli` package, ...) live under it. The
-    // `require` clause names the module, not the subpackage; generated
-    // imports reference `lazuli.dev/runtime/lazuli` and
-    // `lazuli.dev/runtime/lazuli/<bucket>` paths against that module.
-    p.line(&format!("lazuli.dev/runtime {}", lazuli_go_version));
-    if let Some(manifest) = manifest {
-        for (ref_str, plugin) in &manifest.plugins {
-            let Some(module) = plugin.module.as_deref() else {
-                if plugin.path.is_some() {
-                    eprintln!(
-                        "warning: plugin `{}` has a local path but no module; skipping go.mod require",
-                        ref_str
-                    );
-                }
-                continue;
-            };
-            let version = plugin.version.as_deref().unwrap_or("v0.0.0-local");
-            p.line(&format!("{} {}", module, version));
-        }
-    }
+
+    // Plugin + transitive deps. `lazuli.dev/runtime` is omitted in
+    // workspace mode — the root `go.work` `use`s the runtime directly,
+    // so `dist/go/go.mod` does not need a require line for a module the
+    // Go proxy never resolves.
+    let plugin_requires: Vec<(String, String)> = if let Some(manifest) = manifest {
+        manifest
+            .plugins
+            .iter()
+            .filter_map(|(ref_str, plugin)| {
+                let Some(module) = plugin.module.as_deref() else {
+                    if plugin.path.is_some() {
+                        eprintln!(
+                            "warning: plugin `{}` has a local path but no module; skipping go.mod require",
+                            ref_str
+                        );
+                    }
+                    return None;
+                };
+                let version = plugin.version.as_deref().unwrap_or("v0.0.0-local");
+                Some((module.to_owned(), version.to_owned()))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let mut sorted_deps = transitive_deps.to_vec();
     sorted_deps.sort_by_key(|dep| dep.module);
     sorted_deps.dedup_by_key(|dep| dep.module);
-    for dep in sorted_deps {
-        p.line(&format!("{} {}", dep.module, dep.version));
-    }
-    p.dedent();
-    p.line(")");
-    if let Some(path) = dev_replace_runtime {
+
+    let any_require =
+        !workspace_mode || !plugin_requires.is_empty() || !sorted_deps.is_empty();
+
+    if any_require {
         p.blank();
-        p.line(&format!("replace lazuli.dev/runtime => {}", path));
+        p.line("require (");
+        p.indent();
+        if !workspace_mode {
+            // Legacy/non-workspace mode: publish a `require
+            // lazuli.dev/runtime <version>` line so the generated module
+            // is self-describing for callers that drive `go mod tidy`
+            // directly. The Lazuli Go lib publishes a single Go module
+            // at `lazuli.dev/runtime`; per-bucket subpackages
+            // (`auth`, `storage`, `jobs`, the top-level `lazuli`
+            // package, ...) live under it. Workspace mode skips this
+            // line — the workspace `use` directive resolves the
+            // runtime instead.
+            p.line(&format!("lazuli.dev/runtime {}", lazuli_go_version));
+        }
+        for (module, version) in &plugin_requires {
+            p.line(&format!("{} {}", module, version));
+        }
+        for dep in sorted_deps {
+            p.line(&format!("{} {}", dep.module, dep.version));
+        }
+        p.dedent();
+        p.line(")");
+    }
+
+    if !workspace_mode {
+        if let Some(path) = dev_replace_runtime {
+            p.blank();
+            p.line(&format!("replace lazuli.dev/runtime => {}", path));
+        }
     }
     if let Some(manifest) = manifest {
         if let Some(dev) = manifest.dev.as_ref() {
