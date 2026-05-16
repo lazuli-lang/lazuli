@@ -334,12 +334,13 @@
 
 ## WAR-VOCAB-NOTIFICATIONS-01 — Inbox query + read-state command not modeled
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.1)
-- **Symptom:** Storybook `Notifications.Viajante` + `Notifications.Anfitriao` show a per-actor inbox with unread badges + category filters + tap-to-read. `messaging.lzi` has `NotificationDelivery` resource (channel/template_key/payload/status) — sender-side delivery tracking — but no actor-side `query.list mine_notifications` returning a denormalized view (icon, tone, title, body, time, unread) and no `command mark_notification_read(id)` to toggle the unread state.
-- **Workaround in place:** `routes/Notifications.tsx` hard-codes 4 traveler + 4 host notification fixtures matching the storybook bytes-for-bytes. `markRead` is local-state-only.
-- **Annotated in:** `apps/hostpoint-app/src/routes/Notifications.tsx`.
-- **Removal criterion:** `messaging.lzi` adds `query.list mine_notifications` (denormalized actor-side view, with role-gated `@policy.authenticated`) + `command mark_notification_read(id)` declarative `updates NotificationDelivery`. Screen then consumes via `useLazuliQuery / useLazuliCommand`.
-- **Surfaced by:** Notifications storybook pattern (Viajante + Anfitriao).
+- **STATUS:** **closed** (Hostpoint commit follow-up 2026-05-16)
+- **Symptom:** Storybook `Notifications.Viajante` + `Notifications.Anfitriao` show a per-actor inbox with unread badges + category filters + tap-to-read. `messaging.lzi` had `NotificationDelivery` (sender-side delivery tracking) but no actor-side denormalized query and no read-state command.
+- **Fix:** two cooperating additions to `messaging.lzi`:
+  - `record NotificationListEntry` (8 fields) — delivery_id + template_key + rendered title/body + tone + icon_key + unread + created_at.
+  - `command list_my_notifications returns JSON handler @fn.list_my_notifications` — single query over `notification_delivery`, projects rows to the inbox shape via `renderNotification` / `toneForTemplate` / `iconForTemplate` (template-aware label/icon picker).
+  - `command mark_notification_read input { delivery_id } handler @fn.mark_notification_read` — updates `notification_delivery.status` to `read` for the actor's own row.
+  Front-end `routes/Notifications.tsx` wires `useLazuliCommand(listMessagingMyNotifications)` + `useLazuliCommand(markMessagingNotificationRead)`. When the back-end returns rows they replace fixtures via `normalizeNotificationEntries`; empty DB keeps the storybook visual. Category derived from `template_key` prefix (reservation / proposal / message / payment / system).
 
 ## WAR-VOCAB-HOSTHOME-01 — `host.query.my_host` SDK return type is wrong + missing `full_name`
 
