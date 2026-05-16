@@ -74,8 +74,13 @@ func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, userID lazuli.ID, 
 		return "", time.Time{}, err
 	}
 	expiresAt := sessionNow(ctx).Add(sessionTTL(contract.TTL))
+	// Column name `"user"` is intentionally quoted (SQL reserved word).
+	// Lazuli emits each `field: Resource required` as a column named
+	// `<field>` (no `_id` suffix); UserSession has a `user: User
+	// required` field → `"user"` column. WAR-RUNTIME-SESSION-COL-01:
+	// if a future codegen pivots to `<field>_id` columns, mirror here.
 	sql := fmt.Sprintf(
-		"INSERT INTO %s (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+		`INSERT INTO %s ("user", token_hash, expires_at) VALUES ($1, $2, $3)`,
 		quoteSessionIdent(contract.Resource),
 	)
 	if _, err := sessionDBProvider().Exec(ctxOrBackground(ctx), sql, userID, tokenHash, expiresAt); err != nil {
@@ -95,7 +100,7 @@ func ResolveSession(ctx *lazuli.Ctx, contract SessionsContract, token string) (l
 	}
 
 	sql := fmt.Sprintf(
-		"SELECT user_id, expires_at FROM %s WHERE token_hash = $1 LIMIT 1",
+		`SELECT "user", expires_at FROM %s WHERE token_hash = $1 LIMIT 1`,
 		quoteSessionIdent(contract.Resource),
 	)
 	var userID lazuli.ID

@@ -122,7 +122,7 @@ func (db *mockPasswordResetDB) QueryRow(_ context.Context, sql string, args ...a
 			return mockPasswordResetRow{err: pgx.ErrNoRows}
 		}
 		return mockPasswordResetRow{userID: user.id}
-	case strings.HasPrefix(sql, `SELECT user_id, expires_at, used_at FROM "password_reset"`):
+	case strings.HasPrefix(sql, `SELECT "user", expires_at, used_at FROM "password_reset"`):
 		if len(args) != 1 {
 			return mockPasswordResetRow{err: fmt.Errorf("token arg count = %d", len(args))}
 		}

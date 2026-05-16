@@ -68,7 +68,7 @@ func RequestPasswordReset(ctx *lazuli.Ctx, contract PasswordResetContract, email
 
 	expiresAt := passwordResetNow(ctx).Add(passwordResetTTL(contract.TTL))
 	insertSQL := fmt.Sprintf(
-		"INSERT INTO %s (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+		`INSERT INTO %s ("user", token_hash, expires_at) VALUES ($1, $2, $3)`,
 		quotePasswordResetIdent(contract.Resource),
 	)
 	if _, err := passwordResetDBProvider().Exec(ctxOrBackground(ctx), insertSQL, userID, tokenHash, expiresAt); err != nil {
@@ -90,7 +90,7 @@ func ConfirmPasswordReset(ctx *lazuli.Ctx, contract PasswordResetContract, token
 	var expiresAt time.Time
 	var usedAt *time.Time
 	selectSQL := fmt.Sprintf(
-		"SELECT user_id, expires_at, used_at FROM %s WHERE token_hash = $1 LIMIT 1",
+		`SELECT "user", expires_at, used_at FROM %s WHERE token_hash = $1 LIMIT 1`,
 		quotePasswordResetIdent(contract.Resource),
 	)
 	err = passwordResetDBProvider().QueryRow(ctxOrBackground(ctx), selectSQL, tokenHash).Scan(&userID, &expiresAt, &usedAt)

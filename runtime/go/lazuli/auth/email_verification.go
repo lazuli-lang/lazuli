@@ -61,7 +61,7 @@ func IssueEmailVerificationToken(ctx *lazuli.Ctx, contract EmailVerificationCont
 	}
 
 	sql := fmt.Sprintf(
-		"INSERT INTO %s (user_id, identity_value, token_hash, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+		`INSERT INTO %s ("user", identity_value, token_hash, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)`,
 		quoteEmailVerificationIdent(contract.Resource),
 	)
 	if _, err := db.Exec(execCtx, sql, userID, identityValue, tokenHash, expiresAt, now); err != nil {
@@ -93,11 +93,11 @@ func VerifyEmailToken(ctx *lazuli.Ctx, contract EmailVerificationContract, token
 			WHERE token_hash = $1
 				AND consumed_at IS NULL
 				AND expires_at > $2
-			RETURNING user_id
+			RETURNING "user"
 		), marked AS (
 			UPDATE %s
 			SET %s = $2
-			WHERE id = (SELECT user_id FROM consumed)
+			WHERE id = (SELECT "user" FROM consumed)
 			RETURNING id
 		)
 		SELECT id FROM marked`,

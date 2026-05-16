@@ -75,7 +75,7 @@ func (db *mockSessionDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 }
 
 func (db *mockSessionDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
-	if !strings.HasPrefix(sql, `SELECT user_id, expires_at FROM "session"`) {
+	if !strings.HasPrefix(sql, `SELECT "user", expires_at FROM "session"`) {
 		return mockSessionRow{err: fmt.Errorf("unexpected query SQL: %s", sql)}
 	}
 	if len(args) != 1 {
