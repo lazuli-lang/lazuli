@@ -48,6 +48,14 @@ These items were surfaced by the long external-review conversation that produced
 - [ ] **§7 difference table — `EXAMPLES/*.lzi` migration spec.** When v2 projector lands, RULES.md is regenerated from IR; but the 13 `EXAMPLES/*.lzi` snippets are user-authored test fixtures, not IR-projectable. 2-line addendum to §7 clarifying "EXAMPLES/ stays as snapshot-test corpus when v2 ships; the projector regenerates RULES.md only" closes the orphan-at-migration risk.
 - [ ] **SKILL.md comment-strip guard.** §4.4 acknowledges "command inside a comment" false-positive class but SKILL.md prose doesn't tell the LLM consumer to strip `#`-prefixed lines before applying the catalog walk. 1-line addition behavioralizes the mitigation.
 
+## From `docs/proposals/cross-feature-contracts.md` v0.2 (PASS 8.94/10, 2026-05-16)
+
+- [ ] **Suppression annotation for deliberate internal coupling.** §11 Q14 doesn't cover the case where authors intentionally couple two features under `microservices` (e.g., a service boundary that exists for deploy-isolation but not for code-isolation). A future cell adds a closed-form annotation (e.g., `internal coupling between <feature_a>, <feature_b>` declared once at app level) that suppresses `CROSS-FEATURE-CONTRACT-MISSING-001` for that pair. Track until Hostpoint or another pilot surfaces the need; defer the syntax design until evidence demands it.
+
+- [ ] **Cross-feature-contracts implementation wave.** Cells A.1 → A.6, B.1 → B.4, D.1+D.2, F.1+F.2+F.3 per §9 of the proposal. Sequenced: syntax (A.1), IR (A.2), analyzer walker (A.3), doctor rules (B.1+B.2+B.3 parallel after A.3), wire-up (B.4), fixture + tests + docs (D + F). No codegen cell (deferred to a future runtime-side proposal per §6.3).
+
+- [ ] **`@runtime/cross-feature-transport` runtime-side proposal.** §6.3 + §10 explicitly defer vendoring strategy, wire codec (Protobuf/JSON/Avro), transport (RPC/gRPC/REST), and schema registry to a future runtime proposal. When the first `microservices` pilot ships, draft this proposal — keep it strictly in the runtime layer per `docs/capability-layering.md` §Decision Test.
+
 ## Deferred from Wave 3 (lsp-symbol-origin impl, 2026-05-16)
 
 - [ ] **LSP hover handler (B.1 + B.2) — defer.** Proposal §6.7 + §9 Cell B.1 specs hover enrichment in `crates/lazuli_lsp/src/lib.rs` (15K+ LOC file). Wave 3c shipped the CLI consumer surface (`lazuli inspect <qualified-symbol>`) and the analyzer walker + IR types; the LSP hook is the next consumer. Defer until a real LSP consumer (Pleiades web in an editor, Hostpoint authoring flow) actively needs hover-on-symbol — currently no live consumer requests it.
