@@ -118,6 +118,12 @@ func IssueSession(ctx *lazuli.Ctx, contract SessionsContract, userID lazuli.ID, 
 // (and Ctx.Tenant when the session row carries one) from a cookie
 // value. Replaces the dev-mode `populateDevSession` once the codegen
 // emits a `SessionsContract`.
+//
+// Side effect: writes the resolved session row id + raw token into
+// `ctx.SessionID` + `ctx.SessionToken` (closes WAR-RUNTIME-CTX-01).
+// Handlers can then revoke just THIS session via
+// `auth.InvalidateSessionByID(ctx, contract, ctx.SessionID)` instead
+// of the previous "log out everywhere" hammer.
 func ResolveSession(ctx *lazuli.Ctx, contract SessionsContract, token string) (lazuli.ID, SessionAttrs, error) {
 	tokenHash, err := hashSessionToken(token)
 	if err != nil {
@@ -125,12 +131,13 @@ func ResolveSession(ctx *lazuli.Ctx, contract SessionsContract, token string) (l
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT "user", expires_at FROM %s WHERE token_hash = $1 LIMIT 1`,
+		`SELECT id, "user", expires_at FROM %s WHERE token_hash = $1 LIMIT 1`,
 		quoteSessionIdent(contract.Resource),
 	)
+	var sessionID lazuli.ID
 	var userID lazuli.ID
 	var expiresAt time.Time
-	err = sessionDBProvider().QueryRow(ctxOrBackground(ctx), sql, tokenHash).Scan(&userID, &expiresAt)
+	err = sessionDBProvider().QueryRow(ctxOrBackground(ctx), sql, tokenHash).Scan(&sessionID, &userID, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil, ErrSessionNotFound
 	}
@@ -140,7 +147,28 @@ func ResolveSession(ctx *lazuli.Ctx, contract SessionsContract, token string) (l
 	if !expiresAt.After(sessionNow(ctx)) {
 		return 0, nil, ErrSessionExpired
 	}
+	if ctx != nil {
+		ctx.SessionID = sessionID
+		ctx.SessionToken = token
+	}
 	return userID, SessionAttrs{}, nil
+}
+
+// InvalidateSessionByID deletes the persisted session row by primary
+// key. Handlers receive the row id via `ctx.SessionID` after
+// `ResolveSession` runs. Pair with cookie clearing in the transport
+// layer to complete the logout. Closes WAR-RUNTIME-CTX-01 by giving
+// the logout handler a precise per-device revocation path.
+func InvalidateSessionByID(ctx *lazuli.Ctx, contract SessionsContract, sessionID lazuli.ID) error {
+	if sessionID == 0 {
+		return ErrSessionNotFound
+	}
+	sql := fmt.Sprintf(
+		"DELETE FROM %s WHERE id = $1",
+		quoteSessionIdent(contract.Resource),
+	)
+	_, err := sessionDBProvider().Exec(ctxOrBackground(ctx), sql, sessionID)
+	return err
 }
 
 // InvalidateSession deletes the persisted session row and asks the

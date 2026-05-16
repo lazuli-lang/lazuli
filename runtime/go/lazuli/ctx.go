@@ -34,6 +34,22 @@ type Ctx struct {
 
 	// Now is the resolved current time (allows test override).
 	Now time.Time
+
+	// SessionID is the row id of the active `*UserSession` populated by
+	// the transport layer's session-cookie middleware (`auth.ResolveSession`).
+	// Zero when the actor is anonymous, system, or used a non-session
+	// auth path (JWT, HMAC, plain header). Closes WAR-RUNTIME-CTX-01:
+	// the `logout` handler can now revoke just THIS session instead of
+	// every session of the actor (the previous "log out all devices"
+	// hammer).
+	SessionID ID
+
+	// SessionToken is the raw cookie value the transport extracted
+	// before swapping it for a User row. Exposed so handlers can
+	// re-hash + look up the session row themselves when SessionID
+	// isn't enough (e.g. step-up auth flows that need to invalidate
+	// + reissue). Empty when SessionID is zero.
+	SessionToken string
 }
 
 // Actor names the kind of caller. Mirrors the DSL `@actor.*` namespace.

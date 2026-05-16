@@ -4,6 +4,10 @@ Items here are **graded out** of a proposal that landed PASS but carry follow-up
 
 ---
 
+## From cross-feature symbol resolution review (2026-05-16)
+
+- [ ] **LSP/CLI surfaces symbol origin for cross-feature references.** When `host.lzi` references `Gender` and Lazuli resolves it via `uses account` to `account.Gender`, the IDE/CLI should expose that path without authors needing a `# Gender imported from account` comment. Spec: `lazuli inspect host.Gender` returns `defined in: account.lzi:line N, imported via: uses account at host.lzi:line 4`. Tree-sitter hover shows the same. Until this lands, authors are tempted to add procedence comments that violate `feedback_normative_not_narrative_2026-05-15` (specs are prescriptive; changelog/why goes to commit message or proposal). External cruel review 2026-05-16 surfaced this as a `Lazuli capitulating` smell.
+
 ## From `docs/proposals/semantic-types-money-brazilian.md` v0.3 (PASS 8.89/10, 2026-05-16)
 
 - [ ] **A1 — Multi-Money-field codegen ambiguity.** When a resource has multiple Money fields (e.g. `Charge { amount, platform_fee, net_to_host }`), spec the codegen choice: one shared currency column per resource (most common: one transaction, one currency) vs one column per Money field. Decision before Hostpoint Charge resource migration. Recommended: one shared column named `currency`, with diagnostic on multi-currency resources that opt out via explicit `: Currency` field declaration.
