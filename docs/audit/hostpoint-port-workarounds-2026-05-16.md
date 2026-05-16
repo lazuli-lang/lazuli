@@ -31,7 +31,7 @@
 | Runtime — migrations | WAR-RUNTIME-MIGRATION-01..03 | CREATE TABLE IF NOT EXISTS (open); reserved-word columns (CLOSED); FK topo-sort (open) |
 | Runtime — command routing | WAR-RUNTIME-COMMAND-01 | Register init blocks + Effect:Returns wiring missing |
 | Runtime — policy atoms | WAR-RUNTIME-POLICY-01 | Policy.Name without Atoms resolution at runtime |
-| Runtime — API mount | WAR-RUNTIME-API-MUX-01 | Mux() doesn't iterate Apis() — /auth/* routes never mount |
+| Runtime — API mount | WAR-RUNTIME-API-MUX-01 | Mux() doesn't iterate Apis() — /auth/* routes never mount (CLOSED) |
 | Runtime — ctx expressions | WAR-RUNTIME-CTX-NOW-01 | ctx.now / ctx.actor unresolved in declarative `creates`/`updates` |
 | Runtime — file naming | WAR-RUNTIME-FILENAME-01 | Underscore-prefix files silently excluded by go build |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
@@ -275,12 +275,13 @@
 
 ## WAR-RUNTIME-API-MUX-01 — `Mux()` doesn't auto-mount API registrations
 
-- **STATUS:** open
-- **Symptom:** `lazuli.Mux()` in `runtime/go/lazuli/http.go:27` walks `Commands()` + `Queries()` + `report.Mount(mux)` but skips `Apis()`. APIs registered via `lazuli.RegisterApi(&Api{Path: "/auth/login", Handler: auth.LoginHandler})` from the generated `auth.gen.go` (and any `api X { method GET; path "/foo"; handler @fn.bar }` in user `.lzi`) are stored in the registry but never bound to HTTP routes. Every call to `/auth/login`, `/auth/signup`, `/auth/logout` returns 404 even though `account.lzi` declares them and `auth.gen.go` has the `lazuli.RegisterApi(...)` call.
-- **Compound gap:** `apiRegistration` (`registry_typed.go:30-45`) only carries `Name, Feature, Path, HandlerChecker`. Neither `Method` nor `Handler` is propagated from the typed `Api[I, O]`, so even adding a Mux loop can't dispatch — the typed pointer would need to be captured in the registration first.
-- **Workaround in place:** none yet. End-to-end auth via the canonical `/auth/login` path is not reachable. The COMMAND path (`POST /api/v1/c/account.login`) IS reachable via WAR-RUNTIME-COMMAND-01's `register.go` workaround — auth flows can use that instead.
-- **Removal criterion:** `apiRegistration` extends to carry the typed Api pointer (or a dispatcher closure). `Mux()` adds a loop over `Apis()` that builds `<METHOD> <PATH>` mux routes and dispatches via the captured handler.
-- **Surfaced by:** Phase 4.2 e2e smoke test 2026-05-16.
+- **STATUS:** **closed** (lazuli commit `0798932`, 2026-05-16)
+- **Symptom:** `lazuli.Mux()` walked `Commands()` + `Queries()` + `report.Mount(mux)` but skipped `Apis()`. APIs registered via `lazuli.RegisterApi(&Api{Path: "/auth/login", Handler: auth.LoginHandler})` from the generated `auth.gen.go` were stored in the registry but never bound to HTTP routes — every call to `/auth/*` returned 404.
+- **Fix:** two cooperating changes:
+  1. `apiRegistration` extended to carry `Method HttpMethod` + `Dispatch func(*Ctx, []byte) (any, error)`. The Dispatch closure captures the typed `Api[I, O]`, unmarshals JSON body to I, calls `api.Invoke` (runs plan-gate prelude + user Handler), returns marshaled output.
+  2. `Mux()` added a loop over `Apis()` that mounts `<METHOD> <PATH>` via the new `handleApiRequest` helper.
+- After this fix, `/auth/login` + `/auth/signup` + `/auth/logout` mount; they now return 500 with `auth: <X>Handler not implemented` because the framework auth stubs still need real implementations (tracked as WAR-RUNTIME-AUTH-01), but the routing layer no longer 404s.
+- **Note:** Hostpoint's user-side login/register still works via `POST /api/v1/c/account.login` (command path) per the user-authored Login() func.
 
 ## WAR-RUNTIME-CTX-NOW-01 — `ctx.now` and `ctx.actor` not resolved in declarative effects
 
