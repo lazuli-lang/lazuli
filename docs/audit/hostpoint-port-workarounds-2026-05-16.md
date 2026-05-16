@@ -23,6 +23,7 @@
 | Vocab — auth | WAR-VOCAB-AUTH-01..06 | sessions list, step-up, legal docs, settings updates (CLOSED), CNPJ, postal lookup |
 | Vocab — notifications | WAR-VOCAB-NOTIFICATIONS-01 | inbox query + mark-read command |
 | Vocab — host home | WAR-VOCAB-HOSTHOME-01..02 | my_host return type, account-pendings query |
+| Vocab — operations | WAR-VOCAB-OPERATIONS-01..02 | denormalized agenda query, pending-reviews query |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
 | Runtime — migrations | WAR-RUNTIME-MIGRATION-01 | added columns vs CREATE TABLE IF NOT EXISTS |
@@ -332,6 +333,26 @@
 - **Workaround in place:** Hostpoint `.gitignore` rewritten to ignore only `*.gen.go`, `*.gen.ts`, `*.zod.ts`, `dist/go/{main.go,go.mod,go.sum,migrations/}`, `dist/{ts-web,ts-mobile}/design/`. See Hostpoint commit `1c03f30`.
 - **Removal criterion:** `lazuli new` scaffold ships the granular .gitignore by default. Reference Hostpoint commit `1c03f30` for the canonical pattern.
 - **Surfaced by:** Phase 1.2 commit `1c03f30`.
+
+---
+
+## WAR-VOCAB-OPERATIONS-01 — Agenda needs a denormalized actor-side query
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.7)
+- **Symptom:** the storybook host-operations agenda renders each reservation as a card with: traveler name + photo, property name, formatted date + time slot, service-level breakdown (icon, name, amount per service), and an aggregate total amount. The generated SDK query `listMineTransactionsAsHostOperationss` (cf. `dist/ts-web/operations/operations.gen.ts`) returns the raw `ServiceTransaction` resource (FK ids, JSON `proposed_options`, `total_amount_cents`) — none of the joined display attributes the storybook card needs. Translating the raw shape into the card would require additional N+1 lookups per row (traveler/property/service) plus client-side formatting.
+- **Workaround in place:** `apps/hostpoint-app/src/routes/HostOperations.tsx` inlines a fixture array matching the storybook `agendaItems` constant byte-for-byte (4 reservations × pending/proposal/confirmed/declined statuses).
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostOperations.tsx` header comment.
+- **Removal criterion:** `operations.lzi` adds a `query.list mine_agenda_as_host()` (or equivalent) that returns a denormalized agenda row type with traveler/property/service display attributes already joined and pre-formatted: `traveler_name`, `traveler_photo_url`, `property_name`, `formatted_date` (e.g. `"Hoje"`), `formatted_full_date` (`"02/05/2026"`), `formatted_time` (`"11:00"`), `service_breakdown: [{ name, amount_cents, icon_key, accent_key }]`, `total_amount_cents`, plus `status` and `hours_until_start`. The query is the actor-side counterpart to the existing sender-side `listMineTransactionsAsHostOperationss`. Same architectural shape as the request for `query.list mine_notifications` in WAR-VOCAB-NOTIFICATIONS-01 — both surface a per-actor denormalized view of an event-stream resource.
+- **Surfaced by:** Phase 3.7 host-operations port (this entry).
+
+## WAR-VOCAB-OPERATIONS-02 — Pending-reviews query not modeled
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.7)
+- **Symptom:** the storybook host-operations surface includes a "Avaliacoes apos a estadia" card prompting the host to respond to a review left after a completed transaction. The trigger is conceptually tied to operations (it's the post-completion follow-up) and the storybook surfaces it inline with the agenda. There is no `query.list mine_pending_reviews_as_host()` (or equivalent) authored — no Review/Rating resource exists in the current Lazuli capsule at all, and the operations BC only models the transaction lifecycle (request → proposal → accepted → paid → completed → cancelled).
+- **Workaround in place:** `apps/hostpoint-app/src/routes/HostOperations.tsx` inlines a single pending-review fixture matching the storybook reviews data (Maria Costa, 5 stars). The "Responder avaliacao" button is non-functional.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostOperations.tsx` header comment.
+- **Removal criterion:** a Review BC (or `trust.Review`) ships with `Review` resource (transaction reference, rating, comment, host_reply, status) + `query.list mine_pending_reviews_as_host()` actor-side query + `command leave_host_reply(review_id, reply)`. The operations agenda then consumes the query via `useLazuliQuery` to surface the prompt. Architecturally this overlaps with the `@trust` bucket (existing scaffold) but no resources are currently authored there.
+- **Surfaced by:** Phase 3.7 host-operations port (this entry).
 
 ---
 
