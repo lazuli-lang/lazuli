@@ -38,6 +38,8 @@
 | Runtime — API mount | WAR-RUNTIME-API-MUX-01 | Mux() doesn't iterate Apis() — /auth/* routes never mount (CLOSED) |
 | Runtime — ctx expressions | WAR-RUNTIME-CTX-NOW-01 | ctx.now / ctx.actor unresolved in declarative `creates`/`updates` |
 | Runtime — file naming | WAR-RUNTIME-FILENAME-01 | Underscore-prefix files silently excluded by go build |
+| Runtime — multitenant | WAR-RUNTIME-MULTITENANT-01 | public-policy creates can't resolve tenant |
+| Vocab — query enum | WAR-VOCAB-QUERY-ENUM-01 | query.list filters can't bind enum literals |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
 | Scaffold — gitignore | WAR-SCAFFOLD-GITIGNORE-01 | dist/ blanket-ignore vs user-authored handlers |
@@ -498,6 +500,27 @@
 - **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyCreate.tsx` (`pickPropertyPhotosWeb`, `CoverPhotoSlotWeb`, `ExtraPhotosSlotWeb`).
 - **Removal criterion:** EITHER (a) Lazuli ships a `@runtime/image-picker` or `@plugin/image-picker` cross-platform adapter that abstracts file-input vs `expo-image-picker` vs CameraRoll behind a shared TS interface, OR (b) `CoverPhotoSlot` / `ExtraPhotosSlot` are re-introduced in `shared/presentation/ui/forms/` with platform-specific implementations (`*.web.tsx` vs `*.native.tsx`) the way react-native-web typically splits primitives. Path (b) is more aligned with the existing `react-native-web` layering; path (a) is more aligned with the framework's "wire-thin runtime" thesis. Closing this entry retires both inline `*Web` slots + the inline helper.
 - **Surfaced by:** Phase 3.5 host-property-create port (this entry).
+
+## WAR-RUNTIME-MULTITENANT-01 — `@policy.public` commands cannot resolve tenant for `creates`
+
+- **STATUS:** open (workaround in place — Hostpoint Phase 1.3 / 2026-05-16; surfaced in `apps/hostpoint-app/src/routes/SignUp.tsx` + `dist/go/account/register_user.go`)
+- **Symptom:** the declarative form `command register_user { policy @policy.public; creates User { ... } }` lowers a generated handler that reads `ctx.Actor` for tenant resolution. Under `@policy.public` there is no authenticated actor at request time, so `ctx.Actor.OrgID` is the zero value; the generated INSERT carries `org_id = 0` and either fails the FK constraint or silently writes to a non-existent org. Every public sign-up path hits this.
+- **Workaround in place:** Hostpoint replaces the framework-generated `register_user.go` with a hand-rolled `RegisterUserHandler` (`dist/go/account/register_user.go`) that (a) opens a transaction; (b) `SELECT id FROM org WHERE slug = 'default' LIMIT 1`; (c) `INSERT INTO org` with the default slug if no row found, capturing the new id; (d) issues the `INSERT INTO "user"` with `org_id = <resolved>`. The handler is registered via `account.RegisterUserHandler` in `dist/go/main.go` ahead of the framework-generated stub.
+- **Annotated in:** `dist/go/account/register_user.go` (head-of-file comment naming the warrant); `apps/hostpoint-app/src/routes/SignUp.tsx` (UI assumes a single org is fine for the MVP).
+- **Removal criterion:** Lazuli grows one of these (cells deferred to the next framework wave, design call pending):
+  - **Path A (declarative tenant-resolution on public commands):** new keyword on `command.policy @policy.public` — `resolve tenant via @fn.<name>` or `tenant_from input.<axis>_id` (mirroring the inbound-webhook `tenant_from`/`scope global` pattern that landed 2026-05-16). The framework injects the resolver into the generated `creates` lowering.
+  - **Path B (runtime-supplied tenant context for public commands):** add a `WithDefaultTenant` middleware to `lazuli.Mux()` that resolves a fallback `Org` per `request.Header` / `Host` / app config. Less explicit than A; risks silent tenancy bugs.
+  - **Path C (require pre-auth for `creates`):** make `@policy.public` + `creates X` a doctor `BLOCK` (analogous to `WEBHOOK-SCOPE-001` for inbound webhooks lacking `tenant_from`). Forces the author to choose A or escalate the command to authenticated.
+- **Surfaced by:** Hostpoint Phase 1.3e (sign-up flow); see `docs/port-status-2026-05-16.md` open-workarounds list.
+
+## WAR-VOCAB-QUERY-ENUM-01 — `query.list filters <enum_field> = <literal>` does not bind under codegen
+
+- **STATUS:** open (workaround in place — Hostpoint Phase 3.7 onwards; per `docs/port-status-2026-05-16.md`)
+- **Symptom:** declarative form `query.list pending_intermediation_hosts { filters { status = pending } }` parses cleanly under the canonical grammar — the analyzer accepts an enum literal on the RHS of `=` in filter clauses — but the generated pgx query parameter binding does NOT carry the enum-literal-to-text conversion that the column requires. End result: the SQL builds, but the binding emits the unquoted identifier or the wrong type, and the query returns zero rows. Worked-around by either (a) returning the unfiltered set and filtering client-side, or (b) writing a `handler @fn.<name> returns JSON` that does the typed enum filter server-side. The Hostpoint port relies on path (b) for `list_host_agenda` / `list_traveler_reservations` / `list_my_pending_reviews_as_host` / `list_chat_inbox`.
+- **Workaround in place:** four `command list_*` blocks (`operations.list_host_agenda`, `operations.list_traveler_reservations`, `trust.list_my_pending_reviews_as_host`, `messaging.list_chat_inbox`) return rich denormalized `JSON` projections via hand-rolled Go handlers; the declarative `query.list` form is intentionally avoided for any list that needs status-filtering. Client-side, the storybook screens that need "pending vs active vs completed" buckets receive ALL transactions and split by status in the React layer.
+- **Annotated in:** `app/features/operations/operations.lzi` (record `AgendaEntry` + `ReservationEntry` carry status as a denormalized field); `dist/go/operations/list_host_agenda.go` + sibling handlers (head-of-file comments naming the warrant).
+- **Removal criterion:** Lazuli codegen wires enum-literal filter clauses through the IR lowering, the pgx parameter binding, AND the analyzer (must validate the enum literal is a known variant of the field's enum type at compile time, not at runtime). Concretely: `crates/lazuli_codegen_go/src/emitter/query.rs` (or equivalent) must (a) detect `FilterEq { lhs: FieldRef(<enum_field>), rhs: EnumLiteral(<variant>) }`, (b) emit the runtime conversion `pgtype.Text{String: <variant_string>, Valid: true}` for the placeholder bind, (c) ensure the analyzer rejects unknown variants at compile time. Doctor lint `VOCAB-QUERY-ENUM-UNKNOWN-001` candidate post-fix to catch typos.
+- **Surfaced by:** Hostpoint Phase 3.7 (host-operations agenda); see `docs/port-status-2026-05-16.md` open-workarounds list.
 
 ---
 
