@@ -440,12 +440,15 @@
 
 ## WAR-VOCAB-OPERATIONS-02 — Pending-reviews query not modeled
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.7)
-- **Symptom:** the storybook host-operations surface includes a "Avaliacoes apos a estadia" card prompting the host to respond to a review left after a completed transaction. The trigger is conceptually tied to operations (it's the post-completion follow-up) and the storybook surfaces it inline with the agenda. There is no `query.list mine_pending_reviews_as_host()` (or equivalent) authored — no Review/Rating resource exists in the current Lazuli capsule at all, and the operations BC only models the transaction lifecycle (request → proposal → accepted → paid → completed → cancelled).
-- **Workaround in place:** `apps/hostpoint-app/src/routes/HostOperations.tsx` inlines a single pending-review fixture matching the storybook reviews data (Maria Costa, 5 stars). The "Responder avaliacao" button is non-functional.
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostOperations.tsx` header comment.
-- **Removal criterion:** a Review BC (or `trust.Review`) ships with `Review` resource (transaction reference, rating, comment, host_reply, status) + `query.list mine_pending_reviews_as_host()` actor-side query + `command leave_host_reply(review_id, reply)`. The operations agenda then consumes the query via `useLazuliQuery` to surface the prompt. Architecturally this overlaps with the `@trust` bucket (existing scaffold) but no resources are currently authored there.
-- **Surfaced by:** Phase 3.7 host-operations port (this entry).
+- **STATUS:** **closed** (Hostpoint commit follow-up 2026-05-16)
+- **Symptom:** "Avaliacoes apos a estadia" card on host-operations was a fixture single-review; no SDK existed to list pending reviews nor to write a host reply. Review resource lacked `host_reply` / `host_replied_at` columns.
+- **Fix:** trust.lzi gains:
+  - `Review.host_reply: Text optional` + `Review.host_replied_at: DateTime optional` (schema additions; new CREATE TABLE emits the columns).
+  - `record PendingReviewEntry` (review_id, transaction_id, author display, rating, comment, created_at).
+  - `command list_my_pending_reviews_as_host returns JSON handler @fn.list_my_pending_reviews_as_host` — selects unreplied submitted reviews where target = actor.
+  - `command leave_host_reply input { review_id, reply } handler @fn.leave_host_reply` — actor-scoped update; only the review target can reply, and only once.
+  Front-end `HostOperations.tsx` consumes via `useLazuliCommand(listTrustMyPendingReviewsAsHost)` + `normalizePendingReviews`; live rows replace the storybook fixture when present.
+- **Migration note:** existing-DB deployments need an ALTER TABLE for the two new Review columns (framework's CREATE TABLE IF NOT EXISTS doesn't auto-migrate column additions — cf. WAR-RUNTIME-MIGRATION-01). Fresh DBs include them automatically.
 
 ## WAR-VOCAB-PROPERTYCREATE-01 — Catalog asset-upload commands not implemented
 
