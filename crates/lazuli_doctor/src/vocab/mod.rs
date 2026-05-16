@@ -9,6 +9,7 @@
 //! v0.2 catalog (3 rules): cap_missing, grammar_form, union_002.
 //! v0.3 catalog (4 rules): event_orphan, event_producer, audit_002,
 //! json_typed.
+//! v0.4 catalog (2 rules): handler_heavy, tests_missing.
 
 pub mod vocab_audit_001;
 pub mod vocab_audit_002;
@@ -18,6 +19,8 @@ pub mod vocab_event_orphan_001;
 pub mod vocab_event_payload_001;
 pub mod vocab_event_producer_001;
 pub mod vocab_grammar_form_001;
+pub mod vocab_handler_heavy_001;
 pub mod vocab_json_typed_001;
+pub mod vocab_tests_missing_001;
 pub mod vocab_union_001;
 pub mod vocab_union_002;

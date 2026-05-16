@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lazuli_ir::{Feature, LegacyView};
+use lazuli_ir::Feature;
 
 // ── output ────────────────────────────────────────────────────────────────────
 
@@ -90,19 +90,11 @@ fn has_any_test_block(feature: &Feature) -> bool {
                     .any(|transition| transition.tests.is_some())
             })
         })
-        || feature
-            .surfaces
-            .iter()
-            .any(|surface| surface.views.iter().any(|view| legacy_view_has_tests(view)))
-}
-
-fn legacy_view_has_tests(view: &LegacyView) -> bool {
-    match view {
-        LegacyView::Table(v) => v.tests.is_some(),
-        LegacyView::SidePanel(v) => v.tests.is_some(),
-        LegacyView::Form(v) => v.tests.is_some(),
-        LegacyView::Custom(v) => v.tests.is_some(),
-    }
+    // Note: modern `Surface`/`Audience`/`View` (lzx grammar) carry no
+    // `tests` field — view kinds (List/Detail/Create) deliberately leave
+    // tests to commands. Legacy `LegacySurface`/`LegacyView` carry tests
+    // but are no longer reachable from `Feature` (Feature.surfaces is the
+    // modern path only). No surface-walk branch needed here.
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
