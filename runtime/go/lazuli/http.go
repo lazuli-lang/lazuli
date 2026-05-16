@@ -51,20 +51,22 @@ func Mux() http.Handler {
 		})
 	}
 
-	// WAR-RUNTIME-API-MUX-01: API registrations (via lazuli.RegisterApi)
-	// are NOT auto-mounted here. apiRegistration only stores
-	// Name/Feature/Path/HandlerChecker — neither Method nor Handler is
-	// propagated from the typed Api[I, O], so this loop can't bind the
-	// handler. Fix requires extending apiRegistration to carry the
-	// typed Api pointer (or copy of Method + Handler closure) and
-	// adding a dispatch helper.
-	//
-	// Until then, `/auth/login`, `/auth/signup`, `/auth/logout` declared
-	// in `account/auth.gen.go` are unreachable through Mux(). Capsules
-	// that need the auth surface must either (a) call
-	// `auth.LoginHandler` directly from main.go via a hand-mounted
-	// route, or (b) wait for the framework to ship the typed Api
-	// auto-mount.
+	// API auto-mount — apiRegistration now carries Method + Dispatch
+	// closure populated by `RegisterApi[I, O]`. Mount each as
+	// `<METHOD> <PATH>` bound to its typed dispatcher.
+	for _, api := range GlobalRegistry.Apis() {
+		api := api
+		if api.Dispatch == nil || api.Method == "" {
+			continue
+		}
+		if api.HandlerChecker != nil && !api.HandlerChecker() {
+			continue
+		}
+		path := string(api.Method) + " " + api.Path
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			handleApiRequest(w, r, api)
+		})
+	}
 
 	// Report auto-mount — `GET /api/reports/<name>.<format>` per
 	// (contract × format) declared in any feature. Walks the
@@ -96,6 +98,25 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 
 	ctx := newRequestCtx(r)
 	out, err := handler.dispatch(ctx, body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleApiRequest is the per-Api HTTP handler. It builds the request
+// Ctx, reads the body, dispatches via the registration's typed
+// closure, and writes JSON.
+func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistration) {
+	body, err := readRequestBody(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	ctx := newRequestCtx(r)
+	out, err := api.Dispatch(ctx, body)
 	if err != nil {
 		writeError(w, err)
 		return

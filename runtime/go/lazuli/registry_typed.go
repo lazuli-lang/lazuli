@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -29,6 +30,16 @@ type commandRegistration struct{ Name, Feature string }
 type queryRegistration struct{ Name, Feature string }
 type apiRegistration struct {
 	Name, Feature, Path string
+	// Method is the HTTP verb (GET/POST/...) — populated by the typed
+	// RegisterApi[I, O] generic. Legacy direct
+	// `Registry.RegisterApi(apiRegistration{...})` callers may leave
+	// it empty; the Mux loop treats empty Method as "skip".
+	Method HttpMethod
+	// Dispatch is a closure that decodes JSON input into the typed
+	// Api[I, O]'s input shape, calls api.Invoke, and returns the
+	// marshaled output. Populated by RegisterApi[I, O]. Mux uses this
+	// to dispatch without knowing I or O.
+	Dispatch func(ctx *Ctx, body []byte) (any, error)
 	// HandlerChecker reports whether the user has wired the typed
 	// Api[I, O].Handler field at the time of the call. The codegen
 	// emits Api values without handlers (extension-point pattern) and
@@ -210,9 +221,24 @@ func RegisterQuery[A, R any](query *Query[A, R]) {
 // RegisterApi registers an Api in the typed registry.
 func RegisterApi[I, O any](api *Api[I, O]) {
 	GlobalRegistry.RegisterApi(apiRegistration{
-		Name:           api.Name,
-		Feature:        api.Feature,
-		Path:           api.Path,
+		Name:    api.Name,
+		Feature: api.Feature,
+		Path:    api.Path,
+		Method:  api.Method,
+		Dispatch: func(ctx *Ctx, body []byte) (any, error) {
+			var input I
+			if len(body) > 0 {
+				if err := json.Unmarshal(body, &input); err != nil {
+					return nil, &Error{Status: 400, Code: CodeBadRequest,
+						Message: "invalid JSON body: " + err.Error()}
+				}
+			}
+			out, err := api.Invoke(ctx, input)
+			if err != nil {
+				return nil, err
+			}
+			return out, nil
+		},
 		HandlerChecker: func() bool { return api.Handler != nil },
 	})
 }
