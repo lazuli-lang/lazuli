@@ -951,6 +951,7 @@ mod tests {
             verify: ir::PathRef::authored("./webhooks/verify_stripe.go"),
             structured_verify: None,
             tenant_from: None,
+            scope_global: None,
             idempotency: None,
             policy: None,
             policy_expr: None,

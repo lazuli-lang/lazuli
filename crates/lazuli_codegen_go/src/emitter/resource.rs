@@ -226,6 +226,62 @@ fn emit_resource(
         });
     }
 
+    // Per proposal `semantic-types-money-brazilian.md` v0.4: when a
+    // resource has 1+ Money fields without explicit
+    // `<money>_currency: Currency` opt-out fields, codegen emits a
+    // single shared `currency` column. Mirrors the DDL emitter
+    // (`migration_ddl::resource_columns` v0.4 block).
+    let explicit_currency_overrides: std::collections::HashSet<String> = resource
+        .fields
+        .iter()
+        .filter_map(|f| {
+            use lazuli_ir::{BuiltinType, TypeRef};
+            if matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticCurrency)) {
+                f.name
+                    .strip_suffix("_currency")
+                    .map(|stem| stem.to_owned())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let author_currency_field = resource.fields.iter().any(|f| {
+        use lazuli_ir::{BuiltinType, TypeRef};
+        f.name == "currency"
+            && matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticCurrency))
+    });
+    let needs_shared_currency = !author_currency_field
+        && resource.fields.iter().any(|f| {
+            use lazuli_ir::{BuiltinType, TypeRef};
+            matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticMoney))
+                && !explicit_currency_overrides.contains(&f.name)
+        });
+    let shared_currency_required = resource.fields.iter().any(|f| {
+        use lazuli_ir::{BuiltinType, TypeRef};
+        matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticMoney))
+            && f.required
+            && !explicit_currency_overrides.contains(&f.name)
+    });
+    if needs_shared_currency {
+        let go_type = if shared_currency_required {
+            "lazuli.Currency".to_owned()
+        } else {
+            "*lazuli.Currency".to_owned()
+        };
+        let json_suffix = if shared_currency_required {
+            "currency".to_owned()
+        } else {
+            "currency,omitempty".to_owned()
+        };
+        tagged.push(TaggedField {
+            name: "Currency".to_owned(),
+            go_type,
+            db_col: "currency".to_owned(),
+            json_suffix,
+            comment: None,
+        });
+    }
+
     // Implicit timestamps. `Defaults.timestamps` is feature-wide;
     // `Resource.timestamps` overrides. `None` on the resource side
     // means "inherit feature default".

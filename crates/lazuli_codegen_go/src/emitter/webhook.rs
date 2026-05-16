@@ -480,6 +480,7 @@ mod feature_emit_tests {
             verify: PathRef::convention(format!("./webhooks/{name}_verify.go")),
             structured_verify: None,
             tenant_from: None,
+            scope_global: None,
             idempotency: None,
             policy: None,
             policy_expr: None,

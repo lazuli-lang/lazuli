@@ -1,0 +1,9 @@
+# Triggers: VOCAB-MONEY-MULTI-CURRENCY-001
+# Expected message contains: "Money fields with no explicit"
+
+feature multi_money
+  domain
+    resource Charge
+      amount: Money required = "BRL:0.00"
+      platform_fee: Money required = "BRL:0.00"
+      net_to_host: Money required = "BRL:0.00"

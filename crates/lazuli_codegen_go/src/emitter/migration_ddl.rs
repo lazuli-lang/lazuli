@@ -282,6 +282,38 @@ fn resource_columns<'a>(
         columns.push(SqlColumn::typed("org_id", "BIGINT", true));
     }
 
+    // Per proposal `semantic-types-money-brazilian.md` v0.4: scan the
+    // resource once to detect which Money fields have an explicit
+    // `<money>_currency: Currency` opt-out pair authored. Those keep the
+    // per-field paired column. Money fields without an opt-out share
+    // ONE resource-level `currency` column emitted at the end of the
+    // field loop.
+    let explicit_currency_overrides: std::collections::HashSet<String> = resource
+        .fields
+        .iter()
+        .filter_map(|f| {
+            if matches!(
+                f.type_ref,
+                lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticCurrency)
+            ) {
+                f.name
+                    .strip_suffix("_currency")
+                    .map(|stem| stem.to_owned())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let author_currency_field = resource.fields.iter().any(|f| {
+        f.name == "currency"
+            && matches!(
+                f.type_ref,
+                lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticCurrency)
+            )
+    });
+    let mut needs_shared_currency = false;
+    let mut shared_currency_required = false;
+
     for field in &resource.fields {
         let pg_type = pg_type_for_field(module, feature, field, cross_index);
         let column = SqlColumn::typed_generated(
@@ -295,18 +327,36 @@ fn resource_columns<'a>(
             None => column,
         };
         columns.push(column);
-        // Per proposal `semantic-types-money-brazilian.md` v0.3: every
-        // `SemanticMoney` field gets a paired `<field>_currency TEXT`
-        // column auto-emitted alongside, capped at `length 3 + uppercase`
-        // via a CHECK constraint. Authors writing `amount: Money` get
-        // both columns without authoring the pair.
+        // v0.4 — per-field paired column only when the author authored
+        // an explicit `<field>_currency: Currency` opt-out. Otherwise the
+        // Money field opts into the shared resource-level `currency`.
         if matches!(
             field.type_ref,
             lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticMoney)
         ) {
-            let currency_col_name = format!("{}_currency", field.name);
-            columns.push(SqlColumn::typed(&currency_col_name, "TEXT", field.required));
+            if explicit_currency_overrides.contains(&field.name) {
+                // Paired column is authored by the user — they'll
+                // declare its requiredness/default themselves; nothing
+                // to emit here.
+            } else {
+                needs_shared_currency = true;
+                if field.required {
+                    shared_currency_required = true;
+                }
+            }
         }
+    }
+
+    // v0.4 shared currency — exactly one column per resource, emitted
+    // after the authored fields and before tenancy/timestamp blocks.
+    // Suppressed when the author already wrote `currency: Currency`
+    // explicitly on the resource (e.g. to control name/default).
+    if needs_shared_currency && !author_currency_field {
+        columns.push(SqlColumn::typed(
+            "currency",
+            "TEXT",
+            shared_currency_required,
+        ));
     }
 
     if uses_timestamps(feature, resource) {
@@ -525,10 +575,11 @@ fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
         | BuiltinType::SemanticUrl
         | BuiltinType::SemanticUuid
         | BuiltinType::SemanticCurrency => "TEXT",
-        // Per proposal `semantic-types-money-brazilian.md` v0.3:
-        // Money stores as `NUMERIC(20,4)` (audit removal criterion at
-        // hostpoint-port-workarounds-2026-05-16.md:134). The paired
-        // `<field>_currency TEXT` is auto-emitted alongside.
+        // Per proposal `semantic-types-money-brazilian.md` v0.4:
+        // Money stores as `NUMERIC(20,4)`. One shared resource-level
+        // `currency TEXT` column is auto-emitted (see resource_columns);
+        // authors opt out per-field by declaring an explicit
+        // `<money>_currency: Currency` pair.
         BuiltinType::SemanticMoney => "NUMERIC(20,4)",
         BuiltinType::SemanticGeoPoint => {
             return PgType {
@@ -1030,8 +1081,12 @@ DROP TABLE IF EXISTS \"customer\";
         assert!(sql.contains("phone TEXT,"));
         assert!(sql.contains("website TEXT,"));
         assert!(sql.contains("uuid TEXT,"));
+        // Author declared `currency: Currency` explicitly — v0.4 keeps
+        // the user-authored column and suppresses the auto-emitted
+        // shared currency to avoid a duplicate.
         assert!(sql.contains("currency TEXT NOT NULL,"));
-        assert!(sql.contains("cents BIGINT NOT NULL"));
+        // Money fields store as NUMERIC(20,4) per v0.4.
+        assert!(sql.contains("cents NUMERIC(20,4) NOT NULL"));
     }
 
     #[test]
