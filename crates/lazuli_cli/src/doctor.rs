@@ -9969,8 +9969,16 @@ fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<S
         if leading_spaces(line) == 2 && trimmed.starts_with("uses ") {
             if let Some(rest) = trimmed.strip_prefix("uses ") {
                 if let Some(feature_name) = feature.as_ref() {
+                    // Cross-feature contracts §5.4 — strip the optional
+                    // trailing `version v<N>` pin BEFORE comma-splitting.
+                    // The pin applies to all entries on the line, but the
+                    // legacy uses-map only tracks feature names.
+                    let list_part = match rest.find(" version ") {
+                        Some(idx) => &rest[..idx],
+                        None => rest,
+                    };
                     let entry = out.entry(feature_name.clone()).or_default();
-                    for token in rest.split(',') {
+                    for token in list_part.split(',') {
                         let name = token.trim();
                         if !name.is_empty() {
                             entry.insert(name.to_owned());
@@ -11330,6 +11338,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         defaults: lazuli_ir::Defaults::default(),
         uses: Vec::new(),
         uses_spans: Vec::new(),
+        uses_versions: Vec::new(),
         requirements: Vec::new(),
         enums: Vec::new(),
         resources: fact.resources.clone(),

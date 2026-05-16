@@ -407,6 +407,15 @@ pub struct Feature {
     /// `ImportEdge.uses_at`. See `docs/proposals/lsp-symbol-origin.md` §6.5.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uses_spans: Vec<SpanRef>,
+    /// Optional consumer-side version pin per `uses` entry. Same length as
+    /// `uses` when populated; entries are `Some(N)` for `uses <feature> version v<N>`
+    /// and `None` for unpinned entries. Empty when the feature has no `uses`
+    /// lines or when constructed programmatically.
+    ///
+    /// Drives `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` per
+    /// `docs/proposals/cross-feature-contracts.md` §5.4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uses_versions: Vec<Option<u16>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<FeatureRequirement>,
     pub enums: Vec<EnumDecl>,

@@ -198,6 +198,42 @@ Ergonomic property: **the consumer's reference site doesn't change when the arch
 
 **Ambiguous cases resolved:** renaming an *optional* field is **breaking** (consumers that DO use the field break); renaming an *unused* field is **compatible** (no consumer can break). The doctor walks consumers to decide. Removing an enum variant a consumer didn't reference is still **breaking** at the contract level (the consumer's switch statements may need updating to honor exhaustiveness), but the doctor downgrades to warning when no consumer references the variant.
 
+#### §5.4.1 Consumer-side version pin
+
+The `uses` line gains an optional `version v<N>` clause that pins the
+consumer to a specific contract version of the listed origin features:
+
+```lazuli
+feature billing
+  uses account version v1
+  uses notifications
+  uses org, user version v1     # comma-list shares the line-level pin
+```
+
+Semantics:
+
+- The pin applies **line-level** — every comma-separated entry on one
+  `uses` line shares the same `version v<N>` value. Mix lines to mix pins.
+- Omitting the clause (`uses notifications`) means the consumer **floats**
+  with the origin's current contract version. Drift cannot fire because
+  there is no explicit baseline to drift from.
+- The pin is a *consumer-side declaration of intent*; the origin
+  retains a single `public contract <Symbol> as v<N>` per symbol. The
+  pin compares against that single origin version at lint time.
+- `version v0` is rejected; minimum version is `v1` (matching the origin
+  syntax). Versions are `u16`.
+
+Doctor `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` (under
+`architecture mode microservices`) fires when:
+
+1. Consumer feature `C` has `uses O version v<N>`, AND
+2. `C` references a symbol `O.S`, AND
+3. Origin feature `O` declares `public contract S as v<M>` with `M ≠ N`.
+
+Unpinned consumers, monolith/modular_monolith modes, and origins without
+a `public contract` (CONTRACT-MISSING-001 territory) are all excluded
+from drift detection.
+
 ### §5.5 `previously` integration
 
 Existing canonical `previously alias <name>` and `previously migrated <name>` clauses (`grammar.lzi.md:235`) carry rename history on the symbol. Under contracts, the rename trail composes with the contract version:

@@ -504,7 +504,8 @@ feature customer_auth
     tenancy org
     timestamps
 
-  uses org, customer
+  uses org
+  uses customer version v1
 
   domain
     enum AuthProvider

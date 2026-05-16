@@ -608,6 +608,13 @@ pub struct FeatureSkeleton {
     /// cluster-spanning invariants. Lowered into `ir::Aggregate`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aggregates: Vec<AggregateDecl>,
+    /// Feature-level `uses <feature>[, <feature>]+ [version v<N>]` lines.
+    /// One entry per imported feature. Per
+    /// `docs/proposals/cross-feature-contracts.md` §5.4 the optional
+    /// `version v<N>` pin is consumer-side and gates the doctor
+    /// `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` rule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uses_clauses: Vec<UsesClauseAst>,
     pub span: Span,
 }
 
@@ -733,6 +740,25 @@ pub struct FieldPolicyDecl {
 pub struct PublicContractDeclAst {
     /// Version number from `as v<N>`. Monotonic per symbol.
     pub version: u16,
+    pub span: Span,
+}
+
+/// One `uses` clause: a cross-feature import with an optional version pin.
+/// Authored at feature scope as `uses account` or `uses account version v1`.
+/// Multiple comma-separated entries on one `uses` line yield multiple
+/// `UsesClause` instances, each carrying its own optional pin.
+///
+/// Consumer-side pin per
+/// `docs/proposals/cross-feature-contracts.md` §5.4 + the consumer-side-pin
+/// follow-up. When `version` is `Some(N)`, the doctor
+/// `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` rule checks each referenced
+/// symbol's origin `public_contract.version` against `N`. When `None`,
+/// the consumer floats with the origin's current version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsesClauseAst {
+    pub feature: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u16>,
     pub span: Span,
 }
 

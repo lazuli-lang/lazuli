@@ -11,9 +11,9 @@
 //!
 //! - `CROSS-FEATURE-CONTRACT-MISSING-001` (error) — cross-feature
 //!   reference resolves to a symbol without `public contract`.
-//! - `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` (error, **scaffolded
-//!   only**) — consumer pin syntax not yet shipped; this rule's public
-//!   surface is locked so the trigger lands by replacing the body.
+//! - `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` (error) — consumer pinned
+//!   via `uses <feature> version v<N>` references a symbol whose origin
+//!   publishes a different `public contract <Symbol> as v<M>` version.
 //! - `CROSS-FEATURE-WORKFLOW-SPAN-001` (warning) — workflow transitions
 //!   touch resources owned by multiple features.
 

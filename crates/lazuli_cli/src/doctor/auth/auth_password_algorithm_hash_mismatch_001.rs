@@ -192,6 +192,7 @@ mod tests {
             defaults: Defaults::default(),
             uses: vec![],
             uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
             requirements: vec![],
             enums: vec![],
             resources: vec![session_resource],

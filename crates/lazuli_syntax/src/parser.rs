@@ -34,8 +34,8 @@ use crate::ast::{
     SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
     SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
     TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
-    TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, ViewAst,
-    ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
+    TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, UsesClauseAst,
+    ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
     WebhookVerify, WeightTokenAst, ZTokenAst,
 };
 
@@ -3352,6 +3352,8 @@ fn parse_feature_skeleton(
     let mut caches: Vec<CacheProfileDecl> = Vec::new();
     // CL.C.4 — `aggregate <Name>` blocks (DDD consistency boundaries).
     let mut aggregates: Vec<AggregateDecl> = Vec::new();
+    // Cross-feature contracts — `uses <feature>[, ...] [version v<N>]` lines.
+    let mut uses_clauses: Vec<UsesClauseAst> = Vec::new();
     let mut pending_contract: Option<(String, PublicContractDeclAst)> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
@@ -3503,6 +3505,23 @@ fn parse_feature_skeleton(
             last_end = lines[next.saturating_sub(1).max(i)].end;
             tenant_migrations.push(parsed);
             i = next;
+            continue;
+        }
+
+        // Cross-feature contracts §5.4 — feature-level
+        // `uses <feature>[, <feature>]* [version v<N>]` line. Multiple
+        // comma-separated entries on one line yield multiple UsesClauseAst
+        // entries; the trailing `version v<N>` (when present) pins every
+        // entry on the line to that consumer-side version.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD
+            && let Some(rest) = trimmed.strip_prefix("uses ")
+        {
+            let line_span = Span::new(line.start, line.end);
+            for clause in parse_uses_line(rest, line, line_span)? {
+                uses_clauses.push(clause);
+            }
+            last_end = line.end;
+            i += 1;
             continue;
         }
 
@@ -3692,6 +3711,7 @@ fn parse_feature_skeleton(
             channels,
             caches,
             aggregates,
+            uses_clauses,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -3760,6 +3780,82 @@ fn parse_public_contract_line(
             span: Span::new(line.start, line.end),
         },
     )))
+}
+
+/// Parse the body of a `uses` line — comma-separated feature names with
+/// an optional trailing `version v<N>` clause that applies to ALL entries
+/// on the line. Returns one `UsesClauseAst` per imported feature.
+///
+/// Examples:
+/// - `account` → `[{feature: "account", version: None}]`
+/// - `org, user, billing` → 3 clauses, all `version: None`
+/// - `account version v1` → `[{feature: "account", version: Some(1)}]`
+/// - `account, billing version v2` → 2 clauses, BOTH at v2 (line-level pin)
+fn parse_uses_line(
+    rest: &str,
+    line: &SourceLine<'_>,
+    line_span: Span,
+) -> Result<Vec<UsesClauseAst>, ParseError> {
+    let trimmed = rest.trim();
+    if trimmed.is_empty() {
+        return Err(line_error(
+            line,
+            "`uses` requires at least one feature name",
+        ));
+    }
+
+    // Split into the feature-list portion and the optional `version v<N>`
+    // suffix. Single-pass: find " version v" (whitespace-bounded keyword)
+    // OR fall through with no pin.
+    let (list_part, version) = match trimmed.find(" version ") {
+        Some(idx) => {
+            let list_part = &trimmed[..idx];
+            let version_part = trimmed[idx + " version ".len()..].trim();
+            let Some(digits) = version_part.strip_prefix('v') else {
+                return Err(line_error(
+                    line,
+                    "`uses ... version v<N>` requires `v` prefix on version",
+                ));
+            };
+            let version: u16 = digits.parse().map_err(|_| {
+                line_error(line, "`uses ... version v<N>` requires a positive u16")
+            })?;
+            if version == 0 {
+                return Err(line_error(
+                    line,
+                    "`uses ... version v<N>` requires a positive u16",
+                ));
+            }
+            (list_part, Some(version))
+        }
+        None => (trimmed, None),
+    };
+
+    let mut clauses = Vec::new();
+    for name in list_part.split(',') {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(line_error(
+                line,
+                "`uses` list has an empty entry; check for trailing/duplicate commas",
+            ));
+        }
+        // Feature names follow IDENT_LOWER convention; let the analyzer
+        // enforce the lexical rule (it has the canonical regex). Here we
+        // just confirm non-empty + no obvious whitespace inside.
+        if name.chars().any(char::is_whitespace) {
+            return Err(line_error(
+                line,
+                "feature names in `uses` list cannot contain whitespace; separate with commas",
+            ));
+        }
+        clauses.push(UsesClauseAst {
+            feature: name.to_owned(),
+            version,
+            span: line_span,
+        });
+    }
+    Ok(clauses)
 }
 
 /// Parse the special-form `public contract identity as v<N>` line per
@@ -17811,5 +17907,104 @@ feature account
             message.contains("ABOVE the `identity` line"),
             "got {message}"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Cross-feature contracts §5.4 — feature-level `uses` line parsing,
+    // optionally with consumer-side `version v<N>` pin.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn parses_uses_single_feature_no_pin() {
+        let source = r#"
+feature billing
+  uses account
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features.len(), 1);
+        assert_eq!(features[0].uses_clauses.len(), 1);
+        assert_eq!(features[0].uses_clauses[0].feature, "account");
+        assert_eq!(features[0].uses_clauses[0].version, None);
+    }
+
+    #[test]
+    fn parses_uses_with_version_pin() {
+        let source = r#"
+feature billing
+  uses account version v2
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let clauses = &features[0].uses_clauses;
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].feature, "account");
+        assert_eq!(clauses[0].version, Some(2));
+    }
+
+    #[test]
+    fn parses_uses_comma_list_shares_line_level_pin() {
+        // The trailing `version v<N>` applies to ALL entries on the line.
+        let source = r#"
+feature billing
+  uses org, user, account version v1
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let clauses = &features[0].uses_clauses;
+        assert_eq!(clauses.len(), 3);
+        assert_eq!(clauses[0].feature, "org");
+        assert_eq!(clauses[1].feature, "user");
+        assert_eq!(clauses[2].feature, "account");
+        for clause in clauses {
+            assert_eq!(clause.version, Some(1));
+        }
+    }
+
+    #[test]
+    fn parses_multiple_uses_lines_independently() {
+        // Each `uses` line carries its own pin (or none).
+        let source = r#"
+feature billing
+  uses account version v1
+  uses notifications
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let clauses = &features[0].uses_clauses;
+        assert_eq!(clauses.len(), 2);
+        assert_eq!(clauses[0].feature, "account");
+        assert_eq!(clauses[0].version, Some(1));
+        assert_eq!(clauses[1].feature, "notifications");
+        assert_eq!(clauses[1].version, None);
+    }
+
+    #[test]
+    fn parses_uses_empty_entry_errors() {
+        let source = r#"
+feature billing
+  uses account, , billing
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("empty entry"), "got {message}");
+    }
+
+    #[test]
+    fn parses_uses_bad_version_errors() {
+        let source = r#"
+feature billing
+  uses account version 1
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("`v` prefix"), "got {message}");
+    }
+
+    #[test]
+    fn parses_uses_zero_version_errors() {
+        let source = r#"
+feature billing
+  uses account version v0
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("positive u16"), "got {message}");
     }
 }

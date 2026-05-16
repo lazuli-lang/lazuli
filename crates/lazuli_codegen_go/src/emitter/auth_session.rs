@@ -263,6 +263,7 @@ mod tests {
             defaults: Defaults { tenancy: None, timestamps: false, policy: None },
             uses: Vec::new(),
             uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
             requirements: Vec::new(),
             enums: Vec::new(),
             resources: Vec::new(),

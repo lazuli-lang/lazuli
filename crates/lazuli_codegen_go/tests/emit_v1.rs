@@ -40,6 +40,7 @@ fn empty_feature(name: &str) -> Feature {
         },
         uses: Vec::new(),
         uses_spans: Vec::new(),
+        uses_versions: Vec::new(),
         requirements: Vec::new(),
         enums: Vec::new(),
         resources: Vec::new(),

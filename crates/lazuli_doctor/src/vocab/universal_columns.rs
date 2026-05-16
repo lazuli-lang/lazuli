@@ -299,6 +299,7 @@ mod tests {
             },
             uses,
             uses_spans: vec![],
+            uses_versions: vec![],
             requirements: vec![],
             enums: vec![],
             resources,

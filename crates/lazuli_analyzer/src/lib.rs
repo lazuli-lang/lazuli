@@ -271,6 +271,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         defaults: ir::Defaults::default(),
         uses: Vec::new(),
         uses_spans: Vec::new(),
+        uses_versions: Vec::new(),
         requirements: Vec::new(),
         enums: Vec::new(),
         resources,
@@ -2140,14 +2141,35 @@ pub fn lower_feature_skeleton(
         .iter()
         .map(lower_aggregate_decl)
         .collect::<Vec<_>>();
+    // Cross-feature contracts §5.4 — lift the feature-level
+    // `uses <feature>[, ...]+ [version v<N>]` clauses into parallel
+    // `uses` / `uses_spans` / `uses_versions` lists. Each clause from a
+    // single `uses` line becomes one entry in each parallel vector.
+    let uses: Vec<String> = skeleton
+        .uses_clauses
+        .iter()
+        .map(|c| c.feature.clone())
+        .collect();
+    let uses_spans: Vec<ir::SpanRef> = skeleton
+        .uses_clauses
+        .iter()
+        .map(|c| span_of(c.span))
+        .collect();
+    let uses_versions: Vec<Option<u16>> = skeleton
+        .uses_clauses
+        .iter()
+        .map(|c| c.version)
+        .collect();
+
     let mut feature = ir::Feature {
         name: skeleton.name.clone(),
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
         defaults,
-        uses: Vec::new(),
-        uses_spans: Vec::new(),
+        uses,
+        uses_spans,
+        uses_versions,
         requirements: Vec::new(),
         enums,
         resources,
@@ -7323,5 +7345,42 @@ feature account
             field.constraints.pattern.as_deref(),
             Some("^[a-z][a-z0-9-]{2,29}$")
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Cross-feature contracts §5.4 — lowering of `uses [<feature>...] [version v<N>]`
+    // populates parallel `uses` / `uses_spans` / `uses_versions` lists.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn lowers_uses_with_mixed_pins() {
+        let source = r#"
+feature billing
+  uses account version v2
+  uses notifications
+  uses org, user version v1
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = super::lower_feature_skeleton(&features[0]).expect("lowers");
+
+        assert_eq!(
+            feature.uses,
+            vec![
+                "account".to_owned(),
+                "notifications".to_owned(),
+                "org".to_owned(),
+                "user".to_owned(),
+            ]
+        );
+        assert_eq!(
+            feature.uses_versions,
+            vec![Some(2), None, Some(1), Some(1)]
+        );
+        assert_eq!(feature.uses_spans.len(), 4);
+        // First two lines and last line have distinct spans.
+        assert_ne!(feature.uses_spans[0], feature.uses_spans[1]);
+        assert_ne!(feature.uses_spans[1], feature.uses_spans[2]);
+        // Comma-list entries share the source line, hence the span.
+        assert_eq!(feature.uses_spans[2], feature.uses_spans[3]);
     }
 }

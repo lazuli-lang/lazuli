@@ -10365,6 +10365,7 @@ mod tests {
             defaults: lazuli_ir::Defaults::default(),
             uses: vec![],
             uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
             requirements: vec![],
             enums,
             resources,

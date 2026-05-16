@@ -56,7 +56,7 @@ These items were surfaced by the long external-review conversation that produced
 
 - [ ] **D.2 — Cross-feature-contracts integration tests in lazuli_cli.** Per proposal §9 D.2: end-to-end tests covering (a) `monolith`/`modular_monolith` no-op behavior; (b) `microservices` mode catching N missing contracts; (c) version-drift detection (gated on consumer-pin syntax landing first); (d) workflow-span warning. Deferred — the unit tests inside each B.* rule cover the logic; D.2 adds the CLI harness layer.
 
-- [ ] **Consumer-side version pin syntax.** Required for `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` to actually fire (currently scaffolded v0 with no trigger). Candidate forms: `uses account version v<N>` or per-symbol `uses account.Gender@v1`. Design judgement; not a single-file Codex cell.
+- [x] **Consumer-side version pin syntax.** SHIPPED (Phase D.1). Form: `uses <feature>[, <feature>]+ [version v<N>]` — line-level pin shared across the comma-list. AST `UsesClauseAst` + parser `parse_uses_line` + IR `Feature.uses_versions: Vec<Option<u16>>` + analyzer lowering + 6 parser tests + 1 analyzer test + doctor `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` real detection (5 tests) + legacy `collect_feature_uses` strips the suffix + fixture demo in `examples/full-capsule/full-capsule.lzi:507-508` + proposal §5.4.1 updated.
 
 - [ ] **Event public_contract wiring.** Proposal §5.3 row 6 includes `public contract event.<name> as v<N>` but Wave 4 only wired enum/resource/record/command/query (5 of 7 targets). Add `public_contract` field to `ir::Event` + lower from AST + extend `symbol_origin` walker to populate `contract_version` for events.
 
