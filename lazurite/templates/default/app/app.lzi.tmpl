@@ -2,8 +2,15 @@ app {{app_name}}
   title "{{app_name}}"
   version "0.1.0"
 
+  # Pins the runtime/IR ABI. Doctor (LAZULI-VERSION-001) checks that
+  # this matches the installed Lazuli version; bump on `lazuli upgrade`.
+  lazuli_version "0.14"
+
   uses
     account
+
+  targets
+    backend go
 
   environments
     local
@@ -12,3 +19,19 @@ app {{app_name}}
   urls
     web local "http://localhost:3000"
     api local "http://localhost:8080"
+
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      healthcheck "/healthz"
+      readiness "/readyz"
+
+    unit worker
+      runs jobs *
+
+  deploy
+    migrations before_deploy
+    migration_lock required
+    destructive_migrations require_approval
+    rollback on_failed_healthcheck
+    strategy rolling

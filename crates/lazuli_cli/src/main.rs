@@ -3662,6 +3662,24 @@ fn new_project_command(
         let module = module.unwrap_or_else(|| default_module_name(project));
         scaffold_from_template(&templates::DEFAULT_TEMPLATE, project, &app_name, &module)?;
 
+        // The default `go.work` lists `.` and `./dist/go`. If we can
+        // discover the local Lazuli runtime source (`runtime/go/`) on
+        // this machine — either from `LAZULI_RUNTIME_PATH` or by
+        // walking from this CLI binary's location — append a third
+        // `use <abs path>` so `go build`/`go mod tidy` resolves
+        // `lazuli.dev/runtime` without a published module. Hands-off
+        // for installed (system) Lazuli binaries: if no runtime is
+        // discovered the file stays as the user can wire the path
+        // manually following the README hint.
+        if let Some(runtime_dir) = locate_lazuli_runtime_dir() {
+            if let Err(err) = inject_runtime_into_go_work(project, &runtime_dir) {
+                eprintln!(
+                    "warning: failed to write runtime path into go.work ({}): {err:#}",
+                    runtime_dir.display()
+                );
+            }
+        }
+
         if let Err(err) = run_go_mod_tidy(project) {
             eprintln!("warning: failed to run `go mod tidy`: {err:#}");
         }
@@ -3897,6 +3915,10 @@ fn scaffold_from_template(
     app_name: &str,
     module: &str,
 ) -> Result<()> {
+    // Snake_case slug for contexts that demand IDENT_LOWER (design
+    // names, feature names, etc.). Templates emit verbatim — they can't
+    // call helpers — so we precompute and substitute via `{{app_slug}}`.
+    let app_slug = to_snake_case(app_name);
     for entry in template.entries() {
         match entry {
             include_dir::DirEntry::File(file) => {
@@ -3912,6 +3934,7 @@ fn scaffold_from_template(
                             )
                         })?
                         .replace("{{app_name}}", app_name)
+                        .replace("{{app_slug}}", &app_slug)
                         .replace("{{module}}", module)
                         .into_bytes()
                 } else {
@@ -3938,6 +3961,34 @@ fn scaffold_from_template(
     Ok(())
 }
 
+/// IDENT_LOWER (snake_case) of an arbitrary identifier. Used for
+/// `design <name>` headers and other contexts that require lowercase
+/// idents with `_` separators. Mirrors `to_kebab_case` but uses `_`.
+fn to_snake_case(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut prev_lower = false;
+    for ch in value.chars() {
+        if ch == '-' || ch == ' ' {
+            out.push('_');
+            prev_lower = false;
+            continue;
+        }
+        if ch.is_ascii_uppercase() {
+            if prev_lower && !out.is_empty() {
+                out.push('_');
+            }
+            for low in ch.to_lowercase() {
+                out.push(low);
+            }
+            prev_lower = false;
+            continue;
+        }
+        out.push(ch);
+        prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+    }
+    out
+}
+
 fn default_module_name(project: &Path) -> String {
     let name = project
         .file_name()
@@ -3955,6 +4006,96 @@ fn run_git_init(project: &Path) -> Result<()> {
 
 fn run_go_mod_tidy(project: &Path) -> Result<()> {
     run_command(project, "go", &["mod", "tidy"])
+}
+
+/// Locate the Lazuli Go runtime checkout on this machine so the
+/// scaffolded project can `use` it from `go.work`. We never publish
+/// `lazuli.dev/runtime` to a real module proxy; the runtime is
+/// always resolved as a local workspace replacement.
+///
+/// Resolution order:
+/// 1. `LAZULI_RUNTIME_PATH` env var (escape hatch for non-standard
+///    layouts and CI).
+/// 2. Ancestors of the running `lazuli` binary — when developing
+///    from this repo, the binary lives at
+///    `<repo>/target/{debug,release}/lazuli(.exe)`, and the runtime
+///    sits at `<repo>/runtime/go/`.
+///
+/// Returns `None` if no runtime checkout is found; the scaffold then
+/// leaves `go.work` as-is and users wire the path manually.
+fn locate_lazuli_runtime_dir() -> Option<PathBuf> {
+    if let Ok(env_path) = std::env::var("LAZULI_RUNTIME_PATH") {
+        let candidate = PathBuf::from(env_path);
+        if is_lazuli_runtime_dir(&candidate) {
+            return Some(candidate);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    for ancestor in exe.ancestors() {
+        let candidate = ancestor.join("runtime").join("go");
+        if is_lazuli_runtime_dir(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// A directory qualifies as the Lazuli runtime when it contains a
+/// `go.mod` whose `module` line is exactly `lazuli.dev/runtime`. This
+/// guards against picking up an unrelated `runtime/go/` directory in
+/// some other project that happens to sit above the binary.
+fn is_lazuli_runtime_dir(candidate: &Path) -> bool {
+    let go_mod = candidate.join("go.mod");
+    let Ok(contents) = fs::read_to_string(&go_mod) else {
+        return false;
+    };
+    contents
+        .lines()
+        .any(|line| line.trim() == "module lazuli.dev/runtime")
+}
+
+/// Append `use <runtime_dir>` to the scaffold's `go.work`. The
+/// scaffold ships a `go.work` with `.` and `./dist/go`; this adds the
+/// local runtime as a third entry so `go mod tidy`/`go build` resolve
+/// `lazuli.dev/runtime` without hitting the network.
+///
+/// We use an absolute path so the workspace works regardless of where
+/// the project lives relative to the runtime checkout.
+fn inject_runtime_into_go_work(project: &Path, runtime_dir: &Path) -> Result<()> {
+    let go_work_path = project.join("go.work");
+    let original = fs::read_to_string(&go_work_path)
+        .with_context(|| format!("failed to read {}", go_work_path.display()))?;
+
+    // Use forward slashes in `go.work` for cross-platform readability;
+    // the go toolchain accepts both on Windows.
+    let absolute = if runtime_dir.is_absolute() {
+        runtime_dir.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| Path::new(".").to_path_buf())
+            .join(runtime_dir)
+    };
+    let absolute_str = absolute.to_string_lossy().replace('\\', "/");
+
+    // Idempotency: if the user already wired the runtime in go.work,
+    // don't write again.
+    if original.contains(&absolute_str) {
+        return Ok(());
+    }
+
+    // Find the closing `)` of the `use ( ... )` block and inject our
+    // line just before it. Falls back to appending a fresh block when
+    // the template format ever drifts.
+    let updated = if let Some(close_idx) = original.find(")") {
+        let (head, tail) = original.split_at(close_idx);
+        format!("{head}    {absolute_str}\n{tail}")
+    } else {
+        format!("{original}\nuse {absolute_str}\n")
+    };
+
+    fs::write(&go_work_path, updated)
+        .with_context(|| format!("failed to write {}", go_work_path.display()))?;
+    Ok(())
 }
 
 fn run_doctor_sanity_check(project: &Path) -> Result<()> {

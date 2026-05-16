@@ -1,21 +1,79 @@
 feature account
-  auth identity User.email
-  auth password
-    algorithm: argon2id
-    hash @fn.hash_password
-    verify @fn.verify_password
-  auth sessions
-    resource UserSession
-    ttl "7 days"
-
   domain
     resource User
       email: @semantic.Email required unique
       name: Text required
+      password_hash: @cap.Hashed(algorithm:argon2id) required
       created_at: DateTime required
 
     resource UserSession
       user: User required
-      token_hash: @cap.Hashed required
+      token_hash: @cap.Hashed(algorithm:argon2id) required
       expires_at: DateTime required
       created_at: DateTime required
+
+  policies
+    public: @scope.public
+    authenticated: @scope.authenticated
+
+    fields User
+      password_hash
+        read: @actor.system
+        write: @actor.system
+
+    fields UserSession
+      token_hash
+        read: @actor.system
+        write: @actor.system
+
+  auth
+    identity User.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_password
+      verify @fn.verify_password
+      rate_limit "5 per 10 minutes per ip"
+
+    sessions
+      resource UserSession
+      ttl "7 days"
+      refresh false
+
+  command signup
+    input
+      email: @semantic.Email required
+      password: Text required
+      name: Text required
+    policy @policy.public
+    rate_limit "5 per 10 minutes per ip"
+    audit default
+    creates User
+      email = input.email
+      name = input.name
+      password_hash = @fn.hash_password(input.password)
+      created_at = ctx.now
+
+  command login
+    input
+      email: @semantic.Email required
+      password: Text required
+    policy @policy.public
+    rate_limit "5 per 10 minutes per ip"
+    returns Text
+
+  command me
+    returns User
+    policy @policy.authenticated
+
+  api me
+    method GET
+    path "/me"
+    output User
+    policy @policy.authenticated
+    handler @fn.me
+
+  extensions
+    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./handlers/hash_password.go"
+    fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./handlers/verify_password.go"
+    fn me: Function[ActorContext, User] at "./handlers/me.go"
