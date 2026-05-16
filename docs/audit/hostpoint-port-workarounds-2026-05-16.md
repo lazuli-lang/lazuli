@@ -20,7 +20,7 @@
 | Vocab — semantic types | WAR-VOCAB-SEMANTIC-01..02 | Money, @semantic.Brazilian* |
 | Vocab — constraints | WAR-VOCAB-CONSTRAINT-01 | cross-feature invariants |
 | Vocab — webhook | WAR-VOCAB-WEBHOOK-01 | scope global syntax |
-| Vocab — auth | WAR-VOCAB-AUTH-01..02 | sessions list, step-up, terms-versioning |
+| Vocab — auth | WAR-VOCAB-AUTH-01..06 | sessions list, step-up, legal docs, settings updates, CNPJ, postal lookup |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
@@ -168,11 +168,48 @@
 
 ## WAR-VOCAB-AUTH-02 — Step-up auth / sensitive-change flow not modeled
 
-- **STATUS:** open
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
 - **Symptom:** ContaSeguranca screen requires a 6-digit confirmation code on sensitive change (`update_credentials`). Two-command flow: `account.request_step_up_code()` then `account.update_credentials(..., confirmation_code)`. Today this would be handler-side improvisation.
-- **Workaround in place:** deferred — settings screens not started.
+- **Workaround in place:** `routes/account/Security.tsx` keeps the code field local-state only and fires the confirmation Dialog → success Dialog without a backend call. Save handlers are stubs with `// TODO: wire account.request_step_up_code() / account.update_credentials(...)` markers.
+- **Annotated in:** `apps/hostpoint-app/src/routes/account/Security.tsx`.
 - **Removal criterion:** Lazuli adds `step_up` or `@hook.requires_step_up` vocabulary so sensitive commands can declare their freshness window + verification requirement.
 - **Surfaced by:** AccountFlows.ContaSeguranca + Settings sub-panels.
+
+## WAR-VOCAB-AUTH-03 — `platform.get_legal_doc(kind)` query + `platform.request_data_action()` command not modeled
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
+- **Symptom:** Privacy / Terms screens display a versioned legal document (sections + last_updated) and the privacy screen exposes a DSAR ("Solicitar dados ou exclusão") fire-and-forget request. Neither the read query nor the write command exist in `platform.lzi`.
+- **Workaround in place:** `routes/account/PrivacyPolicy.tsx` and `routes/account/TermsOfUse.tsx` hard-code the article sections + last-updated label in module-local constants. The DSAR button toggles a local Dialog without backend interaction.
+- **Annotated in:** `apps/hostpoint-app/src/routes/account/{PrivacyPolicy,TermsOfUse}.tsx`.
+- **Removal criterion:** Lazuli `platform` BC ships `LegalDoc` record (sections array + last_updated + version), `platform.get_legal_doc(kind: privacy | terms)` query, and `platform.request_data_action()` command. Screens then consume via `useLazuliQuery` / `useLazuliCommand`.
+- **Surfaced by:** AccountFlows.PoliticaPrivacidade / AccountFlows.TermosDeUso.
+
+## WAR-VOCAB-AUTH-04 — Settings update commands (host.update_*, traveler.update_*, account.update_*) not authored
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
+- **Symptom:** Settings sub-panels need granular updates: `traveler.update_basic_details / update_contact / update_vehicle / update_family / update_pets / update_languages / update_health_notes`, `host.update_personal / update_contact / update_address / update_languages`, `account.update_email(new_email, current_password)` (two-phase), `account.update_notifications_pref(enabled)`. None of these commands exist in the corresponding `.lzi` files. Only the onboarding-step `save_*` commands ship today (designed for first-time entry, not partial updates).
+- **Workaround in place:** sub-panels re-use the onboarding `save_*` commands as proxies where the input shape matches (`saveTravelerTravelerVehicle/Family/Pets/Languages/HealthNotes`, `saveHostHostAddress/Languages`, etc.). For commands without a usable proxy (`update_email`, `update_contact`, `update_notifications_pref`, `update_basic_details` minus phone), the form is local-state only with a `setTimeout(..., 300)` simulating the round-trip and `// TODO: wire <command>` markers. Notifications switch is local-state only.
+- **Annotated in:** every file under `apps/hostpoint-app/src/routes/settings/{TravelerHome,HostHome}.tsx` + `apps/hostpoint-app/src/routes/settings/panels/*.tsx`.
+- **Removal criterion:** dedicated update commands authored in `account.lzi` / `host.lzi` / `traveler.lzi` with explicit partial-input shapes (versus the full-form onboarding commands). Once authored, panels swap the proxy mutations for the canonical ones and drop the stub `setTimeout` markers.
+- **Surfaced by:** Settings.SettingsSingleRole / SettingsHostRole storybook patterns (13 sub-panel forms total).
+
+## WAR-VOCAB-AUTH-05 — Host "CNPJ" field mismatch with Host.cpf SDK field
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
+- **Symptom:** Storybook host-personal panel displays a read-only "CNPJ" field with the helper "Dado de verificação. Para alterar, fale com o suporte." But the SDK resource has only `Host.cpf: Text required unique` (cf. `host.lzi`). Brazilian hosts are typically registered as legal entities (PJ) and identified by CNPJ, not CPF — the storybook is the source of truth for the PRODUCT, and `host.lzi` underspecifies.
+- **Workaround in place:** `routes/settings/panels/HostPersonal.tsx` displays "CNPJ" with a hard-coded fixture value `32.184.770/0001-58` (storybook fixture). The cached value is forwarded as `cpf` to `saveHostHostBasicDetails` to keep the SDK contract happy. The screen does NOT let the user edit it (read-only per storybook).
+- **Annotated in:** `apps/hostpoint-app/src/routes/settings/panels/HostPersonal.tsx`.
+- **Removal criterion:** `host.lzi` adds `Host.cnpj: @semantic.BrazilianCNPJ required unique` (depends on WAR-VOCAB-SEMANTIC-02 = `@plugin/scalars-br`) and a `host.request_cnpj_change()` command for the support-mediated alteration flow. Optionally model legal-entity vs natural-person hosts (PJ has CNPJ, PF has CPF — different identity scalars).
+- **Surfaced by:** Settings host-personal panel.
+
+## WAR-VOCAB-AUTH-06 — CEP autofill (`platform.lookup_postal_code`) not modeled
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
+- **Symptom:** Host onboarding Address step and Settings host-address panel both include a CEP field with the helper "Vamos preencher seu endereço automaticamente." Storybook implies a `platform.lookup_postal_code(country: Country, postal_code: Text) -> Address` query that prefills street/neighborhood/city/state from a CEP. No query authored yet.
+- **Workaround in place:** CEP field is plain Input. No autofill on blur. Users type the address manually.
+- **Annotated in:** `apps/hostpoint-app/src/routes/settings/panels/HostAddress.tsx` (and original onboarding `Address.tsx`).
+- **Removal criterion:** `platform.lzi` (or `@plugin/scalars-br`) ships the lookup query backed by Correios/ViaCEP. Address panels wire the lookup on CEP blur.
+- **Surfaced by:** Settings host-address panel + onboarding Host.Address.
 
 ---
 
