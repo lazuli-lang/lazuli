@@ -964,6 +964,18 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         files.extend(emit_design_files(design, &manifest));
     }
 
+    // Mobile-target runtime: emit `dist/ts-mobile/runtime/layout.tsx`
+    // once when the project declares an Expo frontend
+    // (`docs/proposals/mobile-target.md` §5.4). The user-owned
+    // `frontends/mobile/app/_layout.tsx` is a one-line re-export of
+    // this body; regen always rewrites this file.
+    if manifest_has_expo_frontend(&manifest) {
+        files.push(lazuli_codegen_ts::GeneratedFile {
+            path: "dist/ts-mobile/runtime/layout.tsx".to_owned(),
+            contents: lazuli_codegen_ts::mobile_runtime::emit_mobile_runtime_layout(),
+        });
+    }
+
     // Per-feature: SDK (audience-filtered if frontend declares audiences),
     // Zod schemas, .lzx view hooks (one file per audience/view tuple),
     // slot interfaces (one per @client.<slot> binding).
@@ -997,8 +1009,83 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         write_generated_file(&out_dir, &file.path, &file.contents)?;
     }
 
-    println!("wrote {} file(s) to {}", files.len(), out_dir.display());
+    // Per-view mobile scaffolds. Each mobile surface view writes one
+    // `frontends/mobile/app/<audience>/<expo-route>.tsx` placeholder
+    // ONCE (idempotent — never overwrites user edits, mirroring
+    // `cmd_new_frontends::scaffold_frontend_mobile`). Author replaces
+    // the placeholder JSX with real RN components as soon as the
+    // component library is chosen. See
+    // `docs/proposals/mobile-target.md` §5.2.
+    let scaffold_count = scaffold_mobile_view_files(&module, &out_dir)?;
+
+    println!(
+        "wrote {} file(s) to {} ({} mobile view scaffold{} written)",
+        files.len(),
+        out_dir.display(),
+        scaffold_count,
+        if scaffold_count == 1 { "" } else { "s" }
+    );
     Ok(())
+}
+
+/// Walk every mobile surface and write a per-view scaffold under
+/// `frontends/mobile/app/<audience>/<expo-route>.tsx`. Returns the count
+/// of files actually written (excludes already-present files left
+/// untouched by the `write_if_absent` guard).
+fn scaffold_mobile_view_files(
+    module: &lazuli_ir::Module,
+    out_dir: &Path,
+) -> Result<usize> {
+    let mut written = 0usize;
+
+    for feature in &module.features {
+        for surface in &feature.surfaces {
+            if !matches!(surface.target, lazuli_ir::SurfaceTarget::Mobile) {
+                continue;
+            }
+            for audience in &surface.audiences {
+                for view in &audience.views {
+                    let route = view_route_string(view);
+                    let path = lazuli_codegen_ts::mobile_view_scaffold::expo_app_file_path(
+                        &audience.name,
+                        &route,
+                    );
+                    let abs_path = out_dir.join(&path);
+                    if abs_path.exists() {
+                        continue;
+                    }
+                    let body = lazuli_codegen_ts::mobile_view_scaffold::scaffold_body_for_view(
+                        &surface.feature,
+                        &audience.name,
+                        view,
+                    );
+                    if let Some(parent) = abs_path.parent() {
+                        fs::create_dir_all(parent).with_context(|| {
+                            format!("creating {} for mobile scaffold", parent.display())
+                        })?;
+                    }
+                    fs::write(&abs_path, body).with_context(|| {
+                        format!("writing mobile scaffold {}", abs_path.display())
+                    })?;
+                    written += 1;
+                }
+            }
+        }
+    }
+
+    Ok(written)
+}
+
+/// Extract the `at "<path>"` string from a view declaration. Stored as
+/// `route: Option<String>` on each view kind in the IR. Falls back to
+/// `/` for views that omit the clause entirely (rare — Expo Router's
+/// `app/<audience>/index.tsx` is the natural landing target).
+fn view_route_string(view: &lazuli_ir::View) -> String {
+    match view {
+        lazuli_ir::View::List(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
+        lazuli_ir::View::Detail(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
+        lazuli_ir::View::Create(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
+    }
 }
 
 /// Stub design emission walker. Wires the 6 design emitters from L0 #2
@@ -1080,6 +1167,22 @@ fn emit_feature_ts_artifacts(
         ));
     }
     out
+}
+
+/// True when the manifest declares at least one Expo frontend. Drives
+/// the singleton `dist/ts-mobile/runtime/layout.tsx` emission per
+/// `docs/proposals/mobile-target.md` §5.4. Manifest-less generation
+/// (legacy/test paths) returns false — the runtime layout only matters
+/// when an Expo-targeted scaffold consumes it.
+fn manifest_has_expo_frontend(manifest: &Option<lazurite_manifest::Manifest>) -> bool {
+    manifest
+        .as_ref()
+        .map(|m| {
+            m.frontends
+                .values()
+                .any(|f| matches!(f.target, lazurite_manifest::FrontendTarget::Expo))
+        })
+        .unwrap_or(false)
 }
 
 fn feature_ts_target_prefixes(
