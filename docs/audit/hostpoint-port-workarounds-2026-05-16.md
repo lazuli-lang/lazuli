@@ -22,9 +22,11 @@
 | Vocab — webhook | WAR-VOCAB-WEBHOOK-01 | scope global syntax |
 | Vocab — auth | WAR-VOCAB-AUTH-01..06 | sessions list, step-up, legal docs, settings updates (CLOSED), CNPJ, postal lookup |
 | Vocab — notifications | WAR-VOCAB-NOTIFICATIONS-01 | inbox query + mark-read command |
+| Vocab — host home | WAR-VOCAB-HOSTHOME-01..02 | my_host return type, account-pendings query |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
 | Runtime — migrations | WAR-RUNTIME-MIGRATION-01 | added columns vs CREATE TABLE IF NOT EXISTS |
+| Runtime — command routing | WAR-RUNTIME-COMMAND-01 | Register init blocks + Effect:Returns wiring missing |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
 | Scaffold — gitignore | WAR-SCAFFOLD-GITIGNORE-01 | dist/ blanket-ignore vs user-authored handlers |
@@ -225,11 +227,35 @@
 
 ## WAR-RUNTIME-AUTH-01 — Email-verification / password-reset blocks need vocab + handler glue
 
-- **STATUS:** open
+- **STATUS:** partial workaround applied (2026-05-16 — Hostpoint Phase 4.2)
 - **Symptom:** Lazuli runtime has `auth.RequestPasswordReset`, `auth.ConfirmPasswordReset`, `auth.IssueEmailVerificationToken`, `auth.VerifyEmailToken` with `PasswordResetContract` / `EmailVerificationContract` types. But these contracts must be DECLARED in `.lzi` (via `auth password_reset` / `auth email_verification` blocks?) for codegen to emit them. Account.lzi only has `command request_password_reset` / `command verify_email` with `handler @fn.X` — bypasses the canonical auth block path.
-- **Workaround in place:** handlers stub `ErrNotImplemented`. Real flow needs either declaring the canonical auth blocks (whose grammar/codegen status is unclear) OR hand-rolling the resource + token gen + email sending in the handler.
-- **Removal criterion:** documented grammar for `auth password_reset { resource <X>; ttl <Y>; identity <field> }` and `auth email_verification { ... }` blocks that emit the contract + canonical command + canonical route. Then the handler shrinks to just sending the email.
-- **Surfaced by:** Phase 4.2 remaining handlers (request_password_reset, reset_password, verify_email).
+- **Workaround applied 2026-05-16:** Hostpoint authors token resources directly in `account.lzi` (`PasswordResetToken`, `EmailVerificationToken`) with hand-rolled column layout matching the framework helpers' expectations. Handler files at `dist/go/account/{request_password_reset,reset_password,verify_email}.go` implement the SHA-256 + argon2id flow directly without calling the framework's `auth.*` helpers (the helpers assume the canonical `auth password_reset` block, which would conflict with our hand-rolled resources). Dev-mode delivers tokens via `slog.Info("auth: …", "link", …)` — production wires `@plugin/smtp` for email and `@plugin/sms-twilio` for SMS.
+- **Removal criterion:** documented grammar for `auth password_reset { resource <X>; ttl <Y>; identity <field> }` and `auth email_verification { ... }` blocks that emit the contract + canonical command + canonical route + delivery-side hook. Then the handler shrinks to just calling `@plugin/smtp` / `@plugin/sms-twilio` for the actual send.
+- **Surfaced by:** Phase 4.2 (commit `723065d` in Hostpoint).
+
+## WAR-RUNTIME-COMMAND-01 — Commands not registered to HTTP Mux + handler-based Effect:nil
+
+- **STATUS:** workaround applied (Hostpoint commit `723065d`, 2026-05-16, Phase 4.2)
+- **Symptom:** two compound framework gaps that together mean ALL handler-based commands silently 404 (or 500) when called via the typed SDK:
+  1. **Registration missing.** `dist/go/<feature>/command.gen.go` declares `var <cmd> = lazuli.Command[...]{...}` but emits NO `func init() { lazuli.Register(&cmd, ...) }` block. Without `Register`, the command is not in `lazuli.Commands()` and `lazuli.Mux()` skips it → HTTP 404 at `/api/v1/c/<command-name>`.
+  2. **Effect:nil on @fn handlers.** Commands declared with `handler @fn.X` (vs `returns X`) emit `Effect: nil` instead of `Effect: lazuli.Returns(X)`. Even when the command IS registered, `Command.Handle()` returns HTTP 500 `"command has no effect"` from `applyEffect` (`runtime/go/lazuli/handle.go:269-274`) because the dispatcher can't find anything to invoke.
+- **Discovery:** every `useLazuliCommand(updateAccountCredentials)` call from the panel agent was hitting a 404 backend. Verified by reading the .gen.go files, the `Mux()` function (`runtime/go/lazuli/http.go:27`), and the `Register*` chain (`runtime/go/lazuli/register.go:69` → `registry_typed.go:168`). NO `.gen.go` in Hostpoint or `examples/full-capsule/` calls `lazuli.Register` for commands.
+- **Workaround applied:** one `_register.go` per feature (`dist/go/<feature>/_register.go`) that:
+  - patches `<cmd>.Effect = lazuli.Returns(<UserFn>)` for every command whose user handler exists,
+  - calls `lazuli.Register(&cmd1, &cmd2, ...)` for every command in the feature.
+  The leading underscore in `_register.go` sorts it ahead of `command.gen.go` alphabetically, but since Go runs all package-level `var` initializers before any `init()`, ordering doesn't matter — the patch just needs to run before the first HTTP request.
+  Files: `dist/go/{account,host,traveler,catalog,messaging,operations,payments,platform,trust}/_register.go` (9 features, 64 commands registered, 13 Effect wires in account, 1 in host).
+- **Annotated in:** each `_register.go` carries a doc comment pointing at this WAR entry.
+- **Removal criterion:** Lazuli `lazuli generate go` codegen emits the matching init blocks per feature:
+  ```go
+  func init() {
+      <cmd>.Effect = lazuli.Returns(<UserFn>) // for `handler @fn.X` commands when the user fn exists
+      lazuli.Register(&cmd1, &cmd2, …)
+  }
+  ```
+  Open design question: how does codegen know whether a `@fn.X` handler exists (vs. has not been authored yet)? Options: (a) emit the Effect patch unconditionally and rely on Go's package-init-order to fail loudly if the symbol is undefined; (b) `@fn.X at "./handlers/X.go"` triggers an emit of a `func X(...) {…}` stub in `dist/go/<feature>/X.gen.go` that the user `replace`s with a hand-written file (the gen contract via filename); (c) emit a registration registry-side helper `lazuli.WireHandler[I,O](name, func(...))` that user code calls at init time. Option (b) preserves the current "sacred user file" contract and is the lowest-friction.
+- **Impact**: BLOCKER for every typed SDK command. Without this fix, the entire panel/onboarding/settings/auth surface 404s at runtime in spite of clean typecheck + build.
+- **Surfaced by:** Phase 4.2 / Phase 1.3h integration verification on 2026-05-16.
 
 ---
 
@@ -267,6 +293,26 @@
 - **Annotated in:** `apps/hostpoint-app/src/routes/Notifications.tsx`.
 - **Removal criterion:** `messaging.lzi` adds `query.list mine_notifications` (denormalized actor-side view, with role-gated `@policy.authenticated`) + `command mark_notification_read(id)` declarative `updates NotificationDelivery`. Screen then consumes via `useLazuliQuery / useLazuliCommand`.
 - **Surfaced by:** Notifications storybook pattern (Viajante + Anfitriao).
+
+## WAR-VOCAB-HOSTHOME-01 — `host.query.my_host` SDK return type is wrong + missing `full_name`
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.2)
+- **Symptom:** the generated `lookupHostByMyHost` query in `dist/ts-web/host/host.gen.ts` is declared with the wrong response type — it returns `IntermediationTermsAcceptance` instead of `Host`. As a result, consuming the query gives the caller a record with `version` / `accepted_at` fields but no access to `Host.full_name`, the field the host-home greeting (`Ola, <first-name>`) needs. Likely related to WAR-CODEGEN-TS-02 (bucket-prefix issue) but the broken return type is a separate codegen bug.
+- **Workaround in place:** `apps/hostpoint-app/src/routes/HostHome.tsx` keeps `hostName` as a module-local fixture matching storybook (`'Lucas Silva'`). Same pattern as `routes/settings/HostAccountHome.tsx` (host settings home, which already uses a `MOCK` constant per WAR-VOCAB-AUTH-04).
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostHome.tsx`.
+- **Removal criterion:** fix `lazuli generate ts` to emit the correct return type for `host.query.my_host` (should be `Host`, not `IntermediationTermsAcceptance`). Add the same fix-path to the lookup-query codegen logic so all `query.lookup` declarations resolve their actual resource type. Then call sites can use `useLazuliQuery(lookupHostByMyHost, {})` and read `data.full_name`.
+- **Surfaced by:** Phase 3.2 host-home port (this entry).
+
+## WAR-VOCAB-HOSTHOME-02 — Account-pendings query not modeled
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.2)
+- **Symptom:** Storybook host-home shows a "Pendencias" section listing global account blockers (configure-receivables, complete-profile, first-property nudge, payments-review). Each item has a typed tone (`brand` / `success` / `warning` / `danger`), an icon, title, subtitle, and a CTA label. No corresponding `account.query.list_mine_pendings` or `account.query.account_health` is authored in `account.lzi` / `host.lzi` — the pendings are a synthesis of multiple feature signals (MP-account-connected flag from `payments`, profile-completion flag from `account`, has-published-properties flag from `catalog`).
+- **Workaround in place:** `routes/HostHome.tsx` inlines a `FIXTURE_DATA` constant matching the storybook `activeData` state byte-for-byte. CTAs route to `/account/host` as a safe destination until the underlying flows are ported.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostHome.tsx`.
+- **Removal criterion:** Lazuli adds a cross-feature aggregation primitive (`derived` view or `query.list mine_pendings` with `union` over feature-local pendings sources) capable of expressing "list of typed action items derived from feature flags". Alternatively each feature emits its own pendings query (`payments.query.mine_pendings_payments`, `account.query.mine_pendings_account`, etc.) and the host-home screen merges them client-side — heavier-handed but unblocks the port.
+- **Surfaced by:** Phase 3.2 host-home port (this entry).
+
+---
 
 ## WAR-RUNTIME-MIGRATION-01 — `lazuli generate go` emits `CREATE TABLE IF NOT EXISTS` instead of ALTER TABLE for added columns
 
