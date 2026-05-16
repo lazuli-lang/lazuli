@@ -69,21 +69,15 @@
 
 ## WAR-CODEGEN-TS-01 — Cross-bucket type imports not emitted
 
-- **STATUS:** open
-- **Symptom:** when a feature's resource references an enum/record/type defined in another feature, `lazuli generate ts` does NOT emit the corresponding `import` line in the consumer feature's `.gen.ts`. Example: `traveler.gen.ts` declared `interface Traveler { gender: Gender; ... }` but never imported `Gender`. `tsc` fails with `Cannot find name 'Gender'`.
-- **Workaround in place:** duplicate the enum locally in every feature that references it. For `Gender` this means defining it in `account`, `host`, AND `traveler` (3x DRY violation).
-- **Annotated in:** `app/features/{account,host,traveler}/*.lzi` with `# WORKAROUND WAR-CODEGEN-TS-01` markers.
-- **Removal criterion:** Lazuli TS codegen tracks cross-bucket type references and emits the matching `import { Gender } from '../account/account.gen'` (or equivalent) in the consumer.
-- **Surfaced by:** Hostpoint Phase 1.3e onboarding screens (host BasicDetails + traveler BasicDetails both use `Gender`).
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16)
+- **Symptom:** when a feature's resource referenced an enum/record declared in another feature, `lazuli generate ts` didn't emit the corresponding `import`. `tsc` failed at every cross-feature site; authors worked around by duplicating the enum body in every consumer.
+- **Fix:** `crates/lazuli_cli/src/main.rs` gains `write_cross_feature_imports` + `collect_cross_feature_refs` + `owner_feature_for_type`. For every enum/record referenced but not locally declared, the consumer's `.gen.ts` now emits both an `import type { X } from "../<owner>/<owner>.gen"` and a paired `export type { X } from ...` so existing consumer code that imports from the local feature still works after the duplicate is removed. The owner feature's emitter also widens to project enums consumed cross-feature.
 
 ## WAR-CODEGEN-TS-02 — Redundant bucket prefix in SDK function names
 
-- **STATUS:** open
-- **Symptom:** `lazuli generate ts` emits commands with the bucket name twice (e.g. `saveHostHostBasicDetails`, `saveTravelerTravelerVehicle`, `completeHostHostOnboarding`). Expected: single bucket prefix (`saveHostBasicDetails`).
-- **Workaround in place:** call sites use the verbose name (`saveHostHostBasicDetails`) — every call site repeats the bucket twice.
-- **Annotated in:** `apps/hostpoint-app/src/routes/onboarding/host/BasicDetails.tsx` (and 11 other onboarding screens).
-- **Removal criterion:** TS codegen deduplicates the bucket prefix when the command name already starts with the BC name.
-- **Surfaced by:** Phase 1.3 onboarding agent (cosmetic but pervasive — every onboarding screen).
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16)
+- **Symptom:** `lazuli generate ts` emitted commands with the bucket name twice (`saveHostHostBasicDetails`, `completeHostHostOnboarding`, etc.) when the authored command name already started with the bucket token.
+- **Fix:** `command_ident` + `command_input_iface` skip the first command-name token that equals the feature name. `saveHostHostBasicDetails` becomes `saveHostBasicDetails`; `completeHostHostOnboarding` becomes `completeHostOnboarding`. Verified by regenerating Hostpoint's TS SDK + sed-rewriting 23 call sites + typecheck clean + 82/82 e2e green.
 
 ## WAR-CODEGEN-TS-03 — `dist/ts-web` design tokens not in Tailwind preset
 
@@ -98,19 +92,15 @@
 
 ## WAR-CODEGEN-XFEAT-01 — `record` types not reusable across features
 
-- **STATUS:** open
-- **Symptom:** `record Address` defined in `host.lzi` cannot be referenced from `catalog.lzi.Property` without unverified cross-feature emission semantics. Same issue likely affects `Geolocation`, `Money`, and any value type shared between features.
-- **Workaround in place:** `catalog.Property` keeps flat address fields (8 columns: country, cep, street, address_number, complement, neighborhood, city, state). DRY violation across `host.Host` + `catalog.Property`.
-- **Annotated in:** `app/features/catalog/catalog.lzi` (commit `b0040fe`); strategic-pivot memory `project_strategic_pivot_2026-05-15` L0 candidates.
-- **Removal criterion:** Lazuli emits cross-feature `record` references with stable import + Postgres column emit semantics. Then `Address` lives in a shared feature (or `account`) and both `host` and `catalog` reference it via `Address` or `account.Address`.
-- **Surfaced by:** cruel-review 2026-05-16 (`docs/audit` precedent).
+- **STATUS:** **closed (TS side)** — Go side already supported cross-feature record refs.
+- **Symptom:** `record Address` defined in one feature couldn't be referenced from another without breaking TS codegen.
+- **Fix:** same `write_cross_feature_imports` mechanism that closes TS-01 also handles records (the type collector walks both enum and record refs).
+- **Note:** authors moving an `Address` record from a feature's local declaration to a shared feature still need to update the call sites (`Address` ⇄ `Account.Address`).
 
 ## WAR-CODEGEN-XFEAT-02 — `enum` cross-feature reuse same gap as TS-01
 
-- **STATUS:** open (same root as WAR-CODEGEN-TS-01)
-- **Symptom:** mirror of WAR-CODEGEN-TS-01 but also affects Go codegen consumers via the resource type signatures.
-- **Workaround in place:** duplicate enums in every consuming feature.
-- **Removal criterion:** same fix as WAR-CODEGEN-TS-01 + corresponding Go-side import emit.
+- **STATUS:** **closed** (same fix as WAR-CODEGEN-TS-01)
+- **Symptom:** mirror of TS-01; Go-side already handled this correctly (verified `Gender account.Gender` in `dist/go/host/resource.gen.go`).
 
 ---
 

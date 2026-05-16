@@ -1101,6 +1101,7 @@ fn emit_feature_sdk_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module)
     )
     .ok();
     writeln!(s).ok();
+    write_cross_feature_imports(&mut s, feature, module);
     write_referenced_enum_aliases(&mut s, feature, module);
 
     let mut records: Vec<&lazuli_ir::Record> = feature.records.iter().collect();
@@ -1130,6 +1131,157 @@ fn emit_feature_sdk_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module)
     s
 }
 
+/// Emit `import { X } from '../other-feature/other-feature.gen';` lines
+/// for every enum/record referenced by this feature but declared in
+/// another feature. Closes WAR-CODEGEN-TS-01 + WAR-CODEGEN-XFEAT-01/02:
+/// previously such cross-feature references silently dropped the import
+/// and produced `tsc` errors at the consumer site, forcing users to
+/// duplicate enums/records across every consuming feature.
+fn write_cross_feature_imports(
+    s: &mut String,
+    feature: &lazuli_ir::Feature,
+    module: &lazuli_ir::Module,
+) {
+    // Map of owner-feature name → set of type names imported from it.
+    let mut imports: std::collections::BTreeMap<String, BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    collect_cross_feature_refs(feature, module, &mut imports);
+
+    if imports.is_empty() {
+        return;
+    }
+
+    let mut emitted = false;
+    for (owner_feature, names) in &imports {
+        let mut sorted: Vec<&String> = names.iter().collect();
+        sorted.sort();
+        let joined = sorted
+            .iter()
+            .map(|n| pascal_case(n))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Emit both import (for local use in resource/command shapes)
+        // AND re-export (so existing consumer code that imports the
+        // type from this feature's .gen.ts continues to work after a
+        // duplicate alias is removed). `export type { ... }` is
+        // required because enum/record cross-feature refs are
+        // type-only and isolatedModules rejects bare `export { ... }`
+        // when the symbol carries no value.
+        writeln!(
+            s,
+            "import type {{ {joined} }} from \"../{owner_feature}/{owner_feature}.gen\";"
+        )
+        .ok();
+        writeln!(
+            s,
+            "export type {{ {joined} }} from \"../{owner_feature}/{owner_feature}.gen\";"
+        )
+        .ok();
+        emitted = true;
+    }
+    if emitted {
+        writeln!(s).ok();
+    }
+}
+
+/// Walk every field/slot of every record/resource/command/query in
+/// `feature` and accumulate the set of enum/record names that are
+/// referenced but DECLARED in another feature.
+fn collect_cross_feature_refs(
+    feature: &lazuli_ir::Feature,
+    module: &lazuli_ir::Module,
+    out: &mut std::collections::BTreeMap<String, BTreeSet<String>>,
+) {
+    let walk_type = |type_ref: &lazuli_ir::TypeRef,
+                     out: &mut std::collections::BTreeMap<String, BTreeSet<String>>| {
+        let mut stack: Vec<&lazuli_ir::TypeRef> = vec![type_ref];
+        while let Some(t) = stack.pop() {
+            match t {
+                lazuli_ir::TypeRef::Many(inner) => stack.push(inner),
+                lazuli_ir::TypeRef::EnumRef(qn) | lazuli_ir::TypeRef::UserDefined(qn) => {
+                    if let Some(owner) = owner_feature_for_type(qn, module, feature) {
+                        out.entry(owner)
+                            .or_insert_with(BTreeSet::new)
+                            .insert(qn.name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    };
+    for record in &feature.records {
+        for field in &record.fields {
+            walk_type(&field.type_ref, out);
+        }
+    }
+    for resource in &feature.resources {
+        for field in &resource.fields {
+            walk_type(&field.type_ref, out);
+        }
+    }
+    for command in &feature.commands {
+        for slot in command_sdk_slots(feature, command, module) {
+            walk_type(&slot.type_ref, out);
+        }
+        if let lazuli_ir::CommandEffect::Returns(effect) = &command.effect {
+            walk_type(&effect.return_type, out);
+        }
+    }
+    for query in &feature.queries {
+        for slot in query_args(feature, query, module) {
+            walk_type(&slot.type_ref, out);
+        }
+    }
+}
+
+/// Resolve a type reference to its owner feature name, but only when
+/// the type lives in a DIFFERENT feature than `consumer`. Returns None
+/// when the type is local (no import needed), defined in both consumer
+/// and another feature (treat the duplicate as local — happens when
+/// authors copy enums between features per WAR-CODEGEN-XFEAT-01), or
+/// builtin/unresolvable.
+fn owner_feature_for_type(
+    qn: &lazuli_ir::QualifiedName,
+    module: &lazuli_ir::Module,
+    consumer: &lazuli_ir::Feature,
+) -> Option<String> {
+    let local_hit = consumer
+        .enums
+        .iter()
+        .any(|e| e.name.eq_ignore_ascii_case(&qn.name))
+        || consumer
+            .records
+            .iter()
+            .any(|r| r.name.eq_ignore_ascii_case(&qn.name));
+    if local_hit {
+        return None;
+    }
+    // Honor the QualifiedName.feature hint if present (preferred owner).
+    if let Some(hint) = qn.feature.as_deref() {
+        if module.features.iter().any(|f| f.name == hint) {
+            return Some(hint.to_owned());
+        }
+    }
+    // Otherwise, find the first feature that declares this enum/record.
+    for feature in &module.features {
+        if feature.name == consumer.name {
+            continue;
+        }
+        let owns = feature
+            .enums
+            .iter()
+            .any(|e| e.name.eq_ignore_ascii_case(&qn.name))
+            || feature
+                .records
+                .iter()
+                .any(|r| r.name.eq_ignore_ascii_case(&qn.name));
+        if owns {
+            return Some(feature.name.clone());
+        }
+    }
+    None
+}
+
 fn write_referenced_enum_aliases(
     s: &mut String,
     feature: &lazuli_ir::Feature,
@@ -1137,6 +1289,33 @@ fn write_referenced_enum_aliases(
 ) {
     let mut referenced = BTreeSet::new();
     collect_referenced_feature_enums(feature, module, &mut referenced);
+    // Closes WAR-CODEGEN-TS-01: also emit enums referenced by OTHER
+    // features (via cross-feature import). Without this, the owner
+    // feature's .gen.ts wouldn't export the type the consumer imports.
+    for other in &module.features {
+        if other.name == feature.name {
+            continue;
+        }
+        let mut other_refs = BTreeSet::new();
+        collect_referenced_feature_enums(other, module, &mut other_refs);
+        for r in other_refs {
+            if feature.enums.iter().any(|e| e.name == r) {
+                referenced.insert(r);
+            }
+        }
+        // Also walk cross-feature import collection — captures enums
+        // used in command inputs/outputs that the simple "referenced"
+        // walk may have missed for the consumer side.
+        let mut cross = std::collections::BTreeMap::new();
+        collect_cross_feature_refs(other, module, &mut cross);
+        if let Some(names) = cross.get(&feature.name) {
+            for n in names {
+                if feature.enums.iter().any(|e| e.name == *n) {
+                    referenced.insert(n.clone());
+                }
+            }
+        }
+    }
 
     let mut emitted = false;
     let mut enums: Vec<&lazuli_ir::EnumDecl> = feature.enums.iter().collect();
@@ -2150,11 +2329,21 @@ fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {
 
 fn command_ident(feature: &str, command_name: &str) -> String {
     let resource_pascal = pascal_case(feature);
+    let feature_lc = feature.to_ascii_lowercase();
     let mut parts = command_name.split('_');
     let verb = parts.next().unwrap_or("");
     let mut out = verb.to_ascii_lowercase();
     out.push_str(&resource_pascal);
+    // Closes WAR-CODEGEN-TS-02: when the command name already contains
+    // the feature name as a token (e.g. `save_host_basic_details` in
+    // feature `host`), skip the duplicate token so we get
+    // `saveHostBasicDetails` instead of `saveHostHostBasicDetails`.
+    let mut skipped_dup = false;
     for word in parts {
+        if !skipped_dup && word.eq_ignore_ascii_case(&feature_lc) {
+            skipped_dup = true;
+            continue;
+        }
         out.push_str(&pascal_case(word));
     }
     out
@@ -2180,11 +2369,19 @@ fn query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> S
 }
 
 fn command_input_iface(command_name: &str, feature_pascal: &str) -> String {
+    let feature_lc = feature_pascal.to_ascii_lowercase();
     let mut parts = command_name.split('_');
     let verb = parts.next().unwrap_or("");
     let mut out = pascal_case(verb);
     out.push_str(feature_pascal);
+    // Mirror command_ident's WAR-CODEGEN-TS-02 dedup so the *Input
+    // interface name matches the command identifier shape.
+    let mut skipped_dup = false;
     for word in parts {
+        if !skipped_dup && word.eq_ignore_ascii_case(&feature_lc) {
+            skipped_dup = true;
+            continue;
+        }
         out.push_str(&pascal_case(word));
     }
     out.push_str("Input");
