@@ -927,8 +927,15 @@ impl DoctorPackage {
             }
         }
 
+        let declared_env_names: BTreeSet<&str> = self
+            .app
+            .as_ref()
+            .map(|app| operational_env_names(&app.manifest, self.registry.as_ref()))
+            .unwrap_or_default();
         for file in &self.files {
-            diagnostics.extend(dedupe_env_contract_diagnostics(&file.local_diagnostics));
+            let after_dedupe = dedupe_env_contract_diagnostics(&file.local_diagnostics);
+            diagnostics
+                .extend(suppress_env_schema_when_declared(&after_dedupe, &declared_env_names));
         }
         diagnostics.extend(vocab_grammar_form_diagnostics(
             &self.files,
@@ -2031,6 +2038,37 @@ fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) -> Vec<Doct
         .filter(|d| {
             !(d.code == "app-env-contract"
                 && env_schema_lines.contains(&(d.path.clone(), d.line)))
+        })
+        .cloned()
+        .collect()
+}
+
+/// LSP emits `env-schema-reference` per file because the per-file rule can't
+/// see the registry. Doctor has cross-package visibility (it loads
+/// `registry.lzi` and `app.lzi`), so it can suppress those warnings for envs
+/// that ARE declared. Closes the false-positive surfaced by the hostpoint
+/// pilot port (2026-05-16): `env.MERCADOPAGO_WEBHOOK_SECRET` was correctly
+/// declared in `registry.env` but the LSP warning was inherited verbatim.
+///
+/// Message shape: ``"environment reference `env.<NAME>` should be declared..."``
+fn suppress_env_schema_when_declared(
+    diagnostics: &[DoctorDiagnostic],
+    declared_env_names: &BTreeSet<&str>,
+) -> Vec<DoctorDiagnostic> {
+    diagnostics
+        .iter()
+        .filter(|d| {
+            if d.code != "env-schema-reference" {
+                return true;
+            }
+            // Extract env name from `env.X` in the message.
+            let Some(start) = d.message.find("env.") else {
+                return true;
+            };
+            let rest = &d.message[start + "env.".len()..];
+            let end = rest.find('`').unwrap_or(rest.len());
+            let env_name = &rest[..end];
+            !declared_env_names.contains(env_name)
         })
         .cloned()
         .collect()
