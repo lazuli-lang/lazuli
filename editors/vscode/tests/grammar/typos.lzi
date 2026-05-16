@@ -1,0 +1,79 @@
+# Diagnostic-class snapshot fixture — exercises every typo-detection
+# diagnostic shipped in R2 Wave 1 (and feature-unknown-kind from the
+# earlier wave). Each block contains exactly ONE intentional typo so
+# the expected-diagnostics JSON can pin line numbers stably.
+#
+# DO NOT auto-fix the typos in this file. The whole point is that
+# `diagnostics_for_source` should flag them with the listed codes.
+#
+# Layout: 1 app block + 1 registry block + 1 feature block. The feature
+# block contains command-statement / query-statement / surface /
+# audience / view / feature-body typos plus their correct siblings.
+
+app demo
+  title "Typo Demo"
+  version "1.0"
+  # Expected: app-unknown-kind line 17, suggestion: urls
+  urs
+    public "https://example.com"
+
+registry
+  env
+    server INBOUND_WEBHOOK_SECRET: Secret required
+  # Expected: registry-unknown-kind line 24, suggestion: webhook_events
+  webhook_evnts
+    inbound
+      payload Webhook
+
+feature typo_test
+  domain
+    resource Item
+      id: ID required
+      name: Text required
+
+  # Control: a well-formed command sibling.
+  command real_command
+    route id: ID
+    policy @policy.public
+    creates Item
+
+  # Expected: feature-unknown-kind line 41, suggestion: command
+  comand list_items
+    route id: ID
+    policy @policy.public
+
+  command audit_typo
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    # Expected: command-statement-unknown line 49, suggestion: audit
+    audt actor, target.id
+    creates Item
+
+  query.list items
+    policy @policy.read
+    params
+      tenant_id: ID required
+    filters
+      status = "active"
+    # Expected: query-statement-unknown line 59, suggestion: paginate
+    paginat 20
+    order name asc
+
+  surface web admin
+    # Expected: surface-unknown-kind line 64, suggestion: audience
+    audeince admin
+      view list ItemList
+
+  surface web public
+    audience guest
+      # Expected: audience-unknown-kind line 70, suggestion: view
+      vieww list ItemList
+
+  surface web staff
+    audience staff
+      view list ItemList
+        source query.list
+        columns name, status
+        # Expected: view-unknown-kind line 78, suggestion: selection
+        selecton
+          mode multi

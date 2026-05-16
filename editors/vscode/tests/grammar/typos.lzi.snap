@@ -1,0 +1,293 @@
+># Diagnostic-class snapshot fixture — exercises every typo-detection
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># diagnostic shipped in R2 Wave 1 (and feature-unknown-kind from the
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># earlier wave). Each block contains exactly ONE intentional typo so
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># the expected-diagnostics JSON can pin line numbers stably.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>#
+#^ source.lazuli comment.line.number-sign.lazuli
+># DO NOT auto-fix the typos in this file. The whole point is that
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># `diagnostics_for_source` should flag them with the listed codes.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>#
+#^ source.lazuli comment.line.number-sign.lazuli
+># Layout: 1 app block + 1 registry block + 1 feature block. The feature
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># block contains command-statement / query-statement / surface /
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># audience / view / feature-body typos plus their correct siblings.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>
+>app demo
+#^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#   ^ source.lazuli
+#    ^^^^ source.lazuli entity.name.type.app.lazuli
+>  title "Typo Demo"
+#^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#       ^ source.lazuli
+#        ^ source.lazuli string.quoted.double.lazuli
+#         ^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+>  version "1.0"
+#^^^^^^^^^ source.lazuli entity.name.function.statement.app-meta.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^ source.lazuli string.quoted.double.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+>  # Expected: app-unknown-kind line 17, suggestion: urls
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>  urs
+#^^^^^^ source.lazuli
+>    public "https://example.com"
+#^^^^^^^^^^^ source.lazuli
+#           ^ source.lazuli string.quoted.double.lazuli
+#            ^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                               ^ source.lazuli string.quoted.double.lazuli
+>
+>registry
+#^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>  env
+#^^ source.lazuli
+#  ^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    server INBOUND_WEBHOOK_SECRET: Secret required
+#^^^^^^^^^^ source.lazuli entity.name.function.statement.env.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#                                 ^ source.lazuli punctuation.separator.type.lazuli
+#                                  ^ source.lazuli
+#                                   ^^^^^^ source.lazuli support.type.primitive.lazuli
+#                                         ^^^^^^^^^^ source.lazuli
+>  # Expected: registry-unknown-kind line 24, suggestion: webhook_events
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>  webhook_evnts
+#^^^^^^^^^^^^^^^^ source.lazuli
+>    inbound
+#^^^^^^^^^^^^ source.lazuli
+>      payload Webhook
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^^^^^^^ source.lazuli support.type.domain.lazuli
+>
+>feature typo_test
+#^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#       ^ source.lazuli
+#        ^^^^^^^^^ source.lazuli entity.name.type.feature.lazuli
+>  domain
+#^^ source.lazuli
+#  ^^^^^^ source.lazuli keyword.control.section.lazuli
+>    resource Item
+#^^^^ source.lazuli
+#    ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#            ^ source.lazuli
+#             ^^^^ source.lazuli entity.name.type.resource.lazuli
+>      id: ID required
+#^^^^^^ source.lazuli
+#      ^^ source.lazuli variable.other.field.lazuli
+#        ^ source.lazuli punctuation.separator.type.lazuli
+#         ^ source.lazuli
+#          ^^ source.lazuli support.type.primitive.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>      name: Text required
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli variable.other.field.lazuli
+#          ^ source.lazuli punctuation.separator.type.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli support.type.primitive.lazuli
+#                ^ source.lazuli
+#                 ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>
+>  # Control: a well-formed command sibling.
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>  command real_command
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    route id: ID
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^^ source.lazuli variable.other.route-slot.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli support.type.primitive.lazuli
+>    policy @policy.public
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    creates Item
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli support.type.domain.lazuli
+>
+>  # Expected: feature-unknown-kind line 41, suggestion: command
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>  comand list_items
+#^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>    route id: ID
+#^^^^^^^^^^ source.lazuli
+#          ^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^ source.lazuli
+#              ^^ source.lazuli support.type.primitive.lazuli
+>    policy @policy.public
+#^^^^^^^^^^^ source.lazuli
+#           ^^^^^^^ source.lazuli entity.name.tag.lazuli
+#                  ^ source.lazuli punctuation.accessor.lazuli
+#                   ^^^^^^^ source.lazuli
+>
+>  command audit_typo
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#         ^ source.lazuli
+#          ^^^^^^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    policy @policy.create
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    rate_limit "30 per hour per user"
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                    ^ source.lazuli string.quoted.double.lazuli
+>    # Expected: command-statement-unknown line 49, suggestion: audit
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>    audt actor, target.id
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^ source.lazuli punctuation.separator.comma.lazuli
+#               ^ source.lazuli
+#                ^^^^^^ source.lazuli support.variable.context.lazuli
+#                      ^^^ source.lazuli variable.other.member.lazuli
+>    creates Item
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#           ^ source.lazuli
+#            ^^^^ source.lazuli support.type.domain.lazuli
+>
+>  query.list items
+#^^ source.lazuli
+#  ^^^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#            ^ source.lazuli
+#             ^^^^^ source.lazuli entity.name.function.named-block.lazuli
+>    policy @policy.read
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>    params
+#^^^^ source.lazuli
+#    ^^^^^^ source.lazuli keyword.control.section.lazuli
+>      tenant_id: ID required
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^ source.lazuli variable.other.field.lazuli
+#               ^ source.lazuli punctuation.separator.type.lazuli
+#                ^ source.lazuli
+#                 ^^ source.lazuli support.type.primitive.lazuli
+#                   ^ source.lazuli
+#                    ^^^^^^^^ source.lazuli storage.modifier.lazuli
+>    filters
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli keyword.control.section.lazuli
+>      status = "active"
+#^^^^^^^^^^^^^ source.lazuli
+#             ^ source.lazuli keyword.operator.comparison.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^ source.lazuli string.quoted.double.lazuli
+#                      ^ source.lazuli string.quoted.double.lazuli
+>    # Expected: query-statement-unknown line 59, suggestion: paginate
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>    paginat 20
+#^^^^^^^^^^^^ source.lazuli
+#            ^^ source.lazuli constant.numeric.lazuli
+>    order name asc
+#^^^^ source.lazuli
+#    ^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^^^^^^ source.lazuli
+#               ^^^ source.lazuli constant.language.direction.lazuli
+>
+>  surface web admin
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^ source.lazuli entity.name.label.surface-target.lazuli
+#             ^ source.lazuli
+#              ^^^^^ source.lazuli entity.name.label.surface-area.lazuli
+>    # Expected: surface-unknown-kind line 64, suggestion: audience
+#^^^^ source.lazuli
+#    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>    audeince admin
+#^^^^^^^^^^^^^^^^^^^ source.lazuli
+>      view list ItemList
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli entity.name.function.view.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^ source.lazuli support.type.ui.lazuli
+>
+>  surface web public
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^ source.lazuli entity.name.label.surface-target.lazuli
+#             ^ source.lazuli
+#              ^^^^^^ source.lazuli entity.name.label.surface-area.lazuli
+>    audience guest
+#^^^^ source.lazuli
+#    ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#            ^ source.lazuli
+#             ^^^^^ source.lazuli entity.name.label.audience.lazuli
+>      # Expected: audience-unknown-kind line 70, suggestion: view
+#^^^^^^ source.lazuli
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>      vieww list ItemList
+#^^^^^^^^^^^^^^^^^ source.lazuli
+#                 ^^^^^^^^ source.lazuli support.type.domain.lazuli
+>
+>  surface web staff
+#^^ source.lazuli
+#  ^^^^^^^ source.lazuli keyword.control.section.lazuli
+#         ^ source.lazuli
+#          ^^^ source.lazuli entity.name.label.surface-target.lazuli
+#             ^ source.lazuli
+#              ^^^^^ source.lazuli entity.name.label.surface-area.lazuli
+>    audience staff
+#^^^^ source.lazuli
+#    ^^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#            ^ source.lazuli
+#             ^^^^^ source.lazuli entity.name.label.audience.lazuli
+>      view list ItemList
+#^^^^^^ source.lazuli
+#      ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#          ^ source.lazuli
+#           ^^^^ source.lazuli entity.name.function.view.lazuli
+#               ^ source.lazuli
+#                ^^^^^^^^ source.lazuli support.type.ui.lazuli
+>        source query.list
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^ source.lazuli variable.other.property.semantic.lazuli
+>        columns name, status
+#^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#               ^^^^^ source.lazuli
+#                    ^ source.lazuli punctuation.separator.comma.lazuli
+#                     ^^^^^^^^ source.lazuli
+>        # Expected: view-unknown-kind line 78, suggestion: selection
+#^^^^^^^^ source.lazuli
+#        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>        selecton
+#^^^^^^^^^^^^^^^^^ source.lazuli
+>          mode multi
+#^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>

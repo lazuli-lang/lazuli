@@ -727,6 +727,7 @@ dependencies = [
  "lazuli_analyzer",
  "lazuli_ir",
  "lazuli_syntax",
+ "serde_json",
  "tokio",
  "tower-lsp",
 ]

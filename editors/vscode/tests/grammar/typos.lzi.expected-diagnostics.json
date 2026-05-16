@@ -1,0 +1,65 @@
+{
+  "fixture": "typos.lzi",
+  "notes": [
+    "Line numbers are 1-indexed (human-friendly). The test runner converts to 0-indexed LSP Position.line.",
+    "Each entry pins ONE intentional typo. Updating the fixture? Re-count lines and update both files."
+  ],
+  "diagnostics": [
+    {
+      "line": 17,
+      "code": "app-unknown-kind",
+      "severity": "Error",
+      "message_contains": "urs",
+      "suggestion": "urls"
+    },
+    {
+      "line": 24,
+      "code": "registry-unknown-kind",
+      "severity": "Error",
+      "message_contains": "webhook_evnts",
+      "suggestion": "webhook_events"
+    },
+    {
+      "line": 41,
+      "code": "feature-unknown-kind",
+      "severity": "Error",
+      "message_contains": "comand",
+      "suggestion": "command"
+    },
+    {
+      "line": 49,
+      "code": "command-statement-unknown",
+      "severity": "Error",
+      "message_contains": "audt",
+      "suggestion": "audit"
+    },
+    {
+      "line": 59,
+      "code": "query-statement-unknown",
+      "severity": "Error",
+      "message_contains": "paginat",
+      "suggestion": "paginate"
+    },
+    {
+      "line": 64,
+      "code": "surface-unknown-kind",
+      "severity": "Error",
+      "message_contains": "audeince",
+      "suggestion": "audience"
+    },
+    {
+      "line": 70,
+      "code": "audience-unknown-kind",
+      "severity": "Error",
+      "message_contains": "vieww",
+      "suggestion": "view"
+    },
+    {
+      "line": 78,
+      "code": "view-unknown-kind",
+      "severity": "Error",
+      "message_contains": "selecton",
+      "suggestion": "selection"
+    }
+  ]
+}
