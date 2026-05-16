@@ -117,13 +117,12 @@
 
 ## WAR-VOCAB-COLLECTIONS-01 — `Set<Enum>` / typed collections not first-class
 
-- **STATUS:** open
-- **Symptom:** properties like `Property.amenities`, `Property.rules`, `Property.accepted_vehicles`, `Service.options`, `Service.schedule`, `Host.languages`, `Traveler.pets`, `Traveler.languages` semantically should be `Set<Amenity>`, `Set<RuleType>`, `Set<TravelerPet>` etc. Lazuli vocabulary doesn't yet have first-class typed collections, so all 8+ fields are typed as `JSON` (opaque payload).
-- **Workaround in place:** `JSON required = "[]"` everywhere. UI deserializes JSON, codegen treats as `unknown` in TS, Go side gets `[]byte`/`pgx.JSONB`. No type safety on what enum variants live inside the set.
-- **Bonus exclusive-sentinel gap:** `Traveler.pets` has a "none" sentinel that's mutually exclusive with the others. UI implements toggle logic (`togglePet` helper) manually; Lazuli can't express "set with one exclusive sentinel" yet.
-- **Annotated in:** 6+ `.lzi` files (catalog/host/traveler); cruel-review memory entry.
-- **Removal criterion:** Lazuli adds `<EnumType>[]` or `Set<EnumType>` first-class. Optionally with `exclusive_sentinel: <variant>` annotation for the Pets case.
-- **Surfaced by:** cruel-review 2026-05-16 (6+ JSON fields flagged as soup).
+- **STATUS:** **closed (basic enum arrays)** — exclusive-sentinel sub-gap tracked separately.
+- **Symptom:** `Property.amenities`, `Property.rules`, `Property.accepted_vehicles` etc. were all typed `JSON required = "[]"` because authors believed Lazuli lacked typed collections. The cruel-review 2026-05-16 flagged this as "JSON soup".
+- **Discovery + fix:** Lazuli already had `[]` array form (`type_ref_from_syntax` at `crates/lazuli_analyzer/src/lib.rs:1247` lifts `Type[]` to `TypeRef::Many(inner)`). The codegen for Go emits `[]Type` slices, and TS emits `Type[]`. The WAR was a discoverability bug, not a language gap.
+- **Hostpoint applied:** `Property.amenities: Amenity[]`, `Property.rules: RuleType[]`, `Property.accepted_vehicles: AcceptedVehicleType[]`. New `enum AcceptedVehicleType` added to `catalog.lzi`. PropertyDetailView record + UpdateCatalogPropertyInput aligned. Front-end casts at the boundary (`as never`) because UI union types carry extras the backend enum doesn't list yet (`adaptedCar` vs `adapted_car`, custom amenities) — a separate Hostpoint vocab sweep would align them but isn't blocking.
+- **Open sub-gap (tracked separately)**: `Traveler.pets` exclusive-sentinel (`none` mutually exclusive with others) — Lazuli still lacks `exclusive_sentinel` annotation. UI's `togglePet` helper stays. Add to `docs/next-checklist.md` polish.
+- **Note for future authors**: when in doubt about typed collections, just try `EnumType[]`. Lazuli supports it.
 
 ## WAR-VOCAB-SEMANTIC-01 — `@semantic.Money` missing
 

@@ -4,6 +4,10 @@ Items here are **graded out** of a proposal that landed PASS but carry follow-up
 
 ---
 
+## From collections review (2026-05-16)
+
+- [ ] **Exclusive-sentinel annotation for enum arrays.** `Traveler.pets` has a `none` variant that's mutually exclusive with all others — UI implements `togglePet` toggle logic manually. Spec: `field: PetType[] required exclusive_sentinel(none)` — analyzer rejects payloads that include `none` AND another variant.
+
 ## From cross-feature symbol resolution review (2026-05-16)
 
 - [ ] **LSP/CLI surfaces symbol origin for cross-feature references.** When `host.lzi` references `Gender` and Lazuli resolves it via `uses account` to `account.Gender`, the IDE/CLI should expose that path without authors needing a `# Gender imported from account` comment. Spec: `lazuli inspect host.Gender` returns `defined in: account.lzi:line N, imported via: uses account at host.lzi:line 4`. Tree-sitter hover shows the same. Until this lands, authors are tempted to add procedence comments that violate `feedback_normative_not_narrative_2026-05-15` (specs are prescriptive; changelog/why goes to commit message or proposal). External cruel review 2026-05-16 surfaced this as a `Lazuli capitulating` smell.
