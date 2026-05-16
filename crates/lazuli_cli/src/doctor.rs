@@ -4363,7 +4363,11 @@ fn tier3_webhook_diagnostics<'a>(
     // app. Pilot-gated until the tenancy axis lifter lands (Tier 4);
     // we fire the diagnostic conservatively when the webhook simply
     // lacks `tenant_from` so the LSP rule keeps its coverage.
-    if webhook.tenant_from.is_none() {
+    //
+    // An explicit `scope global` + `reason "..."` declaration silences
+    // the lint — matches the LSP rule at `lazuli_lsp/src/lib.rs:10720`
+    // (closes the doctor-side gap surfaced by Hostpoint port).
+    if webhook.tenant_from.is_none() && webhook.scope_global.is_none() {
         diagnostics.push(DoctorDiagnostic {
             path: feature.path.clone(),
             line,
@@ -4371,7 +4375,7 @@ fn tier3_webhook_diagnostics<'a>(
             severity: DoctorSeverity::Warning,
             code: "WEBHOOK-SCOPE-001".to_owned(),
             message: format!(
-                "webhook `{}` does not declare `tenant_from payload.<axis>_id` — verify it should be globally scoped.",
+                "webhook `{}` does not declare `tenant_from payload.<axis>_id` or explicit `scope global` with a reason — verify it should be globally scoped.",
                 webhook.name
             ),
         });

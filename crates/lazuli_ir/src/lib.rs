@@ -3980,6 +3980,12 @@ pub struct Webhook {
     /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant_from: Option<TenantFromSpec>,
+    /// Explicit `scope global` + `reason "..."` escape hatch when the
+    /// provider doesn't send a tenant key. Closes the doctor-side gap
+    /// surfaced by Hostpoint port (LSP rule at `lazuli_lsp/src/lib.rs:10720`
+    /// already detected scope_global; IR was dropping it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_global: Option<WebhookScopeGlobalSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency: Option<IdempotencyKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4082,6 +4088,17 @@ pub enum DlqSpec {
 pub struct TenantFromSpec {
     /// `payload.org_id`, `envelope.tenant_id`, etc.
     pub path: Path,
+}
+
+/// `scope global` + `reason "..."` declaration on a webhook. IR
+/// counterpart of the syntax-side `WebhookScopeGlobal`. Doctor reads
+/// this to suppress `WEBHOOK-SCOPE-001` when the webhook explicitly
+/// opts out of `tenant_from`. The `reason` text is captured for audit
+/// surfaces so operators can see why this webhook escapes the
+/// standard tenancy invariant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookScopeGlobalSpec {
+    pub reason: String,
 }
 
 /// Phase L Tier 3 — `fanout tenants <axis>` scheduled-job fanout

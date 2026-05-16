@@ -3838,12 +3838,19 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
     let retry = webhook.retry.as_ref().map(lower_retry);
 
     let policy_expr = webhook.policy_expr.as_ref().map(lower_policy_expr);
+    let scope_global = webhook
+        .scope_global
+        .as_ref()
+        .map(|sg| ir::WebhookScopeGlobalSpec {
+            reason: sg.reason.clone(),
+        });
     Ok(ir::Webhook {
         name: webhook.name.clone(),
         route: webhook.route.clone(),
         verify: ir::PathRef::convention(format!("./webhooks/{}_verify.go", webhook.name)),
         structured_verify,
         tenant_from,
+        scope_global,
         idempotency,
         policy,
         policy_expr,
