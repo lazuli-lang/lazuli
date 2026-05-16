@@ -90,7 +90,30 @@ feature customer_tags
       added_by: User required
 ```
 
-For a shared value-type that is not an identity (e.g. `Address`) the same pattern applies: declare once in the most-specific feature that semantically owns the type (e.g. `account` for postal addresses since users carry them; `org` for org-scoped tax addresses). Create a dedicated `feature shared` only when (a) ≥ 2 consumers already exist AND (b) no feature semantically owns the type without forcing a contortion. The bar is intentionally high — `shared` is a sink that erodes ownership clarity.
+For a shared value-type that is not an identity (e.g. `Address`) the same pattern applies: declare once in the most-specific feature that semantically owns the type, then reach via `uses`. Worked example:
+
+```lazuli
+# Right — `Address` lives in the feature that semantically owns it
+feature account
+  domain
+    record Address
+      street: Text required
+      city: Text required
+      state: Text required
+      postal_code: Text required
+      country: Text required
+
+    resource User
+      shipping: Address required
+
+feature billing
+  uses account              # ← reach for Address through here, do NOT redeclare
+  domain
+    resource Invoice
+      bill_to: Address required
+```
+
+**Tie-breaker**: pick the most-specific feature where the type is structurally a "first-class" field, not derived or computed. Postal addresses → `account` (users carry them). Org-scoped tax addresses → `org` (an org has one). Create a dedicated `feature shared` only when (a) ≥ 2 consumers already exist AND (b) no feature semantically owns the type without forcing a contortion. The bar is intentionally high — `shared` is a sink that erodes ownership clarity.
 
 **Anti-idiom**:
 

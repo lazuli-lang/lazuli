@@ -397,6 +397,8 @@ Each symbol `kind` carries its own typed payload. The structure is closed per ki
 
 The disambiguation rule: if the argument **contains a path separator** (`/` or `\`) **or** ends in `.lzi` **or** is `.` **or** points to an existing file/directory, it is treated as path mode. Otherwise, symbol mode. This is encoded once in `inspect_command` (§9 Cell C.1) and tested.
 
+**Tradeoff — bare-name vs feature-named directory.** When a user runs `lazuli inspect host` inside a project where `features/host/` exists, the path-wins rule kicks in: the existing `host` directory is path-mode. Users who want the **feature object** `host` (in symbol mode) must qualify (`host.Host`) or use an explicit subcommand that doesn't exist yet (`lazuli inspect --symbol host`, tracked as a polish item). The path-wins choice is deterministic and matches the principle "filesystem state shadows abstract symbols" — but it does mean bare-name `inspect <feature>` is ambiguous when the feature owns a directory of the same name. The proposal accepts this tradeoff; an explicit `--symbol` flag is a future polish if user friction surfaces.
+
 ### §5.4 Error shapes
 
 `lazuli inspect host.Banana` where `Banana` doesn't exist anywhere:
@@ -504,13 +506,16 @@ pub struct ImportEdge {
     pub uses_at: SourceLocation,
 }
 
+// NOTE: `tower_lsp::lsp_types::SymbolKind` already exists in `crates/lazuli_lsp/src/lib.rs:13`.
+// Downstream LSP consumers MUST disambiguate via `use lazuli_ir::SymbolKind as IrSymbolKind;`
+// at the import site. We do NOT rename the IR type — `SymbolKind` is the canonical name in IR scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolKind {
     Enum,
     Resource,
     Record,
-    Scalar,      // reserved; populated post-L0 #4 scalar aliases
+    Scalar,      // reserved; populated once L0 #4 ships scalar aliases per `project_validation_strategy_2026-05-14`. Until then, every `Scalar` instance in the index represents a future L0 #4 promotion site — flagged but not yet shipped.
     Semantic,    // built-in `@semantic.*` types. Closed catalog at `docs/canonical-semantics.md` §Reference Namespaces — Email, Phone, Url, Uuid, Currency, GeoPoint, Money (core); locale plugins (e.g. `@plugin/scalars-br`) add BrazilianCPF / BrazilianCNPJ / BrazilianCEP via the same kind.
     Command,
     Query,

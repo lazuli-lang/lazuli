@@ -256,6 +256,15 @@ Today `crates/lazuli_analyzer/src/lib.rs:1301` resolves the bare DSL keyword `"M
 
 This is the only acceptable path for a breaking-semantic-flip of a closed-grammar keyword. Hard-flipping in release N silently changes every downstream DDL — unacceptable. Forking the keyword (`Money2` / `MoneyAware`) is the textbook Rule Zero violation — accepted as the discipline cost.
 
+**Release tagging requirement.** Because `Money` resolves differently between release N and release N+1, the analyzer **must** stamp the resolution behavior into the capsule changelog at each tagged release. Concretely:
+
+- Release N tag: `Money` → `Decimal` (legacy); `VOCAB-MONEY-002` warn fires.
+- Release N+1 tag: `Money` → `SemanticMoney` (currency-aware); `VOCAB-MONEY-002` upgraded to error for un-migrated sites.
+
+Capsule changelog under `.lazuli/changelog/v<N>.md` (regen-only; one file per Lazuli release) records the resolution table verbatim so LLMs trained on either snapshot can reconcile: "in release N my training data, `Money` was decimal; in release N+1 it's currency-aware." Without the explicit tagged record, an LLM produces ungrammatical code for whichever release it doesn't know.
+
+This release-tagging requirement is **not** Lazuli-specific tooling — `cargo`, `pnpm`, every package manager carries the same problem. Lazuli's contribution is to make the resolution table machine-readable by codegen + audit-skill, so the agent reading the IR or the doctor catalog at any tag knows which resolution applies.
+
 #### Migration of existing `cents: Integer` columns
 
 Per `docs/proposals/migrations.md` (when authored — for now, follows the existing `lazuli plan` workflow):

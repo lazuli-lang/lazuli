@@ -1,6 +1,6 @@
 # Proposal — Audit-Skill MVP (Portable Lint Bundle for User LLMs)
 
-**Status:** L0 v0.2 DRAFT — 2026-05-16 (v0.1 BLOCK 7.83/10 via `lazuli-language-architect`; v0.2 applies 4 blockers: catalog state re-anchored from 11→13 rules including `VOCAB-HANDLER-HEAVY-001` + `VOCAB-TESTS-MISSING-001` already shipped this wave; LIMITATIONS.md admits handler-heavy raw-text false-negative class; tests-missing inclusion rationale corrected; D.2 cell sequencing locked serial)
+**Status:** L0 v0.3 PASS 8.93/10 (2026-05-16) via `lazuli-language-architect`. See §11 Revision history for the v0.1 → v0.2 → v0.3 trail.
 **Author:** Claude Opus 4.7 (orchestrator)
 **Audit-ready target:** ≥ 9.0 via `lazuli-language-architect`
 **Driver:** Cement the existing doctor vocab catalog as a portable artifact users can run inside their own LLM harness against their own `.lzi` capsules. Hostpoint capsule (`c:/Users/lucas/hostpoint/app/features/`) is the calibration corpus.
@@ -266,7 +266,7 @@ Thirteen rules. All mirror the existing doctor catalog at [crates/lazuli_doctor/
 | 9 | `VOCAB-JSON-TYPED-001` | [vocab_json_typed_001.rs](crates/lazuli_doctor/src/vocab/vocab_json_typed_001.rs) | Resource has `JSON` field + sibling closed-catalog enum that is not referenced anywhere. | warning |
 | 10 | `VOCAB-UNION-001` | [vocab_union_001.rs](crates/lazuli_doctor/src/vocab/vocab_union_001.rs) | Resource has enum + correlated-optional-fields (variant-name prefix heuristic) — should be a `union`. | warning |
 | 11 | `VOCAB-UNION-002` | [vocab_union_002.rs](crates/lazuli_doctor/src/vocab/vocab_union_002.rs) | Polymorphic FK pair (`target: Enum + target_id: ID`) — should be a discriminated union with typed FKs per variant. | warning/error |
-| 12 | `VOCAB-HANDLER-HEAVY-001` | [vocab_handler_heavy_001.rs](crates/lazuli_doctor/src/vocab/vocab_handler_heavy_001.rs) | Feature with ≥3 commands and ≥70% routing through `@fn`-style handlers (IR detection via `Command.effect` / `external_calls` / `Expr::Path`). Raw-text MVP has acknowledged false-negative class — see `LIMITATIONS.md`. | warning |
+| 12 | `VOCAB-HANDLER-HEAVY-001` | [vocab_handler_heavy_001.rs](crates/lazuli_doctor/src/vocab/vocab_handler_heavy_001.rs) | Feature with ≥3 commands and ≥70% routing through `@fn`-style handlers (vs declarative `creates`/`updates`/`deletes`/`returns`). Raw-text MVP has acknowledged false-negative class — see Note below + `LIMITATIONS.md`. | warning |
 | 13 | `VOCAB-TESTS-MISSING-001` | [vocab_tests_missing_001.rs](crates/lazuli_doctor/src/vocab/vocab_tests_missing_001.rs) | Feature declares resources or commands but zero `test` blocks anywhere in the feature. Shipped v0 is the simple form (no opt-out parsing yet; no git-touched filter). Raw-text grep for `test ` block opens is feasible. | warning |
 
 **Note on `VOCAB-LIFECYCLE-001`:** the orphan file at [vocab_lifecycle_001.rs](crates/lazuli_doctor/src/vocab/vocab_lifecycle_001.rs) exists in the crate but is NOT declared in `mod.rs` (`crates/lazuli_lsp/src/lib.rs:15449-15452` documents this as "pending extraction wave"). Therefore it's not a shipped rule today, and out of MVP scope by definition. When the wire-up cell lands, this rule joins the MVP catalog only if its detection is feasible on raw text (uncertain — the rule needs a structural pass over multiple commands).
@@ -351,7 +351,7 @@ The MVP and the full bundle share a name and an audience. They diverge in everyt
 | LSP integration | None — skill body is the only surface | LSP `textDocument/hover` serves projected doc inline per memory §"The architecture" |
 | Ships | This wave (≈ 1-week effort) | Post-pilot stabilization + 11 pre-conditions resolved (multi-month effort) |
 
-The MVP **does not block** the full bundle and **does not preempt** any of its design decisions. When v2 ships, the MVP bundle is regenerated from the projector and replaced; the `skills/audit/` directory moves from hand-curated to projection target.
+The MVP **does not block** the full bundle and **does not preempt** any of its design decisions. When v2 ships, the projector regenerates `RULES.md` from the IR; `SKILL.md`, `INVOCATION.md`, and `LIMITATIONS.md` move from hand-curated to projector-emitted. **`EXAMPLES/*.lzi` stays as the snapshot-test corpus** — those 13 snippets are user-authored fixtures the snapshot test (`crates/lazuli_doctor/tests/examples_snapshot.rs`) drives against `lazuli doctor` to assert per-rule fidelity. They are NOT IR-projectable (they're inputs, not outputs of the projector), so v2's projector regenerates `RULES.md` only; `EXAMPLES/` is untouched.
 
 ---
 
@@ -458,3 +458,11 @@ This proposal must NOT introduce boundary violations. Quick check:
 - **Lazuli runtime mechanics pushed into the language layer?** No — the MVP touches `skills/` and `docs/` only; zero Rust crate changes; zero runtime changes.
 
 Boundary clean. Ready for `lazuli-language-architect` grade.
+
+---
+
+## §11. Revision history
+
+- **v0.1 (2026-05-16)** — BLOCK 7.83/10. Four blockers: catalog state mis-anchored (11 rules quoted; reality 13); handler-heavy raw-text infeasibility hand-waved; tests-missing deferral rationale dead (the shipped rule was simpler than assumed); D.2 cell sequencing contradiction.
+- **v0.2 (2026-05-16)** — BLOCK 8.34/10. B2/B3/B4 PASS; B1 residual text-drift in 5 spots (§3.1, §7, §8 D.4, §9.1 head, §9.1 file list still on the 11/12 counts).
+- **v0.3 (2026-05-16)** — **PASS 8.93/10**. All 5 residual drift spots swept; P1 LIMITATIONS extension template added; P2 D.4 CI gating decision committed; P3 SKILL.md surfaces per-rule false-negative classes explicitly.
