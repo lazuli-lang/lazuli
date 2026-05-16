@@ -294,6 +294,6 @@ The IR JSON is `Module`. Two **sidecars** ride alongside Module without being em
 
 - **`SourceMap`** — `SpanRef` byte offsets → `(file, line, column)`. Serialized to `<module>.sourcemap.json` when `--with-source` is set. Embedded in `Module` would inflate every snapshot test linearly with the number of `SpanRef` use sites.
 
-- **`SymbolOriginIndex`** — per-feature symbol declarations + import edges. Built by `lazuli_analyzer::build_symbol_origin_index(module, source_map)`. Keys on the `symbols` map are formatted `<feature>.<name>` so the JSON serializes without custom adapters. Consumed by `lazuli inspect <qualified-symbol>` (per `docs/proposals/lsp-symbol-origin.md`), future LSP hover handlers, and the v2 audit-skill bundle. EXPERIMENTAL: shape may grow additive fields before 1.0.
+- **`SymbolOriginIndex`** — per-feature symbol declarations + import edges. Built by `lazuli_analyzer::build_symbol_origin_index(module, source_map)`. Keys on the `symbols` map are formatted `<feature>.<name>` so the JSON serializes without custom adapters. Consumed by `lazuli inspect <qualified-symbol>` (per the `lsp-symbol-origin` proposal (operational archive)), future LSP hover handlers, and the v2 audit-skill bundle. EXPERIMENTAL: shape may grow additive fields before 1.0.
 
 Sidecars are versioned with the IR schema (`LZIR_SCHEMA`) but ship separately to avoid cascading JSON size + snapshot churn. Adding a new sidecar follows the same closed-grammar discipline as the IR — new types are an additive change, never destructive.

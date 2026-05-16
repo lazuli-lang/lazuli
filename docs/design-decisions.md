@@ -310,7 +310,7 @@ command.<name>` inherits effect from the command). Authors signal
 intent by *which* tools they list; doctor cross-checks policy
 compatibility and write-tool guarding against `safety`.
 
-**Where**: proposal `docs/proposals/ai-primitives-v0.md` §A1. IR:
+**Where**: proposal the `ai-primitives-v0` proposal (operational archive) §A1. IR:
 `Agent.tools[].resolved_effect: Option<ToolEffect>` populated only by
 the inspect expand pass.
 
@@ -367,7 +367,7 @@ catalogues whatever `expose http method` / `api method` declare and
 serves those on the matching path. Declaring methods in CORS would
 create a contradiction surface that doctor must reconcile.
 
-**Where**: proposal `docs/proposals/ai-primitives-cut-a-11.md`. IR:
+**Where**: proposal the `ai-primitives-cut-a-11` proposal (operational archive). IR:
 `AppManifest.cors: Option<AppCors>`, `AppCors`, `AppCorsOriginRule`.
 Doctor diagnostics `cors_unknown_environment_diagnostics`,
 `cors_credentials_wildcard_conflict_diagnostics`,
@@ -401,7 +401,7 @@ A multi-write-tool agent may use a mix: some tools guarded by
 when the command's nature makes per-dispatch approval inappropriate.
 Doctor reports which guard satisfied each binding.
 
-**Where**: proposal `docs/proposals/ai-primitives-cut-a-9.md`. Doctor
+**Where**: proposal the `ai-primitives-cut-a-9` proposal (operational archive). Doctor
 diagnostics `approval_role_unresolved_diagnostics`,
 `approval_timeout_invalid_diagnostics`, `approval_contract_diagnostics`,
 plus the `agent_tool_write_unguarded_diagnostics` extension. LSP
@@ -439,7 +439,7 @@ adapter to carry exchange-rate state. Adapters that bill in non-USD
 convert at observation. This is a scoped exception to the project-wide
 `@semantic.Money` discipline; do not generalize.
 
-**Where**: proposal `docs/proposals/ai-primitives-cut-a-8.md`. IR:
+**Where**: proposal the `ai-primitives-cut-a-8` proposal (operational archive). IR:
 `built_in_trace_events()`, `BuiltInTraceEvent`, `BuiltInTraceRecord`,
 `TraceFiresPer`, `is_reserved_trace_event_name`. Doctor diagnostics
 `event_trace_reserved_name_diagnostics` (also fires file-local in LSP)
@@ -469,8 +469,8 @@ within a single file plus slot-binding mistakes (path placeholder
 without a matching `route`, or declared as `input` instead of
 `route`).
 
-**Where**: proposal `docs/proposals/ai-primitives-cut-a-7.md`; plan
-`docs/proposals/ai-primitives-cut-a-7-implementation.md`. IR:
+**Where**: proposal the `ai-primitives-cut-a-7` proposal (operational archive); plan
+the `ai-primitives-cut-a-7-implementation` proposal (operational archive). IR:
 `Agent.expose_http: Option<HttpExposure>`. Doctor diagnostics
 `agent_expose_path_conflict_cross_feature_diagnostics`,
 `agent_expose_audience_unknown_diagnostics`. LSP diagnostics
@@ -533,7 +533,7 @@ construct keyword does not appear.
 1. `docs/invariants.md` — the rules.
 2. `docs/design-decisions.md` *(this file)* — why apparent dual forms are
    not friction.
-3. `docs/next-checklist.md` — what's done, what's tracked.
+3. the operational next-checklist — what's done, what's tracked.
 4. `crates/lazuli_lsp/src/lib.rs` keyword catalog — the closed list of
    keywords the language accepts.
 5. `examples/full-capsule/` — the canonical fixture, after the docs.

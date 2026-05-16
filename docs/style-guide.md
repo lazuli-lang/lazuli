@@ -251,7 +251,7 @@ command archive
     status = CustomerStatus.archived
 ```
 
-**Doctor enforcement**: `VOCAB-LIFECYCLE-001` (deferred — lands with the lifecycle vocab proposal; see `docs/proposals/lifecycle-vocab.md` v0.3 and `docs/proposals/doctor-vocabulary-lints.md` §VOCAB-LIFECYCLE-001). Will fire when a feature declares ≥ 3 commands that all update the same resource's discriminator field with a constant value drawn from one enum.
+**Doctor enforcement**: `VOCAB-LIFECYCLE-001` (deferred — lands with the lifecycle vocab proposal; see the `lifecycle-vocab` proposal (operational archive) v0.3 and the `doctor-vocabulary-lints` proposal (operational archive) §VOCAB-LIFECYCLE-001). Will fire when a feature declares ≥ 3 commands that all update the same resource's discriminator field with a constant value drawn from one enum.
 
 ---
 
@@ -302,7 +302,7 @@ resource Customer
 | `revenue: @semantic.Money`                    | `revenue: Decimal` + currency comment  |
 | `tax_id: @semantic.BrazilianCPF @pii.legal_id` | `tax_id: Text validates @validator.is_cpf` |
 
-**Doctor enforcement**: `VOCAB-SEMANTIC-001` family in `docs/proposals/doctor-vocabulary-lints.md` (§VOCAB-SEMANTIC-PERCENT-001 is the template; per-type variants land alongside their semantic). `INLINE-VALIDATOR-TYPE-MISMATCH` (`docs/invariants.md:471`) rejects inline constraint keywords applied to the wrong base type.
+**Doctor enforcement**: `VOCAB-SEMANTIC-001` family in the `doctor-vocabulary-lints` proposal (operational archive) (§VOCAB-SEMANTIC-PERCENT-001 is the template; per-type variants land alongside their semantic). `INLINE-VALIDATOR-TYPE-MISMATCH` (`docs/invariants.md:471`) rejects inline constraint keywords applied to the wrong base type.
 
 ---
 
@@ -370,7 +370,7 @@ query.sql lifetime_value
 
 The style guide does NOT cover:
 
-- **Naming conventions for handler files**. `handlers/<fn>.go` and `domain/<fn>.go` paths are normative in `docs/project-structure.md` and `docs/proposals/lazurite-scaffold.md`; this guide does not duplicate them.
+- **Naming conventions for handler files**. `handlers/<fn>.go` and `domain/<fn>.go` paths are normative in `docs/project-structure.md` and the `lazurite-scaffold` proposal (operational archive); this guide does not duplicate them.
 - **Indent unit (tabs vs spaces, 2 vs 4)**. The grammar lexer fixes the unit from the file's first indent (`docs/grammar.lzi.md` §1.2); `lazuli fmt` normalizes to two spaces.
 - **Commit-message style and PR descriptions**. Authoring discipline (Co-Authored-By trailers, message format, grading discipline) lives in `CLAUDE.md` / `AGENTS.md`.
 - **Generated code conventions**. `dist/go/*.go` and `dist/ts-*/` are derived; nothing in this guide applies to them.
@@ -386,8 +386,8 @@ The style guide does NOT cover:
 - `docs/grammar.lzi.md` — Parser-shaped grammar reference; reserved-word catalog.
 - `docs/error-contract.md` — Generated error kinds and source mapping.
 - `docs/scope-discipline.md` — 80/20 framework boundary; locale-specific scalars and per-vendor adapters live in plugins, not core.
-- `docs/proposals/doctor-vocabulary-lints.md` — `VOCAB-*` rule catalog (`VOCAB-UNION-001`, `VOCAB-DERIVED-READ-001`, `VOCAB-LIFECYCLE-001`, `VOCAB-AUDIT-001`, `VOCAB-EVENT-PAYLOAD-001`, `VOCAB-SEMANTIC-PERCENT-001`, plus deferred entries).
-- `docs/proposals/lifecycle-vocab.md` — Canonical `lifecycle` form; replaces hand-rolled transition commands.
-- `docs/proposals/semantic-types-money-brazilian.md` — Plugin-contributed semantic type pattern (`@plugin/scalars-<locale>`).
-- `docs/next-checklist.md` — Tracked follow-up lints (`VOCAB-HANDLER-HEAVY-001`, `VOCAB-TESTS-MISSING-001`).
+- the `doctor-vocabulary-lints` proposal (operational archive) — `VOCAB-*` rule catalog (`VOCAB-UNION-001`, `VOCAB-DERIVED-READ-001`, `VOCAB-LIFECYCLE-001`, `VOCAB-AUDIT-001`, `VOCAB-EVENT-PAYLOAD-001`, `VOCAB-SEMANTIC-PERCENT-001`, plus deferred entries).
+- the `lifecycle-vocab` proposal (operational archive) — Canonical `lifecycle` form; replaces hand-rolled transition commands.
+- the `semantic-types-money-brazilian` proposal (operational archive) — Plugin-contributed semantic type pattern (`@plugin/scalars-<locale>`).
+- the operational next-checklist — Tracked follow-up lints (`VOCAB-HANDLER-HEAVY-001`, `VOCAB-TESTS-MISSING-001`).
 - `examples/full-capsule/full-capsule.lzi` — Canonical fixture cited throughout this guide.

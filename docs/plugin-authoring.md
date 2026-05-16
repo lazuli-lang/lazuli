@@ -260,7 +260,7 @@ the product port reaches that phase.
 
 Design emitter plugins extend the `design.lzi` token pipeline introduced
 by L0 #2 (Design Tokens, commit `20d8413`) beyond the universal emitters
-described in `docs/proposals/design-tokens.md` §4. Lazuli core ships
+described in the `design-tokens` proposal (operational archive) §4. Lazuli core ships
 five emitters because every product needs at least one of them: web
 `tokens.ts`, `tokens.css`, `tailwind.gen.ts`, `tailwind.theme.css`, and
 mobile `tokens.ts`. Anything beyond that — Figma sync, Style Dictionary,

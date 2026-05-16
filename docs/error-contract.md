@@ -57,7 +57,7 @@ The message in a `rule` is user-facing unless an adapter overrides localization.
 
 ## CLI inspect symbol-mode (`lazuli inspect <qualified-symbol>`)
 
-Per `docs/proposals/lsp-symbol-origin.md` §5.4. When the inspect CLI is invoked in symbol-mode (per §5.3 lexical disambiguation), lookup failures are emitted as a soft error envelope on stdout with `exit 0`. Hard errors (parse failure on the module, IO error reading `.lzi` files) exit non-zero with stderr context.
+Per the `lsp-symbol-origin` proposal (operational archive) §5.4. When the inspect CLI is invoked in symbol-mode (per §5.3 lexical disambiguation), lookup failures are emitted as a soft error envelope on stdout with `exit 0`. Hard errors (parse failure on the module, IO error reading `.lzi` files) exit non-zero with stderr context.
 
 Symbol-mode error codes:
 
@@ -91,7 +91,7 @@ Soft-error exit policy matches `lazuli doctor` — findings are data, not failur
 
 ## Cross-feature contract diagnostics
 
-Per `docs/proposals/cross-feature-contracts.md` §7. All three rules are gated on `architecture mode microservices`; capsules under `monolith` / `modular_monolith` see no findings from these rules. Module placement: `crates/lazuli_doctor/src/cross_feature/`.
+Per the `cross-feature-contracts` proposal (operational archive) §7. All three rules are gated on `architecture mode microservices`; capsules under `monolith` / `modular_monolith` see no findings from these rules. Module placement: `crates/lazuli_doctor/src/cross_feature/`.
 
 | Code | Severity | Trigger | Resolution |
 |---|---|---|---|
@@ -101,7 +101,7 @@ Per `docs/proposals/cross-feature-contracts.md` §7. All three rules are gated o
 
 ## `.lzx` surface diagnostics
 
-Per `docs/proposals/mobile-target.md` §9. The catalog of `lzx-*` rules is target-aware: each surface's `target` field (`"web"` or `"mobile"`) drives the directory the rule expects to find. Module placement: `crates/lazuli_cli/src/doctor/lzx/`.
+Per the `mobile-target` proposal (operational archive) §9. The catalog of `lzx-*` rules is target-aware: each surface's `target` field (`"web"` or `"mobile"`) drives the directory the rule expects to find. Module placement: `crates/lazuli_cli/src/doctor/lzx/`.
 
 | Code | Severity | Trigger | Resolution |
 |---|---|---|---|

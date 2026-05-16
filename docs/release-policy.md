@@ -10,7 +10,7 @@ authors, and any consumer of the IR JSON ABI.
 ## Why this exists
 
 Under the AI-100x cost assumption (see
-`docs/proposals/bucket-ai-debug-loop-cycle.md`), each release that quietly
+the `bucket-ai-debug-loop-cycle` proposal (operational archive)), each release that quietly
 breaks a surface the AI learned to author burns cache that costs real
 money to rebuild. Hand-written languages absorb this via community
 long-tail. Lazuli does not have that long-tail yet — the only mitigation we
@@ -210,5 +210,5 @@ from `LZIR_SCHEMA`:
 ## Revision history
 
 - 2026-05-13: initial draft. Triggered by
-  `docs/proposals/bucket-ai-debug-loop-cycle.md` proposal needing a
+  the `bucket-ai-debug-loop-cycle` proposal (operational archive) proposal needing a
   stable reference for D10 (versioning + auto-migrator).

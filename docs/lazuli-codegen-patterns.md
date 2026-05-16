@@ -123,7 +123,7 @@ The emitter must:
 
 ## 9. Typed IR assumptions
 
-Rows 60-69 of `docs/next-checklist.md` establish the input contract:
+Rows 60-69 of the operational next-checklist establish the input contract:
 
 - Commands, resources, queries, records, APIs, policies, enums, and
   external calls are typed IR; no Tier 4 text-pattern walker remains.

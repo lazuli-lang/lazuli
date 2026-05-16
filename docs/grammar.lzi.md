@@ -2,7 +2,7 @@
 
 **Status**: Reference grammar for `.lzi` files in canonical indentation form
 (the v0 target). Includes the AI primitives Cut A from
-`docs/proposals/ai-primitives-v0.md` (`tools` child of `agent`,
+the `ai-primitives-v0` proposal (operational archive) (`tools` child of `agent`,
 discriminated `output`, `evals` block).
 
 This file is a normative artifact. Where this grammar disagrees with
@@ -235,7 +235,7 @@ resource_body     = ( previously_clause
 previously_clause = "previously" ( "migrated" | "alias" ) IDENT_LOWER NEWLINE ;
 
 (* Cross-feature contract annotation. Appears IMMEDIATELY ABOVE the
-   declaration of <Symbol>. See docs/proposals/cross-feature-contracts.md
+   declaration of <Symbol>. See the `cross-feature-contracts` proposal (operational archive)
    §5.1. Compound keyword `public contract` enters the closed reserved
    word set; `public` has no other use. The version monotonically
    increases per symbol. *)

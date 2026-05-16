@@ -156,7 +156,7 @@ adapter_body      = ( "name" adapter_ref NEWLINE
 ## 8. Tools registry (Cut A)
 
 This section reflects the proposal in
-`docs/proposals/ai-primitives-v0.md` Cut A (registry-side IR
+the `ai-primitives-v0` proposal (operational archive) Cut A (registry-side IR
 extension). It will move from "proposal" to "shipped" when Cut A
 implementation lands.
 

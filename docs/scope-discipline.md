@@ -43,7 +43,7 @@ Closed-catalog primitives shared across virtually every production-grade backend
 - **Observability** (tracing, logging, audit).
 - **Auth** (session, password, MFA basics).
 
-Anything in this catalog is **the framework's responsibility**. New entries enter only when they (a) generalize to ≥3 distinct app shapes and (b) survive the architect-grading rubric (≥ 8.5 / no dim < 7 per `docs/proposals/`-style proposal).
+Anything in this catalog is **the framework's responsibility**. New entries enter only when they (a) generalize to ≥3 distinct app shapes and (b) survive the architect-grading rubric (≥ 8.5 / no dim < 7) via an architect-graded proposal in the operational archive.
 
 ### What apps own (the specific 20%)
 
@@ -131,7 +131,7 @@ The boundary is not frozen. Things can graduate **into** the framework when:
 1. **Pilot evidence shows generalization**: ≥3 distinct downstream apps independently produce the same workaround pattern, in shapes that compose. (One app's pressure is not enough; that's the most common mistake.)
 2. **The workaround in escape hatches is visibly painful**: not "we could do it in a handler" but "every consumer is duplicating the same 200 LOC handler with the same bugs."
 3. **A clean closed-catalog form exists**: the abstraction passes the cold-readability test (an LLM or a new contributor can author it from the surface alone, without reading framework internals).
-4. **An architect-graded proposal lands**: `docs/proposals/<name>.md` ≥ 8.5 with no dimension < 7. See `feedback_grade_before_commit.md`.
+4. **An architect-graded proposal lands**: the `<name>` proposal (operational archive) ≥ 8.5 with no dimension < 7. See `feedback_grade_before_commit.md`.
 
 Conversely, things can be **demoted out** of the framework when:
 
@@ -154,5 +154,5 @@ If a proposal feels like it's chasing a specific client's specifics — even our
 - `docs/design-principles.md` — Rule Zero ("Vocabulary Over Mechanism").
 - `docs/invariants.md` — closed grammar/IR catalogs.
 - `docs/plugin-authoring.md` — how to ship a plugin.
-- `docs/proposals/production-readiness.md` — meta-roadmap with status per gap (framework / plugin / handler).
-- Per-feature proposals in `docs/proposals/*-vocab.md` — examples of architect-graded scope decisions.
+- the `production-readiness` proposal (operational archive) — meta-roadmap with status per gap (framework / plugin / handler).
+- Per-feature proposals in the `*-vocab` proposal (operational archive) — examples of architect-graded scope decisions.

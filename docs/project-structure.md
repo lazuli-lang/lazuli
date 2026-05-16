@@ -178,7 +178,7 @@ Doctor emits `MANIFEST-REQUIRED-001` when `.lzi` references `@plugin/*` but
 the manifest is missing. Fixture suites used only for codegen testing
 (no `@plugin/*` refs) may omit the manifest entirely.
 
-See `docs/proposals/lazurite-scaffold.md` for the full schema and rationale.
+See the `lazurite-scaffold` proposal (operational archive) for the full schema and rationale.
 
 ## Generated
 

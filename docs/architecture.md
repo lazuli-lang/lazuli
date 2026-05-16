@@ -2,9 +2,9 @@
 
 This document records the high-level architectural decisions for Lazuli's
 implementation phase. The language layer (DSL syntax, IR, doctor, LSP,
-inspect) reached a stable plateau at audit score 8.87 across three
-consecutive panel runs. This doc captures the thinking that shapes the
-runtime layer we now begin to build.
+inspect) has reached a stable plateau, consistently grading ≥ 8.5 against
+the AI-first rubric across multiple panel runs. This doc captures the
+thinking that shapes the runtime layer we now build on top.
 
 It is the prerequisite reading before any work in `runtime/go/`,
 `runtime/ts/`, `crates/lazuli_codegen_go/`, or `crates/lazuli_codegen_ts/`.
@@ -207,7 +207,7 @@ concern is central to the DSL".
 | Server state | TanStack Query | Shared with web via the universal `@lazuli/runtime/react` entrypoints. |
 | Runtime resolution | Single `@lazuli/runtime` package; `react-native` exports condition selects `react.native.ts` on Metro, `react.web.ts` everywhere else. | Emitter stays target-agnostic — `package.json` does the work, not codegen. |
 | Persistence hook | `useLocalSetting` with `AsyncStorage` body (web body uses `localStorage` + `useSyncExternalStore`). | First-render contract differs across platforms; documented in the hook's JSDoc and pinned by an exports-parity test. |
-| Components | React Native primitives in scaffolded view files (Tamagui / shadcn-rn / etc. authored by the user). | Lazuli does not opt into a single RN component library — see `docs/proposals/mobile-target.md` §5.3. |
+| Components | React Native primitives in scaffolded view files (Tamagui / shadcn-rn / etc. authored by the user). | Lazuli does not opt into a single RN component library — see the `mobile-target` proposal (operational archive) §5.3. |
 | Reference fixture | `examples/marketplace-mini-mobile/` | multi-tenant marketplace buyer audience + catalog/booking features. |
 
 ### What we are explicitly **not** bringing into v0

@@ -25,7 +25,7 @@ source that only fails later.
   `plan` catalog. The two never collide syntactically: `gate` is a child
   keyword of a callable, never of `deploy`; `deploy` does not accept a
   `gate` child. Doctor `PLAN-FEATURE-UNDECLARED-001` and friends only fire
-  inside callable bodies. See `docs/proposals/plan-and-gate-vocab.md`.
+  inside callable bodies. See the `plan-and-gate-vocab` proposal (operational archive).
 - Top-level `.lzi workspace` is optional and owns distributed-system contracts:
   local app entrypoints, external service contracts, shared registry path,
   event publication/consumption edges, context propagation defaults, and public
@@ -280,7 +280,7 @@ source that only fails later.
 - The doctor enforces this only under `architecture mode microservices`;
   capsules under `monolith` / `modular_monolith` compile unchanged.
   Cross-feature contract violations surface at compile time, not at
-  runtime. See `docs/proposals/cross-feature-contracts.md` §4.
+  runtime. See the `cross-feature-contracts` proposal (operational archive) §4.
 - The compound `public contract` keyword is in the closed reserved-word
   set; `public` has no other use. Versioning is monotonic per symbol;
   the existing `previously alias` / `previously migrated` clauses carry

@@ -93,7 +93,7 @@ Compute the weighted average → that's the **score**. Then apply:
 | Condition | Verdict |
 |---|---|
 | Score ≥ 8.5 **and** no criterion below 7 | **PASS** (ship as-is) |
-| Score ≥ 8.5 **but** at least one criterion below 7 | **PASS with notes** (ship; log the weak criterion as a tracked cut in `docs/next-checklist.md`) |
+| Score ≥ 8.5 **but** at least one criterion below 7 | **PASS with notes** (ship; log the weak criterion as a tracked cut in the operational next-checklist) |
 | Score < 8.5 **or** any criterion below 6 | **BLOCK** (do not publish; resolve the weak criterion first) |
 
 **Boundary violations always block, regardless of score.** A
@@ -132,7 +132,7 @@ line; do not log as a tracked cut.
 - path:line — 1-line description — what it would unlock.
 
 ### Tracked cuts (if PASS with notes)
-- Suggested rows for `docs/next-checklist.md`.
+- Suggested rows for the operational next-checklist.
 ```
 
 Don't editorialize the output. The rubric is the editorial.
@@ -182,7 +182,7 @@ isn't ready for the architect.
 These are real grades from past architect reviews, kept for
 calibration.
 
-### Example 1 — `docs/proposals/ai-primitives-v0.md` (first pass)
+### Example 1 — the `ai-primitives-v0` proposal (operational archive) (first pass)
 
 > **Verdict**: BLOCK as one cut. Weighted score 7.6.
 >
@@ -198,7 +198,7 @@ calibration.
 Lesson: a 7.6 weighted with three sub-7 axes blocks. The fix is
 not raising the weighted; it's raising the floors.
 
-### Example 2 — `docs/proposals/ai-primitives-v0.md` (second pass)
+### Example 2 — the `ai-primitives-v0` proposal (operational archive) (second pass)
 
 > **Verdict**: APPROVE.
 >

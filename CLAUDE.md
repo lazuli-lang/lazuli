@@ -52,7 +52,7 @@ Two namespaces, strict separation:
 
 ## Grade-before-commit for proposals
 
-Every design proposal (`docs/proposals/*.md`) goes through grading against the AI-first rubric in [`docs/grading-rubric.md`](docs/grading-rubric.md) before commit.
+Every design proposal (the operational proposal archive) goes through grading against the AI-first rubric in [`docs/grading-rubric.md`](docs/grading-rubric.md) before commit.
 
 Pattern:
 1. Write the proposal draft.
@@ -90,7 +90,7 @@ features/<feature>/
 
 contracts/<service>.lzi   # External service contracts
 i18n/common.<locale>.json # App-wide translation catalogs
-lazurite.toml             # Workspace manifest (distros use distro-named TOML)
+Lazurite.toml             # Workspace manifest (distros use distro-named TOML)
 ```
 
 ### Generated (gitignored unless committed deliberately)
@@ -106,18 +106,18 @@ dist/ts-<frontend>/       # Generated TS SDK per frontend (audience-scoped)
 - `.tmpl` files in scaffold templates use `{{app_name}}` / `{{module}}` placeholders; codegen uses Go `text/template` `{{.Field}}` syntax for runtime templates.
 - `dist/` is never user-edited. Regen overwrites; do not commit edits.
 
-See: [`docs/project-structure.md`](docs/project-structure.md), [`docs/proposals/lazurite-scaffold.md`](docs/proposals/lazurite-scaffold.md) §3 + §3.3.
+See: [`docs/project-structure.md`](docs/project-structure.md), the `lazurite-scaffold` proposal (operational archive) §3 + §3.3.
 
 ---
 
 ## Lazuli vs Lazurite vocabulary
 
 - **Lazuli** = the framework. Language (`.lzi`/`.lzx`) + IR + compiler (Rust crates in `crates/`) + Go runtime lib (`runtime/go/lazuli/`) + CLI (`lazuli` binary).
-- **Lazurite** = the opinionated distribution on top of Lazuli. Folder conventions + `lazurite.toml` manifest + `lazuli new` template body. **One distro currently shipped** but the design space supports others.
+- **Lazurite** = the opinionated distribution on top of Lazuli. Folder conventions + `Lazurite.toml` manifest + `lazuli new` template body. **One distro currently shipped** but the design space supports others.
 
 A future distro (Lazonyx for ERP, Lazpipe for automation, etc.) **cannot add language mechanisms**. New `@-namespace`, new `kind` keyword, new escape-hatch → must enter Lazuli language first, then distros adopt. Same rule that prevents Nuxt modules from extending the Vue compiler.
 
-See: [`docs/architecture.md`](docs/architecture.md) §"Lazuli vs Lazurite", [`docs/proposals/lazurite-scaffold.md`](docs/proposals/lazurite-scaffold.md) §3.3.
+See: [`docs/architecture.md`](docs/architecture.md) §"Lazuli vs Lazurite", the `lazurite-scaffold` proposal (operational archive) §3.3.
 
 ---
 
@@ -164,5 +164,5 @@ Ask: "could a Lazuli project still function if the Lazuli Go runtime was replace
 - Read [`docs/architecture.md`](docs/architecture.md) end-to-end.
 - Read [`docs/invariants.md`](docs/invariants.md) for the closed grammar/IR constraints.
 - Read [`docs/design-principles.md`](docs/design-principles.md) — Rule Zero ("Vocabulary Over Mechanism") is the most-cited principle in design decisions.
-- Read the relevant [`docs/proposals/<x>.md`](docs/proposals/) if working on the corresponding subsystem.
+- Read the relevant the `<x>` proposal (operational archive) if working on the corresponding subsystem.
 - Read [`docs/grading-rubric.md`](docs/grading-rubric.md) before proposing any language change.

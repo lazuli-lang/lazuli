@@ -1,24 +1,28 @@
 # Lazuli
 
-Lazuli is an experimental application metalinguage for describing product semantics once and compiling them into concrete targets.
-
-The first architecture is intentionally split:
+Lazuli is an **AI-first declarative metalanguage** for product semantics. Author intent once in `.lzi` / `.lzx`, compile to working Go (backend), React (web), and React Native Expo (mobile). The language is designed so an LLM can read source cold and infer intent without external docs, and author source cold given a spec.
 
 ```txt
-Rust  -> compiler, parser, IR, planner, LSP, CLI, MCP
-Go    -> first backend target
-React -> first frontend target
+.lzi/.lzx (intent)  →  IR (typed semantic graph)  →  Go + React + Expo
+        ↑                       ↑
+   you author              compiler owns
 ```
 
-This repository currently contains a small MVP:
+**Lazuli** is the framework: language + IR + Rust compiler + Go/TS runtime libraries + CLI + LSP + MCP server. **Lazurite** is the opinionated distribution on top (folder conventions + `Lazurite.toml` manifest + `lazuli new` template). One distro shipped today; the design space supports others.
 
-- `.lzi` parser
-- semantic IR
-- analyzer with basic validation
-- Go backend code generator
-- TypeScript/React frontend code generator
-- CLI commands for `parse`, `compile`, `init`, and `lsp`
-- VS Code syntax highlighting for `.lzi` and `.lzx`
+## What's in this repo
+
+| Path | What |
+|---|---|
+| `crates/` | Rust workspace — parser, IR, analyzer, doctor, LSP, MCP, code generators, CLI |
+| `runtime/go/lazuli/` | Hand-maintained Go runtime library (wire-thin adapters over Go stdlib + battle-tested libraries) |
+| `runtime/ts/lazuli/` | Hand-maintained TypeScript runtime library (web + native conditional exports) |
+| `editors/vscode/` | VS Code extension (syntax + LSP client) |
+| `examples/` | Canonical fixtures — kitchen-sink + per-feature pressure tests |
+| `lazurite/templates/` | Lazurite distro starter template |
+| `migrations/recipes/` | Version-to-version migration recipes |
+| `skills/audit/` | Portable LLM skill bundle for grading any `.lzi` against the canonical rubric |
+| `docs/` | Framework specification (see [docs/README.md](docs/README.md)) |
 
 ## Example
 
@@ -67,14 +71,13 @@ feature customer
       columns name, email, status
 ```
 
-## Commands
+## CLI
 
 ```bash
 cargo run -p lazuli_cli -- parse examples/crm.lzi
 cargo run -p lazuli_cli -- check examples/full-capsule/full-capsule.lzi --security-profile strict
 cargo run -p lazuli_cli -- compile examples/crm.lzi --out generated/crm
-cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=summary,refs,events,policies,locators,dependencies,security --format=json
-cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=all --format=lazuli
+cargo run -p lazuli_cli -- inspect examples/full-capsule/full-capsule.lzi --expand=all --format=json
 cargo run -p lazuli_cli -- init examples/new-app.lzi
 cargo run -p lazuli_cli -- lsp
 ```
@@ -86,55 +89,43 @@ powershell -ExecutionPolicy Bypass -File tools/generate-fixtures.ps1
 powershell -ExecutionPolicy Bypass -File tools/generate-fixtures.ps1 -Check
 ```
 
-Generated output is written under:
+## Reference fixtures
 
-```txt
-generated/crm/
-  backend/
-  frontend/
-```
+- **`examples/full-capsule/`** — kitchen-sink audit fixture for LLM cold-read. The `.lzi` contract plus sibling `.lzx` experience/projection files for web + mobile + admin + sales.
+- **`examples/marketplace-mini/`** — smaller marketplace shape (`buyer` + `vendor` audiences).
+- **`examples/marketplace-mini-mobile/`** — mobile-target reference (Expo Router scaffold).
+- **`examples/multi-tenant-auth/`** — multi-tenant auth flow (email+password, tenant-scoped sessions, TOTP MFA).
+- **`examples/customer.ctx.md`** — co-located prose context convention.
+- **Pressure fixtures**: `customer-capsule.lzi`, `linear-issue.lzi`, `user-auth.lzi`, `notification.lzi`, `billing.lzi`, `comment.lzi`, `org-team.lzi`, `import-csv.lzi`, `audit-log.lzi`, `field-permissions.lzi`.
 
-## VS Code Syntax Highlighting
+## VS Code extension
 
-The extension lives in `editors/vscode` and is intentionally grammar-only for now.
+Lives in `editors/vscode/`. Grammar-only today (LSP client wiring in progress).
 
 ```bash
 code editors/vscode
 ```
 
-Press `F5` to run it as an Extension Development Host. It opens `examples/customer-capsule.lzi`.
+Press `F5` for an Extension Development Host. Opens `examples/customer-capsule.lzi`. The highlighter follows the canonical indentation-based syntax: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, app/runtime contracts in `app.lzi`, typed routes + projections in `.lzx`, and explicit semantic groups (`domain`, `policies`, `command`, `workflow`, `surface`, `extensions`).
 
-If you have the repository root open instead, `F5` also works; the root launch config points at `editors/vscode`.
+## Working rules for AI agents
 
-The highlighter currently follows the canonical indentation-based Lazuli sketch: blocks by indentation, typed fields with `:`, defaults with `=`, transitions with `->`, app/runtime contracts in `app.lzi`, typed routes and projections in `.lzx`, and explicit semantic groups (`domain`, `policies`, `command`, `workflow`, `surface`, `extensions`). The semantic graph is derived by the compiler. This extension does not start the Lazuli LSP yet.
+[`CLAUDE.md`](CLAUDE.md) (mirrored at [`AGENTS.md`](AGENTS.md)) is the operating manual for any AI agent working in this repo. Read it before substantive work. Highlights:
 
-The fuller syntax fixtures are:
+- **Founding principle**: Lazuli is abstraction; the Lazuli Go runtime is **wire**, not reimplementation. ~10-50 LOC of `import + call` per adapter, never 200-800 LOC of homegrown logic.
+- **Namespace policy**: `@runtime/<name>` for OSS commodity infrastructure; `@plugin/<name>` for vendor SaaS / paid APIs / specific named products (separate repos).
+- **Grade-before-commit**: every design proposal grades against the 10-criterion rubric in [`docs/grading-rubric.md`](docs/grading-rubric.md). Gate at ≥ 8.5 with no individual dimension < 7.
+- **Scope discipline**: see [`docs/scope-discipline.md`](docs/scope-discipline.md). Framework owns generics; specifics live in `@plugin/<name>` or app code. Boundary moves only with ≥ 3-app pilot evidence + an architect-graded proposal.
 
-- `examples/full-capsule/` as the kitchen-sink audit fixture suite for LLM review, split into the `.lzi` contract plus sibling `.lzx` experience/projection files.
-- `docs/quickref.md` is the small context pack to load before asking an agent to edit `.lzi`.
-- `examples/customer.ctx.md` for the co-located prose context convention.
-- `examples/linear-issue.lzi` as a pressure test for state transitions, self references, labels, filters, and custom UI blocks.
-- Additional pressure fixtures:
-  - `examples/user-auth.lzi`
-  - `examples/notification.lzi`
-  - `examples/billing.lzi`
-  - `examples/comment.lzi`
-  - `examples/org-team.lzi`
-  - `examples/import-csv.lzi`
-  - `examples/audit-log.lzi`
-  - `examples/field-permissions.lzi`
+## Documentation
 
-## Design Notes
+[`docs/README.md`](docs/README.md) is the navigation index. Quick paths:
 
-- [Quick reference for agents and authors](docs/quickref.md)
-- [Canonical semantics](docs/canonical-semantics.md)
-- [Language invariants](docs/invariants.md)
-- [Extension points](docs/extension-points.md)
-- [IR ABI](docs/ir-abi.md)
-- [Generation contract](docs/generation-contract.md)
-- [Error contract](docs/error-contract.md)
-- [Project structure](docs/project-structure.md)
-- [Migrations](docs/migrations.md)
-- [Testing strategy](docs/testing-strategy.md)
-- [Language backlog](docs/language-backlog.md)
-- [Validation plan](docs/validation-plan.md)
+- **Starting cold (LLM or human)** → [`docs/quickref.md`](docs/quickref.md), then [`docs/canonical-semantics.md`](docs/canonical-semantics.md) for the full spec.
+- **Writing tools / alternative implementations** → [`docs/invariants.md`](docs/invariants.md) (enforceable contract) + [`docs/ir-abi.md`](docs/ir-abi.md).
+- **Authoring a plugin** → [`docs/plugin-authoring.md`](docs/plugin-authoring.md).
+- **Grading your own `.lzi`** → drop [`skills/audit/`](skills/audit/) into your Claude Code skills and run the audit.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

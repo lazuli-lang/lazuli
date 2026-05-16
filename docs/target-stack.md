@@ -136,8 +136,8 @@ component-library JSX.
 For the full specification — runtime split rationale, per-hook
 behavior tables, exports map shape, Expo Router file-path translation,
 doctor rules (`lzx-cell-missing-impl`, `lzx-route-collision`), and the
-MOBILE-SDK-PARITY invariant — see
-[docs/proposals/mobile-target.md](./proposals/mobile-target.md).
+MOBILE-SDK-PARITY invariant — see the `mobile-target` proposal (operational
+archive).
 
 ## Workflow Runtime
 
