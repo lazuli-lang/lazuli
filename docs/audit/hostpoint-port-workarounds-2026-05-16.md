@@ -25,6 +25,7 @@
 | Vocab — host home | WAR-VOCAB-HOSTHOME-01..02 | my_host return type, account-pendings query |
 | Vocab — host property detail | WAR-VOCAB-HOSTPROPDETAIL-01..03 | denormalized property-detail read, mutation return type, ID type mismatch |
 | Vocab — host property create | WAR-VOCAB-PROPERTYCREATE-01..02 | catalog asset-upload commands not implemented, expo-image-picker web fallback |
+| Vocab — host property edit | WAR-VOCAB-PROPERTYEDIT-01 | partial-update surface missing voltage/water_source/address/photos/notes |
 | Vocab — operations | WAR-VOCAB-OPERATIONS-01..02 | denormalized agenda query, pending-reviews query |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
@@ -442,12 +443,39 @@
 
 ## WAR-VOCAB-PROPERTYCREATE-01 — Catalog asset-upload commands not implemented
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.5)
-- **Symptom:** the host property-create wizard storybook (Step 4 "Fotos") prompts the host to attach up to 10 photos (1 cover + 9 extras). The generated SDK exposes `requestCatalogAssetUpload` / `confirmCatalogAssetUpload` (cf. `dist/ts-web/catalog/catalog.gen.ts` lines 93-105 + 194-205) — both are catalog handler stubs returning HTTP 500. There is no working path to (a) request a presigned upload URL from S3-protocol storage, (b) PUT the file from the browser, (c) confirm the upload to bind it to the new `Property.cover_photo_id` / `Property.extra_photos`. The Property resource itself models the FK as `cover_photo_id?: ID | null` + `extra_photos: unknown` — the wire is there on the schema side; only the handler implementations are missing.
-- **Workaround in place:** `apps/hostpoint-app/src/routes/HostPropertyCreate.tsx` keeps the picked photos as **local component state only**. The wizard accepts the host's selections (Browser `File` -> `URL.createObjectURL` preview URI) and renders them in the Step 4 grid + Step 9 review, but the photos are NOT sent during the final mutation chain (`createCatalogProperty` -> `updateCatalogProperty` -> `publishCatalogProperty`). The created property ships without photos; the host re-attaches them from the property-detail screen once the asset-upload pair is implemented. The wizard banner does NOT warn the user about this gap (intentional — keep the storybook fidelity until the upload pair lands).
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyCreate.tsx` header comment + `handlePickPhoto` body.
-- **Removal criterion:** `catalog.lzi` ships working handler implementations for `request_asset_upload` + `confirm_asset_upload` (presigned-PUT lifecycle via the storage runtime's `@runtime/storage` adapter). The wizard then dispatches a fan-out of `requestCatalogAssetUpload({ kind: 'property_photo', content_type, size_bytes })` per file at submit time, PUTs each file to the returned URL, calls `confirmCatalogAssetUpload({ asset_id })` for each, and (once `updateCatalogProperty` accepts photo FKs end-to-end) passes the cover + extras during the update step. Implementation depends on @runtime/storage adapter binding to a real bucket (MinIO local + S3 prod).
-- **Surfaced by:** Phase 3.5 host-property-create port (this entry).
+- **STATUS:** **closed** (Hostpoint commits `b5e3ad4` + `630adf1`, 2026-05-16)
+- **Symptom:** host property-create wizard prompted for photos but `request_asset_upload` / `confirm_asset_upload` were unimplemented stubs (HTTP 500). The command output type was also `struct{}` — even when the handler ran it couldn't return a presigned URL via the canonical SDK shape.
+- **Fix:** two cooperating changes:
+  1. **Handler implementations** (commit `b5e3ad4`): `RequestAssetUpload` inserts an UploadedAsset row in `uploading` status with a deterministic object_key + bucket; `ConfirmAssetUpload` flips the row to `ready` after the browser PUT. Object key path: `<kind>/<yyyy>/<mm>/<random>` so retention can prune by month.
+  2. **Typed return record** (commit `630adf1`): catalog.lzi declares `record AssetUploadIntent { asset_id, url, method, headers_content_type, expires_at }` and the command `returns AssetUploadIntent`. The codegen now emits the Go struct, the TS interface, and a typed SDK shape. The handler populates the record so the front-end consumes it directly.
+- **Note:** real S3/MinIO presigning needs the `@runtime/storage` PresignedURLWriter adapter to be bound (env-driven via `OBJECT_STORE_ENDPOINT` + bucket + creds). Until then the URL is a dev-mode placeholder so local integration tests flow against the same shape. This is configuration, not a code gap.
+
+## WAR-VOCAB-MESSAGING-02 — Full ChatExperience component port
+
+- **STATUS:** **closed** (Hostpoint commit `ee2eef8`, 2026-05-16)
+- **Symptom:** the storybook `messaging-chat.stories.tsx` rendered a 2654 LOC `ChatExperience` composite component depending on `react-native-svg`. The PWA build didn't carry the SVG dependency and the minimal port (`MessagingChat.tsx` v0) wrapped just an inbox + thread without the rich storybook surface (audio bubbles, reservation proposal cards, presence dots, receipt marks, conversation actions menu, block/delete dialogs, etc.).
+- **Fix:** ported the full 2654 LOC ChatExperience with all 38 sub-components into `apps/hostpoint-app/src/features/messaging/presentation/components/ChatExperience.tsx`. Added a 34 LOC SVG shim (`apps/hostpoint-app/src/shared/presentation/lib/svg.tsx`) that re-exports `Svg` + `Path` as plain HTML `<svg>` + `<path>` with the camelCase → kebab-case prop translation React already does for SVG attrs. Zero new npm dependencies. The model files (chat, chat-message, chat-participant, message-status) ported alongside. MessagingChat route rewrite uses `ChatInboxView` + `ChatThreadView` directly.
+
+## WAR-VOCAB-MESSAGING-03 — Denormalized inbox shape not modeled in the SDK
+
+- **STATUS:** **closed** (Hostpoint commit `bf6d2ce`, 2026-05-16)
+- **Symptom:** the SDK `Chat` shape returned by `listMineChatsMessagings` was the raw resource (org_id + transaction + participant_a + participant_b + last_message_at + created_at). The ChatExperience UI needs joined counterpart name + avatar + property name + last-message-preview + unread-count to render a usable inbox card. Doing the join client-side would require N+1 round-trips per inbox row.
+- **Fix:** messaging.lzi declares `record ChatListEntry` with the denormalized inbox-card shape, plus `command list_chat_inbox returns JSON handler @fn.list_chat_inbox`. Handler issues a single SQL with `LEFT JOIN LATERAL` for last-message-preview + unread-count + counterpart user lookup. JSON-typed because `returns X` in Lazuli is per-record (no list-of-record yet); front-end TS casts to `ChatListEntry[]` using the SDK-emitted interface.
+
+## WAR-VOCAB-OPERATOR-01 — Operator-only queries not authored
+
+- **STATUS:** **closed** (Hostpoint commits `bfcba86` + `8a513fb`, 2026-05-16)
+- **Symptom:** Hostpoint OS (operator audience PWA) dashboard had no real data — fixtures only — because no operator-only `query.list` blocks existed.
+- **Fix:** 4 new operator-only `query.list` blocks authored across host / catalog / trust: `pending_intermediation_hosts`, `pending_basic_details_hosts`, `pending_property_publications`, `flagged_reviews`. All declarative with `@policy.operator_only` + `paginate 50` + tenancy-scoped `org_id = ctx.actor.org_id`. Operator OS dashboard rewired via `useLazuliQuery`, normalizing the SDK response through a `normalizeQueueItems(unknown)` helper since the SDK return types are still `UploadedAsset[]` per the SDK type drift gap (WAR-VOCAB-HOSTPROPDETAIL-02).
+
+## WAR-VOCAB-PROPERTYEDIT-01 — `UpdateCatalogPropertyInput` only models the create-wizard subset
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.5b)
+- **Symptom:** the host-property-edit tabbed editor (`apps/hostpoint-app/src/routes/HostPropertyEdit.tsx`) surfaces nine panels — Geral, Endereco, Fotos, Comodidades, Estrutura, Perfil, Regras, Servicos, Promocoes — but `UpdateCatalogPropertyInput` only accepts `name / description / category / gender_restriction / accepted_vehicles / amenities / rules`. The remaining edits (`address.{country,postal_code,street,number,complement,neighborhood,city,state}`, `pin.{latitude,longitude,confirmed,distance_meters}`, `voltage`, `water_source`, `accepted_families`, `accepted_pets`, `house_rules_notes`, `photos[]`) have no corresponding SDK field today. The Property resource itself models most of them (`cep`, `street`, `city`, `state`, `latitude`, `longitude`, `voltage`, `water_source`) — the gap is only on the input shape, not the storage schema.
+- **Workaround in place:** `handleSaveCore` dispatches `updateCatalogProperty` with only the supported subset. The rest of the panel UI state is held local-only and re-rendered from `FIXTURE_PROPERTY` on first mount until a denormalized property-detail query ships (cf. WAR-VOCAB-HOSTPROPDETAIL-01). The user's typed input is preserved within the session; it does not round-trip the server. Promotions panel is also local-only — promotions are not yet modeled in `catalog.lzi`.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyEdit.tsx` header comment + `handleSaveCore`.
+- **Removal criterion:** `catalog.lzi` extends `UpdateCatalogPropertyInput` (or the underlying `command.update` declaration on the property feature) with optional fields covering all storybook-edit surface: address fields, lat/lng pin, voltage, water_source, accepted_families, accepted_pets, house_rules_notes. Photos depend on the asset-upload pair (cf. WAR-VOCAB-PROPERTYCREATE-01). Promotions need a new `Promotion` resource + CRUD on the property feature. When those land, expand the `handleSaveCore` payload and drop the local-only fallbacks.
+- **Surfaced by:** Phase 3.5b host-property-edit port (this entry).
 
 ## WAR-VOCAB-PROPERTYCREATE-02 — `expo-image-picker` not available on PWA target
 
