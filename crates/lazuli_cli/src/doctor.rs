@@ -14997,8 +14997,11 @@ contract acme.ai.v1
             &root.join("features/slug/web/views/admin/list.tsx"),
             "export function List() { return null; }\n",
         );
+        // Orphan must live in a Lazuli-owned root (app/ | features/ | frontends/)
+        // for the feature-orphan-component rule to see it; commit f4185a9
+        // narrowed the rule's scope so `src/components/` is no longer walked.
         write_file(
-            &root.join("src/components/Foo.tsx"),
+            &root.join("app/components/Foo.tsx"),
             "export function Foo() { return null; }\n",
         );
         write_file(
