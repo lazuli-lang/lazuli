@@ -653,7 +653,7 @@ mod tests {
 
     fn minimal_design() -> Design {
         Design {
-            name: "pleiades".to_owned(),
+            name: "example".to_owned(),
             extends: None,
             colors: vec![ColorToken {
                 name: "primary".to_owned(),

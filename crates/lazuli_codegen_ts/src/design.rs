@@ -50,12 +50,12 @@ mod integration_tests {
     };
     use super::*;
 
-    /// Build the Pleiades fixture from `docs/proposals/design-tokens.md` §8.1
+    /// Build the Beta fixture from `docs/proposals/design-tokens.md` §8.1
     /// exactly. This is the canonical test artifact: every emitter is checked
     /// against it.
-    fn pleiades_design() -> Design {
+    fn demo_design() -> Design {
         Design {
-            name: "pleiades".to_owned(),
+            name: "example".to_owned(),
             extends: None,
             colors: vec![
                 ColorToken {
@@ -301,7 +301,7 @@ mod integration_tests {
 
     #[test]
     fn design_emitters_match_proposal_section_8() {
-        let d = pleiades_design();
+        let d = demo_design();
 
         // -- tokens.ts ---------------------------------------------------------
         let ts = emit_tokens_ts(&d);

@@ -3,7 +3,7 @@
 
 feature handler_heavy
   domain
-    resource Hostpoint
+    resource Ticket
       status: Text required
       score: Integer optional
 
@@ -14,6 +14,6 @@ feature handler_heavy
     let resolved = @fn.resolve_b(input)
     returns Boolean
   command score_c
-    creates Hostpoint
+    creates Ticket
       status = "open"
       score = @fn.score_c(input)

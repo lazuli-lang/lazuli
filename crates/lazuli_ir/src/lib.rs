@@ -4004,7 +4004,7 @@ pub struct Webhook {
     pub tenant_from: Option<TenantFromSpec>,
     /// Explicit `scope global` + `reason "..."` escape hatch when the
     /// provider doesn't send a tenant key. Closes the doctor-side gap
-    /// surfaced by Hostpoint port (LSP rule at `lazuli_lsp/src/lib.rs:10720`
+    /// surfaced by multi-tenant pilot port (LSP rule at `lazuli_lsp/src/lib.rs:10720`
     /// already detected scope_global; IR was dropping it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_global: Option<WebhookScopeGlobalSpec>,

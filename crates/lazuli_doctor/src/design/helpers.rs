@@ -87,7 +87,7 @@ impl Allowlist {
 /// Closes WAR-DOCTOR-DESIGN-02: also merges `dist/ts-web/design/allowlist.extension.json`
 /// when present. The extension file is hand-authored by the capsule
 /// owner to declare tokens that come from EXTERNAL workspace packages
-/// (e.g. `@hostpoint/design-tokens`) which Lazuli's design.lzi
+/// (e.g. `@example/design-tokens`) which Lazuli's design.lzi
 /// emitter can't see. Tokens listed in the extension append to the
 /// per-prefix allowlist buckets. Same JSON shape as the canonical file.
 pub fn read_allowlist(root: &Path) -> Option<Allowlist> {

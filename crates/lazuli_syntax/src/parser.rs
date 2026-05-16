@@ -12194,7 +12194,7 @@ fn parse_design_decl(
             if target.is_empty() {
                 return Err(line_error(
                     line,
-                    "`extends` requires a base design name (e.g. `extends pleiades`)",
+                    "`extends` requires a base design name (e.g. `extends base`)",
                 ));
             }
             extends = Some(target);
@@ -15601,12 +15601,12 @@ feature customer
     #[test]
     fn design_parses_minimal_color_only() {
         let source = r##"
-design pleiades
+design example
   color
     success "#16a34a"
 "##;
         let ast = super::parse_design_document(source).expect("parses");
-        assert_eq!(ast.name, "pleiades");
+        assert_eq!(ast.name, "example");
         assert!(ast.extends.is_none());
         assert_eq!(ast.colors.len(), 1);
         assert_eq!(ast.colors[0].name, "success");
@@ -15618,11 +15618,11 @@ design pleiades
 
     #[test]
     fn design_parses_full_eight_group_fixture() {
-        // Mirror of `docs/proposals/design-tokens.md` §8.1 (Pleiades brand
+        // Mirror of `docs/proposals/design-tokens.md` §8.1 (example brand
         // example). Exercises all eight closed groups + dark suffix + the
         // digit-leading `"2xl"` quoted name.
         let source = r##"
-design pleiades
+design example
   color
     primary
       base "#7c3aed"
@@ -15691,7 +15691,7 @@ design pleiades
     modal 1300
 "##;
         let ast = super::parse_design_document(source).expect("parses");
-        assert_eq!(ast.name, "pleiades");
+        assert_eq!(ast.name, "example");
         // Color group: primary + background + foreground + 3 flat semantic.
         assert_eq!(ast.colors.len(), 6);
         // Color sub-block lift.
@@ -15724,7 +15724,7 @@ design pleiades
     #[test]
     fn design_color_sub_block_with_four_states() {
         let source = r##"
-design pleiades
+design example
   color
     primary
       base "#7c3aed"
@@ -15745,7 +15745,7 @@ design pleiades
     #[test]
     fn design_color_captures_dark_suffix() {
         let source = r##"
-design pleiades
+design example
   color
     background
       base "#ffffff" dark "#09090b"
@@ -15763,7 +15763,7 @@ design pleiades
     #[test]
     fn design_typography_scale_pairs_size_and_line_height() {
         let source = r##"
-design pleiades
+design example
   typography
     scale
       base size 1rem, line_height 1.5rem
@@ -15784,21 +15784,21 @@ design pleiades
     #[test]
     fn design_extends_keyword_parses() {
         let source = r##"
-design hostpoint
-  extends pleiades
+design alpha
+  extends base
   color
     primary
       base "#10b981"
 "##;
         let ast = super::parse_design_document(source).expect("parses");
-        assert_eq!(ast.name, "hostpoint");
-        assert_eq!(ast.extends.as_deref(), Some("pleiades"));
+        assert_eq!(ast.name, "alpha");
+        assert_eq!(ast.extends.as_deref(), Some("example"));
     }
 
     #[test]
     fn design_digit_prefix_names_require_quotes() {
         let source = r##"
-design pleiades
+design example
   space
     "1" 0.25rem
     "2" 0.5rem
@@ -15818,7 +15818,7 @@ design pleiades
     #[test]
     fn design_shadow_quoted_strings_preserved_intact() {
         let source = r##"
-design pleiades
+design example
   shadow
     sm "0 1px 2px 0 rgb(0 0 0 / 0.05)"
     base "0 1px 3px 0 rgb(0 0 0 / 0.1)"
@@ -15833,7 +15833,7 @@ design pleiades
     #[test]
     fn design_z_values_parsed_as_strings() {
         let source = r##"
-design pleiades
+design example
   z
     docked 10
     modal 1300
@@ -15848,7 +15848,7 @@ design pleiades
     #[test]
     fn design_tracking_accepts_negative_value() {
         let source = r##"
-design pleiades
+design example
   typography
     tracking
       tight -0.025em
@@ -15867,7 +15867,7 @@ design pleiades
     fn design_empty_motion_block_skips_cleanly() {
         // `motion` header with no children should leave the AST defaults intact.
         let source = r##"
-design pleiades
+design example
   color
     success "#16a34a"
   motion
@@ -15882,7 +15882,7 @@ design pleiades
     #[test]
     fn design_rejects_unknown_group_keyword() {
         let source = r##"
-design pleiades
+design example
   bogus
     foo bar
 "##;
@@ -16482,7 +16482,7 @@ surface slug web
     }
 
     #[test]
-    fn parses_full_section_13_1_pleiades_fixture() {
+    fn parses_full_section_13_1_demo_fixture() {
         // Section 13.1 verbatim from
         // `docs/proposals/lzx-integration-codegen.md`.
         let source = r#"surface slug web

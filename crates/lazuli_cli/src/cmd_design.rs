@@ -1098,11 +1098,11 @@ mod tests {
         dir
     }
 
-    /// Pleiades-style fixture covering every group + dark variants + a
+    /// example-style fixture covering every group + dark variants + a
     /// multi-state color sub-block.
-    fn pleiades_fixture() -> Design {
+    fn demo_fixture() -> Design {
         Design {
-            name: "pleiades".to_string(),
+            name: "example".to_string(),
             extends: None,
             colors: vec![
                 ColorToken {
@@ -1233,7 +1233,7 @@ mod tests {
 
     /// Round-trip equality is checked against the sorted normal form
     /// because Figma/SD JSON encodes groups as objects (unordered) and
-    /// re-import sorts by key. The original Pleiades fixture is
+    /// re-import sorts by key. The original Beta fixture is
     /// authored in semantic order, not alphabetic — so we sort both
     /// sides before comparing structural equality.
     fn sort_for_round_trip(design: &mut Design) {
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn figma_round_trip_preserves_design() {
-        let original = pleiades_fixture();
+        let original = demo_fixture();
         let figma = design_to_figma(&original);
         let mut restored = figma_to_design(&figma).unwrap();
         // Restored design loses the user-chosen name (set to "imported")
@@ -1267,7 +1267,7 @@ mod tests {
 
     #[test]
     fn style_dictionary_round_trip_preserves_design() {
-        let original = pleiades_fixture();
+        let original = demo_fixture();
         let sd = design_to_style_dictionary(&original);
         let mut restored = style_dictionary_to_design(&sd).unwrap();
         let mut expected = original.clone();
@@ -1281,12 +1281,12 @@ mod tests {
     fn import_overwrite_false_fails_when_design_exists() {
         let tmp = unique_temp_dir("import-overwrite-false");
         let out = tmp.join("design.lzi");
-        write_design(&out, &pleiades_fixture()).unwrap();
+        write_design(&out, &demo_fixture()).unwrap();
 
         let external = tmp.join("tokens.figma.json");
         fs::write(
             &external,
-            serde_json::to_string_pretty(&design_to_figma(&pleiades_fixture())).unwrap(),
+            serde_json::to_string_pretty(&design_to_figma(&demo_fixture())).unwrap(),
         )
         .unwrap();
 
@@ -1322,7 +1322,7 @@ mod tests {
         let external = tmp.join("tokens.figma.json");
         fs::write(
             &external,
-            serde_json::to_string_pretty(&design_to_figma(&pleiades_fixture())).unwrap(),
+            serde_json::to_string_pretty(&design_to_figma(&demo_fixture())).unwrap(),
         )
         .unwrap();
 
@@ -1337,7 +1337,7 @@ mod tests {
 
     #[test]
     fn diff_detects_added_token() {
-        let current = pleiades_fixture();
+        let current = demo_fixture();
         let mut incoming = current.clone();
         incoming.spaces.push(ScaleToken {
             name: "8".to_string(),
@@ -1352,7 +1352,7 @@ mod tests {
 
     #[test]
     fn diff_detects_removed_token() {
-        let current = pleiades_fixture();
+        let current = demo_fixture();
         let mut incoming = current.clone();
         incoming.spaces.retain(|t| t.name != "1");
 
@@ -1364,7 +1364,7 @@ mod tests {
 
     #[test]
     fn diff_detects_value_change() {
-        let current = pleiades_fixture();
+        let current = demo_fixture();
         let mut incoming = current.clone();
         for tok in &mut incoming.spaces {
             if tok.name == "4" {
@@ -1385,7 +1385,7 @@ mod tests {
     #[test]
     fn diff_against_identical_json_is_empty() {
         let tmp = unique_temp_dir("diff-identical");
-        let design = pleiades_fixture();
+        let design = demo_fixture();
         let external = tmp.join("tokens.figma.json");
         fs::write(
             &external,
@@ -1404,7 +1404,7 @@ mod tests {
 
     #[test]
     fn color_with_multiple_states_round_trips() {
-        let mut design = pleiades_fixture();
+        let mut design = demo_fixture();
         // Reduce noise — only the multi-state primary.
         design.colors.retain(|c| c.name == "primary");
         let figma = design_to_figma(&design);
@@ -1432,7 +1432,7 @@ mod tests {
 
     #[test]
     fn dark_variants_captured_via_lazuli_extension() {
-        let mut design = pleiades_fixture();
+        let mut design = demo_fixture();
         design.colors.retain(|c| c.name == "background");
         let figma = design_to_figma(&design);
 
@@ -1516,7 +1516,7 @@ mod tests {
         // Two consecutive exports of the same Design must produce
         // byte-identical files — matches `lazuli generate go` discipline.
         let tmp = unique_temp_dir("deterministic");
-        let design = pleiades_fixture();
+        let design = demo_fixture();
         let a = tmp.join("a.figma.json");
         let b = tmp.join("b.figma.json");
         export(&a, ExportTarget::Figma, &design).unwrap();

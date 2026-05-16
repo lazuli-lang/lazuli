@@ -332,7 +332,7 @@ mod tests {
         // by the pnpm workspace, not Lazuli. Doctor must not descend.
         let tmp = tempfile::TempDir::new().unwrap();
         touch(tmp.path(), "apps/website/src/content/copy.ts");
-        touch(tmp.path(), "apps/hostpoint-app/src/main.tsx");
+        touch(tmp.path(), "apps/example-app/src/main.tsx");
 
         let findings = check(tmp.path());
 

@@ -1,5 +1,5 @@
 # Grammar snapshot fixture — exercises the canonical .lzi vocabulary.
-# Modeled on examples/full-capsule and pleiades/account so every major
+# Modeled on examples/full-capsule and example/account so every major
 # construct that has a dedicated TextMate scope is hit at least once.
 
 feature catalog

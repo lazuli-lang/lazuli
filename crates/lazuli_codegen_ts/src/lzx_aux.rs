@@ -597,14 +597,14 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Bug-fix regression tests (Pleiades dogfood, 2026-05-14).
+    // Bug-fix regression tests (pilot dogfood, 2026-05-14).
     // -----------------------------------------------------------------
 
     #[test]
     fn bulk_action_key_strips_command_prefix() {
         // Bug #1: `selection.bulk.bulkDelete` instead of
         // `selection.bulk.delete`. The bulk command was named
-        // `bulk_delete` upstream — Pleiades' real-world shape — and the
+        // `bulk_delete` upstream — the canonical downstream shape — and the
         // return-object key was prefix-duplicating the `bulk_` token.
         let mut view = view();
         view.selection = Some(SelectionDecl {
@@ -695,12 +695,12 @@ mod tests {
         });
 
         let mut out = String::new();
-        write_setting_keys(&mut out, &surface(), &view, "pleiades");
+        write_setting_keys(&mut out, &surface(), &view, "example");
         assert!(
             out.contains(
-                "const SETTING_KEY_GRID_SIZE = \"pleiades:item-terminal:grid_size\";"
+                "const SETTING_KEY_GRID_SIZE = \"example:item-terminal:grid_size\";"
             ),
-            "expected `pleiades:` prefix; got: {out}"
+            "expected `example:` prefix; got: {out}"
         );
         // No legacy feature-scoped prefix.
         assert!(!out.contains("\"item:item-terminal:"));

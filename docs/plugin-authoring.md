@@ -207,7 +207,7 @@ Strict rules (also in `CLAUDE.md §Namespace policy` + memory
 `project_plugin_namespace_policy`):
 
 - Plugin name = **provider name**, not consumer-product name.
-  ✅ `@plugin/mercadopago` (provider). ❌ `@plugin/hostpoint/mercadopago`.
+  ✅ `@plugin/mercadopago` (provider). ❌ `@plugin/myapp/mercadopago`.
 - `@runtime/<name>` is reserved for OSS commodity infra (postgres,
   redis, S3-protocol, smtp, kafka, etc.) that lives in Lazuli core.
   Plugins NEVER use `@runtime/` prefix.

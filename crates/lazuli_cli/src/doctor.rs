@@ -2014,7 +2014,7 @@ fn project_uses_plugin_refs(project_root: &Path) -> bool {
 /// invalid — the `app` and `registry` indent-6 branches both call
 /// `validate_app_env_line`, then the dedicated `env-schema-contract`
 /// validator runs over the registry pass. Audit ref: R1.C real-world
-/// sweep produced 9 duplicates (atelier 7×, erudito 2×).
+/// sweep produced 9 duplicates (gamma 7×, delta 2×).
 ///
 /// `env-schema-contract` is the more specific registry-scoped rule and
 /// owns the registry env shape; drop the broader `app-env-contract`
@@ -4366,7 +4366,7 @@ fn tier3_webhook_diagnostics<'a>(
     //
     // An explicit `scope global` + `reason "..."` declaration silences
     // the lint — matches the LSP rule at `lazuli_lsp/src/lib.rs:10720`
-    // (closes the doctor-side gap surfaced by Hostpoint port).
+    // (closes the doctor-side gap surfaced by multi-tenant pilot port).
     if webhook.tenant_from.is_none() && webhook.scope_global.is_none() {
         diagnostics.push(DoctorDiagnostic {
             path: feature.path.clone(),

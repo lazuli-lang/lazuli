@@ -34,7 +34,7 @@ var defaultTenantResolver DefaultTenantResolverFn
 // runtime. Call once at boot, before [Mux] is built. Idempotent — the
 // last registration wins.
 //
-// Example (single-tenant Hostpoint shape):
+// Example (single-tenant Acme shape):
 //
 //	func main() {
 //	    lazuli.WithDefaultTenant(func(ctx context.Context) (*lazuli.Tenant, error) {
@@ -44,7 +44,7 @@ var defaultTenantResolver DefaultTenantResolverFn
 //	        ).Scan(&id)
 //	        if errors.Is(err, pgx.ErrNoRows) {
 //	            err = lazuli.DB().QueryRow(ctx,
-//	                `INSERT INTO "org" (name, slug) VALUES ('Hostpoint', 'default') RETURNING id`,
+//	                `INSERT INTO "org" (name, slug) VALUES ('Acme Co', 'default') RETURNING id`,
 //	            ).Scan(&id)
 //	        }
 //	        if err != nil {

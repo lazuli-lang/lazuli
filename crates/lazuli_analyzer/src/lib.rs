@@ -6344,12 +6344,12 @@ feature customer
     #[test]
     fn lower_design_lifts_flat_color_as_base_state() {
         let source = "
-design pleiades
+design example
   color
     success \"#16a34a\"
 ";
         let design = lower_design_source(source);
-        assert_eq!(design.name, "pleiades");
+        assert_eq!(design.name, "example");
         assert!(design.extends.is_none());
         assert_eq!(design.colors.len(), 1);
         let success = &design.colors[0];
@@ -6362,7 +6362,7 @@ design pleiades
     #[test]
     fn lower_design_lifts_sub_block_color_states() {
         let source = "
-design pleiades
+design example
   color
     primary
       base \"#7c3aed\"
@@ -6388,7 +6388,7 @@ design pleiades
     #[test]
     fn lower_design_preserves_dark_suffix() {
         let source = "
-design pleiades
+design example
   color
     background
       base \"#ffffff\" dark \"#09090b\"
@@ -6402,8 +6402,8 @@ design pleiades
     #[test]
     fn lower_design_extends_rejected_with_cut_b_code() {
         let source = "
-design hostpoint
-  extends pleiades
+design alpha
+  extends base
   color
     primary
       base \"#10b981\"
@@ -6421,7 +6421,7 @@ design hostpoint
     #[test]
     fn lower_design_multi_layer_shadow_rejected() {
         let source = "
-design pleiades
+design example
   shadow
     elevated \"0 1px 2px 0 rgb(0 0 0 / 0.05), 0 4px 6px -1px rgb(0 0 0 / 0.1)\"
 ";
@@ -6444,7 +6444,7 @@ design pleiades
         // multi-layer rejection. The closed grammar accepts single-layer
         // shadows whose inner color uses `rgb(r, g, b)` notation.
         let source = "
-design pleiades
+design example
   shadow
     base \"0 1px 3px 0 rgb(0, 0, 0, 0.1)\"
 ";
@@ -6456,7 +6456,7 @@ design pleiades
     #[test]
     fn lower_design_typography_full_round_trip() {
         let source = "
-design pleiades
+design example
   typography
     family
       sans \"Inter, system-ui, sans-serif\"
@@ -6483,7 +6483,7 @@ design pleiades
     #[test]
     fn lower_design_z_values_parsed_as_i32() {
         let source = "
-design pleiades
+design example
   z
     docked 10
     modal 1300
@@ -6499,7 +6499,7 @@ design pleiades
     #[test]
     fn lower_design_rejects_invalid_hex() {
         let source = "
-design pleiades
+design example
   color
     bogus \"not-a-hex\"
 ";
@@ -6520,7 +6520,7 @@ design pleiades
         };
 
         let ast = DesignDeclAst {
-            name: "pleiades".to_owned(),
+            name: "example".to_owned(),
             extends: None,
             colors: vec![ColorTokenAst {
                 name: "primary".to_owned(),
@@ -6551,7 +6551,7 @@ design pleiades
     #[test]
     fn lower_design_full_example_round_trip() {
         let source = "
-design pleiades
+design example
   color
     primary
       base \"#7c3aed\"
@@ -6603,7 +6603,7 @@ design pleiades
         assert!(design.span_ref.is_some());
         // Serializes round-trip cleanly.
         let json = serde_json::to_value(&design).unwrap();
-        assert_eq!(json["name"], "pleiades");
+        assert_eq!(json["name"], "example");
         assert_eq!(json["colors"][0]["name"], "primary");
         // States serialize with snake_case kind.
         assert_eq!(json["colors"][0]["states"][0]["kind"], "base");

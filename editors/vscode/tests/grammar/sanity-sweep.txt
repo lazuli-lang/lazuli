@@ -47,7 +47,7 @@ unique diagnostic codes: 10
      1  examples/auth-roundtrip/app.lzi
      1  examples/full-capsule/app.lzi
      1  examples/full-capsule/full-capsule.lzi
-     1  examples/hostpoint-shaped-auth/app.lzi
+     1  examples/multi-tenant-auth/app.lzi
      1  examples/marketplace-mini/marketplace-mini.lzi
      1  examples/production-grade/workspace.lzi
 
@@ -69,7 +69,7 @@ examples/full-capsule/app.lzi  (1 total)
 examples/full-capsule/full-capsule.lzi  (1 total)
        1  env-schema-reference
 
-examples/hostpoint-shaped-auth/app.lzi  (1 total)
+examples/multi-tenant-auth/app.lzi  (1 total)
        1  app-url-contract
 
 examples/marketplace-mini/marketplace-mini.lzi  (1 total)

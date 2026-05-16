@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SMOKE_DIR="${SMOKE_DIR:-/tmp/lazuli-smoke}"
-FIXTURE="${FIXTURE:-examples/hostpoint-mini}"
+FIXTURE="${FIXTURE:-examples/marketplace-mini}"
 SMOKE_VET="${SMOKE_VET:-0}"
 
 cd "$REPO_ROOT"

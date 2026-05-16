@@ -85,7 +85,7 @@ fn emit_api(
     let qualified_name = format!("{}.{}", feature.name, api.name);
     // Suffix `Api` on the var + args type so `api <name>` and
     // `query.list <name>` declared on the same feature don't collide
-    // at the package scope. Surfaced by Pleiades item.lzi where
+    // at the package scope. Surfaced by pilot item.lzi where
     // `query.list search` and `api search` both emitted `var search`
     // / `type SearchArgs` and the resulting Go failed to compile.
     let args_type = api_args_type_name(&api.name);

@@ -344,7 +344,7 @@ Fires once per feature when at least three commands exist and at least 70% are c
 ### Example — violation
 
 ```lzi
-feature hostpoint
+feature demo
   command resolve_a
     let out = @fn.resolve_a(input)
   command resolve_b
@@ -356,12 +356,12 @@ feature hostpoint
 ### Example — canonical fix
 
 ```lzi
-feature hostpoint
+feature demo
   command update_a
-    updates Hostpoint
+    updates Ticket
       status = input.status
   command update_b
-    updates Hostpoint
+    updates Ticket
       name = input.name
   command resolve_c
     let out = @fn.resolve_c(input)
@@ -369,7 +369,7 @@ feature hostpoint
 
 ### Message
 
-> feature `hostpoint` has 3/3 commands routed through `@fn.<name>` handlers (>70%). Consider converting commands that just assign input fields to a resource into `updates X { field = input.field }` declarative form. Keep `@fn` for cross-resource transactions, OAuth, OTP, or other irreducibly imperative work. See docs/next-checklist.md.
+> feature `demo` has 3/3 commands routed through `@fn.<name>` handlers (>70%). Consider converting commands that just assign input fields to a resource into `updates X { field = input.field }` declarative form. Keep `@fn` for cross-resource transactions, OAuth, OTP, or other irreducibly imperative work. See docs/next-checklist.md.
 
 ## VOCAB-JSON-TYPED-001 — untyped JSON bag + sibling closed-catalog enum
 

@@ -1,4 +1,4 @@
-app HostpointShapedAuth
+app MultiTenantAuth
   uses org
   uses account
 

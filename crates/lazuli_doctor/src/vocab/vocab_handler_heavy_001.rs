@@ -140,7 +140,7 @@ mod tests {
 
     fn mk_feature(commands: Vec<Command>) -> Feature {
         Feature {
-            name: "hostpoint".into(),
+            name: "alpha".into(),
             purpose: None,
             non_goals: vec![],
             context_path: None,
@@ -219,7 +219,7 @@ mod tests {
         mk_cmd(
             name,
             CommandEffect::Updates(UpdateEffect {
-                resource: qn("Hostpoint"),
+                resource: qn("Alpha"),
                 assignments: vec![Assignment {
                     field: "status".into(),
                     value: Expr::Path(lazuli_ir::Path::from_segments(["input", "status"])),
@@ -234,7 +234,7 @@ mod tests {
             name: "resolved".into(),
             value: Expr::Path(lazuli_ir::Path::from_segments([
                 "@fn",
-                "resolve_hostpoint(input)",
+                "resolve_alpha(input)",
             ])),
         });
         cmd
@@ -260,13 +260,13 @@ mod tests {
         mk_cmd(
             name,
             CommandEffect::Creates(CreateEffect {
-                resource: qn("Hostpoint"),
+                resource: qn("Alpha"),
                 from_input: false,
                 assignments: vec![Assignment {
                     field: "score".into(),
                     value: Expr::Path(lazuli_ir::Path::from_segments([
                         "@fn",
-                        "score_hostpoint(input)",
+                        "score_alpha(input)",
                     ])),
                 }],
             }),
@@ -282,7 +282,7 @@ mod tests {
             declarative_cmd("update_d"),
             declarative_cmd("update_e"),
         ]);
-        assert!(check(&feature, Path::new("features/hostpoint/host.lzi")).is_empty());
+        assert!(check(&feature, Path::new("features/alpha/host.lzi")).is_empty());
     }
 
     #[test]
@@ -294,12 +294,12 @@ mod tests {
             external_call_cmd("sync_d"),
             assignment_fn_cmd("score_e"),
         ]);
-        let findings = check(&feature, Path::new("features/hostpoint/host.lzi"));
+        let findings = check(&feature, Path::new("features/alpha/host.lzi"));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].handler_count, 4);
         assert_eq!(findings[0].total_commands, 5);
         assert_eq!(Finding::CODE, "VOCAB-HANDLER-HEAVY-001");
-        assert!(findings[0].message().contains("hostpoint"));
+        assert!(findings[0].message().contains("alpha"));
     }
 
     #[test]
@@ -310,18 +310,18 @@ mod tests {
             handler_cmd("resolve_c"),
             handler_cmd("resolve_d"),
         ]);
-        assert!(check(&feature, Path::new("features/hostpoint/host.lzi")).is_empty());
+        assert!(check(&feature, Path::new("features/alpha/host.lzi")).is_empty());
     }
 
     #[test]
     fn below_three_command_threshold_does_not_fire() {
         let feature = mk_feature(vec![handler_cmd("resolve_a"), declarative_cmd("update_b")]);
-        assert!(check(&feature, Path::new("features/hostpoint/host.lzi")).is_empty());
+        assert!(check(&feature, Path::new("features/alpha/host.lzi")).is_empty());
     }
 
     #[test]
     fn zero_commands_do_not_fire() {
         let feature = mk_feature(vec![]);
-        assert!(check(&feature, Path::new("features/hostpoint/host.lzi")).is_empty());
+        assert!(check(&feature, Path::new("features/alpha/host.lzi")).is_empty());
     }
 }
