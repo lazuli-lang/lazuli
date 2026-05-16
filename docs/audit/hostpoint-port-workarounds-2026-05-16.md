@@ -20,9 +20,11 @@
 | Vocab — semantic types | WAR-VOCAB-SEMANTIC-01..02 | Money, @semantic.Brazilian* |
 | Vocab — constraints | WAR-VOCAB-CONSTRAINT-01 | cross-feature invariants |
 | Vocab — webhook | WAR-VOCAB-WEBHOOK-01 | scope global syntax |
-| Vocab — auth | WAR-VOCAB-AUTH-01..06 | sessions list, step-up, legal docs, settings updates, CNPJ, postal lookup |
+| Vocab — auth | WAR-VOCAB-AUTH-01..06 | sessions list, step-up, legal docs, settings updates (CLOSED), CNPJ, postal lookup |
+| Vocab — notifications | WAR-VOCAB-NOTIFICATIONS-01 | inbox query + mark-read command |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
+| Runtime — migrations | WAR-RUNTIME-MIGRATION-01 | added columns vs CREATE TABLE IF NOT EXISTS |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
 | Scaffold — gitignore | WAR-SCAFFOLD-GITIGNORE-01 | dist/ blanket-ignore vs user-authored handlers |
@@ -186,12 +188,11 @@
 
 ## WAR-VOCAB-AUTH-04 — Settings update commands (host.update_*, traveler.update_*, account.update_*) not authored
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 1.3g)
-- **Symptom:** Settings sub-panels need granular updates: `traveler.update_basic_details / update_contact / update_vehicle / update_family / update_pets / update_languages / update_health_notes`, `host.update_personal / update_contact / update_address / update_languages`, `account.update_email(new_email, current_password)` (two-phase), `account.update_notifications_pref(enabled)`. None of these commands exist in the corresponding `.lzi` files. Only the onboarding-step `save_*` commands ship today (designed for first-time entry, not partial updates).
-- **Workaround in place:** sub-panels re-use the onboarding `save_*` commands as proxies where the input shape matches (`saveTravelerTravelerVehicle/Family/Pets/Languages/HealthNotes`, `saveHostHostAddress/Languages`, etc.). For commands without a usable proxy (`update_email`, `update_contact`, `update_notifications_pref`, `update_basic_details` minus phone), the form is local-state only with a `setTimeout(..., 300)` simulating the round-trip and `// TODO: wire <command>` markers. Notifications switch is local-state only.
-- **Annotated in:** every file under `apps/hostpoint-app/src/routes/settings/{TravelerHome,HostHome}.tsx` + `apps/hostpoint-app/src/routes/settings/panels/*.tsx`.
-- **Removal criterion:** dedicated update commands authored in `account.lzi` / `host.lzi` / `traveler.lzi` with explicit partial-input shapes (versus the full-form onboarding commands). Once authored, panels swap the proxy mutations for the canonical ones and drop the stub `setTimeout` markers.
-- **Surfaced by:** Settings.SettingsSingleRole / SettingsHostRole storybook patterns (13 sub-panel forms total).
+- **STATUS:** **closed** (Hostpoint commits `699696c` + `9afc4d5`, Phase 4.2 / 1.3h, 2026-05-16) — 17 new commands authored across account/host/traveler; 13 panels wired to canonical update commands; setTimeout stubs removed.
+- **Symptom:** Settings sub-panels need granular updates: `traveler.update_basic_details / update_contact / update_vehicle / update_family / update_pets / update_languages / update_health_notes`, `host.update_personal / update_contact / update_address / update_languages`, `account.update_email(new_email, current_password)` (two-phase), `account.update_notifications_pref(enabled)`. None of these commands existed in the corresponding `.lzi` files. Only the onboarding-step `save_*` commands shipped (designed for first-time entry, not partial updates).
+- **Workaround at the time:** sub-panels re-used the onboarding `save_*` commands as proxies, or `setTimeout` stubs with `// TODO: wire <command>` markers.
+- **Resolution:** authored 17 canonical update commands across the three features. 12 are declarative `updates X` (zero handler code). 3 require @fn handlers (`update_credentials`, `revoke_session`, `revoke_other_sessions`) and ship with hand-rolled implementations in `dist/go/account/`. 2 new User columns added (`notifications_enabled`) and 4 new UserSession columns added (`device_label`, `location_label`, `last_seen_at`, `revoked_at`) to support the Security sessions dialog.
+- **Lesson:** the `updates <Resource>` declarative form covered 12 of 17 commands with zero handler authoring. Only commands that need conditional logic (password verification, scoped DELETE) need @fn handlers. Lazuli's declarative bias paid off — most of the new vocabulary is just SDL.
 
 ## WAR-VOCAB-AUTH-05 — Host "CNPJ" field mismatch with Host.cpf SDK field
 
@@ -255,6 +256,26 @@
 - **Workaround in place:** warning accepted.
 - **Removal criterion:** doctor rule recognizes `PUBLIC_*` prefix correctly; warning fires only on names lacking the prefix (e.g. `MERCADOPAGO_PUBLIC_KEY` — `PUBLIC` in the middle).
 - **Surfaced by:** Phase 2.2-4.1 registry.lzi commit `612334a`.
+
+---
+
+## WAR-VOCAB-NOTIFICATIONS-01 — Inbox query + read-state command not modeled
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.1)
+- **Symptom:** Storybook `Notifications.Viajante` + `Notifications.Anfitriao` show a per-actor inbox with unread badges + category filters + tap-to-read. `messaging.lzi` has `NotificationDelivery` resource (channel/template_key/payload/status) — sender-side delivery tracking — but no actor-side `query.list mine_notifications` returning a denormalized view (icon, tone, title, body, time, unread) and no `command mark_notification_read(id)` to toggle the unread state.
+- **Workaround in place:** `routes/Notifications.tsx` hard-codes 4 traveler + 4 host notification fixtures matching the storybook bytes-for-bytes. `markRead` is local-state-only.
+- **Annotated in:** `apps/hostpoint-app/src/routes/Notifications.tsx`.
+- **Removal criterion:** `messaging.lzi` adds `query.list mine_notifications` (denormalized actor-side view, with role-gated `@policy.authenticated`) + `command mark_notification_read(id)` declarative `updates NotificationDelivery`. Screen then consumes via `useLazuliQuery / useLazuliCommand`.
+- **Surfaced by:** Notifications storybook pattern (Viajante + Anfitriao).
+
+## WAR-RUNTIME-MIGRATION-01 — `lazuli generate go` emits `CREATE TABLE IF NOT EXISTS` instead of ALTER TABLE for added columns
+
+- **STATUS:** open
+- **Symptom:** when a resource gains a new field after the initial migration is generated, the subsequent regen emits a NEW migration file (`003_account_user_session.sql`) with `CREATE TABLE IF NOT EXISTS user_session (...)` including the new column. Against a fresh database the new migration is a no-op (the table already exists), so the new column is never added. Hostpoint hit this when adding `notifications_enabled` to User and `device_label/location_label/last_seen_at/revoked_at` to UserSession.
+- **Workaround in place:** none yet — accepted for fresh-DB deploys (Phase 5 VPS will provision a fresh Postgres). For existing DBs, hand-roll `ALTER TABLE` migrations until the framework supports incremental diffs.
+- **Annotated in:** Hostpoint commit `699696c` (added columns); no inline annotation in migrations.
+- **Removal criterion:** Lazuli migration emit uses an Atlas-style diff (compare against `migrations/.lazuli-snapshot.json` or similar) and emits `ALTER TABLE … ADD COLUMN` for new fields, drops + adds for renames, etc. Architecturally this is the `atlas` integration target documented in `docs/architecture.md` technology picks.
+- **Surfaced by:** Phase 4.2 / 1.3h schema additions (commit `699696c`).
 
 ---
 
