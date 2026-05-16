@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"lazuli.dev/runtime/lazuli/report"
+	"lazuli.dev/runtime/lazuli/webhooks"
 )
 
 // Mux returns an http.Handler that exposes every registered command and
@@ -68,6 +69,15 @@ func Mux() http.Handler {
 		})
 	}
 
+	// Webhook auto-mount — closes WAR-RUNTIME-WEBHOOK-MUX-01.
+	// `webhooks.Register(&contract, handler)` from per-feature init
+	// blocks populates the global registry; we walk it here and bind
+	// `POST <Route>` for each. The framework's `webhooks.Mount` helper
+	// handles the verification + idempotency + dispatch pipeline.
+	if webhookContracts, webhookHandlers := webhooks.Registered(); len(webhookContracts) > 0 {
+		_ = webhooks.Mount(&webhookRouterAdapter{mux: mux}, webhookContracts, webhookHandlers)
+	}
+
 	// Report auto-mount — `GET /api/reports/<name>.<format>` per
 	// (contract × format) declared in any feature. Walks the
 	// process-global registry populated by generated `reports.gen.go`
@@ -77,6 +87,17 @@ func Mux() http.Handler {
 	report.Mount(mux)
 
 	return loggingMiddleware(mux)
+}
+
+// webhookRouterAdapter bridges `*http.ServeMux` to the
+// `webhooks.Router` interface (which expects a chi-style
+// `Method(method, pattern, handler)` shape).
+type webhookRouterAdapter struct {
+	mux *http.ServeMux
+}
+
+func (w *webhookRouterAdapter) Method(method, pattern string, handler http.HandlerFunc) {
+	w.mux.HandleFunc(method+" "+pattern, handler)
 }
 
 // handleCommandRequest is the per-command HTTP handler. It builds the
