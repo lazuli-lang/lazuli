@@ -26,7 +26,7 @@
 | Vocab — operations | WAR-VOCAB-OPERATIONS-01..02 | denormalized agenda query, pending-reviews query |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
-| Runtime — migrations | WAR-RUNTIME-MIGRATION-01 | added columns vs CREATE TABLE IF NOT EXISTS |
+| Runtime — migrations | WAR-RUNTIME-MIGRATION-01..02 | CREATE TABLE IF NOT EXISTS for added columns; reserved-word columns unquoted |
 | Runtime — command routing | WAR-RUNTIME-COMMAND-01 | Register init blocks + Effect:Returns wiring missing |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
@@ -323,6 +323,15 @@
 - **Annotated in:** Hostpoint commit `699696c` (added columns); no inline annotation in migrations.
 - **Removal criterion:** Lazuli migration emit uses an Atlas-style diff (compare against `migrations/.lazuli-snapshot.json` or similar) and emits `ALTER TABLE … ADD COLUMN` for new fields, drops + adds for renames, etc. Architecturally this is the `atlas` integration target documented in `docs/architecture.md` technology picks.
 - **Surfaced by:** Phase 4.2 / 1.3h schema additions (commit `699696c`).
+
+## WAR-RUNTIME-MIGRATION-02 — `lazuli generate go` emits unquoted column names that collide with SQL reserved words
+
+- **STATUS:** open (BLOCKER for end-to-end provisioning)
+- **Symptom:** Postgres migration files include columns named `user`, which is a reserved keyword in SQL. Running the migration fails with `ERROR: syntax error at or near "user"`. Affected tables: `host`, `traveler`, `host_traveler`, `intermediation_terms_acceptance`, `phone_otp`, `user_session`, `password_reset_token`, `email_verification_token`, `service_transaction`, `web_push_subscription`, `notification_delivery`, `data_request`, `review`, `reputation_snapshot`, `chat`, `chat_message`. ALL of these have a `user BIGINT NOT NULL` column from the .lzi field `user: User required`.
+- **Discovery:** attempted end-to-end smoke test of the API (`docker compose up postgres` + manual migration apply) on 2026-05-16. `psql` rejected every CREATE TABLE that has the `user` column.
+- **Workaround in place:** none yet. The migration files are codegen output (`*.sql` in `dist/go/migrations/`); editing them by hand would be wiped on regen. The Go handler queries DO quote `"user"` (because Lazuli's quoted-identifier list in handler emit knows about reserved words). The schema-emit side does NOT.
+- **Removal criterion:** Lazuli codegen quotes ALL column identifiers in migration emit (Postgres uses double-quotes). Belt-and-suspenders: also reject `user`, `from`, `to`, `select`, `table`, `from`, etc. as field names with a parser-level error, suggesting `owner_user` / similar.
+- **Surfaced by:** Hostpoint end-to-end provisioning attempt 2026-05-16.
 
 ---
 
