@@ -83,7 +83,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doctor::encryption::test_support::*;
+    use crate::encryption::test_support::*;
 
     #[test]
     fn positive_no_tenancy_with_tenant_key_fires() {

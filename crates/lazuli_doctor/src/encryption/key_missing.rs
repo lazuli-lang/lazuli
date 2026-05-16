@@ -80,7 +80,7 @@ pub fn check(feature: &Feature, app: &AppManifest, path: &Path) -> Vec<Finding> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doctor::encryption::test_support::*;
+    use crate::encryption::test_support::*;
 
     fn feature_with_encrypted(scope: &str) -> Feature {
         let mut feature = empty_feature("customer");

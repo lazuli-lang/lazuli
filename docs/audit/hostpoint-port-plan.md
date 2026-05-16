@@ -15,6 +15,18 @@ Hostpoint is a private downstream product. Per `project_public_vs_private_repo` 
 
 This document is therefore safe to commit to the public Lazuli repo.
 
+## Sources of truth (three-layer reference)
+
+The port consumes three private artifacts in a specific role hierarchy. None of them is quoted in this audit; the audit only acknowledges their existence + role.
+
+| Layer | Artifact | Path | Role in the port |
+|---|---|---|---|
+| **Behavior (what works in prod today)** | Flutter MVP | `c:/Users/lucas/dev/flutter-hostpoint/` | Behavioral source of truth. The current production app, Firebase-backed. Used to disambiguate "how does this actually behave when used" — overrides any other source if there's a contradiction. Structure: `lib/{app_widget, core/, features/, router, setup_di, shared/}`. Has `maestro/` smoke flows + `firestore.rules` defining server-side invariants. |
+| **Data model + business rules (what to encode)** | `orion.diagrams.json` = Orion Studio canonical model export | `c:/Users/lucas/hostpoint/orion.diagrams.json` (canonical snapshot, kept in sync with Orion Studio per `AGENTS.md`). Origin Studio path: `c:/Users/lucas/dev/orion/` (project `Hostpoint`). | Data-model source of truth. Contains `diagrams[]` (11: 10 BCs + `runtime_flows` migration-planning diagram), `domainAssets[]` (shared/local value objects: Cnpj, Cpf, GeoArea, MercadoPagoAccountRef, PlatformFeePolicy, ReviewEligibilityWindow, ServiceAvailabilityWindow, etc.), `domainEntities[]` (entities with `bc/kind/ddd/x/y/color/attrs[]`), plus relations + invariants. Per Lucas: orients **business-rule modeling**, NOT architecture — use it for resource shape + value objects + invariants, not for routing/transport/codegen layout. **Discipline**: Lazuli port replaces the AGENTS.md "Orion-first" sync rule with ".lzi-first"; `orion.diagrams.json` retires once port is complete. |
+| **UX + screen-by-screen contract (what to build)** | React Native Storybook (`@storybook/react-native-web-vite`) | `C:/Users/lucas/hostpoint/apps/hostpoint-app/.storybook/` + stories glob `shared/presentation/**/*.stories.@(ts\|tsx)`. Dev URL: `http://localhost:6006/`. 30 story files: 8 foundations (brand, colors, typography, spacing, radii, elevation, motion, overview), 2 UI primitives, 20 patterns (account-flows, auth, host-{home,operations,payments,profile,property-{create,detail,edit},service-{create,edit,view}}, messaging-chat, notifications, onboarding-{host,traveler}, settings, traveler-{flows,home,reservations}). | UX source of truth for the RN rewrite. Frame-perfect contract for every `.lzx` view emit. Stories are not mockups — they mount **real production components** from `apps/hostpoint-app/shared/presentation/ui/*` consuming `@hostpoint/design-tokens/reference`. Resolves disputes between behavior (Flutter MVP) and model (orion-diagrams) on UI-side questions. The `.lzx` audience-scoped projections (per-frontend SDK) must match storybook patterns 1:1. |
+
+**How conflicts resolve:** storybook wins UX questions; orion-diagrams wins data-model questions; Flutter MVP wins behavior-under-load questions; Lazuli docs win architecture-of-port questions; `PRODUCT.md` wins product-rule questions; `DESIGN.md` wins design-system questions.
+
 ## Current Hostpoint architecture (source side)
 
 ### Authoring layer

@@ -77,7 +77,7 @@ pub fn check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doctor::encryption::test_support::*;
+    use crate::encryption::test_support::*;
     use lazuli_ir::AppEnvVar;
 
     fn env_entry(name: &str) -> AppEnvVar {

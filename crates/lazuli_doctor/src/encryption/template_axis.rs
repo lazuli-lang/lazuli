@@ -94,7 +94,7 @@ pub fn check(app: &AppManifest, path: &Path) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doctor::encryption::test_support::*;
+    use crate::encryption::test_support::*;
 
     fn app_with_binding(scope: &str, template_literal: &str) -> AppManifest {
         let mut app = empty_app();

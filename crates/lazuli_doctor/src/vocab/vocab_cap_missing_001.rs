@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn golden_source_fixture_fires_for_plaintext_pii_field() {
         let source =
-            include_str!("../../../../../tests/golden/vocab/cap-missing/pii-contact-plaintext.lzi");
+            include_str!("../../../../tests/golden/vocab/cap-missing/pii-contact-plaintext.lzi");
 
         let findings = check_source(
             source,

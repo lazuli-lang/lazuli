@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn check_returns_no_findings_today() {
         // Placeholder check until the parser separates absent-vs-manual.
-        let app = crate::doctor::encryption::test_support::empty_app();
+        let app = crate::encryption::test_support::empty_app();
         assert!(check(&app, Path::new("app.lzi")).is_empty());
     }
 }

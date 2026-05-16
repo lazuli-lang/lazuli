@@ -1,15 +1,14 @@
 pub mod auth;
-pub mod design;
-pub mod correctness;
-pub mod domain;
-pub mod encryption;
 pub mod folder;
-pub mod lifecycle;
 pub mod lzx;
-pub mod poller;
 pub mod rbac;
-pub mod report;
-pub mod vocab;
+
+// Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
+// crate on 2026-05-15 so the LSP can import them. Existing call sites inside
+// this module continue to reference them as `correctness::`, `vocab::`, etc.
+pub use lazuli_doctor::{
+    correctness, design, domain, encryption, lifecycle, poller, report, vocab,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

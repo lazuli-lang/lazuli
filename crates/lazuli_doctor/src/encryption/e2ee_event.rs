@@ -59,7 +59,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doctor::encryption::test_support::*;
+    use crate::encryption::test_support::*;
     use lazuli_ir::{CapabilityRef, E2eeCapability, EncryptedCapability};
 
     #[test]

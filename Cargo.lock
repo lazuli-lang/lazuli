@@ -669,6 +669,7 @@ dependencies = [
  "lazuli_codegen_go",
  "lazuli_codegen_spec",
  "lazuli_codegen_ts",
+ "lazuli_doctor",
  "lazuli_ir",
  "lazuli_lsp",
  "lazuli_openapi",
@@ -713,6 +714,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazuli_doctor"
+version = "0.1.0"
+dependencies = [
+ "lazuli_ir",
+ "lazuli_syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lazuli_ir"
 version = "0.1.0"
 dependencies = [
@@ -725,6 +736,7 @@ name = "lazuli_lsp"
 version = "0.1.0"
 dependencies = [
  "lazuli_analyzer",
+ "lazuli_doctor",
  "lazuli_ir",
  "lazuli_syntax",
  "serde_json",
