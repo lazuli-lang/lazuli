@@ -3689,6 +3689,14 @@ fn inspect_command(
     format: InspectFormat,
     include: &[InspectInclude],
 ) -> Result<()> {
+    // Symbol-mode dispatch per docs/proposals/lsp-symbol-origin.md §5.3.
+    // When `input` is a bare or dotted symbol name (not a path), look it up
+    // in the SymbolOriginIndex and emit the JSON shape from §5.2 instead of
+    // the path-mode inspect output.
+    if let Some(symbol) = inspect_symbol_arg(input) {
+        return inspect_symbol_command(symbol, format);
+    }
+
     let expansions = parse_expand_set(expand)?;
     let source_path = inspect_source_path(input);
     let source = fs::read_to_string(&source_path)
@@ -3709,6 +3717,205 @@ fn inspect_command(
     }
 
     Ok(())
+}
+
+/// Detect symbol-mode arguments per `docs/proposals/lsp-symbol-origin.md` §5.3.
+///
+/// Returns `Some(arg)` when the input is a bare or dotted symbol name (e.g.
+/// `Gender`, `host.Gender`), and `None` when path-mode rules apply:
+/// - contains a path separator (`/` or `\`)
+/// - ends in `.lzi`
+/// - is `.` or `..`
+/// - points to an existing file or directory
+///
+/// The disambiguation is lexical first (separator/extension/sentinel) and
+/// filesystem-aware second (existing path → path mode). Authors who want
+/// the feature-named symbol when a directory shares the name can qualify
+/// via `<feature>.<Type>`.
+fn inspect_symbol_arg(input: &Path) -> Option<&str> {
+    let s = input.to_str()?;
+    if s.is_empty() || s == "." || s == ".." {
+        return None;
+    }
+    if s.contains('/') || s.contains('\\') {
+        return None;
+    }
+    if s.ends_with(".lzi") {
+        return None;
+    }
+    if input.exists() {
+        return None;
+    }
+    Some(s)
+}
+
+/// Symbol-mode dispatch: build the SymbolOriginIndex from the project root
+/// and emit JSON for the requested symbol per §5.2 / §5.4.
+fn inspect_symbol_command(symbol: &str, format: InspectFormat) -> Result<()> {
+    let cwd = std::env::current_dir().context("failed to determine current directory")?;
+    let project_root = inspect_symbol_project_root(&cwd);
+    let module = build_module_from_path(&project_root)?;
+    let source_map = lazuli_ir::SourceMap { files: Vec::new() };
+    let index = lazuli_analyzer::build_symbol_origin_index(&module, &source_map);
+
+    let output = inspect_symbol_lookup(symbol, &module, &index);
+    match format {
+        InspectFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        InspectFormat::Lazuli => {
+            // Lazuli format not defined for symbol mode; emit a brief
+            // human-readable summary by falling back to JSON-pretty.
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+    }
+    Ok(())
+}
+
+/// Find the project root by walking up from `start` for a directory that
+/// contains `Lazurite.toml`. Falls back to `start` itself when no manifest
+/// is found — `build_module_from_path` will still produce something useful
+/// from a single-feature dir.
+fn inspect_symbol_project_root(start: &Path) -> PathBuf {
+    let mut cursor: Option<&Path> = Some(start);
+    while let Some(dir) = cursor {
+        if dir.join("Lazurite.toml").is_file() || dir.join("lazurite.toml").is_file() {
+            return dir.to_path_buf();
+        }
+        cursor = dir.parent();
+    }
+    start.to_path_buf()
+}
+
+/// Resolve a symbol query against the index. Returns a `serde_json::Value`
+/// matching the JSON shapes in `docs/proposals/lsp-symbol-origin.md` §5.2,
+/// §5.4 (error shapes).
+fn inspect_symbol_lookup(
+    symbol: &str,
+    module: &lazuli_ir::Module,
+    index: &lazuli_ir::SymbolOriginIndex,
+) -> serde_json::Value {
+    // Step 1: parse the symbol into (qualifier, name).
+    let (qualifier, name) = match symbol.split_once('.') {
+        Some((q, n)) => (Some(q.to_owned()), n.to_owned()),
+        None => (None, symbol.to_owned()),
+    };
+
+    // Step 2: find candidate keys in the index.
+    let candidates: Vec<&str> = match &qualifier {
+        Some(feature_or_alias) => {
+            // Qualified: look up `<qualifier>.<name>` directly. The qualifier
+            // is the FEATURE that contains the symbol, regardless of which
+            // feature triggered the inspect (uses-clause resolution would
+            // need an analyzer pass; out of scope for the bare lookup).
+            let key = format!("{}.{}", feature_or_alias, name);
+            if index.symbols.contains_key(&key) {
+                vec![index
+                    .symbols
+                    .get_key_value(&key)
+                    .map(|(k, _)| k.as_str())
+                    .unwrap()]
+            } else {
+                Vec::new()
+            }
+        }
+        None => {
+            // Bare name: walk all symbols matching `*.<name>`.
+            index
+                .symbols
+                .iter()
+                .filter(|(_, origin)| origin.name == name)
+                .map(|(k, _)| k.as_str())
+                .collect()
+        }
+    };
+
+    // Step 3: branch on candidate count.
+    match candidates.len() {
+        0 => inspect_symbol_not_found(&qualifier, &name, module, index),
+        1 => inspect_symbol_found(candidates[0], &qualifier, &name, index),
+        _ => inspect_symbol_ambiguous(&name, &candidates),
+    }
+}
+
+fn inspect_symbol_found(
+    key: &str,
+    qualifier: &Option<String>,
+    name: &str,
+    index: &lazuli_ir::SymbolOriginIndex,
+) -> serde_json::Value {
+    let origin = index.symbols.get(key).expect("key exists by construction");
+    serde_json::json!({
+        "symbol": name,
+        "feature": qualifier.clone().unwrap_or_else(|| origin.feature.clone()),
+        "defined_in": {
+            "source": match &origin.defined_at {
+                lazuli_ir::SourceLocation::File { .. } => "file",
+                lazuli_ir::SourceLocation::Builtin => "builtin",
+            },
+            "file": match &origin.defined_at {
+                lazuli_ir::SourceLocation::File { file, .. } => Some(file.clone()),
+                lazuli_ir::SourceLocation::Builtin => None,
+            },
+            "line": match &origin.defined_at {
+                lazuli_ir::SourceLocation::File { line, .. } => Some(*line),
+                lazuli_ir::SourceLocation::Builtin => None,
+            },
+            "column": match &origin.defined_at {
+                lazuli_ir::SourceLocation::File { column, .. } => Some(*column),
+                lazuli_ir::SourceLocation::Builtin => None,
+            },
+            "kind": symbol_kind_str(&origin.kind),
+        },
+        "imported_via": null,
+        "type": symbol_kind_str(&origin.kind),
+        "previous_names": origin.previous_names,
+    })
+}
+
+fn inspect_symbol_not_found(
+    qualifier: &Option<String>,
+    name: &str,
+    _module: &lazuli_ir::Module,
+    _index: &lazuli_ir::SymbolOriginIndex,
+) -> serde_json::Value {
+    let message = match qualifier {
+        Some(q) => format!(
+            "no declaration named `{}` in feature `{}` or any imported feature",
+            name, q
+        ),
+        None => format!("no declaration named `{}` in any feature of this project", name),
+    };
+    serde_json::json!({
+        "error": {
+            "code": "SYMBOL_NOT_FOUND",
+            "message": message,
+        }
+    })
+}
+
+fn inspect_symbol_ambiguous(name: &str, candidates: &[&str]) -> serde_json::Value {
+    serde_json::json!({
+        "error": {
+            "code": "AMBIGUOUS_SYMBOL",
+            "message": format!("`{}` is declared in multiple features; qualify the lookup as `<feature>.{}`", name, name),
+            "candidates": candidates,
+        }
+    })
+}
+
+fn symbol_kind_str(kind: &lazuli_ir::SymbolKind) -> &'static str {
+    match kind {
+        lazuli_ir::SymbolKind::Enum => "enum",
+        lazuli_ir::SymbolKind::Resource => "resource",
+        lazuli_ir::SymbolKind::Record => "record",
+        lazuli_ir::SymbolKind::Scalar => "scalar",
+        lazuli_ir::SymbolKind::Semantic => "semantic",
+        lazuli_ir::SymbolKind::Command => "command",
+        lazuli_ir::SymbolKind::Query => "query",
+        lazuli_ir::SymbolKind::Event => "event",
+        lazuli_ir::SymbolKind::Aggregate => "aggregate",
+    }
 }
 
 fn debug_command(

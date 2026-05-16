@@ -54,3 +54,37 @@ React surfaces should receive the same error kind/code as the backend. UI adapte
 - `conflict` to retry or refresh prompt
 
 The message in a `rule` is user-facing unless an adapter overrides localization.
+
+## CLI inspect symbol-mode (`lazuli inspect <qualified-symbol>`)
+
+Per `docs/proposals/lsp-symbol-origin.md` §5.4. When the inspect CLI is invoked in symbol-mode (per §5.3 lexical disambiguation), lookup failures are emitted as a soft error envelope on stdout with `exit 0`. Hard errors (parse failure on the module, IO error reading `.lzi` files) exit non-zero with stderr context.
+
+Symbol-mode error codes:
+
+| Code | Trigger | Resolution |
+|---|---|---|
+| `SYMBOL_NOT_FOUND` | The qualified symbol does not exist in the project's `SymbolOriginIndex`. | Confirm the spelling; if the symbol lives in another feature, qualify the lookup via `<feature>.<name>`. |
+| `AMBIGUOUS_SYMBOL` | A bare-name lookup matches symbols in 2+ features. | Qualify the lookup. The `candidates` array in the envelope lists every match. |
+
+Envelope shape:
+
+```json
+{
+  "error": {
+    "code": "SYMBOL_NOT_FOUND",
+    "message": "no declaration named `Banana` in any feature of this project"
+  }
+}
+```
+
+```json
+{
+  "error": {
+    "code": "AMBIGUOUS_SYMBOL",
+    "message": "`Gender` is declared in multiple features; qualify the lookup as `<feature>.Gender`",
+    "candidates": ["account.Gender", "host.Gender"]
+  }
+}
+```
+
+Soft-error exit policy matches `lazuli doctor` — findings are data, not failures. Scripts consuming the CLI parse the envelope and decide.

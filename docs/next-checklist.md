@@ -39,12 +39,22 @@ These items were surfaced by the long external-review conversation that produced
 
 - [ ] **`lazuli_cli::doctor::tests::doctor_pipeline_invokes_folder_and_design_rules` FAILED on commit 321c01e (pre-Wave-3 baseline).** Test expects `feature-orphan-component` folder rule to fire; got `["LAZULI-VERSION-001", "app_urls_missing", "design-token-hex-leak"]` instead. Likely tied to recent handler-arch refactor (commits 32fd8be / 4f09b9c) that changed where handlers land. Not introduced by this wave — verified by `git checkout 321c01e -- . && cargo test ...` reproducing the failure. Track as a follow-up.
 
+- [ ] **`lazuli_codegen_go::emitter::migration_ddl::tests::maps_builtin_types_and_requiredness` FAILED on commit 9037fa3 (pre-Wave-3c baseline).** Test asserts `sql.contains("cents BIGINT NOT NULL")` but the Money tier 1 commit (`13b98b3`) changed Money fields to `NUMERIC(20,4)`. Test fixture needs to be updated to expect the new SQL (or test renamed to assert the new Money mapping). Not introduced by Wave 3.
+
 ## From `docs/proposals/audit-skill-mvp.md` v0.3 (PASS 8.93/10, 2026-05-16)
 
 - [ ] **Status-line procedence cleanup.** v0.3 Status field carries inline v0.1→v0.2 trail; per `feedback_normative_not_narrative_2026-05-15`, procedence belongs in a `## §11. Revision history` section. Cosmetic; affects Criterion 1 by ~0.2.
 - [ ] **§5 rule table — Rust-internal vocabulary leak.** Row for `VOCAB-HANDLER-HEAVY-001` carries `Command.effect` / `external_calls` / `Expr::Path` Rust typenames inline. Move the disambiguation to the §5 Note paragraph (already addresses it) so the user-facing table reads in product vocabulary only.
 - [ ] **§7 difference table — `EXAMPLES/*.lzi` migration spec.** When v2 projector lands, RULES.md is regenerated from IR; but the 13 `EXAMPLES/*.lzi` snippets are user-authored test fixtures, not IR-projectable. 2-line addendum to §7 clarifying "EXAMPLES/ stays as snapshot-test corpus when v2 ships; the projector regenerates RULES.md only" closes the orphan-at-migration risk.
 - [ ] **SKILL.md comment-strip guard.** §4.4 acknowledges "command inside a comment" false-positive class but SKILL.md prose doesn't tell the LLM consumer to strip `#`-prefixed lines before applying the catalog walk. 1-line addition behavioralizes the mitigation.
+
+## Deferred from Wave 3 (lsp-symbol-origin impl, 2026-05-16)
+
+- [ ] **LSP hover handler (B.1 + B.2) — defer.** Proposal §6.7 + §9 Cell B.1 specs hover enrichment in `crates/lazuli_lsp/src/lib.rs` (15K+ LOC file). Wave 3c shipped the CLI consumer surface (`lazuli inspect <qualified-symbol>`) and the analyzer walker + IR types; the LSP hook is the next consumer. Defer until a real LSP consumer (Pleiades web in an editor, Hostpoint authoring flow) actively needs hover-on-symbol — currently no live consumer requests it.
+- [ ] **D.3 Hostpoint capsule validation — defer.** Proposal §8 D.3 + §6 Hostpoint validation procedure. Private capsule (per `project_public_vs_private_repo`); no committable artifact. Run locally before tagging each skill bundle version. Tracked as a manual gate, not a wave cell.
+- [ ] **CLI `--format lazuli` for symbol-mode.** Wave 3c emits JSON regardless of `--format` in symbol-mode. A future cell adds a human-readable `Lazuli` rendering (one-line `Symbol — defined in features/<feat>/<feat>.lzi:N`).
+- [ ] **Cross-feature `imported_via` resolution.** Current symbol-mode lookup returns `imported_via: null` even for qualified queries that traverse a `uses` clause. A follow-up walker reads `feature.uses` + `SymbolOriginIndex.imports` and populates the `imported_via` block per proposal §5.2.
+- [ ] **`referenced_by` field for `.lzx → .lzi` lookup** per proposal §8.3.1. Walker scans `.lzx` surfaces (lazuli_ir `Surface.audiences[*].views[*].source/submit`) and emits an inverted reference list. Needs a separate analyzer pass; not bundled into the v1 walker.
 
 ## From `docs/proposals/lsp-symbol-origin.md` v0.2 (PASS 8.92/10, 2026-05-16)
 
