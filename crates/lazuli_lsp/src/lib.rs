@@ -1432,6 +1432,7 @@ const FEATURE_BODY_KINDS: &[&str] = &[
     "defaults",
     "delegated_to",
     "domain",
+    "emits",
     "enum",
     "errors",
     "escape_route",
@@ -1525,10 +1526,15 @@ fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / workflow / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / context / non_goals / role / permission / etc."
             ),
         };
+        // ERROR not WARNING: an unknown kind keyword causes the
+        // parser to SILENTLY skip the entire block — the user-intended
+        // command/api/query never enters the IR, and the regenerated
+        // dist looks like the feature simply forgot to declare it.
+        // Compile-blocking visibility is the right choice.
         diagnostics.push(simple_canonical_diagnostic(
             line_index,
             line,
-            DiagnosticSeverity::WARNING,
+            DiagnosticSeverity::ERROR,
             "feature-unknown-kind",
             &message,
         ));
