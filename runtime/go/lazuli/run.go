@@ -321,6 +321,16 @@ func quoteIdent(name string) string {
 	return `"` + name + `"`
 }
 
+// quoteResourceTable computes the SQL table name for a resource and
+// quotes it. Resources are declared in PascalCase (e.g. `User`,
+// `ServiceTransaction`); the migration emit lower-snakes them to
+// `user`, `service_transaction`. The runtime applies the same
+// transformation so INSERT / UPDATE / DELETE round-trip with the
+// migrated schema.
+func quoteResourceTable(name string) string {
+	return quoteIdent(snakeCase(name))
+}
+
 // buildSearchPattern wraps the term according to SearchMode, escaping
 // `%` and `_` so user-provided patterns don't leak SQL wildcards.
 func buildSearchPattern(term string, mode SearchMode) string {

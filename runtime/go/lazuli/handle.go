@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -345,7 +346,7 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 
 	sql := fmt.Sprintf(
 		`INSERT INTO %s (%s) VALUES (%s) RETURNING *`,
-		quoteIdent(eff.Resource.Name),
+		quoteResourceTable(eff.Resource.Name),
 		strings.Join(cols, ", "),
 		strings.Join(placeholders, ", "),
 	)
@@ -425,7 +426,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 
 	sql := fmt.Sprintf(
 		`UPDATE %s SET %s WHERE %s RETURNING *`,
-		quoteIdent(eff.Resource.Name),
+		quoteResourceTable(eff.Resource.Name),
 		strings.Join(sets, ", "),
 		strings.Join(conds, " AND "),
 	)
@@ -477,13 +478,13 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 	if eff.Resource.SoftDelete {
 		sql = fmt.Sprintf(
 			`UPDATE %s SET "deleted_at" = now(), "updated_at" = now() WHERE %s RETURNING *`,
-			quoteIdent(eff.Resource.Name),
+			quoteResourceTable(eff.Resource.Name),
 			strings.Join(conds, " AND "),
 		)
 	} else {
 		sql = fmt.Sprintf(
 			`DELETE FROM %s WHERE %s RETURNING *`,
-			quoteIdent(eff.Resource.Name),
+			quoteResourceTable(eff.Resource.Name),
 			strings.Join(conds, " AND "),
 		)
 	}
@@ -576,12 +577,38 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 				Message: "no authenticated user in context"}
 		}
 		return ctx.User.ID, nil
+	case "user.org_id", "user.org":
+		if ctx.User == nil {
+			return nil, &Error{Status: 401, Code: CodePolicyDenied,
+				Message: "no authenticated user in context"}
+		}
+		return ctx.User.OrgID, nil
+	case "actor.user_id":
+		if ctx.User == nil {
+			return nil, &Error{Status: 401, Code: CodePolicyDenied,
+				Message: "no authenticated user in context"}
+		}
+		return ctx.User.ID, nil
+	case "actor.org_id":
+		if ctx.User != nil {
+			return ctx.User.OrgID, nil
+		}
+		if ctx.Tenant != nil {
+			return ctx.Tenant.OrgID, nil
+		}
+		return nil, &Error{Status: 400, Code: CodeTenantMismatch,
+			Message: "no actor org in context"}
 	case "tenant.org_id":
 		if ctx.Tenant == nil {
 			return nil, &Error{Status: 400, Code: CodeTenantMismatch,
 				Message: "no tenant in context"}
 		}
 		return ctx.Tenant.OrgID, nil
+	case "now":
+		if !ctx.Now.IsZero() {
+			return ctx.Now, nil
+		}
+		return time.Now(), nil
 	default:
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: "unknown ctx path: " + path}
