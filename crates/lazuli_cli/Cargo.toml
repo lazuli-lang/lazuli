@@ -9,6 +9,12 @@ authors.workspace = true
 name = "lazuli"
 path = "src/main.rs"
 
+[features]
+# Gates `tests/mobile_smoke.rs` end-to-end TS typecheck. Two-gate
+# pattern (Cargo feature + `LAZULI_TS_SMOKE=1` env var) mirrors the
+# convention in `lazuli_codegen_ts`. Default `cargo test` is unaffected.
+smoke = []
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true

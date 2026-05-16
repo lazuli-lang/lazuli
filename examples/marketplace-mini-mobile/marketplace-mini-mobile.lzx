@@ -1,0 +1,39 @@
+# Abstract experience/view model for the mobile reference fixture.
+# Concrete platform projections live in sibling `.mobile.lzx` files.
+
+route buyer_listings
+  path "/listings"
+  to catalog.view.list
+  surface catalog mobile
+  audience buyer
+
+route buyer_listing_detail
+  path "/listings/:id"
+  route id: Listing.ID
+  to catalog.view.detail(id: route.id)
+  surface catalog mobile
+  audience buyer
+
+route buyer_create_booking
+  path "/listings/:id/book"
+  route id: Listing.ID
+  to booking.view.create(listing_id: route.id)
+  surface booking mobile
+  audience buyer
+
+experience catalog
+  imports catalog
+
+  view list
+    source catalog.query.listings
+
+  view detail
+    route id: Listing.ID
+    source catalog.query.by_id(id: route.id)
+
+experience booking
+  imports booking
+
+  view create
+    route listing_id: Listing.ID
+    submit booking.command.create_booking

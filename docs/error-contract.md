@@ -96,5 +96,14 @@ Per `docs/proposals/cross-feature-contracts.md` §7. All three rules are gated o
 | Code | Severity | Trigger | Resolution |
 |---|---|---|---|
 | `CROSS-FEATURE-CONTRACT-MISSING-001` | error | A cross-feature reference (type/enum/record in field decl, query return, command input, event payload, or identity reference) resolves to a symbol in the origin feature that lacks `public contract`. | Add `public contract <Symbol> as v1` adjacent to the symbol's declaration in the origin feature. |
-| `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` | error (scaffolded v0; full trigger pending consumer-pin syntax) | Consumer feature references `<feature>.<Symbol>` at one version while the origin's current contract is a different version. | Migrate the consumer to the new version (and adjust call sites if breaking) or pin explicitly. Doctor lists each consumer site. |
+| `CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001` | error | Consumer feature pins `uses <origin> version v<N>` and references `<origin>.<Symbol>` whose origin currently publishes `public contract <Symbol> as v<M>` with `M ≠ N`. | Migrate the consumer to v\<M\> (and adjust call sites if the bump is breaking) or republish the origin at v\<N\> for compatibility. |
 | `CROSS-FEATURE-WORKFLOW-SPAN-001` | warning | Workflow transitions touch resources owned by 2+ features; under `microservices` this implies distributed-aggregate / saga semantics. | Declare which feature hosts the saga coordinator and treat cross-feature steps as inter-service calls (no new keyword needed; the analyzer flags the span as a refactoring hint). |
+
+## `.lzx` surface diagnostics
+
+Per `docs/proposals/mobile-target.md` §9. The catalog of `lzx-*` rules is target-aware: each surface's `target` field (`"web"` or `"mobile"`) drives the directory the rule expects to find. Module placement: `crates/lazuli_cli/src/doctor/lzx/`.
+
+| Code | Severity | Trigger | Resolution |
+|---|---|---|---|
+| `lzx-cell-missing-impl` | error | `cells … @client.<slot>` references a slot whose `features/<feat>/<target>/cells/<slot>.tsx` impl is absent from disk (target derived from the enclosing surface). | Author the impl under the correct platform subdirectory, OR remove the cell binding. When the sibling target's impl exists, the diagnostic points there as a hint. |
+| `lzx-route-collision` | error | Two views in the same `(audience, target)` tuple translate to the same router file path. Under Expo Router, distinct dynamic placeholder names at the same depth (`/users/:id` vs `/users/:user_id`) both collapse to a single `[name].tsx` file; under TanStack the collision is rarer (placeholders preserved as `$id` vs `$user_id`). | Disambiguate by making one route deeper (e.g., `/users/by-id/:id` and `/users/by-slug/:slug`) so the routers see distinct file paths. |

@@ -1,0 +1,18 @@
+# Buyer-audience mobile projection of the catalog + booking experiences.
+
+surface catalog mobile
+  uses experience catalog
+
+  audience buyer
+    view list List
+      fields title, price, currency, created_at
+
+    view detail Detail
+      sections header, footer
+
+surface booking mobile
+  uses experience booking
+
+  audience buyer
+    view create CreateBooking
+      fields listing_id, buyer_name

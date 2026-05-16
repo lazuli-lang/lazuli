@@ -1,0 +1,9 @@
+# Registry catalog for the mobile reference fixture.
+
+registry
+  env
+    group public_clients
+      mobile EXPO_PUBLIC_API_URL: Url required
+
+  capabilities
+    database postgres

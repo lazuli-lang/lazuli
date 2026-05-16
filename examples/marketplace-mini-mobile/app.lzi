@@ -1,0 +1,25 @@
+app MarketplaceMiniMobile
+  uses
+    catalog
+    booking
+
+  targets
+    backend go
+    mobile expo
+
+  environments
+    local
+    production
+
+  urls
+    api local "http://localhost:8080"
+
+  runtime
+    unit api
+      serves webhooks
+      healthcheck "/healthz"
+
+  deploy
+    migrations before_deploy
+    rollback on_failed_healthcheck
+    strategy rolling

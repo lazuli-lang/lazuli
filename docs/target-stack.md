@@ -101,6 +101,44 @@ Flutter is the second choice because it has consistent cross-platform UI and a
 codegen-friendly language, but it loses the shared React model, the React web
 ecosystem, and the current LLM advantage.
 
+### Runtime split + scaffold shape
+
+`@lazuli/runtime` is a single package; web and React Native consumers
+resolve different bodies via the `./react` exports map's `react-native`
+condition. Universal hooks (`useLazuliQuery`, `useLazuliCommand`,
+`useFilterState`, `useMultiSelection`, …) live once in `react.web.ts`
+and `react.native.ts`; the two platform-coupled hooks
+(`useLocalSetting`, `useDrawerSubView`) split per-platform —
+`localStorage` + `useSyncExternalStore` on web, `AsyncStorage` +
+`useState`/`useEffect` on native; `window.keydown("Escape")` on web,
+`BackHandler` on Android. The first-render contract divergence on
+`useLocalSetting` (synchronous read vs. `defaultValue`-then-resolved)
+is documented in the hook's JSDoc and pinned by `exports-parity.test.ts`.
+
+The mobile scaffold (`lazuli new --frontends mobile` or the
+`scaffold_frontend_mobile` writer) lays down an Expo Router project:
+
+```
+frontends/mobile/
+├── app/_layout.tsx          # one-line re-export of dist/ts-mobile/runtime/layout
+├── app/index.tsx            # placeholder home
+├── shell/client.ts          # LazuliClient construction
+├── app.json, babel.config.js, metro.config.js, tsconfig.json, package.json
+```
+
+`dist/ts-mobile/runtime/layout.tsx` is the regen-only body —
+`<LazuliProvider>` ⊃ `<QueryClientProvider>` ⊃ `<Stack />`. Per-view
+files at `frontends/mobile/app/<audience>/<expo-route>.tsx` are
+scaffolded once (idempotent — never overwritten) with plain RN
+placeholder bodies that authors replace with their chosen
+component-library JSX.
+
+For the full specification — runtime split rationale, per-hook
+behavior tables, exports map shape, Expo Router file-path translation,
+doctor rules (`lzx-cell-missing-impl`, `lzx-route-collision`), and the
+MOBILE-SDK-PARITY invariant — see
+[docs/proposals/mobile-target.md](./proposals/mobile-target.md).
+
 ## Workflow Runtime
 
 Durable workflow systems such as Temporal, Inngest, or Restate are adapter

@@ -1,0 +1,43 @@
+feature catalog
+  purpose "Buyer-facing listing catalog for the mobile reference fixture."
+
+  domain
+    public contract Listing as v1
+    resource Listing
+      title: Text required
+      price: @semantic.Money required
+      currency: @semantic.Currency required
+      created_at: DateTime required
+
+    query.list listings
+
+    query.lookup by_id by id: Listing.ID
+
+  policies
+    list: @scope.public
+    by_id: @scope.public
+
+feature booking
+  purpose "Buyer creates a booking against a listing in the mobile app."
+
+  uses catalog version v1
+
+  domain
+    resource Booking
+      listing: Listing required
+      buyer_name: Text required
+      placed_at: DateTime required
+
+  policies
+    create_booking: @scope.public
+
+  command create_booking
+    input
+      listing_id: Listing.ID required
+      buyer_name: Text required
+    policy @policy.create_booking
+    rate_limit "5 per minute per ip"
+    creates Booking
+      listing = input.listing_id
+      buyer_name = input.buyer_name
+      placed_at = now

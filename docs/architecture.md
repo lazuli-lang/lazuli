@@ -203,9 +203,12 @@ concern is central to the DSL".
 
 | Layer | Pick | Rationale |
 |---|---|---|
-| Routing | Expo Router | Mirrors TanStack Router conceptually. |
-| Server state | TanStack Query | Shared with web. |
-| Components | React Native equivalents (Tamagui or shadcn-rn variants) | TBD — pick when first mobile fixture exists. |
+| Routing | Expo Router | Mirrors TanStack Router conceptually. File-based. |
+| Server state | TanStack Query | Shared with web via the universal `@lazuli/runtime/react` entrypoints. |
+| Runtime resolution | Single `@lazuli/runtime` package; `react-native` exports condition selects `react.native.ts` on Metro, `react.web.ts` everywhere else. | Emitter stays target-agnostic — `package.json` does the work, not codegen. |
+| Persistence hook | `useLocalSetting` with `AsyncStorage` body (web body uses `localStorage` + `useSyncExternalStore`). | First-render contract differs across platforms; documented in the hook's JSDoc and pinned by an exports-parity test. |
+| Components | React Native primitives in scaffolded view files (Tamagui / shadcn-rn / etc. authored by the user). | Lazuli does not opt into a single RN component library — see `docs/proposals/mobile-target.md` §5.3. |
+| Reference fixture | `examples/marketplace-mini-mobile/` | Hostpoint-shaped buyer audience + catalog/booking features. |
 
 ### What we are explicitly **not** bringing into v0
 

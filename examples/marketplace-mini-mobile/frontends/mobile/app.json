@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "lazuli-app-mobile",
+    "slug": "lazuli-app-mobile",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "lazuliapp",
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "app.lazuli.mobile"
+    }
+  }
+}

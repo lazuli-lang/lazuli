@@ -1,0 +1,11 @@
+dist/
+.lazuli/
+node_modules/
+.expo/
+# Expo
+.expo/
+.expo-shared/
+
+# Native build outputs (rarely committed; uncomment if running prebuild)
+# ios/
+# android/
