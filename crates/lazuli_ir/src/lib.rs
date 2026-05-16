@@ -84,6 +84,13 @@ pub struct SymbolOrigin {
     pub defined_at: SourceLocation,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
+    /// Cross-feature contract version per
+    /// `docs/proposals/cross-feature-contracts.md` §5.1, populated by
+    /// `lazuli_analyzer::build_symbol_origin_index` when the origin's
+    /// declaration carries `public contract <Symbol> as v<N>`.
+    /// `None` when no contract is declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

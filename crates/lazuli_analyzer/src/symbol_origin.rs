@@ -70,6 +70,7 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Enum,
                 r#enum.span_ref,
                 &r#enum.previous_names,
+                r#enum.public_contract.as_ref().map(|c| c.version),
             );
         }
         for resource in &feature.resources {
@@ -82,6 +83,7 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Resource,
                 resource.span_ref,
                 &resource.previous_names,
+                resource.public_contract.as_ref().map(|c| c.version),
             );
         }
         for record in &feature.records {
@@ -94,6 +96,7 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Record,
                 record.span_ref,
                 &[], // Record doesn't currently carry previous_names; add when it does
+                record.public_contract.as_ref().map(|c| c.version),
             );
         }
         for command in &feature.commands {
@@ -106,10 +109,11 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Command,
                 command.span_ref,
                 &command.previous_names,
+                command.public_contract.as_ref().map(|c| c.version),
             );
         }
         for query in &feature.queries {
-            let (name, span_ref, previous_names) = query_facts(query);
+            let (name, span_ref, previous_names, contract_version) = query_facts(query);
             insert_symbol(
                 &mut symbols,
                 feature,
@@ -119,6 +123,7 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Query,
                 span_ref,
                 previous_names,
+                contract_version,
             );
         }
         for event in &feature.events {
@@ -131,6 +136,7 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Event,
                 event.span_ref,
                 &event.previous_names,
+                None, // Events don't carry public_contract yet (proposal §3.4 / §5.3 row 6 — follow-up cell)
             );
         }
         for aggregate in &feature.aggregates {
@@ -143,6 +149,7 @@ pub fn build_symbol_origin_index(
                 SymbolKind::Aggregate,
                 aggregate.span_ref,
                 &[],
+                None, // Aggregates may not span features under microservices (proposal §3 non-goal 9)
             );
         }
 
@@ -184,6 +191,7 @@ fn insert_symbol(
     kind: SymbolKind,
     span_ref: Option<SpanRef>,
     previous_names: &[String],
+    contract_version: Option<u16>,
 ) {
     let key = qualified_key(&feature.name, name);
     let origin = SymbolOrigin {
@@ -192,15 +200,31 @@ fn insert_symbol(
         kind,
         defined_at: resolve_or_unresolved(span_ref, file_id, source_map),
         previous_names: previous_names.to_vec(),
+        contract_version,
     };
     symbols.insert(key, origin);
 }
 
-fn query_facts(query: &Query) -> (&str, Option<SpanRef>, &[String]) {
+fn query_facts(query: &Query) -> (&str, Option<SpanRef>, &[String], Option<u16>) {
     match query {
-        Query::List(q) => (q.name.as_str(), q.span_ref, q.previous_names.as_slice()),
-        Query::Lookup(q) => (q.name.as_str(), q.span_ref, q.previous_names.as_slice()),
-        Query::Sql(q) => (q.name.as_str(), q.span_ref, q.previous_names.as_slice()),
+        Query::List(q) => (
+            q.name.as_str(),
+            q.span_ref,
+            q.previous_names.as_slice(),
+            q.public_contract.as_ref().map(|c| c.version),
+        ),
+        Query::Lookup(q) => (
+            q.name.as_str(),
+            q.span_ref,
+            q.previous_names.as_slice(),
+            q.public_contract.as_ref().map(|c| c.version),
+        ),
+        Query::Sql(q) => (
+            q.name.as_str(),
+            q.span_ref,
+            q.previous_names.as_slice(),
+            q.public_contract.as_ref().map(|c| c.version),
+        ),
     }
 }
 
@@ -499,6 +523,37 @@ mod tests {
 
         let origin = index.symbols.get("account.Gender").unwrap();
         assert_eq!(origin.previous_names, vec!["LegacyGender".to_string()]);
+    }
+
+    #[test]
+    fn public_contract_propagates_to_symbol_origin() {
+        // Per docs/proposals/cross-feature-contracts.md §5.1 — when an
+        // enum/resource/record/command/query carries `public contract X as
+        // v<N>`, the IR's PublicContract.version flows into the index's
+        // SymbolOrigin.contract_version field.
+        let mut feature = empty_feature("account");
+        let mut r#enum = make_enum("Gender");
+        r#enum.public_contract = Some(lazuli_ir::PublicContract {
+            version: 3,
+            span_ref: None,
+        });
+        feature.enums.push(r#enum);
+        let module = empty_module(vec![feature]);
+        let index = build_symbol_origin_index(&module, &empty_source_map());
+
+        let origin = index.symbols.get("account.Gender").unwrap();
+        assert_eq!(origin.contract_version, Some(3));
+    }
+
+    #[test]
+    fn missing_public_contract_yields_none_contract_version() {
+        let mut feature = empty_feature("account");
+        feature.enums.push(make_enum("Gender")); // public_contract: None
+        let module = empty_module(vec![feature]);
+        let index = build_symbol_origin_index(&module, &empty_source_map());
+
+        let origin = index.symbols.get("account.Gender").unwrap();
+        assert_eq!(origin.contract_version, None);
     }
 
     #[test]

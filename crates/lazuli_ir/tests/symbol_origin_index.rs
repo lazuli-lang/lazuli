@@ -30,6 +30,7 @@ fn origin(name: &str, kind: SymbolKind, defined_at: SourceLocation) -> SymbolOri
         kind,
         defined_at,
         previous_names: Vec::new(),
+        contract_version: None,
     }
 }
 
@@ -116,6 +117,7 @@ fn builtin_symbol_uses_typed_discriminator() {
             kind: SymbolKind::Semantic,
             defined_at: SourceLocation::Builtin,
             previous_names: Vec::new(),
+            contract_version: None,
         },
     );
 
