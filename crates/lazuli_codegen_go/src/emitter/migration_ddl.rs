@@ -671,7 +671,7 @@ fn is_direct_geo_point(type_ref: &TypeRef) -> bool {
 }
 
 fn sql_ident(raw: &str) -> String {
-    if is_plain_sql_ident(raw) {
+    if is_plain_sql_ident(raw) && !is_sql_reserved_word(raw) {
         raw.to_owned()
     } else {
         quote_ident(raw)
@@ -687,6 +687,37 @@ fn is_plain_sql_ident(raw: &str) -> bool {
         return false;
     }
     chars.all(|ch| ch == '_' || ch.is_ascii_lowercase() || ch.is_ascii_digit())
+}
+
+/// SQL reserved words that need to be quoted when used as identifiers.
+/// Covers Postgres + ANSI SQL keywords most likely to collide with
+/// resource field names (`user`, `from`, `to`, `select`, …).
+///
+/// Per Postgres docs, reserved words can be used as column names ONLY
+/// if quoted. Lazuli prefers quoting over rejection so user-friendly
+/// names like `User.user` (the FK column from `user: User required`)
+/// remain expressible.
+fn is_sql_reserved_word(raw: &str) -> bool {
+    matches!(
+        raw,
+        "all" | "analyse" | "analyze" | "and" | "any" | "array" | "as" | "asc"
+        | "asymmetric" | "authorization" | "binary" | "both" | "case" | "cast"
+        | "check" | "collate" | "collation" | "column" | "concurrently"
+        | "constraint" | "create" | "cross" | "current_catalog" | "current_date"
+        | "current_role" | "current_schema" | "current_time" | "current_timestamp"
+        | "current_user" | "default" | "deferrable" | "desc" | "distinct" | "do"
+        | "else" | "end" | "except" | "false" | "fetch" | "for" | "foreign"
+        | "freeze" | "from" | "full" | "grant" | "group" | "having" | "ilike"
+        | "in" | "initially" | "inner" | "intersect" | "into" | "is" | "isnull"
+        | "join" | "lateral" | "leading" | "left" | "like" | "limit" | "localtime"
+        | "localtimestamp" | "natural" | "not" | "notnull" | "null" | "offset"
+        | "on" | "only" | "or" | "order" | "outer" | "overlaps" | "placing"
+        | "primary" | "references" | "returning" | "right" | "select"
+        | "session_user" | "similar" | "some" | "symmetric" | "system_user"
+        | "table" | "tablesample" | "then" | "to" | "trailing" | "true" | "union"
+        | "unique" | "user" | "using" | "variadic" | "verbose" | "when" | "where"
+        | "window" | "with"
+    )
 }
 
 fn quote_ident(raw: &str) -> String {

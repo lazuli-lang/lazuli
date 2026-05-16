@@ -23,10 +23,11 @@
 | Vocab — auth | WAR-VOCAB-AUTH-01..06 | sessions list, step-up, legal docs, settings updates (CLOSED), CNPJ, postal lookup |
 | Vocab — notifications | WAR-VOCAB-NOTIFICATIONS-01 | inbox query + mark-read command |
 | Vocab — host home | WAR-VOCAB-HOSTHOME-01..02 | my_host return type, account-pendings query |
+| Vocab — host property detail | WAR-VOCAB-HOSTPROPDETAIL-01..03 | denormalized property-detail read, mutation return type, ID type mismatch |
 | Vocab — operations | WAR-VOCAB-OPERATIONS-01..02 | denormalized agenda query, pending-reviews query |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
-| Runtime — migrations | WAR-RUNTIME-MIGRATION-01..02 | CREATE TABLE IF NOT EXISTS for added columns; reserved-word columns unquoted |
+| Runtime — migrations | WAR-RUNTIME-MIGRATION-01..03 | CREATE TABLE IF NOT EXISTS (open); reserved-word columns (CLOSED); FK topo-sort (open) |
 | Runtime — command routing | WAR-RUNTIME-COMMAND-01 | Register init blocks + Effect:Returns wiring missing |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
@@ -326,12 +327,18 @@
 
 ## WAR-RUNTIME-MIGRATION-02 — `lazuli generate go` emits unquoted column names that collide with SQL reserved words
 
-- **STATUS:** open (BLOCKER for end-to-end provisioning)
-- **Symptom:** Postgres migration files include columns named `user`, which is a reserved keyword in SQL. Running the migration fails with `ERROR: syntax error at or near "user"`. Affected tables: `host`, `traveler`, `host_traveler`, `intermediation_terms_acceptance`, `phone_otp`, `user_session`, `password_reset_token`, `email_verification_token`, `service_transaction`, `web_push_subscription`, `notification_delivery`, `data_request`, `review`, `reputation_snapshot`, `chat`, `chat_message`. ALL of these have a `user BIGINT NOT NULL` column from the .lzi field `user: User required`.
-- **Discovery:** attempted end-to-end smoke test of the API (`docker compose up postgres` + manual migration apply) on 2026-05-16. `psql` rejected every CREATE TABLE that has the `user` column.
-- **Workaround in place:** none yet. The migration files are codegen output (`*.sql` in `dist/go/migrations/`); editing them by hand would be wiped on regen. The Go handler queries DO quote `"user"` (because Lazuli's quoted-identifier list in handler emit knows about reserved words). The schema-emit side does NOT.
-- **Removal criterion:** Lazuli codegen quotes ALL column identifiers in migration emit (Postgres uses double-quotes). Belt-and-suspenders: also reject `user`, `from`, `to`, `select`, `table`, `from`, etc. as field names with a parser-level error, suggesting `owner_user` / similar.
-- **Surfaced by:** Hostpoint end-to-end provisioning attempt 2026-05-16.
+- **STATUS:** **closed** (lazuli main branch, 2026-05-16 — `crates/lazuli_codegen_go/src/emitter/migration_ddl.rs` `is_sql_reserved_word`).
+- **Symptom:** Postgres migration files included columns named `user`, a SQL reserved word, causing `ERROR: syntax error at or near "user"` on every CREATE TABLE. Affected 16+ tables across all features (host, traveler, phone_otp, user_session, password_reset_token, email_verification_token, service_transaction, web_push_subscription, notification_delivery, data_request, review, reputation_snapshot, chat, chat_message, intermediation_terms_acceptance).
+- **Fix:** `sql_ident()` now consults a Postgres reserved-words list (`is_sql_reserved_word`) covering `user`, `from`, `to`, `select`, `where`, `order`, … and quotes any column or FK constraint identifier that collides. Verified by clean-regenerating migrations + applying to Postgres: all 28 tables created successfully.
+
+## WAR-RUNTIME-MIGRATION-03 — Migration files not topologically sorted by FK dependency
+
+- **STATUS:** open
+- **Symptom:** migration files are named `NNN_<feature>_<resource>.sql` where N comes from a per-feature counter; applied alphabetically by filename, cross-feature FKs land out of order. Example: `010_host_host.sql` requires `org` (created at `019_org_org.sql`), so single-pass apply fails with `relation "org" does not exist` on every host/traveler/catalog/operations table.
+- **Discovery:** end-to-end smoke test on 2026-05-16.
+- **Workaround in place:** apply migrations in N passes — each pass re-applies failed tables until all FK dependencies resolve. In practice 2-3 passes suffice. `CREATE TABLE IF NOT EXISTS` makes successful passes idempotent. The `pnpm db:migrate` script in `package.json` needs updating to retry until the failure count converges.
+- **Removal criterion:** Lazuli emits a topologically-sorted single `0001_init.sql` (or numerically-prefixed files in dependency order), so any single-pass apply succeeds. Alternative: a `lazuli migrate` Go runner that respects FK dependencies via Tarjan-style ordering before delegating to `pgx.Conn.Exec`.
+- **Surfaced by:** Hostpoint end-to-end provisioning 2026-05-16.
 
 ---
 
@@ -342,6 +349,35 @@
 - **Workaround in place:** Hostpoint `.gitignore` rewritten to ignore only `*.gen.go`, `*.gen.ts`, `*.zod.ts`, `dist/go/{main.go,go.mod,go.sum,migrations/}`, `dist/{ts-web,ts-mobile}/design/`. See Hostpoint commit `1c03f30`.
 - **Removal criterion:** `lazuli new` scaffold ships the granular .gitignore by default. Reference Hostpoint commit `1c03f30` for the canonical pattern.
 - **Surfaced by:** Phase 1.2 commit `1c03f30`.
+
+---
+
+## WAR-VOCAB-HOSTPROPDETAIL-01 — Denormalized property-detail read not modeled
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.4)
+- **Symptom:** the storybook host-property-detail screen renders, for a single property: name, type-label, cover photo, gallery thumbnails (with `+N` overflow), street address, description, chip groups for amenities / house rules / accepted vehicles, plus a denormalized list of linked services (icon, name, summary, price, active flag). The generated SDK exposes `lookupCatalogByPropertyDetail` returning `UploadedAsset` (clearly the wrong type — likely the same bug class as WAR-VOCAB-HOSTHOME-01 where lookup-style queries lose their resource type during codegen). Even if the type were fixed to `Property`, the raw resource exposes `amenities` / `rules` / `accepted_vehicles` as `unknown` JSON columns plus FK ids for photos and services. Mapping each id-shaped amenity / rule / vehicle to its `{ label, icon, ink }` display tuple requires a static catalog that does not exist server-side; rendering the photo gallery needs the joined `UploadedAsset.public_url` set; rendering the linked services list needs each `Service` joined with its `category` / `cover_photo` / first-option `price_amount_cents`.
+- **Workaround in place:** `apps/hostpoint-app/src/routes/HostPropertyDetail.tsx` inlines a `FIXTURE_PROPERTY` constant matching the storybook `publishedData` byte-for-byte. The amenity / rule / vehicle catalogs (label + icon for each enum value) are inlined as module-local `*_META` constants until Lazuli grows either a `@semantic.LabeledEnum` primitive or a per-feature `display_catalog` block authored alongside the enum.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyDetail.tsx` header comment.
+- **Removal criterion:** `catalog.lzi` adds a `query.lookup property_detail(id) -> PropertyDetail` returning a denormalized record with: name, type_label, cover_url, photo_urls[], address (street-formatted), description, amenities[]{id, label, icon}, rules[]{id, label, icon}, accepted_vehicles[]{id, label, icon}, services[]{id, name, summary, price_formatted, icon_key, accent_key, is_active}, status. Companion `display_catalog` per enum to source labels/icons declaratively; LSP knows how to surface them.
+- **Surfaced by:** Phase 3.4 host-property-detail port (this entry).
+
+## WAR-VOCAB-HOSTPROPDETAIL-02 — Catalog command return type is `UploadedAsset`
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.4)
+- **Symptom:** every command in `dist/ts-web/catalog/catalog.gen.ts` is typed as `defineCommand<*Input, UploadedAsset>` — including `publishCatalogProperty`, `unpublishCatalogProperty`, `deleteCatalogProperty`, `createCatalogProperty`, `updateCatalogProperty`, `createCatalogService`, `publishCatalogService`, `unpublishCatalogService`, `deleteCatalogService`, `updateCatalogService`, `createCatalogCustomServiceCategory`, `deleteCatalogCustomServiceCategory`, and the asset-upload command pair. The mutation success payload should be the affected resource (`Property` for property commands, `Service` for service commands, `CustomServiceCategory` for category commands, `UploadedAsset` for the upload pair only). Looks like the codegen path that resolves the return type for commands collapses to the bucket's last-defined record across the bucket, picking up `UploadedAsset` as the universal answer.
+- **Workaround in place:** mutation callers ignore the success payload (or do not consume `data` from the `useLazuliCommand` result). For `HostPropertyDetail.tsx` the `onSuccess` callbacks only flip local UI state — no read from the response.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyDetail.tsx` header comment.
+- **Removal criterion:** TS codegen resolves the per-command success-payload type from the declared `command` block's `effect: returns <Resource>` annotation (or the implicit `Resource` from `updates`/`creates`). Then `publishCatalogProperty` returns `Property`, `createCatalogService` returns `Service`, etc.
+- **Surfaced by:** Phase 3.4 host-property-detail port (this entry).
+
+## WAR-VOCAB-HOSTPROPDETAIL-03 — Route param type mismatch with `ID = number`
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.4)
+- **Symptom:** `@lazuli/runtime` declares `type ID = number` (numeric primary keys, Postgres `serial`/`bigserial`). URLs carry IDs as strings (`/host/properties/:id`). When a route component reads the param via `useParams` and passes it to a mutation typed `{ property_id: ID }`, TypeScript correctly rejects the string. Today every call site does `Number(params.id)` which loses the type contract (non-numeric strings become `NaN`).
+- **Workaround in place:** explicit `Number(...)` coercion at the call site. The numeric-string contract is enforced only at runtime.
+- **Annotated in:** `apps/hostpoint-app/src/routes/HostPropertyDetail.tsx` inline comment.
+- **Removal criterion:** either (a) Lazuli ships a branded `BrandedID` (string-typed for URL safety + opaque-int for storage) that the SDK accepts uniformly, OR (b) `useLazuliCommand` accepts a string and the wire layer coerces; OR (c) `tanstack-router` route definitions get a typed `parseParams` hook the SDK can hook into. Either path closes the leak.
+- **Surfaced by:** Phase 3.4 host-property-detail port (this entry).
 
 ---
 
