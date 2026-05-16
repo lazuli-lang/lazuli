@@ -11,8 +11,21 @@
 //!   - `frontends/<target>/{shell,theme,ui,hooks,lib}/**/*.{ts,tsx}`
 //!   - `frontends/<target>/{main,vite.config,tailwind.config}.ts(x)`
 //!
-//! Anything else, such as `src/components/`, `app/components/`, or
-//! `lib/components/`, is an orphan component.
+//! Anything else inside the Lazuli-owned tree, such as `src/components/`,
+//! `app/components/`, or `lib/components/`, is an orphan component.
+//!
+//! ## Scope discipline (polyglot monorepo)
+//!
+//! Per `CLAUDE.md` and the polyglot-monorepo canon, a Lazurite repo's root
+//! may host non-Lazuli siblings (`apps/<frontend>/`, `packages/<pkg>/`,
+//! `brand/`, `scripts/`, `docs/`, etc.) that are owned by the surrounding
+//! pnpm/turbo/Astro/Vite workspace and NOT by the Lazuli compiler.
+//!
+//! This rule therefore only descends into the Lazuli-owned top-level
+//! entries — `app/`, `features/` (legacy fixture form), and `frontends/`.
+//! Anything else at the root is invisible to this rule. The Lazuli-owned
+//! tree's contents are still walked recursively from those entry points,
+//! so orphans inside `app/shared/ui/` or `app/components/` still fire.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,19 +51,37 @@ impl Finding {
     }
 }
 
-/// Walk `root` recursively, classify each `.tsx`/`.ts` file as canonical
-/// or orphan, and return findings for the orphans.
+/// Walk the Lazuli-owned subtrees of `root`, classify each `.tsx`/`.ts` file
+/// as canonical or orphan, and return findings for the orphans.
 ///
-/// Skips directories: `node_modules`, `dist`, `.lazuli`, `.git`, `target`,
-/// `.next`, `.expo`, `.cache`, `coverage`.
+/// Only the Lazuli-owned top-level entries are walked (`app/`, `features/`,
+/// `frontends/`). Polyglot-sibling roots (`apps/<frontend>/`,
+/// `packages/<pkg>/`, `brand/`, `scripts/`, etc.) are invisible to this
+/// rule — they are owned by the surrounding workspace, not by the Lazuli
+/// compiler. See module docs for the scope-discipline rationale.
+///
+/// Inside Lazuli-owned subtrees, skips directories: `node_modules`, `dist`,
+/// `.lazuli`, `.git`, `target`, `.next`, `.expo`, `.cache`, `coverage`.
 ///
 /// Also skips test/story files via extension: `*.test.tsx`, `*.spec.tsx`,
 /// `*.stories.tsx`.
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
-    walk(root, root, &mut findings);
+    for entry in LAZULI_OWNED_ROOTS {
+        let subtree = root.join(entry);
+        if subtree.is_dir() {
+            walk(root, &subtree, &mut findings);
+        }
+    }
     findings
 }
+
+/// Top-level entries under the project root that this rule descends into.
+///
+/// Anything else at the root is a polyglot sibling and out of scope per
+/// `docs/scope-discipline.md` + the polyglot-monorepo canon. Adding a new
+/// entry here is a language-canon decision, not a per-project config.
+const LAZULI_OWNED_ROOTS: &[&str] = &["app", "features", "frontends"];
 
 // --- internal helpers ---
 
@@ -272,18 +303,16 @@ mod tests {
     }
 
     #[test]
-    fn orphan_src_components_fires() {
+    fn orphan_top_level_src_is_out_of_scope() {
+        // `src/` at the project root is a polyglot-sibling concern (Astro,
+        // Vite, etc.) — not Lazuli-owned. Doctor must not flag files there;
+        // an orphan inside `app/components/` is the correct in-scope signal.
         let tmp = tempfile::TempDir::new().unwrap();
         touch(tmp.path(), "src/components/SlugTable.tsx");
 
         let findings = check(tmp.path());
 
-        assert_eq!(findings.len(), 1);
-        assert_eq!(
-            findings[0].path,
-            PathBuf::from("src/components/SlugTable.tsx")
-        );
-        assert_eq!(findings[0].message, Finding::message(&findings[0].path));
+        assert!(findings.is_empty());
     }
 
     #[test]
@@ -295,6 +324,53 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].path, PathBuf::from("app/components/Foo.tsx"));
+    }
+
+    #[test]
+    fn polyglot_apps_sibling_is_out_of_scope() {
+        // Polyglot monorepo: `apps/website/` is an Astro/Vite sibling owned
+        // by the pnpm workspace, not Lazuli. Doctor must not descend.
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "apps/website/src/content/copy.ts");
+        touch(tmp.path(), "apps/hostpoint-app/src/main.tsx");
+
+        let findings = check(tmp.path());
+
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn polyglot_packages_sibling_is_out_of_scope() {
+        // `packages/<pkg>/` are pnpm-workspace siblings (design tokens,
+        // shared utilities, etc.) — not Lazuli-owned.
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "packages/design-tokens/src/index.ts");
+        touch(tmp.path(), "packages/design-tokens/scripts/build-css.ts");
+        touch(tmp.path(), "brand/assets/index.ts");
+        touch(tmp.path(), "scripts/seed.ts");
+
+        let findings = check(tmp.path());
+
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn orphans_inside_lazuli_owned_tree_still_fire() {
+        // Polyglot siblings stay invisible; orphans inside the Lazuli-owned
+        // subtree (`app/...`, `frontends/...`) still fire.
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "apps/website/src/orphan.ts");
+        touch(tmp.path(), "packages/util/src/orphan.ts");
+        touch(tmp.path(), "app/shared/ui/Bad.tsx");
+        touch(tmp.path(), "frontends/web/junk/Bad.tsx");
+        touch(tmp.path(), "app/features/slug/web/cells/ok.tsx");
+        touch(tmp.path(), "frontends/web/ui/button.tsx");
+
+        let findings = check(tmp.path());
+
+        assert_eq!(findings.len(), 2, "found: {:?}", findings);
+        assert_eq!(findings[0].path, PathBuf::from("app/shared/ui/Bad.tsx"));
+        assert_eq!(findings[1].path, PathBuf::from("frontends/web/junk/Bad.tsx"));
     }
 
     #[test]
@@ -323,8 +399,8 @@ mod tests {
     #[test]
     fn deterministic_order() {
         let tmp = tempfile::TempDir::new().unwrap();
-        touch(tmp.path(), "src/components/Zed.tsx");
-        touch(tmp.path(), "src/components/Alpha.tsx");
+        touch(tmp.path(), "frontends/web/junk/Zed.tsx");
+        touch(tmp.path(), "frontends/web/junk/Alpha.tsx");
         touch(tmp.path(), "app/components/Foo.tsx");
 
         let first = check(tmp.path());
@@ -335,8 +411,8 @@ mod tests {
             first.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
             vec![
                 PathBuf::from("app/components/Foo.tsx"),
-                PathBuf::from("src/components/Alpha.tsx"),
-                PathBuf::from("src/components/Zed.tsx"),
+                PathBuf::from("frontends/web/junk/Alpha.tsx"),
+                PathBuf::from("frontends/web/junk/Zed.tsx"),
             ]
         );
     }
