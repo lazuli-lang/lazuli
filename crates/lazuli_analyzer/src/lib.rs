@@ -4289,8 +4289,10 @@ fn lower_qualified_name(text: &str) -> ir::QualifiedName {
     }
 }
 
-/// Capture a freeform expression as a string-bagged `Expr::Path`.
-/// Tier 4's command parser will replace this with the typed expression.
+/// Capture a freeform expression as a typed `ir::Expr`. Today this
+/// handles five literal shapes (string / integer / bool / nil / enum
+/// or path) plus the v1 `@fn.<name>(<arg>...)` invocation form (closes
+/// WAR-VOCAB-CREATES-FN-CALL-01).
 fn lower_raw_expr(text: &str) -> ir::Expr {
     let trimmed = text.trim();
     if let Some(unquoted) = trimmed
@@ -4303,14 +4305,84 @@ fn lower_raw_expr(text: &str) -> ir::Expr {
         return ir::Expr::Integer(n);
     }
     match trimmed {
-        "true" => ir::Expr::Boolean(true),
-        "false" => ir::Expr::Boolean(false),
-        "nil" => ir::Expr::Nil,
-        _ => {
-            let segments = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
-            ir::Expr::Path(ir::Path { segments })
-        }
+        "true" => return ir::Expr::Boolean(true),
+        "false" => return ir::Expr::Boolean(false),
+        "nil" => return ir::Expr::Nil,
+        _ => {}
     }
+    // `@fn.<name>(<arg>, ...)` — extension-fn invocation. The args
+    // are recursively lowered as expressions; nested fn calls are
+    // permitted at the IR level (codegen guards against unsupported
+    // nesting today by emitting a TODO comment).
+    if let Some(fn_call) = parse_fn_call_expr(trimmed) {
+        return ir::Expr::FnCall(fn_call);
+    }
+    let segments = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
+    ir::Expr::Path(ir::Path { segments })
+}
+
+fn parse_fn_call_expr(text: &str) -> Option<ir::FnCallExpr> {
+    let rest = text.strip_prefix("@fn.")?;
+    let paren_idx = rest.find('(')?;
+    if !rest.ends_with(')') {
+        return None;
+    }
+    let (name_text, after) = rest.split_at(paren_idx);
+    let inside = &after[1..after.len() - 1];
+    let name = name_text.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let args = if inside.trim().is_empty() {
+        Vec::new()
+    } else {
+        split_fn_call_args(inside)
+            .into_iter()
+            .map(|arg| lower_raw_expr(&arg))
+            .collect()
+    };
+    Some(ir::FnCallExpr {
+        name: ir::QualifiedName {
+            feature: None,
+            name: name.to_owned(),
+        },
+        args,
+    })
+}
+
+fn split_fn_call_args(input: &str) -> Vec<String> {
+    // Splits on commas that live at paren-depth 0 outside double-quoted
+    // strings. Nested fn-call args therefore stay grouped.
+    let mut out = Vec::new();
+    let mut depth: usize = 0;
+    let mut in_quote = false;
+    let mut start = 0usize;
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
+            in_quote = !in_quote;
+        } else if !in_quote {
+            if b == b'(' {
+                depth += 1;
+            } else if b == b')' {
+                depth = depth.saturating_sub(1);
+            } else if b == b',' && depth == 0 {
+                let part = input[start..i].trim();
+                if !part.is_empty() {
+                    out.push(part.to_owned());
+                }
+                start = i + 1;
+            }
+        }
+        i += 1;
+    }
+    let tail = input[start..].trim();
+    if !tail.is_empty() {
+        out.push(tail.to_owned());
+    }
+    out
 }
 
 fn lower_path_string(text: &str) -> ir::Path {

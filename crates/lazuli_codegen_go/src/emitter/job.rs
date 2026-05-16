@@ -476,6 +476,13 @@ fn format_expr(expr: &lazuli_ir::Expr) -> String {
             None => literal.variant.clone(),
         },
         lazuli_ir::Expr::Nil => "nil".to_owned(),
+        // Job-level format_expr is used for trigger inputs / log
+        // rendering; FnCall isn't expected here today, fall back to a
+        // best-effort textual rendering for diagnostics.
+        lazuli_ir::Expr::FnCall(call) => {
+            let args: Vec<String> = call.args.iter().map(format_expr).collect();
+            format!("@fn.{}({})", call.name.name, args.join(", "))
+        }
     }
 }
 

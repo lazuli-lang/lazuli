@@ -1054,6 +1054,12 @@ fn collect_expr_refs(
             collect_text_handler_refs(&value.variant, feature, site, signatures, stubs);
         }
         Expr::Integer(_) | Expr::Boolean(_) | Expr::Nil => {}
+        Expr::FnCall(call) => {
+            collect_text_handler_refs(&call.name.name, feature, site, signatures, stubs);
+            for arg in &call.args {
+                collect_expr_refs(arg, feature, site, signatures, stubs);
+            }
+        }
     }
 }
 

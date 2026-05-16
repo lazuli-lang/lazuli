@@ -662,6 +662,12 @@ fn collect_expr_refs(expr: &Expr, feature: &str, site: &str, refs: &mut Vec<RefU
             }
         }
         Expr::Integer(_) | Expr::Boolean(_) | Expr::Nil => {}
+        Expr::FnCall(call) => {
+            collect_text_refs(&call.name.name, feature, site, refs);
+            for arg in &call.args {
+                collect_expr_refs(arg, feature, site, refs);
+            }
+        }
     }
 }
 

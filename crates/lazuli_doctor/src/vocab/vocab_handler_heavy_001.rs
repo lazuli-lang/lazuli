@@ -115,6 +115,7 @@ fn expr_contains_fn_ref(expr: &Expr) -> bool {
                 .map_or(false, |segment| segment == "@fn")
                 || path.segments.join(".").contains("@fn.")
         }
+        Expr::FnCall(_) => true,
         Expr::String(_) | Expr::Integer(_) | Expr::Boolean(_) | Expr::Enum(_) | Expr::Nil => false,
     }
 }

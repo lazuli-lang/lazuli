@@ -41,6 +41,7 @@ const (
 	sourceCtx                      // value comes from `ctx.<path>`
 	sourceTarget                   // value comes from the loaded `target.<path>`
 	sourceConst                    // value is a literal
+	sourceFn                       // value comes from invoking a registered binding fn
 )
 
 // FromInput binds a target field to an input field by path. The runtime
@@ -57,6 +58,22 @@ func FromTarget(path string) Source { return Source{kind: sourceTarget, path: pa
 
 // FromConst binds a target field to a literal value (enum, number, string).
 func FromConst(value any) Source { return Source{kind: sourceConst, value: value} }
+
+// FromFn binds a target field to the return value of a user-registered
+// binding fn (closes WAR-VOCAB-CREATES-FN-CALL-01). Codegen emits this
+// shape for `@fn.<name>(<arg>...)` expressions on the RHS of
+// `creates`/`updates` field bindings (and `query.list` filter values).
+// The runtime resolves each arg source first, then invokes the fn
+// registered under `name` via [RegisterBindingFn] with the resolved
+// args. Returns an error if no fn is registered, or if the fn returns
+// an error.
+//
+//	"password_hash": lazuli.FromFn("hash_password", []lazuli.Source{
+//	    lazuli.FromInput("password"),
+//	}),
+func FromFn(name string, args []Source) Source {
+	return Source{kind: sourceFn, path: name, value: args}
+}
 
 // CreatesEffect is the effect for a `creates <Resource>` block. Generated
 // code constructs one via `lazuli.Creates(&customerResource, lazuli.Bindings{...})`.

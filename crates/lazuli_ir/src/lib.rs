@@ -1553,6 +1553,19 @@ pub enum Expr {
     Boolean(bool),
     Enum(EnumLiteral),
     Nil,
+    /// `@fn.<name>(<arg>...)` — closes WAR-VOCAB-CREATES-FN-CALL-01.
+    /// Declarative `creates`/`updates` field bindings can now invoke
+    /// a user-registered extension fn at command time. Codegen lowers
+    /// to a `lazuli.FromFn` source; runtime resolves args first, then
+    /// invokes the registered fn with the resolved args.
+    FnCall(FnCallExpr),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FnCallExpr {
+    pub name: QualifiedName,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

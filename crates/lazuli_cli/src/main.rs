@@ -6385,6 +6385,10 @@ fn inspect_expr_to_string(e: &lazuli_ir::Expr) -> String {
             None => l.variant.clone(),
         },
         lazuli_ir::Expr::Nil => "nil".to_owned(),
+        lazuli_ir::Expr::FnCall(call) => {
+            let args: Vec<String> = call.args.iter().map(inspect_expr_to_string).collect();
+            format!("@fn.{}({})", call.name.name, args.join(", "))
+        }
     }
 }
 

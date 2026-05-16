@@ -547,6 +547,27 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 	case sourceTarget:
 		return nil, &Error{Status: 501, Code: CodeInternal,
 			Message: "target binding not yet implemented in runtime spike"}
+	case sourceFn:
+		// WAR-VOCAB-CREATES-FN-CALL-01 closure: `@fn.<name>(<arg>...)`
+		// resolves each arg source first, then invokes the registered
+		// BindingFn with the resolved args. Fail-closed: unknown fn
+		// names abort the command rather than emit a confusing
+		// downstream type error.
+		fn, ok := lookupBindingFn(src.path)
+		if !ok {
+			return nil, &Error{Status: 500, Code: CodeInternal,
+				Message: "binding fn not registered: @fn." + src.path}
+		}
+		argSources, _ := src.value.([]Source)
+		args := make([]any, 0, len(argSources))
+		for _, arg := range argSources {
+			v, err := resolveSource(ctx, arg, input)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, v)
+		}
+		return fn(ctx, args...)
 	default:
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown source kind: %d", src.kind)}

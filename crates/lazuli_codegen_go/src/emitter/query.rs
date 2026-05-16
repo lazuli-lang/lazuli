@@ -502,6 +502,22 @@ fn format_source_expr(expr: &Expr) -> String {
             }
         }
         Expr::Nil => "lazuli.FromConst(nil)".to_owned(),
+        // Query filter RHS — extension fn invocation (`@fn.foo(args)`).
+        // Mirrors the binding-source `FromFn` shape: runtime looks up
+        // the registered fn by name and applies it to resolved args.
+        Expr::FnCall(call) => {
+            let arg_sources: Vec<String> = call.args.iter().map(format_source_expr).collect();
+            let args_arr = if arg_sources.is_empty() {
+                "nil".to_owned()
+            } else {
+                format!("[]lazuli.Source{{{}}}", arg_sources.join(", "))
+            };
+            format!(
+                "lazuli.FromFn(\"{}\", {})",
+                escape_string(&call.name.name),
+                args_arr
+            )
+        }
     }
 }
 

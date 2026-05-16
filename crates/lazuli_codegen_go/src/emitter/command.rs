@@ -737,6 +737,30 @@ fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> S
             }
         }
         Expr::Nil => "lazuli.FromConst(nil)".to_owned(),
+        // WAR-VOCAB-CREATES-FN-CALL-01 closure — `@fn.<name>(<arg>...)`
+        // in a creates/updates binding emits a `lazuli.FromFn` source
+        // that the runtime resolves by looking up the user-registered
+        // BindingFn (via `lazuli.RegisterBindingFn`), resolving the
+        // arg sources first, then invoking the fn with the resolved
+        // args. Host apps register the fn at boot:
+        //   lazuli.RegisterBindingFn("hash_password", func(ctx, args ...any) (any, error) {...})
+        Expr::FnCall(call) => {
+            let arg_sources: Vec<String> = call
+                .args
+                .iter()
+                .map(|a| format_binding_source(a, let_bindings))
+                .collect();
+            let args_arr = if arg_sources.is_empty() {
+                "nil".to_owned()
+            } else {
+                format!("[]lazuli.Source{{{}}}", arg_sources.join(", "))
+            };
+            format!(
+                "lazuli.FromFn(\"{}\", {})",
+                escape_string(&call.name.name),
+                args_arr
+            )
+        }
     }
 }
 
@@ -983,6 +1007,12 @@ fn format_expr(expr: &Expr) -> String {
             None => literal.variant.clone(),
         },
         Expr::Nil => "nil".to_owned(),
+        // Diagnostic-only render for FnCall; binding sites use the
+        // typed `format_binding_source` path instead.
+        Expr::FnCall(call) => {
+            let args: Vec<String> = call.args.iter().map(format_expr).collect();
+            format!("@fn.{}({})", call.name.name, args.join(", "))
+        }
     }
 }
 

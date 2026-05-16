@@ -40,7 +40,7 @@
 | Runtime — file naming | WAR-RUNTIME-FILENAME-01 | Underscore-prefix files silently excluded by go build |
 | Runtime — multitenant | WAR-RUNTIME-MULTITENANT-01 | public-policy creates can't resolve tenant (CLOSED) |
 | Vocab — query enum | WAR-VOCAB-QUERY-ENUM-01 | query.list filters can't bind enum literals (CLOSED) |
-| Vocab — creates @fn-call | WAR-VOCAB-CREATES-FN-CALL-01 | @fn.X(args) in creates-bindings emits as literal string |
+| Vocab — creates @fn-call | WAR-VOCAB-CREATES-FN-CALL-01 | @fn.X(args) in creates-bindings emits as literal string (CLOSED) |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
 | Scaffold — gitignore | WAR-SCAFFOLD-GITIGNORE-01 | dist/ blanket-ignore vs user-authored handlers |
@@ -513,16 +513,13 @@
 
 ## WAR-VOCAB-CREATES-FN-CALL-01 — `@fn.X(args)` in `creates` bindings emits as literal string
 
-- **STATUS:** open (workaround in place — Hostpoint Phase 1.3 / 2026-05-16; surfaced when MULTITENANT-01 closure exposed that the declarative `creates User` STILL fails because of this separate gap)
-- **Symptom:** declarative form `creates User { password_hash = @fn.hash_password(input.password); ... }` lowers a Bindings map where `password_hash` is `lazuli.FromConst("@fn.hash_password(input.password)")` — a CONST string containing the unevaluated function-call syntax. The runtime stores the literal string `@fn.hash_password(...)` in the password_hash column. Any field-binding that wants to call a user-authored @fn at command time hits this.
-- **Workaround in place:** Hostpoint keeps `dist/go/account/register_user_handler.go` (the hand-rolled INSERT override) specifically to invoke `auth.HashPassword(...)` before writing the row. Tenant resolution in the handler is now redundant (covered by `WithDefaultTenant` per MULTITENANT-01) but the password-hash invocation can't move to the declarative form yet.
-- **Annotated in:** `dist/go/account/register_user_handler.go` (head-of-file comment cites both warrants; explicit "(b) is still open" note).
-- **Removal criterion:** Lazuli codegen + runtime support `@fn.<name>(<arg>...)` as a typed Source kind alongside `FromInput` / `FromCtx` / `FromTarget` / `FromConst`. Concretely:
-  - **Codegen:** detect `Expr::FnCall { name, args }` on the RHS of a `creates`/`updates` binding (the IR already has the shape per `crates/lazuli_ir/src/lib.rs`); emit a new `lazuli.FromFn(<fn_ref>, <args>...)` source instead of falling through to `FromConst(<raw_text>)`.
-  - **Runtime:** add a `sourceFn` kind to `effect.go::sourceKind` enum + a `FromFn(fn func(ctx, input) (any, error), args []Source) Source` constructor; `resolveSource` invokes the fn with resolved args.
-  - **Analyzer:** symbol-resolve `@fn.hash_password` to the user-declared `extensions.fn` entry; fail closed when the @fn is missing.
-  - **Doctor lint candidate:** `VOCAB-CREATES-FN-MISSING-001` to catch `@fn.X` references in bindings that don't resolve to a declared extension fn.
-- **Surfaced by:** Hostpoint sign-up flow + WAR-RUNTIME-MULTITENANT-01 closure (exposed when the tenant blocker lifted and password-hash became the load-bearing reason the override exists).
+- **STATUS:** **closed** (lazuli commit pending 2026-05-16) — IR now carries `Expr::FnCall { name, args }`; analyzer detects `@fn.<name>(<arg>...)` in `lower_raw_expr` (commas split at paren-depth 0 outside quoted strings); codegen emits `lazuli.FromFn("<name>", []lazuli.Source{...})` instead of falling through to `FromConst`; runtime exposes `RegisterBindingFn(name, fn)` + a `sourceFn` kind in `resolveSource` that resolves arg sources first then invokes the registered fn. 6 unit tests at `runtime/go/lazuli/binding_fn_test.go` cover the registry + the end-to-end `resolveSource` dispatch.
+- **Original symptom:** declarative form `creates User { password_hash = @fn.hash_password(input.password); ... }` lowered to `lazuli.FromConst("@fn.hash_password(input.password)")` — a literal string. The runtime stored the function-call syntax verbatim in the column instead of invoking the fn.
+- **Fix:** `crates/lazuli_ir/src/lib.rs` (`Expr::FnCall` + `FnCallExpr`); `crates/lazuli_analyzer/src/lib.rs` (`parse_fn_call_expr` + `split_fn_call_args`); `crates/lazuli_codegen_go/src/emitter/command.rs` + `query.rs` (`Expr::FnCall` arm emits `lazuli.FromFn(...)`); `runtime/go/lazuli/effect.go` (`sourceFn` + `FromFn` constructor); `runtime/go/lazuli/handle.go` (`resolveSource` `sourceFn` dispatch); `runtime/go/lazuli/binding_fn.go` (`BindingFn` type + `RegisterBindingFn` + private lookup).
+- **Hostpoint integration:** `dist/go/account/binding_fns.go` registers `hash_password` as a one-line adapter calling `auth.HashPassword(ctx, accountAuthPassword, plaintext)`. `account.lzi` `creates User` block updated to use literal string enum variants (`role = "traveler"` instead of `Role.traveler`) + inline non-defaulted booleans (`mfa_enabled = false`, `notifications_enabled = true`) so the declarative INSERT covers every column. `dist/go/account/register.go` retired the `registerUser.Effect = lazuli.Returns(RegisterUserHandler)` override; `dist/go/account/register_user_handler.go` DELETED.
+- **End-to-end validation:** Hostpoint regen emits `"password_hash": lazuli.FromFn("hash_password", []lazuli.Source{lazuli.FromInput("password")})` — the WAR closure path. PWA typecheck clean.
+- **Surfaced by:** Hostpoint sign-up flow + WAR-RUNTIME-MULTITENANT-01 closure (exposed when the tenant blocker lifted and password-hash became the load-bearing reason the override existed). Closed lazuli 2026-05-16.
+- **Follow-up:** doctor lint candidate `VOCAB-CREATES-FN-MISSING-001` to catch `@fn.X` references in bindings that don't resolve to a declared `extensions.fn` entry — currently the runtime fails closed at execution time with `"binding fn not registered: @fn.<name>"`, which is informative but a compile-time check would catch typos earlier. Tracked as a follow-up.
 
 ## WAR-VOCAB-QUERY-ENUM-01 — `query.list filters <enum_field> = <literal>` does not bind under codegen
 
