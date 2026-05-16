@@ -1,0 +1,97 @@
+# {{app_name}} — Working Rules for AI Agents
+
+This file is the canonical operating manual for any AI agent (Claude, GPT/Codex, Cursor, etc.) editing this Lazurite project. Read it before substantive work.
+
+Mirrored verbatim at `AGENTS.md` for tooling that loads `AGENTS.md`.
+
+---
+
+## Quality gates — run before AND after every change
+
+Lazuli is declarative. The compiler can catch most mistakes BEFORE they reach runtime — treat the CLI as your typecheck + lint:
+
+```bash
+lazuli check .            # schema validation (parser + analyzer + invariants)
+lazuli doctor .           # full audit (vocab rules + structural + cross-feature)
+```
+
+Both **MUST pass clean** before commit. Warnings should drop to zero or be explicitly suppressed with `# doctor:allow <RULE-CODE> — reason "..."` on the offending line (where the rule supports inline allow).
+
+When you can't immediately fix a doctor finding, track it (your own backlog, NOT this file) and continue — but flag it explicitly in the commit message.
+
+## Inspect for IR debugging
+
+When behavior doesn't match expectation, ask the compiler what it actually sees:
+
+```bash
+# Full IR projection of a feature, pretty-printed
+lazuli inspect features/<feature>/<feature>.lzi --format=lazuli --expand=all
+
+# JSON for machine consumption
+lazuli inspect features/<feature>/<feature>.lzi --format=json \
+  --expand=summary,refs,events,policies,locators,dependencies,security
+
+# Qualified symbol lookup
+lazuli inspect <feature>.<resource>     # e.g. account.User
+lazuli inspect <feature>.<query>        # e.g. catalog.list
+```
+
+Inspect shows derived references, computed scopes, security envelope, event flow, audit lineage — everything the compiler infers from your `.lzi`. Use when "I declared X but it doesn't behave like X" — inspect reveals what the compiler thinks X is.
+
+---
+
+## Workflow for adding a feature
+
+1. **Author** `features/<name>/<name>.lzi` per [Lazuli grammar](https://github.com/lazuli-lang/lazuli/blob/main/docs/grammar.lzi.md).
+2. **Surfaces** (if user-facing): `features/<name>/<name>.lzx` (abstract) + `<name>.web.lzx` / `<name>.mobile.lzx` (per audience).
+3. **Gate**: `lazuli check . && lazuli doctor .` — MUST be clean before continuing.
+4. **Handlers** (if needed): `features/<name>/handlers/<fn>.go` — filename matches `@fn.<fn>` reference exactly.
+5. **Verify codegen**: `lazuli generate go && go build ./...`.
+6. **Re-gate**: `lazuli check . && lazuli doctor .`.
+
+If step 3 or 6 fails: read the diagnostic, fix the `.lzi` (not the workaround). The diagnostic message names the rule code — look it up in your framework docs if unclear.
+
+## Workflow for editing a feature
+
+1. **Inspect first**: `lazuli inspect features/<feature>/<feature>.lzi --format=lazuli --expand=all` to confirm current behavior matches your mental model.
+2. **Edit `.lzi`** (never edit `dist/` — it's regen-only).
+3. **Re-inspect**: confirm the IR changed the way you expected.
+4. **Gate**: `lazuli check . && lazuli doctor .`.
+5. **Regen + build**: `lazuli generate go && go build ./...`.
+
+---
+
+## Founding principle (don't violate)
+
+**Lazuli's runtime layer is wire, not reimplementation.** When writing `handlers/<x>.go` or other authored Go, do NOT reimplement primitives that exist in Go stdlib or mature libraries. Each adapter / helper should be ~10-50 LOC of `import + call`, not 200-800 LOC of homegrown logic.
+
+Concrete test: open the file you just created, count external imports (`github.com/...`, `golang.org/x/...`). If LOC > 100 and external imports == 0 and the feature exists in any well-known library, you're violating this principle — rewrite as wire, or delete and use the library directly.
+
+## Namespace policy
+
+- `@runtime/<name>` — OSS commodity infrastructure (postgres, redis, S3, smtp, kafka, etc.). Lives in the Lazuli runtime.
+- `@plugin/<name>` — vendor SaaS / paid APIs / named products (Stripe, MercadoPago, Sendgrid, etc.). Separate repo. Declared in `Lazurite.toml [plugins]`.
+- App-specific business logic — `handlers/`, `domain/`, `queries/`. Never invent vocab in core.
+
+**Never** write `@plugin/{{app_name}}/<provider>` — adapters are named after the *provider*, not the consuming app.
+
+## When in doubt
+
+```bash
+lazuli doctor . 2>&1 | head -40        # current findings, what to fix next
+lazuli inspect <feature>.<symbol>       # what does the compiler think this is
+```
+
+Canon references (Lazuli framework repo):
+- `docs/quickref.md` — context pack to load before authoring
+- `docs/canonical-semantics.md` — full normative spec
+- `docs/invariants.md` — closed grammar/IR constraints
+- `docs/plugin-authoring.md` — when adding a `@plugin/<name>` adapter
+
+## Do not
+
+- Edit `dist/` directly — regen overwrites.
+- Add Go files outside `features/<x>/handlers/`, `features/<x>/domain/`, etc. — adapters belong in plugins.
+- Commit with `lazuli doctor .` showing unsuppressed findings.
+- Use `git commit --no-verify` to bypass pre-commit hooks (if any).
+- Introduce `@plugin/{{app_name}}/<provider>` namespaces.
