@@ -1,0 +1,13 @@
+# Triggers: VOCAB-DERIVED-READ-001
+# Expected message contains: "is never written by any command or job"
+
+feature derived_read
+  domain
+    resource Post
+      title: Text required
+      canonical_url: Text optional
+
+  command inspect_post
+    returns Boolean
+    tests
+      allows when ctx.user != nil

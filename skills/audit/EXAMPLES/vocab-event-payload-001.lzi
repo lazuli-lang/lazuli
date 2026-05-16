@@ -1,0 +1,15 @@
+# Triggers: VOCAB-EVENT-PAYLOAD-001
+# Expected message contains: "command emits `post.archived` but the event is not declared"
+
+feature payload_missing
+  domain
+    resource Post
+      title: Text required
+
+  command archive_post
+    updates Post
+      title = "archived"
+    emits post.archived
+    audit default
+    tests
+      allows when target.title != archived

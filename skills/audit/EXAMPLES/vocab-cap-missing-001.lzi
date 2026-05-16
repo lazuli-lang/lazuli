@@ -1,0 +1,12 @@
+# Triggers: VOCAB-CAP-MISSING-001
+# Expected message contains: "carries `@pii.contact` but no `@cap.Hashed/Encrypted/Token`"
+
+feature plaintext_pii
+  domain
+    resource Customer
+      email: Text @pii.contact required
+
+  command inspect_customer
+    returns Boolean
+    tests
+      allows when ctx.user != nil

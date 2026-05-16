@@ -1,0 +1,16 @@
+# Triggers: VOCAB-AUDIT-001
+# Expected message contains: "has a write effect or emits events but declares no `audit` child"
+
+feature audit_missing
+  domain
+    resource Invoice
+      total: Money required
+      status: Text required
+
+  command archive_invoice
+    input
+      id: ID required
+    updates Invoice
+      status = "archived"
+    tests
+      allows when target.status = open

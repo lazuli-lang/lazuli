@@ -717,6 +717,7 @@ dependencies = [
 name = "lazuli_doctor"
 version = "0.1.0"
 dependencies = [
+ "lazuli_analyzer",
  "lazuli_ir",
  "lazuli_syntax",
  "serde",

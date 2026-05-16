@@ -1,0 +1,8 @@
+# Triggers: VOCAB-GRAMMAR-FORM-001
+# Expected message contains: "deprecated form 'validates resource @validator.account'"
+
+feature grammar_form
+  domain
+    resource Account
+      email: Text required
+      validates resource @validator.account

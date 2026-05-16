@@ -1,0 +1,13 @@
+# Triggers: VOCAB-UNION-002
+# Expected message contains: "declares `target` as enum `CommentTarget`"
+
+feature union_fk
+  domain
+    enum CommentTarget
+      Issue
+      Customer
+
+    resource Comment
+      target: CommentTarget required
+      target_id: ID required
+      body: Text required

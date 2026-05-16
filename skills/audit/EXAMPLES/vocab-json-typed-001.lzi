@@ -1,0 +1,12 @@
+# Triggers: VOCAB-JSON-TYPED-001
+# Expected message contains: "has untyped `questions: JSON` field with sibling enum `QuizQuestionType`"
+
+feature json_typed
+  domain
+    enum QuizQuestionType
+      MultipleChoice
+      TrueFalse
+
+    resource Quiz
+      title: Text required
+      questions: JSON required

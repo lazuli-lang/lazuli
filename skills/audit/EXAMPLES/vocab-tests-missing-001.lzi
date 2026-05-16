@@ -1,0 +1,7 @@
+# Triggers: VOCAB-TESTS-MISSING-001
+# Expected message contains: "has no inline `test` blocks"
+
+feature tests_missing
+  domain
+    resource Post
+      title: Text required

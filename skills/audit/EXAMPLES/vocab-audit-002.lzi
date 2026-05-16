@@ -1,0 +1,13 @@
+# Triggers: VOCAB-AUDIT-002
+# Expected message contains: "handler-only command `refresh_tokens` invalidates `Connection`"
+
+feature sensitive_handler
+  domain
+    resource Connection
+      access_token: @cap.Encrypted(key:@key.tenant) required
+
+  command refresh_tokens
+    returns Boolean
+    invalidates Connection
+    tests
+      allows when ctx.user != nil

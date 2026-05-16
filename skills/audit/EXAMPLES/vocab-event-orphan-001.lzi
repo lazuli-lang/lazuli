@@ -1,0 +1,7 @@
+# Triggers: VOCAB-EVENT-ORPHAN-001
+# Expected message contains: "is declared but no command or job in this feature emits it"
+
+feature orphan_event
+  domain
+    event archived
+      post_id: ID

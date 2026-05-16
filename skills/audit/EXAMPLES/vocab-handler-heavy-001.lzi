@@ -1,0 +1,19 @@
+# Triggers: VOCAB-HANDLER-HEAVY-001
+# Expected message contains: "commands routed through `@fn.<name>` handlers"
+
+feature handler_heavy
+  domain
+    resource Hostpoint
+      status: Text required
+      score: Integer optional
+
+  command resolve_a
+    let resolved = @fn.resolve_a(input)
+    returns Boolean
+  command resolve_b
+    let resolved = @fn.resolve_b(input)
+    returns Boolean
+  command score_c
+    creates Hostpoint
+      status = "open"
+      score = @fn.score_c(input)

@@ -1,0 +1,14 @@
+# Triggers: VOCAB-UNION-001
+# Expected message contains: "only meaningful for one tag"
+
+feature union_fields
+  domain
+    enum RouteKind
+      Bridge
+      Direct
+
+    resource Route
+      kind: RouteKind required
+      amount: Decimal required
+      bridge_fee: Decimal optional
+      bridge_url: Text optional

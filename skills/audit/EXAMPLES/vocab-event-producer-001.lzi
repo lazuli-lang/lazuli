@@ -1,0 +1,23 @@
+# Triggers: VOCAB-EVENT-PRODUCER-001
+# Expected message contains: "mutates a resource for which event(s)"
+
+feature producer_missing
+  domain
+    resource Post
+      title: Text required
+      status: Text required
+
+    event post.archived
+      post_id: ID
+
+  command archive_post
+    updates Post
+      status = "archived"
+    audit default
+    tests
+      allows when target.status = draft
+
+  job archive_projection
+    trigger schedule "0 * * * *"
+    handler "./jobs/archive_projection.go"
+    emits post.archived
