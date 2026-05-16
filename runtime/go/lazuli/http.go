@@ -51,6 +51,21 @@ func Mux() http.Handler {
 		})
 	}
 
+	// WAR-RUNTIME-API-MUX-01: API registrations (via lazuli.RegisterApi)
+	// are NOT auto-mounted here. apiRegistration only stores
+	// Name/Feature/Path/HandlerChecker — neither Method nor Handler is
+	// propagated from the typed Api[I, O], so this loop can't bind the
+	// handler. Fix requires extending apiRegistration to carry the
+	// typed Api pointer (or copy of Method + Handler closure) and
+	// adding a dispatch helper.
+	//
+	// Until then, `/auth/login`, `/auth/signup`, `/auth/logout` declared
+	// in `account/auth.gen.go` are unreachable through Mux(). Capsules
+	// that need the auth surface must either (a) call
+	// `auth.LoginHandler` directly from main.go via a hand-mounted
+	// route, or (b) wait for the framework to ship the typed Api
+	// auto-mount.
+
 	// Report auto-mount — `GET /api/reports/<name>.<format>` per
 	// (contract × format) declared in any feature. Walks the
 	// process-global registry populated by generated `reports.gen.go`

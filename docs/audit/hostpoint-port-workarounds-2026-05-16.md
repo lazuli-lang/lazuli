@@ -30,6 +30,10 @@
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
 | Runtime — migrations | WAR-RUNTIME-MIGRATION-01..03 | CREATE TABLE IF NOT EXISTS (open); reserved-word columns (CLOSED); FK topo-sort (open) |
 | Runtime — command routing | WAR-RUNTIME-COMMAND-01 | Register init blocks + Effect:Returns wiring missing |
+| Runtime — policy atoms | WAR-RUNTIME-POLICY-01 | Policy.Name without Atoms resolution at runtime |
+| Runtime — API mount | WAR-RUNTIME-API-MUX-01 | Mux() doesn't iterate Apis() — /auth/* routes never mount |
+| Runtime — ctx expressions | WAR-RUNTIME-CTX-NOW-01 | ctx.now / ctx.actor unresolved in declarative `creates`/`updates` |
+| Runtime — file naming | WAR-RUNTIME-FILENAME-01 | Underscore-prefix files silently excluded by go build |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
 | Scaffold — gitignore | WAR-SCAFFOLD-GITIGNORE-01 | dist/ blanket-ignore vs user-authored handlers |
@@ -259,6 +263,41 @@
   Open design question: how does codegen know whether a `@fn.X` handler exists (vs. has not been authored yet)? Options: (a) emit the Effect patch unconditionally and rely on Go's package-init-order to fail loudly if the symbol is undefined; (b) `@fn.X at "./handlers/X.go"` triggers an emit of a `func X(...) {…}` stub in `dist/go/<feature>/X.gen.go` that the user `replace`s with a hand-written file (the gen contract via filename); (c) emit a registration registry-side helper `lazuli.WireHandler[I,O](name, func(...))` that user code calls at init time. Option (b) preserves the current "sacred user file" contract and is the lowest-friction.
 - **Impact**: BLOCKER for every typed SDK command. Without this fix, the entire panel/onboarding/settings/auth surface 404s at runtime in spite of clean typecheck + build.
 - **Surfaced by:** Phase 4.2 / Phase 1.3h integration verification on 2026-05-16.
+
+## WAR-RUNTIME-POLICY-01 — Policy `Name` references emitted without resolved `Atoms`
+
+- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint dist/go/<feature>/register.go)
+- **Symptom:** Lazuli codegen emits `lazuli.Policy{Name: "@policy.<name>"}` with an empty `Atoms` slice. The runtime's `EvalPolicy` (`runtime/go/lazuli/policy.go:127`) returns HTTP 500 `"command/query registered with empty policy: @policy.<name>"` because it expects `Atoms` to be populated. The codegen comment (`crates/lazuli_codegen_go/src/emitter/command.rs:1137-1138`) acknowledges this gap: "let the Lazuli Go lib's registry walk resolve at boot — matching what the spike does for…", but no such registry exists.
+- **Discovery:** end-to-end smoke test on 2026-05-16 — every authenticated command returned 500 on the first request.
+- **Workaround in place:** each feature's `register.go` (Hostpoint commit `700e95b`) ships a `policyAtoms(name) []lazuli.PolicyAtom` lookup table covering the canonical catalog (`@policy.public` / `@policy.authenticated` / `@policy.host_only` / `@policy.traveler_only` / `@policy.operator_only`) + a generic `patchPolicy[I,O](*lazuli.Command[I,O])` helper that assigns `cmd.Policy.Atoms` in `init()`. After patching, unauthenticated requests correctly return 403 `policy_denied`.
+- **Removal criterion:** Lazuli codegen resolves `@policy.<name>` references from the feature's `policies` block at codegen time and emits `lazuli.Policy{Name: "@policy.<name>", Atoms: []lazuli.PolicyAtom{...}}` populated. OR the runtime ships a `RegisterPolicy(name, atoms)` registry + `EvalPolicy` lookup-by-name when `Atoms` is empty.
+- **Surfaced by:** Phase 4.2 e2e smoke test 2026-05-16.
+
+## WAR-RUNTIME-API-MUX-01 — `Mux()` doesn't auto-mount API registrations
+
+- **STATUS:** open
+- **Symptom:** `lazuli.Mux()` in `runtime/go/lazuli/http.go:27` walks `Commands()` + `Queries()` + `report.Mount(mux)` but skips `Apis()`. APIs registered via `lazuli.RegisterApi(&Api{Path: "/auth/login", Handler: auth.LoginHandler})` from the generated `auth.gen.go` (and any `api X { method GET; path "/foo"; handler @fn.bar }` in user `.lzi`) are stored in the registry but never bound to HTTP routes. Every call to `/auth/login`, `/auth/signup`, `/auth/logout` returns 404 even though `account.lzi` declares them and `auth.gen.go` has the `lazuli.RegisterApi(...)` call.
+- **Compound gap:** `apiRegistration` (`registry_typed.go:30-45`) only carries `Name, Feature, Path, HandlerChecker`. Neither `Method` nor `Handler` is propagated from the typed `Api[I, O]`, so even adding a Mux loop can't dispatch — the typed pointer would need to be captured in the registration first.
+- **Workaround in place:** none yet. End-to-end auth via the canonical `/auth/login` path is not reachable. The COMMAND path (`POST /api/v1/c/account.login`) IS reachable via WAR-RUNTIME-COMMAND-01's `register.go` workaround — auth flows can use that instead.
+- **Removal criterion:** `apiRegistration` extends to carry the typed Api pointer (or a dispatcher closure). `Mux()` adds a loop over `Apis()` that builds `<METHOD> <PATH>` mux routes and dispatches via the captured handler.
+- **Surfaced by:** Phase 4.2 e2e smoke test 2026-05-16.
+
+## WAR-RUNTIME-CTX-NOW-01 — `ctx.now` and `ctx.actor` not resolved in declarative effects
+
+- **STATUS:** open
+- **Symptom:** `.lzi` declarative `creates` / `updates` clauses commonly reference `ctx.now` (e.g., `created_at = ctx.now`) and `ctx.actor.org_id` / `ctx.actor.user_id` for tenancy + ownership. The runtime fails with `"unknown ctx path: now"` when applying the effect, returning HTTP 500. Tested with `POST /api/v1/c/account.register` which has `creates User { ... created_at = ctx.now }` in account.lzi.
+- **Workaround in place:** none yet. Workaround options: (a) replace `ctx.now` with hand-rolled `@fn.X` handler that builds the INSERT manually; (b) make `register` command use a `handler @fn.register` and author the handler.
+- **Removal criterion:** runtime's `applyCreates` / `applyUpdates` recognises `ctx.now` / `ctx.actor.*` / `input.*` value-source paths and resolves them at handler time. Today only `input.*` paths work via `FromInput`.
+- **Surfaced by:** Phase 4.2 e2e smoke test 2026-05-16.
+
+## WAR-RUNTIME-FILENAME-01 — Underscore-prefix files silently excluded by `go build`
+
+- **STATUS:** closed (renamed in Hostpoint commit `700e95b`)
+- **Symptom:** files named `_register.go` (workaround init blocks for WAR-RUNTIME-COMMAND-01) were silently excluded by `go build`. Go's build system ignores any source file whose name starts with `_` or `.`. The init() blocks never compiled, so the HTTP Mux had 0 routes even though `dist/go/<feature>/_register.go` existed and `cargo run --quiet -- generate go` succeeded.
+- **Discovery:** boot log showed `commands=0` despite 9 register.go files existing in the working tree.
+- **Fix:** renamed all 9 files from `_register.go` to `register.go`.
+- **Lesson for future:** Lazuli codegen should NEVER emit filenames starting with `_` or `.`. Reserve `dist/<feature>/<name>.gen.go` for regen-overwritable and `dist/<feature>/<name>.go` for user-authored sacred files.
+- **Surfaced by:** Hostpoint e2e smoke test 2026-05-16.
 
 ---
 
