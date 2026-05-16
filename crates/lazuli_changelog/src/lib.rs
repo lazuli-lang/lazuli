@@ -318,6 +318,7 @@ mod tests {
             context_path: None,
             defaults: Defaults::default(),
             uses: Vec::new(),
+            uses_spans: Vec::new(),
             requirements: Vec::new(),
             enums: Vec::new(),
             resources: Vec::new(),

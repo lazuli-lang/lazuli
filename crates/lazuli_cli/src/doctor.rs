@@ -11325,6 +11325,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         context_path: None,
         defaults: lazuli_ir::Defaults::default(),
         uses: Vec::new(),
+        uses_spans: Vec::new(),
         requirements: Vec::new(),
         enums: Vec::new(),
         resources: fact.resources.clone(),

@@ -162,6 +162,7 @@ mod tests {
             context_path: None,
             defaults: Defaults::default(),
             uses: vec![],
+            uses_spans: Vec::new(),
             requirements: vec![],
             enums: vec![],
             resources,

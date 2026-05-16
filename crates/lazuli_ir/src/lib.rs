@@ -61,6 +61,62 @@ pub struct SourceFile {
     pub line_offsets: Vec<u32>,
 }
 
+/// Sidecar to `Module`. Resolves cross-feature symbol references.
+/// Built by `lazuli_analyzer::build_symbol_origin_index`.
+/// EXPERIMENTAL: shape may grow additive fields before 1.0.
+///
+/// See `docs/proposals/lsp-symbol-origin.md` §6.2.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SymbolOriginIndex {
+    pub symbols: std::collections::BTreeMap<QualifiedName, SymbolOrigin>,
+    pub imports: std::collections::BTreeMap<String, Vec<ImportEdge>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SymbolOrigin {
+    pub feature: String,
+    pub name: String,
+    pub kind: SymbolKind,
+    pub defined_at: SourceLocation,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportEdge {
+    pub importer: String,
+    pub imported: String,
+    pub uses_at: SourceLocation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SymbolKind {
+    Enum,
+    Resource,
+    Record,
+    Scalar,   // reserved; populated post-L0 #4 scalar aliases
+    Semantic, // closed catalog at docs/canonical-semantics.md (Email/Phone/Url/Uuid/Currency/GeoPoint/Money + plugin BrazilianCPF/CNPJ/CEP)
+    Command,
+    Query,
+    Event,
+    Aggregate,
+}
+
+/// Where a symbol is defined. Discriminated by `source`:
+/// - `{ "source": "file", "file": "...", "line": N, "column": N }` for user-authored symbols
+/// - `{ "source": "builtin" }` for compiler-provided types (Money, Email, etc.)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum SourceLocation {
+    File {
+        file: String,
+        line: u32,
+        column: u32,
+    },
+    Builtin,
+}
+
 /// A module is the IR root. It groups the optional app operational manifest
 /// and one or more features that flowed through the same compilation.
 ///
@@ -312,6 +368,14 @@ pub struct Feature {
     pub context_path: Option<String>,
     pub defaults: Defaults,
     pub uses: Vec<String>,
+    /// Span anchors for each entry in `uses`. Same length as `uses`. Populated
+    /// by the analyzer when lowering from `.lzi` source; empty when `Feature`
+    /// is constructed programmatically (tests, manual IR fixtures).
+    ///
+    /// Used by `lazuli_analyzer::build_symbol_origin_index` to anchor each
+    /// `ImportEdge.uses_at`. See `docs/proposals/lsp-symbol-origin.md` §6.5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uses_spans: Vec<SpanRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<FeatureRequirement>,
     pub enums: Vec<EnumDecl>,
@@ -874,7 +938,7 @@ pub enum FileVisibility {
 
 /// Qualified name for a feature-scoped or local symbol. `feature` is `None`
 /// for local references; cross-feature references carry the feature id.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QualifiedName {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature: Option<String>,
