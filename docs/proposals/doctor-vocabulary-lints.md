@@ -412,7 +412,9 @@ Severity: `warning` (strict), `error` (production).
 
 ## Implementation status (post-wave)
 
-After the 2026-05-14 16-worker wave, the rule MODULES are registered (`crates/lazuli_cli/src/doctor/vocab/mod.rs`, `crates/lazuli_cli/src/doctor/correctness/mod.rs`) and each rule's `#[cfg(test)] mod tests` exercises the logic. **Full dispatch into `DoctorPackage::diagnostics()` is a separate follow-up cell** (~+500 LOC of IR loading + Finding → DoctorDiagnostic adapter) — none of the 4 v0.1 rules nor the 7 new ones currently surface in `lazuli check` output. The pre-existing v0.1 rules had the same gap; this wave doesn't widen it but doesn't close it either.
+After the 2026-05-14 16-worker wave, the rule MODULES are registered (`crates/lazuli_doctor/src/vocab/mod.rs`, `crates/lazuli_doctor/src/correctness/mod.rs`) and each rule's `#[cfg(test)] mod tests` exercises the logic. **Full dispatch into `DoctorPackage::diagnostics()` is a separate follow-up cell** (~+500 LOC of IR loading + Finding → DoctorDiagnostic adapter) — none of the 4 v0.1 rules nor the 7 new ones currently surface in `lazuli check` output. The pre-existing v0.1 rules had the same gap; this wave doesn't widen it but doesn't close it either.
+
+Note: rule modules were extracted from `crates/lazuli_cli/src/doctor/vocab/` to `crates/lazuli_doctor/src/vocab/` on 2026-05-15 so the LSP can import them (see `crates/lazuli_cli/src/doctor.rs:9-11` re-exports). This document updated 2026-05-16 to reflect the current path; all subsequent `crates/lazuli_doctor/src/vocab/` references in this file are the canonical layout.
 
 The follow-up cell shape (when it ships):
 
@@ -447,16 +449,19 @@ This is mechanical — a separate Codex cell can ship it once the IR-loading sit
 
 ### File layout
 
-One file per rule under `crates/lazuli_cli/src/doctor/vocab/`:
+One file per rule under `crates/lazuli_doctor/src/vocab/`:
 
 ```
-crates/lazuli_cli/src/doctor/vocab/
+crates/lazuli_doctor/src/vocab/
   mod.rs                          # registry of all VOCAB-* rules
   vocab_union_001.rs              # VOCAB-UNION-001 detector
   vocab_derived_read_001.rs       # VOCAB-DERIVED-READ-001 detector
   vocab_audit_001.rs              # VOCAB-AUDIT-001 detector
   vocab_event_payload_001.rs      # VOCAB-EVENT-PAYLOAD-001 detector
 ```
+
+`crates/lazuli_cli/src/doctor.rs:9-11` re-exports the module so CLI-side
+call sites keep their `vocab::*` qualified references unchanged.
 
 `mod.rs` is the catalog registry — a 5-line stub that other doctor wiring imports:
 
@@ -568,10 +573,10 @@ All `VOCAB-*` rules follow this shape: trigger description, suggestion block, fa
 A new VOCAB-* rule lands when:
 
 1. The rule's destination vocabulary primitive **already exists** in the language (don't enforce absence).
-2. A single-file detector module is added under `crates/lazuli_cli/src/doctor/vocab/` with the exact name `vocab_<lowercased>_<NNN>.rs`.
+2. A single-file detector module is added under `crates/lazuli_doctor/src/vocab/` with the exact name `vocab_<lowercased>_<NNN>.rs`.
 3. The detector has positive + ≥2 negative test cases (false-positive guards).
-4. `crates/lazuli_cli/src/doctor/vocab/mod.rs` registers the rule in the catalog.
-5. `cargo check --all-targets` green; `cargo test -p lazuli_cli --lib doctor::vocab` green.
+4. `crates/lazuli_doctor/src/vocab/mod.rs` registers the rule in the catalog.
+5. `cargo check --all-targets` green; `cargo test -p lazuli_doctor --lib vocab` green.
 6. `docs/proposals/doctor-vocabulary-lints.md` (this file) appends the rule to the active subset table.
 7. The three v2 dogfood products (`pleiades`, `atelier`, `erudito`) pass `lazuli check` strict-profile under the new rule, OR Lucas explicitly accepts the warnings as in-flight refactor (tracked as cells).
 

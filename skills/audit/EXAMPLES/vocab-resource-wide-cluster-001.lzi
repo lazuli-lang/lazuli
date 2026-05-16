@@ -1,0 +1,19 @@
+# Triggers: VOCAB-RESOURCE-WIDE-CLUSTER-001
+# Expected message contains: "share leading token"
+
+feature checkout
+  domain
+    resource Order
+      customer: Customer required
+      status: Text required
+      total_cents: Integer required
+      notes: Text optional
+      priority: Text optional
+      currency: Text required
+      shipping_street: Text required
+      shipping_city: Text required
+      shipping_state: Text required
+      shipping_postal_code: Text required
+      shipping_country: Text required = "BR"
+      billing_country: Text required = "BR"
+      created_at: DateTime required

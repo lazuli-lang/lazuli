@@ -11,7 +11,8 @@ use lazuli_doctor::vocab::{
     vocab_audit_001, vocab_audit_002, vocab_cap_missing_001, vocab_derived_read_001,
     vocab_event_orphan_001, vocab_event_payload_001, vocab_event_producer_001,
     vocab_grammar_form_001, vocab_handler_heavy_001, vocab_json_typed_001,
-    vocab_money_multi_currency_001, vocab_tests_missing_001, vocab_union_001, vocab_union_002,
+    vocab_money_multi_currency_001, vocab_resource_wide_cluster_001, vocab_shadow_record_001,
+    vocab_tests_missing_001, vocab_union_001, vocab_union_002,
 };
 use lazuli_ir::{BuiltinType, Event, EventField, EventKind, TypeRef};
 
@@ -275,6 +276,48 @@ fn vocab_money_multi_currency_001_example_fires() {
     assert_fires("vocab-money-multi-currency-001.lzi", |source, path| {
         let feature = lower_feature(source);
         vocab_money_multi_currency_001::check(&feature, path)
+            .into_iter()
+            .map(|finding| finding.message())
+            .collect()
+    });
+}
+
+#[test]
+fn vocab_shadow_record_001_example_fires() {
+    assert_fires("vocab-shadow-record-001.lzi", |source, path| {
+        let feature = lower_feature(source);
+        let module = lazuli_ir::Module {
+            workspace: None,
+            contracts: vec![],
+            app: None,
+            registry: None,
+            profiles: vec![],
+            design: None,
+            rbac: None,
+            features: vec![feature.clone()],
+        };
+        vocab_shadow_record_001::check(&feature, &module, path)
+            .into_iter()
+            .map(|finding| finding.message())
+            .collect()
+    });
+}
+
+#[test]
+fn vocab_resource_wide_cluster_001_example_fires() {
+    assert_fires("vocab-resource-wide-cluster-001.lzi", |source, path| {
+        let feature = lower_feature(source);
+        let module = lazuli_ir::Module {
+            workspace: None,
+            contracts: vec![],
+            app: None,
+            registry: None,
+            profiles: vec![],
+            design: None,
+            rbac: None,
+            features: vec![feature.clone()],
+        };
+        vocab_resource_wide_cluster_001::check(&feature, &module, path)
             .into_iter()
             .map(|finding| finding.message())
             .collect()

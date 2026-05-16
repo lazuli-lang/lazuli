@@ -1,0 +1,22 @@
+# Triggers: VOCAB-SHADOW-RECORD-001
+# Expected message contains: "fields with matching types"
+
+feature shipping
+  domain
+    resource Order
+      customer: Customer required
+      shipping_street: Text required
+      shipping_city: Text required
+      shipping_state: Text required
+      shipping_postal_code: Text required
+      shipping_country: Text required = "BR"
+      created_at: DateTime required
+
+    resource ReturnLabel
+      order: Order required
+      shipping_street: Text required
+      shipping_city: Text required
+      shipping_state: Text required
+      shipping_postal_code: Text required
+      shipping_country: Text required = "BR"
+      created_at: DateTime required
