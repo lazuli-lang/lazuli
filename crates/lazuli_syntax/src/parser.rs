@@ -9818,6 +9818,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
     let mut route: Option<String> = None;
     let mut verify: Option<WebhookVerify> = None;
     let mut tenant_from: Option<String> = None;
+    let mut scope_global: Option<crate::ast::WebhookScopeGlobal> = None;
     let mut idempotency_by: Option<String> = None;
     let mut policy: Option<String> = None;
     let mut policy_expr: Option<PolicyExprAst> = None;
@@ -9863,6 +9864,59 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             tenant_from = Some(rest.trim().to_owned());
             last_end = line.end;
             i += 1;
+        } else if trimmed == "scope global" || trimmed.starts_with("scope global ") {
+            // Closes WAR-VOCAB-WEBHOOK-01. `scope global` followed by
+            // a required `reason "..."` child line — for cases where
+            // the provider doesn't send a tenant key in the payload
+            // and the handler reconciles tenant elsewhere (e.g.
+            // external_reference lookup). Reason is captured for
+            // audit + doctor surfaces so the escape is explicit.
+            let scope_line = line;
+            let mut reason_text: Option<String> = None;
+            let mut next = i + 1;
+            while next < lines.len() {
+                let next_line = &lines[next];
+                let next_trim = next_line.text.trim_start();
+                if is_trivia(next_trim) {
+                    next += 1;
+                    continue;
+                }
+                if next_line.indent <= AGENT_INDENT_AGENT_CHILD {
+                    break;
+                }
+                if let Some(reason_rest) = next_trim.strip_prefix("reason ") {
+                    let raw = reason_rest.trim();
+                    let unquoted = unquote_lzx_value(raw);
+                    if unquoted.is_empty() {
+                        return Err(line_error(
+                            next_line,
+                            "`scope global` requires non-empty `reason \"...\"`",
+                        ));
+                    }
+                    reason_text = Some(unquoted.to_owned());
+                    last_end = next_line.end;
+                    next += 1;
+                    continue;
+                }
+                return Err(line_error(
+                    next_line,
+                    "`scope global` child must be `reason \"...\"`",
+                ));
+            }
+            let reason = reason_text.ok_or_else(|| {
+                line_error(
+                    scope_line,
+                    "`scope global` requires a `reason \"...\"` child explaining why the webhook escapes tenant_from",
+                )
+            })?;
+            scope_global = Some(crate::ast::WebhookScopeGlobal {
+                reason,
+                span: Span {
+                    start: scope_line.start,
+                    end: last_end,
+                },
+            });
+            i = next;
         } else if let Some(rest) = trimmed.strip_prefix("idempotency by ") {
             idempotency_by = Some(rest.trim().to_owned());
             last_end = line.end;
@@ -9930,7 +9984,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
         } else {
             return Err(line_error(
                 line,
-                "webhook children are `path`, `verify`, `tenant_from`, `idempotency by`, `policy`, `handler`, `emits`, `payload from`, `replay`, `retry`, `dlq`, or `gate behind/quota plan.*`",
+                "webhook children are `path`, `verify`, `tenant_from`, `scope global` + `reason`, `idempotency by`, `policy`, `handler`, `emits`, `payload from`, `replay`, `retry`, `dlq`, or `gate behind/quota plan.*`",
             ));
         }
     }
@@ -9950,6 +10004,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             route,
             verify,
             tenant_from,
+            scope_global,
             idempotency_by,
             policy,
             policy_expr,

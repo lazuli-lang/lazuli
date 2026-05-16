@@ -156,12 +156,17 @@
 
 ## WAR-VOCAB-WEBHOOK-01 — `scope global` not accepted as `webhook` child
 
-- **STATUS:** open
-- **Symptom:** webhook `mp_payment_event` in a tenant-scoped feature (`payments`) triggers `webhook-tenant-from` warning asking for `tenant_from payload.org_id` OR `scope global` with reason. Trying `scope global / reason "..."` as a webhook child fails parser: `webhook children are path, verify, tenant_from, idempotency by, policy, handler, emits, payload from, replay, retry, dlq, gate behind/quota plan.*`.
-- **Workaround in place:** webhook has neither `tenant_from` nor `scope global`. The `webhook-tenant-from` warning persists. Handler must reconcile tenant from `provider_external_reference` lookup at runtime.
-- **Annotated in:** `app/features/payments/payments.lzi` commit `612334a` deferred list.
-- **Removal criterion:** Lazuli accepts `scope global` (with required `reason`) as a webhook child for cases where the provider does not send a tenant key.
-- **Surfaced by:** Hostpoint payments BC (MercadoPago doesn't send tenant context in webhook payload).
+- **STATUS:** **closed** (Lazuli commit follow-up 2026-05-16)
+- **Symptom:** `webhook-tenant-from` lint asked for `tenant_from payload.<axis>_id` OR `scope global` + `reason`. The parser rejected the second form, leaving payments-like webhooks (provider doesn't send tenant key) with no audited escape hatch.
+- **Fix:** `crates/lazuli_syntax/src/ast.rs` gains `WebhookScopeGlobal { reason, span }` and `Webhook.scope_global: Option<WebhookScopeGlobal>`. `crates/lazuli_syntax/src/parser.rs` accepts the two-line form:
+  ```lzi
+  webhook mp_payment_event
+    ...
+    scope global
+      reason "MercadoPago does not include a tenant key in payment notifications;
+              handler reconciles org from provider_external_reference lookup"
+  ```
+  `reason` is REQUIRED (parser diagnostic if missing) so the audit-of-record surfaces why this webhook escapes tenant_from. The LSP lint at `crates/lazuli_lsp/src/lib.rs:10720` already detected `scope global` and suppressed the warning — only the parser was the blocker. Hostpoint's `payments.lzi` now declares the scope_global with a precise reason; `lazuli check` passes clean.
 
 ## WAR-VOCAB-AUTH-01 — Sessions-list query not auto-emitted by `auth sessions` block
 

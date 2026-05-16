@@ -1843,6 +1843,13 @@ pub struct Webhook {
     pub verify: WebhookVerify,
     /// `tenant_from payload.<axis>_id` — path captured verbatim.
     pub tenant_from: Option<String>,
+    /// `scope global` declaration — set when the provider doesn't send
+    /// a tenant key and the handler reconciles the tenant from another
+    /// source (e.g. external_reference lookup). Closes WAR-VOCAB-WEBHOOK-01.
+    /// Requires a paired `reason` line so the operator-of-record can
+    /// audit why this webhook escapes the standard tenant-from invariant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_global: Option<WebhookScopeGlobal>,
     /// `idempotency by <path>` — captured verbatim.
     pub idempotency_by: Option<String>,
     pub policy: Option<String>,
@@ -1919,6 +1926,19 @@ pub struct WebhookVerify {
 pub struct WebhookHandler {
     pub path: String,
     pub returns: Option<String>,
+}
+
+/// `scope global` declaration on an inbound webhook (WAR-VOCAB-WEBHOOK-01
+/// closure). The webhook is intentionally allowed to escape the
+/// standard `tenant_from payload.<axis>_id` invariant because the
+/// provider doesn't send a tenant key in the payload. The required
+/// `reason` is an authored explanation captured for audit + doctor
+/// surfaces so the operator-of-record sees why this exception exists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookScopeGlobal {
+    /// Quoted reason text (parser strips quotes). MUST be non-empty.
+    pub reason: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
