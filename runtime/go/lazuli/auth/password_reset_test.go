@@ -45,7 +45,7 @@ func withMockPasswordResetDB(t *testing.T) *mockPasswordResetDB {
 
 func (db *mockPasswordResetDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	switch {
-	case strings.HasPrefix(sql, `INSERT INTO "PasswordReset"`):
+	case strings.HasPrefix(sql, `INSERT INTO "password_reset"`):
 		if len(args) != 3 {
 			return pgconn.CommandTag{}, fmt.Errorf("insert arg count = %d", len(args))
 		}
@@ -63,7 +63,7 @@ func (db *mockPasswordResetDB) Exec(_ context.Context, sql string, args ...any) 
 		}
 		db.tokens[tokenHash] = mockPasswordResetTokenRow{userID: lazuli.ID(userID), expiresAt: expiresAt}
 		return pgconn.NewCommandTag("INSERT 0 1"), nil
-	case strings.HasPrefix(sql, `UPDATE "User" SET password_hash`):
+	case strings.HasPrefix(sql, `UPDATE "user" SET password_hash`):
 		if len(args) != 2 {
 			return pgconn.CommandTag{}, fmt.Errorf("update user arg count = %d", len(args))
 		}
@@ -83,7 +83,7 @@ func (db *mockPasswordResetDB) Exec(_ context.Context, sql string, args ...any) 
 			}
 		}
 		return pgconn.NewCommandTag("UPDATE 0"), nil
-	case strings.HasPrefix(sql, `UPDATE "PasswordReset" SET used_at`):
+	case strings.HasPrefix(sql, `UPDATE "password_reset" SET used_at`):
 		if len(args) != 2 {
 			return pgconn.CommandTag{}, fmt.Errorf("update token arg count = %d", len(args))
 		}
@@ -109,7 +109,7 @@ func (db *mockPasswordResetDB) Exec(_ context.Context, sql string, args ...any) 
 
 func (db *mockPasswordResetDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	switch {
-	case strings.HasPrefix(sql, `SELECT id FROM "User"`):
+	case strings.HasPrefix(sql, `SELECT id FROM "user"`):
 		if len(args) != 1 {
 			return mockPasswordResetRow{err: fmt.Errorf("lookup arg count = %d", len(args))}
 		}
@@ -122,7 +122,7 @@ func (db *mockPasswordResetDB) QueryRow(_ context.Context, sql string, args ...a
 			return mockPasswordResetRow{err: pgx.ErrNoRows}
 		}
 		return mockPasswordResetRow{userID: user.id}
-	case strings.HasPrefix(sql, `SELECT user_id, expires_at, used_at FROM "PasswordReset"`):
+	case strings.HasPrefix(sql, `SELECT user_id, expires_at, used_at FROM "password_reset"`):
 		if len(args) != 1 {
 			return mockPasswordResetRow{err: fmt.Errorf("token arg count = %d", len(args))}
 		}
@@ -268,10 +268,10 @@ func TestPasswordResetConfirmRejectsInvalidExpiredAndUsedTokens(t *testing.T) {
 
 func testPasswordResetContract() PasswordResetContract {
 	return PasswordResetContract{
-		Resource: "PasswordReset",
+		Resource: "password_reset",
 		TTL:      time.Hour,
 		Identity: FieldRef{
-			Resource: "User",
+			Resource: "user",
 			Field:    "email",
 		},
 	}

@@ -65,14 +65,14 @@ func TestAuditEntryBuilders(t *testing.T) {
 
 	entry := (AuditEntry{}).
 		WithCommand("customer.create").
-		WithTarget("Customer", lazuli.ID(55)).
+		WithTarget("customer", lazuli.ID(55)).
 		WithPayload(payload).
 		Succeeded()
 
 	if entry.CommandName != "customer.create" {
 		t.Fatalf("CommandName = %q, want customer.create", entry.CommandName)
 	}
-	if entry.TargetResource != "Customer" {
+	if entry.TargetResource != "customer" {
 		t.Fatalf("TargetResource = %q, want Customer", entry.TargetResource)
 	}
 	if got := auditPtrValue(t, entry.TargetID, "TargetID"); got != 55 {
@@ -100,7 +100,7 @@ func TestEmitAuditInsertsAuditLogRow(t *testing.T) {
 		ActorID:        auditIDPtr(20),
 		ActorKind:      AuditActorUser,
 		CommandName:    "customer.create",
-		TargetResource: "Customer",
+		TargetResource: "customer",
 		TargetID:       auditIDPtr(30),
 		Payload:        []byte(`{"name":"Ada"}`),
 		ResultStatus:   AuditResultOK,
@@ -126,7 +126,7 @@ func TestEmitAuditInsertsAuditLogRow(t *testing.T) {
 	assertAuditPtrArg(t, tx.args[1], 20, "actor_id")
 	assertAuditArg(t, tx.args[2], AuditActorUser, "actor_kind")
 	assertAuditArg(t, tx.args[3], "customer.create", "command_name")
-	assertAuditArg(t, tx.args[4], "Customer", "target_resource")
+	assertAuditArg(t, tx.args[4], "customer", "target_resource")
 	assertAuditPtrArg(t, tx.args[5], 30, "target_id")
 	if got, ok := tx.args[6].([]byte); !ok || string(got) != `{"name":"Ada"}` {
 		t.Fatalf("payload arg = %#v, want JSON bytes", tx.args[6])

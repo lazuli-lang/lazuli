@@ -48,7 +48,7 @@ func withMockEmailVerificationDB(t *testing.T) *mockEmailVerificationDB {
 }
 
 func (db *mockEmailVerificationDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	if !strings.HasPrefix(sql, `INSERT INTO "EmailVerification"`) {
+	if !strings.HasPrefix(sql, `INSERT INTO "email_verification"`) {
 		return pgconn.CommandTag{}, fmt.Errorf("unexpected exec SQL: %s", sql)
 	}
 	if len(args) != 5 {
@@ -85,7 +85,7 @@ func (db *mockEmailVerificationDB) Exec(_ context.Context, sql string, args ...a
 
 func (db *mockEmailVerificationDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	switch {
-	case strings.HasPrefix(sql, `SELECT "email" FROM "Customer"`):
+	case strings.HasPrefix(sql, `SELECT "email" FROM "customer"`):
 		if len(args) != 1 {
 			return mockEmailVerificationRow{err: fmt.Errorf("identity arg count = %d", len(args))}
 		}
@@ -123,7 +123,7 @@ func (db *mockEmailVerificationDB) QueryRow(_ context.Context, sql string, args 
 		user.emailVerifiedAt = now
 		db.users[stored.userID] = user
 		return mockEmailVerificationRow{userID: stored.userID}
-	case strings.HasPrefix(sql, `SELECT expires_at FROM "EmailVerification"`):
+	case strings.HasPrefix(sql, `SELECT expires_at FROM "email_verification"`):
 		if len(args) != 1 {
 			return mockEmailVerificationRow{err: fmt.Errorf("expiry arg count = %d", len(args))}
 		}
@@ -173,9 +173,9 @@ func TestEmailVerificationIssueVerifyRoundTrip(t *testing.T) {
 	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	ctx := &lazuli.Ctx{Context: context.Background(), Now: now}
 	contract := EmailVerificationContract{
-		Resource: "EmailVerification",
+		Resource: "email_verification",
 		TTL:      2 * time.Hour,
-		Identity: FieldRef{Resource: "Customer", Field: "email"},
+		Identity: FieldRef{Resource: "customer", Field: "email"},
 	}
 	db.users[42] = mockEmailVerificationUser{email: "ada@example.test"}
 
@@ -225,9 +225,9 @@ func TestEmailVerificationRejectsExpiredToken(t *testing.T) {
 	issueCtx := &lazuli.Ctx{Context: context.Background(), Now: now}
 	verifyCtx := &lazuli.Ctx{Context: context.Background(), Now: now.Add(2 * time.Hour)}
 	contract := EmailVerificationContract{
-		Resource: "EmailVerification",
+		Resource: "email_verification",
 		TTL:      time.Hour,
-		Identity: FieldRef{Resource: "Customer", Field: "email"},
+		Identity: FieldRef{Resource: "customer", Field: "email"},
 	}
 	db.users[7] = mockEmailVerificationUser{email: "grace@example.test"}
 
@@ -246,8 +246,8 @@ func TestEmailVerificationRejectsExpiredToken(t *testing.T) {
 func TestEmailVerificationRejectsInvalidToken(t *testing.T) {
 	withMockEmailVerificationDB(t)
 	contract := EmailVerificationContract{
-		Resource: "EmailVerification",
-		Identity: FieldRef{Resource: "Customer", Field: "email"},
+		Resource: "email_verification",
+		Identity: FieldRef{Resource: "customer", Field: "email"},
 	}
 
 	if _, err := VerifyEmailToken(&lazuli.Ctx{Context: context.Background()}, contract, "not a token"); !errors.Is(err, ErrEmailVerifyTokenInvalid) {
@@ -260,8 +260,8 @@ func TestEmailVerificationDefaultsTTLTo24Hours(t *testing.T) {
 	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	ctx := &lazuli.Ctx{Context: context.Background(), Now: now}
 	contract := EmailVerificationContract{
-		Resource: "EmailVerification",
-		Identity: FieldRef{Resource: "Customer", Field: "email"},
+		Resource: "email_verification",
+		Identity: FieldRef{Resource: "customer", Field: "email"},
 	}
 	db.users[1] = mockEmailVerificationUser{email: "linus@example.test"}
 

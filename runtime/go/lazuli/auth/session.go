@@ -271,5 +271,25 @@ func quoteSessionIdent(name string) string {
 			panic("lazuli/auth: refusing to quote suspicious session resource: " + name)
 		}
 	}
-	return `"` + name + `"`
+	return `"` + sessionResourceTable(name) + `"`
+}
+
+// sessionResourceTable lower-snake-cases a PascalCase resource name so
+// the auth runtime references the migrated table name. `UserSession`
+// becomes `user_session`. See WAR-RUNTIME-MIGRATION-04 for the
+// parallel fix in handle.go.
+func sessionResourceTable(name string) string {
+	var out []rune
+	for i, r := range name {
+		isUpper := r >= 'A' && r <= 'Z'
+		if isUpper && i > 0 {
+			out = append(out, '_')
+		}
+		if isUpper {
+			out = append(out, r+32)
+		} else {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }

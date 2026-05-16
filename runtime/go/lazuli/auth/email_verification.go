@@ -195,5 +195,5 @@ func quoteEmailVerificationIdent(name string) string {
 			panic("lazuli/auth: refusing to quote suspicious email verification identifier: " + name)
 		}
 	}
-	return `"` + name + `"`
+	return `"` + lowerSnakeForAuth(name) + `"`
 }

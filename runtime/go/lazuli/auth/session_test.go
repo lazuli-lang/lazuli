@@ -37,7 +37,7 @@ func withMockSessionDB(t *testing.T) *mockSessionDB {
 
 func (db *mockSessionDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	switch {
-	case strings.HasPrefix(sql, `INSERT INTO "Session"`):
+	case strings.HasPrefix(sql, `INSERT INTO "session"`):
 		if len(args) != 3 {
 			return pgconn.CommandTag{}, fmt.Errorf("insert arg count = %d", len(args))
 		}
@@ -55,7 +55,7 @@ func (db *mockSessionDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		}
 		db.rows[tokenHash] = mockStoredSession{userID: lazuli.ID(userID), expiresAt: expiresAt}
 		return pgconn.NewCommandTag("INSERT 0 1"), nil
-	case strings.HasPrefix(sql, `DELETE FROM "Session"`):
+	case strings.HasPrefix(sql, `DELETE FROM "session"`):
 		if len(args) != 1 {
 			return pgconn.CommandTag{}, fmt.Errorf("delete arg count = %d", len(args))
 		}
@@ -75,7 +75,7 @@ func (db *mockSessionDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 }
 
 func (db *mockSessionDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
-	if !strings.HasPrefix(sql, `SELECT user_id, expires_at FROM "Session"`) {
+	if !strings.HasPrefix(sql, `SELECT user_id, expires_at FROM "session"`) {
 		return mockSessionRow{err: fmt.Errorf("unexpected query SQL: %s", sql)}
 	}
 	if len(args) != 1 {
@@ -122,7 +122,7 @@ func TestIssueResolveInvalidateSessionRoundTrip(t *testing.T) {
 	db := withMockSessionDB(t)
 	now := time.Date(2026, 5, 12, 10, 30, 0, 0, time.UTC)
 	ctx := &lazuli.Ctx{Context: context.Background(), Now: now}
-	contract := SessionsContract{Resource: "Session", TTL: "7 days"}
+	contract := SessionsContract{Resource: "session", TTL: "7 days"}
 
 	token, expiresAt, err := IssueSession(ctx, contract, lazuli.ID(42), SessionAttrs{"provider": "password"})
 	if err != nil {
@@ -169,7 +169,7 @@ func TestResolveSessionExpired(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 30, 0, 0, time.UTC)
 	issueCtx := &lazuli.Ctx{Context: context.Background(), Now: now}
 	resolveCtx := &lazuli.Ctx{Context: context.Background(), Now: now.Add(2 * time.Hour)}
-	contract := SessionsContract{Resource: "Session", TTL: "1 hour"}
+	contract := SessionsContract{Resource: "session", TTL: "1 hour"}
 
 	token, _, err := IssueSession(issueCtx, contract, lazuli.ID(7), nil)
 	if err != nil {
@@ -184,7 +184,7 @@ func TestIssueSessionDefaultsInvalidTTLTo24Hours(t *testing.T) {
 	withMockSessionDB(t)
 	now := time.Date(2026, 5, 12, 10, 30, 0, 0, time.UTC)
 	ctx := &lazuli.Ctx{Context: context.Background(), Now: now}
-	contract := SessionsContract{Resource: "Session", TTL: "soon"}
+	contract := SessionsContract{Resource: "session", TTL: "soon"}
 
 	_, expiresAt, err := IssueSession(ctx, contract, lazuli.ID(1), nil)
 	if err != nil {
@@ -198,7 +198,7 @@ func TestIssueSessionDefaultsInvalidTTLTo24Hours(t *testing.T) {
 func TestSessionRejectsInvalidToken(t *testing.T) {
 	withMockSessionDB(t)
 	ctx := &lazuli.Ctx{Context: context.Background()}
-	contract := SessionsContract{Resource: "Session", TTL: time.Hour}
+	contract := SessionsContract{Resource: "session", TTL: time.Hour}
 
 	if _, _, err := ResolveSession(ctx, contract, "not a session token"); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("ResolveSession invalid token = %v, want ErrTokenInvalid", err)

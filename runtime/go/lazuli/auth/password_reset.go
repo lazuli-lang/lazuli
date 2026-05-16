@@ -172,5 +172,27 @@ func quotePasswordResetIdent(name string) string {
 			panic("lazuli/auth: refusing to quote suspicious password reset identifier: " + name)
 		}
 	}
-	return `"` + name + `"`
+	// Lower-snake to match migration emit. Field-level identifiers
+	// (`email`, `password_hash`) pass through unchanged; resource names
+	// (`User`, `PasswordResetToken`) become `user`, `password_reset_token`.
+	return `"` + lowerSnakeForAuth(name) + `"`
+}
+
+// lowerSnakeForAuth is the shared lower-snake helper for the auth
+// runtime. Mirrors `sessionResourceTable` in session.go +
+// `quoteResourceTable` in lazuli/run.go.
+func lowerSnakeForAuth(name string) string {
+	var out []rune
+	for i, r := range name {
+		isUpper := r >= 'A' && r <= 'Z'
+		if isUpper && i > 0 {
+			out = append(out, '_')
+		}
+		if isUpper {
+			out = append(out, r+32)
+		} else {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }
