@@ -215,6 +215,7 @@ mod tests {
                         resource: qn(identity_resource),
                         field: identity_field.to_owned(),
                     },
+                    public_contract: None,
                 },
                 password: None,
                 sessions: None,

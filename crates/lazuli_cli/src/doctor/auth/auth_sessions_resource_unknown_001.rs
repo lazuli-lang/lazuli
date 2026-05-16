@@ -159,6 +159,7 @@ mod tests {
                         resource: qn(session_resource_name),
                         field: "email".to_owned(),
                     },
+                    public_contract: None,
                 },
                 password: None,
                 sessions: Some(AuthSessions {
@@ -237,6 +238,7 @@ mod tests {
                         resource: qn("Customer"),
                         field: "email".to_owned(),
                     },
+                    public_contract: None,
                 },
                 password: None,
                 sessions: None,

@@ -1514,6 +1514,12 @@ pub struct AuthIdentity {
     /// Raw source text `Customer.email`. Lowering splits into
     /// `FieldRef { resource, field }`.
     pub field: String,
+    /// Cross-feature contract per `docs/proposals/cross-feature-contracts.md`
+    /// §3.5 + §5.3. Authored as `public contract identity as v<N>`
+    /// IMMEDIATELY ABOVE the `auth identity <Resource>.<field>` line.
+    /// Singleton (one identity per feature) so no per-name binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
     pub span: Span,
 }
 

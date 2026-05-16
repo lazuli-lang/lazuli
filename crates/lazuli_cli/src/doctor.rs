@@ -18390,6 +18390,7 @@ feature customer_outreach
                         },
                         field: "email".to_owned(),
                     },
+                    public_contract: None,
                 },
                 password: None,
                 sessions: Some(ir::AuthSessions {

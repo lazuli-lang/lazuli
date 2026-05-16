@@ -4449,6 +4449,14 @@ pub struct Auth {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthIdentity {
     pub field: FieldRef,
+    /// Cross-feature contract per `docs/proposals/cross-feature-contracts.md`
+    /// §3.5 + §5.3. Populated when the source declares `public contract
+    /// identity as v<N>` adjacent to the `auth identity` line. `None`
+    /// when no contract is declared (the policy `actor.*` references
+    /// cannot cross feature boundaries under `architecture mode
+    /// microservices` without doctor erroring).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

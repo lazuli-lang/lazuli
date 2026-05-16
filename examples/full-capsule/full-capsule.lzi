@@ -568,6 +568,7 @@ feature customer_auth
         write: @actor.system
 
   auth
+    public contract identity as v1
     identity Customer.email
 
     password

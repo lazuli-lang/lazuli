@@ -174,6 +174,7 @@ mod tests {
                     },
                     field: "email".to_owned(),
                 },
+                public_contract: None,
             },
             password: Some(AuthPassword {
                 algorithm: "argon2id".to_owned(),

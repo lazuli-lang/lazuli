@@ -608,6 +608,7 @@ mod tests {
                 resource: qname(resource),
                 field: field.to_owned(),
             },
+            public_contract: None,
         }
     }
 

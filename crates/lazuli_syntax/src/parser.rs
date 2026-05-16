@@ -3762,6 +3762,65 @@ fn parse_public_contract_line(
     )))
 }
 
+/// Parse the special-form `public contract identity as v<N>` line per
+/// `docs/proposals/cross-feature-contracts.md` §5.3 row 7. "identity" is a
+/// literal keyword here (not a symbol name) — the singleton identity
+/// surface of an `auth` block has no per-name binding. Returns
+/// `Some(decl)` when the line matches; `None` when the line is something
+/// else; `Err` when the line begins with `public contract identity` but is
+/// malformed (e.g. missing `as v<N>`).
+fn parse_auth_identity_contract_line(
+    line: &SourceLine<'_>,
+) -> Result<Option<PublicContractDeclAst>, ParseError> {
+    let trimmed = line.text.trim_start();
+    let Some(rest) = trimmed.strip_prefix("public contract identity ") else {
+        // Not the identity-contract form. Bare `public contract identity`
+        // with no trailing tokens is also rejected (caught by the
+        // general parse_public_contract_line which would error on the
+        // missing `as` suffix). Return None to let the regular flow run.
+        return Ok(None);
+    };
+
+    let mut parts = rest.split_whitespace();
+    let as_kw = parts
+        .next()
+        .ok_or_else(|| line_error(line, "`public contract identity` requires `as v<N>` suffix"))?;
+    if as_kw != "as" {
+        return Err(line_error(
+            line,
+            "`public contract identity` requires `as v<N>` suffix",
+        ));
+    }
+    let version_token = parts.next().ok_or_else(|| {
+        line_error(
+            line,
+            "`public contract identity as` requires a version `v<N>`",
+        )
+    })?;
+    let Some(version_digits) = version_token.strip_prefix('v') else {
+        return Err(line_error(
+            line,
+            "version must start with `v`, e.g. `v1`",
+        ));
+    };
+    let version: u16 = version_digits
+        .parse()
+        .map_err(|_| line_error(line, "version must be a positive integer (u16)"))?;
+    if version == 0 {
+        return Err(line_error(line, "version must be a positive integer (u16)"));
+    }
+    if parts.next().is_some() {
+        return Err(line_error(
+            line,
+            "`public contract identity as v<N>` admits no trailing tokens",
+        ));
+    }
+    Ok(Some(PublicContractDeclAst {
+        version,
+        span: Span::new(line.start, line.end),
+    }))
+}
+
 fn is_public_contract_symbol(symbol: &str) -> bool {
     !symbol.is_empty()
         && symbol.split('.').all(|part| {
@@ -9045,6 +9104,7 @@ fn parse_auth(lines: &[SourceLine<'_>], start: usize) -> Result<(Auth, usize), P
     let mut sessions: Option<AuthSessions> = None;
     let mut mfa: Option<AuthMfa> = None;
     let mut oauth: Vec<AuthOAuthProvider> = Vec::new();
+    let mut pending_identity_contract: Option<PublicContractDeclAst> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -9066,6 +9126,28 @@ fn parse_auth(lines: &[SourceLine<'_>], start: usize) -> Result<(Auth, usize), P
                 line,
                 "`auth` body children use four-space indentation",
             ));
+        }
+
+        // Cross-feature contract: `public contract identity as v<N>`
+        // immediately above the `identity <Resource>.<field>` line per
+        // docs/proposals/cross-feature-contracts.md §3.5 + §5.3.
+        if let Some(contract) = parse_auth_identity_contract_line(line)? {
+            if pending_identity_contract.is_some() {
+                return Err(line_error(
+                    line,
+                    "duplicate `public contract identity` line; only one may precede each `identity` declaration",
+                ));
+            }
+            if identity.is_some() {
+                return Err(line_error(
+                    line,
+                    "`public contract identity` must appear ABOVE the `identity` line, not below",
+                ));
+            }
+            pending_identity_contract = Some(contract);
+            last_end = line.end;
+            i += 1;
+            continue;
         }
 
         if let Some(rest) = trimmed.strip_prefix("identity ") {
@@ -9090,6 +9172,7 @@ fn parse_auth(lines: &[SourceLine<'_>], start: usize) -> Result<(Auth, usize), P
             }
             identity = Some(AuthIdentity {
                 field: field.to_owned(),
+                public_contract: pending_identity_contract.take(),
                 span: Span::new(line.start, line.end),
             });
             last_end = line.end;
@@ -17686,6 +17769,46 @@ feature account
         let message = format!("{err}");
         assert!(
             message.contains("trailing `public contract` declaration"),
+            "got {message}"
+        );
+    }
+
+    #[test]
+    fn parse_public_contract_identity_attaches_to_auth() {
+        // Per docs/proposals/cross-feature-contracts.md §5.3 row 7 —
+        // `public contract identity as v<N>` is a special singleton form
+        // recognized inside the `auth` block (NOT at feature level).
+        let source = r#"
+feature account
+  auth
+    public contract identity as v1
+    identity Customer.email
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let auth = features[0].auth.as_ref().expect("auth block");
+        let contract = auth
+            .identity
+            .public_contract
+            .as_ref()
+            .expect("identity contract attached");
+        assert_eq!(contract.version, 1);
+        assert_eq!(auth.identity.field, "Customer.email");
+    }
+
+    #[test]
+    fn parse_public_contract_identity_below_identity_errors() {
+        // The contract MUST appear ABOVE the identity line; below is an
+        // ordering error.
+        let source = r#"
+feature account
+  auth
+    identity Customer.email
+    public contract identity as v1
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("ABOVE the `identity` line"),
             "got {message}"
         );
     }

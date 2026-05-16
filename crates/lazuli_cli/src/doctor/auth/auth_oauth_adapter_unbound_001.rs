@@ -147,6 +147,7 @@ mod tests {
                         resource: qn("Customer"),
                         field: "email".to_owned(),
                     },
+                    public_contract: None,
                 },
                 password: None,
                 sessions: None,

@@ -219,6 +219,7 @@ mod tests {
                         resource: qn("CustomerSession"),
                         field: "email".to_owned(),
                     },
+                    public_contract: None,
                 },
                 password: Some(AuthPassword {
                     algorithm: password_algorithm.to_owned(),

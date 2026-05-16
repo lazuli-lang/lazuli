@@ -1548,6 +1548,7 @@ mod tests {
                 },
                 field: "email".to_owned(),
             },
+            public_contract: None,
         }
     }
 

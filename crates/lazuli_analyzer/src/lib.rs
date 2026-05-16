@@ -4438,6 +4438,7 @@ fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdenti
             resource: qualified_name_local(resource),
             field: field.to_owned(),
         },
+        public_contract: lower_public_contract(&identity.public_contract),
     })
 }
 
@@ -5877,6 +5878,7 @@ feature customer_auth
         // parser shape that lets a stray dot through.
         let identity = lazuli_syntax::AuthIdentity {
             field: "Customer.".to_owned(),
+            public_contract: None,
             span: lazuli_syntax::Span::new(0, 9),
         };
         let err = lower_auth_identity(&identity).unwrap_err();
