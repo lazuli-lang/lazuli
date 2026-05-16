@@ -426,14 +426,16 @@
 
 ---
 
-## WAR-VOCAB-OPERATIONS-01 — Agenda needs a denormalized actor-side query
+## WAR-VOCAB-OPERATIONS-01 — Agenda + reservations denormalized actor-side queries
 
-- **STATUS:** open (workaround applied 2026-05-16 — Hostpoint Phase 3.7)
-- **Symptom:** the storybook host-operations agenda renders each reservation as a card with: traveler name + photo, property name, formatted date + time slot, service-level breakdown (icon, name, amount per service), and an aggregate total amount. The generated SDK query `listMineTransactionsAsHostOperationss` (cf. `dist/ts-web/operations/operations.gen.ts`) returns the raw `ServiceTransaction` resource (FK ids, JSON `proposed_options`, `total_amount_cents`) — none of the joined display attributes the storybook card needs. Translating the raw shape into the card would require additional N+1 lookups per row (traveler/property/service) plus client-side formatting.
-- **Workaround in place:** `apps/hostpoint-app/src/routes/HostOperations.tsx` inlines a fixture array matching the storybook `agendaItems` constant byte-for-byte (4 reservations × pending/proposal/confirmed/declined statuses). The traveler-side surface `apps/hostpoint-app/src/routes/TravelerReservations.tsx` (Phase 3.3, 2026-05-16) inlines its own fixture array of 5 reservations × pending/proposal/confirmed/cancelled statuses for the same reason — `listMineTransactionsAsTravelerOperationss` returns the raw resource without joined property + service display fields (property name + photo, service breakdown with icon/accent/option-name, formatted dates).
-- **Annotated in:** `apps/hostpoint-app/src/routes/HostOperations.tsx` header comment; `apps/hostpoint-app/src/routes/TravelerReservations.tsx` header comment (traveler-side surface, same denormalization gap).
-- **Removal criterion:** `operations.lzi` adds a `query.list mine_agenda_as_host()` (or equivalent) that returns a denormalized agenda row type with traveler/property/service display attributes already joined and pre-formatted: `traveler_name`, `traveler_photo_url`, `property_name`, `formatted_date` (e.g. `"Hoje"`), `formatted_full_date` (`"02/05/2026"`), `formatted_time` (`"11:00"`), `service_breakdown: [{ name, amount_cents, icon_key, accent_key }]`, `total_amount_cents`, plus `status` and `hours_until_start`. Companion `query.list mine_reservations_as_traveler()` ships the traveler-side counterpart with `property_name`, `property_photo_url`, `property_location`, and per-service `option_name` in addition. Both queries are actor-side denormalized views of the same `ServiceTransaction` stream the sender-side `listMineTransactionsAsHostOperationss` / `listMineTransactionsAsTravelerOperationss` queries already expose. Same architectural shape as the request for `query.list mine_notifications` in WAR-VOCAB-NOTIFICATIONS-01.
-- **Surfaced by:** Phase 3.7 host-operations port (this entry); Phase 3.3 traveler-reservations port (2026-05-16, traveler-side surface).
+- **STATUS:** **closed** (Hostpoint commit follow-up 2026-05-16)
+- **Symptom:** the storybook host-operations agenda + traveler-reservations cards needed joined traveler / host / property / service display attributes per row. The generated `listMineTransactionsAsHostOperationss` / `listMineTransactionsAsTravelerOperationss` queries returned the raw `ServiceTransaction` resource — FK ids only, no joined names / photos / display fields. Client-side N+1 lookups per row would have been the only path.
+- **Fix:** two new denormalized records + JSON-returning commands in `operations.lzi`:
+  - `record AgendaEntry` (16 fields) — transaction id + status + joined traveler/property/service display attrs + total + lifecycle timestamps.
+  - `record ReservationEntry` (17 fields) — same shape from the traveler perspective with `host_*` + `property_city` + `property_state` for the reservation card.
+  - `command list_host_agenda returns JSON handler @fn.list_host_agenda` — single SQL with JOINs on traveler/host/property/service + LEFT JOIN LATERAL for cover photo.
+  - `command list_traveler_reservations returns JSON handler @fn.list_traveler_reservations` — symmetric.
+  Front-end normalizers (`HostOperations.tsx` `normalizeAgendaEntries` + `TravelerReservations.tsx` `normalizeReservationEntries`) map SDK rows to the storybook display shape — status enum → display enum, ISO timestamp → `dayKey`/`fullDate`/`time` labels, cents → `R$ X,YY`. Live rows replace fixtures when present; empty DB keeps the storybook visual.
 
 ## WAR-VOCAB-OPERATIONS-02 — Pending-reviews query not modeled
 
