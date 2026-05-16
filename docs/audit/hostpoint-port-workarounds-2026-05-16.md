@@ -27,6 +27,9 @@
 | Vocab — host property create | WAR-VOCAB-PROPERTYCREATE-01..02 | catalog asset-upload commands not implemented, expo-image-picker web fallback |
 | Vocab — host property edit | WAR-VOCAB-PROPERTYEDIT-01 | partial-update surface missing voltage/water_source/address/photos/notes |
 | Vocab — operations | WAR-VOCAB-OPERATIONS-01..02 | denormalized agenda query, pending-reviews query |
+| Vocab — payments | WAR-VOCAB-PAYMENTS-01 | MercadoPago integration end-to-end (CLOSED) |
+| Vocab — messaging | WAR-VOCAB-MESSAGING-02..03 | full ChatExperience port + denormalized inbox shape (both CLOSED) |
+| Vocab — operator OS | WAR-VOCAB-OPERATOR-01 | operator-only queries not authored (CLOSED) |
 | Runtime — ctx | WAR-RUNTIME-CTX-01 | ctx.SessionID exposure |
 | Runtime — auth blocks | WAR-RUNTIME-AUTH-01 | password-reset / email-verification block declaration |
 | Runtime — migrations | WAR-RUNTIME-MIGRATION-01..03 | CREATE TABLE IF NOT EXISTS (open); reserved-word columns (CLOSED); FK topo-sort (open) |
@@ -449,6 +452,17 @@
   1. **Handler implementations** (commit `b5e3ad4`): `RequestAssetUpload` inserts an UploadedAsset row in `uploading` status with a deterministic object_key + bucket; `ConfirmAssetUpload` flips the row to `ready` after the browser PUT. Object key path: `<kind>/<yyyy>/<mm>/<random>` so retention can prune by month.
   2. **Typed return record** (commit `630adf1`): catalog.lzi declares `record AssetUploadIntent { asset_id, url, method, headers_content_type, expires_at }` and the command `returns AssetUploadIntent`. The codegen now emits the Go struct, the TS interface, and a typed SDK shape. The handler populates the record so the front-end consumes it directly.
 - **Note:** real S3/MinIO presigning needs the `@runtime/storage` PresignedURLWriter adapter to be bound (env-driven via `OBJECT_STORE_ENDPOINT` + bucket + creds). Until then the URL is a dev-mode placeholder so local integration tests flow against the same shape. This is configuration, not a code gap.
+
+## WAR-VOCAB-PAYMENTS-01 — MercadoPago integration not implemented end-to-end
+
+- **STATUS:** **closed** (Hostpoint commits `f50fa5f` + `d984bd5` + `6a372a6` + this cycle, 2026-05-16)
+- **Symptom:** the payments BC's three commands (`connect_mercadopago`, `create_checkout_preference`, `refund_charge`) plus the `mp_payment_event` webhook all needed real HTTP integration with MercadoPago. Additionally `create_checkout_preference` returned `struct{}` — the SDK had no `checkout_url` field for the front-end to redirect to. The end-to-end checkout flow could not be exercised in dev mode either: there was no equivalent of MP's redirect lifecycle.
+- **Fix:** four cooperating changes:
+  1. **Real HTTP client** (commit `f50fa5f`): `dist/go/payments/mp_client.go` (190 LOC) wraps the three MP REST endpoints (`POST /oauth/token`, `POST /checkout/preferences`, `POST /v1/payments/{id}/refunds`) plus an HMAC SHA-256 webhook signature verifier. Constructor `newMpClient()` returns `(client, ok)`; `ok=false` when `MERCADOPAGO_ACCESS_TOKEN` env is unset so consumers branch on env-driven prod/dev selection (no code flag).
+  2. **Webhook handler** (commit `6a372a6`): `OnMpPaymentEvent` parses MP's payment envelope, maps the provider status enum to `ChargeStatus`, updates `paid_at` / `refunded_at` columns. Auto-mounted via `webhooks.Register` (lazuli runtime ca7bdf1).
+  3. **Real prod calls wired** (commit `d984bd5`): `CreateCheckoutPreference` calls `mp.CreatePreference(...)` in prod path and `RefundCharge` calls `mp.RefundPayment(...)`; both fall through to deterministic dev placeholders otherwise.
+  4. **Typed return record + dev-mode parity** (this cycle): `payments.lzi` declares `record PaymentPreference { external_reference, checkout_url }` and `create_checkout_preference returns PaymentPreference`. In prod the URL is MP's `init_point`; in dev the URL is `<app>/payment/dev-checkout?ref=<X>`, a PWA React route (`apps/hostpoint-app/src/routes/PaymentDevCheckout.tsx`) that mimics MP's redirect. A new dev-only command `payments.dev_auto_approve_charge` (handler `dist/go/payments/dev_auto_approve_charge.go`) refuses to run when `MERCADOPAGO_ACCESS_TOKEN` is set — so the bypass cannot reach production. The dev page calls this command on "Pay" to synthesize the same `charge.status = 'approved' + paid_at` transition the real signed webhook would perform.
+- **Note:** real-money traffic still needs the four env vars (`MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_REDIRECT_URI`) populated. This is normal SaaS configuration — equivalent to setting `DATABASE_URL` or `SMTP_HOST`. The code path is complete; the dev simulator gives an end-to-end test path without an MP account.
 
 ## WAR-VOCAB-MESSAGING-02 — Full ChatExperience component port
 
