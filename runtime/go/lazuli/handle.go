@@ -328,6 +328,27 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 		placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
 	}
 
+	// WAR-RUNTIME-MULTITENANT-01 closure: under `@policy.public`, the
+	// session-bound tenant is nil, but the resource still requires
+	// `org_id`. If the host app has registered a default-tenant
+	// resolver via `lazuli.WithDefaultTenant`, invoke it now and pin
+	// the resolved tenant for the remainder of the request. Calls
+	// outside this codepath (authed commands with session-bound
+	// tenant) are unaffected — the resolver runs only when ctx.Tenant
+	// is currently nil.
+	if eff.Resource.Tenancy == TenancyOrg && ctx.Tenant == nil {
+		resolved, err := resolveDefaultTenant(ctx)
+		if err != nil {
+			return zero, &Error{
+				Status: 500, Code: CodeInternal,
+				Message: "default tenant resolver failed: " + err.Error(),
+			}
+		}
+		if resolved != nil {
+			ctx.Tenant = resolved
+		}
+	}
+
 	if eff.Resource.Tenancy == TenancyOrg && ctx.Tenant != nil {
 		cols = append(cols, quoteIdent("org_id"))
 		values = append(values, ctx.Tenant.OrgID)

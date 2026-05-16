@@ -38,8 +38,9 @@
 | Runtime — API mount | WAR-RUNTIME-API-MUX-01 | Mux() doesn't iterate Apis() — /auth/* routes never mount (CLOSED) |
 | Runtime — ctx expressions | WAR-RUNTIME-CTX-NOW-01 | ctx.now / ctx.actor unresolved in declarative `creates`/`updates` |
 | Runtime — file naming | WAR-RUNTIME-FILENAME-01 | Underscore-prefix files silently excluded by go build |
-| Runtime — multitenant | WAR-RUNTIME-MULTITENANT-01 | public-policy creates can't resolve tenant |
+| Runtime — multitenant | WAR-RUNTIME-MULTITENANT-01 | public-policy creates can't resolve tenant (CLOSED) |
 | Vocab — query enum | WAR-VOCAB-QUERY-ENUM-01 | query.list filters can't bind enum literals (CLOSED) |
+| Vocab — creates @fn-call | WAR-VOCAB-CREATES-FN-CALL-01 | @fn.X(args) in creates-bindings emits as literal string |
 | Doctor — design tokens | WAR-DOCTOR-DESIGN-01..02 | hex-leak, undefined-token |
 | Doctor — env | WAR-DOCTOR-ENV-01 | PUBLIC_ prefix false positive |
 | Scaffold — gitignore | WAR-SCAFFOLD-GITIGNORE-01 | dist/ blanket-ignore vs user-authored handlers |
@@ -503,15 +504,25 @@
 
 ## WAR-RUNTIME-MULTITENANT-01 — `@policy.public` commands cannot resolve tenant for `creates`
 
-- **STATUS:** open (workaround in place — Hostpoint Phase 1.3 / 2026-05-16; surfaced in `apps/hostpoint-app/src/routes/SignUp.tsx` + `dist/go/account/register_user.go`)
-- **Symptom:** the declarative form `command register_user { policy @policy.public; creates User { ... } }` lowers a generated handler that reads `ctx.Actor` for tenant resolution. Under `@policy.public` there is no authenticated actor at request time, so `ctx.Actor.OrgID` is the zero value; the generated INSERT carries `org_id = 0` and either fails the FK constraint or silently writes to a non-existent org. Every public sign-up path hits this.
-- **Workaround in place:** Hostpoint replaces the framework-generated `register_user.go` with a hand-rolled `RegisterUserHandler` (`dist/go/account/register_user.go`) that (a) opens a transaction; (b) `SELECT id FROM org WHERE slug = 'default' LIMIT 1`; (c) `INSERT INTO org` with the default slug if no row found, capturing the new id; (d) issues the `INSERT INTO "user"` with `org_id = <resolved>`. The handler is registered via `account.RegisterUserHandler` in `dist/go/main.go` ahead of the framework-generated stub.
-- **Annotated in:** `dist/go/account/register_user.go` (head-of-file comment naming the warrant); `apps/hostpoint-app/src/routes/SignUp.tsx` (UI assumes a single org is fine for the MVP).
-- **Removal criterion:** Lazuli grows one of these (cells deferred to the next framework wave, design call pending):
-  - **Path A (declarative tenant-resolution on public commands):** new keyword on `command.policy @policy.public` — `resolve tenant via @fn.<name>` or `tenant_from input.<axis>_id` (mirroring the inbound-webhook `tenant_from`/`scope global` pattern that landed 2026-05-16). The framework injects the resolver into the generated `creates` lowering.
-  - **Path B (runtime-supplied tenant context for public commands):** add a `WithDefaultTenant` middleware to `lazuli.Mux()` that resolves a fallback `Org` per `request.Header` / `Host` / app config. Less explicit than A; risks silent tenancy bugs.
-  - **Path C (require pre-auth for `creates`):** make `@policy.public` + `creates X` a doctor `BLOCK` (analogous to `WEBHOOK-SCOPE-001` for inbound webhooks lacking `tenant_from`). Forces the author to choose A or escalate the command to authenticated.
-- **Surfaced by:** Hostpoint Phase 1.3e (sign-up flow); see `docs/port-status-2026-05-16.md` open-workarounds list.
+- **STATUS:** **closed** (lazuli runtime commit pending 2026-05-16) — Path B (runtime-supplied tenant context) shipped. `lazuli.WithDefaultTenant(fn)` registers a resolver; `applyCreates` in `runtime/go/lazuli/handle.go` invokes it whenever ctx.Tenant is nil and the target resource declares `TenancyOrg`. Single-tenant apps (Hostpoint shape) register a one-liner that resolves or creates a `slug = 'default'` org row. Multi-tenant apps either rely on session-bound tenant (resolver never invoked) or read a tenant key from request context (Host header, subdomain, query param). 5 unit tests at `runtime/go/lazuli/tenant_test.go` cover no-resolver / happy-path / error-propagation / nil-return / last-registration-wins. The previous "hand-rolled `RegisterUserHandler` resolves org by hand" pattern is now redundant for the tenant axis — though Hostpoint still hand-rolls the INSERT for the password-hash @fn invocation (companion warrant WAR-VOCAB-CREATES-FN-CALL-01 below).
+- **Original symptom:** the declarative form `command register { policy @policy.public; creates User { ... } }` lowered to a generated handler that read `ctx.Tenant` for the `org_id` auto-injection branch. Under `@policy.public` there is no authenticated session, so ctx.Tenant was nil and the runtime skipped the auto-injection — producing INSERTs with NULL `org_id` that violated the resource's NOT NULL constraint. Every public sign-up path hit this.
+- **Fix:** `runtime/go/lazuli/tenant.go` ships `DefaultTenantResolverFn` + `WithDefaultTenant(fn)` + a package-private `resolveDefaultTenant(ctx)`. `runtime/go/lazuli/handle.go` `applyCreates` invokes the resolver before the existing `eff.Resource.Tenancy == TenancyOrg && ctx.Tenant != nil` branch when ctx.Tenant is nil. The resolver runs inside the active command pipeline (post-policy, post-validators, pre-INSERT) and pins the resolved Tenant onto ctx for the rest of the request.
+- **Hostpoint integration:** `dist/go/account/default_tenant.go` (NEW) registers a resolver that SELECT-or-INSERTs the `slug = 'default'` org row in `init()`. Idempotent.
+- **Followup (separate warrant):** `WAR-VOCAB-CREATES-FN-CALL-01` — `password_hash = @fn.hash_password(input.password)` in the declarative `creates` block is emitted as `lazuli.FromConst("@fn.hash_password(input.password)")` (a literal string), not as a function call. Until that closes, Hostpoint keeps `register_user_handler.go` for the password-hash invocation. Tenant resolution is no longer the reason the handler exists.
+- **Surfaced by:** Hostpoint Phase 1.3e (sign-up flow); closed lazuli runtime 2026-05-16.
+
+## WAR-VOCAB-CREATES-FN-CALL-01 — `@fn.X(args)` in `creates` bindings emits as literal string
+
+- **STATUS:** open (workaround in place — Hostpoint Phase 1.3 / 2026-05-16; surfaced when MULTITENANT-01 closure exposed that the declarative `creates User` STILL fails because of this separate gap)
+- **Symptom:** declarative form `creates User { password_hash = @fn.hash_password(input.password); ... }` lowers a Bindings map where `password_hash` is `lazuli.FromConst("@fn.hash_password(input.password)")` — a CONST string containing the unevaluated function-call syntax. The runtime stores the literal string `@fn.hash_password(...)` in the password_hash column. Any field-binding that wants to call a user-authored @fn at command time hits this.
+- **Workaround in place:** Hostpoint keeps `dist/go/account/register_user_handler.go` (the hand-rolled INSERT override) specifically to invoke `auth.HashPassword(...)` before writing the row. Tenant resolution in the handler is now redundant (covered by `WithDefaultTenant` per MULTITENANT-01) but the password-hash invocation can't move to the declarative form yet.
+- **Annotated in:** `dist/go/account/register_user_handler.go` (head-of-file comment cites both warrants; explicit "(b) is still open" note).
+- **Removal criterion:** Lazuli codegen + runtime support `@fn.<name>(<arg>...)` as a typed Source kind alongside `FromInput` / `FromCtx` / `FromTarget` / `FromConst`. Concretely:
+  - **Codegen:** detect `Expr::FnCall { name, args }` on the RHS of a `creates`/`updates` binding (the IR already has the shape per `crates/lazuli_ir/src/lib.rs`); emit a new `lazuli.FromFn(<fn_ref>, <args>...)` source instead of falling through to `FromConst(<raw_text>)`.
+  - **Runtime:** add a `sourceFn` kind to `effect.go::sourceKind` enum + a `FromFn(fn func(ctx, input) (any, error), args []Source) Source` constructor; `resolveSource` invokes the fn with resolved args.
+  - **Analyzer:** symbol-resolve `@fn.hash_password` to the user-declared `extensions.fn` entry; fail closed when the @fn is missing.
+  - **Doctor lint candidate:** `VOCAB-CREATES-FN-MISSING-001` to catch `@fn.X` references in bindings that don't resolve to a declared extension fn.
+- **Surfaced by:** Hostpoint sign-up flow + WAR-RUNTIME-MULTITENANT-01 closure (exposed when the tenant blocker lifted and password-hash became the load-bearing reason the override exists).
 
 ## WAR-VOCAB-QUERY-ENUM-01 — `query.list filters <enum_field> = <literal>` does not bind under codegen
 
