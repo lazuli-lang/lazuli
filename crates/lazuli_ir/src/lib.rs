@@ -66,9 +66,13 @@ pub struct SourceFile {
 /// EXPERIMENTAL: shape may grow additive fields before 1.0.
 ///
 /// See `docs/proposals/lsp-symbol-origin.md` §6.2.
+///
+/// `symbols` keys are formatted `<feature>.<name>` (e.g. `account.Gender`)
+/// so the index serializes to JSON without custom key adapters. The Rust
+/// caller can recover a `QualifiedName` via `QualifiedName::parse_dotted`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolOriginIndex {
-    pub symbols: std::collections::BTreeMap<QualifiedName, SymbolOrigin>,
+    pub symbols: std::collections::BTreeMap<String, SymbolOrigin>,
     pub imports: std::collections::BTreeMap<String, Vec<ImportEdge>>,
 }
 

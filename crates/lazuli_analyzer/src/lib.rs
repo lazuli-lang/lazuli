@@ -16,6 +16,9 @@
 mod lifecycle;
 pub mod rbac;
 pub mod source_map;
+pub mod symbol_origin;
+
+pub use symbol_origin::build_symbol_origin_index;
 
 use std::collections::BTreeSet;
 

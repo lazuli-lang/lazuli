@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use lazuli_ir::{
-    Defaults, Feature, ImportEdge, Policies, QualifiedName, SourceLocation, SpanRef, SymbolKind,
-    SymbolOrigin, SymbolOriginIndex,
+    Defaults, Feature, ImportEdge, Policies, SourceLocation, SpanRef, SymbolKind, SymbolOrigin,
+    SymbolOriginIndex,
 };
 
 fn file_location(file: &str, line: u32, column: u32) -> SourceLocation {
@@ -13,10 +13,13 @@ fn file_location(file: &str, line: u32, column: u32) -> SourceLocation {
     }
 }
 
-fn qualified(feature: Option<&str>, name: &str) -> QualifiedName {
-    QualifiedName {
-        feature: feature.map(str::to_owned),
-        name: name.to_owned(),
+/// Format the canonical `<feature>.<name>` key used by the index map.
+/// When `feature` is None (e.g. built-in semantic types), the key is the
+/// bare symbol name.
+fn qualified_key(feature: Option<&str>, name: &str) -> String {
+    match feature {
+        Some(f) => format!("{}.{}", f, name),
+        None => name.to_owned(),
     }
 }
 
@@ -85,7 +88,7 @@ fn empty_index_round_trips() {
 fn file_defined_symbol_round_trips() {
     let mut index = SymbolOriginIndex::default();
     index.symbols.insert(
-        qualified(Some("account"), "Gender"),
+        qualified_key(Some("account"), "Gender"),
         origin(
             "Gender",
             SymbolKind::Enum,
@@ -106,7 +109,7 @@ fn file_defined_symbol_round_trips() {
 fn builtin_symbol_uses_typed_discriminator() {
     let mut index = SymbolOriginIndex::default();
     index.symbols.insert(
-        qualified(None, "Money"),
+        qualified_key(None, "Money"),
         SymbolOrigin {
             feature: "core".to_owned(),
             name: "Money".to_owned(),
