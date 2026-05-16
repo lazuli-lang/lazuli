@@ -2250,7 +2250,7 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
                 .collect(),
             scope: Vec::new(),
             scope_override: list.scope_override,
-            filters: Vec::new(),
+            filters: lower_query_filter_lines(&list.filters),
             order: Vec::new(),
             paginate: list.paginate,
             modifier: list.modifier.clone(),
@@ -2297,6 +2297,105 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
             span_ref: Some(span_of(sql.span)),
         }),
     }
+}
+
+/// WAR-VOCAB-QUERY-ENUM-01 closure — lower the verbatim
+/// `query.list filters` lines (parsed by the syntax as `Vec<String>`)
+/// into typed `ir::Filter` predicates. Each line is shaped
+/// `<field> <op> <expr>` where `<op>` is the closed comparison set
+/// (`=`, `!=`, `<`, `<=`, `>`, `>=`) and `<expr>` is one of:
+///   - `<dotted.path>` (e.g. `ctx.actor.org_id`, `params.kind`) →
+///     `Expr::Path`
+///   - quoted string (`"foo"`) → `Expr::String`
+///   - integer literal → `Expr::Integer`
+///   - `true` / `false` → `Expr::Boolean`
+///   - `nil` → `Expr::Nil`
+///   - bare single-segment identifier (e.g. `approved`, `pending`) →
+///     `Expr::Enum(EnumLiteral { type_name: None, variant })` — the
+///     codegen serialises this as `lazuli.FromConst("<variant>")` so
+///     the value lands as a Postgres TEXT bind parameter matching
+///     the enum-typed column.
+///
+/// Lines that fail to parse are dropped silently; doctor's
+/// vocab-filter lint catches malformed forms (TODO: add the lint).
+fn lower_query_filter_lines(lines: &[String]) -> Vec<ir::Filter> {
+    lines
+        .iter()
+        .filter_map(|line| parse_query_filter_line(line))
+        .collect()
+}
+
+fn parse_query_filter_line(text: &str) -> Option<ir::Filter> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    for (token, op) in [
+        ("<=", ir::CompareOp::Le),
+        (">=", ir::CompareOp::Ge),
+        ("!=", ir::CompareOp::Ne),
+        ("<", ir::CompareOp::Lt),
+        (">", ir::CompareOp::Gt),
+        ("=", ir::CompareOp::Eq),
+    ] {
+        if let Some(idx) = find_top_level_operator(trimmed, token) {
+            let (lhs_text, rhs_text) = trimmed.split_at(idx);
+            let rhs_text = &rhs_text[token.len()..];
+            let lhs = lhs_text.trim();
+            let rhs = rhs_text.trim();
+            if lhs.is_empty() || rhs.is_empty() {
+                return None;
+            }
+            return Some(ir::Filter {
+                predicate: ir::Predicate::Comparison {
+                    left: filter_lhs_expr(lhs),
+                    op,
+                    right: filter_rhs_expr(rhs),
+                },
+                when: None,
+            });
+        }
+    }
+    None
+}
+
+/// LHS of a filter line is always a column reference. Single-segment
+/// identifiers resolve to a column path; dotted forms (rare on LHS)
+/// preserve their structure for the downstream codegen.
+fn filter_lhs_expr(text: &str) -> ir::Expr {
+    ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)))
+}
+
+/// RHS may be a literal, a dotted runtime path, OR a bare enum variant.
+/// The bare-identifier case is the WAR-VOCAB-QUERY-ENUM-01 closure —
+/// `expr_from_text` treats bare identifiers as `Expr::Path`, which the
+/// query codegen would render as `lazuli.FromInput(...)` (a runtime
+/// input lookup); the correct semantic is "const string equal to the
+/// enum variant name," so we lift to `Expr::Enum`.
+fn filter_rhs_expr(text: &str) -> ir::Expr {
+    let text = text.trim();
+    if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return ir::Expr::String(stripped.to_owned());
+    }
+    if let Ok(n) = text.parse::<i64>() {
+        return ir::Expr::Integer(n);
+    }
+    match text {
+        "true" => return ir::Expr::Boolean(true),
+        "false" => return ir::Expr::Boolean(false),
+        "nil" => return ir::Expr::Nil,
+        _ => {}
+    }
+    if text.contains('.') {
+        return ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)));
+    }
+    // Bare single-segment identifier → enum variant. Type resolution
+    // is deferred (no enum type carried in the syntax); codegen emits
+    // a TEXT const via the unqualified `Expr::Enum` branch.
+    ir::Expr::Enum(ir::EnumLiteral {
+        type_name: None,
+        variant: text.to_owned(),
+    })
 }
 
 /// Cache bucket cycle — lift `cache` body lines (`key <expr>`, `ttl
@@ -4958,8 +5057,112 @@ mod tests {
     use lazuli_syntax::{parse_document, parse_lzx_document};
 
     use super::{
-        AnalyzeError, lower_auth_identity, lower_document, lower_lzx_document, type_ref_from_syntax,
+        AnalyzeError, lower_auth_identity, lower_document, lower_lzx_document,
+        parse_query_filter_line, type_ref_from_syntax,
     };
+
+    #[test]
+    fn query_filter_line_lowers_dotted_path() {
+        let filter = parse_query_filter_line("org_id = ctx.actor.org_id")
+            .expect("dotted path filter parses");
+        let ir::Predicate::Comparison { left, op, right } = filter.predicate else {
+            panic!("expected Comparison predicate");
+        };
+        assert!(matches!(op, ir::CompareOp::Eq));
+        assert_eq!(
+            left,
+            ir::Expr::Path(ir::Path::from_segments(["org_id".to_owned()]))
+        );
+        assert_eq!(
+            right,
+            ir::Expr::Path(ir::Path::from_segments([
+                "ctx".to_owned(),
+                "actor".to_owned(),
+                "org_id".to_owned(),
+            ]))
+        );
+        assert!(filter.when.is_none());
+    }
+
+    #[test]
+    fn query_filter_line_lowers_bool_literal() {
+        let filter = parse_query_filter_line("is_public = false").unwrap();
+        let ir::Predicate::Comparison { right, .. } = filter.predicate else {
+            panic!("expected Comparison predicate");
+        };
+        assert_eq!(right, ir::Expr::Boolean(false));
+    }
+
+    #[test]
+    fn query_filter_line_lifts_bare_identifier_to_enum_literal() {
+        // WAR-VOCAB-QUERY-ENUM-01 closure: `status = approved` must
+        // lift `approved` to `Expr::Enum` so codegen emits a TEXT
+        // const bind, NOT a runtime input lookup.
+        let filter = parse_query_filter_line("status = approved").unwrap();
+        let ir::Predicate::Comparison { right, .. } = filter.predicate else {
+            panic!("expected Comparison predicate");
+        };
+        let literal = match right {
+            ir::Expr::Enum(literal) => literal,
+            other => panic!("expected Expr::Enum, got {other:?}"),
+        };
+        assert!(literal.type_name.is_none());
+        assert_eq!(literal.variant, "approved");
+    }
+
+    #[test]
+    fn query_filter_line_handles_inequality_operators() {
+        let f1 = parse_query_filter_line("rating >= 4").unwrap();
+        if let ir::Predicate::Comparison { op, .. } = f1.predicate {
+            assert!(matches!(op, ir::CompareOp::Ge));
+        } else {
+            panic!("expected Comparison");
+        }
+        let f2 = parse_query_filter_line("status != cancelled").unwrap();
+        if let ir::Predicate::Comparison { op, right, .. } = f2.predicate {
+            assert!(matches!(op, ir::CompareOp::Ne));
+            if let ir::Expr::Enum(literal) = right {
+                assert_eq!(literal.variant, "cancelled");
+            } else {
+                panic!("expected Enum literal on RHS of !=");
+            }
+        } else {
+            panic!("expected Comparison");
+        }
+    }
+
+    #[test]
+    fn query_filter_line_drops_blanks_and_comments() {
+        assert!(parse_query_filter_line("").is_none());
+        assert!(parse_query_filter_line("   ").is_none());
+        assert!(parse_query_filter_line("# org_id = ctx.actor.org_id").is_none());
+    }
+
+    #[test]
+    fn query_filter_line_lowers_quoted_string() {
+        let filter = parse_query_filter_line("name = \"hello\"").unwrap();
+        if let ir::Predicate::Comparison { right, .. } = filter.predicate {
+            assert_eq!(right, ir::Expr::String("hello".to_owned()));
+        } else {
+            panic!("expected Comparison");
+        }
+    }
+
+    #[test]
+    fn query_filter_line_lowers_integer_and_nil() {
+        let f1 = parse_query_filter_line("count >= 0").unwrap();
+        if let ir::Predicate::Comparison { right, .. } = f1.predicate {
+            assert_eq!(right, ir::Expr::Integer(0));
+        } else {
+            panic!("expected Comparison");
+        }
+        let f2 = parse_query_filter_line("deleted_at = nil").unwrap();
+        if let ir::Predicate::Comparison { right, .. } = f2.predicate {
+            assert_eq!(right, ir::Expr::Nil);
+        } else {
+            panic!("expected Comparison");
+        }
+    }
 
     #[test]
     fn lowers_valid_document_to_ir() {
