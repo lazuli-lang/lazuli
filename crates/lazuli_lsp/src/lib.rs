@@ -32,11 +32,21 @@ pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
     diagnostics_for_source_with_profile(source, SecurityProfile::Strict)
 }
 
+/// Public diagnostic entry point used by `lazuli_cli::doctor` and other
+/// out-of-process consumers.
+///
+/// Intentionally **excludes** the file-local diagnostics wired in from
+/// `lazuli_doctor` (R2.F): the CLI doctor invokes those checks itself
+/// against the same lowered IR, and duplicating them here would double-fire
+/// every catalog code into both the LSP-pulled stream and the CLI's own
+/// dispatch. The LSP backend (`Backend::did_open` / `did_change`) calls
+/// `diagnostics_for_uri` → `diagnostics_for` which DOES include them so
+/// editor squiggles still surface live.
 pub fn diagnostics_for_source_with_profile(
     source: &str,
     security_profile: SecurityProfile,
 ) -> Vec<Diagnostic> {
-    diagnostics_for_with_profile(source, security_profile)
+    diagnostics_for_with_profile_inner(source, security_profile, false)
 }
 
 pub async fn serve_stdio() {
@@ -410,9 +420,19 @@ fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
     diagnostics_for_with_profile(source, SecurityProfile::Strict)
 }
 
+/// Internal in-LSP entry point — always includes the doctor file-local
+/// diagnostics wired in R2.F so editor squiggles fire live.
 fn diagnostics_for_with_profile(
     source: &str,
     security_profile: SecurityProfile,
+) -> Vec<Diagnostic> {
+    diagnostics_for_with_profile_inner(source, security_profile, true)
+}
+
+fn diagnostics_for_with_profile_inner(
+    source: &str,
+    security_profile: SecurityProfile,
+    include_doctor: bool,
 ) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
@@ -497,6 +517,9 @@ fn diagnostics_for_with_profile(
         diagnostics.extend(auth_security_diagnostics(source));
         diagnostics.extend(extension_reference_diagnostics(source));
         diagnostics.extend(idempotency_key_diagnostics(source));
+        if include_doctor {
+            diagnostics.extend(doctor_file_local_diagnostics(source));
+        }
         return apply_security_profile(diagnostics, security_profile);
     }
 
@@ -15065,6 +15088,526 @@ pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
     }
 }
 
+// ── doctor file-local diagnostics ────────────────────────────────────────────
+//
+// Wires the file-local checks from `lazuli_doctor` (8 sub-trees) into the LSP
+// so each rule surfaces as live editor squiggles, not just on `lazuli doctor`
+// CLI runs. See `editors/vscode/AUDIT-LSP-DOCTOR-GAP.md` (R2.F) for the catalog
+// of 46+ file-local-portable codes this wires up.
+//
+// Cross-file checks (need `AppManifest` / `AppRegistry` / object-storage caps /
+// design-token allowlist / `.tsx` filesystem walk) stay in `lazuli_cli::doctor`
+// since the LSP has no project context.
+
+/// Build a `Diagnostic` for any `lazuli_doctor` finding that exposes the
+/// canonical `Finding::CODE: &'static str` + `fn message(&self) -> String`
+/// shape. We don't have AST spans on the IR-level findings, so the range
+/// targets the `feature <name>` line when locatable, else line 0.
+fn doctor_diagnostic(
+    source: &str,
+    feature_name: Option<&str>,
+    code: &str,
+    message: String,
+    severity: DiagnosticSeverity,
+) -> Diagnostic {
+    let range = feature_name
+        .and_then(|name| feature_header_range(source, name))
+        .unwrap_or_else(|| first_line_range(source));
+
+    Diagnostic {
+        range,
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            code.to_owned(),
+        )),
+        code_description: None,
+        source: Some("lazuli-doctor".to_owned()),
+        message,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// Best-effort lookup of the `feature <name>` declaration line so doctor
+/// findings can attach to the feature header instead of line 0.
+fn feature_header_range(source: &str, feature_name: &str) -> Option<Range> {
+    for (idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let after_kw = trimmed.strip_prefix("feature ")?.trim_start();
+        if after_kw
+            .split(|c: char| c.is_whitespace())
+            .next()
+            .map(|n| n.eq_ignore_ascii_case(feature_name))
+            .unwrap_or(false)
+        {
+            let leading = leading_spaces(line);
+            return Some(Range {
+                start: Position {
+                    line: idx as u32,
+                    character: leading as u32,
+                },
+                end: Position {
+                    line: idx as u32,
+                    character: line.len() as u32,
+                },
+            });
+        }
+    }
+    None
+}
+
+/// Macro: dispatch a `(feature, path) -> Vec<Finding>` doctor leaf and push
+/// each finding as an LSP `Diagnostic`. Severity defaults to `ERROR`; callers
+/// override per-leaf for the warning-severity rules (e.g. SLUG-UNIQUENESS).
+macro_rules! wire_feature_check {
+    ($source:expr, $diags:expr, $feature:expr, $path:expr, $module:path, $severity:expr) => {{
+        use $module as leaf;
+        for finding in leaf::check($feature, $path) {
+            $diags.push(doctor_diagnostic(
+                $source,
+                Some(&$feature.name),
+                leaf::Finding::CODE,
+                finding.message(),
+                $severity,
+            ));
+        }
+    }};
+    ($source:expr, $diags:expr, $feature:expr, $path:expr, $module:path) => {{
+        wire_feature_check!(
+            $source,
+            $diags,
+            $feature,
+            $path,
+            $module,
+            DiagnosticSeverity::ERROR
+        );
+    }};
+}
+
+fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+
+    // VOCAB-GRAMMAR-FORM-001 runs on raw source (no lowering needed) and
+    // surfaces 1-indexed line/column itself.
+    let synthetic_path = std::path::Path::new("source.lzi");
+    for finding in lazuli_doctor::vocab::vocab_grammar_form_001::check(source, synthetic_path) {
+        let line_zero = finding.line.saturating_sub(1) as u32;
+        let col_zero = finding.column.saturating_sub(1) as u32;
+        diagnostics.push(Diagnostic {
+            range: Range {
+                start: Position {
+                    line: line_zero,
+                    character: col_zero,
+                },
+                end: Position {
+                    line: line_zero,
+                    character: col_zero + finding.old.chars().count() as u32,
+                },
+            },
+            severity: Some(DiagnosticSeverity::WARNING),
+            code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                lazuli_doctor::vocab::vocab_grammar_form_001::Finding::CODE.to_owned(),
+            )),
+            code_description: None,
+            source: Some("lazuli-doctor".to_owned()),
+            message: finding.message(),
+            related_information: None,
+            tags: None,
+            data: None,
+        });
+    }
+
+    // Everything else needs lowered IR. The canonical pipeline is
+    // `parse_feature_skeletons` + `lower_feature_skeleton` (NOT
+    // `parse_document` / `lower_document`, which are the legacy
+    // aggregate-only path). Bail silently if either step fails — shape
+    // diagnostics already surface parse/lower errors via other paths.
+    let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(source) else {
+        return diagnostics;
+    };
+    let features: Vec<lazuli_ir::Feature> = skeletons
+        .iter()
+        .filter_map(|skeleton| lazuli_analyzer::lower_feature_skeleton(skeleton).ok())
+        .collect();
+
+    for feature in &features {
+        // correctness (6)
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::channel_payload_unresolved_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::command_input_shadows_field_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::composite_key_contract_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::full_text_type_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::hook_target_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::resource_lock_contract_001
+        );
+
+        // domain (4) — SLUG-UNIQUENESS-IMPLICIT is warning per the audit.
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::domain::aggregate_contains_unknown
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::domain::aggregate_root_unknown
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::domain::invariant_predicate_invalid
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::domain::slug_uniqueness_implicit,
+            DiagnosticSeverity::WARNING
+        );
+
+        // lifecycle (10)
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::enum_duplicate
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::field_double_declared
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::invariant_param_unresolved
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::no_initial_state
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::state_duplicate
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::terminal_has_outgoing
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::timestamp_type
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::transition_from_undeclared
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::transition_to_undeclared
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::lifecycle::unreachable_state
+        );
+
+        // vocab (11 feature-based; vocab_grammar_form_001 wired above on source)
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_audit_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_audit_002
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_cap_missing_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_derived_read_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_event_orphan_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_event_payload_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_event_producer_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_json_typed_001
+        );
+        // NOTE: `vocab_lifecycle_001.rs` exists in the crate but is not
+        // exported via `vocab/mod.rs` (orphan file, pending extraction wave).
+        // Re-add the `wire_feature_check!` line here once the parent module
+        // publishes it.
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_union_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::vocab::vocab_union_002
+        );
+
+        // encryption (2 of 6 — the other 4 need `AppManifest` / `AppRegistry`).
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::encryption::e2ee_event
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::encryption::tenancy
+        );
+
+        // poller (10 of 12 — `cursor_field_type_001` and
+        // `exponential_no_cap_001` exist in the crate but are not exported
+        // via `poller/mod.rs`; re-wire when the parent module publishes them).
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::cursor_missing_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::dual_scheduler_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::handler_orphan_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::idempotency_attempts_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::max_retries_unbounded_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::no_terminal_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::quirk_catalog_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::terminal_field_enum_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::terminal_no_emit_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::poller::tick_too_fast_001
+        );
+
+        // report (8 of 11 — signed_no_storage / storage_ambiguous /
+        // format_unknown need registry / AST context not available here).
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_column_mismatch_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_columns_empty_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_filename_token_unknown_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_path_collision_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_policy_public_no_rate_limit_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_signed_ttl_forbidden_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_signed_ttl_missing_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::report::report_source_kind_001
+        );
+    }
+
+    diagnostics
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -15072,6 +15615,17 @@ mod tests {
         format_canonical_source,
     };
     use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Url};
+
+    /// Per-LSP-test helper: strip `lazuli-doctor` diagnostics so legacy
+    /// tests that assert exact LSP-shape diagnostic counts keep passing
+    /// after the R2.F doctor wire-up. Doctor wiring has its own tests
+    /// further down — see `doctor_*` test cases.
+    fn diagnostics_for_lsp_only(source: &str) -> Vec<Diagnostic> {
+        diagnostics_for(source)
+            .into_iter()
+            .filter(|d| d.source.as_deref() != Some("lazuli-doctor"))
+            .collect()
+    }
 
     #[test]
     fn canonical_order_accepts_feature_blocks_in_order() {
@@ -15590,13 +16144,17 @@ feature catalog
         // sibling `registry.lzi`. The per-file LSP can't see registry, so it
         // emits an informational `env-schema-reference` warning that doctor
         // resolves cross-package. Filter it out for ordering tests.
+        //
+        // Also filter `lazuli-doctor` source: the doctor catalog is wired
+        // separately (R2.F) and has its own round-trip tests.
         let filtered: Vec<_> = diagnostics
             .iter()
             .filter(|d| {
-                d.code.as_ref().and_then(|c| match c {
-                    tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
-                    _ => None,
-                }) != Some("env-schema-reference")
+                d.source.as_deref() != Some("lazuli-doctor")
+                    && d.code.as_ref().and_then(|c| match c {
+                        tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                        _ => None,
+                    }) != Some("env-schema-reference")
             })
             .cloned()
             .collect();
@@ -16164,13 +16722,19 @@ contract 123
             // sibling files, so feature sources that reference env vars
             // declared in `registry.lzi` legitimately surface this warning.
             // Filter it out for the per-file canonical contract.
+            //
+            // Also filter out `lazuli-doctor` sourced diagnostics: this
+            // contract tests the per-file LSP shape lints, not the doctor
+            // vocab/lifecycle/correctness catalog which has its own
+            // round-trip tests further down (`doctor_*`).
             let filtered: Vec<_> = diagnostics
                 .iter()
                 .filter(|d| {
-                    d.code.as_ref().and_then(|c| match c {
-                        tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
-                        _ => None,
-                    }) != Some("env-schema-reference")
+                    d.source.as_deref() != Some("lazuli-doctor")
+                        && d.code.as_ref().and_then(|c| match c {
+                            tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.as_str()),
+                            _ => None,
+                        }) != Some("env-schema-reference")
                 })
                 .cloned()
                 .collect();
@@ -16387,7 +16951,7 @@ feature customer
     creates Customer
 "#;
 
-        let diagnostics = diagnostics_for(source);
+        let diagnostics = diagnostics_for_lsp_only(source);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(
@@ -18292,7 +18856,7 @@ feature customer
       name = input.name
 "#;
 
-        let diagnostics = diagnostics_for(source);
+        let diagnostics = diagnostics_for_lsp_only(source);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(
@@ -18325,7 +18889,7 @@ feature customer
       email = input.email
 "#;
 
-        assert!(diagnostics_for(source).is_empty());
+        assert!(diagnostics_for_lsp_only(source).is_empty());
     }
 
     #[test]
@@ -18349,7 +18913,7 @@ feature customer
       name = input.display_name
 "#;
 
-        let diagnostics = diagnostics_for(source);
+        let diagnostics = diagnostics_for_lsp_only(source);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
@@ -18410,7 +18974,7 @@ feature customer_tags
     deletes CustomerTagAssignment
 "#;
 
-        let diagnostics = diagnostics_for(source);
+        let diagnostics = diagnostics_for_lsp_only(source);
 
         assert_eq!(diagnostics.len(), 2);
         assert!(diagnostics.iter().all(|diagnostic| {
@@ -18447,7 +19011,7 @@ feature inventory
       amount = input.amount
 "#;
 
-        let diagnostics = diagnostics_for(source);
+        let diagnostics = diagnostics_for_lsp_only(source);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(
@@ -18483,7 +19047,7 @@ feature customer_tags
     deletes CustomerTagAssignment
 "#;
 
-        assert!(diagnostics_for(source).is_empty());
+        assert!(diagnostics_for_lsp_only(source).is_empty());
     }
 
     #[test]
@@ -18664,7 +19228,7 @@ feature customer
       permits @role.admin
 "#;
 
-        let diagnostics = diagnostics_for(source);
+        let diagnostics = diagnostics_for_lsp_only(source);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
@@ -19907,5 +20471,140 @@ aggregate Customer {
         let mut verbs = EFFECT_VERBS.to_vec();
         verbs.sort();
         assert_eq!(verbs, vec!["creates", "deletes", "returns", "updates"]);
+    }
+
+    // ── doctor file-local wire-up (R2.F) ─────────────────────────────────────
+    //
+    // Smoke tests verifying the `lazuli_doctor` sub-tree checks now fire
+    // through the LSP, that the diagnostic `source` is `"lazuli-doctor"` for
+    // click-through tooling, and that the doctor codes round-trip verbatim
+    // (e.g. `HOOK-TARGET-001`, not a re-coded LSP version).
+
+    fn doctor_diagnostics_with_code<'a>(
+        diagnostics: &'a [Diagnostic],
+        code: &str,
+    ) -> Vec<&'a Diagnostic> {
+        diagnostics
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.code.as_ref(),
+                    Some(tower_lsp::lsp_types::NumberOrString::String(c)) if c == code
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn doctor_vocab_audit_001_surfaces_through_lsp() {
+        // A write command without `audit` is the textbook VOCAB-AUDIT-001
+        // trigger. `lower_feature_skeleton` lowers commands fully, so this
+        // rule reliably round-trips through the LSP wire-up.
+        //
+        // NOTE: extension-shaped rules like HOOK-TARGET-001 cannot fire
+        // here today — `lower_feature_skeleton` drops `extensions` /
+        // `events` / `surfaces` / `escape_routes`. When the analyzer lifts
+        // those into IR, add coverage for HOOK-TARGET-001 / VOCAB-EVENT-*.
+        let source = r#"
+feature widget
+  purpose "Widgets"
+
+  domain
+    resource Widget
+
+  policies
+    create: @role.admin
+
+  command create
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    creates Widget
+"#;
+        let diags = diagnostics_for(source);
+        let hits = doctor_diagnostics_with_code(&diags, "VOCAB-AUDIT-001");
+        assert!(
+            !hits.is_empty(),
+            "VOCAB-AUDIT-001 should fire through the LSP; got codes: {:?}",
+            diags
+                .iter()
+                .filter_map(|d| d.code.as_ref())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            hits[0].source.as_deref(),
+            Some("lazuli-doctor"),
+            "doctor-sourced diagnostics must carry source=lazuli-doctor for click-through routing"
+        );
+        assert!(
+            hits[0].message.contains("audit"),
+            "doctor message must round-trip verbatim; got `{}`",
+            hits[0].message
+        );
+    }
+
+    #[test]
+    fn doctor_diagnostic_source_distinguishes_from_canonical() {
+        // Doctor diagnostics must use `source: "lazuli-doctor"`; existing
+        // LSP shape diagnostics use `lazuli-canonical`. Both can coexist
+        // in the Problems panel and be filtered.
+        let source = r#"
+feature widget
+  purpose "Widgets"
+
+  domain
+    resource Widget
+
+  policies
+    create: @role.admin
+
+  command create
+    policy @policy.create
+    rate_limit "30 per hour per user"
+    creates Widget
+"#;
+        let diags = diagnostics_for(source);
+        let doctor_sources: Vec<_> = diags
+            .iter()
+            .filter(|d| d.source.as_deref() == Some("lazuli-doctor"))
+            .collect();
+        assert!(
+            !doctor_sources.is_empty(),
+            "expected at least one source=lazuli-doctor diagnostic"
+        );
+    }
+
+    #[test]
+    fn doctor_clean_feature_emits_no_unexpected_doctor_diagnostics() {
+        // A feature with no extensions / lifecycle / pollers / reports /
+        // events and a write-command that explicitly opts out of audit
+        // should not trip ANY of the wired doctor rules.
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  domain
+    resource Customer
+
+  policies
+    create: @role.admin
+
+  command create
+    policy @policy.create
+    creates Customer
+    audit none "smoke fixture"
+"#;
+        let diags = diagnostics_for(source);
+        let doctor_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.source.as_deref() == Some("lazuli-doctor"))
+            .collect();
+        assert!(
+            doctor_diags.is_empty(),
+            "doctor-clean feature should not emit doctor diagnostics; got: {:?}",
+            doctor_diags
+                .iter()
+                .map(|d| (d.code.clone(), d.message.clone()))
+                .collect::<Vec<_>>()
+        );
     }
 }
