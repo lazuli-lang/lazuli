@@ -9,7 +9,7 @@
 //! Determinism: APIs are sorted by name, route args preserve path
 //! order, and imports flow through `ImportSet`.
 
-use lazuli_ir::{Api, Feature, Gate, HttpMethod, PolicyRef, TypeRef};
+use lazuli_ir::{Api, Feature, Gate, HttpMethod, TypeRef};
 
 use super::casing::{lower_camel, pascal_case};
 use super::cross_feature::CrossFeatureIndex;
@@ -134,6 +134,7 @@ fn emit_api(
             super::command::format_policy_with_expr_public(
                 &api.policy,
                 api.policy_expr.as_ref(),
+                Some(&feature.policies),
             ),
         ),
     ];
@@ -345,42 +346,6 @@ fn register_imports_for_api_output(type_ref: &TypeRef, ctx: &TypeCtx<'_>, import
     }
 }
 
-fn format_policy(policy: &PolicyRef) -> String {
-    match policy {
-        PolicyRef::Local(name) => format!(
-            "lazuli.Policy{{Name: \"@policy.{}\"}},",
-            escape_string(name)
-        ),
-        PolicyRef::Atom(atom) => {
-            let stripped = atom.strip_prefix('@').unwrap_or(atom);
-            if let Some(local) = stripped.strip_prefix("policy.") {
-                return format!(
-                    "lazuli.Policy{{Name: \"@policy.{}\"}},",
-                    escape_string(local)
-                );
-            }
-            let mut parts = stripped.splitn(2, '.');
-            let ns = parts.next().unwrap_or("");
-            let nm = parts.next().unwrap_or("");
-            format!(
-                "lazuli.Policy{{Name: \"@{}\", Atoms: []lazuli.PolicyAtom{{{{Namespace: \"{}\", Name: \"{}\"}}}}}},",
-                escape_string(stripped),
-                escape_string(ns),
-                escape_string(nm)
-            )
-        }
-        PolicyRef::External { feature, name } => format!(
-            "lazuli.Policy{{Name: \"{}.policy.{}\"}},",
-            escape_string(feature),
-            escape_string(name)
-        ),
-        PolicyRef::Unresolved(raw) => {
-            format!("lazuli.Policy{{Name: \"{}\"}},", escape_string(raw))
-        }
-        PolicyRef::None => "lazuli.Policy{},".to_owned(),
-    }
-}
-
 fn method_const_name(method: HttpMethod) -> &'static str {
     match method {
         HttpMethod::Get => "lazuli.MethodGet",
@@ -425,8 +390,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AppManifest, BuiltinType, CapabilityRef, Defaults, FileCapability, FileSize,
-        FileSizeLiteral, FileVisibility, MimeType, Module, PathRef, Policies, QualifiedName,
-        Record, Resource,
+        FileSizeLiteral, FileVisibility, MimeType, Module, PathRef, Policies, PolicyRef,
+        QualifiedName, Record, Resource,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -947,7 +912,7 @@ func init() { lazuli.RegisterApi(&customerSummaryApi) }
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
-    use lazuli_ir::{Api, BuiltinType, Defaults, Module, PathRef, Policies, TypeRef};
+    use lazuli_ir::{Api, BuiltinType, Defaults, Module, PathRef, Policies, PolicyRef, TypeRef};
 
     fn feature_with_api() -> Feature {
         Feature {

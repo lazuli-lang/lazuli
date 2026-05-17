@@ -48,7 +48,7 @@ use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
     Feature, Gate, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
-    LifecycleTransition, NamedArg, Path, PolicyExpr, PolicyRef, QualifiedName, Resource,
+    LifecycleTransition, NamedArg, Path, Policies, PolicyExpr, PolicyRef, QualifiedName, Resource,
     RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
 };
 use std::collections::BTreeMap;
@@ -242,7 +242,11 @@ fn emit_command(
     }
     kv_rows.push((
         "Policy:".to_owned(),
-        format_policy_with_expr(&command.policy, command.policy_expr.as_ref()),
+        format_policy_with_expr(
+            &command.policy,
+            command.policy_expr.as_ref(),
+            Some(&feature.policies),
+        ),
     ));
     if let Some(rate) = &command.rate_limit {
         kv_rows.push((
@@ -1085,27 +1089,52 @@ fn effect_resource_var(effect: &CommandEffect) -> Option<String> {
     }
 }
 
-/// Render the `Policy:` line. `PolicyRef::Atom` directly carries a
-/// single `@role.*` / `@scope.*` / `@actor.*` atom; `Local` and
-/// `External` reference a feature's `policies` block (atom-list
-/// resolution happens at codegen time once `populate_commands_from_ir`
-/// lands the bridge — until then we surface the named reference and
-/// let the runtime resolve through the registry, mirroring how the
-/// spike's `dist/go/customer/customer.gen.go:56` renders it). `None`
-/// emits an empty `Policy{}` value to keep the field site present in
-/// the generated file.
-fn format_policy(policy: &PolicyRef) -> String {
-    format_policy_with_expr(policy, None)
-}
-
 /// Sibling emitters (`api.rs`, `webhook.rs`, `query.rs`, etc.) re-export
 /// the structured form so they can lower `policy_expr` without
-/// duplicating the walker logic.
+/// duplicating the walker logic. The `policies` argument carries the
+/// feature-local `Policies` block so `PolicyRef::Local("X")` can be
+/// resolved to its atom decomposition at codegen time
+/// (WAR-RUNTIME-POLICY-01).
 pub(super) fn format_policy_with_expr_public(
     policy: &PolicyRef,
     policy_expr: Option<&PolicyExpr>,
+    policies: Option<&Policies>,
 ) -> String {
-    format_policy_with_expr(policy, policy_expr)
+    format_policy_with_expr(policy, policy_expr, policies)
+}
+
+/// Resolve a feature-local `@policy.<name>` reference to its atom
+/// decomposition by walking `Policies.categories`. Returns the rendered
+/// `lazuli.Policy{Name, Atoms}` literal when the lookup succeeds;
+/// `None` when the reference is unresolved (analyzer should have
+/// flagged this, but we degrade gracefully to a Name-only emit at the
+/// caller).
+///
+/// Atom decomposition mirrors hostpoint's hand-written `patchPolicy()`
+/// workaround (commit 700e95b): each `@<ns>.<name>` string in
+/// `PolicyCategory.atoms` parses into `{Namespace, Name}`; when the
+/// category carries 2+ atoms, an explicit `{predicate, and}` marker is
+/// prepended so the runtime walker treats the list as an AND
+/// conjunction (default combinator). Closes WAR-RUNTIME-POLICY-01.
+fn format_local_policy(name: &str, policies: &Policies) -> Option<String> {
+    let category = policies.categories.iter().find(|c| c.name == name)?;
+    let mut atom_literals: Vec<String> = Vec::new();
+    if category.atoms.len() >= 2 {
+        atom_literals
+            .push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
+    }
+    for atom in &category.atoms {
+        let stripped = atom.strip_prefix('@').unwrap_or(atom);
+        let mut parts = stripped.splitn(2, '.');
+        let ns = parts.next().unwrap_or("");
+        let nm = parts.next().unwrap_or("");
+        atom_literals.push(format!("{{Namespace: \"{ns}\", Name: \"{nm}\"}}"));
+    }
+    let inner = atom_literals.join(", ");
+    Some(format!(
+        "lazuli.Policy{{Name: \"@policy.{}\", Atoms: []lazuli.PolicyAtom{{{inner}}}}},",
+        escape_string(name)
+    ))
 }
 
 /// RB.S6 — render `lazuli.Policy{...}` with optional structured
@@ -1126,7 +1155,11 @@ pub(super) fn format_policy_with_expr_public(
 /// helpers via `ctx.User.Roles`. Until the runtime hook lands, the
 /// atoms surface as metadata only — visible in the generated file,
 /// audit logs, and reflection.
-fn format_policy_with_expr(policy: &PolicyRef, policy_expr: Option<&PolicyExpr>) -> String {
+fn format_policy_with_expr(
+    policy: &PolicyRef,
+    policy_expr: Option<&PolicyExpr>,
+    policies: Option<&Policies>,
+) -> String {
     // When a structured policy expression is present, prefer it: the
     // legacy single-atom `Atoms: [...]` rendering is subsumed by the
     // expanded form. The `Name` slot still echoes the raw author text
@@ -1147,10 +1180,23 @@ fn format_policy_with_expr(policy: &PolicyRef, policy_expr: Option<&PolicyExpr>)
         );
     }
     match policy {
-        PolicyRef::Local(name) => format!(
-            "lazuli.Policy{{Name: \"@policy.{}\"}},",
-            escape_string(name)
-        ),
+        PolicyRef::Local(name) => {
+            // WAR-RUNTIME-POLICY-01 — when the caller passes the
+            // feature's `Policies` block, look up the category by name
+            // and emit the resolved `Atoms` slice directly. Falls back
+            // to the Name-only render when the name doesn't resolve
+            // (analyzer should have caught that, but we degrade
+            // gracefully) or when no `Policies` was threaded through.
+            if let Some(p) = policies {
+                if let Some(rendered) = format_local_policy(name, p) {
+                    return rendered;
+                }
+            }
+            format!(
+                "lazuli.Policy{{Name: \"@policy.{}\"}},",
+                escape_string(name)
+            )
+        }
         PolicyRef::Atom(atom) => {
             // Atom forms split on `.`: `@role.admin` → namespace=role,
             // name=admin. The analyzer strips the leading `@` before
@@ -1160,15 +1206,16 @@ fn format_policy_with_expr(policy: &PolicyRef, policy_expr: Option<&PolicyExpr>)
             // defensively.
             let stripped = atom.strip_prefix('@').unwrap_or(atom);
             // `policy.<name>` is the feature-local reference
-            // `@policy.<name>` — it must resolve through the feature's
-            // `policies` block to its atom list before codegen can
-            // emit the typed atoms. That resolution doesn't land in
-            // the IR yet, so we render the reference as
-            // `lazuli.Policy{Name: "@policy.<name>"}` with an empty
-            // atom list and let the Lazuli Go lib's registry walk
-            // resolve at boot — matching what the spike does for
-            // unresolved feature-local policies.
+            // `@policy.<name>` — resolves through the feature's
+            // `policies` block to its atom list (WAR-RUNTIME-POLICY-01).
+            // Falls back to Name-only render if no `Policies` available
+            // or name not in catalog.
             if let Some(local) = stripped.strip_prefix("policy.") {
+                if let Some(p) = policies {
+                    if let Some(rendered) = format_local_policy(local, p) {
+                        return rendered;
+                    }
+                }
                 return format!(
                     "lazuli.Policy{{Name: \"@policy.{}\"}},",
                     escape_string(local)

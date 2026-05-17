@@ -300,8 +300,16 @@ fn emit_query_header(
     }
     kv_rows.push(("Kind:".to_owned(), format!("{kind_const},")));
     let policy = match &feature.defaults.policy {
-        Some(policy) => format_policy(policy),
-        None => format_policy(&PolicyRef::None),
+        Some(policy) => super::command::format_policy_with_expr_public(
+            policy,
+            None,
+            Some(&feature.policies),
+        ),
+        None => super::command::format_policy_with_expr_public(
+            &PolicyRef::None,
+            None,
+            Some(&feature.policies),
+        ),
     };
     kv_rows.push(("Policy:".to_owned(), policy));
 
@@ -804,35 +812,6 @@ fn return_name(type_ref: &TypeRef, ctx: &TypeCtx<'_>) -> String {
             let (go, _import) = types::go_type_for(other, ctx);
             go
         }
-    }
-}
-
-fn format_policy(policy: &PolicyRef) -> String {
-    match policy {
-        PolicyRef::Local(name) => format!(
-            "lazuli.Policy{{Name: \"@policy.{}\"}},",
-            escape_string(name)
-        ),
-        PolicyRef::Atom(atom) => {
-            let stripped = atom.strip_prefix('@').unwrap_or(atom);
-            if let Some(local) = stripped.strip_prefix("policy.") {
-                return format!(
-                    "lazuli.Policy{{Name: \"@policy.{}\"}},",
-                    escape_string(local)
-                );
-            }
-            let mut parts = stripped.splitn(2, '.');
-            let ns = parts.next().unwrap_or("");
-            let nm = parts.next().unwrap_or("");
-            format!(
-                "lazuli.Policy{{Name: \"@{stripped}\", Atoms: []lazuli.PolicyAtom{{{{Namespace: \"{ns}\", Name: \"{nm}\"}}}}}},"
-            )
-        }
-        PolicyRef::External { feature, name } => {
-            format!("lazuli.Policy{{Name: \"{feature}.policy.{name}\"}},")
-        }
-        PolicyRef::Unresolved(raw) => format!("lazuli.Policy{{Name: \"{}\"}},", escape_string(raw)),
-        PolicyRef::None => "lazuli.Policy{},".to_owned(),
     }
 }
 
