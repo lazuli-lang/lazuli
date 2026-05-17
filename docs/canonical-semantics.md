@@ -490,6 +490,24 @@ Those cases require explicit index design. `lazuli inspect --expand=defaults`
 reports derived filter indexes; authored duplicate `index` lines should be
 omitted.
 
+The IR-driven projection family follows one rule: each axis reads its typed
+slice from the canonical-indent slice and serializes it verbatim. The
+projections live behind a single flag with axis values:
+
+```
+--expand=commands   →  feature.commands:  Vec<lazuli_ir::Command>
+--expand=apis       →  feature.apis:      Vec<lazuli_ir::Api>
+                       (token "api" is accepted as a synonym)
+--expand=resources  →  feature.resources: Vec<lazuli_ir::Resource>
+--expand=queries    →  feature.queries:   Vec<lazuli_ir::Query>
+--expand=records    →  feature.records:   Vec<lazuli_ir::Record>
+--expand=defaults   →  feature.defaults + generated query-order
+                       defaults + derived filter indexes
+```
+
+The IR schema for these projections is documented in `docs/ir-abi.md`; the
+field list is canonical (additive only across MINOR `LZIR_SCHEMA` bumps).
+
 Inherited scope is always applied unless a query explicitly uses `scope override`. Local `scope` extends inherited scope and should be reserved for safety boundaries. `filters` describe data predicates. A filter without `when` is always applied. A filter with `when` is conditional.
 
 ```lazuli

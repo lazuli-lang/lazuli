@@ -136,6 +136,20 @@ Lazuli should connect Go extensions by generated registration code, not runtime 
 
 Background job handlers, webhook verifiers, and webhook handlers are custom source files, but they are declared inline on `job` and `webhook` rather than listed in `extensions`.
 
+## Runtime registry hooks
+
+Adapter packs install these at `init()` to bind cross-cutting behavior
+into the framework without taking a hard import dependency. All four
+ship **experimental** for the first minor that introduces them (per
+`docs/release-policy.md` §"Stability tiers").
+
+| Hook | Where | Purpose | Stability |
+|---|---|---|---|
+| `webhooks.RegisterEventPublisher(p EventPublisher)` | `runtime/go/lazuli/webhooks/receive.go` | Breaks the `lazuli ↔ webhooks` import cycle; installed by `lazuli.init` so receivers can fire `Emits` without importing the root. | experimental |
+| `webhooks.RegisterIdempotencyChecker(fn)` | `runtime/go/lazuli/webhooks/receive.go` | Installs an inbound dedupe hook (mirrors the prelude/increment hook pattern). Returns `(seen, err)`; on `seen == true`, the receiver responds `200` without re-dispatch. | experimental |
+| `notifications.Registry.RegisterThrottleStore(store)` | `runtime/go/lazuli/notifications/dispatch.go` | Optional binding consulted before each dispatch when `contract.Throttle != nil`. Adapter packs wire Redis / Postgres / etc. | experimental |
+| `notifications.Registry.RegisterDigestStore(store)` | `runtime/go/lazuli/notifications/dispatch.go` | Optional binding for `digest` mode. When wired, `Send` enqueues to the store and an external flusher emits on window close. | experimental |
+
 ## Not Allowed As Feature Extensions
 
 - Replacing the table generator

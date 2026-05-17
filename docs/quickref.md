@@ -482,6 +482,18 @@ view detail
 Use `inspect --expand=summary` to list provided anchors and
 `inspect --expand=dependencies` to list features that extend them.
 
+For the typed IR projections (commands, apis, resources, queries,
+records, defaults), use the axis flags directly:
+
+```bash
+lazuli inspect feature.lzi --expand=commands,apis --format=json
+lazuli inspect feature.lzi --expand=resources,queries,records --format=json
+lazuli inspect feature.lzi --expand=defaults --format=json
+```
+
+Each axis projects its lifted IR slice verbatim. The `apis` axis also
+accepts the singular token `--expand=api`.
+
 View extensions should target explicit slots:
 
 ```lazuli
