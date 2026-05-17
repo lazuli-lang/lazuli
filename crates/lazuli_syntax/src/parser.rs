@@ -15792,7 +15792,7 @@ design alpha
 "##;
         let ast = super::parse_design_document(source).expect("parses");
         assert_eq!(ast.name, "alpha");
-        assert_eq!(ast.extends.as_deref(), Some("example"));
+        assert_eq!(ast.extends.as_deref(), Some("base"));
     }
 
     #[test]
