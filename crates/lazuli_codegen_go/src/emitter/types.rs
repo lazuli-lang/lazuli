@@ -112,12 +112,20 @@ fn resolve_named(
     // `qname.feature` is always `None` (analyzer lifts every unknown
     // ident with `feature: None`), but the branch is here so future
     // analyzer cells can short-circuit the index lookup.
+    //
+    // Cross-feature refs use `<owner>gen.<Name>` because every
+    // generated package now lives at `dist/go/<owner>/` declaring
+    // `package <owner>gen` (per the handler-home pivot — see
+    // project-structure.md). The import path is unchanged
+    // (`<module>/<owner>`); Go auto-aliases the package by its
+    // declared name.
     if let Some(owner) = qname.feature.as_deref() {
         if owner == ctx.current_feature {
             return (go_name, None);
         }
         let import = format!("{}/{}", ctx.module_name, owner);
-        return (format!("{}.{}", owner, go_name), Some(import));
+        let gen_pkg = super::casing::gen_package_name(owner);
+        return (format!("{}.{}", gen_pkg, go_name), Some(import));
     }
 
     // Step 2 — consult the cross-feature index. Same-package lookup
@@ -126,7 +134,8 @@ fn resolve_named(
         Some(owner) if owner == ctx.current_feature => (go_name, None),
         Some(owner) => {
             let import = format!("{}/{}", ctx.module_name, owner);
-            (format!("{}.{}", owner, go_name), Some(import))
+            let gen_pkg = super::casing::gen_package_name(owner);
+            (format!("{}.{}", gen_pkg, go_name), Some(import))
         }
         None => {
             // Either ambiguous or not declared anywhere. Both
@@ -486,7 +495,7 @@ mod tests {
     #[test]
     fn user_defined_cross_feature_emits_qualified_ref_and_import() {
         // `User` declared in `org`, referenced from `customer`. Emits
-        // `org.User` and `lazuli/test/org` import.
+        // `orggen.User` and `lazuli/test/org` import.
         let module = cross_ref_module();
         let index = CrossFeatureIndex::build(&module);
         let ctx = TypeCtx {
@@ -499,7 +508,7 @@ mod tests {
             name: "User".to_owned(),
         };
         let (go, import) = go_type_for(&TypeRef::UserDefined(qname), &ctx);
-        assert_eq!(go, "org.User");
+        assert_eq!(go, "orggen.User");
         assert_eq!(import.as_deref(), Some("lazuli/test/org"));
     }
 
@@ -570,7 +579,7 @@ mod tests {
             name: "User".to_owned(),
         };
         let (go, import) = go_type_for(&TypeRef::UserDefined(qname), &ctx);
-        assert_eq!(go, "org.User");
+        assert_eq!(go, "orggen.User");
         assert_eq!(import.as_deref(), Some("lazuli/test/org"));
     }
 
@@ -659,7 +668,7 @@ mod tests {
             name: "PlanTier".to_owned(),
         };
         let (go, import) = go_type_for(&TypeRef::EnumRef(qname), &ctx);
-        assert_eq!(go, "billing.PlanTier");
+        assert_eq!(go, "billinggen.PlanTier");
         assert_eq!(import.as_deref(), Some("lazuli/test/billing"));
     }
 

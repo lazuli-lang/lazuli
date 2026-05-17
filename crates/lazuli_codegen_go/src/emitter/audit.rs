@@ -87,7 +87,7 @@ fn emit_feature_audit_metadata(feature: &Feature, commands: &[&Command]) -> Stri
     let mut imports = ImportSet::new();
     imports.add("lazuli.dev/runtime/lazuli/auth");
 
-    p.banner("lazuli module", &feature.name);
+    p.banner("lazuli module", &super::casing::gen_package_name(&feature.name));
     imports.emit(&mut p);
     p.blank();
 
@@ -353,7 +353,7 @@ mod tests {
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "customer/audit.gen.go");
-        assert!(files[0].contents.contains("package customer"));
+        assert!(files[0].contents.contains("package customergen"));
         assert!(files[0]
             .contents
             .contains("\"lazuli.dev/runtime/lazuli/auth\""));

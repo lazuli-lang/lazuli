@@ -50,7 +50,7 @@ pub fn emit_auth_file(
         imports.add("time");
     }
 
-    p.banner(source_label, &feature.name);
+    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
     imports.emit(&mut p);
     p.blank();
 
@@ -659,7 +659,7 @@ mod tests {
         feature.auth = Some(auth);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("package customer_auth"));
+        assert!(out.contains("package customer_authgen"));
         assert!(out.contains("\"time\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/auth\""));

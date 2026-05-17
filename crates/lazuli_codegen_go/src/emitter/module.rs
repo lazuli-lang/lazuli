@@ -828,7 +828,7 @@ fn type_ref_contains_geopoint(type_ref: &TypeRef) -> bool {
 
 fn emit_feature_stub(source: &str, feature_name: &str) -> String {
     let mut p = GoPrinter::new();
-    p.banner(source, feature_name);
+    p.banner(source, &super::casing::gen_package_name(feature_name));
     // E1 stub: imports are recorded but unused because no kinds emit
     // yet. We deliberately do not produce an `import (...)` block
     // until the first kind walker (cell E2) introduces a real use —

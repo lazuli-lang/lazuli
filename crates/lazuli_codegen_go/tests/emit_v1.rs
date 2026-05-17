@@ -392,8 +392,8 @@ fn emits_go_mod_and_feature_stub() {
         feature_file.contents
     );
     assert!(
-        feature_file.contents.contains("\npackage customer\n"),
-        "expected `package customer` in feature stub:\n{}",
+        feature_file.contents.contains("\npackage customergen\n"),
+        "expected `package customergen` in feature stub:\n{}",
         feature_file.contents
     );
 }
@@ -671,8 +671,8 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         .expect("expected customer/resource.gen.go");
 
     assert!(
-        customer_resource.contents.contains("Owner org.User"),
-        "expected cross-feature `org.User` ref, got:\n{}",
+        customer_resource.contents.contains("Owner orggen.User"),
+        "expected cross-feature `orggen.User` ref, got:\n{}",
         customer_resource.contents
     );
     assert!(
@@ -827,8 +827,8 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         command_file.contents
     );
     assert!(
-        command_file.contents.contains("\npackage customer\n"),
-        "expected `package customer` in command.gen.go:\n{}",
+        command_file.contents.contains("\npackage customergen\n"),
+        "expected `package customergen` in command.gen.go:\n{}",
         command_file.contents
     );
 

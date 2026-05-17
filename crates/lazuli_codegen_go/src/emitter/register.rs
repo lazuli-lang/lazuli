@@ -67,7 +67,7 @@ pub fn emit_register_file(source_label: &str, feature: &Feature) -> Option<Strin
     }
 
     let mut p = GoPrinter::new();
-    p.banner(source_label, &feature.name);
+    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
     p.line("import \"lazuli.dev/runtime/lazuli\"");
     p.blank();
     p.line("// Registers every Resource, Command, and Query in this feature with");

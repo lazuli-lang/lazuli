@@ -41,7 +41,7 @@ pub fn emit_reports_file(source_label: &str, feature: &Feature) -> Option<String
         imports.add("time");
     }
 
-    p.banner(source_label, &feature.name);
+    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
     imports.emit(&mut p);
     p.blank();
 
