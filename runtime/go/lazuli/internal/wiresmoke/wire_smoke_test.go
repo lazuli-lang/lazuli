@@ -20,6 +20,7 @@ import (
 var disallowedLiterals = []string{
 	"StatusNotImplemented",
 	"not yet implemented",
+	"not implemented",
 }
 
 // scannedRoots are the package directories whose impl files must be
