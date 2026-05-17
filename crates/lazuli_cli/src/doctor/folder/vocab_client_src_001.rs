@@ -16,9 +16,18 @@
 //! Two closed catalogs are enforced:
 //!
 //! 1. Top-level of the client tree (the wrapper itself): must be one of
-//!    `{shell, routes, ui, theme, state, assets}`.
+//!    `{shell, routes, ui, theme, state, assets, cells}` (per the
+//!    §3.1 amendment 2026-05-17 — was 6 folders; `cells/` added as the
+//!    7th to resolve tsc module-resolution for handcrafted feature
+//!    cells).
 //! 2. Children of the `ui/` subfolder (when present): must be one of
 //!    `{forms, feedback, navigation, display, overlays, layout}`.
+//! 3. Children of the `cells/` subfolder (when present): each subdir
+//!    MUST mirror an existing `app/features/<feature>/` directory.
+//!    Orphan cells (no matching feature) fire a diagnostic with the
+//!    cell sub-dir's path. NOTE: orphan-cell enforcement is a future
+//!    enhancement; v0 only enforces the top-level + `ui/` closed
+//!    catalogs.
 //!
 //! Any other directory at those two levels fires a finding. Files
 //! (rather than directories) at those levels are NOT flagged by this
@@ -62,7 +71,8 @@ impl Finding {
 
 /// Top-level closed catalog for the client tree (singular `app/web/`
 /// or each plural `app/clients/<name>/src/`).
-const TOP_LEVEL_ALLOWED: &[&str] = &["shell", "routes", "ui", "theme", "state", "assets"];
+const TOP_LEVEL_ALLOWED: &[&str] =
+    &["shell", "routes", "ui", "theme", "state", "assets", "cells"];
 
 /// Closed sub-catalog for `ui/` children inside the client tree.
 const UI_CHILDREN_ALLOWED: &[&str] =

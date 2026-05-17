@@ -37,12 +37,14 @@ use crate::templates;
 /// `docs/decisions/client_src_canonical_architecture_2026-05-17.md` §3:
 ///
 /// - `app/web/{index.html, main.tsx}` (entrypoints)
-/// - `app/web/shell/{root.tsx, layout.tsx, error_boundary.tsx}` (1/6)
-/// - `app/web/routes/index.tsx` (2/6, placeholder)
-/// - `app/web/ui/{forms, feedback, navigation, display, overlays, layout}/.gitkeep` (3/6, 6+6)
-/// - `app/web/theme/{globals.css, theme_provider.tsx}` (4/6)
-/// - `app/web/state/app_store.ts` (5/6, Zustand placeholder)
-/// - `app/web/assets/.gitkeep` (6/6)
+/// - `app/web/shell/{root.tsx, layout.tsx, error_boundary.tsx}` (1/7)
+/// - `app/web/routes/index.tsx` (2/7, placeholder)
+/// - `app/web/ui/{forms, feedback, navigation, display, overlays, layout}/.gitkeep` (3/7, 7+6)
+/// - `app/web/theme/{globals.css, theme_provider.tsx}` (4/7)
+/// - `app/web/state/app_store.ts` (5/7, Zustand placeholder)
+/// - `app/web/assets/.gitkeep` (6/7)
+/// - `app/web/cells/.gitkeep` (7/7, per §3.1 amendment 2026-05-17;
+///   subdirs land per-feature as the canonical Lazurite pilot adopts)
 /// - `app/web/{tailwind.config.ts, tsconfig.json, vite.config.ts, package.json}` (configs)
 /// - root `.gitignore`
 ///
@@ -62,9 +64,12 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     let theme_dir = web_dir.join("theme");
     let state_dir = web_dir.join("state");
     let assets_dir = web_dir.join("assets");
+    let cells_dir = web_dir.join("cells");
 
-    // Top-level 6/6 closed catalog (per
-    // `[[client_src_canonical_architecture_2026-05-17]]` §3.1).
+    // Top-level 7/7 closed catalog (per
+    // `[[client_src_canonical_architecture_2026-05-17]]` §3.1, amended
+    // 2026-05-17 to include `cells/` as the 7th folder — resolves
+    // tsc module-resolution for handcrafted feature cells).
     fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
     fs::create_dir_all(&routes_dir)
         .with_context(|| format!("creating {}", routes_dir.display()))?;
@@ -73,6 +78,7 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     fs::create_dir_all(&state_dir).with_context(|| format!("creating {}", state_dir.display()))?;
     fs::create_dir_all(&assets_dir)
         .with_context(|| format!("creating {}", assets_dir.display()))?;
+    fs::create_dir_all(&cells_dir).with_context(|| format!("creating {}", cells_dir.display()))?;
 
     // ui/ 6/6 closed sub-catalog (per §3.2). Each sub-dir gets a
     // `.gitkeep` so the canonical shape is present even before any
@@ -126,6 +132,13 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 
     // assets/ — empty for v0; brand artifacts land here per pilot.
     write_if_absent(&assets_dir.join(".gitkeep"), "")?;
+
+    // cells/ — empty for v0; subdirs land per-feature
+    // (`cells/<feature>/<name>.tsx`) as the pilot authors handcrafted
+    // slot widgets. Per §3.3 amendment 2026-05-17 — cells live in the
+    // client because they're audience-projections that need
+    // node_modules walk-up reach for tsc.
+    write_if_absent(&cells_dir.join(".gitkeep"), "")?;
 
     write_if_absent(
         &web_dir.join("tailwind.config.ts"),

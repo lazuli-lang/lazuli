@@ -218,10 +218,11 @@ export default {
     "./index.html",
     "./main.tsx",
     "./shell/**/*.{ts,tsx}",
-    "./theme/**/*.{ts,tsx}",
     "./routes/**/*.{ts,tsx}",
     "./ui/**/*.{ts,tsx}",
+    "./theme/**/*.{ts,tsx}",
     "./state/**/*.{ts,tsx}",
+    "./cells/**/*.{ts,tsx}",
     "../../app/**/*.{ts,tsx}",
   ],
 };
