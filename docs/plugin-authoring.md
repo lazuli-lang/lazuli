@@ -233,6 +233,59 @@ For TS faces (web/mobile), the consumer app `package.json` adds the
 plugin's `web/` or `mobile/` package as a direct dep; generated
 `dist/ts-<frontend>/` imports from it as needed.
 
+## Plugin registry resolution order
+
+Codified 2026-05-17 per architect re-grade observation #1 across W1.3
+(`datasource-plugin-contract`), W2.A (`auth-flow-blocks-cycle`), and
+W2.B (`payments-plugin-contract`). All three proposals assume — but
+none state — that the `@plugin/<kind>` registry is populated before
+any compile-time validator or runtime resolver consults it. This
+section makes the assumption explicit.
+
+The rule:
+
+1. **Plugin registration completes during workspace boot, before any
+   compile-time validator runs.** The anonymous-import chain in
+   `dist/go/main.go` triggers every plugin's `init()` (which calls
+   `lazuli.RegisterAdapter`) before the runtime hands control to
+   `lazuli.Mux()`. Concretely: a plugin's `init()` MUST be self-
+   contained — no network calls, no DB reads, no env-var fallbacks
+   that block. Registration is a pure-Go assignment into a map.
+
+2. **Compile-time validators see the same registry as runtime
+   resolvers.** `lazuli doctor` and `lazuli build` walk the same
+   `@plugin/<kind>` set the running process will consult. Codegen
+   diagnostics like `DATASOURCE-KIND-UNKNOWN` /
+   `PAYMENTS-KIND-UNKNOWN` (per W1.3 + W2.B respectively, both
+   proposal-pending) fire from this shared view. A plugin missing
+   from `Lazurite.toml [plugins]` is invisible to both.
+
+3. **Circular plugin dependencies are static rejects.** A plugin
+   declaring `extends = "@plugin/other-plugin"` (per W1.3 §3.4 single-
+   parent `extends`) is walked at registration time; cycles
+   (`A extends B extends A`) are rejected by the manifest validator
+   BEFORE Go's `init()` chain runs. The runtime never sees an
+   unresolved chain.
+
+4. **Registration order within a single boot is unspecified BUT
+   deterministic across boots.** Go's `init()` ordering follows
+   import-dependency topology — Lazuli does not impose a separate
+   order. Plugins MUST NOT depend on another plugin being registered
+   before their own `init()` returns. If a plugin needs to consult
+   another at runtime, it does so lazily (first use), not at boot.
+
+5. **The consuming app's view is monotonic.** Once `lazuli.Mux()`
+   returns, the `@plugin/*` registry is frozen for the process
+   lifetime. There is no `RegisterAdapter` after-boot path. A plugin
+   that needs to swap implementations at runtime (e.g., circuit-break
+   to a fallback) does so internally; the framework-visible registry
+   slot stays bound to one adapter instance.
+
+These five points are the contract between the framework, plugin
+authors, and consuming apps. Any proposal that requires a different
+boot-time guarantee (e.g., "register-after-DB-ready") needs to amend
+this section first.
+
 ## Scaffolding (automated)
 
 The `plugin-scaffold` pipeline in `lazuli-lang/ops/.pipely/pipelines/plugin-scaffold/`

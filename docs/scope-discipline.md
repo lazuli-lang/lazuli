@@ -125,6 +125,52 @@ The framework will NOT absorb (today, and as a matter of policy):
 
 If you find yourself writing IR types or doctor rules named after a specific vendor, country, or product — you're outside the framework's scope. Stop.
 
+## Principle — static rejection over runtime guard (2026-05-17)
+
+Codified per architect re-grade observation #4 — two Wave 1+2 proposals
+independently applied this discipline:
+
+- `record-trait-tree.md` §3 rejects runtime cycle guards in favor of
+  a static doctor lint (`VOCAB-TREE-001`, proposal-pending) that walks
+  the parent FK graph at parse/IR time. The AppFlowy negative signal
+  (audit pattern #4) confirmed runtime guards are exactly the wrong
+  shape.
+- `datasource-plugin-contract.md` §3.4 rejects multi-parent `extends`
+  because diamond resolution would require runtime chain-walking;
+  cycles in single-parent `extends` (`A extends B extends A`) are
+  rejected statically by the manifest validator before codegen runs.
+
+The rule (canonical from 2026-05-17 forward):
+
+> **Any class of structural invariant that can be checked at parse,
+> IR, or doctor time MUST be rejected statically. Runtime guards are
+> reserved for invariants that genuinely depend on runtime state —
+> e.g. foreign-key constraint violations on concurrent writes, race
+> conditions between sessions, external-service availability.**
+
+Structural invariants that fall under this rule (non-exhaustive):
+
+- Cycle detection in self-referential resources (`tree`, `extends`
+  chains).
+- Cardinality bounds in closed-catalog enums (`channel`, `kind`).
+- Type compatibility between bindings and target fields.
+- Namespace closure (a referenced `@plugin/*` must be in the
+  registry).
+- Audience drift across composed resources (parent vs child,
+  versioned table vs source).
+
+Runtime-state invariants that legitimately need runtime guards:
+
+- Foreign-key integrity under concurrent writes (DB enforces).
+- Optimistic-lock version mismatches.
+- Rate-limit bucket exhaustion.
+- External-service authentication failures.
+- Session-validity at request time.
+
+If a proposal needs a runtime guard for a class that COULD be checked
+statically, it must justify the runtime path explicitly and amend
+this section. The default is static.
+
 ## Boundary affirmation — no CRDT in core (2026-05-17)
 
 The OSS Mirror Wave 1+2 audit (`lazuli-ops/docs/proposals/synth-oss-mirror-wave-1-2-2026-05-17.md` §Theme 2 + §3.E) surfaced three independent products implementing CRDT-style document sync:
