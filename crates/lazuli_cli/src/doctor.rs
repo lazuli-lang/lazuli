@@ -1306,6 +1306,25 @@ fn folder_layout_diagnostics(
                 message: finding.message,
             }),
     );
+    // VOCAB-CLIENT-SRC-001: closed-catalog enforcement of the client
+    // `src/` layout per
+    // `docs/decisions/client_src_canonical_architecture_2026-05-17.md`.
+    // Severity is hard-coded to Error regardless of security profile —
+    // the anti-pattern is structural (folder vocabulary that the
+    // framework's MVVM shape rejects), so a Warning would let AI-authors
+    // ignore it.
+    diagnostics.extend(
+        folder::vocab_client_src_001::check(project_root)
+            .into_iter()
+            .map(|finding| DoctorDiagnostic {
+                path: doctor_rule_path(project_root, finding.path),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: folder::vocab_client_src_001::Finding::CODE.to_owned(),
+                message: finding.message,
+            }),
+    );
 
     diagnostics
 }

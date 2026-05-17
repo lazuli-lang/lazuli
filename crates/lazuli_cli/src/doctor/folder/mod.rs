@@ -18,8 +18,13 @@
 //!   `app/features/B/{web,mobile}/<...>` from inside `app/features/A/<...>`
 //!   when `A != B`; cross-feature visual dependencies must go via
 //!   slot bindings or shared `frontends/<target>/ui/` primitives.
+//! - [`vocab_client_src_001`] — `VOCAB-CLIENT-SRC-001`: closed-catalog
+//!   enforcement for the client `src/` layout (`app/web/` singular OR
+//!   `app/clients/<name>/src/` plural) per
+//!   `docs/decisions/client_src_canonical_architecture_2026-05-17.md`.
 
 pub mod cross_feature_import;
 pub mod feature_orphan;
 pub mod pages_bypass;
 pub mod type_duplicate;
+pub mod vocab_client_src_001;
