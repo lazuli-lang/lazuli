@@ -22,7 +22,7 @@ tells you what survives a refactor, a stack swap, or a `rm -rf`.
 | Tier | Lives in | Survives... | Owner |
 |---|---|---|---|
 | **Portable** (Lazuli territory) | `app/features/<f>/`, `app/*.lzi`, `contracts/`, `workspace.lzi`, `Lazurite.toml`, `i18n/`, `scripts/` | A stack swap. If you migrate the backend to Rails, this directory comes with you — the `.lzi` is the spec the reimplementation follows. | The Lazuli compiler. |
-| **Client-specific** | `apps/<frontend>/src/...`, `packages/shared/` (if it appears) | A refactor of the *current* client stack. Discardable if you swap React → Svelte. | The frontend toolchain (Vite, TanStack, etc.). |
+| **Client-specific** | `app/web/src/...` (default) or `app/clients/<name>/src/...` (opt-in multi), `packages/shared/` (when real cross-client sharing appears) | A refactor of the *current* client stack. Discardable if you swap React → Svelte. | The frontend toolchain (Vite, TanStack, etc.). |
 | **Disposable** | `dist/`, `.lazuli/` | Nothing. Always regenerable from portable + client-specific sources. | `lazuli generate`. |
 
 ### The meta-principle
@@ -32,7 +32,7 @@ tells you what survives a refactor, a stack swap, or a `rm -rf`.
 > conceptual anchor; physical location follows the geometry of
 > consumption.**
 
-Two corollaries fall out of this:
+Three corollaries fall out of this:
 
 - **"The compiler touches it → it's Lazuli territory."** If `.lzi` /
   `.lzx` cites a file (a handler at `@fn.X`, a slot at `@client.<slot>`,
@@ -40,14 +40,47 @@ Two corollaries fall out of this:
   `app/features/<f>/`. Doctor cross-checks the path; codegen emits a
   contract the file implements. Anything that isn't cited is not Lazuli
   territory, even if it's "about" the feature.
-- **One backend, N frontends.** Backend code (Go handlers) has a single
-  canonical home (`app/features/<f>/`). Frontend code has one home per
-  frontend (`apps/<frontend>/src/...`). Forcing symmetry by pulling all
-  frontend code into `app/features/` would break Vite/TanStack
-  conventions, fragment shared UI primitives, and gain nothing.
 
-This rule is enough to answer most "where does X live?" questions. When
-it isn't, the answer is in this document.
+- **Plural only where there's an architectural difference in runtime,
+  not in UX.** `dist/ts-web/` vs `dist/ts-mobile/` is plural because the
+  two targets are *different runtimes* with *different generated
+  contracts*. `app/web/` vs `app/clients/admin/` is plural only when the
+  two clients are *different bundles/deploys with divergent runtime
+  requirements* (a PWA vs an Electron desktop, a browser extension, a
+  native shell) — never when they're just different audiences of the
+  same web SPA. Audience is solved by routes + authorization inside the
+  same client, not by a second client.
+
+- **Default is a single client; multi is opt-in.** Most projects ship
+  one frontend (`app/web/`). When a real second client appears — with
+  its own bundle, deploy unit, or runtime — the project migrates
+  `app/web/` → `app/clients/<name>/` and adds the second slice
+  alongside. The migration is mechanical (rename + Lazurite.toml
+  update), and the cost is proportional to the complexity being added.
+
+These three rules answer most "where does X live?" questions. When they
+don't, the answer is in this document.
+
+### Prior art for this layout
+
+The "default singular, opt-in plural with explicit migration" pattern is
+borrowed directly from
+[Hanami 2.0's slices model](https://guides.hanamirb.org/v2.0/app/slices/) —
+Hanami 1.x forced the "single app vs multi-app container" choice
+upfront, found it added friction with no payoff for typical projects,
+and moved to a singular default (`app/`) with optional `slices/<name>/`
+that share infrastructure. Lazuli follows the same shape: `app/web/`
+default, `app/clients/<name>/` opt-in.
+
+The "separate by responsibility, not by audience" rule echoes
+[Phoenix's `MyApp` / `MyAppWeb`](https://hexdocs.pm/phoenix/directory_structure.html)
+split: business logic and web layer are different namespaces *in the
+same project*, never different apps. When Phoenix needs to serve a web
+UI + JSON API + LiveView all at once, they live as sub-modules of the
+same `MyAppWeb` package, not as separate deployments. The same principle
+keeps Lazuli's `app/web/` singular when an "operator dashboard" and a
+"customer marketplace" share the same browser bundle but live under
+different routes.
 
 ---
 
@@ -88,18 +121,18 @@ The tags are stable across releases — a tier moving from `[partial]` to
 | Feature-local i18n | `app/features/<f>/i18n/<name>.<locale>.json` | Portable | `[stable]` |
 | Slot implementations (`@client.<slot>` in `.lzx`) | `app/features/<f>/<target>/cells/<slot>.tsx` | Portable | `[partial]` — doctor rule `lzx-cell-missing-impl` checks the path; codegen emits `<slot>.gen.ts` interface; full `.lzx` → views pipeline still in progress. |
 | Feature-owned concrete views | `app/features/<f>/<target>/views/<audience>/<view>.tsx` | Portable | `[partial]` — same pipeline as slot impls. |
-| App-level UI (routes, layouts, state, theme) | `apps/<frontend>/src/...` | Client-specific | `[stable]` |
-| Feature UI mirror in app | `apps/<frontend>/src/features/<f>/` (suggested convention) | Client-specific | `[partial]` — Lazurite template doesn't yet scaffold this; reference projects demonstrate the shape. |
-| Cross-frontend TS shared (if it appears) | `packages/shared/` | Outside Lazuli contract | `[planned]` — convention reserved; create when concrete sharing pain appears. |
+| App-level UI (routes, layouts, state, theme) | `app/web/src/...` (default) or `app/clients/<name>/src/...` (multi) | Client-specific | `[partial]` — Lazurite scaffold currently emits to `apps/<frontend>/`; pivot to `app/web/` default is in the framework roadmap. |
+| Feature UI mirror in app | `app/web/src/features/<f>/` (or `app/clients/<name>/src/features/<f>/` in multi) | Client-specific | `[partial]` — suggested convention; scaffold will enforce on next pivot. |
+| Cross-client TS shared (when multi appears) | `packages/shared/` | Outside Lazuli contract | `[planned]` — convention reserved; create when concrete sharing pain appears in a multi-client project. |
 | App-wide i18n | `i18n/<name>.<locale>.json` | Portable | `[stable]` |
 | Custom scripts (CI, deploy, seed) | `scripts/` | Portable | `[stable]` |
 | Generated Go | `dist/go/<f>/*.gen.go` (package `<f>gen`) | Disposable | `[partial]` — today package is `<f>` and shares files with user handlers; the pivot to a dedicated `<f>gen` package is in the framework roadmap. |
-| Generated TS SDK per frontend | `dist/ts-<target>/<f>/*.gen.ts` | Disposable | `[stable]` |
+| Generated TS SDK per runtime target | `dist/ts-<target>/<f>/*.gen.ts` | Disposable | `[stable]` |
 | IR cache + source map | `.lazuli/*` | Disposable | `[stable]` |
 
 ---
 
-## Tier 1 — Lazuli territory (`app/`)
+## Tier 1 — Lazuli territory (`app/features/`, `app/*.lzi`)
 
 This is the portable kernel. Everything here is touched by the Lazuli
 compiler in some way — parsed (`.lzi`/`.lzx`), referenced (handler
@@ -160,9 +193,10 @@ app/
 
 Two anchoring reasons:
 
-1. **One backend.** Unlike frontends (where the same feature can have
-   different UIs per audience or per app), the Go backend is singular.
-   There's no second consumer fighting for handler ownership.
+1. **One backend.** Unlike frontends (which can ship as multiple bundles
+   when a project really needs separate deploys), the Go backend is
+   singular by design. There's no second consumer fighting for handler
+   ownership.
 2. **The compiler cites them.** `@fn.X` in `.lzi` resolves to a function
    on disk. Doctor verifies the path. Codegen emits a typed contract
    the handler implements. That's the test for Lazuli territory.
@@ -182,29 +216,32 @@ codegen emits a typed `<Slot>Props` interface in
 `dist/ts-<target>/<f>/cells/<slot>.gen.ts` that the implementation
 imports for its prop types.
 
-The slot impl is Lazuli territory (compiler cites + doctor verifies) even
-though it's React/TypeScript. It lives in `app/features/<f>/<target>/cells/`,
-NOT in the frontend app's `src/`.
-
-This is the one TSX exception in the rule "TS UI lives in
-`apps/<frontend>/`". Slot impls are the bridge between
-declarative-in-`.lzx` and imperative-in-React, and they belong on the
-declarative side of the bridge.
+The slot impl is Lazuli territory (compiler cites + doctor verifies)
+even though it's React/TypeScript. It lives in
+`app/features/<f>/<target>/cells/`, NOT in the frontend client's `src/`.
+This is the one TSX exception in the rule "TS UI lives in the
+client" — slot impls are the bridge between declarative-in-`.lzx` and
+imperative-in-React, and they belong on the declarative side of the
+bridge.
 
 ---
 
-## Tier 2 — Client-specific (`apps/<frontend>/`)
+## Tier 2 — Client-specific (`app/web/` default, `app/clients/<name>/` opt-in)
 
-Each frontend is a self-contained TypeScript application with its own
-toolchain (Vite + TanStack today; could be Next, Remix, or RN/Expo).
-The app consumes the Lazuli-generated SDK and slot impls but owns
-everything else: routes, state, layouts, theming, shared primitives.
+A **client** is one self-contained TypeScript application targeting a
+single runtime/bundle/deploy unit. Most projects have one — a web SPA.
+Some need a second when a real architectural divergence appears (an
+operator dashboard that must ship as a separate Electron app, a mobile
+PWA with offline-first behavior unsuitable for the main bundle, a
+browser extension, etc.). Audience differences alone (admin vs.
+customer, operator vs. end-user) do **not** justify a second client —
+those are solved by routes + authorization inside the same SPA.
 
-### Layout
+### Default layout (one client)
 
 ```txt
-apps/
-  web-app/                # one app per audience cluster (host + traveler)
+app/
+  web/                          # the default client — a web SPA
     package.json
     vite.config.ts
     tsconfig.json
@@ -217,54 +254,95 @@ apps/
         account/
           login.tsx
           register.tsx
+        operator/               # admin-side routes in the SAME client
+          dashboard.tsx
       features/                 # suggested: mirror app/features/<f>/ names
         messaging/
+          components/
+            ChatExperience.tsx
           models/
-          presentation/
-            components/
-              ChatExperience.tsx
       shared/                   # cross-feature primitives
         ui/
           Button.tsx
           Modal.tsx
         forms/
         theme/
-        application/
-          state/
+        state/
     e2e/                        # Playwright
-
-  ops-app/                 # second app for the operator audience
-    src/
-      ...
 ```
 
-### Why frontend code lives outside `app/features/`
+### Multi-client layout (opt-in)
 
-- **N frontends per project.** A typical project ships two or more
-  apps (e.g. `web-app` + `ops-app`). Each has its own Vite config,
-  routing tree, state
-  shape, and design surface. Forcing them into `app/features/<f>/web.app/`
-  vs `web.os/` would create a Frankenstein tree and break Vite/TanStack
-  conventions (file-based routing, code splitting, HMR).
+When a project legitimately needs separate bundles — different runtimes,
+different deploy targets, different SLAs — it migrates `app/web/` →
+`app/clients/<name>/` and adds the second slice:
+
+```txt
+app/
+  clients/
+    main/                       # was app/web/ — renamed during migration
+      package.json
+      src/...
+    admin/                      # new second client, different bundle/deploy
+      package.json
+      src/...
+    mobile/                     # third client targeting Expo, etc.
+      package.json
+      src/...
+
+packages/                       # appears only when real cross-client
+  shared/                       #  sharing is needed (design system,
+    design-system/              #  common hooks, etc.)
+    ui-primitives/
+```
+
+The migration is mechanical: `mv app/web app/clients/main`, update
+`Lazurite.toml [frontends.*]` to point at the new path, regenerate.
+Doctor flags the inconsistency if the manifest and folder layout drift.
+
+`app/web/` and `app/clients/` never coexist in the same project — when
+`app/clients/` appears, `app/web/` is gone (renamed into it). This
+matches Hanami's slices model (the singular `app/` doesn't coexist with
+`slices/<name>/` as parallel siblings; the first slice migration moves
+code, doesn't add a second tier).
+
+### Why client code lives outside `app/features/`
+
+- **Default is singular.** A typical Lazuli project has one web SPA. It
+  lives at `app/web/`, alongside `app/features/` and other `app/*`
+  entries, with no `apps/` plural required.
+- **Multi is rare and explicit.** When a second client is truly needed,
+  the project opts in via migration. Forcing `apps/<frontend>/` plural
+  on every project (even single-client ones) was over-engineering — the
+  cost of two Vite configs, two `package.json` files, two deploy units
+  was being paid by projects that would never use the second slot.
 - **App-level concerns aren't "about a feature".** Routes, layouts,
-  providers, theming, navigation chrome — these are *about the app*, not
-  about messaging or account specifically. They have no canonical home
-  under `app/features/`.
+  providers, theming, navigation chrome — these are *about the client*,
+  not about messaging or account specifically. They have no canonical
+  home under `app/features/`.
 - **Rails analogy.** Rails groups by responsibility (`app/controllers/`,
   `app/views/`, `app/models/`), not by feature. The convention "things
   with the same lifecycle live together" produces healthier projects
   than "everything related to X lives together". Same logic applies
-  here: frontend code's lifecycle is the frontend; backend code's
-  lifecycle is the feature contract.
+  here: frontend code's lifecycle is the bundle/deploy unit; backend
+  code's lifecycle is the feature contract.
+- **Audience ≠ client.** Phoenix's `MyAppWeb` contains controllers for
+  every audience, JSON APIs, and LiveView all in one namespace — never
+  as separate Phoenix apps. Lazuli follows the same rule: an "admin
+  panel" and a "customer marketplace" in the same browser bundle are
+  routes + state inside `app/web/`, not two separate clients.
 
 ### Suggested convention: mirror feature names
 
-When a frontend has feature-specific code (models, components,
-providers), the suggested convention is
-`apps/<frontend>/src/features/<f>/` matching the name of
-`app/features/<f>/`. The Lazurite scaffold doesn't enforce this
-[`[partial]`], but adopting it from day one keeps cross-tier navigation
-trivial.
+When a client has feature-specific code (models, components,
+providers), the suggested convention is `<client>/src/features/<f>/`
+matching the name of `app/features/<f>/`. So:
+
+- Default project: `app/web/src/features/messaging/components/...`
+- Multi-client project: `app/clients/main/src/features/messaging/...`
+
+The Lazurite scaffold will enforce this once the pivot lands; until
+then it's a recommended convention.
 
 ---
 
@@ -280,7 +358,7 @@ dist/
   go/                           # `lazuli generate go --out dist/go`
     main.go                     # entrypoint (emit_main=true)
     go.mod                      # sub-module (submodule=true)
-    customer/
+    customer/                   # package `customergen`
       resource.gen.go           # structs + repository wire
       command.gen.go            # command literals with Effect, Policy, etc.
       query.gen.go              # list/lookup + cache
@@ -293,13 +371,13 @@ dist/
     migrations/                 # generated SQL DDL per resource
       001_customer.sql
       001_customer.down.sql
-  ts-web/                       # SDK for [frontends.web] target
+  ts-web/                       # SDK targeting browser runtime
     customer/
       customer.gen.ts           # interfaces + defineCommand/defineQuery wrappers
       customer.zod.ts           # zod validation schemas
       cells/                    # [partial]
         tag_editor.gen.ts       # <SlotProps> interface for app/features/.../cells/
-  ts-mobile/                    # SDK for [frontends.mobile] target
+  ts-mobile/                    # SDK targeting Expo/RN runtime
     customer/
       customer.gen.ts
       customer.zod.ts
@@ -322,6 +400,11 @@ dist/
 - Generated code is split per feature × category, not one giant file
   per project. This keeps stack traces, diffs, source maps, and future
   granular regeneration anchored to the owning feature.
+- `dist/ts-<target>/` plural is correct: `ts-web` and `ts-mobile` are
+  *different runtimes* with different contracts (browser fetch vs. Expo
+  AsyncStorage, different Zod resolvers, different lifecycle hooks).
+  This is the "plural only by runtime, not by UX" rule applied at the
+  generation layer.
 
 ---
 
@@ -329,16 +412,19 @@ dist/
 
 The `.lzx` → `.tsx` chain is the most subtle relation in the layout
 because it crosses tiers in both directions. The diagram below covers
-every consumer relationship a frontend has with Lazuli-generated code.
+every consumer relationship a client has with Lazuli-generated code.
+The example uses the default single-client layout (`app/web/`); for
+multi-client projects, replace `app/web/` with
+`app/clients/<name>/` throughout.
 
 ```txt
 app/features/customer/customer.web.lzx   (intent declaration, Tier 1 Portable)
   │
   ├──[1]─► codegen emits views in dist/ts-web/customer/views/         (Tier 3 Disposable)  [planned]
   │           │
-  │           └──► app imports:
+  │           └──► client imports:
   │                import { CustomerList } from '@gen/customer/views/list'
-  │                (used in apps/web-app/src/routes/customers.tsx)
+  │                (used in app/web/src/routes/customers.tsx)
   │
   ├──[2]─► codegen emits slot interfaces in dist/ts-web/customer/cells/ (Tier 3 Disposable)  [partial]
   │           │
@@ -346,32 +432,32 @@ app/features/customer/customer.web.lzx   (intent declaration, Tier 1 Portable)
   │                app/features/customer/web/cells/tag_editor.tsx     (Tier 1 Portable)
   │                imports the interface from dist for prop types
   │                │
-  │                └──► app imports the .tsx directly:
+  │                └──► client imports the .tsx directly:
   │                     import { TagEditor } from
   │                       '@features/customer/web/cells/tag_editor'
   │
   └──[3]─► codegen emits SDK in dist/ts-web/customer/customer.gen.ts  (Tier 3 Disposable)  [stable]
               │
-              └──► app imports:
+              └──► client imports:
                    import { listCustomers } from '@myapp/sdk/customer/customer.gen'
-                   (used freely throughout apps/web-app/src/)
+                   (used freely throughout app/web/src/)
 ```
 
 Three arrows, three import patterns, three responsibilities:
 
-1. **Generated view → app** — the app imports a complete component the
-   compiler synthesised from the `.lzx`. No customization point; if you
-   need different UI, declare a different view or override at the slot
-   level.
-2. **Slot interface → user impl → app** — when a view needs custom UI,
-   the `.lzx` declares a slot; codegen emits the prop-type contract;
-   the author writes the `.tsx` in `app/features/<f>/<target>/cells/`;
-   the app imports that `.tsx` directly. `dist` never sees the impl,
-   only the contract.
-3. **Generated SDK → app** — for everything outside view scope (manual
-   command dispatch, custom query screens, programmatic flows), the app
-   imports typed wrappers from the SDK. Most app-level routes today
-   take this path.
+1. **Generated view → client** — the client imports a complete
+   component the compiler synthesised from the `.lzx`. No customization
+   point; if you need different UI, declare a different view or
+   override at the slot level.
+2. **Slot interface → user impl → client** — when a view needs custom
+   UI, the `.lzx` declares a slot; codegen emits the prop-type
+   contract; the author writes the `.tsx` in
+   `app/features/<f>/<target>/cells/`; the client imports that `.tsx`
+   directly. `dist` never sees the impl, only the contract.
+3. **Generated SDK → client** — for everything outside view scope
+   (manual command dispatch, custom query screens, programmatic flows),
+   the client imports typed wrappers from the SDK. Most client-level
+   routes today take this path.
 
 ---
 
@@ -392,7 +478,7 @@ Required sections: `[project]` (name + module + schema), `[lazuli]`
 **Boundary:** the manifest never duplicates declarations the DSL owns.
 App environments, URLs, CORS, audiences, and deploy gates stay in
 `app.lzi` (and `profiles.lzi` for overlays); audience scoping per
-frontend stays in `.lzx`. The manifest is the *projection over the IR*,
+client stays in `.lzx`. The manifest is the *projection over the IR*,
 not a parallel source.
 
 Doctor emits `MANIFEST-REQUIRED-001` when `.lzi` references `@plugin/*`
@@ -503,13 +589,15 @@ in Python, Java, Node, Rust, or any other stack.
 
 ## Top-level layout reference
 
+### Default project (single client)
+
 ```txt
 Lazurite.toml                    # workspace manifest (Lazurite distro)
 README.md
 .gitignore                       # ignores dist/ .lazuli/ secrets
 
-app/                             # Tier 1 — Lazuli territory (portable)
-  app.lzi
+app/                             # Tier 1 + Tier 2 live under app/
+  app.lzi                        # ↓ Tier 1 (Lazuli territory)
   design.lzi
   registry.lzi
   profiles.lzi
@@ -528,10 +616,9 @@ app/                             # Tier 1 — Lazuli territory (portable)
       web/cells/                 # @client.<slot> impls
       mobile/cells/
 
-apps/                            # Tier 2 — Client-specific (per frontend)
-  web-app/
-    src/...                      # routes, state, layouts, shared UI
-  ops-app/
+  web/                           # ↓ Tier 2 (client-specific) — the default client
+    package.json
+    vite.config.ts
     src/...
 
 workspace.lzi                    # optional: distributed-system root
@@ -541,9 +628,9 @@ i18n/                            # app-wide translation catalogs
 scripts/                         # custom scripts (CI, deploy, seed)
 
 dist/                            # Tier 3 — Disposable
-  go/                            # generated Go backend
-  ts-web/                        # generated TS SDK for [frontends.web]
-  ts-mobile/                     # generated TS SDK for [frontends.mobile]
+  go/                            # generated Go backend (package <f>gen)
+  ts-web/                        # generated TS SDK for browser runtime
+  ts-mobile/                     # generated TS SDK for Expo/RN runtime
 
 go.mod                           # root Go module
 go.work                          # workspace (root + dist/go)
@@ -551,26 +638,59 @@ go.sum
 .lazuli/                         # IR cache + manifests (disposable)
 ```
 
+### Multi-client project (opt-in)
+
+```txt
+app/
+  app.lzi
+  features/
+    ...
+  clients/                       # ← replaces `web/` when multi is needed
+    main/                        # was app/web/ — renamed during migration
+      package.json
+      src/...
+    admin/                       # second client, separate bundle/deploy
+      package.json
+      src/...
+
+packages/                        # appears with real cross-client sharing
+  shared/
+    design-system/
+```
+
+Everything else (Tier 1, Tier 3, top-level config) is identical to the
+default layout. Only the `app/web/` → `app/clients/<name>/` slice
+changes.
+
 ---
 
-## When in doubt: applying the rule
+## When in doubt: applying the rules
 
-The framework boundary is enforced by one question: **does the Lazuli
-compiler touch this file?**
+The framework boundary is enforced by two questions: **does the Lazuli
+compiler touch this file?** and **does it require a separate runtime
+bundle?**
 
-- **Yes** (cited by `.lzi`/`.lzx`, validated by doctor, used by codegen)
-  → Tier 1, lives in `app/features/<f>/` or another `app/` location.
-- **No, but it's specific to a chosen client stack** (a React route, a
-  Vite plugin, a Tailwind config) → Tier 2, lives in
-  `apps/<frontend>/`.
+- **Compiler touches it** (cited by `.lzi`/`.lzx`, validated by doctor,
+  used by codegen) → Tier 1, lives in `app/features/<f>/` or another
+  `app/*` location.
+- **Specific to a client stack but not Lazuli-cited** (a React route, a
+  Vite plugin, a Tailwind config) → Tier 2, lives in `app/web/`
+  (default) or `app/clients/<name>/` (multi).
 - **Generated by `lazuli generate`** → Tier 3, lives in `dist/` or
   `.lazuli/`, never edited by hand.
 
-This applies recursively. The question "where does X live?" reduces to
-"who consumes X?" and "is X regenerable?". The location follows.
+For the singular-vs-plural question (does this code go in `app/web/` or
+do I need `app/clients/`?), apply the runtime-vs-UX test:
+
+- **Different audiences** (admin vs. end-user, host vs. traveler) →
+  stay in the same client. Solve via routes + authorization. `app/web/`
+  is enough.
+- **Different runtimes/bundles** (browser SPA vs. Electron desktop vs.
+  mobile PWA with offline-first behavior) → genuine second client.
+  Migrate to `app/clients/<name>/`.
 
 When the answer is genuinely ambiguous (shared TypeScript code used by
-multiple frontends with no Lazuli dependency, for example),
+multiple clients with no Lazuli dependency, for example),
 `packages/shared/` is the reserved location outside the Lazuli
 contract — explicitly *not* in `app/features/`, to preserve the
 "Lazuli territory" invariant.
@@ -583,3 +703,7 @@ contract — explicitly *not* in `app/features/`, to preserve the
 - [`docs/invariants.md`](invariants.md) — closed grammar/IR constraints.
 - [`docs/plugin-authoring.md`](plugin-authoring.md) — when adding a
   `@plugin/<name>` adapter.
+- [Hanami 2.0 Slices guide](https://guides.hanamirb.org/v2.0/app/slices/)
+  — prior art for the default-singular, opt-in-multi pattern.
+- [Phoenix Directory Structure](https://hexdocs.pm/phoenix/directory_structure.html)
+  — prior art for the responsibility-not-audience separation principle.
