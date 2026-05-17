@@ -59,8 +59,9 @@ Sum of weights = 100%.
 | 6 | Composability | 8% | Do `extends @anchor.*`, `extensible_by`, `packs`, `has_many`, `event_group` combine cleanly? |
 | 7 | Multi-target fit (Go/React/Expo) | 8% | Are surface projections (`.web.lzx` / `.mobile.lzx`) clean? Does any contract leak transport mechanics? |
 | 8 | Operational coverage | 6% | Do `runtime`, `deploy`, `profiles`, `services`, `architecture` cover real production needs without becoming Kubernetes config? |
+| 8.5 | Diagnostic identifier truthfulness | 3% | For every diagnostic code named in a proposal's acceptance lists: does the code (a) exist in `crates/lazuli_cli/src/doctor.rs` or `crates/lazuli_lsp/src/lib.rs`, or (b) explicitly appear under a `## New diagnostics` heading as net-new? Mechanical grep check. See §"How the rubric is enforced" for the runbook. |
 | 9 | Declarative testability | 6% | Are `tests` blocks expressive enough for rules / transitions / anchors / commands without becoming a mock framework? |
-| 10 | AI-first readiness | 14% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
+| 10 | AI-first readiness | 11% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
 
 ## Scoring scale
 
@@ -240,6 +241,43 @@ Three enforcement points:
    proposing a cut, reviewing a PR, or auditing the language.
    Anchor scores with `path:line`. Same gate applies.
 
+### Criterion 8.5 — Diagnostic identifier truthfulness (runbook)
+
+For every diagnostic identifier (anything matching `*_diagnostics`,
+`*-001` / `*-002` / ..., or any heading under a "Doctor diagnostics"
+list in an acceptance section) named in a proposal, the grader runs:
+
+```bash
+rg --no-heading --no-line-number -F '<code>' \
+   crates/lazuli_cli/src/doctor.rs \
+   crates/lazuli_cli/src/doctor/ \
+   crates/lazuli_doctor/src/ \
+   crates/lazuli_lsp/src/lib.rs
+```
+
+For each named code:
+
+- **≥ 1 hit** → the code exists. The proposal's claim about shipping
+  state must be consistent (don't say "new" if it exists; don't say
+  "already exists text-side" if zero hits).
+- **0 hits AND** the code appears under a `## New diagnostics` (or
+  equivalent — `### Net-new doctor producers`, `## Doctor diagnostics
+  to add`) heading in the proposal body → fine, the proposal is
+  honest about introducing the code.
+- **0 hits AND** no `## New diagnostics` heading anchors the code →
+  **Criterion 8.5 = 0**. By the existing gate rule (any criterion
+  below 6 → BLOCK), the proposal blocks.
+
+Codes appearing inside **audit tables** that explicitly document
+false-negatives (rows where the proposal's purpose is to flag the
+zero-hits state) do not count toward 8.5 — they are observations,
+not assertions of existence. The audit's table header or row prose
+must make this clear (e.g. "exact-match grep → 0 hits" in the row).
+
+Closes the false-negative-by-naming pattern surfaced 2026-05-17.
+Audit: `c:/Users/lucas/lazuli-ops/.claude/swarm/reports/mgr-rule-naming-reconciliation-2026-05-17.md`.
+Proposal: `c:/Users/lucas/lazuli-ops/docs/proposals/naming-reconciliation-2026-05-17.md`.
+
 ## Versioning
 
 The rubric is part of the language contract. Changes to the
@@ -254,6 +292,17 @@ weights, criteria, or gate rule are themselves
   bump. Removing a line is major.
 
 History of changes lives in `git log -- docs/grading-rubric.md`.
+
+Notable changes:
+
+- **2026-05-17 — Criterion 8.5 inserted; AI-first weight 14% → 11%.**
+  Architect grade PASS 8.9/10 per
+  `c:/Users/lucas/lazuli-ops/.claude/swarm/reports/architect-grade-naming-reconciliation-2026-05-17.md`.
+  The 3% redirect from Criterion 10 to 8.5 stays within the AI-first
+  axis (Criterion 2 + 8.5 + 10 = 32%, invariant before/after);
+  Criterion 10 still owns the subjective AI-first signal while 8.5
+  owns the objective grep gate. Self-recursive: this rubric edit
+  doesn't introduce diagnostic codes, so Criterion 8.5 is n/a here.
 
 ## Open questions
 
