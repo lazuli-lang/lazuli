@@ -9860,8 +9860,8 @@ fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap
 /// IR `Defaults` block. Returns the axis name (`org`, `team`, custom)
 /// or `None` when the feature declares `tenancy none` / inherits.
 ///
-/// Phase L Tier 4a (commit `__TIER_4A__`) — `parse_feature_skeletons`
-/// now lifts `defaults.tenancy`; this is a typed read of
+/// Phase L Tier 4a — `parse_feature_skeletons` now lifts
+/// `defaults.tenancy`; this is a typed read of
 /// `feature.defaults.tenancy`. The legacy "axis unknown → only check
 /// presence" fallback that tier 3 diagnostics rode on is retired.
 fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {

@@ -6010,6 +6010,12 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 policies: feature_ir.policies,
                 caches: feature_ir.caches,
                 aggregates: feature_ir.aggregates,
+                defaults: feature_ir.defaults,
+                resource_names: feature_ir
+                    .resources
+                    .iter()
+                    .map(|r| r.name.clone())
+                    .collect(),
             },
         );
     }
@@ -6039,6 +6045,15 @@ struct Tier3FeatureSlice {
     /// CL.C.4 — lifted `aggregate <Name>` declarations. Powers
     /// `--expand=aggregates`.
     aggregates: Vec<lazuli_ir::Aggregate>,
+    /// Phase L Tier 4a — lifted feature-level `defaults` block.
+    /// Powers `--expand=defaults` IR-driven projection; replaces the
+    /// text-pattern walker for the canonical-indent code path.
+    defaults: lazuli_ir::Defaults,
+    /// Phase L Tier 4a — resource names lifted from
+    /// `Feature.resources`. Used by `--expand=defaults` to compute
+    /// `applies_to` for `tenancy`/`timestamps` defaults without
+    /// re-walking the source text.
+    resource_names: Vec<String>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -6221,7 +6236,7 @@ fn inspect_feature(
         locators: expansions.locators.then(|| inspect_locators(lines)),
         dependencies: expansions.dependencies.then(|| inspect_dependencies(lines)),
         security: expansions.security.then(|| inspect_security(lines)),
-        defaults: expansions.defaults.then(|| inspect_defaults(lines)),
+        defaults: expansions.defaults.then(|| inspect_defaults(lines, tier3)),
         events: expansions.events.then(|| inspect_events(lines)),
         built_in_trace_events: expansions.events.then(inspect_built_in_trace_events),
         targets: expansions.targets.then(|| inspect_targets(lines)),
@@ -7733,7 +7748,131 @@ fn inspect_dependency(
     }
 }
 
-fn inspect_defaults(lines: &[String]) -> Vec<InspectDefault> {
+/// Phase L Tier 4a — `--expand=defaults` projection. Reads the lifted
+/// `Feature.defaults` block from the Tier 3 slice when available
+/// (canonical-indent code path), and falls back to the text-pattern
+/// walker only for legacy documents that did not lower through
+/// `parse_feature_skeletons`. The query-derived language defaults
+/// (`query_order`, `query_filter_index`) stay text-derived because
+/// those facts originate from CLI heuristics over query bodies, not
+/// from feature-state IR.
+fn inspect_defaults(
+    lines: &[String],
+    tier3: Option<&Tier3FeatureSlice>,
+) -> Vec<InspectDefault> {
+    let mut defaults = match tier3 {
+        Some(slice) => project_defaults_from_ir(slice, lines),
+        None => inspect_defaults_legacy(lines),
+    };
+
+    for query in query_blocks(lines) {
+        let header = query[0].trim_start();
+        if !header.starts_with("query.list ") {
+            continue;
+        }
+        if direct_child_value(query, "order ").is_some() {
+            continue;
+        }
+        let name = query_name(header).unwrap_or("unknown");
+        defaults.push(InspectDefault {
+            name: "query_order".to_owned(),
+            value: "created_at desc".to_owned(),
+            origin: "language default",
+            applies_to: vec![format!("query.{name}")],
+        });
+    }
+
+    for generated in collect_query_filter_indexes(lines) {
+        defaults.push(InspectDefault {
+            name: "query_filter_index".to_owned(),
+            value: generated.value,
+            origin: "language default",
+            applies_to: vec![
+                format!("query.{}", generated.query),
+                format!("filter.{}", generated.filter),
+            ],
+        });
+    }
+
+    defaults
+}
+
+/// Phase L Tier 4a — project `Feature.defaults` from IR into the
+/// `InspectDefault` shape. `applies_to` for `tenancy`/`timestamps`
+/// reads `Tier3FeatureSlice.resource_names`; for `policy`, it
+/// retains the text walker over jobs/webhooks until those names are
+/// also lifted to the slice (Tier 4 follow-up).
+fn project_defaults_from_ir(
+    slice: &Tier3FeatureSlice,
+    lines: &[String],
+) -> Vec<InspectDefault> {
+    let mut out = Vec::new();
+
+    if slice.defaults.timestamps {
+        out.push(InspectDefault {
+            name: "timestamps".to_owned(),
+            value: "true".to_owned(),
+            origin: "defaults",
+            applies_to: slice.resource_names.clone(),
+        });
+    }
+
+    if let Some(tenancy) = &slice.defaults.tenancy {
+        let value = match tenancy {
+            lazuli_ir::Tenancy::Org => "org".to_owned(),
+            lazuli_ir::Tenancy::Team => "team".to_owned(),
+            lazuli_ir::Tenancy::Custom(name) => name.clone(),
+            lazuli_ir::Tenancy::None => "none".to_owned(),
+        };
+        out.push(InspectDefault {
+            name: "tenancy".to_owned(),
+            value,
+            origin: "defaults",
+            applies_to: slice.resource_names.clone(),
+        });
+    }
+
+    // `policy` and `policy_for` retain text-derived `applies_to` until
+    // jobs/webhooks have their names lifted to the slice. The IR
+    // `Defaults.policy` carries the typed atom; the `applies_to`
+    // projection mirrors the legacy text walker for now to keep the
+    // projection JSON shape stable.
+    let mut in_defaults = false;
+    for line in lines {
+        let trimmed = line.trim_start();
+        if leading_spaces(line) == 2 {
+            in_defaults = trimmed == "defaults";
+            continue;
+        }
+        if !in_defaults || leading_spaces(line) != 4 || trimmed.is_empty() {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("policy_for ") {
+            if let Some((scopes, policy)) = value.split_once(':') {
+                out.push(InspectDefault {
+                    name: "policy_for".to_owned(),
+                    value: policy.trim().to_owned(),
+                    origin: "defaults",
+                    applies_to: collect_policy_for_applies_to(lines, scopes),
+                });
+            }
+        } else if let Some(value) = trimmed.strip_prefix("policy ") {
+            out.push(InspectDefault {
+                name: "policy".to_owned(),
+                value: value.to_owned(),
+                origin: "defaults",
+                applies_to: collect_job_and_webhook_names(lines),
+            });
+        }
+    }
+
+    out
+}
+
+/// Legacy text-pattern fallback. Retained for documents that don't
+/// lower through `parse_feature_skeletons` (no Tier 3 slice). The
+/// canonical-indent code path routes through `project_defaults_from_ir`.
+fn inspect_defaults_legacy(lines: &[String]) -> Vec<InspectDefault> {
     let resources = collect_resource_names(lines);
     let mut defaults = Vec::new();
     let mut in_defaults = false;
@@ -7781,35 +7920,6 @@ fn inspect_defaults(lines: &[String]) -> Vec<InspectDefault> {
                 applies_to: collect_job_and_webhook_names(lines),
             });
         }
-    }
-
-    for query in query_blocks(lines) {
-        let header = query[0].trim_start();
-        if !header.starts_with("query.list ") {
-            continue;
-        }
-        if direct_child_value(query, "order ").is_some() {
-            continue;
-        }
-        let name = query_name(header).unwrap_or("unknown");
-        defaults.push(InspectDefault {
-            name: "query_order".to_owned(),
-            value: "created_at desc".to_owned(),
-            origin: "language default",
-            applies_to: vec![format!("query.{name}")],
-        });
-    }
-
-    for generated in collect_query_filter_indexes(lines) {
-        defaults.push(InspectDefault {
-            name: "query_filter_index".to_owned(),
-            value: generated.value,
-            origin: "language default",
-            applies_to: vec![
-                format!("query.{}", generated.query),
-                format!("filter.{}", generated.filter),
-            ],
-        });
     }
 
     defaults
