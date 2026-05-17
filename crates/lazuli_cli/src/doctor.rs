@@ -68,6 +68,44 @@ pub fn doctor_command(
     Ok(())
 }
 
+/// MCP read surface — runs the same `DoctorPackage` pipeline as
+/// `doctor_command` but returns a structured JSON array of
+/// diagnostics instead of printing to stdout + bailing.
+///
+/// Wired by `crate::cmd_mcp` for the `tools/call doctor` MCP method.
+/// Wire-thin: returns `serde_json::Value` to keep
+/// `DoctorPackage` / `DoctorDiagnostic` / `DoctorSeverity` private to
+/// this module (the MCP catalog is closed at the JSON surface, not
+/// the type surface).
+///
+/// Companion: `docs/proposals/lazuli-mcp-subcommand-2026-05-17.md` §6.
+pub(crate) fn doctor_diagnostics_json(
+    input: &Path,
+    security_profile: SecurityProfile,
+) -> Result<serde_json::Value> {
+    let package = DoctorPackage::load(input, security_profile)?;
+    let diagnostics = package.diagnostics();
+    let payload: Vec<serde_json::Value> = diagnostics
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "path": d.path.display().to_string(),
+                "line": d.line,
+                "column": d.column,
+                "severity": match d.severity {
+                    DoctorSeverity::Error => "error",
+                    DoctorSeverity::Warning => "warning",
+                    DoctorSeverity::Info => "info",
+                    DoctorSeverity::Hint => "hint",
+                },
+                "code": d.code,
+                "message": d.message,
+            })
+        })
+        .collect();
+    Ok(serde_json::Value::Array(payload))
+}
+
 fn doctor_release_command(input: &Path) -> Result<()> {
     let project_root = doctor_project_root(input);
     let mut diagnostics = Vec::new();

@@ -15,6 +15,7 @@ mod app_manifest;
 mod cmd_design;
 mod cmd_generate_feature;
 mod cmd_generate_handler;
+mod cmd_mcp;
 mod cmd_new_frontends;
 mod debug;
 mod dev;
@@ -325,6 +326,12 @@ enum Commands {
         #[command(subcommand)]
         sub: TranslateCommand,
     },
+    /// Run an MCP (Model Context Protocol) server over stdio,
+    /// exposing Lazuli's introspection surface to AI agents.
+    ///
+    /// Closed catalog of 8 read-only tools + 4 resource prefixes.
+    /// See `docs/proposals/lazuli-mcp-subcommand-2026-05-17.md`.
+    Mcp,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -928,6 +935,7 @@ fn main() -> Result<()> {
                 check,
             } => translate_extract_command(&input, &out, locale.as_deref(), check),
         },
+        Commands::Mcp => cmd_mcp::run_mcp_server(),
     }
 }
 
