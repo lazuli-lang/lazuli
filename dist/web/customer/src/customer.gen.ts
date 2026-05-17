@@ -20,12 +20,12 @@ import {
 
 export interface Customer {
   id: ID;
-  org_id: ID;
+  orgId: ID;
   name: string;
   email: string;
-  created_at: Time;
-  updated_at: Time;
-  deleted_at?: Time | null;
+  createdAt: Time;
+  updatedAt: Time;
+  deletedAt?: Time | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -49,8 +49,8 @@ export const createCustomer = defineCommand<
 // ----------------------------------------------------------------------------
 
 export interface UpdateCustomerEmailInput {
-  ID: ID;
-  Email: string;
+  id: ID;
+  email: string;
 }
 
 export const updateCustomerEmail = defineCommand<
@@ -65,7 +65,7 @@ export const updateCustomerEmail = defineCommand<
 // ----------------------------------------------------------------------------
 
 export interface ArchiveCustomerInput {
-  ID: ID;
+  id: ID;
 }
 
 export const archiveCustomer = defineCommand<

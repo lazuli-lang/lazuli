@@ -10,6 +10,7 @@
 //   POST /api/v1/c/<command-name>   body: input    -> output
 //   POST /api/v1/q/<query-name>     body: args     -> result
 
+import { camelToSnakeDeep, snakeToCamelDeep } from "./case-mapper.js";
 import { LazuliError, type LazuliErrorEnvelope } from "./error.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 
@@ -59,11 +60,17 @@ export class LazuliClient {
     }
     headers.set("Content-Type", "application/json");
 
+    // Generated SDK interfaces are camelCase; the Go runtime's JSON
+    // contract is snake_case. We translate at this single boundary —
+    // see case-mapper.ts for the scope (plain objects only;
+    // strings/numbers/arrays pass through).
+    const wireBody = body === undefined ? "{}" : JSON.stringify(camelToSnakeDeep(body));
+
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       method: "POST",
       headers,
-      body: body === undefined ? "{}" : JSON.stringify(body),
+      body: wireBody,
     });
 
     const text = await response.text();
@@ -73,7 +80,7 @@ export class LazuliClient {
     if (!text) {
       return undefined as T;
     }
-    return JSON.parse(text) as T;
+    return snakeToCamelDeep(JSON.parse(text)) as T;
   }
 }
 

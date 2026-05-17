@@ -1738,10 +1738,16 @@ fn emit_feature_zod_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module)
         let schema_ident = command_schema_ident(&command.name, &feature_pascal);
         writeln!(s, "export const {schema_ident} = z.object({{").ok();
         for slot in command_zod_slots(feature, command, module) {
+            // Zod schemas mirror the camelCase SDK interfaces emitted
+            // in `messaging.gen.ts` etc. The wire JSON contract stays
+            // snake_case; `LazuliClient` rekeys at the boundary
+            // (`case-mapper.ts`). Apps validating client-side state
+            // (forms, local cache) speak in camelCase, matching
+            // the typed interface.
             writeln!(
                 s,
                 "  {}: {},",
-                slot.name,
+                lazuli_codegen_ts::lower_camel_export(&slot.name),
                 zod_expr_for_slot(&slot.type_ref, &slot.constraints, !slot.required)
             )
             .ok();

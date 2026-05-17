@@ -97,16 +97,26 @@ fn write_resource(s: &mut String, resource: &RuntimeResource) {
 
     write_section_banner(s, &[format!("Resource: {pascal}")]);
 
+    // Idiomatic JS/TS callers expect camelCase keys. Wire transport
+    // remains snake_case (Go runtime contract); the LazuliClient
+    // converts both ways at the boundary — see
+    // `runtime/ts/lazuli/src/case-mapper.ts`.
     writeln!(s, "export interface {pascal} {{").ok();
     writeln!(s, "  id: ID;").ok();
-    writeln!(s, "  org_id: ID;").ok();
+    writeln!(s, "  orgId: ID;").ok();
     for field in &resource.fields {
-        writeln!(s, "  {}: {};", field.name, field_kind_ts(field.kind)).ok();
+        writeln!(
+            s,
+            "  {}: {};",
+            lower_camel(&field.name),
+            field_kind_ts(field.kind)
+        )
+        .ok();
     }
-    writeln!(s, "  created_at: Time;").ok();
-    writeln!(s, "  updated_at: Time;").ok();
+    writeln!(s, "  createdAt: Time;").ok();
+    writeln!(s, "  updatedAt: Time;").ok();
     if resource.soft_delete {
-        writeln!(s, "  deleted_at?: Time | null;").ok();
+        writeln!(s, "  deletedAt?: Time | null;").ok();
     }
     writeln!(s, "}}").ok();
     writeln!(s).ok();
@@ -128,18 +138,18 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
 
     write_section_banner(s, &[format!("Command: {qualified_name}")]);
 
-    // Input interface keys follow the same convention as the hand-written
-    // file: route-param commands (any `ID` input) keep PascalCase keys
-    // because the Go runtime's `lazuli.FromInput("ID")` binds against the
-    // Go struct field name. Pure body-input commands lowercase every key
-    // (idiomatic JSON, what most external clients expect).
-    let preserve_case = command.inputs.iter().any(|i| i.field_name == "ID");
+    // Input interface keys are camelCase. The wire JSON contract stays
+    // snake_case (Go runtime expectation); `LazuliClient` converts at
+    // the boundary via `case-mapper.ts`. Includes the path-param `ID`
+    // case: previously kept as `ID` to align with `lazuli.FromInput("ID")`
+    // — now `id`, and the boundary mapper lifts `id` → `ID` on the
+    // wire when the command's `Args` type marks it as a path param.
     writeln!(s, "export interface {input_iface} {{").ok();
     for input in &command.inputs {
-        let key = if preserve_case {
-            input.field_name.clone()
+        let key = if input.field_name == "ID" {
+            "id".to_owned()
         } else {
-            input.field_name.to_ascii_lowercase()
+            lower_camel(&input.field_name)
         };
         writeln!(s, "  {}: {};", key, field_kind_ts(input.kind)).ok();
     }
@@ -250,7 +260,7 @@ fn write_query_arg(s: &mut String, arg: &RuntimeArg) {
     let key = if arg.field_name == "ID" {
         "id".to_owned()
     } else {
-        arg.field_name.to_ascii_lowercase()
+        lower_camel(&arg.field_name)
     };
     let suffix = if arg.optional { "?" } else { "" };
     writeln!(s, "  {key}{suffix}: {ty};", ty = field_kind_ts(arg.kind)).ok();
@@ -421,6 +431,18 @@ fn pascal_case(s: &str) -> String {
         out.push_str(chars.as_str());
     }
     out
+}
+
+/// Convert an identifier (snake_case / kebab-case / single word) to
+/// camelCase. First word stays lowercase; subsequent words capitalize.
+/// Acronyms in the closed table (`id`, `url`, `api`, ...) uppercase
+/// fully when not at the start (`org_id` → `orgId`, `api_url` →
+/// `apiUrl`).
+///
+/// Re-exported via `lazuli_codegen_ts::lower_camel_export` for the CLI
+/// zod emitter (single source of truth for SDK/zod casing alignment).
+pub fn lower_camel_export(s: &str) -> String {
+    lower_camel(s)
 }
 
 fn lower_camel(s: &str) -> String {
