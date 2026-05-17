@@ -564,6 +564,16 @@ struct ExpandSet {
     /// `root` resource, the `contains` cluster, and any invariants
     /// (with predicate text + message). Roadmap §1.7.
     aggregates: bool,
+    /// Phase L Tier 4b — `--expand=commands` projects every lifted
+    /// `ir::Command` on the feature (route + input + policy + audit +
+    /// approval + invalidates + external_calls + rate_limit +
+    /// timeout/retry/idempotency). Retires the legacy text-pattern
+    /// command surface; mirrors `jobs`/`webhooks` shape.
+    commands: bool,
+    /// Phase L Tier 4b — `--expand=apis` projects every lifted
+    /// `ir::Api` on the feature (method + path + output + policy +
+    /// handler + locale_negotiate). Accepts `api` or `apis` token.
+    apis: bool,
 }
 
 impl ExpandSet {
@@ -594,6 +604,8 @@ impl ExpandSet {
             caches: true,
             webhook_events: true,
             aggregates: true,
+            commands: true,
+            apis: true,
         }
     }
 
@@ -623,6 +635,8 @@ impl ExpandSet {
             || self.notifications
             || self.caches
             || self.aggregates
+            || self.commands
+            || self.apis
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -701,6 +715,12 @@ impl ExpandSet {
         }
         if self.aggregates {
             labels.push("aggregates");
+        }
+        if self.commands {
+            labels.push("commands");
+        }
+        if self.apis {
+            labels.push("apis");
         }
         labels
     }
@@ -5024,8 +5044,18 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // CL.C.4 — projects every lifted `ir::Aggregate` on the
             // feature (root + contains + invariants). Roadmap §1.7.
             "aggregates" => set.aggregates = true,
+            // Phase L Tier 4b — projects every lifted `ir::Command` on
+            // the feature (route + input + policy + audit + approval
+            // + invalidates + external_calls + rate_limit +
+            // timeout/retry/idempotency). Mirrors `jobs`/`webhooks`.
+            "commands" => set.commands = true,
+            // Phase L Tier 4b — projects every lifted `ir::Api` on the
+            // feature (method + path + output + policy + handler +
+            // locale_negotiate). Accepts both singular and plural to
+            // mirror `migrations`/`tenant_migrations`.
+            "api" | "apis" => set.apis = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, or aggregates"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, or apis"
             ),
         }
     }
@@ -5156,6 +5186,21 @@ struct InspectFeature {
     /// Every lifted `ir::Aggregate` on the feature. Roadmap §1.7.
     #[serde(skip_serializing_if = "Option::is_none")]
     aggregates: Option<Vec<InspectAggregate>>,
+    /// Phase L Tier 4b — populated only when `--expand=commands` is set.
+    /// Every lifted `ir::Command` on the feature, serialized verbatim
+    /// from IR so the projection stays in lockstep with the lowered
+    /// shape. Cross-feature checks (audit emit_to, policy resolution,
+    /// rate-limit shape) surface via doctor; this projection is the
+    /// per-feature observable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commands: Option<Vec<lazuli_ir::Command>>,
+    /// Phase L Tier 4b — populated only when `--expand=apis` (or
+    /// `--expand=api`) is set. Every lifted `ir::Api` on the feature.
+    /// Cross-feature path collision lives in doctor
+    /// (`agent_expose_path_conflict_cross_feature_diagnostics`); this
+    /// projection is the per-feature observable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    apis: Option<Vec<lazuli_ir::Api>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -5941,7 +5986,10 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         || expansions.tests
         || expansions.migrations
         || expansions.caches
-        || expansions.aggregates)
+        || expansions.aggregates
+        || expansions.defaults
+        || expansions.commands
+        || expansions.apis)
         && !is_lzx
     {
         collect_tier3_by_feature(source)
@@ -6016,6 +6064,8 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                     .iter()
                     .map(|r| r.name.clone())
                     .collect(),
+                commands: feature_ir.commands,
+                apis: feature_ir.apis,
             },
         );
     }
@@ -6054,6 +6104,15 @@ struct Tier3FeatureSlice {
     /// `applies_to` for `tenancy`/`timestamps` defaults without
     /// re-walking the source text.
     resource_names: Vec<String>,
+    /// Phase L Tier 4b — lifted `command <name>` declarations on the
+    /// feature. Powers `--expand=commands`; emitted verbatim from IR
+    /// so downstream consumers see the typed Command shape (with
+    /// audit, approval, invalidates, etc.) without re-deriving from
+    /// text.
+    commands: Vec<lazuli_ir::Command>,
+    /// Phase L Tier 4b — lifted `api <name>` declarations on the
+    /// feature. Powers `--expand=apis` (accepting `api` or `apis`).
+    apis: Vec<lazuli_ir::Api>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -6224,6 +6283,17 @@ fn inspect_feature(
     let caches_projection = expansions
         .caches
         .then(|| tier3.map(|t| t.caches.clone()).unwrap_or_default());
+    // Phase L Tier 4b — `--expand=commands` projects every lifted
+    // `ir::Command` on the feature. Empty arrays surface so consumers
+    // distinguish "flag not set" from "no commands declared".
+    let commands_projection = expansions
+        .commands
+        .then(|| tier3.map(|t| t.commands.clone()).unwrap_or_default());
+    // Phase L Tier 4b — `--expand=apis` projects every lifted
+    // `ir::Api` on the feature.
+    let apis_projection = expansions
+        .apis
+        .then(|| tier3.map(|t| t.apis.clone()).unwrap_or_default());
 
     InspectFeature {
         name,
@@ -6254,6 +6324,8 @@ fn inspect_feature(
         tenant_migrations: tenant_migrations_projection,
         caches: caches_projection,
         aggregates: aggregates_projection,
+        commands: commands_projection,
+        apis: apis_projection,
     }
 }
 
