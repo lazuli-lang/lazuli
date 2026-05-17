@@ -12,6 +12,21 @@
 //! imports `casing::{pascal_case, lower_camel}`. Acronym preservation
 //! (`api` → `API`, `id` → `ID`) lives here as a single closed table.
 
+/// Returns the Go package name for generated code under
+/// `dist/go/<feature>/`. The convention is `<feature>gen` to keep the
+/// generated package distinct from the user-authored `<feature>`
+/// package (which lives under `app/features/<feature>/` and contains
+/// handler implementations).
+///
+/// Two packages with the same name in different directories would
+/// conflict in Go (every import yields exactly one package); separating
+/// them lets user handlers import generated types without creating a
+/// circular dependency. See `docs/project-structure.md` for the full
+/// rationale.
+pub fn gen_package_name(feature: &str) -> String {
+    format!("{feature}gen")
+}
+
 /// Convert a DSL identifier to Go `PascalCase`. Splits on `_`/`-` and
 /// on case transitions inside the input, then uppercases the first
 /// letter of each segment. Recognised acronyms (`id`, `url`, …)
