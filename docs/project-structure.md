@@ -41,6 +41,16 @@ Three corollaries fall out of this:
   contract the file implements. Anything that isn't cited is not Lazuli
   territory, even if it's "about" the feature.
 
+- **Tier 2 holds every product delivery surface — Lazuli-aware *or*
+  polyglot.** A client is any self-contained TS/JS application that
+  ships to a user-visible deploy target. Most consume the generated
+  Lazuli SDK (`dist/ts-<name>/`) and are declared in
+  `Lazurite.toml [frontends.<name>]`. Some don't — an Astro marketing
+  site, a Storybook deploy, a pure-content microsite. **Polyglot
+  clients still live in `app/clients/<name>/`** for visual
+  consolidation; they just aren't declared in the manifest, and
+  Lazuli ignores them (passes the "compiler doesn't touch" test).
+
 - **Plural when the client has a contract distinct enough to justify
   its own bundle, deploy, and release cadence — not just a different
   audience.** Audience alone (admin vs. end-user) is solved by routes
@@ -143,7 +153,7 @@ The tags are stable across releases — a tier moving from `[partial]` to
 | Feature-owned concrete views | `app/features/<f>/<target>/views/<audience>/<view>.tsx` | Portable | `[partial]` — same pipeline as slot impls. |
 | App-level UI (routes, layouts, state, theme) | `app/web/src/...` (default) or `app/clients/<name>/src/...` (multi) | Client-specific | `[partial]` — Lazurite scaffold currently emits to `apps/<frontend>/`; pivot to `app/web/` default is in the framework roadmap. |
 | Feature UI mirror in app | `app/web/src/features/<f>/` (or `app/clients/<name>/src/features/<f>/` in multi) | Client-specific | `[partial]` — suggested convention; scaffold will enforce on next pivot. |
-| Cross-client TS shared (when multi appears) | `packages/shared/` | Outside Lazuli contract | `[planned]` — convention reserved; create when concrete sharing pain appears in a multi-client project. |
+| Cross-client TS shared (when multi appears) | `packages/<name>/` | Outside Lazuli contract | `[stable]` — pnpm/Turborepo convention. **Never abbreviate to `pkg/`** — collides with Go's standard `pkg/` library convention and confuses contributors in polyglot projects. |
 | App-wide i18n | `i18n/<name>.<locale>.json` | Portable | `[stable]` |
 | Custom scripts (CI, deploy, seed) | `scripts/` | Portable | `[stable]` |
 | Generated Go | `dist/go/<f>/*.gen.go` (package `<f>gen`) | Disposable | `[partial]` — today package is `<f>` and shares files with user handlers; the pivot to a dedicated `<f>gen` package is in the framework roadmap. |
