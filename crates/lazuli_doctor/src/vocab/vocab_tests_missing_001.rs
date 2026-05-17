@@ -131,6 +131,7 @@ mod tests {
             idempotency: None,
             write_window: None,
             deprecated: None,
+            handler: None,
             tests,
             previous_names: vec![],
             span_ref: None,

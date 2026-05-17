@@ -1719,6 +1719,7 @@ mod tests {
             idempotency: None,
             write_window: None,
             deprecated: None,
+            handler: None,
             tests: None,
             previous_names: Vec::new(),
             span_ref: None,

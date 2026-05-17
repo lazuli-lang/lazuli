@@ -23,7 +23,7 @@ use crate::GeneratedFile;
 /// top-level module emitter.
 pub fn emit_migrations(module: &Module, source_label: &str) -> Vec<GeneratedFile> {
     let cross_index = CrossFeatureIndex::build(module);
-    let mut resources: Vec<(&Feature, &Resource)> = module
+    let raw_resources: Vec<(&Feature, &Resource)> = module
         .features
         .iter()
         .flat_map(|feature| {
@@ -34,12 +34,12 @@ pub fn emit_migrations(module: &Module, source_label: &str) -> Vec<GeneratedFile
         })
         .collect();
 
-    resources.sort_by(|(feature_a, resource_a), (feature_b, resource_b)| {
-        feature_a
-            .name
-            .cmp(&feature_b.name)
-            .then_with(|| resource_a.name.cmp(&resource_b.name))
-    });
+    // WAR-RUNTIME-MIGRATION-03 — order resources so every FK target's
+    // CREATE TABLE runs BEFORE the referencing FOREIGN KEY constraint.
+    // Lexical (feature, resource) is the tiebreaker for resources with
+    // no dependency between them, so output stays stable when the
+    // dependency graph doesn't pin a relative order.
+    let resources = topo_sort_resources(module, &raw_resources, &cross_index);
 
     let mut files = Vec::with_capacity(resources.len() * 2 + 1);
 
@@ -643,6 +643,132 @@ fn unique_constraint_sql(constraint: &Constraint) -> Option<SqlColumn> {
     }
 
     Some(SqlColumn::raw(&format!("UNIQUE ({})", fields.join(", "))))
+}
+
+/// Kahn-style topo sort over (feature, resource) pairs. Edges run from
+/// referencing resource → FK target resource (target must come first).
+/// Ties break by lexical (feature, resource) order so output is stable
+/// for unrelated subgraphs. Cycles fall back to lexical order with a
+/// warning on stderr — a cycle in FK direction is a data-model bug the
+/// doctor should catch separately; codegen degrades gracefully so the
+/// emit still produces consumable migrations.
+fn topo_sort_resources<'a>(
+    module: &'a Module,
+    resources: &[(&'a Feature, &'a Resource)],
+    cross_index: &CrossFeatureIndex<'a>,
+) -> Vec<(&'a Feature, &'a Resource)> {
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    type Key = (String, String);
+
+    let key = |f: &Feature, r: &Resource| -> Key { (f.name.clone(), r.name.clone()) };
+
+    // Build lookup table from (feature, resource) → index into the input
+    // slice. Lexical key ordering is what BTreeMap provides natively, so
+    // we lean on it for the tiebreaker.
+    let mut by_key: BTreeMap<Key, usize> = BTreeMap::new();
+    for (idx, (feature, resource)) in resources.iter().enumerate() {
+        by_key.insert(key(feature, resource), idx);
+    }
+
+    // Adjacency: target_key → set of dependents. In-degree counts how
+    // many FK targets a resource still depends on.
+    let mut dependents: BTreeMap<Key, BTreeSet<Key>> = BTreeMap::new();
+    let mut in_degree: BTreeMap<Key, usize> = BTreeMap::new();
+    for (feature, resource) in resources {
+        in_degree.insert(key(feature, resource), 0);
+    }
+
+    for (feature, resource) in resources {
+        let dependent_key = key(feature, resource);
+        for field in &resource.fields {
+            let TypeRef::UserDefined(qname) = &field.type_ref else {
+                continue;
+            };
+            // Resolve target feature exactly the way `foreign_key_owner`
+            // does — same-feature and cross-feature both produce a FK.
+            let owner = match qname.feature.as_deref() {
+                Some(owner) => Some(owner.to_owned()),
+                None => cross_index.owner(&qname.name).map(str::to_owned),
+            };
+            let Some(owner) = owner else { continue };
+            if !feature_declares_resource(module, &owner, &qname.name) {
+                continue;
+            }
+            let target_key = (owner, qname.name.clone());
+            // Skip self-references — they don't change topo order and
+            // would otherwise show as a 1-node cycle.
+            if target_key == dependent_key {
+                continue;
+            }
+            let inserted = dependents
+                .entry(target_key)
+                .or_default()
+                .insert(dependent_key.clone());
+            if inserted {
+                *in_degree.entry(dependent_key.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Kahn's algorithm: ready queue holds zero-in-degree nodes sorted
+    // lexically. Pop the smallest, emit it, decrement in-degree of its
+    // dependents, requeue any that hit zero.
+    let mut ready: BTreeSet<Key> = in_degree
+        .iter()
+        .filter_map(|(k, &deg)| (deg == 0).then(|| k.clone()))
+        .collect();
+
+    let mut ordered: Vec<(&'a Feature, &'a Resource)> = Vec::with_capacity(resources.len());
+    let mut emitted: BTreeSet<Key> = BTreeSet::new();
+
+    while let Some(next_key) = ready.iter().next().cloned() {
+        ready.remove(&next_key);
+        if let Some(&idx) = by_key.get(&next_key) {
+            ordered.push(resources[idx]);
+            emitted.insert(next_key.clone());
+        }
+        if let Some(deps) = dependents.get(&next_key) {
+            for dependent in deps {
+                if let Some(deg) = in_degree.get_mut(dependent) {
+                    if *deg > 0 {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            ready.insert(dependent.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if ordered.len() != resources.len() {
+        // Cycle detected — append the remainder in lexical order so the
+        // emit completes. Doctor should flag the cycle separately; codegen
+        // refuses to silently drop tables.
+        eprintln!(
+            "warning: migration FK topo sort detected a cycle ({} of {} resources unresolved); falling back to lexical for the remainder",
+            resources.len() - ordered.len(),
+            resources.len()
+        );
+        let mut remainder: Vec<&Key> = in_degree
+            .keys()
+            .filter(|k| !emitted.contains(*k))
+            .collect();
+        remainder.sort();
+        for k in remainder {
+            if let Some(&idx) = by_key.get(k) {
+                ordered.push(resources[idx]);
+            }
+        }
+    }
+
+    let mut deque: VecDeque<(&'a Feature, &'a Resource)> = VecDeque::from(ordered);
+    let mut out: Vec<(&'a Feature, &'a Resource)> = Vec::with_capacity(deque.len());
+    while let Some(item) = deque.pop_front() {
+        out.push(item);
+    }
+    out
 }
 
 fn foreign_key_constraints<'a>(
@@ -1280,9 +1406,12 @@ DROP TABLE IF EXISTS \"customer\";
         ));
 
         let files = emit_migrations(&base_module(vec![org]), "saas");
+        // Topo-sorted: Workspace (no FK deps) emits first; Membership
+        // (depends on Workspace) follows. Look up by `_membership.sql`
+        // suffix so the test isn't coupled to the migration index.
         let membership_sql = files
             .iter()
-            .find(|file| file.path == "migrations/001_org_membership.sql")
+            .find(|file| file.path.ends_with("_org_membership.sql"))
             .map(|file| file.contents.as_str())
             .unwrap();
 
@@ -1293,6 +1422,22 @@ DROP TABLE IF EXISTS \"customer\";
         assert!(
             membership_sql.contains("FOREIGN KEY (workspace) REFERENCES \"workspace\" (id)"),
             "same-feature FK must reference the actual table; got:\n{membership_sql}"
+        );
+
+        // Topo invariant: the FK target's CREATE TABLE migration index
+        // must be smaller than the referencing one (otherwise applying
+        // the second fails with `relation "workspace" does not exist`).
+        let workspace_idx = files
+            .iter()
+            .position(|file| file.path.ends_with("_org_workspace.sql"))
+            .unwrap();
+        let membership_idx = files
+            .iter()
+            .position(|file| file.path.ends_with("_org_membership.sql"))
+            .unwrap();
+        assert!(
+            workspace_idx < membership_idx,
+            "FK target migration must precede the referencing migration: workspace at {workspace_idx}, membership at {membership_idx}"
         );
     }
 
@@ -1386,6 +1531,107 @@ DROP TABLE IF EXISTS \"customer\";
             referenced.contains("user") && referenced.contains("workspace"),
             "expected cross-feature FKs to `user` and `workspace`; got {:?}",
             referenced
+        );
+    }
+
+    #[test]
+    fn topological_fk_order_emits_targets_before_referencers() {
+        // WAR-RUNTIME-MIGRATION-03 regression. Build a cross-feature
+        // dependency graph where lexical order would put the
+        // referencing migration BEFORE its FK target — exercising the
+        // failure mode that the topo sort closes.
+        //
+        // Resources:
+        //   `zeta.Profile` (no deps)        — lexical last, topo any
+        //   `alpha.Comment` (FK → Profile)  — lexical first, would fail
+        //   `alpha.Vote`    (FK → Comment)  — chains a level deeper
+        //
+        // Pure lexical sort would write `001_alpha_comment.sql` first,
+        // attempting to point at `zeta.profile` before its table
+        // exists. Topo order must invert that.
+        let mut zeta = base_feature("zeta");
+        zeta.resources.push(resource(
+            "Profile",
+            vec![builtin("handle", BuiltinType::Text, true)],
+        ));
+        let mut alpha = base_feature("alpha");
+        alpha.resources.push(resource(
+            "Comment",
+            vec![field(
+                "author",
+                TypeRef::UserDefined(QualifiedName {
+                    feature: None,
+                    name: "Profile".to_owned(),
+                }),
+                true,
+            )],
+        ));
+        alpha.resources.push(resource(
+            "Vote",
+            vec![field(
+                "comment",
+                TypeRef::UserDefined(QualifiedName {
+                    feature: None,
+                    name: "Comment".to_owned(),
+                }),
+                true,
+            )],
+        ));
+
+        let files = emit_migrations(&base_module(vec![alpha, zeta]), "topo");
+
+        let pos = |suffix: &str| -> usize {
+            files
+                .iter()
+                .position(|file| file.path.ends_with(suffix))
+                .unwrap_or_else(|| panic!("expected file ending with {suffix}; got {:#?}",
+                    files.iter().map(|f| &f.path).collect::<Vec<_>>()))
+        };
+
+        let profile = pos("_zeta_profile.sql");
+        let comment = pos("_alpha_comment.sql");
+        let vote = pos("_alpha_vote.sql");
+
+        assert!(
+            profile < comment,
+            "profile (FK target) must precede comment (referencer); got profile={profile}, comment={comment}"
+        );
+        assert!(
+            comment < vote,
+            "comment (FK target) must precede vote (referencer); got comment={comment}, vote={vote}"
+        );
+    }
+
+    #[test]
+    fn topological_fk_order_falls_back_to_lexical_when_independent() {
+        // Two resources with no FK relationship between them — topo
+        // imposes no constraint, so the lexical (feature, resource)
+        // tiebreaker decides. Without this guarantee the output would
+        // be non-deterministic across runs.
+        let mut a = base_feature("alpha");
+        a.resources.push(resource(
+            "Account",
+            vec![builtin("name", BuiltinType::Text, true)],
+        ));
+        let mut b = base_feature("beta");
+        b.resources.push(resource(
+            "Bucket",
+            vec![builtin("label", BuiltinType::Text, true)],
+        ));
+
+        let files = emit_migrations(&base_module(vec![b, a]), "stable");
+
+        let account = files
+            .iter()
+            .position(|file| file.path.ends_with("_alpha_account.sql"))
+            .unwrap();
+        let bucket = files
+            .iter()
+            .position(|file| file.path.ends_with("_beta_bucket.sql"))
+            .unwrap();
+        assert!(
+            account < bucket,
+            "lexical tiebreaker should put alpha.account before beta.bucket; got account={account}, bucket={bucket}"
         );
     }
 
