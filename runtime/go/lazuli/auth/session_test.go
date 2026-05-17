@@ -21,7 +21,24 @@ type mockSessionDB struct {
 	rows map[string]mockStoredSession
 }
 
+// hexValue converts a single hex character (`0-9a-f`) to its int
+// value. Returns 0 for non-hex input so the synthesised session id
+// stays stable even when the token hash is malformed.
+func hexValue(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	default:
+		return 0
+	}
+}
+
 type mockStoredSession struct {
+	sessionID lazuli.ID
 	userID    lazuli.ID
 	expiresAt time.Time
 }
@@ -53,7 +70,24 @@ func (db *mockSessionDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		if !ok {
 			return pgconn.CommandTag{}, fmt.Errorf("insert expires_at type = %T", args[2])
 		}
-		db.rows[tokenHash] = mockStoredSession{userID: lazuli.ID(userID), expiresAt: expiresAt}
+		// Synthesise a stable session primary key from the hash so
+		// the ResolveSession SELECT (which now reads id) has a value
+		// to scan. The exact id is irrelevant for the test as long
+		// as it's non-zero and stable per token.
+		var fakeID lazuli.ID
+		if len(tokenHash) >= 8 {
+			for i := 0; i < 8; i++ {
+				fakeID = lazuli.ID(int64(fakeID)*16 + int64(hexValue(tokenHash[i])))
+			}
+		}
+		if fakeID == 0 {
+			fakeID = lazuli.ID(int64(len(db.rows)) + 1)
+		}
+		db.rows[tokenHash] = mockStoredSession{
+			sessionID: fakeID,
+			userID:    lazuli.ID(userID),
+			expiresAt: expiresAt,
+		}
 		return pgconn.NewCommandTag("INSERT 0 1"), nil
 	case strings.HasPrefix(sql, `DELETE FROM "session"`):
 		if len(args) != 1 {
@@ -75,7 +109,13 @@ func (db *mockSessionDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 }
 
 func (db *mockSessionDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
-	if !strings.HasPrefix(sql, `SELECT "user", expires_at FROM "session"`) {
+	// ResolveSession now selects the session primary key alongside
+	// the owning user + expiry so handlers can revoke their own
+	// session via `auth.InvalidateSessionByID(ctx, contract, ctx.SessionID)`
+	// (WAR-RUNTIME-CTX-01 closure). The mock matches the current SQL
+	// shape; if the production query grows or shrinks a column,
+	// update the prefix here and the Scan dest count below.
+	if !strings.HasPrefix(sql, `SELECT id, "user", expires_at FROM "session"`) {
 		return mockSessionRow{err: fmt.Errorf("unexpected query SQL: %s", sql)}
 	}
 	if len(args) != 1 {
@@ -89,10 +129,15 @@ func (db *mockSessionDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	if !ok {
 		return mockSessionRow{err: pgx.ErrNoRows}
 	}
-	return mockSessionRow{userID: row.userID, expiresAt: row.expiresAt}
+	return mockSessionRow{
+		sessionID: row.sessionID,
+		userID:    row.userID,
+		expiresAt: row.expiresAt,
+	}
 }
 
 type mockSessionRow struct {
+	sessionID lazuli.ID
 	userID    lazuli.ID
 	expiresAt time.Time
 	err       error
@@ -102,18 +147,35 @@ func (r mockSessionRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	if len(dest) != 2 {
+	if len(dest) != 3 {
 		return fmt.Errorf("scan dest count = %d", len(dest))
 	}
-	userID, ok := dest[0].(*int64)
+	sessionID, ok := dest[0].(*lazuli.ID)
 	if !ok {
-		return fmt.Errorf("scan user_id dest type = %T", dest[0])
+		// Fallback: codegen may use *int64 in some paths. Keep both
+		// types accepted so the mock stays robust to type evolution.
+		sessionIDInt, ok2 := dest[0].(*int64)
+		if !ok2 {
+			return fmt.Errorf("scan session_id dest type = %T", dest[0])
+		}
+		*sessionIDInt = int64(r.sessionID)
+	} else {
+		*sessionID = r.sessionID
 	}
-	expiresAt, ok := dest[1].(*time.Time)
+	userID, ok := dest[1].(*lazuli.ID)
 	if !ok {
-		return fmt.Errorf("scan expires_at dest type = %T", dest[1])
+		userIDInt, ok2 := dest[1].(*int64)
+		if !ok2 {
+			return fmt.Errorf("scan user_id dest type = %T", dest[1])
+		}
+		*userIDInt = int64(r.userID)
+	} else {
+		*userID = r.userID
 	}
-	*userID = int64(r.userID)
+	expiresAt, ok := dest[2].(*time.Time)
+	if !ok {
+		return fmt.Errorf("scan expires_at dest type = %T", dest[2])
+	}
 	*expiresAt = r.expiresAt
 	return nil
 }
