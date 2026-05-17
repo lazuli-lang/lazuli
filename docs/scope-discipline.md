@@ -121,8 +121,34 @@ The framework will NOT absorb (today, and as a matter of policy):
 - Specific deploy targets (Procfile, k8s manifest, container build). Apps own ops.
 - Specific frontend libraries' API shapes (a particular component-library's button props). Plugins or apps own these.
 - One-time legacy-port tooling (migrating from a specific predecessor ORM). One-off scripts, not framework features.
+- **CRDT / collaborative document sync** (Y.js, Hocuspocus, Automerge, server-side operational transform). 3-OSS evidence (Plane Hocuspocus + ToolJet Yjs gateway + AppFlowy CRDT-block) **confirms the plugin boundary holds**, not that it should move. See "no CRDT in core" boundary affirmation below.
 
 If you find yourself writing IR types or doctor rules named after a specific vendor, country, or product — you're outside the framework's scope. Stop.
+
+## Boundary affirmation — no CRDT in core (2026-05-17)
+
+The OSS Mirror Wave 1+2 audit (`lazuli-ops/docs/proposals/synth-oss-mirror-wave-1-2-2026-05-17.md` §Theme 2 + §3.E) surfaced three independent products implementing CRDT-style document sync:
+
+| Product | Library | Audit reference |
+|---|---|---|
+| Plane | Hocuspocus (Y.js-based) | `apps/live/src/hocuspocus.ts` — audit §pattern #12 |
+| ToolJet | Yjs gateway | `server/src/modules/events/yjs.gateway.ts` — audit §pattern #12 |
+| AppFlowy | CRDT block + awareness | `flowy-document/` cluster — audit §patterns #5, #8, #11, #12, #18 |
+
+Naive cross-pilot inference would read this as "3-OSS confirms Y.js belongs in core". The opposite is correct: **when three independent products use the same external library with the same plugin-adapter pattern, that is evidence the plugin boundary is correctly placed, not evidence the boundary should move.** Y.js is mature, vendor-stable, single-vendor, and the wire is well-known — exactly the shape `@plugin/*` was designed for.
+
+**The rule (canonical from 2026-05-17 forward):**
+
+> CRDT-style collaborative document sync (operational transform, conflict-free replicated data types, awareness/presence streams, doc-version vectors, undo/redo over replicated state) does NOT enter Lazuli core grammar. It lives in `@plugin/yjs`, `@plugin/hocuspocus`, `@plugin/automerge`, or product-specific plugin namespaces. The `channel <name>` primitive (`lazuli-ops/docs/proposals/bucket-realtime-scope.md`) is the closest the framework gets — typed messages over a tenant-scoped channel, NOT replicated document state.
+
+This rule applies even when:
+- A pilot ships CRDT functionality via plugin (the plugin is the answer; do not "graduate" it into core).
+- A fourth, fifth, or Nth OSS product adds CRDT (the rule's premise is shape-stability, not popularity).
+- Lazuli's own future tooling needs collaborative editing for its own DSL (the LSP/editor uses `@plugin/*` like any other consumer).
+
+The boundary affirmation is a **deletion**, not a deferral. The previously-deferred `presence` / `coedit channel kind` / `doc_sync` entries in `bucket-realtime-scope.md` MVP are not "waiting for ≥3 confirmations"; they are **rejected on principle** and the 3-OSS evidence is the citation.
+
+If a future proposal contradicts this rule, the proposal must cite this section, articulate why the wire-thin principle no longer applies, and re-grade `scope-discipline.md` itself — not merely add a sibling primitive.
 
 ## When the boundary moves
 
