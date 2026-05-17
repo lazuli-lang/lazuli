@@ -574,6 +574,16 @@ struct ExpandSet {
     /// `ir::Api` on the feature (method + path + output + policy +
     /// handler + locale_negotiate). Accepts `api` or `apis` token.
     apis: bool,
+    /// Phase L Tier 4c — `--expand=resources` projects every lifted
+    /// `ir::Resource` on the feature (fields + retention + has_many
+    /// + constraints + validate + previous_names). Mirrors `commands`.
+    resources: bool,
+    /// Phase L Tier 4d — `--expand=queries` projects every lifted
+    /// `ir::Query` on the feature (`List`/`Lookup`/`Sql` variants).
+    queries: bool,
+    /// Phase L Tier 4d — `--expand=records` projects every lifted
+    /// `ir::Record` on the feature (fields + discriminator_field).
+    records: bool,
 }
 
 impl ExpandSet {
@@ -606,6 +616,9 @@ impl ExpandSet {
             aggregates: true,
             commands: true,
             apis: true,
+            resources: true,
+            queries: true,
+            records: true,
         }
     }
 
@@ -637,6 +650,9 @@ impl ExpandSet {
             || self.aggregates
             || self.commands
             || self.apis
+            || self.resources
+            || self.queries
+            || self.records
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -721,6 +737,15 @@ impl ExpandSet {
         }
         if self.apis {
             labels.push("apis");
+        }
+        if self.resources {
+            labels.push("resources");
+        }
+        if self.queries {
+            labels.push("queries");
+        }
+        if self.records {
+            labels.push("records");
         }
         labels
     }
@@ -5054,8 +5079,18 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // locale_negotiate). Accepts both singular and plural to
             // mirror `migrations`/`tenant_migrations`.
             "api" | "apis" => set.apis = true,
+            // Phase L Tier 4c — projects every lifted `ir::Resource`
+            // on the feature (fields + retention + has_many +
+            // constraints + validate + previous_names).
+            "resources" => set.resources = true,
+            // Phase L Tier 4d — projects every lifted `ir::Query`
+            // on the feature (List / Lookup / Sql variants).
+            "queries" => set.queries = true,
+            // Phase L Tier 4d — projects every lifted `ir::Record`
+            // on the feature (fields + discriminator_field).
+            "records" => set.records = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, or apis"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, or records"
             ),
         }
     }
@@ -5201,6 +5236,23 @@ struct InspectFeature {
     /// projection is the per-feature observable.
     #[serde(skip_serializing_if = "Option::is_none")]
     apis: Option<Vec<lazuli_ir::Api>>,
+    /// Phase L Tier 4c — populated only when `--expand=resources` is
+    /// set. Every lifted `ir::Resource` on the feature, serialized
+    /// verbatim (fields with typed capability + semantic + pii
+    /// decorators, `retention`, `has_many`, `constraints`,
+    /// `validate`, `previous_names`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resources: Option<Vec<lazuli_ir::Resource>>,
+    /// Phase L Tier 4d — populated only when `--expand=queries` is
+    /// set. Every lifted `ir::Query` on the feature (`List`/`Lookup`/
+    /// `Sql` variants, each with their full v0 child coverage).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    queries: Option<Vec<lazuli_ir::Query>>,
+    /// Phase L Tier 4d — populated only when `--expand=records` is
+    /// set. Every lifted `ir::Record` on the feature (fields +
+    /// optional discriminator_field marker).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    records: Option<Vec<lazuli_ir::Record>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -5989,7 +6041,10 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         || expansions.aggregates
         || expansions.defaults
         || expansions.commands
-        || expansions.apis)
+        || expansions.apis
+        || expansions.resources
+        || expansions.queries
+        || expansions.records)
         && !is_lzx
     {
         collect_tier3_by_feature(source)
@@ -6066,6 +6121,9 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                     .collect(),
                 commands: feature_ir.commands,
                 apis: feature_ir.apis,
+                resources: feature_ir.resources,
+                queries: feature_ir.queries,
+                records: feature_ir.records,
             },
         );
     }
@@ -6113,6 +6171,15 @@ struct Tier3FeatureSlice {
     /// Phase L Tier 4b — lifted `api <name>` declarations on the
     /// feature. Powers `--expand=apis` (accepting `api` or `apis`).
     apis: Vec<lazuli_ir::Api>,
+    /// Phase L Tier 4c — lifted `resource <Name>` declarations on the
+    /// feature. Powers `--expand=resources`.
+    resources: Vec<lazuli_ir::Resource>,
+    /// Phase L Tier 4d — lifted `query.{list,lookup,sql}` declarations
+    /// on the feature. Powers `--expand=queries`.
+    queries: Vec<lazuli_ir::Query>,
+    /// Phase L Tier 4d — lifted `record <Name>` declarations on the
+    /// feature. Powers `--expand=records`.
+    records: Vec<lazuli_ir::Record>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -6294,6 +6361,21 @@ fn inspect_feature(
     let apis_projection = expansions
         .apis
         .then(|| tier3.map(|t| t.apis.clone()).unwrap_or_default());
+    // Phase L Tier 4c — `--expand=resources` projects every lifted
+    // `ir::Resource` on the feature.
+    let resources_projection = expansions
+        .resources
+        .then(|| tier3.map(|t| t.resources.clone()).unwrap_or_default());
+    // Phase L Tier 4d — `--expand=queries` projects every lifted
+    // `ir::Query` on the feature.
+    let queries_projection = expansions
+        .queries
+        .then(|| tier3.map(|t| t.queries.clone()).unwrap_or_default());
+    // Phase L Tier 4d — `--expand=records` projects every lifted
+    // `ir::Record` on the feature.
+    let records_projection = expansions
+        .records
+        .then(|| tier3.map(|t| t.records.clone()).unwrap_or_default());
 
     InspectFeature {
         name,
@@ -6326,6 +6408,9 @@ fn inspect_feature(
         aggregates: aggregates_projection,
         commands: commands_projection,
         apis: apis_projection,
+        resources: resources_projection,
+        queries: queries_projection,
+        records: records_projection,
     }
 }
 
