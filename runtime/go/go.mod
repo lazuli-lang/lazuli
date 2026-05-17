@@ -16,6 +16,7 @@ require (
 	github.com/riverqueue/river v0.37.0
 	github.com/riverqueue/river/rivertype v0.37.0
 	github.com/sendgrid/sendgrid-go v3.16.0+incompatible
+	github.com/tidwall/gjson v1.19.0
 	github.com/xuri/excelize/v2 v2.10.1
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0
@@ -61,7 +62,6 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect

@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +12,24 @@ import (
 	"lazuli.dev/runtime/lazuli/report"
 	"lazuli.dev/runtime/lazuli/webhooks"
 )
+
+// init wires the eventbus publisher into the webhooks package so the
+// receiver can fire `Emits` on successful dispatch without taking a
+// direct lazuli import (which would create a cycle: lazuli ↔ webhooks).
+func init() {
+	webhooks.RegisterEventPublisher(func(
+		ctx context.Context,
+		name string,
+		payload map[string]any,
+		occurredAt time.Time,
+	) {
+		Publish(ctx, Event{
+			Name:       name,
+			Payload:    payload,
+			OccurredAt: occurredAt,
+		})
+	})
+}
 
 // Mux returns an http.Handler that exposes every registered command and
 // query as a typed endpoint. Routes:

@@ -18,6 +18,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // ThrottleStore gates dispatches per the contract's
@@ -46,15 +48,15 @@ type ThrottleKey struct {
 }
 
 // MemoryThrottleStore is the in-process reference implementation.
-// It uses a fixed-window approximation of a token bucket: each key
-// gets `Burst + (Refills since open)` tokens up to `Burst`,
-// refilling one token every `MaxPer / 1` (i.e. the full window
-// refills the bucket from empty). The approximation is precise
-// enough for `testing/synctest` and reference scenarios; production
-// adapters can swap in a leaky-bucket / sliding-window backend.
+// Wire-thin: delegates rate decisions to `golang.org/x/time/rate`
+// (`rate.Limiter` per bucket). Each key gets a limiter with a refill
+// of one token per `MaxPer / Burst` and a `Burst` ceiling, so a
+// freshly-opened bucket admits `Burst` tokens immediately and
+// refills smoothly over `MaxPer`. Goroutine-safe (the rate.Limiter
+// is, and the map allocation is gated by sync.Mutex).
 type MemoryThrottleStore struct {
-	mu      sync.Mutex
-	buckets map[memoryThrottleKey]*memoryThrottleBucket
+	mu       sync.Mutex
+	limiters map[memoryThrottleKey]*rate.Limiter
 }
 
 type memoryThrottleKey struct {
@@ -63,16 +65,10 @@ type memoryThrottleKey struct {
 	channel      Channel
 }
 
-type memoryThrottleBucket struct {
-	tokens     uint32
-	updatedAt  time.Time
-	windowSpan time.Duration
-}
-
 // NewMemoryThrottleStore returns an empty in-process throttle store.
 func NewMemoryThrottleStore() *MemoryThrottleStore {
 	return &MemoryThrottleStore{
-		buckets: make(map[memoryThrottleKey]*memoryThrottleBucket),
+		limiters: make(map[memoryThrottleKey]*rate.Limiter),
 	}
 }
 
@@ -86,57 +82,46 @@ func (m *MemoryThrottleStore) Allow(
 	if err != nil {
 		return false, time.Time{}, err
 	}
-	burst := spec.Burst
+	burst := int(spec.Burst)
 	if burst == 0 {
 		// Without an explicit burst the bucket starts at 1 — i.e.
 		// one immediate dispatch per window before throttling.
 		burst = 1
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	mk := memoryThrottleKey{
 		notification: key.Notification,
 		recipient:    key.Recipient,
 		channel:      key.Channel,
 	}
-	bucket, ok := m.buckets[mk]
-	now := time.Now()
+
+	m.mu.Lock()
+	limiter, ok := m.limiters[mk]
 	if !ok {
-		bucket = &memoryThrottleBucket{
-			tokens:     burst,
-			updatedAt:  now,
-			windowSpan: window,
-		}
-		m.buckets[mk] = bucket
-	} else {
-		// Refill: one full window adds `burst` tokens, capped at
-		// `burst`. Partial windows refill proportionally rounded
-		// down.
-		elapsed := now.Sub(bucket.updatedAt)
-		if elapsed >= bucket.windowSpan {
-			refills := uint32(elapsed / bucket.windowSpan)
-			bucket.tokens = saturatingAdd(bucket.tokens, refills*burst, burst)
-			bucket.updatedAt = now
-		}
+		// One token per `window / burst` interval, capped at `burst`.
+		// `rate.Every` returns `rate.Limit` such that `Burst` tokens
+		// accumulate over `window`.
+		interval := window / time.Duration(burst)
+		limiter = rate.NewLimiter(rate.Every(interval), burst)
+		m.limiters[mk] = limiter
 	}
+	m.mu.Unlock()
 
-	if bucket.tokens == 0 {
-		retryAt := bucket.updatedAt.Add(bucket.windowSpan)
-		return false, retryAt, ErrThrottleExceeded
+	now := time.Now()
+	r := limiter.ReserveN(now, 1)
+	if !r.OK() {
+		// Cannot reserve at all (event count > burst). Should not
+		// happen for N=1 unless burst==0, which we coerce above.
+		return false, time.Time{}, ErrThrottleExceeded
 	}
-	bucket.tokens--
-	return true, time.Time{}, nil
-}
-
-// saturatingAdd adds `delta` to `current`, clamped at `ceiling`.
-func saturatingAdd(current, delta, ceiling uint32) uint32 {
-	sum := current + delta
-	if sum < current || sum > ceiling {
-		return ceiling
+	delay := r.DelayFrom(now)
+	if delay == 0 {
+		return true, time.Time{}, nil
 	}
-	return sum
+	// Bucket exhausted — release the reservation so the caller's
+	// rejection does not consume a future token slot.
+	r.CancelAt(now)
+	return false, now.Add(delay), ErrThrottleExceeded
 }
 
 // parseDuration accepts the same shape the DSL allows:
