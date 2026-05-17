@@ -88,9 +88,32 @@ Canon references (Lazuli framework repo):
 - `docs/invariants.md` — closed grammar/IR constraints
 - `docs/plugin-authoring.md` — when adding a `@plugin/<name>` adapter
 
+## What's auto-wired vs. authored
+
+The framework owns all the boilerplate for routing, registration, and policy
+expansion. You should NOT be hand-writing any of this in `dist/go/`:
+
+| Concern | Owner | Where it lives |
+|---|---|---|
+| `lazuli.Register(&cmd, &query, ...)` | codegen | `dist/go/<feature>/register.gen.go` (auto) |
+| `cmd.Effect = lazuli.Returns(HandlerFn)` | codegen | inside `command.gen.go` `Effect:` field (auto from `handler @fn.X`) |
+| `lazuli.Policy{Atoms: [...]}` expansion | codegen | inside `command.gen.go` / `query.gen.go` / `api.gen.go` (auto from `policies` block) |
+| `ctx.now`, `ctx.user.org_id`, `actor.*` lookup | runtime | `readCtx` in `lazuli/handle.go` (auto resolves) |
+| `@fn.<name>` binding fn lookup | runtime | `RegisterBindingFn` registry (you register, runtime resolves) |
+| Migration FK ordering | codegen | `dist/go/migrations/<NNN>_<feature>_<resource>.sql` topo-sorted (auto) |
+
+If you find yourself writing `<cmd>.Effect = lazuli.Returns(...)` or a
+`patchPolicy()` shim in `dist/go/`, **stop** — that's a framework
+workaround that should be filed as a WAR (workaround) ticket upstream.
+Hand-written `dist/go/<feature>/register.go` (without `.gen.`) is the
+escape hatch for things the framework doesn't yet auto-wire (today: only
+`webhooks.Register(&contract, handler)`); the rest of register.gen.go
+is fully generated.
+
 ## Do not
 
 - Edit `dist/` directly — regen overwrites.
+- Hand-write `<cmd>.Effect = lazuli.Returns(...)` or `<cmd>.Policy.Atoms = [...]` in `dist/go/` — file an upstream WAR instead.
 - Add Go files outside `features/<x>/handlers/`, `features/<x>/domain/`, etc. — adapters belong in plugins.
 - Commit with `lazuli doctor .` showing unsuppressed findings.
 - Use `git commit --no-verify` to bypass pre-commit hooks (if any).
