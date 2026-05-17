@@ -281,6 +281,7 @@ fn emit_command(
         .collect();
     emit_effect(
         p,
+        &feature.name,
         &command.name,
         &command.effect,
         command.handler.as_ref(),
@@ -512,13 +513,24 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
 }
 
 /// Emit the Effect literal — picks one of Lazuli Go lib's `Creates`,
-/// `Updates`, `Deletes`, or `Returns` builders. When the IR carries no
-/// declarative effect but a `handler @fn.<name>` is declared, render the
-/// `Returns` shape pointing at the user's handler — this closes
-/// WAR-RUNTIME-COMMAND-01 (Effect half) so consumers no longer need to
-/// hand-patch `<cmd>.Effect = lazuli.Returns(Handler)` at init.
+/// `Updates`, `Deletes`, or `Returns` builders.
+///
+/// For `Returns` and `None+handler` paths, emit
+/// `lazuli.ReturnsFromRegistry[I, O]("<feature>.<name>")` instead of
+/// the legacy `lazuli.Returns(<Handler>)` direct reference. The
+/// registry indirection lets gen code resolve user handlers at
+/// dispatch time without importing user packages — keeping
+/// `dist/go/<f>/*.gen.go` (package `<f>gen`) free of cycles into
+/// `app/features/<f>/*.go` (package `<f>`).
+///
+/// The qualified registry name follows the convention
+/// `<feature>.<command_name>` (or `<feature>.<handler_name>` when a
+/// `handler @fn.X` ref is present and differs from the command name).
+/// Matching `lazuli.RegisterFn(name, fn)` calls are emitted by the
+/// stub generator in `emitter/handlers.rs` and by user code.
 fn emit_effect(
     p: &mut GoPrinter,
+    feature_name: &str,
     command_name: &str,
     effect: &CommandEffect,
     handler: Option<&HandlerRef>,
@@ -535,25 +547,37 @@ fn emit_effect(
         CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete),
         CommandEffect::Returns(ret) => {
             let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
-            let handler_name = handler_fn_name(handler).unwrap_or_else(|| pascal_case(command_name));
-            // Handlers live in the same Go package as the feature so the
-            // returned handler value is referenced bare (no `handlers.`
-            // qualifier). See `emitter/handlers.rs` module docs.
-            p.line(&format!("Effect: lazuli.Returns({handler_name}),"));
+            // Prefer explicit handler ref name (handler @fn.<name>)
+            // when present; fall back to the command name. Either way
+            // the registry name is `<feature>.<name>` so dispatches
+            // don't collide across features.
+            let handler_short = handler_ref_name(handler).unwrap_or_else(|| command_name.to_owned());
+            let qualified = format!("{feature_name}.{handler_short}");
             p.line(&format!(
-                "// Wire {handler_name} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`"
+                "Effect: lazuli.ReturnsFromRegistry[{input_type}, {return_type}](\"{qualified}\"),"
+            ));
+            p.line(&format!(
+                "// Wire {pascal} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`",
+                pascal = pascal_case(&handler_short),
+            ));
+            p.line(&format!(
+                "// then register with `lazuli.RegisterFn(\"{qualified}\", {pascal})` at init().",
+                pascal = pascal_case(&handler_short),
             ));
         }
         CommandEffect::None => {
-            if let Some(handler_name) = handler_fn_name(handler) {
-                // `handler @fn.<name>` declared but no `creates`/`updates`/
-                // `deletes`/`returns` body — runtime invokes the user
-                // handler and returns its value. The Go fn signature
-                // returns `(any, error)` since IR has no explicit return
-                // type; user fn can shape its own return type.
-                p.line(&format!("Effect: lazuli.Returns({handler_name}),"));
+            if let Some(handler_short) = handler_ref_name(handler) {
+                let qualified = format!("{feature_name}.{handler_short}");
                 p.line(&format!(
-                    "// Wire {handler_name} as `func(ctx *lazuli.Ctx, input {input_type}) (any, error)`"
+                    "Effect: lazuli.ReturnsFromRegistry[{input_type}, any](\"{qualified}\"),"
+                ));
+                p.line(&format!(
+                    "// Wire {pascal} as `func(ctx *lazuli.Ctx, input {input_type}) (any, error)`",
+                    pascal = pascal_case(&handler_short),
+                ));
+                p.line(&format!(
+                    "// then register with `lazuli.RegisterFn(\"{qualified}\", {pascal})` at init().",
+                    pascal = pascal_case(&handler_short),
                 ));
             } else {
                 p.line("Effect: nil,");
@@ -563,15 +587,14 @@ fn emit_effect(
     }
 }
 
-/// Translate a `handler @fn.<name>` reference into the Go func name the
-/// runtime expects (PascalCase of the fn name). Returns `None` for file
-/// handlers (`handler "./path.go"`) or absent handlers — callers fall
-/// back to the command-name-derived name for the existing `Returns`
-/// path.
-fn handler_fn_name(handler: Option<&HandlerRef>) -> Option<String> {
+/// Extract the short handler name from a `handler @fn.<name>` ref.
+/// File handlers (`handler "./path.go"`, namespace `path`) and absent
+/// handlers return `None` — callers fall back to the command name for
+/// the qualified registry key.
+fn handler_ref_name(handler: Option<&HandlerRef>) -> Option<String> {
     let h = handler?;
     if h.namespace == "fn" {
-        Some(pascal_case(&h.name))
+        Some(h.name.clone())
     } else {
         None
     }
@@ -2054,10 +2077,15 @@ mod tests {
         // and no qualifier on the handler value.
         assert!(!out.contains("\"lazuli/test/customer/handlers\""));
         assert!(out.contains("var summaryResult = lazuli.Command[SummaryResultInput, string]{"));
-        assert!(out.contains("Effect: lazuli.Returns(Summary),"));
+        assert!(out.contains(
+            "Effect: lazuli.ReturnsFromRegistry[SummaryResultInput, string](\"customer.summary\"),"
+        ));
         assert!(!out.contains("Effect: lazuli.Returns(handlers.Summary),"));
         assert!(out.contains(
             "// Wire Summary as `func(ctx *lazuli.Ctx, input SummaryResultInput) (string, error)`"
+        ));
+        assert!(out.contains(
+            "// then register with `lazuli.RegisterFn(\"customer.summary\", Summary)` at init()."
         ));
         assert!(!out.contains("TODO(returns):"));
     }
