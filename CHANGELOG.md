@@ -48,6 +48,24 @@ Every `LZIR_SCHEMA` bump must ship a paired
   Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
   pilot 2026-05-17 capability matrix. Resources without a matching
   column silently skip (defense-in-depth opt-in). (`c0a4609`)
+- **`@scope.self` atom — ctx-as-key WHERE.** When the policy includes
+  `@scope.self`, codegen binds the row's `id` directly to
+  `ctx.user.id` (the acting user IS the target row). Suppresses the
+  route/input id binding to avoid double-binding. Unblocks
+  `account.choose_role` per the hostpoint Phase 4 audit. (`14e2642`)
+- **Bulk-delete mode for `@scope.*` policies.** When a `deletes`
+  command has NO route and `Command.input` is `Empty` AND a scope
+  atom is present, codegen drops the legacy `{"id": FromInput("ID")}`
+  fallback. SQL composes `DELETE WHERE <scope_col> = $N AND <tenancy>`
+  without per-row id constraint, surfacing a `// bulk: ...` comment.
+  Unblocks `account.logout`. (`14e2642`)
+- **`field_derived_from_unresolved` doctor lint (Tier 4c).** Warns
+  when a resource field's `derived from <expr>` references
+  identifiers that don't resolve to sibling fields on the same
+  resource. Tokenises the expression, drops keywords / numerics /
+  string literals / dotted paths, checks each remaining bare
+  identifier against the resource's fields. First of three net-new
+  Tier 4c lints per the naming-reconciliation proposal. (`4b03b66`)
 - **Alt-key WHERE binding for `Updates` / `Deletes` codegen.** New
   `resolve_where_keys` helper picks the WHERE binding from
   `Command.route` (composite key for multi-route commands) OR a
