@@ -1072,6 +1072,16 @@ pub struct Command {
     /// sunset "..."]`. `None` for live commands; `Some` for those flagged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deprecated: Option<Deprecation>,
+    /// `handler @fn.<name>` or `handler "./path.go"` escape hatch.
+    /// `None` for commands fully described by their declarative body
+    /// (`creates`/`updates`/`deletes`/`returns` with no user code).
+    ///
+    /// When set with `effect == None`, the runtime treats the command as
+    /// a pure-read invocation routed to the user's Go handler — codegen
+    /// emits `Effect: lazuli.Returns(<PascalCase(name)>)` instead of
+    /// `Effect: nil` (closes WAR-RUNTIME-COMMAND-01 Effect half).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handler: Option<HandlerRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests: Option<TestBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

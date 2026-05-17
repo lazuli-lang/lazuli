@@ -47,7 +47,7 @@
 use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
-    Feature, Gate, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
+    Feature, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
     LifecycleTransition, NamedArg, Path, Policies, PolicyExpr, PolicyRef, QualifiedName, Resource,
     RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
 };
@@ -283,6 +283,7 @@ fn emit_command(
         p,
         &command.name,
         &command.effect,
+        command.handler.as_ref(),
         &input_type,
         ctx,
         &let_bindings,
@@ -511,11 +512,16 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
 }
 
 /// Emit the Effect literal — picks one of Lazuli Go lib's `Creates`,
-/// `Updates`, `Deletes`, or `Returns` builders.
+/// `Updates`, `Deletes`, or `Returns` builders. When the IR carries no
+/// declarative effect but a `handler @fn.<name>` is declared, render the
+/// `Returns` shape pointing at the user's handler — this closes
+/// WAR-RUNTIME-COMMAND-01 (Effect half) so consumers no longer need to
+/// hand-patch `<cmd>.Effect = lazuli.Returns(Handler)` at init.
 fn emit_effect(
     p: &mut GoPrinter,
     command_name: &str,
     effect: &CommandEffect,
+    handler: Option<&HandlerRef>,
     input_type: &str,
     ctx: &TypeCtx<'_>,
     let_bindings: &BTreeMap<&str, &Expr>,
@@ -529,19 +535,45 @@ fn emit_effect(
         CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete),
         CommandEffect::Returns(ret) => {
             let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
-            let handler = pascal_case(command_name);
+            let handler_name = handler_fn_name(handler).unwrap_or_else(|| pascal_case(command_name));
             // Handlers live in the same Go package as the feature so the
             // returned handler value is referenced bare (no `handlers.`
             // qualifier). See `emitter/handlers.rs` module docs.
-            p.line(&format!("Effect: lazuli.Returns({handler}),"));
+            p.line(&format!("Effect: lazuli.Returns({handler_name}),"));
             p.line(&format!(
-                "// Wire {handler} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`"
+                "// Wire {handler_name} as `func(ctx *lazuli.Ctx, input {input_type}) ({return_type}, error)`"
             ));
         }
         CommandEffect::None => {
-            p.line("Effect: nil,");
-            p.line("// No-effect commands are pure-read legacy APIs invoked via command.Invoke.");
+            if let Some(handler_name) = handler_fn_name(handler) {
+                // `handler @fn.<name>` declared but no `creates`/`updates`/
+                // `deletes`/`returns` body — runtime invokes the user
+                // handler and returns its value. The Go fn signature
+                // returns `(any, error)` since IR has no explicit return
+                // type; user fn can shape its own return type.
+                p.line(&format!("Effect: lazuli.Returns({handler_name}),"));
+                p.line(&format!(
+                    "// Wire {handler_name} as `func(ctx *lazuli.Ctx, input {input_type}) (any, error)`"
+                ));
+            } else {
+                p.line("Effect: nil,");
+                p.line("// No-effect commands are pure-read legacy APIs invoked via command.Invoke.");
+            }
         }
+    }
+}
+
+/// Translate a `handler @fn.<name>` reference into the Go func name the
+/// runtime expects (PascalCase of the fn name). Returns `None` for file
+/// handlers (`handler "./path.go"`) or absent handlers — callers fall
+/// back to the command-name-derived name for the existing `Returns`
+/// path.
+fn handler_fn_name(handler: Option<&HandlerRef>) -> Option<String> {
+    let h = handler?;
+    if h.namespace == "fn" {
+        Some(pascal_case(&h.name))
+    } else {
+        None
     }
 }
 

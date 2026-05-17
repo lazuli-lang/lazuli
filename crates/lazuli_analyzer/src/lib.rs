@@ -1169,6 +1169,7 @@ fn lower_command(
         idempotency: None,
         write_window: None,
         deprecated: None,
+        handler: None,
         tests: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(command.span)),
@@ -3270,6 +3271,27 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         span_ref: Some(span_of(w.span)),
     });
     let policy_expr = c.policy_expr.as_ref().map(lower_policy_expr);
+    // WAR-RUNTIME-COMMAND-01 (Effect half): lift `handler @fn.<name>`
+    // into the typed `HandlerRef`. `handler "./path.go"` (file escape
+    // hatch) lifts as namespace=`path`, name=verbatim path. Codegen uses
+    // the `fn` form to auto-wire `Effect: lazuli.Returns(...)` when the
+    // declarative body has no other effect.
+    let handler = c.handler.as_ref().map(|h| {
+        let path = h.path.trim();
+        if let Some(name) = path.strip_prefix("@fn.") {
+            ir::HandlerRef {
+                namespace: "fn".to_owned(),
+                name: name.to_owned(),
+                span_ref: Some(span_of(c.span)),
+            }
+        } else {
+            ir::HandlerRef {
+                namespace: "path".to_owned(),
+                name: path.to_owned(),
+                span_ref: Some(span_of(c.span)),
+            }
+        }
+    });
     Ok(ir::Command {
         name: c.name.clone(),
         public_contract: lower_public_contract(&c.public_contract),
@@ -3292,6 +3314,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         idempotency,
         write_window,
         deprecated,
+        handler,
         tests: None,
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
