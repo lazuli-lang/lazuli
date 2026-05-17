@@ -1010,10 +1010,13 @@ impl DoctorPackage {
 
         // Observability bucket cycle row 37 — `audit emit_to`
         // resolution, `event.trace level` closed catalog, and health
-        // probe path shape.
+        // probe path shape. Phase L Tier 4b — `audit emit_to` for
+        // commands is now IR-driven via `tier3_facts`; the text walker
+        // is narrowed to skip command bodies.
         diagnostics.extend(audit_event_health_diagnostics(
             &self.files,
             self.app.as_ref(),
+            &self.tier3_facts,
         ));
         diagnostics.extend(resource_policy_and_command_audit_hints(
             &self.tier3_facts,
@@ -10560,16 +10563,67 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
 const TRACE_LEVEL_CATALOG: &[&str] = LOG_LEVEL_CATALOG;
 const RESERVED_AUDIT_STREAMS: &[&str] = &["audit_log", "audit_stream"];
 
+/// Phase L Tier 4b — find the `emit_to <target>` line inside the body
+/// of a construct whose header is at `header_line` (1-indexed). Returns
+/// `(line_1_indexed, column_1_indexed)`. Used by the IR-driven
+/// `audit emit_to` walker to anchor diagnostics at the exact source
+/// location even when the IR side only carries the construct header.
+fn locate_emit_to_line(
+    path: &Path,
+    files: &[DoctorFile],
+    header_line: usize,
+    target: &str,
+) -> Option<(usize, usize)> {
+    let file = files.iter().find(|f| f.path == path)?;
+    let lines: Vec<&str> = file.source.lines().collect();
+    if header_line == 0 || header_line > lines.len() {
+        return None;
+    }
+    let header_indent = leading_spaces(lines[header_line - 1]);
+    let needle = format!("emit_to {target}");
+    for (offset, line) in lines.iter().enumerate().skip(header_line) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        // Stop at sibling or higher-level construct.
+        if indent <= header_indent {
+            return None;
+        }
+        if trimmed == needle || trimmed.starts_with(&needle) {
+            return Some((offset + 1, indent + 1));
+        }
+    }
+    None
+}
+
 fn audit_event_health_diagnostics(
     files: &[DoctorFile],
     app: Option<&DoctorAppManifest>,
+    tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
-    // `event_group` names per feature (text-walk; the canonical-indent
-    // slice does not yet cover commands/event_groups — see Phase L
-    // row 24). Each entry is `(feature_name, event_group_name)`.
+    // Phase L Tier 4b — build the feature → event-group lookup from
+    // both IR (`tier3_facts`) and text-walk (for features that don't
+    // lower through the canonical-indent slice). IR takes precedence
+    // when a feature appears in both.
     let mut feature_event_groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for fact in tier3_facts {
+        let entry = feature_event_groups
+            .entry(fact.feature.clone())
+            .or_default();
+        for group in &fact.event_groups {
+            // `EventGroup.pattern` is the whole `<name> *` or `<glob>`
+            // pattern as authored. `emit_to` references the first
+            // whitespace token (the group's name), matching the
+            // historical text-walker behaviour.
+            if let Some(name) = group.pattern.split_whitespace().next() {
+                entry.insert(name.to_owned());
+            }
+        }
+    }
     for file in files {
         if !is_lzi_path(&file.path) {
             continue;
@@ -10601,9 +10655,64 @@ fn audit_event_health_diagnostics(
         }
     }
 
-    // `audit ... emit_to <X>` checks. The slot lives at indent +2
-    // below the `audit <fields>` line inside a command/job/webhook
-    // body.
+    // Phase L Tier 4b — IR-driven `audit emit_to` resolution for
+    // commands. Walks `Command.audit.emit_to` directly; anchors the
+    // diagnostic at the `emit_to <target>` line inside the command
+    // body by scanning the source range starting at the command
+    // header. Retires the text-walker branch for command bodies.
+    let mut command_audit_keys: BTreeSet<(PathBuf, usize)> = BTreeSet::new();
+    for fact in tier3_facts {
+        for command in &fact.commands {
+            let Some(audit) = command.audit.as_ref() else {
+                continue;
+            };
+            let Some(target) = audit.emit_to.as_deref() else {
+                continue;
+            };
+            let allowed_set = feature_event_groups.get(&fact.feature);
+            let resolved = RESERVED_AUDIT_STREAMS.contains(&target)
+                || allowed_set.is_some_and(|set| set.contains(target));
+            let Some(header_line) = fact.command_lines.get(&command.name).copied() else {
+                continue;
+            };
+            let Some((line, column)) = locate_emit_to_line(&fact.path, files, header_line, target)
+            else {
+                continue;
+            };
+            command_audit_keys.insert((fact.path.clone(), line));
+            if resolved {
+                continue;
+            }
+            let mut allowed: Vec<String> = RESERVED_AUDIT_STREAMS
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect();
+            if let Some(set) = allowed_set {
+                allowed.extend(set.iter().cloned());
+            }
+            diagnostics.push(DoctorDiagnostic {
+                path: fact.path.clone(),
+                line,
+                column,
+                severity: DoctorSeverity::Error,
+                code: "audit_emit_to_unknown_diagnostics".to_owned(),
+                message: format!(
+                    "`audit emit_to {target}` does not resolve. Allowed: {}.",
+                    allowed
+                        .iter()
+                        .map(|s| format!("`{s}`"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            });
+        }
+    }
+
+    // `audit ... emit_to <X>` text-walker for constructs whose IR
+    // does not yet carry `audit` (webhook, job, poller, lifecycle
+    // transition). Command bodies are skipped — the IR walker above
+    // owns them. Detected duplicates against `command_audit_keys`
+    // are suppressed defensively.
     for file in files {
         if !is_lzi_path(&file.path) {
             continue;
@@ -10611,6 +10720,7 @@ fn audit_event_health_diagnostics(
         let lines: Vec<&str> = file.source.lines().collect();
         let mut current_feature: Option<String> = None;
         let mut audit_pending: Option<(usize, usize)> = None; // (line_index, indent of audit)
+        let mut in_command: Option<usize> = None; // indent of `command <name>` header
         for (i, line) in lines.iter().enumerate() {
             let trimmed = line.trim_start();
             if trimmed.starts_with('#') || trimmed.is_empty() {
@@ -10623,10 +10733,26 @@ fn audit_event_health_diagnostics(
                     .and_then(|rest| rest.split_whitespace().next())
                     .map(str::to_owned);
                 audit_pending = None;
+                in_command = None;
+                continue;
+            }
+            // Track `command <name>` headers so we can skip their
+            // bodies — the IR walker handles command audit emit_to.
+            if let Some(command_indent) = in_command {
+                if leading <= command_indent {
+                    in_command = None;
+                }
+            }
+            if trimmed.starts_with("command ") {
+                in_command = Some(leading);
+                audit_pending = None;
+                continue;
+            }
+            if in_command.is_some() {
                 continue;
             }
             // Track audit headers as `audit <fields...>` or bare `audit`
-            // at indent 4 or 6 (command/job/webhook bodies).
+            // at indent 4 or 6 (webhook/job/poller bodies).
             if trimmed == "audit" || trimmed.starts_with("audit ") {
                 audit_pending = Some((i, leading));
                 continue;
@@ -10646,7 +10772,7 @@ fn audit_event_health_diagnostics(
                         } else {
                             false
                         };
-                        if !resolved {
+                        if !resolved && !command_audit_keys.contains(&(file.path.clone(), i + 1)) {
                             let mut allowed: Vec<String> = RESERVED_AUDIT_STREAMS
                                 .iter()
                                 .map(|s| (*s).to_owned())
@@ -13973,7 +14099,7 @@ surface customer_auth web
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     customer
   targets
@@ -14044,7 +14170,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     customer
   targets
@@ -14145,7 +14271,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     customer
   targets
@@ -14209,7 +14335,7 @@ feature customer
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   auth_failed_redirect public_login
   not_found public_not_found
   uses
@@ -14332,7 +14458,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     payments
   bindings
@@ -14379,7 +14505,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     payments
   packs
@@ -14428,7 +14554,7 @@ registry
             "app.lzi",
             r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     payments
   packs
@@ -14463,7 +14589,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     customer
   targets
@@ -14519,7 +14645,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     payments
   targets
@@ -14555,7 +14681,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     payments
   bindings
@@ -14605,7 +14731,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     imports
   bindings
@@ -14661,7 +14787,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     imports
   targets
@@ -14708,7 +14834,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     imports
   bindings
@@ -14774,7 +14900,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     imports
   targets
@@ -14839,7 +14965,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   uses
     customer
     billing

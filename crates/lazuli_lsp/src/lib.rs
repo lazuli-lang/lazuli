@@ -9524,7 +9524,7 @@ fn is_app_scalar_child(trimmed: &str) -> bool {
                 | "version"
                 // ABI pin enforced by doctor LAZULI-VERSION-001;
                 // accept here so the LSP doesn't redundantly warn
-                // that `lazuli_version "0.14"` isn't a recognized
+                // that `lazuli_version "0.15"` isn't a recognized
                 // app block.
                 | "lazuli_version"
                 | "default_locale"
@@ -15834,7 +15834,7 @@ app demo
 app demo
   title "Demo"
   version "1.0"
-  lazuli_version "0.14"
+  lazuli_version "0.15"
   default_locale "en-US"
   default_timezone "UTC"
   urls

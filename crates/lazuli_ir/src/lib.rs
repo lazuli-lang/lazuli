@@ -21,13 +21,17 @@ pub use encryption::{
     EncryptionRotation, EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
 
-/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.14.0 by
-/// CL.C.4 (Wave C) — additive `Field.slug`, `Resource.invariants`,
-/// `Feature.aggregates`, plus the new `Invariant` and `Aggregate`
-/// types. Module shape grows three optional slots (all empty defaults
-/// or `false`) so existing fixtures deserialize unchanged. Bump
-/// signals the new vocabulary is available to downstream tooling.
-pub const LZIR_SCHEMA: &str = "0.14.0";
+/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.15.0 by
+/// Phase L Tier 4b — additive `Command.rate_limit`, `Command.audit`,
+/// `Command.approval`, `Command.invalidates`, `Command.external_calls`,
+/// plus the new `Api`, `AuditSpec`, `ApprovalSpec`, `ApprovalThen`,
+/// `InvalidatesSpec`, and `Feature.apis` types. The `JobDeclarative`
+/// spine moves from `raw_target`/`raw_lets`/`raw_effect` strings to
+/// typed `target: Option<TargetExpr>`, `lets: Vec<LetBinding>`,
+/// `effect: CommandEffect` (the canonical Phase 1a shape). All field
+/// additions carry `#[serde(default, skip_serializing_if = "…")]` so
+/// 0.14.0 fixtures deserialize unchanged.
+pub const LZIR_SCHEMA: &str = "0.15.0";
 
 pub type FileId = u16;
 
