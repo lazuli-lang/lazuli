@@ -703,7 +703,7 @@ fn format_cache_ttl(ttl: CacheTtlLiteral) -> String {
     }
 }
 
-fn resource_for_query<'a>(feature: &'a Feature, query_name: &str) -> Option<&'a Resource> {
+pub(super) fn resource_for_query<'a>(feature: &'a Feature, query_name: &str) -> Option<&'a Resource> {
     let mut resources: Vec<&Resource> = feature.resources.iter().collect();
     resources.sort_by(|a, b| a.name.cmp(&b.name));
     if resources.len() <= 1 {
@@ -754,7 +754,7 @@ fn list_args_struct_name(query_name: &str, resource_pascal: &str) -> String {
     }
 }
 
-fn list_var_name(query_name: &str, resource_pascal: &str) -> String {
+pub(super) fn list_var_name(query_name: &str, resource_pascal: &str) -> String {
     if query_name == "list" {
         format!("list{}", plural_pascal(resource_pascal))
     } else {
@@ -770,7 +770,7 @@ fn lookup_args_struct_name(query_name: &str, resource_pascal: &str) -> String {
     }
 }
 
-fn lookup_var_name(query_name: &str, resource_pascal: &str) -> String {
+pub(super) fn lookup_var_name(query_name: &str, resource_pascal: &str) -> String {
     if query_name.starts_with("by_") || query_name == "by" {
         format!(
             "{}{}",

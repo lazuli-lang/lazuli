@@ -1058,7 +1058,7 @@ fn command_output_type(effect: &CommandEffect, ctx: &TypeCtx<'_>) -> String {
 
 /// Returns the resource pascal name pinned by the command's effect.
 /// Used for the input struct naming axis.
-fn effect_resource_pascal(effect: &CommandEffect) -> String {
+pub(super) fn effect_resource_pascal(effect: &CommandEffect) -> String {
     match effect {
         CommandEffect::Creates(c) => pascal_case(&c.resource.name),
         CommandEffect::Updates(u) => pascal_case(&u.resource.name),
@@ -1362,7 +1362,7 @@ fn command_input_struct_name(short_name: &str, resource_pascal: &str) -> String 
 /// Command var name: lowerCamel mirror of the input struct without the
 /// `Input` suffix. `create` -> `createCustomer`; `update_email` ->
 /// `updateCustomerEmail`. Mirrors the spike for byte-equivalence.
-fn command_var_name(short_name: &str, resource_pascal: &str) -> String {
+pub(super) fn command_var_name(short_name: &str, resource_pascal: &str) -> String {
     let mut parts = short_name.split('_');
     let verb = parts.next().unwrap_or("");
     let modifier_words: Vec<&str> = parts.collect();

@@ -438,6 +438,21 @@ pub fn emit_module(
             }
         }
 
+        // WAR-RUNTIME-COMMAND-01 (register half) — `register.gen.go`
+        // emits a single `func init()` that calls `lazuli.Register(...)`
+        // for every Resource/Command/Query in this feature. Required
+        // before `lazuli.Mux()` can route HTTP. Skipped when the feature
+        // declares none of those (output stays signal-rich).
+        if let Some(contents) =
+            crate::emitter::register::emit_register_file(&source_label, feature)
+        {
+            let register_path = format!("{name}/register.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: register_path,
+                contents,
+            });
+        }
+
         // Cell G1 — Auth emission. Per-feature `auth` block lowered
         // to `auth.PasswordContract` / `SessionsContract` / `MfaContract`
         // / `OAuthContract` typed values in `auth.gen.go`.
