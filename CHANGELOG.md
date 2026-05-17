@@ -21,6 +21,22 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Added
 
+- **Roadmap §1 vertical audit (Wave 5) — 38 `[x]` flips + 11 partial
+  clarifications.** Evolve manager-probe cycle
+  `roadmap-§1-vertical-audit-2026-05-17` confirmed the predecessor
+  pattern (~95% closure for non-pilot-gated items) extends to the
+  full §1 expansion list. 38 silently-shipped primitives flipped to
+  `[x]` with evidence anchors in `lazuli-ops/docs/roadmap.md`.
+  Headline finds: `openapi` built-in generation, `lazuli_changelog`
+  crate, `webhook_event` registry + replay + dlq, 6 security headers,
+  `secret_rotation`, full i18n stack (`locale`/`translation`/
+  `locale_negotiate`), `aggregate`/`invariant`/`slug` DDD trio,
+  `cache` profile, `plan`/`subscription` billing. The audit
+  surfaced one naming reconciliation hit: `missing-translation` lint
+  thought missing is actually shipped as
+  `rule_message_ref_unresolved` + `translation_key_unused` (same
+  false-negative-by-code-name pattern as the 6 stale-named
+  diagnostics from `phase-l-tier-4-spine-scope.md`).
 - **`@scope.owner` / `@scope.same_org` policy-to-SQL lowering on
   command effects.** When a command's policy atoms include either
   scope axis, codegen now auto-injects the WHERE binding on
