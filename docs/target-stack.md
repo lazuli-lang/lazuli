@@ -137,7 +137,7 @@ component-library JSX.
 
 > Pre-pivot scaffolds emitted to `frontends/<target>/`; the codegen
 > writer is being migrated to `apps/<frontend>/` to match the canonical
-> client-specific tier (see [ADR-0001](adr/0001-handler-home-and-portability-tiers.md)).
+> client-specific tier defined in [`project-structure.md`](project-structure.md).
 > Until the writer pivot lands, existing scaffolds still use the older
 > path — both layouts work, but `apps/<frontend>/` is the canonical
 > destination for new projects.

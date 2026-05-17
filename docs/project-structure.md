@@ -81,7 +81,7 @@ The tags are stable across releases — a tier moving from `[partial]` to
 | External service contracts | `contracts/**/*.lzi` | Portable | `[stable]` |
 | Distributed-system root | `workspace.lzi` | Portable | `[stable]` (optional) |
 | Lazurite manifest | `Lazurite.toml` | Portable | `[stable]` |
-| Go handlers (`@fn.X`, `@hook.X`, `@validator.X`) | `app/features/<f>/<name>.go` (package `<f>`) | Portable | `[planned]` — see [ADR-0001](adr/0001-handler-home-and-portability-tiers.md). Today codegen emits stubs to `dist/go/<f>/<name>.go`; pivot in progress. |
+| Go handlers (`@fn.X`, `@hook.X`, `@validator.X`) | `app/features/<f>/<name>.go` (package `<f>`) | Portable | `[planned]` — today codegen emits stubs to `dist/go/<f>/<name>.go`; pivot to canonical location is in the framework roadmap. |
 | Resource-local validators | `app/features/<f>/domain/validate_<resource>.go` | Portable | `[stable]` |
 | SQL queries (`query.sql @file.X`) | `app/features/<f>/queries/<X>.sql` | Portable | `[stable]` |
 | Email/notification templates | `app/features/<f>/templates/<name>.<locale>.tmpl` | Portable | `[stable]` |
@@ -89,11 +89,11 @@ The tags are stable across releases — a tier moving from `[partial]` to
 | Slot implementations (`@client.<slot>` in `.lzx`) | `app/features/<f>/<target>/cells/<slot>.tsx` | Portable | `[partial]` — doctor rule `lzx-cell-missing-impl` checks the path; codegen emits `<slot>.gen.ts` interface; full `.lzx` → views pipeline still in progress. |
 | Feature-owned concrete views | `app/features/<f>/<target>/views/<audience>/<view>.tsx` | Portable | `[partial]` — same pipeline as slot impls. |
 | App-level UI (routes, layouts, state, theme) | `apps/<frontend>/src/...` | Client-specific | `[stable]` |
-| Feature UI mirror in app | `apps/<frontend>/src/features/<f>/` (suggested convention) | Client-specific | `[partial]` — Lazurite template doesn't yet scaffold this; hostpoint reference shows the shape. |
+| Feature UI mirror in app | `apps/<frontend>/src/features/<f>/` (suggested convention) | Client-specific | `[partial]` — Lazurite template doesn't yet scaffold this; reference projects demonstrate the shape. |
 | Cross-frontend TS shared (if it appears) | `packages/shared/` | Outside Lazuli contract | `[planned]` — convention reserved; create when concrete sharing pain appears. |
 | App-wide i18n | `i18n/<name>.<locale>.json` | Portable | `[stable]` |
 | Custom scripts (CI, deploy, seed) | `scripts/` | Portable | `[stable]` |
-| Generated Go | `dist/go/<f>/*.gen.go` (package `<f>gen`) | Disposable | `[partial]` — today package is `<f>` and shares files with user handlers; ADR-0001 pivots to dedicated `<f>gen` package. |
+| Generated Go | `dist/go/<f>/*.gen.go` (package `<f>gen`) | Disposable | `[partial]` — today package is `<f>` and shares files with user handlers; the pivot to a dedicated `<f>gen` package is in the framework roadmap. |
 | Generated TS SDK per frontend | `dist/ts-<target>/<f>/*.gen.ts` | Disposable | `[stable]` |
 | IR cache + source map | `.lazuli/*` | Disposable | `[stable]` |
 
@@ -124,8 +124,8 @@ app/
       customer.ctx.md           # optional: LLM context pack for this feature
 
       # Extension code — Go handlers in the feature package
-      hash_password.go          # @fn.hash_password    [planned: see ADR-0001]
-      before_create.go          # @hook.before_create  [planned: see ADR-0001]
+      hash_password.go          # @fn.hash_password    [planned]
+      before_create.go          # @hook.before_create  [planned]
 
       domain/
         risk_score.go           # domain function extension
@@ -167,12 +167,11 @@ Two anchoring reasons:
    on disk. Doctor verifies the path. Codegen emits a typed contract
    the handler implements. That's the test for Lazuli territory.
 
-This contradicts what `dist/go/` looks like in projects scaffolded
-before ADR-0001 — those have user handlers mixed with `*.gen.go` files
-in `dist/go/<f>/`. That layout broke the "`dist/` is disposable"
-invariant (a `rm -rf dist/go && lazuli generate` would lose user code)
-and was the wrong trade in retrospect. The pivot back to
-`app/features/<f>/<name>.go` is in progress; see [ADR-0001].
+An earlier framework iteration placed user handlers in `dist/go/<f>/`
+alongside `*.gen.go` files. That layout broke the "`dist/` is
+disposable" invariant (a `rm -rf dist/go && lazuli generate` would
+lose user code) and is being reverted; the canonical location going
+forward is `app/features/<f>/<name>.go` as described above.
 
 ### Why slot impls (`.tsx`) live next to `.lzx`
 
@@ -205,7 +204,7 @@ everything else: routes, state, layouts, theming, shared primitives.
 
 ```txt
 apps/
-  hostpoint-app/                # one app per audience cluster (host + traveler)
+  web-app/                # one app per audience cluster (host + traveler)
     package.json
     vite.config.ts
     tsconfig.json
@@ -234,15 +233,16 @@ apps/
           state/
     e2e/                        # Playwright
 
-  hostpoint-os/                 # second app for the operator audience
+  ops-app/                 # second app for the operator audience
     src/
       ...
 ```
 
 ### Why frontend code lives outside `app/features/`
 
-- **N frontends per project.** Hostpoint ships two (`hostpoint-app`,
-  `hostpoint-os`). Each has its own Vite config, routing tree, state
+- **N frontends per project.** A typical project ships two or more
+  apps (e.g. `web-app` + `ops-app`). Each has its own Vite config,
+  routing tree, state
   shape, and design surface. Forcing them into `app/features/<f>/web.app/`
   vs `web.os/` would create a Frankenstein tree and break Vite/TanStack
   conventions (file-based routing, code splitting, HMR).
@@ -289,7 +289,7 @@ dist/
       auth.gen.go               # if feature declares auth
       job.gen.go                # River worker registration
       webhook.gen.go            # webhook receiver + HMAC
-      types.gen.go              # input/output struct types  [planned per ADR-0001]
+      types.gen.go              # input/output struct types  [planned]
     migrations/                 # generated SQL DDL per resource
       001_customer.sql
       001_customer.down.sql
@@ -338,7 +338,7 @@ app/features/customer/customer.web.lzx   (intent declaration, Tier 1 Portable)
   │           │
   │           └──► app imports:
   │                import { CustomerList } from '@gen/customer/views/list'
-  │                (used in apps/hostpoint-app/src/routes/customers.tsx)
+  │                (used in apps/web-app/src/routes/customers.tsx)
   │
   ├──[2]─► codegen emits slot interfaces in dist/ts-web/customer/cells/ (Tier 3 Disposable)  [partial]
   │           │
@@ -353,8 +353,8 @@ app/features/customer/customer.web.lzx   (intent declaration, Tier 1 Portable)
   └──[3]─► codegen emits SDK in dist/ts-web/customer/customer.gen.ts  (Tier 3 Disposable)  [stable]
               │
               └──► app imports:
-                   import { listCustomers } from '@hostpoint/sdk/customer/customer.gen'
-                   (used freely throughout apps/hostpoint-app/src/)
+                   import { listCustomers } from '@myapp/sdk/customer/customer.gen'
+                   (used freely throughout apps/web-app/src/)
 ```
 
 Three arrows, three import patterns, three responsibilities:
@@ -412,12 +412,12 @@ Doctor enforces the resolution rule.
 
 | Citation | File path | Status |
 |---|---|---|
-| `@fn.<name>` (custom function) | `app/features/<f>/<name>.go` | `[planned]` per ADR-0001 (today: `dist/go/<f>/<name>.go`) |
-| `@validator.<name>` (custom validator) | `app/features/<f>/<name>.go` or `app/features/<f>/domain/validate_<resource>.go` | `[planned]` per ADR-0001 |
-| `@hook.<name>` (workflow lifecycle hook) | `app/features/<f>/<name>.go` | `[planned]` per ADR-0001 |
+| `@fn.<name>` (custom function) | `app/features/<f>/<name>.go` | `[planned]` — today: `dist/go/<f>/<name>.go` |
+| `@validator.<name>` (custom validator) | `app/features/<f>/<name>.go` or `app/features/<f>/domain/validate_<resource>.go` | `[planned]` |
+| `@hook.<name>` (workflow lifecycle hook) | `app/features/<f>/<name>.go` | `[planned]` |
 | Domain function extension | `app/features/<f>/domain/<name>.go` | `[stable]` |
 | Integration adapter extension | `app/features/<f>/integrations/<name>.go` | `[stable]` |
-| Background job handler | `app/features/<f>/<name>.go` | `[planned]` per ADR-0001 |
+| Background job handler | `app/features/<f>/<name>.go` | `[planned]` |
 | Webhook verifier or handler | `app/features/<f>/integrations/<name>.go` | `[stable]` |
 | Email/notification template | `app/features/<f>/templates/<name>.<locale>.tmpl` | `[stable]` |
 | Feature-local i18n catalog | `app/features/<f>/i18n/<name>.<locale>.json` | `[stable]` |
@@ -519,7 +519,7 @@ app/                             # Tier 1 — Lazuli territory (portable)
       customer.lzx
       customer.web.lzx
       customer.mobile.lzx
-      <name>.go                  # @fn / @hook / @validator extensions  [planned per ADR-0001]
+      <name>.go                  # @fn / @hook / @validator extensions  [planned]
       domain/
       queries/
       integrations/
@@ -529,9 +529,9 @@ app/                             # Tier 1 — Lazuli territory (portable)
       mobile/cells/
 
 apps/                            # Tier 2 — Client-specific (per frontend)
-  hostpoint-app/
+  web-app/
     src/...                      # routes, state, layouts, shared UI
-  hostpoint-os/
+  ops-app/
     src/...
 
 workspace.lzi                    # optional: distributed-system root
@@ -579,11 +579,7 @@ contract — explicitly *not* in `app/features/`, to preserve the
 
 ## See also
 
-- [`docs/adr/0001-handler-home-and-portability-tiers.md`][ADR-0001] —
-  decision record for the handler-home pivot away from `dist/go/`.
 - [`docs/canonical-semantics.md`](canonical-semantics.md) — full normative spec.
 - [`docs/invariants.md`](invariants.md) — closed grammar/IR constraints.
 - [`docs/plugin-authoring.md`](plugin-authoring.md) — when adding a
   `@plugin/<name>` adapter.
-
-[ADR-0001]: adr/0001-handler-home-and-portability-tiers.md
