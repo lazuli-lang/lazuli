@@ -33,11 +33,23 @@ use crate::templates;
 /// projects migrate to `app/clients/<name>/` explicitly (no
 /// automated scaffold flow for that yet; the migration is mechanical).
 ///
-/// - `app/web/{index.html,main.tsx}`
-/// - `app/web/shell/{root.tsx,layout.tsx,error_boundary.tsx}`
-/// - `app/web/theme/{globals.css,theme_provider.tsx}`
-/// - `app/web/{tailwind.config.ts,tsconfig.json,vite.config.ts,package.json}`
+/// Emits the **canonical 6+6 closed catalog** per
+/// `docs/decisions/client_src_canonical_architecture_2026-05-17.md` §3:
+///
+/// - `app/web/{index.html, main.tsx}` (entrypoints)
+/// - `app/web/shell/{root.tsx, layout.tsx, error_boundary.tsx}` (1/6)
+/// - `app/web/routes/index.tsx` (2/6, placeholder)
+/// - `app/web/ui/{forms, feedback, navigation, display, overlays, layout}/.gitkeep` (3/6, 6+6)
+/// - `app/web/theme/{globals.css, theme_provider.tsx}` (4/6)
+/// - `app/web/state/app_store.ts` (5/6, Zustand placeholder)
+/// - `app/web/assets/.gitkeep` (6/6)
+/// - `app/web/{tailwind.config.ts, tsconfig.json, vite.config.ts, package.json}` (configs)
 /// - root `.gitignore`
+///
+/// The output is guaranteed to satisfy `VOCAB-CLIENT-SRC-001` — a
+/// fresh scaffold produces ZERO doctor diagnostics. The
+/// `scaffold_web_satisfies_vocab_client_src_001` test enforces this
+/// invariant.
 ///
 /// Appends `[frontends.web]` to `Lazurite.toml` if no such block exists.
 pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()> {
@@ -45,9 +57,32 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 
     let web_dir = project_root.join("app").join("web");
     let shell_dir = web_dir.join("shell");
+    let routes_dir = web_dir.join("routes");
+    let ui_dir = web_dir.join("ui");
     let theme_dir = web_dir.join("theme");
+    let state_dir = web_dir.join("state");
+    let assets_dir = web_dir.join("assets");
+
+    // Top-level 6/6 closed catalog (per
+    // `[[client_src_canonical_architecture_2026-05-17]]` §3.1).
     fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
+    fs::create_dir_all(&routes_dir)
+        .with_context(|| format!("creating {}", routes_dir.display()))?;
+    fs::create_dir_all(&ui_dir).with_context(|| format!("creating {}", ui_dir.display()))?;
     fs::create_dir_all(&theme_dir).with_context(|| format!("creating {}", theme_dir.display()))?;
+    fs::create_dir_all(&state_dir).with_context(|| format!("creating {}", state_dir.display()))?;
+    fs::create_dir_all(&assets_dir)
+        .with_context(|| format!("creating {}", assets_dir.display()))?;
+
+    // ui/ 6/6 closed sub-catalog (per §3.2). Each sub-dir gets a
+    // `.gitkeep` so the canonical shape is present even before any
+    // primitive lands. Future cycles seed Shadcn-compose primitives
+    // from the W2 scaffold-seed pick.
+    for ui_sub in WEB_UI_SUBDIRS {
+        let path = ui_dir.join(ui_sub);
+        fs::create_dir_all(&path).with_context(|| format!("creating {}", path.display()))?;
+        write_if_absent(&path.join(".gitkeep"), "")?;
+    }
 
     write_if_absent(
         &web_dir.join("index.html"),
@@ -66,6 +101,14 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
         &shell_dir.join("error_boundary.tsx"),
         templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX,
     )?;
+
+    // routes/ placeholder — minimal route component until v0.2 codegen
+    // emits a `routes.gen.ts` table from `.lzx` view declarations.
+    write_if_absent(
+        &routes_dir.join("index.tsx"),
+        templates::FRONTEND_WEB_ROUTES_INDEX_TSX,
+    )?;
+
     write_if_absent(
         &theme_dir.join("globals.css"),
         templates::FRONTEND_THEME_GLOBALS_CSS,
@@ -74,6 +117,15 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
         &theme_dir.join("theme_provider.tsx"),
         templates::FRONTEND_THEME_PROVIDER_TSX,
     )?;
+
+    // state/ — Zustand placeholder per W1 pick.
+    write_if_absent(
+        &state_dir.join("app_store.ts"),
+        templates::FRONTEND_WEB_STATE_APP_STORE_TS,
+    )?;
+
+    // assets/ — empty for v0; brand artifacts land here per pilot.
+    write_if_absent(&assets_dir.join(".gitkeep"), "")?;
 
     write_if_absent(
         &web_dir.join("tailwind.config.ts"),
@@ -104,6 +156,20 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 
     Ok(())
 }
+
+/// `ui/` 6-kind closed sub-catalog per
+/// `[[client_src_canonical_architecture_2026-05-17]]` §3.2. Order is
+/// the source-of-truth ordering; `scaffold_frontend_web` materializes
+/// each as an empty sub-dir with a `.gitkeep` so the canonical shape
+/// is present even before any primitive lands.
+const WEB_UI_SUBDIRS: &[&str] = &[
+    "forms",
+    "feedback",
+    "navigation",
+    "display",
+    "overlays",
+    "layout",
+];
 
 /// Scaffold the mobile (Expo Router) frontend skeleton. Idempotent.
 ///
@@ -321,6 +387,12 @@ mod tests {
             "error_boundary.tsx missing"
         );
 
+        // app/web/routes/
+        assert!(
+            root.join("app/web/routes/index.tsx").exists(),
+            "routes/index.tsx missing"
+        );
+
         // app/web/theme/
         assert!(
             root.join("app/web/theme/globals.css").exists(),
@@ -330,6 +402,28 @@ mod tests {
             root.join("app/web/theme/theme_provider.tsx").exists(),
             "theme_provider.tsx missing"
         );
+
+        // app/web/state/
+        assert!(
+            root.join("app/web/state/app_store.ts").exists(),
+            "state/app_store.ts missing"
+        );
+
+        // app/web/assets/
+        assert!(
+            root.join("app/web/assets/.gitkeep").exists(),
+            "assets/.gitkeep missing"
+        );
+
+        // app/web/ui/{6 closed kinds}
+        for ui_sub in WEB_UI_SUBDIRS {
+            let gitkeep = root.join("app/web/ui").join(ui_sub).join(".gitkeep");
+            assert!(
+                gitkeep.exists(),
+                "ui/{}/.gitkeep missing (canonical 6-kind closed sub-catalog)",
+                ui_sub
+            );
+        }
 
         assert!(
             root.join("app/web/tailwind.config.ts").exists(),
@@ -353,10 +447,64 @@ mod tests {
         scaffold_frontend_web(root, "demo").unwrap();
 
         let pkg = fs::read_to_string(root.join("app/web/package.json")).unwrap();
+        // Baseline deps preserved.
         assert!(pkg.contains("\"@tanstack/react-query\""));
         assert!(pkg.contains("\"@lazuli/runtime\""));
         assert!(pkg.contains("\"react-hook-form\""));
         assert!(pkg.contains("\"tailwindcss\""));
+
+        // Wave G — W1-W7 Tier-2 picks present.
+        assert!(pkg.contains("\"zustand\""), "W1 Zustand missing");
+        assert!(
+            pkg.contains("\"@radix-ui/react-slot\""),
+            "W2 Radix Slot missing"
+        );
+        assert!(
+            pkg.contains("\"class-variance-authority\""),
+            "W2 cva missing"
+        );
+        assert!(pkg.contains("\"clsx\""), "W2 clsx missing");
+        assert!(
+            pkg.contains("\"tailwind-merge\""),
+            "W2 tailwind-merge missing"
+        );
+        assert!(pkg.contains("\"lucide-react\""), "W3 Lucide missing");
+        assert!(pkg.contains("\"date-fns\""), "W4 date-fns missing");
+        assert!(pkg.contains("\"sonner\""), "W5 Sonner missing");
+        assert!(pkg.contains("\"vitest\""), "W6 Vitest missing");
+        assert!(
+            pkg.contains("\"@playwright/test\""),
+            "W6 Playwright missing"
+        );
+        assert!(
+            pkg.contains("\"@testing-library/react\""),
+            "W6 RTL missing"
+        );
+        assert!(
+            pkg.contains("\"@biomejs/biome\""),
+            "W7 Biome missing"
+        );
+
+        // W7 — `shadcn-ui` is a SCAFFOLD SEED (copy-paste recipes), not a dep.
+        assert!(
+            !pkg.contains("\"shadcn-ui\""),
+            "shadcn-ui must NOT be a dep (W2 seed-only)"
+        );
+        // W7 — ESLint/Prettier replaced by Biome.
+        assert!(
+            !pkg.contains("\"eslint\""),
+            "eslint should not be present (W7 picks Biome)"
+        );
+        assert!(
+            !pkg.contains("\"prettier\""),
+            "prettier should not be present (W7 picks Biome)"
+        );
+
+        // Scripts surfaces.
+        assert!(pkg.contains("\"test:unit\""));
+        assert!(pkg.contains("\"test:e2e\""));
+        assert!(pkg.contains("\"lint\""));
+        assert!(pkg.contains("\"format\""));
 
         let gi = fs::read_to_string(root.join(".gitignore")).unwrap();
         assert!(gi.contains("node_modules/"));
@@ -461,9 +609,44 @@ mod tests {
         assert!(pkg.contains("\"@react-native-async-storage/async-storage\""));
         assert!(pkg.contains("\"@lazuli/runtime\""));
 
+        // Wave G — M2-M6 mobile Tier-2 picks present.
+        assert!(
+            pkg.contains("\"expo-secure-store\""),
+            "M3-secrets missing"
+        );
+        assert!(
+            pkg.contains("\"react-native-reanimated\""),
+            "M4 Reanimated missing"
+        );
+        assert!(
+            pkg.contains("\"expo-notifications\""),
+            "M5 expo-notifications missing"
+        );
+        assert!(
+            pkg.contains("\"lucide-react-native\""),
+            "M2 lucide-react-native missing"
+        );
+        assert!(pkg.contains("\"zustand\""), "M6 Zustand (inherits W1) missing");
+
         // .gitignore covers Expo-specific paths.
         let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
         assert!(gitignore.contains(".expo/"));
+
+        // babel.config.js must list `react-native-reanimated/plugin` LAST
+        // (M4 pairing rule: Reanimated requires its plugin to be last).
+        let babel =
+            fs::read_to_string(root.join("app/clients/mobile/babel.config.js")).unwrap();
+        assert!(
+            babel.contains("react-native-reanimated/plugin"),
+            "babel.config.js must include reanimated plugin"
+        );
+
+        // app.json plugin entries — expo-notifications must be present.
+        let app_json = fs::read_to_string(root.join("app/clients/mobile/app.json")).unwrap();
+        assert!(
+            app_json.contains("expo-notifications"),
+            "app.json must list expo-notifications plugin (M5 pairing rule)"
+        );
     }
 
     #[test]
@@ -539,6 +722,8 @@ mod tests {
         assert!(!templates::FRONTEND_WEB_ROOT_TSX.is_empty());
         assert!(!templates::FRONTEND_WEB_LAYOUT_TSX.is_empty());
         assert!(!templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_ROUTES_INDEX_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_STATE_APP_STORE_TS.is_empty());
         assert!(!templates::FRONTEND_THEME_GLOBALS_CSS.is_empty());
         assert!(!templates::FRONTEND_THEME_PROVIDER_TSX.is_empty());
         assert!(!templates::FRONTEND_TAILWIND_CONFIG_TS.is_empty());
@@ -575,6 +760,8 @@ mod tests {
             templates::FRONTEND_WEB_ROOT_TSX,
             templates::FRONTEND_WEB_LAYOUT_TSX,
             templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX,
+            templates::FRONTEND_WEB_ROUTES_INDEX_TSX,
+            templates::FRONTEND_WEB_STATE_APP_STORE_TS,
             templates::FRONTEND_THEME_GLOBALS_CSS,
             templates::FRONTEND_THEME_PROVIDER_TSX,
             templates::FRONTEND_TAILWIND_CONFIG_TS,
@@ -598,6 +785,50 @@ mod tests {
             assert!(
                 !s.contains('\r'),
                 "template index {i} contains CR — templates must be LF-only for cross-platform output"
+            );
+        }
+    }
+
+    /// Wave G invariant: a fresh `scaffold_frontend_web` output must
+    /// satisfy `VOCAB-CLIENT-SRC-001` — zero doctor diagnostics. The
+    /// scaffold emits the canonical 6+6 closed catalog per
+    /// `[[client_src_canonical_architecture_2026-05-17]]` §3, so the
+    /// doctor walker (which checks `app/web/` singular topology) must
+    /// see ONLY the six allowed top-level folders and ONLY the six
+    /// allowed `ui/` children.
+    #[test]
+    fn scaffold_web_satisfies_vocab_client_src_001() {
+        use crate::doctor::folder::vocab_client_src_001;
+
+        let project = tempdir();
+        let root = project.path();
+
+        scaffold_frontend_web(root, "demo").unwrap();
+
+        let findings = vocab_client_src_001::check(root);
+        assert!(
+            findings.is_empty(),
+            "fresh scaffold must produce zero VOCAB-CLIENT-SRC-001 \
+             diagnostics; got {} finding(s): {:?}",
+            findings.len(),
+            findings
+        );
+
+        // Belt-and-braces: confirm each of the six allowed top-level
+        // folders exists (this is what makes the doctor walker happy).
+        for top in &["shell", "routes", "ui", "theme", "state", "assets"] {
+            assert!(
+                root.join("app/web").join(top).is_dir(),
+                "canonical top-level folder `{}` missing",
+                top
+            );
+        }
+        // And each of the six allowed `ui/` children.
+        for ui_sub in WEB_UI_SUBDIRS {
+            assert!(
+                root.join("app/web/ui").join(ui_sub).is_dir(),
+                "canonical ui/{} missing",
+                ui_sub
             );
         }
     }

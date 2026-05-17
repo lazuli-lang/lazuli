@@ -9,6 +9,30 @@ pub static DEFAULT_TEMPLATE: include_dir::Dir<'static> =
 // Newlines are LITERAL `\n` — these strings are written verbatim by
 // `cmd_new_frontends::scaffold_frontend_*`. Cross-platform: emitted
 // files use LF on every host (Lazuli runs on Windows too).
+//
+// ---------------------------------------------------------------
+// Wave G — Tier-2 stack picks shipped 2026-05-17.
+//
+// The W1-W7 web deps and M2-M6 mobile deps below are the architect-
+// confirmed picks from the wave-2 grading cycle:
+//   - W1-W7 source: docs/proposals/lazurite-frontend-stack-web-grading-2026-05-17.md
+//     (architect re-grade PASS, self-grade 9.05).
+//   - M2-M6 source: docs/proposals/lazurite-frontend-stack-mobile-grading-2026-05-17.md
+//     (architect re-grade PASS, self-grade 8.87; M1 deferred honestly).
+//   - Architect re-grade + 3 mechanical tightenings:
+//     docs/proposals/architect-regrade-cycle-wave-2-2026-05-17.md.
+//
+// Proposal-pending status is REMOVED once the first pilot adopts the
+// scaffolded shape end-to-end (per CHOICE-12 of
+// `[[lazurite-vs-frameworks]]`).
+//
+// The 6+6 closed-catalog skeleton emitted by `scaffold_frontend_web`
+// (and mirrored on mobile) is sourced from
+// `docs/decisions/client_src_canonical_architecture_2026-05-17.md`
+// §3 — top-level `{shell, routes, ui, theme, state, assets}` and
+// `ui/{forms, feedback, navigation, display, overlays, layout}`.
+// Doctor rule `VOCAB-CLIENT-SRC-001` enforces both catalogs; a fresh
+// scaffold output is guaranteed to produce ZERO diagnostics.
 // ---------------------------------------------------------------
 
 pub const FRONTEND_WEB_INDEX_HTML: &str = r#"<!doctype html>
@@ -195,9 +219,9 @@ export default {
     "./main.tsx",
     "./shell/**/*.{ts,tsx}",
     "./theme/**/*.{ts,tsx}",
+    "./routes/**/*.{ts,tsx}",
     "./ui/**/*.{ts,tsx}",
-    "./hooks/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}",
+    "./state/**/*.{ts,tsx}",
     "../../app/**/*.{ts,tsx}",
   ],
 };
@@ -258,6 +282,19 @@ export default defineConfig({
 });
 "#;
 
+/// Web `package.json` template.
+///
+/// Wave G shipped 2026-05-17 — W1-W7 Tier-2 picks anchored at
+/// `docs/proposals/lazurite-frontend-stack-web-grading-2026-05-17.md`
+/// (architect re-grade PASS 9.05). See top-of-file comment block for
+/// the proposal-pending status discipline.
+///
+/// W1 state: Zustand. W2 design system: Radix Primitives + Tailwind +
+/// Shadcn-compose toolkit (class-variance-authority, clsx,
+/// tailwind-merge) seeded copy-paste, NOT a `shadcn-ui` package.
+/// W3 icons: Lucide. W4 date: date-fns. W5 toast: Sonner. W6 testing:
+/// Vitest + Playwright + React Testing Library. W7 lint/format: Biome
+/// (no eslint/prettier).
 pub const FRONTEND_PACKAGE_JSON: &str = r#"{
   "name": "lazuli-app",
   "private": true,
@@ -272,25 +309,44 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
     "build": "vite build",
     "preview": "vite preview",
     "dev:go": "go -C ../../dist/go run .",
-    "test:go": "go -C ../../dist/go test ./..."
+    "test:go": "go -C ../../dist/go test ./...",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "lint": "biome check .",
+    "format": "biome format --write ."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
     "@lazuli/runtime": "^0.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
     "@tanstack/react-query": "^5.51.0",
     "@tanstack/react-router": "^1.45.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.408.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.52.0",
+    "sonner": "^1.5.0",
+    "tailwind-merge": "^2.5.0",
     "tailwindcss": "^3.4.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.8.0",
+    "@playwright/test": "^1.46.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "@vitest/ui": "^2.0.0",
+    "jsdom": "^25.0.0",
     "typescript": "^5.5.0",
-    "vite": "^5.3.0"
+    "vite": "^5.3.0",
+    "vitest": "^2.0.0"
   }
 }
 "#;
@@ -301,6 +357,43 @@ frontends/*/node_modules/
 frontends/*/.vite/
 dist/
 .lazuli/
+"#;
+
+/// Placeholder route at `app/web/routes/index.tsx`. User-owned. Lazuli
+/// never overwrites; the file is a starter that confirms the route
+/// folder is wired into the canonical 6-folder closed catalog per
+/// `[[client_src_canonical_architecture_2026-05-17]]` §3.
+pub const FRONTEND_WEB_ROUTES_INDEX_TSX: &str = r#"/**
+ * Default landing route. User-owned. v0.2 codegen will emit a
+ * `routes.gen.ts` table from `.lzx` `view ... at "<route>"` declarations
+ * — until then, the canonical `routes/` folder hosts handcrafted entries.
+ */
+export default function Index() {
+  return <p>Welcome to Lazurite</p>;
+}
+"#;
+
+/// Placeholder Zustand store at `app/web/state/app_store.ts`. User-
+/// owned. W1 pick is Zustand 4.x (see top-of-file Wave G comment).
+/// Cross-feature client state lives here; feature-local state stays
+/// co-located in `app/features/<f>/cells/`.
+pub const FRONTEND_WEB_STATE_APP_STORE_TS: &str = r#"import { create } from "zustand";
+
+/**
+ * Cross-feature client state. v0 ships a theme-toggle skeleton; extend
+ * with modal stack, command palette, etc. as your app grows. Server
+ * state belongs in TanStack Query (DSL-driven); feature-local state
+ * stays co-located in `app/features/<f>/cells/`.
+ */
+interface AppState {
+  theme: "light" | "dark";
+  setTheme: (theme: "light" | "dark") => void;
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  theme: "light",
+  setTheme: (theme) => set({ theme }),
+}));
 "#;
 
 /// Expo Router file-based root layout. User-owned one-line re-export
@@ -330,6 +423,9 @@ export default function Home() {
 
 /// Expo manifest. `scheme` matters for deep-linking; users edit `name`
 /// and `slug` before publishing.
+///
+/// Wave G shipped 2026-05-17 — `expo-notifications` plugin entry per
+/// M5 pick (see top-of-file Wave G comment block).
 pub const FRONTEND_MOBILE_APP_JSON: &str = r#"{
   "expo": {
     "name": "lazuli-app-mobile",
@@ -337,7 +433,7 @@ pub const FRONTEND_MOBILE_APP_JSON: &str = r#"{
     "version": "0.0.1",
     "orientation": "portrait",
     "scheme": "lazuliapp",
-    "plugins": ["expo-router"],
+    "plugins": ["expo-router", "expo-notifications"],
     "ios": {
       "supportsTablet": true
     },
@@ -350,10 +446,15 @@ pub const FRONTEND_MOBILE_APP_JSON: &str = r#"{
 
 /// Expo's babel preset includes `expo-router`'s preset transitively;
 /// users rarely customize this file.
+///
+/// Wave G shipped 2026-05-17 — `react-native-reanimated/plugin` listed
+/// LAST in `plugins` per M4 pick (Reanimated requires its babel plugin
+/// to be the final entry to correctly transform worklets).
 pub const FRONTEND_MOBILE_BABEL_CONFIG: &str = r#"module.exports = function (api) {
   api.cache(true);
   return {
     presets: ["babel-preset-expo"],
+    plugins: ["react-native-reanimated/plugin"],
   };
 };
 "#;
@@ -417,6 +518,20 @@ pub const FRONTEND_MOBILE_GITIGNORE: &str = r#"# Expo
 # android/
 "#;
 
+/// Mobile `package.json` template.
+///
+/// Wave G shipped 2026-05-17 — M2-M6 Tier-2 picks anchored at
+/// `docs/proposals/lazurite-frontend-stack-mobile-grading-2026-05-17.md`
+/// (architect re-grade PASS 8.87). M1 design system DEFERRED per the
+/// grading — no design-system library lands on mobile until a pilot
+/// drives the pick.
+///
+/// M2 icons: `lucide-react-native` (inherits W3, unified Lucide major
+/// 0.408). M3-state: AsyncStorage (status-quo Tier-1 promotion).
+/// M3-secrets: `expo-secure-store`. M4 animation: `react-native-
+/// reanimated` (paired with babel plugin in `FRONTEND_MOBILE_BABEL_CONFIG`
+/// + nothing in `app.json`). M5 push: `expo-notifications` (paired
+/// with `app.json` plugin entry). M6 state: `zustand` (inherits W1).
 pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
   "name": "lazuli-app-mobile",
   "private": true,
@@ -428,15 +543,20 @@ pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
   },
   "dependencies": {
     "@lazuli/runtime": "workspace:*",
-    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-async-storage/async-storage": "^2.0.0",
     "@tanstack/react-query": "^5.51.0",
     "expo": "~51.0.0",
+    "expo-notifications": "~0.28.0",
     "expo-router": "~3.5.0",
+    "expo-secure-store": "~13.0.0",
     "expo-status-bar": "~1.12.0",
+    "lucide-react-native": "^0.408.0",
     "react": "18.2.0",
     "react-native": "0.74.5",
+    "react-native-reanimated": "~3.15.0",
     "react-native-safe-area-context": "4.10.5",
-    "react-native-screens": "~3.31.1"
+    "react-native-screens": "~3.31.1",
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
