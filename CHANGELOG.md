@@ -21,6 +21,17 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Added
 
+- **`@scope.owner` / `@scope.same_org` policy-to-SQL lowering on
+  command effects.** When a command's policy atoms include either
+  scope axis, codegen now auto-injects the WHERE binding on
+  `Updates` / `Deletes` effects, constraining the affected row at
+  the database (not just at the policy-check gate). Closed-catalog
+  column priorities: `@scope.owner` resolves `user_id` > `user` >
+  `owner_id` > `owner` → `ctx.user.id`; `@scope.same_org` resolves
+  `org_id` > `org` > `tenant_id` > `tenant` → `ctx.user.org_id`.
+  Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
+  pilot 2026-05-17 capability matrix. Resources without a matching
+  column silently skip (defense-in-depth opt-in). (`c0a4609`)
 - `lazuli inspect --expand=defaults` is now IR-driven (reads
   `Tier3FeatureSlice.defaults` instead of re-walking source). Legacy
   text-walker retained as `inspect_defaults_legacy` for documents that
