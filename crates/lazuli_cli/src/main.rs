@@ -1545,15 +1545,19 @@ fn enum_ref_matches_feature(feature: &lazuli_ir::Feature, name: &lazuli_ir::Qual
 }
 
 fn write_record_interface(s: &mut String, record: &lazuli_ir::Record, module: &lazuli_ir::Module) {
+    // Field keys in camelCase — idiomatic JS/TS. The wire JSON
+    // contract stays snake_case (Go runtime); `LazuliClient` re-keys
+    // at the boundary via `runtime/ts/lazuli/src/case-mapper.ts`.
     writeln!(s, "export interface {} {{", pascal_case(&record.name)).ok();
     let mut fields: Vec<&lazuli_ir::Field> = record.fields.iter().collect();
     fields.sort_by(|a, b| a.name.cmp(&b.name));
     for field in fields {
         let ty = ts_type_for_type_ref(&field.type_ref, module);
+        let camel = lazuli_codegen_ts::lower_camel_export(&field.name);
         if field.required {
-            writeln!(s, "  {}: {};", field.name, ty).ok();
+            writeln!(s, "  {}: {};", camel, ty).ok();
         } else {
-            writeln!(s, "  {}?: {} | null;", field.name, ty).ok();
+            writeln!(s, "  {}?: {} | null;", camel, ty).ok();
         }
     }
     writeln!(s, "}}").ok();
@@ -1577,17 +1581,18 @@ fn write_resource_interface(
             continue;
         }
         let name = resource_field_ts_name(field, module);
+        let camel = lazuli_codegen_ts::lower_camel_export(&name);
         let ty = resource_field_ts_type(field, module);
         if field.required {
-            writeln!(s, "  {name}: {ty};").ok();
+            writeln!(s, "  {camel}: {ty};").ok();
         } else {
-            writeln!(s, "  {name}?: {ty} | null;").ok();
+            writeln!(s, "  {camel}?: {ty} | null;").ok();
         }
     }
-    writeln!(s, "  created_at: Time;").ok();
-    writeln!(s, "  updated_at: Time;").ok();
+    writeln!(s, "  createdAt: Time;").ok();
+    writeln!(s, "  updatedAt: Time;").ok();
     if resource.soft_delete {
-        writeln!(s, "  deleted_at?: Time | null;").ok();
+        writeln!(s, "  deletedAt?: Time | null;").ok();
     }
     writeln!(s, "}}").ok();
     writeln!(s).ok();
@@ -1606,10 +1611,11 @@ fn write_command_sdk(
     writeln!(s, "export interface {input_iface} {{").ok();
     for slot in command_sdk_slots(feature, command, module) {
         let optional = if slot.required { "" } else { "?" };
+        let camel = lazuli_codegen_ts::lower_camel_export(&slot.name);
         writeln!(
             s,
             "  {}{}: {};",
-            slot.name,
+            camel,
             optional,
             ts_type_for_type_ref(&slot.type_ref, module)
         )

@@ -434,10 +434,11 @@ fn pascal_case(s: &str) -> String {
 }
 
 /// Convert an identifier (snake_case / kebab-case / single word) to
-/// camelCase. First word stays lowercase; subsequent words capitalize.
-/// Acronyms in the closed table (`id`, `url`, `api`, ...) uppercase
-/// fully when not at the start (`org_id` → `orgId`, `api_url` →
-/// `apiUrl`).
+/// camelCase. First word stays lowercase; subsequent words title-case
+/// the first letter only. `org_id` → `orgId`, `api_url` → `apiUrl`,
+/// `created_at` → `createdAt`. Idiomatic for TypeScript field names;
+/// matches the runtime `case-mapper.ts` `snake_to_camel` so the wire
+/// boundary round-trips exactly.
 ///
 /// Re-exported via `lazuli_codegen_ts::lower_camel_export` for the CLI
 /// zod emitter (single source of truth for SDK/zod casing alignment).
@@ -457,17 +458,13 @@ fn lower_camel(s: &str) -> String {
             first = false;
             continue;
         }
-        if is_acronym(word) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
         let mut chars = word.chars();
         if let Some(c) = chars.next() {
             for u in c.to_uppercase() {
                 out.push(u);
             }
         }
-        out.push_str(chars.as_str());
+        out.push_str(&chars.as_str().to_ascii_lowercase());
     }
     out
 }
