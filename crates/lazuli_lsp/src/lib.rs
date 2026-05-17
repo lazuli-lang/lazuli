@@ -13397,7 +13397,8 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "sliding" => Some(
             "Cache sliding TTL. `sliding true` extends the TTL window on every read (access-recency cache); `sliding false` keeps a fixed expiry. Requires a typed `ttl` literal (`<int>s|m|h|d`) so the runtime can slide deterministically.",
         ),
-        "invalidates" => Some("Declares queries that become stale after a command succeeds."),
+        "invalidates" => Some("On a `command`, declares queries that become stale after the command succeeds. Each line is `query.<name>` or `query.<name>(arg: route.<slot>)`. The runtime evicts matching cache entries after a successful commit. Doctor: `cache_invalidates_target_unresolved`."),
+        "approval" => Some("On a `command`, declares a conditional human sign-off block (Cut A.9). Required children: `required_when <predicate>`, `by @role.<name>`, `timeout \"<duration>\"`, `then deny|allow|escalate`. Doctor: `approval_contract_diagnostics`, `approval_timeout_invalid_diagnostics`. IR field: `Command.approval: Option<ApprovalSpec>`."),
         "error" => Some("Declares a named public error case with status and exposure fields."),
         "expose" => Some("Declares which error fields are visible to generated clients."),
         "write_window" => Some("Declares the temporal write window checked before a command runs."),
@@ -13501,7 +13502,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Declares per-tenant expansion for scheduled jobs. `fanout tenants <axis>` runs one execution per tenant per fire. Requires `idempotency by ...` to avoid double-execution on re-fires (warning `JOB-FANOUT-002`).",
         ),
         "external_calls" => Some(
-            "Inspect projection of every `calls <slot>.<op>` inside a job body. Doctor uses it to enforce timeout, retry, and idempotency on each external call (`INT-CALL-*`, `JOB-TIMEOUT-001`).",
+            "Inspect projection of every `calls <slot>.<op>` inside a command/job body. Doctor uses it to enforce timeout, retry, and idempotency on each external call (`INT-CALL-*`, `JOB-TIMEOUT-001`). IR field: `Command.external_calls` / `Job.external_calls` carry typed `ExternalCallRef { slot, operation, args, span_ref }`.",
         ),
         "payload_group" => Some(
             "On a notification template binding, references a shared `event_group` payload schema. The runtime hydrates the template with the named group's payload shape.",
