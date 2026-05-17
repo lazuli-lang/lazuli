@@ -40,7 +40,12 @@ use crate::templates;
 /// - `app/web/shell/{root.tsx, layout.tsx, error_boundary.tsx}` (1/7)
 /// - `app/web/routes/index.tsx` (2/7, placeholder)
 /// - `app/web/ui/{forms, feedback, navigation, display, overlays, layout}/.gitkeep` (3/7, 7+6)
-/// - `app/web/theme/{globals.css, theme_provider.tsx}` (4/7)
+/// - `app/web/ui/forms/{Button.tsx, Input.tsx}` (Wave K — W2 Shadcn seeds)
+/// - `app/web/ui/feedback/Toast.tsx` (Wave K — W2 Shadcn seed; Sonner wrapper)
+/// - `app/web/ui/display/Card.tsx` (Wave K — W2 Shadcn seed)
+/// - `app/web/ui/overlays/Dialog.tsx` (Wave K — W2 Shadcn seed; Radix Dialog)
+/// - `app/web/ui/layout/Stack.tsx` (Wave K — W2 Shadcn seed; pure Tailwind)
+/// - `app/web/theme/{globals.css, theme_provider.tsx, cn.ts}` (4/7)
 /// - `app/web/state/app_store.ts` (5/7, Zustand placeholder)
 /// - `app/web/assets/.gitkeep` (6/7)
 /// - `app/web/cells/.gitkeep` (7/7, per §3.1 amendment 2026-05-17;
@@ -82,13 +87,43 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 
     // ui/ 6/6 closed sub-catalog (per §3.2). Each sub-dir gets a
     // `.gitkeep` so the canonical shape is present even before any
-    // primitive lands. Future cycles seed Shadcn-compose primitives
-    // from the W2 scaffold-seed pick.
+    // primitive lands. Wave K (2026-05-17) seeds one Shadcn-compose
+    // primitive per kind on top of the .gitkeep (the gitkeep stays so
+    // empty kinds — i.e. `navigation/` — keep their canonical shape).
     for ui_sub in WEB_UI_SUBDIRS {
         let path = ui_dir.join(ui_sub);
         fs::create_dir_all(&path).with_context(|| format!("creating {}", path.display()))?;
         write_if_absent(&path.join(".gitkeep"), "")?;
     }
+
+    // Wave K — W2 Shadcn-seed primitives (one essential per kind, v0
+    // closed-set = 6 total). User owns each file post-scaffold; Lazuli
+    // never overwrites. Anchor: docs/proposals/
+    // lazurite-frontend-stack-web-grading-2026-05-17.md §W2.
+    write_if_absent(
+        &ui_dir.join("forms").join("Button.tsx"),
+        templates::FRONTEND_WEB_UI_BUTTON_TSX,
+    )?;
+    write_if_absent(
+        &ui_dir.join("forms").join("Input.tsx"),
+        templates::FRONTEND_WEB_UI_INPUT_TSX,
+    )?;
+    write_if_absent(
+        &ui_dir.join("feedback").join("Toast.tsx"),
+        templates::FRONTEND_WEB_UI_TOAST_TSX,
+    )?;
+    write_if_absent(
+        &ui_dir.join("display").join("Card.tsx"),
+        templates::FRONTEND_WEB_UI_CARD_TSX,
+    )?;
+    write_if_absent(
+        &ui_dir.join("overlays").join("Dialog.tsx"),
+        templates::FRONTEND_WEB_UI_DIALOG_TSX,
+    )?;
+    write_if_absent(
+        &ui_dir.join("layout").join("Stack.tsx"),
+        templates::FRONTEND_WEB_UI_STACK_TSX,
+    )?;
 
     write_if_absent(
         &web_dir.join("index.html"),
@@ -122,6 +157,11 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     write_if_absent(
         &theme_dir.join("theme_provider.tsx"),
         templates::FRONTEND_THEME_PROVIDER_TSX,
+    )?;
+    // Wave K — `cn()` helper used by every Shadcn-seed primitive.
+    write_if_absent(
+        &theme_dir.join("cn.ts"),
+        templates::FRONTEND_WEB_THEME_CN_TS,
     )?;
 
     // state/ — Zustand placeholder per W1 pick.
@@ -415,6 +455,10 @@ mod tests {
             root.join("app/web/theme/theme_provider.tsx").exists(),
             "theme_provider.tsx missing"
         );
+        assert!(
+            root.join("app/web/theme/cn.ts").exists(),
+            "theme/cn.ts missing (Wave K — cn() helper)"
+        );
 
         // app/web/state/
         assert!(
@@ -435,6 +479,25 @@ mod tests {
                 gitkeep.exists(),
                 "ui/{}/.gitkeep missing (canonical 6-kind closed sub-catalog)",
                 ui_sub
+            );
+        }
+
+        // Wave K — W2 Shadcn-seed primitives (one essential per kind,
+        // v0 closed set = 6). Anchor: docs/proposals/
+        // lazurite-frontend-stack-web-grading-2026-05-17.md §W2.
+        for (rel, label) in [
+            ("app/web/ui/forms/Button.tsx", "Button"),
+            ("app/web/ui/forms/Input.tsx", "Input"),
+            ("app/web/ui/feedback/Toast.tsx", "Toast"),
+            ("app/web/ui/display/Card.tsx", "Card"),
+            ("app/web/ui/overlays/Dialog.tsx", "Dialog"),
+            ("app/web/ui/layout/Stack.tsx", "Stack"),
+        ] {
+            assert!(
+                root.join(rel).exists(),
+                "Wave K primitive {} missing at {}",
+                label,
+                rel,
             );
         }
 
@@ -471,6 +534,10 @@ mod tests {
         assert!(
             pkg.contains("\"@radix-ui/react-slot\""),
             "W2 Radix Slot missing"
+        );
+        assert!(
+            pkg.contains("\"@radix-ui/react-dialog\""),
+            "Wave K — @radix-ui/react-dialog missing (Dialog primitive dep)"
         );
         assert!(
             pkg.contains("\"class-variance-authority\""),
@@ -744,6 +811,14 @@ mod tests {
         assert!(!templates::FRONTEND_VITE_CONFIG_TS.is_empty());
         assert!(!templates::FRONTEND_PACKAGE_JSON.is_empty());
         assert!(!templates::FRONTEND_GITIGNORE.is_empty());
+        // Wave K — Shadcn-seed primitives + cn() helper.
+        assert!(!templates::FRONTEND_WEB_THEME_CN_TS.is_empty());
+        assert!(!templates::FRONTEND_WEB_UI_BUTTON_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_UI_INPUT_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_UI_TOAST_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_UI_CARD_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_UI_DIALOG_TSX.is_empty());
+        assert!(!templates::FRONTEND_WEB_UI_STACK_TSX.is_empty());
 
         // mobile
         assert!(!templates::FRONTEND_MOBILE_APP_LAYOUT_TSX.is_empty());
@@ -775,6 +850,13 @@ mod tests {
             templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX,
             templates::FRONTEND_WEB_ROUTES_INDEX_TSX,
             templates::FRONTEND_WEB_STATE_APP_STORE_TS,
+            templates::FRONTEND_WEB_THEME_CN_TS,
+            templates::FRONTEND_WEB_UI_BUTTON_TSX,
+            templates::FRONTEND_WEB_UI_INPUT_TSX,
+            templates::FRONTEND_WEB_UI_TOAST_TSX,
+            templates::FRONTEND_WEB_UI_CARD_TSX,
+            templates::FRONTEND_WEB_UI_DIALOG_TSX,
+            templates::FRONTEND_WEB_UI_STACK_TSX,
             templates::FRONTEND_THEME_GLOBALS_CSS,
             templates::FRONTEND_THEME_PROVIDER_TSX,
             templates::FRONTEND_TAILWIND_CONFIG_TS,
@@ -800,6 +882,73 @@ mod tests {
                 "template index {i} contains CR — templates must be LF-only for cross-platform output"
             );
         }
+    }
+
+    /// Wave K invariant: each Shadcn-seed primitive carries the
+    /// scaffold-seed banner ("User owns this file") and references
+    /// the canonical `@web/theme/cn` helper. Catches accidental
+    /// drift between the templates and the W2 scaffold-seed pick.
+    #[test]
+    fn scaffold_web_seeds_carry_banner_and_cn_import() {
+        let project = tempdir();
+        let root = project.path();
+
+        scaffold_frontend_web(root, "demo").unwrap();
+
+        // `cn.ts` ships and is the standard tailwind-merge + clsx recipe.
+        let cn_ts = fs::read_to_string(root.join("app/web/theme/cn.ts")).unwrap();
+        assert!(cn_ts.contains("tailwind-merge"));
+        assert!(cn_ts.contains("clsx"));
+        assert!(cn_ts.contains("export function cn"));
+        assert!(
+            cn_ts.contains("User owns this file"),
+            "cn.ts missing scaffold-seed banner"
+        );
+
+        // Every primitive carries the banner; each one that references
+        // `cn()` imports it from `@web/theme/cn`.
+        let primitives = [
+            ("app/web/ui/forms/Button.tsx", true),
+            ("app/web/ui/forms/Input.tsx", true),
+            ("app/web/ui/feedback/Toast.tsx", false), // Sonner wrapper has no cn() use.
+            ("app/web/ui/display/Card.tsx", true),
+            ("app/web/ui/overlays/Dialog.tsx", true),
+            ("app/web/ui/layout/Stack.tsx", true),
+        ];
+        for (rel, uses_cn) in primitives {
+            let body = fs::read_to_string(root.join(rel)).unwrap();
+            assert!(
+                body.contains("User owns this file"),
+                "{} missing scaffold-seed banner",
+                rel,
+            );
+            if uses_cn {
+                assert!(
+                    body.contains("@web/theme/cn"),
+                    "{} must import cn from @web/theme/cn",
+                    rel,
+                );
+            }
+        }
+
+        // Button uses CVA + Radix Slot for asChild (the W2-specified shape).
+        let button = fs::read_to_string(root.join("app/web/ui/forms/Button.tsx")).unwrap();
+        assert!(button.contains("class-variance-authority"));
+        assert!(button.contains("@radix-ui/react-slot"));
+        assert!(button.contains("asChild"));
+
+        // Dialog uses @radix-ui/react-dialog (the W2-specified shape).
+        let dialog = fs::read_to_string(root.join("app/web/ui/overlays/Dialog.tsx")).unwrap();
+        assert!(dialog.contains("@radix-ui/react-dialog"));
+
+        // Stack is pure Tailwind — no Radix import.
+        let stack = fs::read_to_string(root.join("app/web/ui/layout/Stack.tsx")).unwrap();
+        assert!(!stack.contains("@radix-ui"));
+        assert!(stack.contains("class-variance-authority"));
+
+        // Toast re-exports Sonner — no Radix import.
+        let toast = fs::read_to_string(root.join("app/web/ui/feedback/Toast.tsx")).unwrap();
+        assert!(toast.contains("sonner"));
     }
 
     /// Wave G invariant: a fresh `scaffold_frontend_web` output must
