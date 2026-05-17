@@ -3986,12 +3986,87 @@ fn inspect_symbol_command(symbol: &str, format: InspectFormat) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         InspectFormat::Lazuli => {
-            // Lazuli format not defined for symbol mode; emit a brief
-            // human-readable summary by falling back to JSON-pretty.
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            println!("{}", render_inspect_symbol_lazuli(symbol, &output));
         }
     }
     Ok(())
+}
+
+/// Render a `lazuli inspect <symbol>` JSON result as compact
+/// human-readable lines for terminal viewers (closes the
+/// `--format=lazuli for symbol-mode` next-checklist item). The JSON
+/// shape stays normative; this is a one-screen view that surfaces
+/// the four facts a reader usually wants: kind + feature + path:line
+/// + previous names (when present).
+fn render_inspect_symbol_lazuli(symbol: &str, output: &serde_json::Value) -> String {
+    if let Some(error) = output.get("error") {
+        let code = error
+            .get("code")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ERROR");
+        let message = error
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(no message)");
+        let mut lines = vec![format!("{code}: {message}")];
+        if let Some(candidates) = error.get("candidates").and_then(|v| v.as_array()) {
+            for c in candidates {
+                if let Some(s) = c.as_str() {
+                    lines.push(format!("  - {s}"));
+                }
+            }
+        }
+        return lines.join("\n");
+    }
+
+    let name = output
+        .get("symbol")
+        .and_then(|v| v.as_str())
+        .unwrap_or(symbol);
+    let feature = output
+        .get("feature")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let kind = output
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("symbol");
+    let defined_in = output
+        .get("defined_in")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let location = match (
+        defined_in.get("file").and_then(|v| v.as_str()),
+        defined_in.get("line").and_then(|v| v.as_u64()),
+    ) {
+        (Some(file), Some(line)) => format!("{file}:{line}"),
+        (Some(file), None) => file.to_owned(),
+        _ => match defined_in.get("source").and_then(|v| v.as_str()) {
+            Some("builtin") => "builtin".to_owned(),
+            _ => "?".to_owned(),
+        },
+    };
+
+    let mut lines = vec![format!(
+        "{name} ({kind}) — feature `{feature}`, defined in: {location}"
+    )];
+
+    if let Some(prev) = output.get("previous_names").and_then(|v| v.as_array()) {
+        if !prev.is_empty() {
+            let names: Vec<&str> = prev.iter().filter_map(|v| v.as_str()).collect();
+            if !names.is_empty() {
+                lines.push(format!("  previously: {}", names.join(", ")));
+            }
+        }
+    }
+
+    if let Some(imported) = output.get("imported_via").and_then(|v| v.as_object()) {
+        if let Some(feat) = imported.get("feature").and_then(|v| v.as_str()) {
+            lines.push(format!("  imported via: uses {feat}"));
+        }
+    }
+
+    lines.join("\n")
 }
 
 /// Find the project root by walking up from `start` for a directory that
@@ -10353,8 +10428,8 @@ mod tests {
         GenerateKind, MigrateCommand, REGISTRY_TEMPLATE, app_template, default_module_name,
         add_missing_go_work_use_entries, emit_feature_sdk_ts, expand_canonical_source,
         inspect_canonical_source, inspect_json_value, new_command, parse_expand_set, pascal_case,
-        pascal_case_project_name, scaffold_bare, scaffold_from_template, templates,
-        write_go_work_preserving_entries,
+        pascal_case_project_name, render_inspect_symbol_lazuli, scaffold_bare,
+        scaffold_from_template, templates, write_go_work_preserving_entries,
     };
 
     #[test]
@@ -12720,6 +12795,116 @@ app MyApp
         assert!(
             json.contains("\"limits\":"),
             "limits still surfaces on AppManifest: {json}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // `--format=lazuli` for `lazuli inspect <symbol>` (next-checklist
+    // follow-up from lsp-symbol-origin v0.2; closes the deferred item).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn render_inspect_symbol_lazuli_found_emits_human_readable_one_liner() {
+        let output = serde_json::json!({
+            "symbol": "Customer",
+            "feature": "account",
+            "defined_in": {
+                "source": "file",
+                "file": "features/account/account.lzi",
+                "line": 42,
+                "column": 3,
+                "kind": "resource",
+            },
+            "imported_via": null,
+            "type": "resource",
+            "previous_names": [],
+        });
+        let rendered = render_inspect_symbol_lazuli("Customer", &output);
+        assert!(
+            rendered.contains("Customer"),
+            "rendered should name the symbol:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("account"),
+            "rendered should name the feature:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("features/account/account.lzi:42"),
+            "rendered should anchor the source location:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("(resource)"),
+            "rendered should name the symbol kind:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_inspect_symbol_lazuli_with_previous_names() {
+        let output = serde_json::json!({
+            "symbol": "Customer",
+            "feature": "account",
+            "defined_in": {
+                "source": "file",
+                "file": "x.lzi",
+                "line": 10,
+                "column": 1,
+                "kind": "resource",
+            },
+            "imported_via": null,
+            "type": "resource",
+            "previous_names": ["Client", "User"],
+        });
+        let rendered = render_inspect_symbol_lazuli("Customer", &output);
+        assert!(
+            rendered.contains("previously:"),
+            "rendered should announce previously: trailer:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Client") && rendered.contains("User"),
+            "rendered should list both previous names:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_inspect_symbol_lazuli_not_found_emits_code_and_message() {
+        let output = serde_json::json!({
+            "error": {
+                "code": "SYMBOL_NOT_FOUND",
+                "message": "no declaration named `Foo` in any feature of this project",
+            }
+        });
+        let rendered = render_inspect_symbol_lazuli("Foo", &output);
+        assert!(
+            rendered.starts_with("SYMBOL_NOT_FOUND:"),
+            "rendered should lead with the error code:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Foo"),
+            "rendered should echo the missing symbol:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_inspect_symbol_lazuli_ambiguous_lists_candidates() {
+        let output = serde_json::json!({
+            "error": {
+                "code": "AMBIGUOUS_SYMBOL",
+                "message": "`Customer` is declared in multiple features",
+                "candidates": ["account.Customer", "billing.Customer"],
+            }
+        });
+        let rendered = render_inspect_symbol_lazuli("Customer", &output);
+        assert!(
+            rendered.contains("AMBIGUOUS_SYMBOL"),
+            "rendered should lead with the error code:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("- account.Customer"),
+            "rendered should list candidate as bullet:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("- billing.Customer"),
+            "rendered should list every candidate:\n{rendered}"
         );
     }
 }
