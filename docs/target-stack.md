@@ -116,10 +116,12 @@ and `react.native.ts`; the two platform-coupled hooks
 is documented in the hook's JSDoc and pinned by `exports-parity.test.ts`.
 
 The mobile scaffold (`lazuli new --frontends mobile` or the
-`scaffold_frontend_mobile` writer) lays down an Expo Router project:
+`scaffold_frontend_mobile` writer) lays down an Expo Router project at
+`apps/<frontend>/` per the canonical client-specific tier (see
+[`project-structure.md`](project-structure.md#tier-2-client-specific-appsfrontend)):
 
 ```
-frontends/mobile/
+apps/<frontend>/
 ├── app/_layout.tsx          # one-line re-export of dist/ts-mobile/runtime/layout
 ├── app/index.tsx            # placeholder home
 ├── shell/client.ts          # LazuliClient construction
@@ -128,10 +130,17 @@ frontends/mobile/
 
 `dist/ts-mobile/runtime/layout.tsx` is the regen-only body —
 `<LazuliProvider>` ⊃ `<QueryClientProvider>` ⊃ `<Stack />`. Per-view
-files at `frontends/mobile/app/<audience>/<expo-route>.tsx` are
+files at `apps/<frontend>/app/<audience>/<expo-route>.tsx` are
 scaffolded once (idempotent — never overwritten) with plain RN
 placeholder bodies that authors replace with their chosen
 component-library JSX.
+
+> Pre-pivot scaffolds emitted to `frontends/<target>/`; the codegen
+> writer is being migrated to `apps/<frontend>/` to match the canonical
+> client-specific tier (see [ADR-0001](adr/0001-handler-home-and-portability-tiers.md)).
+> Until the writer pivot lands, existing scaffolds still use the older
+> path — both layouts work, but `apps/<frontend>/` is the canonical
+> destination for new projects.
 
 For the full specification — runtime split rationale, per-hook
 behavior tables, exports map shape, Expo Router file-path translation,
