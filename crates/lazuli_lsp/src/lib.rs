@@ -13144,8 +13144,8 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "topology" => Some("Declares an environment deploy topology override in a profile."),
         "environment" => Some("Selects a provider environment such as sandbox or production."),
         "env" => Some("Declares typed environment variables and client/server exposure."),
-        "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior."),
-        "record" => Some("Declares a non-persisted typed result/DTO shape."),
+        "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior. Inspect with `lazuli inspect <file> --expand=resources` to project the typed slice."),
+        "record" => Some("Declares a non-persisted typed result/DTO shape. Inspect with `lazuli inspect <file> --expand=records` to project the typed slice."),
         "agent" => Some(
             "Declares an LLM-powered capability with typed input, output, prompt template, model reference, policy, and rate limits. the runtime wires the LLM transport; Lazuli owns the contract.",
         ),
@@ -13215,7 +13215,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "query.list" => Some("Declares a generated collection query."),
         "query.lookup" => Some("Declares a generated single-record lookup query."),
         "query.sql" => Some("Declares a query backed by an external SQL file."),
-        "defaults" => Some("Declares repeated feature defaults such as tenancy and timestamps."),
+        "defaults" => Some("Declares repeated feature defaults such as tenancy and timestamps. Inspect with `lazuli inspect <file> --expand=defaults` to project the IR-driven defaults block."),
         "domain" => Some("Groups resources, records, queries, rules, and events."),
         "policies" => Some("Declares feature-local policy categories and field policies."),
         "auth" => Some(
@@ -13852,6 +13852,8 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "```",
                 "",
                 "See [quickref.md §Minimal Feature](docs/quickref.md) and [invariants.md §Security And Crypto](docs/invariants.md).",
+                "",
+                "**Inspect**: `lazuli inspect <file> --expand=commands` projects this declaration's typed IR slice (route + input + policy + audit + approval + invalidates + external_calls + rate_limit + timeout/retry/idempotency).",
             ]
             .join("\n"),
         ),
@@ -13884,6 +13886,8 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "```",
                 "",
                 "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+                "",
+                "**Inspect**: `lazuli inspect <file> --expand=queries` projects every lifted query (List / Lookup / Sql) with its full v0 child coverage.",
             ]
             .join("\n"),
         ),
@@ -13909,6 +13913,8 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "```",
                 "",
                 "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+                "",
+                "**Inspect**: `lazuli inspect <file> --expand=queries` includes Lookup queries alongside List/Sql.",
             ]
             .join("\n"),
         ),
@@ -13936,6 +13942,8 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "```",
                 "",
                 "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+                "",
+                "**Inspect**: `lazuli inspect <file> --expand=queries` includes Sql queries alongside List/Lookup.",
             ]
             .join("\n"),
         ),
@@ -13967,6 +13975,8 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "```",
                 "",
                 "See [quickref.md §Security Checklist](docs/quickref.md) and [invariants.md §Security And Crypto](docs/invariants.md).",
+                "",
+                "**Inspect**: `lazuli inspect <file> --expand=apis` (or `--expand=api`) projects every lifted Api with method + path + output + policy + handler + locale_negotiate.",
             ]
             .join("\n"),
         ),

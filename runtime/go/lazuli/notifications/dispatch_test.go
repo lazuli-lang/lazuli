@@ -7,6 +7,7 @@ package notifications_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -139,6 +140,28 @@ func TestSendRetryThenSucceed(t *testing.T) {
 	}
 	if disp.calls.Load() != 2 {
 		t.Fatalf("dispatcher calls = %d, want 2 (1 fail + 1 succeed)", disp.calls.Load())
+	}
+}
+
+// Meta-regression: assert the stub 501-shape error string never
+// reappears from Send. Mirrors webhooks.TestHandleOneNotImplementedStatusGone
+// in receive_test.go. The package-level wire_smoke test in
+// internal/wiresmoke also grep-guards this literal across all impl
+// files; this functional assertion is the symmetric per-call guard.
+//
+// Synth Wave 1 cell 02.
+func TestSendNotYetImplementedErrorGone(t *testing.T) {
+	t.Parallel()
+
+	reg := notifications.NewRegistry()
+	disp := &fakeDispatcher{channel: notifications.ChannelEmail}
+	_ = reg.Register(disp)
+
+	err := notifications.Send(context.Background(), reg, contract(), map[string]any{
+		"target": map[string]any{"email": "alice@example.com"},
+	})
+	if err != nil && strings.Contains(err.Error(), "not yet implemented") {
+		t.Fatalf("stub 501 error reappeared: %v", err)
 	}
 }
 
