@@ -3,7 +3,17 @@ dist/
 *.env
 .env
 node_modules/
-frontends/*/node_modules/
+# TypeScript client(s): default single `app/web/`, opt-in multi at
+# `app/clients/<name>/`. Both covered by these globs.
+app/web/node_modules/
+app/clients/*/node_modules/
 .vite/
+app/web/.vite/
+app/clients/*/.vite/
+# Legacy paths from pre-pivot scaffolds — kept until consumer migrations
+# land, so existing repos don't surface stale tracked artifacts.
+frontends/*/node_modules/
 frontends/*/.vite/
+apps/*/node_modules/
+apps/*/.vite/
 target/

@@ -967,7 +967,7 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
     // Mobile-target runtime: emit `dist/ts-mobile/runtime/layout.tsx`
     // once when the project declares an Expo frontend
     // (`docs/proposals/mobile-target.md` §5.4). The user-owned
-    // `frontends/mobile/app/_layout.tsx` is a one-line re-export of
+    // `app/clients/mobile/app/_layout.tsx` is a one-line re-export of
     // this body; regen always rewrites this file.
     if manifest_has_expo_frontend(&manifest) {
         files.push(lazuli_codegen_ts::GeneratedFile {
@@ -1010,7 +1010,7 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
     }
 
     // Per-view mobile scaffolds. Each mobile surface view writes one
-    // `frontends/mobile/app/<audience>/<expo-route>.tsx` placeholder
+    // `app/clients/mobile/app/<audience>/<expo-route>.tsx` placeholder
     // ONCE (idempotent — never overwrites user edits, mirroring
     // `cmd_new_frontends::scaffold_frontend_mobile`). Author replaces
     // the placeholder JSX with real RN components as soon as the
@@ -1029,7 +1029,7 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
 }
 
 /// Walk every mobile surface and write a per-view scaffold under
-/// `frontends/mobile/app/<audience>/<expo-route>.tsx`. Returns the count
+/// `app/clients/mobile/app/<audience>/<expo-route>.tsx`. Returns the count
 /// of files actually written (excludes already-present files left
 /// untouched by the `write_if_absent` guard).
 fn scaffold_mobile_view_files(
@@ -4319,7 +4319,7 @@ fn new_in_place_command(
         match frontend {
             FrontendScaffold::Web => {
                 let package_json = project_root
-                    .join("frontends")
+                    .join("app")
                     .join("web")
                     .join("package.json");
                 let package_json_exists = package_json
@@ -4343,9 +4343,9 @@ fn new_in_place_command(
 
 fn log_user_owned_frontend_skips(project_root: &Path) -> Result<()> {
     for relative in [
-        "frontends/web/tailwind.config.ts",
-        "frontends/web/tsconfig.json",
-        "frontends/web/vite.config.ts",
+        "app/web/tailwind.config.ts",
+        "app/web/tsconfig.json",
+        "app/web/vite.config.ts",
     ] {
         let path = project_root.join(relative);
         if path
@@ -10679,7 +10679,7 @@ mod tests {
         assert!(manifest.contains("[lazuli]"));
         assert!(manifest.contains("[frontends.web]"));
         assert!(manifest.contains("target = \"tanstack-vite\""));
-        assert!(manifest.contains("source = \"frontends/web\""));
+        assert!(manifest.contains("source = \"app/web\""));
     }
 
     #[test]
@@ -10691,9 +10691,9 @@ mod tests {
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        fs::create_dir_all(root.join("frontends/web")).unwrap();
+        fs::create_dir_all(root.join("app/web")).unwrap();
         fs::write(
-            root.join("frontends/web/tailwind.config.ts"),
+            root.join("app/web/tailwind.config.ts"),
             "// custom tailwind\n",
         )
         .unwrap();
@@ -10710,7 +10710,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            fs::read_to_string(root.join("frontends/web/tailwind.config.ts")).unwrap(),
+            fs::read_to_string(root.join("app/web/tailwind.config.ts")).unwrap(),
             "// custom tailwind\n"
         );
     }
@@ -10736,18 +10736,18 @@ mod tests {
         )
         .unwrap();
 
-        assert!(root.join("frontends/web/index.html").is_file());
-        assert!(root.join("frontends/web/main.tsx").is_file());
-        assert!(root.join("frontends/web/shell/root.tsx").is_file());
-        assert!(root.join("frontends/web/shell/layout.tsx").is_file());
+        assert!(root.join("app/web/index.html").is_file());
+        assert!(root.join("app/web/main.tsx").is_file());
+        assert!(root.join("app/web/shell/root.tsx").is_file());
+        assert!(root.join("app/web/shell/layout.tsx").is_file());
         assert!(
-            root.join("frontends/web/theme/theme_provider.tsx")
+            root.join("app/web/theme/theme_provider.tsx")
                 .is_file()
         );
-        assert!(root.join("frontends/web/theme/globals.css").is_file());
-        assert!(root.join("frontends/web/tailwind.config.ts").is_file());
-        assert!(root.join("frontends/web/tsconfig.json").is_file());
-        assert!(root.join("frontends/web/vite.config.ts").is_file());
+        assert!(root.join("app/web/theme/globals.css").is_file());
+        assert!(root.join("app/web/tailwind.config.ts").is_file());
+        assert!(root.join("app/web/tsconfig.json").is_file());
+        assert!(root.join("app/web/vite.config.ts").is_file());
     }
 
     #[test]
@@ -10784,9 +10784,9 @@ mod tests {
             "[lazuli]\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        fs::create_dir_all(root.join("frontends/web")).unwrap();
+        fs::create_dir_all(root.join("app/web")).unwrap();
         fs::write(
-            root.join("frontends/web/package.json"),
+            root.join("app/web/package.json"),
             r#"{
   "name": "custom-app",
   "dependencies": {
@@ -10813,7 +10813,7 @@ mod tests {
         .unwrap();
 
         let package_json: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(root.join("frontends/web/package.json")).unwrap(),
+            &fs::read_to_string(root.join("app/web/package.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(package_json["name"], "custom-app");

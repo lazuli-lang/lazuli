@@ -232,7 +232,7 @@ mod tests {
         Extension {
             name: name.to_owned(),
             contract: ExtensionContract::Hook { type_arg: target },
-            resolved_path: lazuli_ir::PathRef::convention(format!("handlers/{name}.go")),
+            resolved_path: lazuli_ir::PathRef::convention(format!("{name}.go")),
             previous_names: vec![],
             span_ref: None,
         }

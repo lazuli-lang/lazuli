@@ -45,7 +45,7 @@ Inspect shows derived references, computed scopes, security envelope, event flow
 1. **Author** `features/<name>/<name>.lzi` per [Lazuli grammar](https://github.com/lazuli-lang/lazuli/blob/main/docs/grammar.lzi.md).
 2. **Surfaces** (if user-facing): `features/<name>/<name>.lzx` (abstract) + `<name>.web.lzx` / `<name>.mobile.lzx` (per audience).
 3. **Gate**: `lazuli check . && lazuli doctor .` — MUST be clean before continuing.
-4. **Handlers** (if needed): `features/<name>/handlers/<fn>.go` — filename matches `@fn.<fn>` reference exactly.
+4. **Handlers** (if needed): `app/features/<name>/<fn>.go` — `package <name>`; filename matches `@fn.<fn>` reference exactly. Self-register at init via `lazuli.RegisterFn("<feature>.<fn>", <FnName>)` (auto-emitted in scaffolded stubs).
 5. **Verify codegen**: `lazuli generate go && go build ./...`.
 6. **Re-gate**: `lazuli check . && lazuli doctor .`.
 

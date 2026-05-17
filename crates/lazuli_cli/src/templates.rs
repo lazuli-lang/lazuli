@@ -446,11 +446,14 @@ pub const FRONTEND_MOBILE_PACKAGE_JSON: &str = r#"{
 }
 "#;
 
-/// `Lazurite.toml [frontends.<x>]` snippet appended when --frontends flag set
+/// `Lazurite.toml [frontends.<x>]` snippet appended when --frontends flag set.
+/// Paths follow the canonical layout in `docs/project-structure.md`:
+/// default web client at `app/web/`, mobile (different runtime) at
+/// `app/clients/mobile/`.
 pub const FRONTEND_MANIFEST_WEB_SNIPPET: &str = r#"
 [frontends.web]
 target = "tanstack-vite"
-source = "frontends/web"
+source = "app/web"
 out = "dist/ts-web"
 audiences = ["admin", "public"]
 "#;
@@ -458,7 +461,7 @@ audiences = ["admin", "public"]
 pub const FRONTEND_MANIFEST_MOBILE_SNIPPET: &str = r#"
 [frontends.mobile]
 target = "expo"
-source = "frontends/mobile"
+source = "app/clients/mobile"
 out = "dist/ts-mobile"
 audiences = ["mobile"]
 "#;

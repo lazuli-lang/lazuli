@@ -149,7 +149,7 @@ mod tests {
                 input: TypeRef::Builtin(BuiltinType::Json),
                 output: TypeRef::Builtin(BuiltinType::Json),
             },
-            resolved_path: PathRef::authored("./handlers/x.go"),
+            resolved_path: PathRef::authored("./x.go"),
             previous_names: vec![],
             span_ref: None,
         }

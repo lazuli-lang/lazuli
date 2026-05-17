@@ -1,7 +1,11 @@
 //! `lazuli generate handler <feature>.<fn>` subcommand.
 //!
-//! Creates `<app_dir>/features/<feature>/handlers/<fn>.go` for a referenced
-//! `@fn.<fn>` in the feature's `.lzi` source.
+//! Creates `<app_dir>/features/<feature>/<fn>.go` for a referenced
+//! `@fn.<fn>` in the feature's `.lzi` source. The handler lives directly
+//! under the feature directory (not in a `handlers/` sub-package) — this
+//! matches the canonical layout in `docs/project-structure.md`: handler
+//! files are Tier 1 portable code in `package <feature>`, alongside the
+//! `.lzi` that cites them.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,11 +36,15 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
         ));
     }
 
-    let handlers_dir = feat_root.join("handlers");
-    fs::create_dir_all(&handlers_dir)
-        .with_context(|| format!("creating {}", handlers_dir.display()))?;
+    // Canonical layout: handler at `<app_dir>/features/<feature>/<fn>.go`
+    // in `package <feature>` — no sub-folder, no separate package. See
+    // `docs/project-structure.md` for the rationale (Tier 1 portable
+    // code; gen lives separately in `dist/go/<feature>/` as package
+    // `<feature>gen`).
+    fs::create_dir_all(&feat_root)
+        .with_context(|| format!("creating {}", feat_root.display()))?;
 
-    let target = handlers_dir.join(format!("{}.go", fn_name));
+    let target = feat_root.join(format!("{}.go", fn_name));
     if target.exists() {
         return Err(anyhow!("handler already exists: {}", target.display()));
     }
@@ -172,9 +180,7 @@ app_dir = "app"
 
         run("auth.verify_password", project.path()).unwrap();
 
-        let target = project
-            .path()
-            .join("features/auth/handlers/verify_password.go");
+        let target = project.path().join("features/auth/verify_password.go");
         assert!(target.exists());
         let body = fs::read_to_string(target).unwrap();
         assert!(body.contains("func VerifyPassword("));
@@ -207,9 +213,9 @@ app_dir = "app"
             "auth",
             "feature auth\n  command login\n    handler @fn.verify_password\n",
         );
-        let handlers_dir = project.path().join("features/auth/handlers");
-        fs::create_dir_all(&handlers_dir).unwrap();
-        fs::write(handlers_dir.join("verify_password.go"), "package auth\n").unwrap();
+        let feat_dir = project.path().join("features/auth");
+        fs::create_dir_all(&feat_dir).unwrap();
+        fs::write(feat_dir.join("verify_password.go"), "package auth\n").unwrap();
 
         let err = run("auth.verify_password", project.path()).unwrap_err();
 
@@ -247,11 +253,13 @@ app_dir = "app"
 
         run("auth.verify_password", project.path()).unwrap();
 
-        assert!(feature_root.join("handlers/verify_password.go").exists());
+        assert!(feature_root.join("verify_password.go").exists());
+        // Should NOT fall back to the root-relative path when the
+        // manifest points at app/.
         assert!(
             !project
                 .path()
-                .join("features/auth/handlers/verify_password.go")
+                .join("features/auth/verify_password.go")
                 .exists()
         );
     }
