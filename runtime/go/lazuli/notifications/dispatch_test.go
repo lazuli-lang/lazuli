@@ -75,6 +75,35 @@ func TestSendHappyPath(t *testing.T) {
 	}
 }
 
+func TestRegistryLookupReturnsRegisteredDispatcher(t *testing.T) {
+	t.Parallel()
+
+	reg := notifications.NewRegistry()
+	disp := &fakeDispatcher{channel: notifications.ChannelEmail}
+	_ = reg.Register(disp)
+
+	got, ok := reg.Lookup(notifications.ChannelEmail)
+	if !ok {
+		t.Fatal("Lookup returned ok=false for registered channel")
+	}
+	if got != disp {
+		t.Fatalf("Lookup returned wrong dispatcher: %v want %v", got, disp)
+	}
+}
+
+func TestRegistryLookupReturnsFalseForUnregistered(t *testing.T) {
+	t.Parallel()
+
+	reg := notifications.NewRegistry()
+	got, ok := reg.Lookup(notifications.ChannelSlack)
+	if ok {
+		t.Fatal("Lookup returned ok=true for unregistered channel")
+	}
+	if got != nil {
+		t.Fatalf("Lookup returned non-nil dispatcher: %v", got)
+	}
+}
+
 func TestSendSkipOnUnresolvedRecipient(t *testing.T) {
 	t.Parallel()
 

@@ -47,6 +47,15 @@ func (r *Registry) Register(disp ChannelDispatcher) error {
 	return nil
 }
 
+// Lookup returns the registered dispatcher for `ch`, or (nil, false)
+// when no adapter is bound. Lets `@fn` handlers reuse the same
+// transport the codegen `notification.Send` path uses, without
+// constructing a parallel dispatcher.
+func (r *Registry) Lookup(ch Channel) (ChannelDispatcher, bool) {
+	d, ok := r.dispatchers[ch]
+	return d, ok
+}
+
 // RegisterThrottleStore wires the store consulted before each
 // dispatch. The default registry has no throttle store — contracts
 // declaring `throttle` then fall through to direct dispatch.
