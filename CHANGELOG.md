@@ -48,6 +48,16 @@ Every `LZIR_SCHEMA` bump must ship a paired
   Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
   pilot 2026-05-17 capability matrix. Resources without a matching
   column silently skip (defense-in-depth opt-in). (`c0a4609`)
+- **`resource_unique_qualifier_unknown` + `resource_validates_path_unknown`
+  doctor lints (future-ready).** Two of the three NEW Tier 4c lints from
+  the naming-reconciliation proposal §4. Walker code shipped + wired
+  into the doctor pipeline; both stay silent today because
+  `lower_resource_decl` hardcodes `Resource.constraints` and
+  `Resource.validates` to empty Vec. When the analyzer wires those
+  slots from the AST, the lints start firing automatically. The
+  third lint (`field_derived_from_unresolved`) shipped in `4b03b66`
+  and IS firing. Tier3FeatureFacts grows an `extensions` slot to
+  support the `@validator.<name>` cross-reference. (`81c1e2e`)
 - **`@scope.self` atom — ctx-as-key WHERE.** When the policy includes
   `@scope.self`, codegen binds the row's `id` directly to
   `ctx.user.id` (the acting user IS the target row). Suppresses the
