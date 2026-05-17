@@ -29,20 +29,39 @@ type Bindings map[string]Source
 // Source is a single binding's source. See `FromInput`, `FromCtx`,
 // `FromTarget`, `FromConst` for canonical constructors.
 type Source struct {
-	kind  sourceKind
-	path  string
-	value any
+	kind     sourceKind
+	path     string
+	value    any
+	subquery *ownedViaSubquery
 }
 
 type sourceKind int
 
 const (
-	sourceInput  sourceKind = iota // value comes from `input.<path>`
-	sourceCtx                      // value comes from `ctx.<path>`
-	sourceTarget                   // value comes from the loaded `target.<path>`
-	sourceConst                    // value is a literal
-	sourceFn                       // value comes from invoking a registered binding fn
+	sourceInput        sourceKind = iota // value comes from `input.<path>`
+	sourceCtx                            // value comes from `ctx.<path>`
+	sourceTarget                         // value comes from the loaded `target.<path>`
+	sourceConst                          // value is a literal
+	sourceFn                             // value comes from invoking a registered binding fn
+	sourceCtxOwnedVia                    // WHERE binding expands to `<col> IN (SELECT id FROM <related> WHERE <owner_col> = $N)`
 )
+
+// ownedViaSubquery captures the related-resource traversal for
+// `@scope.owner` policies on resources that don't carry a direct
+// owner column. Composed by [FromCtxOwnedVia]; consumed by the SQL
+// builder in `applyUpdates` / `applyDeletes`.
+//
+// Closes the relation-traversal gap surfaced by the hostpoint Phase 4
+// capability audit 2026-05-17 (the 8 BLOCKED handlers that needed
+// `<fk> IN (SELECT id FROM <related> WHERE <related>.<owner> = $N)`).
+type ownedViaSubquery struct {
+	// RelatedTable is the SQL table name of the related resource
+	// (e.g. "host" when the policy is on `property.host → host.user_id`).
+	relatedTable string
+	// OwnerColumn is the column in <relatedTable> that carries the
+	// owner reference (e.g. "user_id").
+	ownerColumn string
+}
 
 // FromInput binds a target field to an input field by path. The runtime
 // resolves at execution time.
@@ -58,6 +77,36 @@ func FromTarget(path string) Source { return Source{kind: sourceTarget, path: pa
 
 // FromConst binds a target field to a literal value (enum, number, string).
 func FromConst(value any) Source { return Source{kind: sourceConst, value: value} }
+
+// FromCtxOwnedVia builds a WHERE-only Source that expands to
+// `<col> IN (SELECT id FROM <related_table> WHERE <owner_column> = $N)`
+// in the generated UPDATE / DELETE SQL. The runtime resolves
+// `<ctx_path>` against `ctx` (same as [FromCtx]) for the `$N` bind.
+//
+// Codegen emits this for `@scope.owner` policies on resources that
+// reference an owner via a relation (e.g. `property.host → host.user_id`)
+// rather than directly. Closes the relation-traversal half of the
+// hostpoint 2026-05-17 capability matrix.
+//
+//	// property has `host: Host required` — Host owns the row's
+//	// user via `Host.user_id`.
+//	"host": lazuli.FromCtxOwnedVia("host", "user_id", "user.id")
+//
+// SQL emitted: `host IN (SELECT id FROM "host" WHERE user_id = $N)`.
+//
+// WHERE-only: must NOT appear in `Bind` (the SET side of UPDATE);
+// the runtime resolves the value scalarly there. Codegen guarantees
+// the constraint; this comment is informational.
+func FromCtxOwnedVia(relatedTable, ownerColumn, ctxPath string) Source {
+	return Source{
+		kind: sourceCtxOwnedVia,
+		path: ctxPath,
+		subquery: &ownedViaSubquery{
+			relatedTable: relatedTable,
+			ownerColumn:  ownerColumn,
+		},
+	}
+}
 
 // FromFn binds a target field to the return value of a user-registered
 // binding fn (closes WAR-VOCAB-CREATES-FN-CALL-01). Codegen emits this

@@ -667,17 +667,7 @@ fn emit_updates_effect(
         p.indent();
         p.line("\"id\": lazuli.FromInput(\"ID\"),");
         for binding in scope_bindings {
-            p.line(&format!(
-                "// scope: {atom} resolved → {field} = ctx.{ctx_path}",
-                atom = binding.atom,
-                field = binding.column,
-                ctx_path = binding.ctx_path
-            ));
-            p.line(&format!(
-                "\"{column}\": lazuli.FromCtx(\"{ctx_path}\"),",
-                column = escape_string(&binding.column),
-                ctx_path = binding.ctx_path
-            ));
+            emit_scope_binding_row(p, binding);
         }
         p.dedent();
         p.line("},");
@@ -814,6 +804,45 @@ fn emit_deletes_effect(
     p.line("}),");
 }
 
+/// Emit a single `Where` map row for a resolved scope binding. The
+/// shape switches on `binding.via`: direct ownership uses `FromCtx`;
+/// relation-traversal uses `FromCtxOwnedVia` with the (related_table,
+/// owner_column) pair so the runtime composes a subquery WHERE.
+fn emit_scope_binding_row(p: &mut GoPrinter, binding: &ScopeBinding) {
+    match &binding.via {
+        None => {
+            p.line(&format!(
+                "// scope: {atom} resolved → {column} = ctx.{ctx_path}",
+                atom = binding.atom,
+                column = binding.column,
+                ctx_path = binding.ctx_path
+            ));
+            p.line(&format!(
+                "\"{column}\": lazuli.FromCtx(\"{ctx_path}\"),",
+                column = escape_string(&binding.column),
+                ctx_path = binding.ctx_path
+            ));
+        }
+        Some((related_table, owner_column)) => {
+            p.line(&format!(
+                "// scope: {atom} resolved via {column} → {related_table}.{owner_column} = ctx.{ctx_path}",
+                atom = binding.atom,
+                column = binding.column,
+                related_table = related_table,
+                owner_column = owner_column,
+                ctx_path = binding.ctx_path,
+            ));
+            p.line(&format!(
+                "\"{column}\": lazuli.FromCtxOwnedVia(\"{related_table}\", \"{owner_column}\", \"{ctx_path}\"),",
+                column = escape_string(&binding.column),
+                related_table = escape_string(related_table),
+                owner_column = escape_string(owner_column),
+                ctx_path = binding.ctx_path,
+            ));
+        }
+    }
+}
+
 /// One `@scope.<axis>` policy atom that resolves to a runtime WHERE
 /// binding on the effect's resource. The codegen appends each binding
 /// to the `Updates` / `Deletes` `Where` map; the runtime then
@@ -834,6 +863,14 @@ pub(crate) struct ScopeBinding {
     /// The `ctx.*` path the runtime reads, matching `readCtx` keys in
     /// `runtime/go/lazuli/handle.go`.
     pub ctx_path: String,
+    /// `Some((related_table, owner_column))` when the binding traverses
+    /// a relation (e.g. `property.host → host.user_id`). Codegen emits
+    /// `lazuli.FromCtxOwnedVia(related_table, owner_column, ctx_path)`
+    /// and the runtime composes
+    /// `<column> IN (SELECT id FROM <related_table> WHERE <owner_column> = $N)`.
+    /// `None` when the resource has a direct owner column (the original
+    /// single-hop case shipped in `c0a4609`).
+    pub via: Option<(String, String)>,
 }
 
 /// Resolve `@scope.*` atoms on the command's policy to concrete
@@ -875,6 +912,14 @@ fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Vec<ScopeBind
                         atom: atom.clone(),
                         column: column.to_owned(),
                         ctx_path: "user.id".to_owned(),
+                        via: None,
+                    });
+                } else if let Some(via) = find_owner_via_relation(resource, feature) {
+                    out.push(ScopeBinding {
+                        atom: atom.clone(),
+                        column: via.fk_column,
+                        ctx_path: "user.id".to_owned(),
+                        via: Some((via.related_table, via.related_owner_column)),
                     });
                 }
             }
@@ -884,6 +929,7 @@ fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Vec<ScopeBind
                         atom: atom.clone(),
                         column: column.to_owned(),
                         ctx_path: "user.org_id".to_owned(),
+                        via: None,
                     });
                 }
             }
@@ -891,6 +937,56 @@ fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Vec<ScopeBind
         }
     }
     out
+}
+
+/// Capture for relation-traversal `@scope.owner`. When `Property.host`
+/// references resource `Host` and `Host.user_id` is the owner column,
+/// codegen emits `host IN (SELECT id FROM "host" WHERE user_id = $N)`.
+struct OwnerViaRelation {
+    /// The local resource field that references the related resource
+    /// (e.g. `host` on `Property` referencing `Host`).
+    fk_column: String,
+    /// The related resource's SQL table name (e.g. `"host"`).
+    related_table: String,
+    /// The owner column on the related resource (e.g. `"user_id"`).
+    related_owner_column: String,
+}
+
+/// Find an indirect ownership chain when the resource has no direct
+/// owner column. Walks the resource's fields, checks each `TypeRef` for
+/// a reference to another local resource (`TypeRef::UserDefined` or
+/// `TypeRef::Unresolved` matching another resource's name), and returns
+/// the first such field whose target resource has a direct owner column.
+///
+/// One-hop only: `property.host → host.user_id` works; deeper chains
+/// (`property → listing → host → user_id`) are out of scope until a
+/// 3rd pilot demands them.
+fn find_owner_via_relation(resource: &Resource, feature: &Feature) -> Option<OwnerViaRelation> {
+    use lazuli_ir::TypeRef;
+    for field in &resource.fields {
+        let related_name = match &field.type_ref {
+            TypeRef::UserDefined(q) => q.name.clone(),
+            TypeRef::Unresolved(name) => name.clone(),
+            _ => continue,
+        };
+        // Skip self-references and types that don't resolve to a local
+        // resource (records, enums, scalars).
+        if related_name == resource.name {
+            continue;
+        }
+        let Some(related) = feature.resources.iter().find(|r| r.name == related_name) else {
+            continue;
+        };
+        let Some(owner_col) = find_scope_column(related, OWNER_COLUMNS) else {
+            continue;
+        };
+        return Some(OwnerViaRelation {
+            fk_column: field.name.clone(),
+            related_table: related.name.clone(),
+            related_owner_column: owner_col.to_owned(),
+        });
+    }
+    None
 }
 
 const OWNER_COLUMNS: &[&str] = &["user_id", "user", "owner_id", "owner"];
@@ -3063,6 +3159,64 @@ mod tests {
         assert!(
             !out.contains("FromCtx(\"user.id\")"),
             "no @scope.* atom → no auto-injected scope binding:\n{out}"
+        );
+    }
+
+    #[test]
+    fn updates_with_scope_owner_traverses_relation_when_no_direct_column() {
+        // Property has no direct owner column but `host: Host required`
+        // references the Host resource which has `user_id`. Codegen
+        // should emit FromCtxOwnedVia("Host", "user_id", "user.id").
+        let mut feature = base_feature("catalog");
+
+        let mut host = simple_resource("Host");
+        host.fields.push(scope_field("user_id"));
+        feature.resources.push(host);
+
+        let mut property = simple_resource("Property");
+        // `host` field referencing the Host resource.
+        property.fields.push(lazuli_ir::Field {
+            name: "host".to_owned(),
+            type_ref: TypeRef::Unresolved("Host".to_owned()),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            span_ref: None,
+        });
+        feature.resources.push(property);
+
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "update".to_owned(),
+                atoms: vec!["@scope.owner".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        let mut cmd = base_command("publish_property");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Property"),
+            assignments: Vec::new(),
+        });
+        cmd.policy = PolicyRef::Local("update".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("\"host\": lazuli.FromCtxOwnedVia(\"Host\", \"user_id\", \"user.id\"),"),
+            "@scope.owner should traverse host → Host.user_id when Property has no direct column:\n{out}"
+        );
+        assert!(
+            out.contains("// scope: @scope.owner resolved via host → Host.user_id = ctx.user.id"),
+            "scope comment should document the traversal:\n{out}"
         );
     }
 

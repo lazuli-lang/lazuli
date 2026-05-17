@@ -393,6 +393,29 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	return out, nil
 }
 
+// whereConditionFragment renders a single WHERE-clause condition for
+// a (column, source) pair, honoring the `sourceCtxOwnedVia` shape
+// that expands to `<col> IN (SELECT id FROM <related> WHERE
+// <owner_col> = $N)`. All other Source kinds collapse to the
+// scalar `<col> = $N` form. The caller has already appended the
+// resolved value to `values`, so `placeholderIdx == len(values)`
+// is the 1-based position for the `$N` reference.
+//
+// Closes the relation-traversal arm of `@scope.owner` per the
+// hostpoint Phase 4 capability audit (2026-05-17).
+func whereConditionFragment(col string, src Source, placeholderIdx int) string {
+	if src.kind == sourceCtxOwnedVia && src.subquery != nil {
+		return fmt.Sprintf(
+			"%s IN (SELECT id FROM %s WHERE %s = $%d)",
+			quoteIdent(col),
+			quoteIdent(src.subquery.relatedTable),
+			quoteIdent(src.subquery.ownerColumn),
+			placeholderIdx,
+		)
+	}
+	return fmt.Sprintf("%s = $%d", quoteIdent(col), placeholderIdx)
+}
+
 // applyUpdates resolves the where + bind sources, builds an `UPDATE ... SET
 // ... WHERE ... RETURNING *`, and scans the updated row into O. Adds
 // tenancy + soft-delete scoping to the WHERE clause.
@@ -442,7 +465,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 			return zero, err
 		}
 		values = append(values, val)
-		conds = append(conds, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+		conds = append(conds, whereConditionFragment(col, src, len(values)))
 	}
 
 	sql := fmt.Sprintf(
@@ -492,7 +515,7 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 			return zero, err
 		}
 		values = append(values, val)
-		conds = append(conds, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+		conds = append(conds, whereConditionFragment(col, src, len(values)))
 	}
 
 	var sql string
@@ -542,7 +565,7 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 		return src.value, nil
 	case sourceInput:
 		return readPath(reflect.ValueOf(input), src.path)
-	case sourceCtx:
+	case sourceCtx, sourceCtxOwnedVia:
 		return readCtx(ctx, src.path)
 	case sourceTarget:
 		return nil, &Error{Status: 501, Code: CodeInternal,
