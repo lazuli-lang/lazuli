@@ -2790,15 +2790,56 @@ pub(crate) fn generate_go(
     fs::create_dir_all(out_dir)
         .with_context(|| format!("creating output directory {}", out_dir.display()))?;
 
+    let mut handler_stubs_written = 0usize;
+    let mut handler_stubs_skipped = 0usize;
     for file in &files {
         if file.path == "go.work" {
             write_go_work_preserving_entries(&project_root, &file.contents)?;
+        } else if file.path.starts_with("app/features/") {
+            // Handler stubs are Tier 1 portable code under
+            // `app/features/<feature>/<name>.go` — written to the
+            // project root, NOT under the codegen `out_dir`. They're
+            // user territory once authored, so we skip files that
+            // already exist (idempotent: scaffold-once, never
+            // overwrite). See `docs/project-structure.md`.
+            let target = project_root.join(&file.path);
+            if target.exists() {
+                handler_stubs_skipped += 1;
+                continue;
+            }
+            // Legacy fallback: pre-pivot scaffolds had handlers at
+            // `dist/go/<feature>/<name>.go`. Don't overwrite those
+            // either — the consumer migration relocates them
+            // explicitly when ready. Translation:
+            // `app/features/X/Y.go` → `dist/go/X/Y.go`.
+            let legacy_relative = file.path.replacen("app/features/", "dist/go/", 1);
+            let legacy_target = project_root.join(&legacy_relative);
+            if legacy_target.exists() {
+                handler_stubs_skipped += 1;
+                continue;
+            }
+            write_generated_file(&project_root, &file.path, &file.contents)?;
+            handler_stubs_written += 1;
         } else {
             write_generated_file(out_dir, &file.path, &file.contents)?;
         }
     }
 
-    println!("wrote {} file(s) to {}", files.len(), out_dir.display());
+    let codegen_count = files.len() - handler_stubs_written - handler_stubs_skipped;
+    println!("wrote {} file(s) to {}", codegen_count, out_dir.display());
+    if handler_stubs_written > 0 {
+        println!(
+            "wrote {} handler stub(s) to {}/app/features/",
+            handler_stubs_written,
+            project_root.display(),
+        );
+    }
+    if handler_stubs_skipped > 0 {
+        println!(
+            "skipped {} existing handler stub(s) (user-authored)",
+            handler_stubs_skipped,
+        );
+    }
     Ok(())
 }
 

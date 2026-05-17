@@ -654,6 +654,62 @@ fn collect_feature_handler_refs(
     }
 }
 
+/// Stub the command's user-side handler when the generated `Effect`
+/// will go through `ReturnsFromRegistry`. Skips creates/updates/
+/// deletes (no user fn needed). Picks the handler name from
+/// `command.handler` when present (`handler @fn.X`), else falls back
+/// to the command name itself. Input/output types come straight from
+/// the command's IR. Stubs are keyed by `(feature, handler_name)` —
+/// when multiple commands share a handler the FIRST seen wins
+/// (deterministic by IR walk order).
+fn collect_command_handler_stub(
+    command: &Command,
+    feature: &str,
+    stubs: &mut BTreeMap<StubKey, HandlerStub>,
+) {
+    use lazuli_ir::CommandEffect;
+    // Skip declarative effects — the runtime executes the SQL,
+    // there's no user fn to scaffold.
+    if matches!(
+        command.effect,
+        CommandEffect::Creates(_) | CommandEffect::Updates(_) | CommandEffect::Deletes(_)
+    ) {
+        return;
+    }
+    // `CommandEffect::None` without an explicit `handler @fn.X` is a
+    // legacy no-effect command (`command.Invoke` path). No user fn
+    // expected.
+    let handler_name = match (&command.handler, &command.effect) {
+        (Some(h), _) if h.namespace == "fn" => h.name.clone(),
+        (_, CommandEffect::Returns(_)) => command.name.clone(),
+        _ => return,
+    };
+    let input_type = match &command.input {
+        CommandInput::Typed(_) => {
+            format!("{}Input", super::casing::pascal_case(&command.name))
+        }
+        CommandInput::Short(_) | CommandInput::Empty => "any".to_owned(),
+    };
+    let output_type = match &command.effect {
+        CommandEffect::Returns(ret) => go_type_for_stub(&ret.return_type),
+        _ => "any".to_owned(),
+    };
+    let site = format!("{feature}.command.{}", command.name);
+    let path_name = path_name_for(&handler_name);
+    let key = StubKey {
+        feature: feature.to_owned(),
+        path_name: path_name.clone(),
+    };
+    stubs.entry(key).or_insert(HandlerStub {
+        feature: feature.to_owned(),
+        namespace: HandlerNamespace::Fn,
+        name: handler_name,
+        site,
+        input_type,
+        output_type,
+    });
+}
+
 fn collect_command_refs(
     command: &Command,
     feature: &str,
@@ -697,6 +753,20 @@ fn collect_command_refs(
         );
     }
     collect_command_effect_refs(&command.effect, feature, &command.name, signatures, stubs);
+
+    // Stub the user-side handler that the generated `Effect:
+    // lazuli.ReturnsFromRegistry[I, O]("<feature>.<n>")` will look
+    // up at dispatch. Two trigger shapes:
+    //   1. `CommandEffect::Returns` — the command declares `returns
+    //      <Type>` and (implicitly or via `handler @fn.X`) needs a
+    //      user fn that returns that type.
+    //   2. `CommandEffect::None + handler @fn.X` — no declarative
+    //      body, handler resolves to user code returning `any`.
+    // Creates/Updates/Deletes don't need a stub (the runtime owns
+    // the SQL transaction). When `handler @fn.X` is explicit, prefer
+    // its name; otherwise fall back to the command name itself —
+    // matches what `command.rs::emit_effect` emits.
+    collect_command_handler_stub(command, feature, stubs);
     collect_policy_ref(
         &Some(command.policy.clone()),
         feature,

@@ -19,6 +19,7 @@ use super::cross_feature::CrossFeatureIndex;
 use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
 use super::enums::emit_enum_file;
 use super::events::emit_events_file;
+use super::handlers::emit_handler_stubs;
 use super::imports::ImportSet;
 use super::job::emit_job_file;
 use super::lint::check_generated_file;
@@ -646,7 +647,30 @@ pub fn emit_module(
     files.push(emit_audit_log_ddl());
     files.extend(emit_audit_metadata(module));
 
+    // Handler stubs at `app/features/<feature>/<name>.go` — Tier 1
+    // portable code per `docs/project-structure.md`. Returned paths
+    // are project-root-relative (prefix `app/features/`); the
+    // orchestrator detects that prefix and writes outside the
+    // codegen `out_dir` (which is `dist/go`), preserving the
+    // "dist is disposable" invariant.
+    //
+    // Idempotency on already-authored handlers is enforced at write
+    // time by the orchestrator (skip-if-exists). The codegen here
+    // always emits a fresh stub per discovered `@fn.*` / `@hook.*`
+    // reference; the writer decides whether to overwrite.
+    files.extend(emit_handler_stubs(
+        module,
+        &module_name,
+        &std::collections::BTreeSet::new(),
+    ));
+
     for file in &files {
+        // Skip lint on handler stubs — they live in the user package
+        // (`package <feature>`), not in `<feature>gen`, so the
+        // generated-file lint (which targets `.gen.go`) is irrelevant.
+        if file.path.starts_with("app/features/") {
+            continue;
+        }
         if let Err(err) = check_generated_file(&file.contents, &file.path) {
             panic!("{err}");
         }
