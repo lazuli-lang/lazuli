@@ -95,6 +95,44 @@ fn unknown_symbol_returns_error_envelope() {
 }
 
 #[test]
+fn qualified_lookup_via_uses_populates_imported_via() {
+    // `customer_auth` declares `uses customer`. Querying
+    // `customer_auth.Customer` MUST resolve through the import edge
+    // to `customer.Customer` and populate the `imported_via` field
+    // per `docs/proposals/lsp-symbol-origin.md` §5.2.
+    let output = Command::new(cli_bin())
+        .current_dir(full_capsule_dir())
+        .args(["inspect", "customer_auth.Customer"])
+        .output()
+        .expect("run lazuli inspect");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("parse stdout as JSON");
+
+    // Symbol is found via the import edge.
+    assert_eq!(json["symbol"], "Customer");
+    // The defining feature is `customer`, not `customer_auth`.
+    assert!(
+        json["defined_in"]["source"].as_str() == Some("file")
+            || json["defined_in"]["source"].as_str() == Some("builtin"),
+        "defined_in.source should be a known kind: {stdout}"
+    );
+    // Imported via the owning feature.
+    let imported = &json["imported_via"];
+    assert!(
+        !imported.is_null(),
+        "expected imported_via to be populated for cross-feature lookup; got: {stdout}"
+    );
+    assert_eq!(imported["feature"], "customer");
+}
+
+#[test]
 fn path_mode_preserved_when_input_ends_in_lzi() {
     // `lazuli inspect <file>.lzi --format lazuli` is the legacy path-mode
     // behavior. The symbol-mode dispatcher MUST NOT hijack `.lzi` paths.

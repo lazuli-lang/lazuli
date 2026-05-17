@@ -4062,7 +4062,21 @@ fn render_inspect_symbol_lazuli(symbol: &str, output: &serde_json::Value) -> Str
 
     if let Some(imported) = output.get("imported_via").and_then(|v| v.as_object()) {
         if let Some(feat) = imported.get("feature").and_then(|v| v.as_str()) {
-            lines.push(format!("  imported via: uses {feat}"));
+            // Optional line/file anchor for the `uses <feat>` clause.
+            let uses_anchor = imported
+                .get("uses_at")
+                .and_then(|v| v.as_object())
+                .and_then(|obj| {
+                    let file = obj.get("file").and_then(|v| v.as_str());
+                    let line = obj.get("line").and_then(|v| v.as_u64());
+                    match (file, line) {
+                        (Some(f), Some(l)) => Some(format!(" at {f}:{l}")),
+                        (Some(f), None) => Some(format!(" at {f}")),
+                        _ => None,
+                    }
+                })
+                .unwrap_or_default();
+            lines.push(format!("  imported via: uses {feat}{uses_anchor}"));
         }
     }
 
@@ -4127,12 +4141,64 @@ fn inspect_symbol_lookup(
         }
     };
 
-    // Step 3: branch on candidate count.
+    // Step 3: when the qualifier is provided AND the symbol is NOT
+    // defined in the qualified feature itself, check whether the
+    // qualified feature imports a feature that defines it. This is
+    // the `imported_via: uses account` case from
+    // `docs/proposals/lsp-symbol-origin.md` §5.2 — a feature can
+    // re-export a type by `uses`-ing the feature that owns it. The
+    // qualified key lookup at step 2 already returns the direct
+    // match (e.g. `account.Gender`); here we additionally consider
+    // the cross-feature `host.Gender → uses account` resolution.
+    let imported_via = qualifier
+        .as_ref()
+        .and_then(|consumer| resolve_imported_via(consumer, &name, index));
+
+    // Step 4: re-resolve candidates against the imported edge when
+    // the direct qualified lookup yielded nothing.
+    let candidates = if candidates.is_empty() {
+        if let Some((owning_feature, _)) = imported_via.as_ref() {
+            let key = format!("{}.{}", owning_feature, name);
+            if index.symbols.contains_key(&key) {
+                vec![key]
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        candidates.into_iter().map(|s| s.to_owned()).collect()
+    };
+
+    // Step 5: branch on candidate count.
     match candidates.len() {
         0 => inspect_symbol_not_found(&qualifier, &name, module, index),
-        1 => inspect_symbol_found(candidates[0], &qualifier, &name, index),
-        _ => inspect_symbol_ambiguous(&name, &candidates),
+        1 => inspect_symbol_found(&candidates[0], &qualifier, &name, index, imported_via.as_ref()),
+        _ => inspect_symbol_ambiguous(
+            &name,
+            &candidates.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        ),
     }
+}
+
+/// When the consumer feature `<consumer>` `uses <other>` and `<other>`
+/// defines `<name>`, return `(other_feature, ImportEdge)` so the
+/// caller can populate `imported_via` in the inspect output. Returns
+/// `None` when the consumer doesn't import the owning feature.
+fn resolve_imported_via(
+    consumer: &str,
+    name: &str,
+    index: &lazuli_ir::SymbolOriginIndex,
+) -> Option<(String, lazuli_ir::ImportEdge)> {
+    let edges = index.imports.get(consumer)?;
+    for edge in edges {
+        let candidate_key = format!("{}.{}", edge.imported, name);
+        if index.symbols.contains_key(&candidate_key) {
+            return Some((edge.imported.clone(), edge.clone()));
+        }
+    }
+    None
 }
 
 fn inspect_symbol_found(
@@ -4140,8 +4206,24 @@ fn inspect_symbol_found(
     qualifier: &Option<String>,
     name: &str,
     index: &lazuli_ir::SymbolOriginIndex,
+    imported_via: Option<&(String, lazuli_ir::ImportEdge)>,
 ) -> serde_json::Value {
     let origin = index.symbols.get(key).expect("key exists by construction");
+    let imported_via_json = match imported_via {
+        Some((owning, edge)) => serde_json::json!({
+            "feature": owning,
+            "uses_at": match &edge.uses_at {
+                lazuli_ir::SourceLocation::File { file, line, column } => serde_json::json!({
+                    "source": "file",
+                    "file": file,
+                    "line": line,
+                    "column": column,
+                }),
+                lazuli_ir::SourceLocation::Builtin => serde_json::json!({"source": "builtin"}),
+            },
+        }),
+        None => serde_json::Value::Null,
+    };
     serde_json::json!({
         "symbol": name,
         "feature": qualifier.clone().unwrap_or_else(|| origin.feature.clone()),
@@ -4164,7 +4246,7 @@ fn inspect_symbol_found(
             },
             "kind": symbol_kind_str(&origin.kind),
         },
-        "imported_via": null,
+        "imported_via": imported_via_json,
         "type": symbol_kind_str(&origin.kind),
         "previous_names": origin.previous_names,
     })
