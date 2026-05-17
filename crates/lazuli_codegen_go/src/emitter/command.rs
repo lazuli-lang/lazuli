@@ -279,6 +279,14 @@ fn emit_command(
         .iter()
         .map(|binding| (binding.name.as_str(), &binding.value))
         .collect();
+    // Resolve scope atoms (`@scope.owner`, `@scope.same_org`) from the
+    // command's policy. When present, codegen auto-injects ownership /
+    // tenant-scoping WHERE bindings on Update / Delete effects so the
+    // emitted SQL constrains the row at the database, not just at the
+    // policy-check gate. Matches the hostpoint pilot pattern surfaced
+    // 2026-05-17 (closes the SHIP-NOW row-ownership gap).
+    let scope_bindings = resolve_scope_bindings(command, feature);
+
     emit_effect(
         p,
         &feature.name,
@@ -289,6 +297,7 @@ fn emit_command(
         ctx,
         &let_bindings,
         lifecycle_transition.as_ref(),
+        &scope_bindings,
     );
 
     // Emits block.
@@ -538,13 +547,14 @@ fn emit_effect(
     ctx: &TypeCtx<'_>,
     let_bindings: &BTreeMap<&str, &Expr>,
     lifecycle_transition: Option<&LifecycleCommand<'_>>,
+    scope_bindings: &[ScopeBinding],
 ) {
     match effect {
         CommandEffect::Creates(create) => emit_creates_effect(p, create, let_bindings),
         CommandEffect::Updates(update) => {
-            emit_updates_effect(p, update, let_bindings, lifecycle_transition)
+            emit_updates_effect(p, update, let_bindings, lifecycle_transition, scope_bindings)
         }
-        CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete),
+        CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete, scope_bindings),
         CommandEffect::Returns(ret) => {
             let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
             // Prefer explicit handler ref name (handler @fn.<name>)
@@ -634,6 +644,7 @@ fn emit_updates_effect(
     update: &UpdateEffect,
     let_bindings: &BTreeMap<&str, &Expr>,
     lifecycle_transition: Option<&LifecycleCommand<'_>>,
+    scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&update.resource);
     // Lazuli Go lib `Updates` takes (resource, where, bind). For E3 we
@@ -649,7 +660,28 @@ fn emit_updates_effect(
     }
     p.line(&format!("Effect: lazuli.Updates(&{resource_var},"));
     p.indent();
-    p.line("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},");
+    if scope_bindings.is_empty() {
+        p.line("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},");
+    } else {
+        p.line("lazuli.Bindings{");
+        p.indent();
+        p.line("\"id\": lazuli.FromInput(\"ID\"),");
+        for binding in scope_bindings {
+            p.line(&format!(
+                "// scope: {atom} resolved → {field} = ctx.{ctx_path}",
+                atom = binding.atom,
+                field = binding.column,
+                ctx_path = binding.ctx_path
+            ));
+            p.line(&format!(
+                "\"{column}\": lazuli.FromCtx(\"{ctx_path}\"),",
+                column = escape_string(&binding.column),
+                ctx_path = binding.ctx_path
+            ));
+        }
+        p.dedent();
+        p.line("},");
+    }
     p.line("lazuli.Bindings{");
     p.indent();
     for assignment in &update.assignments {
@@ -754,15 +786,171 @@ fn enum_variant_name(enum_name: &str, variant: &str) -> String {
     format!("{}{}", enum_name, pascal_case(variant))
 }
 
-fn emit_deletes_effect(p: &mut GoPrinter, _delete: &DeleteEffect) {
-    let resource_var = resource_var_for_qname(&_delete.resource);
+fn emit_deletes_effect(
+    p: &mut GoPrinter,
+    delete: &DeleteEffect,
+    scope_bindings: &[ScopeBinding],
+) {
+    let resource_var = resource_var_for_qname(&delete.resource);
     p.line(&format!(
         "Effect: lazuli.Deletes(&{resource_var}, lazuli.Bindings{{"
     ));
     p.indent();
     p.line("\"id\": lazuli.FromInput(\"ID\"),");
+    for binding in scope_bindings {
+        p.line(&format!(
+            "// scope: {atom} resolved → {field} = ctx.{ctx_path}",
+            atom = binding.atom,
+            field = binding.column,
+            ctx_path = binding.ctx_path
+        ));
+        p.line(&format!(
+            "\"{column}\": lazuli.FromCtx(\"{ctx_path}\"),",
+            column = escape_string(&binding.column),
+            ctx_path = binding.ctx_path
+        ));
+    }
     p.dedent();
     p.line("}),");
+}
+
+/// One `@scope.<axis>` policy atom that resolves to a runtime WHERE
+/// binding on the effect's resource. The codegen appends each binding
+/// to the `Updates` / `Deletes` `Where` map; the runtime then
+/// composes `WHERE id = $1 AND <column> = <ctx_path>`.
+///
+/// Closed-catalog axes (closes the hostpoint 2026-05-17 SHIP-NOW gap):
+///
+/// | Atom              | Column priority                                   | Ctx path           |
+/// |-------------------|---------------------------------------------------|--------------------|
+/// | `@scope.owner`    | `user_id` > `user` > `owner_id` > `owner`         | `user.id`          |
+/// | `@scope.same_org` | `org_id` > `org` > `tenant_id` > `tenant`         | `user.org_id`      |
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScopeBinding {
+    /// The atom that introduced this binding, e.g. `@scope.owner`.
+    pub atom: String,
+    /// The resolved resource column the WHERE binds to.
+    pub column: String,
+    /// The `ctx.*` path the runtime reads, matching `readCtx` keys in
+    /// `runtime/go/lazuli/handle.go`.
+    pub ctx_path: String,
+}
+
+/// Resolve `@scope.*` atoms on the command's policy to concrete
+/// WHERE bindings against the effect resource. Returns an empty slice
+/// when the command has no scope atoms, no targetable effect, or no
+/// matching column on the resource (the doctor surfaces the latter
+/// case via a dedicated diagnostic so the silent-skip is observable).
+fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Vec<ScopeBinding> {
+    let resource_name = match &command.effect {
+        CommandEffect::Updates(u) => Some(&u.resource),
+        CommandEffect::Deletes(d) => Some(&d.resource),
+        _ => return Vec::new(),
+    };
+    let Some(resource_qname) = resource_name else {
+        return Vec::new();
+    };
+    // Only resolve when the resource lives in this feature. Cross-feature
+    // scope lowering is a follow-up (would need the full Module).
+    if let Some(feature_part) = &resource_qname.feature {
+        if feature_part != &feature.name {
+            return Vec::new();
+        }
+    }
+    let Some(resource) = feature
+        .resources
+        .iter()
+        .find(|r| r.name == resource_qname.name)
+    else {
+        return Vec::new();
+    };
+
+    let atoms = command_policy_atoms(command, &feature.policies);
+    let mut out = Vec::new();
+    for atom in &atoms {
+        match atom.as_str() {
+            "@scope.owner" => {
+                if let Some(column) = find_scope_column(resource, OWNER_COLUMNS) {
+                    out.push(ScopeBinding {
+                        atom: atom.clone(),
+                        column: column.to_owned(),
+                        ctx_path: "user.id".to_owned(),
+                    });
+                }
+            }
+            "@scope.same_org" => {
+                if let Some(column) = find_scope_column(resource, SAME_ORG_COLUMNS) {
+                    out.push(ScopeBinding {
+                        atom: atom.clone(),
+                        column: column.to_owned(),
+                        ctx_path: "user.org_id".to_owned(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+const OWNER_COLUMNS: &[&str] = &["user_id", "user", "owner_id", "owner"];
+const SAME_ORG_COLUMNS: &[&str] = &["org_id", "org", "tenant_id", "tenant"];
+
+fn find_scope_column<'a>(resource: &'a Resource, priority: &[&str]) -> Option<&'a str> {
+    for candidate in priority {
+        if resource
+            .fields
+            .iter()
+            .any(|f| f.name == *candidate)
+        {
+            return resource
+                .fields
+                .iter()
+                .find(|f| f.name == *candidate)
+                .map(|f| f.name.as_str());
+        }
+    }
+    None
+}
+
+/// Walk the command's policy to extract its full atom list. Resolves
+/// `PolicyRef::Local("name")` through `feature.policies.categories`
+/// and falls back to the policy_expr atoms when present. Idempotent —
+/// duplicates collapse to a stable set.
+fn command_policy_atoms(command: &Command, policies: &Policies) -> Vec<String> {
+    let mut atoms: Vec<String> = Vec::new();
+    match &command.policy {
+        PolicyRef::Local(name) => {
+            if let Some(category) = policies.categories.iter().find(|c| c.name == *name) {
+                for a in &category.atoms {
+                    if !atoms.contains(a) {
+                        atoms.push(a.clone());
+                    }
+                }
+            }
+        }
+        PolicyRef::Atom(atom) => {
+            let formatted = format!("@{atom}");
+            if !atoms.contains(&formatted) {
+                atoms.push(formatted);
+            }
+        }
+        PolicyRef::External { feature: _, name: _ } => {
+            // Cross-feature policy resolution requires the full module;
+            // out of scope for the first scope-lowering pass.
+        }
+        PolicyRef::None | PolicyRef::Unresolved(_) => {}
+    }
+    if let Some(expr) = command.policy_expr.as_ref() {
+        let mut expr_atoms = Vec::new();
+        walk_policy_expr_atoms(expr, &mut expr_atoms);
+        for a in expr_atoms {
+            if !atoms.contains(&a) {
+                atoms.push(a);
+            }
+        }
+    }
+    atoms
 }
 
 /// Render one `Bindings` entry from an `Assignment`. Walks the Expr
@@ -2713,6 +2901,201 @@ mod tests {
         assert!(
             out.contains("Name: \"authenticated and has_role manager\""),
             "missing combined display name in:\n{out}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // @scope.owner / @scope.same_org policy-to-SQL lowering (hostpoint pilot
+    // 2026-05-17). Closes the SHIP-NOW row-ownership gap surfaced by the
+    // capability matrix audit.
+    // -------------------------------------------------------------------------
+
+    fn scope_field(name: &str) -> lazuli_ir::Field {
+        lazuli_ir::Field {
+            name: name.to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Text),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn feature_with_owner_scope_policy() -> Feature {
+        let mut feature = base_feature("account");
+        let mut resource = simple_resource("UserSession");
+        resource.fields.push(scope_field("user_id"));
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "delete".to_owned(),
+                atoms: vec!["@scope.owner".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        feature
+    }
+
+    #[test]
+    fn deletes_with_scope_owner_injects_user_id_where_binding() {
+        let mut feature = feature_with_owner_scope_policy();
+        let mut cmd = base_command("revoke_session");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("UserSession"),
+        });
+        cmd.policy = PolicyRef::Local("delete".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("\"id\": lazuli.FromInput(\"ID\"),"),
+            "still binds id from input:\n{out}"
+        );
+        assert!(
+            out.contains("\"user_id\": lazuli.FromCtx(\"user.id\"),"),
+            "@scope.owner should inject user_id WHERE binding:\n{out}"
+        );
+        assert!(
+            out.contains("// scope: @scope.owner resolved → user_id = ctx.user.id"),
+            "scope comment should surface for reviewers:\n{out}"
+        );
+    }
+
+    #[test]
+    fn updates_with_scope_owner_injects_user_where_binding_when_user_id_absent() {
+        // Resource has `user` (not `user_id`) — closed-catalog falls
+        // through to the second candidate per priority.
+        let mut feature = base_feature("messaging");
+        let mut resource = simple_resource("NotificationDelivery");
+        resource.fields.push(scope_field("user"));
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "update".to_owned(),
+                atoms: vec!["@scope.owner".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("mark_notification_read");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("NotificationDelivery"),
+            assignments: Vec::new(),
+        });
+        cmd.policy = PolicyRef::Local("update".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("\"user\": lazuli.FromCtx(\"user.id\"),"),
+            "@scope.owner should resolve to `user` field when user_id absent:\n{out}"
+        );
+    }
+
+    #[test]
+    fn updates_with_scope_same_org_injects_org_id_where_binding() {
+        let mut feature = base_feature("billing");
+        let mut resource = simple_resource("Charge");
+        resource.fields.push(scope_field("org_id"));
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "update".to_owned(),
+                atoms: vec!["@scope.same_org".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("flag_review");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Charge"),
+            assignments: Vec::new(),
+        });
+        cmd.policy = PolicyRef::Local("update".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("\"org_id\": lazuli.FromCtx(\"user.org_id\"),"),
+            "@scope.same_org should inject org_id WHERE binding:\n{out}"
+        );
+    }
+
+    #[test]
+    fn no_scope_atom_emits_baseline_where_binding() {
+        let mut feature = base_feature("account");
+        let mut resource = simple_resource("UserSession");
+        resource.fields.push(scope_field("user_id"));
+        feature.resources.push(resource);
+        // No @scope.* atom in the policy.
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "admin".to_owned(),
+                atoms: vec!["@role.admin".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("purge");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("UserSession"),
+        });
+        cmd.policy = PolicyRef::Local("admin".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        // Baseline binds id from input. No scope injection.
+        assert!(out.contains("\"id\": lazuli.FromInput(\"ID\"),"));
+        assert!(
+            !out.contains("FromCtx(\"user.id\")"),
+            "no @scope.* atom → no auto-injected scope binding:\n{out}"
+        );
+    }
+
+    #[test]
+    fn scope_owner_without_matching_column_skips_silently() {
+        // Resource has no owner-like column. Codegen must not invent a
+        // binding; doctor surfaces the warning separately.
+        let mut feature = base_feature("trust");
+        let mut resource = simple_resource("Review");
+        resource.fields.push(scope_field("status")); // unrelated field
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "update".to_owned(),
+                atoms: vec!["@scope.owner".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("flag");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Review"),
+            assignments: Vec::new(),
+        });
+        cmd.policy = PolicyRef::Local("update".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            !out.contains("FromCtx(\"user.id\")"),
+            "no matching column → no scope binding emitted:\n{out}"
         );
     }
 }
