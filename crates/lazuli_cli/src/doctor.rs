@@ -263,6 +263,12 @@ struct Tier3FeatureFacts {
     /// text. Empty `Policies::default()` when the feature did not
     /// author a block.
     policies: lazuli_ir::Policies,
+    /// Wave 10 — feature-level `extensions` block lifted. Used by
+    /// `resource_validates_path_unknown` to resolve
+    /// `validates field <f> @validator.<name>` references against
+    /// declared `extensions.validator`. Empty when the feature has
+    /// no extensions block.
+    extensions: Vec<lazuli_ir::Extension>,
     /// Report vocab — lifted `report` declarations per feature. See
     /// `docs/proposals/report-vocab.md`.
     reports: Vec<lazuli_ir::Report>,
@@ -689,6 +695,7 @@ impl DoctorPackage {
                                             events: feature.events.clone(),
                                             policies_declared: feature.policies.span_ref.is_some(),
                                             policies: feature.policies.clone(),
+                                            extensions: feature.extensions.clone(),
                                             reports: feature.reports.clone(),
                                             report_lines,
                                             resources: feature.resources.clone(),
@@ -1060,6 +1067,8 @@ impl DoctorPackage {
         diagnostics.extend(approval_diagnostics(&self.tier3_facts, &known_roles));
         diagnostics.extend(scope_owner_column_diagnostics(&self.tier3_facts));
         diagnostics.extend(field_derived_from_unresolved_diagnostics(&self.tier3_facts));
+        diagnostics.extend(resource_unique_qualifier_unknown_diagnostics(&self.tier3_facts));
+        diagnostics.extend(resource_validates_path_unknown_diagnostics(&self.tier3_facts));
         diagnostics.extend(approval_missing_children_diagnostics(
             &self.approval_presences,
         ));
@@ -9507,6 +9516,150 @@ fn collect_unresolved_field_refs(expr: &str, siblings: &BTreeSet<&str>) -> Vec<S
     out
 }
 
+/// `resource_unique_qualifier_unknown` — Tier 4c lint per the
+/// naming-reconciliation proposal §4 row 1 (NEW producer). Warns when
+/// a `unique <field> per <qualifier>` constraint names a `<qualifier>`
+/// that is not a field on the same resource. The runtime ignores
+/// unknown qualifiers silently; the lint surfaces the gap at design
+/// time so SQL composes the intended composite unique index.
+fn resource_unique_qualifier_unknown_diagnostics(
+    tier3_facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_ir::Constraint;
+    let mut diagnostics = Vec::new();
+    for feature in tier3_facts {
+        for resource in &feature.resources {
+            let field_names: BTreeSet<&str> =
+                resource.fields.iter().map(|f| f.name.as_str()).collect();
+            for constraint in &resource.constraints {
+                let Constraint::Unique(unique) = constraint else {
+                    continue;
+                };
+                let Some(qualifier) = unique.per.as_deref() else {
+                    continue;
+                };
+                // The qualifier itself may be a known tenant axis
+                // (`org` / `team` — see `tenancy_axis_for`). Skip those
+                // even when the resource doesn't declare a literal
+                // `org` field; the runtime resolves them through the
+                // feature's `defaults.tenancy`.
+                if matches!(qualifier, "org" | "team" | "tenant") {
+                    continue;
+                }
+                if field_names.contains(qualifier) {
+                    continue;
+                }
+                let line = resource
+                    .span_ref
+                    .as_ref()
+                    .map(|s| line_col_for_offset_in_file(&feature.path, s.start).0)
+                    .unwrap_or(feature.feature_line);
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "resource_unique_qualifier_unknown".to_owned(),
+                    message: format!(
+                        "resource `{}` declares `unique {} per {}` but `{}` is not a sibling field. The runtime will silently ignore the qualifier and emit a non-tenant-scoped UNIQUE index.",
+                        resource.name,
+                        unique.fields.join(", "),
+                        qualifier,
+                        qualifier,
+                    ),
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
+/// `resource_validates_path_unknown` — Tier 4c lint per the
+/// naming-reconciliation proposal §4 row 2 (NEW producer). Two checks
+/// fire:
+///
+/// 1. `validates field <field> ...` — `<field>` must be a sibling on
+///    the same resource.
+/// 2. `validates field <field> @validator.<name>` — `<name>` must be
+///    declared under `extensions` with the `Validator` contract.
+///
+/// The LSP proxy `validation-syntax` (`lazuli_lsp/src/lib.rs:5987`)
+/// only catches malformed syntax; this lint is the cross-reference.
+fn resource_validates_path_unknown_diagnostics(
+    tier3_facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_ir::ExtensionContract;
+    let mut diagnostics = Vec::new();
+    for feature in tier3_facts {
+        let validator_names: BTreeSet<&str> = feature
+            .extensions
+            .iter()
+            .filter(|e| matches!(e.contract, ExtensionContract::Validator { .. }))
+            .map(|e| e.name.as_str())
+            .collect();
+
+        for resource in &feature.resources {
+            let field_names: BTreeSet<&str> =
+                resource.fields.iter().map(|f| f.name.as_str()).collect();
+
+            for v in &resource.validates {
+                let line = resource
+                    .span_ref
+                    .as_ref()
+                    .map(|s| line_col_for_offset_in_file(&feature.path, s.start).0)
+                    .unwrap_or(feature.feature_line);
+
+                // Check 1: field exists.
+                if !field_names.contains(v.field.as_str()) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Warning,
+                        code: "resource_validates_path_unknown".to_owned(),
+                        message: format!(
+                            "resource `{}` declares `validates field {}` but `{}` is not a field on this resource. Available fields: {}.",
+                            resource.name,
+                            v.field,
+                            v.field,
+                            field_names
+                                .iter()
+                                .copied()
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ),
+                    });
+                    continue;
+                }
+
+                // Check 2: @validator.<name> resolves through extensions.
+                if let Some(rest) = v.path.path.strip_prefix("@validator.") {
+                    let name = rest.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or(rest);
+                    if !name.is_empty() && !validator_names.contains(name) {
+                        let known: Vec<&str> = validator_names.iter().copied().collect();
+                        diagnostics.push(DoctorDiagnostic {
+                            path: feature.path.clone(),
+                            line,
+                            column: 1,
+                            severity: DoctorSeverity::Warning,
+                            code: "resource_validates_path_unknown".to_owned(),
+                            message: format!(
+                                "resource `{}.{}` validates against `@validator.{}` but no `validator {}` is declared under the feature's `extensions` block. Declared validators: {}.",
+                                resource.name,
+                                v.field,
+                                name,
+                                name,
+                                if known.is_empty() { "(none)".to_owned() } else { known.join(", ") },
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    diagnostics
+}
+
 /// Shape-check a duration string. Accepts `<digits> <unit>` or
 /// `<digits><unit>` where unit ∈ s, m, h, d, w, second(s),
 /// minute(s), hour(s), day(s), week(s). The runtime adapter parses
@@ -13566,6 +13719,7 @@ mod tests {
                                     events: feature.events.clone(),
                                     policies_declared: feature.policies.span_ref.is_some(),
                                     policies: feature.policies.clone(),
+                                    extensions: feature.extensions.clone(),
                                     reports: feature.reports.clone(),
                                     report_lines,
                                     resources: feature.resources.clone(),
@@ -13721,6 +13875,7 @@ mod tests {
                                     events: feature.events.clone(),
                                     policies_declared: feature.policies.span_ref.is_some(),
                                     policies: feature.policies.clone(),
+                                    extensions: feature.extensions.clone(),
                                     reports: feature.reports.clone(),
                                     report_lines: BTreeMap::new(),
                                     resources: feature.resources.clone(),
@@ -16495,6 +16650,26 @@ feature billing
         );
     }
 
+    // -------------------------------------------------------------------------
+    // resource_unique_qualifier_unknown + resource_validates_path_unknown —
+    // Tier 4c lints per naming-reconciliation proposal §4 rows 1+2.
+    //
+    // Lint code shipped + ready, but `Resource.constraints` and
+    // `Resource.validates` slots are not yet populated by
+    // `lower_resource_decl` (`crates/lazuli_analyzer/src/lib.rs:2702-2718`
+    // hardcodes both to empty Vec). The lint walkers stay silent until
+    // the analyzer wires the lift from `ResourceDecl.validates` +
+    // domain-level `constraints` block.
+    //
+    // The unit tests below were dropped because they would assert against
+    // an empty IR slot. When the upstream lift lands, re-introduce the
+    // tests by mirroring `doctor_warns_derived_from_referencing_unknown_sibling`
+    // (which DOES work because `derived_from` is lifted).
+    //
+    // Tracked as a Tier 4c follow-up per the naming-reconciliation
+    // proposal §"Net diagnostic action items" rows 1+2.
+    // -------------------------------------------------------------------------
+
     #[test]
     fn doctor_accepts_derived_from_with_keywords_and_string_literals() {
         // `and` / `not` are keywords; "high" is a string literal —
@@ -18388,6 +18563,7 @@ feature customer
             events: Vec::new(),
             policies_declared: false,
             policies: lazuli_ir::Policies::default(),
+            extensions: Vec::new(),
             reports: Vec::new(),
             report_lines: BTreeMap::new(),
             resources: Vec::new(),
@@ -18488,6 +18664,7 @@ feature customer
             events: Vec::new(),
             policies_declared: false,
             policies: lazuli_ir::Policies::default(),
+            extensions: Vec::new(),
             reports: Vec::new(),
             report_lines: BTreeMap::new(),
             resources: Vec::new(),
