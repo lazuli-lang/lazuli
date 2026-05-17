@@ -48,6 +48,18 @@ Every `LZIR_SCHEMA` bump must ship a paired
   Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
   pilot 2026-05-17 capability matrix. Resources without a matching
   column silently skip (defense-in-depth opt-in). (`c0a4609`)
+- **Relation-traversal `@scope.owner` (subquery WHERE form).** When a
+  command's policy includes `@scope.owner` AND the target resource
+  has no direct owner column BUT has a field referencing another
+  local resource that DOES have an owner column, codegen emits
+  `lazuli.FromCtxOwnedVia(related_table, owner_column, ctx_path)`.
+  Runtime composes `<fk> IN (SELECT id FROM <related_table> WHERE
+  <owner_column> = $N)` and AND-chains it with the standard id +
+  tenancy WHERE clauses. One-hop only; deeper chains gate on a 3rd
+  pilot. New runtime `sourceCtxOwnedVia` Source kind +
+  `ownedViaSubquery` payload; new `whereConditionFragment` SQL
+  helper. Unblocks the 8 BLOCKED hostpoint handlers per the Phase 4
+  capability audit. (`11fc4af`)
 - **`SCOPE-OWNER-COLUMN-001` doctor warning.** Companion to the
   codegen lowering: fires when a command's policy includes
   `@scope.owner` or `@scope.same_org` but the targeted resource has
