@@ -256,6 +256,13 @@ struct Tier3FeatureFacts {
     /// `Feature.policies` has a default value, so doctor reads the
     /// lowered `span_ref` to distinguish "absent" from "declared".
     policies_declared: bool,
+    /// Phase L Tier 4 follow-up — full lifted `policies` block. Used
+    /// by `SCOPE-OWNER-COLUMN-001` and other lints that need to walk
+    /// a command's policy atom list (resolving `PolicyRef::Local`
+    /// through `categories`) without re-deriving the lookup from
+    /// text. Empty `Policies::default()` when the feature did not
+    /// author a block.
+    policies: lazuli_ir::Policies,
     /// Report vocab — lifted `report` declarations per feature. See
     /// `docs/proposals/report-vocab.md`.
     reports: Vec<lazuli_ir::Report>,
@@ -680,6 +687,7 @@ impl DoctorPackage {
                                             enums: feature.enums.clone(),
                                             events: feature.events.clone(),
                                             policies_declared: feature.policies.span_ref.is_some(),
+                                            policies: feature.policies.clone(),
                                             reports: feature.reports.clone(),
                                             report_lines,
                                             resources: feature.resources.clone(),
@@ -1049,6 +1057,7 @@ impl DoctorPackage {
             collect_known_roles(&self.files)
         };
         diagnostics.extend(approval_diagnostics(&self.tier3_facts, &known_roles));
+        diagnostics.extend(scope_owner_column_diagnostics(&self.tier3_facts));
         diagnostics.extend(approval_missing_children_diagnostics(
             &self.approval_presences,
         ));
@@ -9225,6 +9234,127 @@ fn approval_diagnostics(
     diagnostics
 }
 
+/// `SCOPE-OWNER-COLUMN-001` — warn when a command's policy includes
+/// `@scope.owner` or `@scope.same_org` but the targeted resource has
+/// no matching ownership / tenant column. Codegen silently skips the
+/// WHERE binding in that case (per `crates/lazuli_codegen_go/src/emitter/command.rs`
+/// `resolve_scope_bindings`); this diagnostic surfaces the silent-skip
+/// at design time so authors don't ship a policy that's only enforced
+/// at the role-check gate.
+///
+/// Closed-catalog column priorities mirror codegen exactly:
+/// - `@scope.owner` searches `user_id` > `user` > `owner_id` > `owner`.
+/// - `@scope.same_org` searches `org_id` > `org` > `tenant_id` > `tenant`.
+fn scope_owner_column_diagnostics(
+    tier3_facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_ir::{CommandEffect, PolicyRef};
+
+    const OWNER_COLUMNS: &[&str] = &["user_id", "user", "owner_id", "owner"];
+    const SAME_ORG_COLUMNS: &[&str] = &["org_id", "org", "tenant_id", "tenant"];
+
+    let mut diagnostics = Vec::new();
+
+    for feature in tier3_facts {
+        let local_policies: BTreeMap<&str, &Vec<String>> = feature
+            .policies
+            .categories
+            .iter()
+            .map(|c| (c.name.as_str(), &c.atoms))
+            .collect();
+
+        for command in &feature.commands {
+            // Only `Updates` and `Deletes` benefit from row-scoping;
+            // `Creates`/`Returns`/`None` have no target row.
+            let resource_qname = match &command.effect {
+                CommandEffect::Updates(u) => &u.resource,
+                CommandEffect::Deletes(d) => &d.resource,
+                _ => continue,
+            };
+
+            // Only resolve when the resource lives in this feature.
+            // Cross-feature scope lowering is a follow-up (would need
+            // the module-level resource index).
+            if let Some(feature_part) = &resource_qname.feature {
+                if feature_part != &feature.feature {
+                    continue;
+                }
+            }
+            let Some(resource) = feature
+                .resources
+                .iter()
+                .find(|r| r.name == resource_qname.name)
+            else {
+                continue;
+            };
+
+            // Resolve the command's policy atom list. Mirrors the
+            // codegen-side `command_policy_atoms` helper plus the
+            // `populate_commands_from_ir` atom-resolution logic so
+            // the diagnostic fires on exactly the cases codegen would
+            // silently skip — and on the canonical `@policy.<name>`
+            // form (parsed as `PolicyRef::Atom("policy.<name>")` with
+            // a local-policies lookup) as well as the rare bare
+            // `PolicyRef::Local`.
+            let atoms: Vec<String> = match &command.policy {
+                PolicyRef::Local(name) => local_policies
+                    .get(name.as_str())
+                    .map(|atoms| (*atoms).clone())
+                    .unwrap_or_default(),
+                PolicyRef::Atom(atom) => {
+                    if let Some(local) = atom.strip_prefix("policy.") {
+                        local_policies
+                            .get(local)
+                            .map(|atoms| (*atoms).clone())
+                            .unwrap_or_else(|| vec![format!("@{atom}")])
+                    } else {
+                        vec![format!("@{atom}")]
+                    }
+                }
+                _ => continue,
+            };
+
+            for atom in &atoms {
+                let (priority, axis_label) = match atom.as_str() {
+                    "@scope.owner" => (OWNER_COLUMNS, "owner"),
+                    "@scope.same_org" => (SAME_ORG_COLUMNS, "org"),
+                    _ => continue,
+                };
+                let has_match = priority
+                    .iter()
+                    .any(|c| resource.fields.iter().any(|f| f.name == *c));
+                if has_match {
+                    continue;
+                }
+                let line = feature
+                    .command_lines
+                    .get(&command.name)
+                    .copied()
+                    .unwrap_or(feature.feature_line);
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "SCOPE-OWNER-COLUMN-001".to_owned(),
+                    message: format!(
+                        "command `{}.{}` policy includes `{atom}` but resource `{}` has none of `{}`; codegen will skip the auto-injected WHERE binding and the row-scope will only be enforced by the role check (not the DB).",
+                        feature.feature,
+                        command.name,
+                        resource.name,
+                        priority.join("`, `"),
+                    ),
+                });
+                // Don't flag the same command twice for the same atom.
+                let _ = axis_label;
+                break;
+            }
+        }
+    }
+
+    diagnostics
+}
+
 /// Shape-check a duration string. Accepts `<digits> <unit>` or
 /// `<digits><unit>` where unit ∈ s, m, h, d, w, second(s),
 /// minute(s), hour(s), day(s), week(s). The runtime adapter parses
@@ -13282,6 +13412,7 @@ mod tests {
                                     enums: feature.enums.clone(),
                                     events: feature.events.clone(),
                                     policies_declared: feature.policies.span_ref.is_some(),
+                                    policies: feature.policies.clone(),
                                     reports: feature.reports.clone(),
                                     report_lines,
                                     resources: feature.resources.clone(),
@@ -13436,6 +13567,7 @@ mod tests {
                                     enums: feature.enums.clone(),
                                     events: feature.events.clone(),
                                     policies_declared: feature.policies.span_ref.is_some(),
+                                    policies: feature.policies.clone(),
                                     reports: feature.reports.clone(),
                                     report_lines: BTreeMap::new(),
                                     resources: feature.resources.clone(),
@@ -16026,6 +16158,128 @@ feature customer
         );
     }
 
+    // -------------------------------------------------------------------------
+    // SCOPE-OWNER-COLUMN-001 — warn when @scope.owner / @scope.same_org
+    // policy is declared but the targeted resource has no matching column.
+    // Mirrors the codegen-side silent-skip so authors see the gap at design
+    // time. (Hostpoint pilot 2026-05-17 evidence.)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn doctor_warns_scope_owner_when_resource_has_no_owner_column() {
+        let package = package_from_sources(vec![(
+            "trust.lzi",
+            r#"
+feature trust
+  policies
+    update: @scope.owner
+
+  domain
+    resource Review
+      status: Text required
+
+  command flag
+    route id: ID
+    input
+      reason: Text required
+    policy @policy.update
+    updates Review
+      status = "flagged"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let scope_diags: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code == "SCOPE-OWNER-COLUMN-001")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert!(
+            !scope_diags.is_empty(),
+            "expected SCOPE-OWNER-COLUMN-001 on Review with no owner column; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            scope_diags[0].contains("@scope.owner"),
+            "message should name the offending atom: {}",
+            scope_diags[0]
+        );
+        assert!(
+            scope_diags[0].contains("Review"),
+            "message should name the resource: {}",
+            scope_diags[0]
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_scope_owner_when_resource_has_user_id_column() {
+        let package = package_from_sources(vec![(
+            "account.lzi",
+            r#"
+feature account
+  policies
+    delete: @scope.owner
+
+  domain
+    resource UserSession
+      user_id: ID required
+      token: Text required
+
+  command revoke
+    route id: ID
+    input
+      id: ID required
+    policy @policy.delete
+    deletes UserSession
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("SCOPE-OWNER-COLUMN-001"),
+            "user_id should resolve @scope.owner; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_warns_scope_same_org_when_resource_has_no_org_column() {
+        let package = package_from_sources(vec![(
+            "payments.lzi",
+            r#"
+feature payments
+  policies
+    update: @scope.same_org
+
+  domain
+    resource Charge
+      amount: Integer required
+
+  command flag
+    route id: ID
+    input
+      id: ID required
+    policy @policy.update
+    updates Charge
+      amount = 0
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let scope_diags: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code == "SCOPE-OWNER-COLUMN-001")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert!(
+            !scope_diags.is_empty(),
+            "expected SCOPE-OWNER-COLUMN-001 on Charge with no org column; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            scope_diags[0].contains("@scope.same_org"),
+            "message should name same_org: {}",
+            scope_diags[0]
+        );
+    }
+
     #[test]
     fn doctor_rejects_event_trace_level_outside_catalog() {
         let package = package_from_sources(vec![(
@@ -17895,6 +18149,7 @@ feature customer
             enums: Vec::new(),
             events: Vec::new(),
             policies_declared: false,
+            policies: lazuli_ir::Policies::default(),
             reports: Vec::new(),
             report_lines: BTreeMap::new(),
             resources: Vec::new(),
@@ -17994,6 +18249,7 @@ feature customer
             enums: Vec::new(),
             events: Vec::new(),
             policies_declared: false,
+            policies: lazuli_ir::Policies::default(),
             reports: Vec::new(),
             report_lines: BTreeMap::new(),
             resources: Vec::new(),
