@@ -552,6 +552,7 @@ impl DoctorPackage {
                                         || !feature.records.is_empty()
                                         || !feature.enums.is_empty()
                                         || !feature.reports.is_empty()
+                                        || !feature.resources.is_empty()
                                         || feature.translation.is_some()
                                         || has_text_pattern_api
                                     {
@@ -1058,6 +1059,7 @@ impl DoctorPackage {
         };
         diagnostics.extend(approval_diagnostics(&self.tier3_facts, &known_roles));
         diagnostics.extend(scope_owner_column_diagnostics(&self.tier3_facts));
+        diagnostics.extend(field_derived_from_unresolved_diagnostics(&self.tier3_facts));
         diagnostics.extend(approval_missing_children_diagnostics(
             &self.approval_presences,
         ));
@@ -9355,6 +9357,156 @@ fn scope_owner_column_diagnostics(
     diagnostics
 }
 
+/// `field_derived_from_unresolved` — warn when a resource field's
+/// `derived from <expr>` references identifiers that don't resolve
+/// to siblings on the same resource. Closes the first of three
+/// net-new Tier 4c doctor lints catalogued in the
+/// naming-reconciliation proposal (`docs/proposals/naming-reconciliation-2026-05-17.md`).
+///
+/// The lint tokenises the expression text, drops keywords / operators
+/// / numeric literals / string literals / dotted-path identifiers
+/// (`other.field` — relation traversal is out of scope for v1), and
+/// reports any remaining bare identifier that is not a sibling field
+/// or a built-in (`ctx`, `now`, `true`, `false`, `nil`). Severity is
+/// Warning — the runtime panics on resolution failure, but a Warning
+/// at design time surfaces the typo before deploy.
+fn field_derived_from_unresolved_diagnostics(
+    tier3_facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for feature in tier3_facts {
+        for resource in &feature.resources {
+            let sibling_names: BTreeSet<&str> =
+                resource.fields.iter().map(|f| f.name.as_str()).collect();
+            for field in &resource.fields {
+                let Some(expr) = field.derived_from.as_deref() else {
+                    continue;
+                };
+                let unresolved = collect_unresolved_field_refs(expr, &sibling_names);
+                if unresolved.is_empty() {
+                    continue;
+                }
+                let line = field
+                    .span_ref
+                    .as_ref()
+                    .map(|s| line_col_for_offset_in_file(&feature.path, s.start).0)
+                    .unwrap_or(feature.feature_line);
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "field_derived_from_unresolved".to_owned(),
+                    message: format!(
+                        "field `{}.{}` derived from `{}` references identifier(s) `{}` that don't resolve to a sibling field on resource `{}`.",
+                        resource.name,
+                        field.name,
+                        expr,
+                        unresolved.join("`, `"),
+                        resource.name,
+                    ),
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
+/// Best-effort source-offset → line resolver for derived-from spans.
+/// Falls back to line 1 when the path can't be read (test fixtures
+/// often produce in-memory facts without disk-backing).
+fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize, usize) {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return (1, 1);
+    };
+    line_col_for_offset(&source, offset)
+}
+
+/// Tokenise a `derived from` expression, drop operators / numerics /
+/// string literals / dotted paths / keywords, and return identifiers
+/// that don't resolve to any name in `siblings`. The check is
+/// intentionally conservative — over-rejecting an identifier the
+/// runtime would have accepted is a Warning, not an Error, so a
+/// false positive nudges the author to rename / annotate rather than
+/// blocking the commit.
+fn collect_unresolved_field_refs(expr: &str, siblings: &BTreeSet<&str>) -> Vec<String> {
+    // Strip string literals (single + double quoted) first so their
+    // contents don't masquerade as identifiers.
+    let mut buf = String::with_capacity(expr.len());
+    let mut chars = expr.chars().peekable();
+    let mut in_string: Option<char> = None;
+    while let Some(c) = chars.next() {
+        match in_string {
+            Some(quote) => {
+                if c == quote {
+                    in_string = None;
+                    buf.push(' ');
+                } else if c == '\\' {
+                    chars.next();
+                }
+            }
+            None => {
+                if c == '"' || c == '\'' {
+                    in_string = Some(c);
+                } else {
+                    buf.push(c);
+                }
+            }
+        }
+    }
+    // Replace non-identifier-char with whitespace so split tokenises
+    // cleanly.
+    let normalised: String = buf
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    let keywords: &[&str] = &[
+        "and", "or", "not", "true", "false", "nil", "null", "ctx", "now", "self", "target",
+    ];
+
+    let mut out: Vec<String> = Vec::new();
+    for raw in normalised.split_whitespace() {
+        let token = raw.trim();
+        if token.is_empty() {
+            continue;
+        }
+        // Drop dotted paths (relation traversal — v1 limit).
+        if token.contains('.') {
+            continue;
+        }
+        // Drop numeric literals.
+        if token.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        // Drop keywords.
+        if keywords.contains(&token.to_ascii_lowercase().as_str()) {
+            continue;
+        }
+        // Identifiers must start with letter / underscore.
+        if !token
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        {
+            continue;
+        }
+        if siblings.contains(token) {
+            continue;
+        }
+        if !out.iter().any(|s| s == token) {
+            out.push(token.to_owned());
+        }
+    }
+    out
+}
+
 /// Shape-check a duration string. Accepts `<digits> <unit>` or
 /// `<digits><unit>` where unit ∈ s, m, h, d, w, second(s),
 /// minute(s), hour(s), day(s), week(s). The runtime adapter parses
@@ -13315,6 +13467,7 @@ mod tests {
                                 || !feature.apis.is_empty()
                                 || !feature.records.is_empty()
                                 || !feature.enums.is_empty()
+                                || !feature.resources.is_empty()
                                 || feature.translation.is_some()
                                 || has_text_pattern_api
                             {
@@ -16277,6 +16430,91 @@ feature payments
             scope_diags[0].contains("@scope.same_org"),
             "message should name same_org: {}",
             scope_diags[0]
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // field_derived_from_unresolved — Tier 4c lint per naming-reconciliation
+    // proposal §4. Resource field's `derived from <expr>` must reference
+    // sibling fields (or whitelisted keywords). Closes 1 of the 3 net-new
+    // Tier 4c lints surfaced 2026-05-17.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn doctor_warns_derived_from_referencing_unknown_sibling() {
+        let package = package_from_sources(vec![(
+            "billing.lzi",
+            r#"
+feature billing
+  domain
+    resource Charge
+      amount: Integer required
+      is_premium: Boolean derived from total_amount > 1000
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let derived: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.code == "field_derived_from_unresolved")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert!(
+            !derived.is_empty(),
+            "expected field_derived_from_unresolved on Charge.is_premium; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert!(
+            derived[0].contains("total_amount"),
+            "message should name unresolved identifier `total_amount`: {}",
+            derived[0]
+        );
+        assert!(
+            derived[0].contains("is_premium"),
+            "message should name the offending field: {}",
+            derived[0]
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_derived_from_referencing_sibling_field() {
+        let package = package_from_sources(vec![(
+            "billing.lzi",
+            r#"
+feature billing
+  domain
+    resource Charge
+      amount: Integer required
+      is_premium: Boolean derived from amount > 1000
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("field_derived_from_unresolved"),
+            "sibling field `amount` should resolve; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_accepts_derived_from_with_keywords_and_string_literals() {
+        // `and` / `not` are keywords; "high" is a string literal —
+        // none should be flagged as unresolved identifiers.
+        let package = package_from_sources(vec![(
+            "billing.lzi",
+            r#"
+feature billing
+  domain
+    resource Charge
+      amount: Integer required
+      status: Text required
+      flagged: Boolean derived from amount > 1000 and status != "high"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("field_derived_from_unresolved"),
+            "keywords + string literals must not be flagged; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }
 
