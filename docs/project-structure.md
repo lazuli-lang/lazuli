@@ -41,22 +41,42 @@ Three corollaries fall out of this:
   contract the file implements. Anything that isn't cited is not Lazuli
   territory, even if it's "about" the feature.
 
-- **Plural only where there's an architectural difference in runtime,
-  not in UX.** `dist/ts-web/` vs `dist/ts-mobile/` is plural because the
-  two targets are *different runtimes* with *different generated
-  contracts*. `app/web/` vs `app/clients/admin/` is plural only when the
-  two clients are *different bundles/deploys with divergent runtime
-  requirements* (a PWA vs an Electron desktop, a browser extension, a
-  native shell) — never when they're just different audiences of the
-  same web SPA. Audience is solved by routes + authorization inside the
-  same client, not by a second client.
+- **Plural when the client has a contract distinct enough to justify
+  its own bundle, deploy, and release cadence — not just a different
+  audience.** Audience alone (admin vs. end-user) is solved by routes
+  + authorization inside one client. A second client is justified
+  when *two or more* of the following diverge:
+  1. **Runtime** — browser SPA vs. Expo/RN mobile vs. Electron desktop
+     vs. browser extension vs. embedded webview.
+  2. **Data surface** — operator dashboards expose audit tables,
+     metrics, admin controls that an end-user never touches; the
+     queries/commands the two clients consume are materially different,
+     not just role-gated variants of the same screens.
+  3. **Release cadence** — internal tooling ships continuously without
+     release-note discipline; consumer-facing product ships on a
+     versioned cadence with QA and changelog.
+  4. **Distribution** — app store vs. public URL vs. intranet/VPN-only
+     vs. enterprise SSO portal. Different signing, different update
+     mechanism, different telemetry posture.
+
+  One criterion alone is usually solvable with routes + authorization
+  inside the same client. Two or more start to justify the cost of a
+  separate bundle. `dist/ts-web/` vs. `dist/ts-mobile/` is plural at
+  the generated tier because runtime alone is unambiguous (different
+  runtime → different generated contracts); at the client tier the
+  threshold is higher because the cost is higher.
 
 - **Default is a single client; multi is opt-in.** Most projects ship
-  one frontend (`app/web/`). When a real second client appears — with
-  its own bundle, deploy unit, or runtime — the project migrates
+  one frontend (`app/web/`). When a real second client appears — meeting
+  two-or-more of the criteria above — the project migrates
   `app/web/` → `app/clients/<name>/` and adds the second slice
   alongside. The migration is mechanical (rename + Lazurite.toml
   update), and the cost is proportional to the complexity being added.
+  **Lazuli has no opinion on the client *name*; only on the structural
+  rule.** A project might call its clients `customer-app` and
+  `operator-tools`, `marketplace` and `admin`, or `web` and `mobile` —
+  Lazuli only requires that each lives at `app/clients/<name>/` and
+  that `Lazurite.toml [frontends.<name>]` declares it.
 
 These three rules answer most "where does X live?" questions. When they
 don't, the answer is in this document.
@@ -273,22 +293,25 @@ app/
 
 ### Multi-client layout (opt-in)
 
-When a project legitimately needs separate bundles — different runtimes,
-different deploy targets, different SLAs — it migrates `app/web/` →
-`app/clients/<name>/` and adds the second slice:
+When a project legitimately needs separate bundles — meeting two or
+more of the runtime/data-surface/release-cadence/distribution
+criteria — it migrates `app/web/` → `app/clients/<name>/` and adds
+the second slice. Lazuli has no opinion on the names: pick what
+matches your product.
 
 ```txt
 app/
   clients/
-    main/                       # was app/web/ — renamed during migration
-      package.json
+    customer-app/               # was app/web/ — renamed, keep the
+      package.json              #  name your product already uses
       src/...
-    admin/                      # new second client, different bundle/deploy
-      package.json
-      src/...
-    mobile/                     # third client targeting Expo, etc.
-      package.json
-      src/...
+    operator-tools/             # new second client, justified by:
+      package.json              #  - different data surface (admin)
+      src/...                   #  - different release cadence
+                                #  - different distribution (intranet)
+    mobile/                     # third client targeting Expo, when
+      package.json              #  a native mobile target appears
+      src/...                   #  (different runtime)
 
 packages/                       # appears only when real cross-client
   shared/                       #  sharing is needed (design system,
@@ -296,15 +319,32 @@ packages/                       # appears only when real cross-client
     ui-primitives/
 ```
 
-The migration is mechanical: `mv app/web app/clients/main`, update
-`Lazurite.toml [frontends.*]` to point at the new path, regenerate.
-Doctor flags the inconsistency if the manifest and folder layout drift.
+The migration is mechanical: `mv app/web app/clients/<your-chosen-name>`,
+update `Lazurite.toml [frontends.*]` to point at the new path,
+regenerate. Doctor flags the inconsistency if the manifest and folder
+layout drift.
 
 `app/web/` and `app/clients/` never coexist in the same project — when
 `app/clients/` appears, `app/web/` is gone (renamed into it). This
 matches Hanami's slices model (the singular `app/` doesn't coexist with
 `slices/<name>/` as parallel siblings; the first slice migration moves
 code, doesn't add a second tier).
+
+**Worked example.** A project with a consumer marketplace and an
+internal operator dashboard sharing one Lazuli backend justifies plural
+because all four criteria diverge: marketplace ships as a PWA (and
+later a native mobile target), operator dashboard is web-only and
+intranet-distributed; marketplace exposes customer-facing data
+(listings, bookings, reviews) while operator tooling exposes audit
+tables and admin controls; marketplace ships on a versioned release
+cadence with QA, operator tooling ships continuously without
+ceremony; marketplace is publicly distributed (app store, public URL),
+operator tooling is intranet-only. That product would adopt
+`app/clients/marketplace/` + `app/clients/operator/` (or whatever
+names the team naturally uses). If instead the operator screens were
+just "admin pages" in the same web app under `/admin/*` routes with
+authorization gating — same release cadence, same distribution, same
+bundle — that would stay in `app/web/`.
 
 ### Why client code lives outside `app/features/`
 
@@ -646,12 +686,12 @@ app/
   features/
     ...
   clients/                       # ← replaces `web/` when multi is needed
-    main/                        # was app/web/ — renamed during migration
-      package.json
-      src/...
-    admin/                       # second client, separate bundle/deploy
-      package.json
-      src/...
+    <product-name>/              # was app/web/ — keep your product's
+      package.json               #  natural name; framework is naming-
+      src/...                    #  agnostic
+    <other-client>/              # second client meeting ≥2 of the
+      package.json               #  runtime/data/cadence/distribution
+      src/...                    #  criteria
 
 packages/                        # appears with real cross-client sharing
   shared/
@@ -680,14 +720,22 @@ bundle?**
   `.lazuli/`, never edited by hand.
 
 For the singular-vs-plural question (does this code go in `app/web/` or
-do I need `app/clients/`?), apply the runtime-vs-UX test:
+do I need `app/clients/`?), apply the **two-or-more-criteria** test:
 
-- **Different audiences** (admin vs. end-user, host vs. traveler) →
-  stay in the same client. Solve via routes + authorization. `app/web/`
-  is enough.
-- **Different runtimes/bundles** (browser SPA vs. Electron desktop vs.
-  mobile PWA with offline-first behavior) → genuine second client.
-  Migrate to `app/clients/<name>/`.
+A second client is justified when two or more of these diverge:
+
+1. **Runtime** — different platform (browser/Expo/Electron/extension).
+2. **Data surface** — materially different queries/commands, not just
+   role-gated variants of the same screens.
+3. **Release cadence** — internal continuous vs. consumer versioned.
+4. **Distribution** — app store / public URL / intranet-VPN /
+   enterprise SSO.
+
+One criterion alone is usually a routes + authorization problem inside
+one client (`app/web/` is enough). Two or more start to justify the
+cost of separate bundles. Naming follows the product: Lazuli requires
+that each client lives at `app/clients/<name>/`, never that the name
+itself match any framework convention.
 
 When the answer is genuinely ambiguous (shared TypeScript code used by
 multiple clients with no Lazuli dependency, for example),
