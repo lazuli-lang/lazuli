@@ -657,7 +657,16 @@ fn emit_updates_effect(
     scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&update.resource);
-    let where_keys = resolve_where_keys(command);
+    let scope_columns: std::collections::BTreeSet<&str> =
+        scope_bindings.iter().map(|b| b.column.as_str()).collect();
+    // Suppress route/input-derived where keys when scope_bindings
+    // claim the same column (e.g. `@scope.self` claims `id` from
+    // ctx; the route's `id` would conflict).
+    let where_keys: Vec<WhereKeyBinding> = resolve_where_keys(command)
+        .into_iter()
+        .filter(|k| !scope_columns.contains(k.column.as_str()))
+        .collect();
+    let bulk_delete_only = where_keys.is_empty() && !scope_bindings.is_empty();
     if let Some(lifecycle) = lifecycle_transition {
         p.line(&format!(
             "// lifecycle: newState, err := {}.Apply(ctx, current.{}, \"{}\")",
@@ -680,6 +689,11 @@ fn emit_updates_effect(
     } else {
         p.line("lazuli.Bindings{");
         p.indent();
+        if bulk_delete_only {
+            p.line(
+                "// bulk: no id/route key — `@scope.*` alone scopes the affected rows.",
+            );
+        }
         for k in &where_keys {
             p.line(&format!(
                 "\"{}\": lazuli.FromInput(\"{}\"),",
@@ -804,11 +818,36 @@ fn emit_deletes_effect(
     scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&delete.resource);
-    let where_keys = resolve_where_keys(command);
+    let scope_columns: std::collections::BTreeSet<&str> =
+        scope_bindings.iter().map(|b| b.column.as_str()).collect();
+    // Suppress route/input-derived where keys when scope_bindings
+    // claim the same column (`@scope.self` over `id`, etc.).
+    let mut where_keys: Vec<WhereKeyBinding> = resolve_where_keys(command)
+        .into_iter()
+        .filter(|k| !scope_columns.contains(k.column.as_str()))
+        .collect();
+    // Bulk delete: when the command authored no route AND no typed
+    // input, the legacy fallback `id: FromInput("ID")` is meaningless
+    // — there's nothing in the input struct to bind. When the policy
+    // carries a scope atom that supplies the WHERE constraint (e.g.
+    // `@scope.owner` on `user`), drop the legacy id binding and let
+    // the scope atom alone scope the affected rows.
+    let bulk_mode = matches!(command.input, CommandInput::Empty)
+        && command.route.is_empty()
+        && !scope_bindings.is_empty();
+    if bulk_mode {
+        where_keys.retain(|k| !(k.column == "id" && k.input_field == "ID"));
+    }
+    let bulk_delete_only = where_keys.is_empty() && !scope_bindings.is_empty();
     p.line(&format!(
         "Effect: lazuli.Deletes(&{resource_var}, lazuli.Bindings{{"
     ));
     p.indent();
+    if bulk_delete_only {
+        p.line(
+            "// bulk: no id/route key — `@scope.*` alone scopes the affected rows.",
+        );
+    }
     for k in &where_keys {
         p.line(&format!(
             "\"{}\": lazuli.FromInput(\"{}\"),",
@@ -997,6 +1036,22 @@ fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Vec<ScopeBind
                         via: None,
                     });
                 }
+            }
+            "@scope.self" => {
+                // The acting user IS the target row. Closes the
+                // ctx-as-key codegen gap surfaced by the hostpoint
+                // Phase 4 audit (e.g. `account.choose_role` updates
+                // the row whose `id` equals `ctx.user.id`). Only
+                // meaningful when the resource is `User`-like — every
+                // resource that has an `id` field qualifies; the
+                // policy author is responsible for ensuring the row
+                // identity matches the actor.
+                out.push(ScopeBinding {
+                    atom: atom.clone(),
+                    column: "id".to_owned(),
+                    ctx_path: "user.id".to_owned(),
+                    via: None,
+                });
             }
             _ => {}
         }
@@ -3393,6 +3448,96 @@ mod tests {
         assert!(
             !out.contains("\"reason\": lazuli.FromInput(\"Reason\"),"),
             "non-route, non-key input should not leak into WHERE bindings:\n{out}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // @scope.self — ctx-as-key WHERE binding (Wave 9 / hostpoint codegen gap G).
+    // Closes `account.choose_role` UPDATE WHERE id = ctx.user.id.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn updates_with_scope_self_uses_ctx_user_id_as_where_key() {
+        let mut feature = base_feature("account");
+        let mut resource = simple_resource("User");
+        resource.fields.push(scope_field("role"));
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "choose_role".to_owned(),
+                atoms: vec!["@scope.self".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("choose_role");
+        cmd.input = CommandInput::Typed(vec![typed_slot("role", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("User"),
+            assignments: Vec::new(),
+        });
+        cmd.policy = PolicyRef::Local("choose_role".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        // @scope.self drives WHERE via ctx; the `role` input slot is
+        // a body field, not a key.
+        assert!(
+            out.contains("\"id\": lazuli.FromCtx(\"user.id\"),"),
+            "@scope.self should bind id from ctx.user.id:\n{out}"
+        );
+        assert!(
+            !out.contains("\"id\": lazuli.FromInput(\""),
+            "@scope.self must suppress the route/input id binding (no double-id):\n{out}"
+        );
+        assert!(
+            out.contains("// scope: @scope.self resolved → id = ctx.user.id"),
+            "scope comment should document the ctx-key pattern:\n{out}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Bulk delete — @scope.owner with no route AND no typed input
+    // (Wave 9 / hostpoint codegen gap H). Closes `account.logout` etc.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn deletes_in_bulk_mode_drops_legacy_id_binding() {
+        let mut feature = base_feature("account");
+        let mut resource = simple_resource("UserSession");
+        resource.fields.push(scope_field("user_id"));
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "logout".to_owned(),
+                atoms: vec!["@scope.owner".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("logout");
+        cmd.input = CommandInput::Empty;
+        // No route slots either.
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("UserSession"),
+        });
+        cmd.policy = PolicyRef::Local("logout".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            !out.contains("\"id\": lazuli.FromInput(\"ID\"),"),
+            "bulk delete must NOT emit legacy id-from-input binding:\n{out}"
+        );
+        assert!(
+            out.contains("\"user_id\": lazuli.FromCtx(\"user.id\"),"),
+            "scope.owner should still inject the ownership binding:\n{out}"
+        );
+        assert!(
+            out.contains("// bulk: no id/route key"),
+            "bulk-mode comment should be visible for reviewers:\n{out}"
         );
     }
 
