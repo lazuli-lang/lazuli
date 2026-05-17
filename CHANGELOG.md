@@ -48,6 +48,16 @@ Every `LZIR_SCHEMA` bump must ship a paired
   Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
   pilot 2026-05-17 capability matrix. Resources without a matching
   column silently skip (defense-in-depth opt-in). (`c0a4609`)
+- **Alt-key WHERE binding for `Updates` / `Deletes` codegen.** New
+  `resolve_where_keys` helper picks the WHERE binding from
+  `Command.route` (composite key for multi-route commands) OR a
+  single typed input slot, falling back to `{"id": FromInput("ID")}`
+  for routeless / multi-input commands. Closes the hardcoded
+  `"id": FromInput("ID")` assumption surfaced by the hostpoint Phase 4
+  audit. Unblocks 2 more SHIP-NOW handlers (`unregister_web_push`,
+  `dev_auto_approve_charge`); the other 6 still gate on status-guards
+  / ctx-as-key / bulk-delete / negation / INSERT-with-constants
+  extensions. (`e50c846`)
 - **Relation-traversal `@scope.owner` (subquery WHERE form).** When a
   command's policy includes `@scope.owner` AND the target resource
   has no direct owner column BUT has a field referencing another
