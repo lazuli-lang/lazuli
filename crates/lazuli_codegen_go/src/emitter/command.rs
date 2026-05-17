@@ -290,6 +290,7 @@ fn emit_command(
     emit_effect(
         p,
         &feature.name,
+        command,
         &command.name,
         &command.effect,
         command.handler.as_ref(),
@@ -540,6 +541,7 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
 fn emit_effect(
     p: &mut GoPrinter,
     feature_name: &str,
+    command: &Command,
     command_name: &str,
     effect: &CommandEffect,
     handler: Option<&HandlerRef>,
@@ -551,10 +553,17 @@ fn emit_effect(
 ) {
     match effect {
         CommandEffect::Creates(create) => emit_creates_effect(p, create, let_bindings),
-        CommandEffect::Updates(update) => {
-            emit_updates_effect(p, update, let_bindings, lifecycle_transition, scope_bindings)
+        CommandEffect::Updates(update) => emit_updates_effect(
+            p,
+            command,
+            update,
+            let_bindings,
+            lifecycle_transition,
+            scope_bindings,
+        ),
+        CommandEffect::Deletes(delete) => {
+            emit_deletes_effect(p, command, delete, scope_bindings)
         }
-        CommandEffect::Deletes(delete) => emit_deletes_effect(p, delete, scope_bindings),
         CommandEffect::Returns(ret) => {
             let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
             // Prefer explicit handler ref name (handler @fn.<name>)
@@ -641,15 +650,14 @@ fn emit_creates_effect(
 
 fn emit_updates_effect(
     p: &mut GoPrinter,
+    command: &Command,
     update: &UpdateEffect,
     let_bindings: &BTreeMap<&str, &Expr>,
     lifecycle_transition: Option<&LifecycleCommand<'_>>,
     scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&update.resource);
-    // Lazuli Go lib `Updates` takes (resource, where, bind). For E3 we
-    // assume the implicit `id` route slot drives WHERE; if the IR ever
-    // grows a structured `target_by` axis we lift it here.
+    let where_keys = resolve_where_keys(command);
     if let Some(lifecycle) = lifecycle_transition {
         p.line(&format!(
             "// lifecycle: newState, err := {}.Apply(ctx, current.{}, \"{}\")",
@@ -660,12 +668,25 @@ fn emit_updates_effect(
     }
     p.line(&format!("Effect: lazuli.Updates(&{resource_var},"));
     p.indent();
-    if scope_bindings.is_empty() {
-        p.line("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},");
+    if scope_bindings.is_empty() && where_keys.len() == 1 {
+        // Backward-compatible compact form for the single-key, no-scope
+        // case (the common shape pre-Wave 8).
+        let k = &where_keys[0];
+        p.line(&format!(
+            "lazuli.Bindings{{\"{}\": lazuli.FromInput(\"{}\")}},",
+            escape_string(&k.column),
+            k.input_field
+        ));
     } else {
         p.line("lazuli.Bindings{");
         p.indent();
-        p.line("\"id\": lazuli.FromInput(\"ID\"),");
+        for k in &where_keys {
+            p.line(&format!(
+                "\"{}\": lazuli.FromInput(\"{}\"),",
+                escape_string(&k.column),
+                k.input_field
+            ));
+        }
         for binding in scope_bindings {
             emit_scope_binding_row(p, binding);
         }
@@ -778,30 +799,74 @@ fn enum_variant_name(enum_name: &str, variant: &str) -> String {
 
 fn emit_deletes_effect(
     p: &mut GoPrinter,
+    command: &Command,
     delete: &DeleteEffect,
     scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&delete.resource);
+    let where_keys = resolve_where_keys(command);
     p.line(&format!(
         "Effect: lazuli.Deletes(&{resource_var}, lazuli.Bindings{{"
     ));
     p.indent();
-    p.line("\"id\": lazuli.FromInput(\"ID\"),");
+    for k in &where_keys {
+        p.line(&format!(
+            "\"{}\": lazuli.FromInput(\"{}\"),",
+            escape_string(&k.column),
+            k.input_field
+        ));
+    }
     for binding in scope_bindings {
-        p.line(&format!(
-            "// scope: {atom} resolved → {field} = ctx.{ctx_path}",
-            atom = binding.atom,
-            field = binding.column,
-            ctx_path = binding.ctx_path
-        ));
-        p.line(&format!(
-            "\"{column}\": lazuli.FromCtx(\"{ctx_path}\"),",
-            column = escape_string(&binding.column),
-            ctx_path = binding.ctx_path
-        ));
+        emit_scope_binding_row(p, binding);
     }
     p.dedent();
     p.line("}),");
+}
+
+/// One key binding the runtime uses to address the row being mutated.
+/// `column` is the DB column (= the DSL field name); `input_field` is
+/// the Go pascal-cased field on the command's input struct that
+/// supplies the value.
+struct WhereKeyBinding {
+    column: String,
+    input_field: String,
+}
+
+/// Resolve the WHERE-key bindings the runtime needs to scope an
+/// `Updates` / `Deletes` effect to a specific row. Priority:
+///
+/// 1. `command.route` slots — `route id: ID` / `route customer_id: ID`
+///    drive the WHERE columns. Multi-slot routes produce a composite
+///    key (every slot becomes one `<col> = FromInput(...)` binding).
+/// 2. Single typed input slot — `input { endpoint: Text required }`
+///    treats `endpoint` as the WHERE key. Closes the "alt-key WHERE"
+///    gap from the hostpoint Phase 4 audit 2026-05-17.
+/// 3. Legacy fallback — `{"id": FromInput("ID")}` for commands that
+///    declare neither route nor a single-slot input. Mirrors pre-Wave-8
+///    behaviour.
+fn resolve_where_keys(command: &Command) -> Vec<WhereKeyBinding> {
+    if !command.route.is_empty() {
+        return command
+            .route
+            .iter()
+            .map(|slot| WhereKeyBinding {
+                column: slot.name.clone(),
+                input_field: pascal_case(&slot.name),
+            })
+            .collect();
+    }
+    if let CommandInput::Typed(slots) = &command.input {
+        if slots.len() == 1 {
+            return vec![WhereKeyBinding {
+                column: slots[0].name.clone(),
+                input_field: pascal_case(&slots[0].name),
+            }];
+        }
+    }
+    vec![WhereKeyBinding {
+        column: "id".to_owned(),
+        input_field: "ID".to_owned(),
+    }]
 }
 
 /// Emit a single `Where` map row for a resolved scope binding. The
@@ -3250,6 +3315,119 @@ mod tests {
         assert!(
             !out.contains("FromCtx(\"user.id\")"),
             "no matching column → no scope binding emitted:\n{out}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Alt-key WHERE binding (Wave 8). When a delete/update command has no
+    // `route` and a single typed input slot whose name is NOT `id`, the
+    // codegen now uses that slot as the WHERE key (column + Go input
+    // field). Closes the hostpoint Phase 4 codegen gap surfaced 2026-05-17.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn deletes_with_single_input_slot_uses_alt_key_when_not_id() {
+        let mut feature = base_feature("messaging");
+        let mut resource = simple_resource("WebPushSubscription");
+        resource.fields.push(scope_field("endpoint"));
+        resource.fields.push(scope_field("user"));
+        feature.resources.push(resource);
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "delete".to_owned(),
+                atoms: vec!["@scope.owner".to_owned()],
+                previous_names: Vec::new(),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        let mut cmd = base_command("unregister_web_push");
+        cmd.input = CommandInput::Typed(vec![typed_slot("endpoint", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("WebPushSubscription"),
+        });
+        cmd.policy = PolicyRef::Local("delete".to_owned());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("\"endpoint\": lazuli.FromInput(\"Endpoint\"),"),
+            "single-slot input `endpoint` should drive WHERE:\n{out}"
+        );
+        assert!(
+            !out.contains("\"id\": lazuli.FromInput(\"ID\"),"),
+            "no `id` binding should leak when input slot is `endpoint`:\n{out}"
+        );
+        assert!(
+            out.contains("\"user\": lazuli.FromCtx(\"user.id\"),"),
+            "@scope.owner should still inject the ownership column:\n{out}"
+        );
+    }
+
+    #[test]
+    fn updates_with_route_slot_uses_route_as_where_key() {
+        let mut feature = base_feature("trust");
+        let mut resource = simple_resource("Review");
+        resource.fields.push(scope_field("status"));
+        feature.resources.push(resource);
+        let mut cmd = base_command("flag");
+        cmd.route = vec![lazuli_ir::RouteSlot {
+            name: "id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            from: None,
+        }];
+        cmd.input = CommandInput::Typed(vec![typed_slot("reason", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Review"),
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        // Route drives the WHERE key. `reason` is the body slot, not a
+        // WHERE key candidate.
+        assert!(
+            out.contains("\"id\": lazuli.FromInput(\"ID\")"),
+            "route id should drive WHERE:\n{out}"
+        );
+        assert!(
+            !out.contains("\"reason\": lazuli.FromInput(\"Reason\"),"),
+            "non-route, non-key input should not leak into WHERE bindings:\n{out}"
+        );
+    }
+
+    #[test]
+    fn deletes_with_multi_route_emits_composite_where() {
+        let mut feature = base_feature("customer_tags");
+        let mut resource = simple_resource("CustomerTagAssignment");
+        feature.resources.push(resource.clone());
+        let mut cmd = base_command("remove_tag");
+        cmd.route = vec![
+            lazuli_ir::RouteSlot {
+                name: "customer_id".to_owned(),
+                type_ref: TypeRef::Builtin(BuiltinType::Id),
+                from: None,
+            },
+            lazuli_ir::RouteSlot {
+                name: "tag_id".to_owned(),
+                type_ref: TypeRef::Builtin(BuiltinType::Id),
+                from: None,
+            },
+        ];
+        cmd.input = CommandInput::Empty;
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("CustomerTagAssignment"),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("\"customer_id\": lazuli.FromInput(\"CustomerID\"),"),
+            "first route slot should bind (note `id` acronym uppercases per is_acronym):\n{out}"
+        );
+        assert!(
+            out.contains("\"tag_id\": lazuli.FromInput(\"TagID\"),"),
+            "second route slot should bind:\n{out}"
         );
     }
 }
