@@ -1,0 +1,15 @@
+[recipe]
+from_version = "0.14.0"
+to_version = "0.15.0"
+kind = "additive"
+summary = "LZIR_SCHEMA 0.14.0 → 0.15.0 additive bump — Command grows rate_limit/audit/approval/invalidates/external_calls; new Api/AuditSpec/ApprovalSpec/ApprovalThen/InvalidatesSpec types; Feature.apis added; JobDeclarative spine typed (raw_target/raw_lets/raw_effect strings → typed TargetExpr/LetBinding/CommandEffect). All additions carry serde-default + skip-on-None so 0.14.0 fixtures deserialize unchanged."
+
+[smoke]
+# No input.lzi -> output.lzi transformation needed — this is a
+# purely additive IR ABI bump. Every new field is
+# `#[serde(default, skip_serializing_if = "...")]` so existing
+# 0.14.0-emitted JSON deserializes against 0.15.0 readers without
+# rewrite. The JobDeclarative spine swap is type-level only (no
+# JSON shape change at the surface — the raw_* strings were never
+# part of the canonical JSON ABI). Recipe presence is the gate.
+applies_to = "lazuli_ir_consumers"
