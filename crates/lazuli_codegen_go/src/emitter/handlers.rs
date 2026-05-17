@@ -1321,6 +1321,7 @@ fn emit_stub_contents(stub: &HandlerStub, module_name: &str) -> String {
     let escaped_site = escape_comment(&stub.site);
     let escaped_error = escape_string(&format!("{} not yet implemented", stub.name));
     let gen_pkg = super::casing::gen_package_name(&stub.feature);
+    let handlers_pkg = handlers_package_name(&stub.feature);
     let qualified_handler = format!("{}.{}", stub.feature, stub.name);
     let gen_import_path = format!("{module_name}/{DIST_GO_PREFIX}/{}", stub.feature);
 
@@ -1379,7 +1380,7 @@ func init() {{
 	lazuli.RegisterFn("{qualified_handler}", {fn_name})
 }}
 "#,
-        package = stub.feature,
+        package = handlers_pkg,
         fn_name = fn_name,
         escaped_literal = escaped_literal,
         escaped_site = escaped_site,
@@ -1468,12 +1469,25 @@ fn go_type_for_unresolved(raw: &str) -> String {
     }
 }
 
-/// Canonical handler stub location: `app/features/<feature>/<name>.go`.
+/// Canonical handler stub location:
+/// `app/features/<feature>/handlers/<name>.go`.
 ///
 /// Lives in the portable kernel (Tier 1 per `docs/project-structure.md`)
-/// alongside the feature's `.lzi`. Returned paths are project-root
-/// relative; the orchestrator detects the `app/features/` prefix and
-/// writes to project root instead of the codegen `out_dir`.
+/// inside a dedicated `handlers/` sub-folder so the feature directory
+/// itself stays focused on the DSL surface (`<f>.lzi`, `<f>.lzx`,
+/// `<f>.<target>.lzx`, `templates/`, `queries/`, `handlers/`).
+///
+/// Returned paths are project-root relative; the orchestrator detects
+/// the `app/features/` prefix and writes to project root instead of
+/// the codegen `out_dir`.
+///
+/// Sub-folder package name is `<feature>handlers` (snake_case
+/// concatenated). The import cycle that motivated the earlier flat
+/// layout is now broken by the runtime registry — gen never imports
+/// user handler packages directly; user handlers register themselves
+/// at init via `lazuli.RegisterFn(...)` and the generated `Effect:
+/// lazuli.ReturnsFromRegistry[I, O]("<feature>.<name>")` resolves
+/// them at dispatch time.
 ///
 /// Idempotency: once a file exists at this path, regeneration skips it
 /// (the user has either authored or edited the stub). See `path_exists`
@@ -1481,7 +1495,18 @@ fn go_type_for_unresolved(raw: &str) -> String {
 pub(crate) const APP_FEATURES_PREFIX: &str = "app/features";
 
 fn handler_path(feature: &str, name: &str) -> String {
-    format!("{APP_FEATURES_PREFIX}/{feature}/{}.go", path_name_for(name))
+    format!(
+        "{APP_FEATURES_PREFIX}/{feature}/handlers/{}.go",
+        path_name_for(name)
+    )
+}
+
+/// Go package name for the handler sub-folder. Matches the directory
+/// name (`<feature>handlers`) so Go's package-name=dir-name convention
+/// holds; user code references its own siblings without a qualifier
+/// and references generated types via the `<feature>gen` alias.
+fn handlers_package_name(feature: &str) -> String {
+    format!("{feature}handlers")
 }
 
 fn path_exists(existing_files: &BTreeSet<PathBuf>, relative_path: &str) -> bool {
@@ -1490,24 +1515,42 @@ fn path_exists(existing_files: &BTreeSet<PathBuf>, relative_path: &str) -> bool 
     }
 
     let rel = normalize_path_string(relative_path);
-    // Legacy stub location — projects scaffolded before the
-    // handler-home pivot have user code at `dist/go/<f>/<name>.go`.
-    // We still honour those so the pivot can land without orphaning
-    // existing handlers; the consumer migration step relocates them
-    // to `app/features/<f>/<name>.go` deliberately.
-    let legacy_dist = rel
-        .strip_prefix(&format!("{APP_FEATURES_PREFIX}/"))
-        .map(|tail| format!("{DIST_GO_PREFIX}/{tail}"));
     let rel_suffix = format!("/{rel}");
+
+    // Legacy stub locations — pre-pivot scaffolds may have handlers at:
+    //  - `dist/go/<f>/<name>.go` (the first failed pivot)
+    //  - `app/features/<f>/<name>.go` (the second flat pivot)
+    // Translate the canonical `app/features/<f>/handlers/<name>.go`
+    // path back to those two shapes so the regen doesn't double-stub
+    // handlers that already exist at the older locations.
+    let legacy_alternatives: Vec<String> = if let Some(tail) =
+        rel.strip_prefix(&format!("{APP_FEATURES_PREFIX}/"))
+    {
+        // `tail` is `<feature>/handlers/<name>.go`. Strip the
+        // `handlers/` segment to derive `<feature>/<name>.go` —
+        // matches the flat-pivot layout.
+        let mut alts = Vec::with_capacity(2);
+        if let Some((feature, after)) = tail.split_once('/') {
+            if let Some(name) = after.strip_prefix("handlers/") {
+                let flat_app = format!("{APP_FEATURES_PREFIX}/{feature}/{name}");
+                let flat_dist = format!("{DIST_GO_PREFIX}/{feature}/{name}");
+                alts.push(flat_app);
+                alts.push(flat_dist);
+            }
+        }
+        alts
+    } else {
+        Vec::new()
+    };
 
     existing_files.iter().any(|path| {
         let existing = normalize_path(path);
         if existing == rel || existing.ends_with(&rel_suffix) {
             return true;
         }
-        if let Some(legacy) = &legacy_dist {
-            let legacy_suffix = format!("/{legacy}");
-            if existing == *legacy || existing.ends_with(&legacy_suffix) {
+        for legacy in &legacy_alternatives {
+            let suffix = format!("/{legacy}");
+            if existing == *legacy || existing.ends_with(&suffix) {
                 return true;
             }
         }
@@ -1702,10 +1745,10 @@ mod tests {
         let files = emit_handler_stubs(&module, "lazuli/test", &BTreeSet::new());
         let hash = files
             .iter()
-            .find(|file| file.path == "app/features/customer_auth/hash_password.go")
+            .find(|file| file.path == "app/features/customer_auth/handlers/hash_password.go")
             .expect("hash stub emitted");
 
-        assert!(hash.contents.contains("package customer_auth"));
+        assert!(hash.contents.contains("package customer_authhandlers"));
         assert!(hash.contents.contains(
             "func HashPassword(ctx *lazuli.Ctx, input string) (lazuli.HashedRef, error)"
         ));
@@ -1757,19 +1800,19 @@ mod tests {
             span_ref: None,
         });
         let module = module_with_features(vec![feature]);
-        let existing = BTreeSet::from([PathBuf::from("app/features/customer_auth/hash_password.go")]);
+        let existing = BTreeSet::from([PathBuf::from("app/features/customer_auth/handlers/hash_password.go")]);
 
         let files = emit_handler_stubs(&module, "lazuli/test", &existing);
 
         assert!(
             !files
                 .iter()
-                .any(|file| file.path == "app/features/customer_auth/hash_password.go")
+                .any(|file| file.path == "app/features/customer_auth/handlers/hash_password.go")
         );
         assert!(
             files
                 .iter()
-                .any(|file| file.path == "app/features/customer_auth/verify_password.go")
+                .any(|file| file.path == "app/features/customer_auth/handlers/verify_password.go")
         );
     }
 
@@ -1799,12 +1842,12 @@ mod tests {
         assert!(
             !files
                 .iter()
-                .any(|file| file.path == "app/features/customer_auth/hash_password.go")
+                .any(|file| file.path == "app/features/customer_auth/handlers/hash_password.go")
         );
         assert!(
             files
                 .iter()
-                .any(|file| file.path == "app/features/customer_auth/verify_password.go")
+                .any(|file| file.path == "app/features/customer_auth/handlers/verify_password.go")
         );
     }
 
@@ -1859,7 +1902,7 @@ mod tests {
 
         let risk = files
             .iter()
-            .find(|file| file.path == "app/features/customer/risk_score.go")
+            .find(|file| file.path == "app/features/customer/handlers/risk_score.go")
             .expect("risk_score stub emitted");
         assert!(
             risk.contents
@@ -1889,7 +1932,7 @@ mod tests {
         let files = emit_handler_stubs(&module, "lazuli/test", &BTreeSet::new());
         let hook = files
             .iter()
-            .find(|file| file.path == "app/features/customer/before_create.go")
+            .find(|file| file.path == "app/features/customer/handlers/before_create.go")
             .expect("hook stub emitted");
 
         assert!(hook.contents.contains("`@hook.before_create`"));
@@ -1917,7 +1960,7 @@ mod tests {
 
         let risk = files
             .iter()
-            .find(|file| file.path == "app/features/customer/risk_score.go")
+            .find(|file| file.path == "app/features/customer/handlers/risk_score.go")
             .expect("risk_score declaration stub emitted");
         assert!(
             risk.contents
@@ -1962,7 +2005,7 @@ mod tests {
     fn sanitises_unsafe_path_and_function_name() {
         assert_eq!(
             handler_path("customer", "../risk.score"),
-            "app/features/customer/risk_score.go"
+            "app/features/customer/handlers/risk_score.go"
         );
         assert_eq!(exported_func_name("123_score"), "Handler123Score");
     }

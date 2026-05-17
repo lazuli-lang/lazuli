@@ -134,7 +134,7 @@ The tags are stable across releases — a tier moving from `[partial]` to
 | External service contracts | `contracts/**/*.lzi` | Portable | `[stable]` |
 | Distributed-system root | `workspace.lzi` | Portable | `[stable]` (optional) |
 | Lazurite manifest | `Lazurite.toml` | Portable | `[stable]` |
-| Go handlers (`@fn.X`, `@hook.X`, `@validator.X`) | `app/features/<f>/<name>.go` (package `<f>`) | Portable | `[planned]` — today codegen emits stubs to `dist/go/<f>/<name>.go`; pivot to canonical location is in the framework roadmap. |
+| Go handlers (`@fn.X`, `@hook.X`, `@validator.X`) | `app/features/<f>/handlers/<name>.go` (package `<f>handlers`) | Portable | `[planned]` — today codegen emits stubs to `dist/go/<f>/<name>.go`; pivot to canonical location is in the framework roadmap. |
 | Resource-local validators | `app/features/<f>/domain/validate_<resource>.go` | Portable | `[stable]` |
 | SQL queries (`query.sql @file.X`) | `app/features/<f>/queries/<X>.sql` | Portable | `[stable]` |
 | Email/notification templates | `app/features/<f>/templates/<name>.<locale>.tmpl` | Portable | `[stable]` |
@@ -177,8 +177,8 @@ app/
       customer.ctx.md           # optional: LLM context pack for this feature
 
       # Extension code — Go handlers in the feature package
-      hash_password.go          # @fn.hash_password    [planned]
-      before_create.go          # @hook.before_create  [planned]
+      handlers/hash_password.go # @fn.hash_password    [planned]
+      handlers/before_create.go # @hook.before_create  [planned]
 
       domain/
         risk_score.go           # domain function extension
@@ -538,12 +538,12 @@ Doctor enforces the resolution rule.
 
 | Citation | File path | Status |
 |---|---|---|
-| `@fn.<name>` (custom function) | `app/features/<f>/<name>.go` | `[planned]` — today: `dist/go/<f>/<name>.go` |
-| `@validator.<name>` (custom validator) | `app/features/<f>/<name>.go` or `app/features/<f>/domain/validate_<resource>.go` | `[planned]` |
-| `@hook.<name>` (workflow lifecycle hook) | `app/features/<f>/<name>.go` | `[planned]` |
+| `@fn.<name>` (custom function) | `app/features/<f>/handlers/<name>.go` | `[planned]` — today: `dist/go/<f>/<name>.go` |
+| `@validator.<name>` (custom validator) | `app/features/<f>/handlers/<name>.go` or `app/features/<f>/domain/validate_<resource>.go` | `[planned]` |
+| `@hook.<name>` (workflow lifecycle hook) | `app/features/<f>/handlers/<name>.go` | `[planned]` |
 | Domain function extension | `app/features/<f>/domain/<name>.go` | `[stable]` |
 | Integration adapter extension | `app/features/<f>/integrations/<name>.go` | `[stable]` |
-| Background job handler | `app/features/<f>/<name>.go` | `[planned]` |
+| Background job handler | `app/features/<f>/handlers/<name>.go` | `[planned]` |
 | Webhook verifier or handler | `app/features/<f>/integrations/<name>.go` | `[stable]` |
 | Email/notification template | `app/features/<f>/templates/<name>.<locale>.tmpl` | `[stable]` |
 | Feature-local i18n catalog | `app/features/<f>/i18n/<name>.<locale>.json` | `[stable]` |
@@ -647,7 +647,7 @@ app/                             # Tier 1 + Tier 2 live under app/
       customer.lzx
       customer.web.lzx
       customer.mobile.lzx
-      <name>.go                  # @fn / @hook / @validator extensions  [planned]
+      handlers/<name>.go         # @fn / @hook / @validator extensions  [planned]
       domain/
       queries/
       integrations/

@@ -2807,15 +2807,36 @@ pub(crate) fn generate_go(
                 handler_stubs_skipped += 1;
                 continue;
             }
-            // Legacy fallback: pre-pivot scaffolds had handlers at
-            // `dist/go/<feature>/<name>.go`. Don't overwrite those
-            // either — the consumer migration relocates them
-            // explicitly when ready. Translation:
-            // `app/features/X/Y.go` → `dist/go/X/Y.go`.
-            let legacy_relative = file.path.replacen("app/features/", "dist/go/", 1);
-            let legacy_target = project_root.join(&legacy_relative);
-            if legacy_target.exists() {
-                handler_stubs_skipped += 1;
+            // Legacy fallbacks — pre-pivot scaffolds had handlers at:
+            //   1. `dist/go/<f>/<name>.go` (first failed pivot)
+            //   2. `app/features/<f>/<name>.go` (flat layout, no
+            //      `handlers/` sub-folder)
+            // Don't overwrite either — consumer migration relocates
+            // them deliberately. Both translations skip the
+            // `handlers/` segment that the canonical path carries.
+            let canonical = &file.path;
+            let mut legacy_skipped = false;
+            if let Some(after_features) =
+                canonical.strip_prefix("app/features/")
+            {
+                if let Some((feature, after_feature)) =
+                    after_features.split_once('/')
+                {
+                    if let Some(name) = after_feature.strip_prefix("handlers/") {
+                        let legacy_flat_app =
+                            format!("app/features/{feature}/{name}");
+                        let legacy_dist = format!("dist/go/{feature}/{name}");
+                        for legacy in [legacy_flat_app, legacy_dist] {
+                            if project_root.join(&legacy).exists() {
+                                handler_stubs_skipped += 1;
+                                legacy_skipped = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if legacy_skipped {
                 continue;
             }
             write_generated_file(&project_root, &file.path, &file.contents)?;
