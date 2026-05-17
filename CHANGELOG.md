@@ -32,6 +32,21 @@ Every `LZIR_SCHEMA` bump must ship a paired
   Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
   pilot 2026-05-17 capability matrix. Resources without a matching
   column silently skip (defense-in-depth opt-in). (`c0a4609`)
+- **`SCOPE-OWNER-COLUMN-001` doctor warning.** Companion to the
+  codegen lowering: fires when a command's policy includes
+  `@scope.owner` or `@scope.same_org` but the targeted resource has
+  no matching ownership / tenant column. Surfaces the codegen's
+  silent-skip at design time so authors don't ship a policy that's
+  only enforced at the role-check gate. (`fa5dfb5`)
+- **`lazuli inspect <symbol> --format=lazuli`** now renders a compact
+  human-readable view of the symbol lookup (kind + feature +
+  path:line + previously trailer + imported-via trailer). The JSON
+  format stays normative. (`7b48a04`)
+- **Cross-feature `imported_via` resolution** in
+  `lazuli inspect <symbol>`. When the qualifier names a feature that
+  `uses` another feature owning the symbol, the output's
+  `imported_via` field carries the owning feature + the `uses_at`
+  source location. (`117b624`)
 - `lazuli inspect --expand=defaults` is now IR-driven (reads
   `Tier3FeatureSlice.defaults` instead of re-walking source). Legacy
   text-walker retained as `inspect_defaults_legacy` for documents that
@@ -152,6 +167,12 @@ Every `LZIR_SCHEMA` bump must ship a paired
 - LSP hovers extended for `approval` / `invalidates` /
   `external_calls` — the 3 new `Command` fields shipped in Tier 4b
   whose docs were thin or absent. (`357c664`)
+- Auth session mock in `runtime/go/lazuli/auth/session_test.go`
+  updated to match the 3-column `SELECT id, "user", expires_at`
+  SQL that `ResolveSession` now emits (WAR-RUNTIME-CTX-01 closure).
+  Two pre-existing test failures
+  (`TestIssueResolveInvalidateSessionRoundTrip`,
+  `TestResolveSessionExpired`) cleared. (`379b2cd`)
 
 ### Known gaps
 
