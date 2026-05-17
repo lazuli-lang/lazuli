@@ -59,17 +59,7 @@ pub fn emit_handler_stubs(
     module_name: &str,
     existing_files: &BTreeSet<PathBuf>,
 ) -> Vec<GeneratedFile> {
-    let signatures = collect_extension_signatures(module);
-    let mut stubs = BTreeMap::<StubKey, HandlerStub>::new();
-
-    let mut features: BTreeMap<&str, &Feature> = BTreeMap::new();
-    for feature in &module.features {
-        features.insert(feature.name.as_str(), feature);
-    }
-
-    for feature in features.values() {
-        collect_feature_handler_refs(feature, &signatures, &mut stubs);
-    }
+    let stubs = collect_handler_stubs(module);
 
     stubs
         .into_values()
@@ -84,6 +74,35 @@ pub fn emit_handler_stubs(
             })
         })
         .collect()
+}
+
+/// Set of feature names that have at least one user-authored handler
+/// the runtime registry needs to resolve. Drives `main.go`'s anonymous
+/// import block for handler packages — features without handlers don't
+/// have an `app/features/<f>/handlers/` directory on disk, so importing
+/// them anyway would fail `go build` with "package not found". Walks
+/// the same IR sites `emit_handler_stubs` does so the two stay in sync.
+pub fn features_with_handlers(module: &Module) -> BTreeSet<String> {
+    collect_handler_stubs(module)
+        .into_values()
+        .map(|stub| stub.feature)
+        .collect()
+}
+
+fn collect_handler_stubs(module: &Module) -> BTreeMap<StubKey, HandlerStub> {
+    let signatures = collect_extension_signatures(module);
+    let mut stubs = BTreeMap::<StubKey, HandlerStub>::new();
+
+    let mut features: BTreeMap<&str, &Feature> = BTreeMap::new();
+    for feature in &module.features {
+        features.insert(feature.name.as_str(), feature);
+    }
+
+    for feature in features.values() {
+        collect_feature_handler_refs(feature, &signatures, &mut stubs);
+    }
+
+    stubs
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

@@ -80,6 +80,48 @@ pub fn emit_main_go(
         feature_imports.insert(feature.name.as_str(), path);
     }
 
+    // Side-effect imports for user-authored handler packages
+    // (`app/features/<feature>/handlers/`, package `<feature>handlers`).
+    // Each handler file ships a `func init() { lazuli.RegisterFn(
+    // "<feature>.<name>", <FnName>) }` that the runtime registry
+    // consults when `command.gen.go` emits
+    // `Effect: lazuli.ReturnsFromRegistry[I, O]("<feature>.<name>")`.
+    // Without this anonymous import, the init() never fires and
+    // dispatch returns 500 "no handler registered" at first request.
+    //
+    // The handler package path uses the *project root* module
+    // (`manifest.project_module`), not the codegen submodule
+    // (`module_name`). In Lazurite submodule mode the gen lives at
+    // `<project>/generated/<feature>` while handlers live at
+    // `<project>/app/features/<feature>/handlers` — different modules
+    // resolved through the workspace `go.work use` directive.
+    //
+    // Emitted unconditionally per feature: Go's `go build` accepts
+    // anonymous imports of empty packages, and missing handler
+    // packages surface as build errors that point straight at the
+    // gap (vs. silent runtime failures from absent RegisterFn calls).
+    let mut handler_imports: BTreeMap<&str, String> = BTreeMap::new();
+    let project_module = manifest
+        .map(|m| m.project_module.trim())
+        .filter(|m| !m.is_empty());
+    if let Some(root) = project_module {
+        // Only emit imports for features that actually declare
+        // handlers (commands going through ReturnsFromRegistry,
+        // @fn.X/@hook.X refs, etc.) — features without handlers
+        // don't have an `app/features/<f>/handlers/` directory on
+        // disk and importing them would fail `go build`. The set
+        // is computed by walking the same IR sites
+        // `emit_handler_stubs` uses (single source of truth).
+        let features_with_handlers = super::handlers::features_with_handlers(module);
+        for feature in &module.features {
+            if !features_with_handlers.contains(&feature.name) {
+                continue;
+            }
+            let path = format!("{}/app/features/{}/handlers", root, feature.name);
+            handler_imports.insert(feature.name.as_str(), path);
+        }
+    }
+
     p.banner(source_label, "main");
 
     // Side-effect imports require an `_` alias to bypass Go's
@@ -88,7 +130,7 @@ pub fn emit_main_go(
     // here to preserve the side-effect form. The visual grouping
     // (stdlib / lazuli runtime / feature pkgs) mirrors the rest of
     // the codebase.
-    emit_main_imports(&mut p, &feature_imports, manifest);
+    emit_main_imports(&mut p, &feature_imports, &handler_imports, manifest);
     p.blank();
 
     // Boot block — the Lazuli Go lib's current `Boot(ctx, dbURL)`
@@ -181,6 +223,7 @@ pub fn emit_main_go(
 fn emit_main_imports(
     p: &mut GoPrinter,
     feature_imports: &BTreeMap<&str, String>,
+    handler_imports: &BTreeMap<&str, String>,
     manifest: Option<&LazuriteManifest>,
 ) {
     p.line("import (");
@@ -199,6 +242,15 @@ fn emit_main_imports(
         p.blank();
         for (_name, path) in feature_imports {
             // `_` alias triggers init() without exposing identifiers.
+            p.line(&format!("_ \"{}\"", path));
+        }
+    }
+    if !handler_imports.is_empty() {
+        p.blank();
+        p.line("// User-authored handler packages — init() blocks self-register");
+        p.line("// with `lazuli.RegisterFn(...)` so generated command Effect");
+        p.line("// `lazuli.ReturnsFromRegistry[I, O](\"<feature>.<name>\")` can resolve.");
+        for (_name, path) in handler_imports {
             p.line(&format!("_ \"{}\"", path));
         }
     }
