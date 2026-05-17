@@ -75,6 +75,24 @@ Concrete test: open the file you just created, count external imports (`github.c
 
 **Never** write `@plugin/{{app_name}}/<provider>` — adapters are named after the *provider*, not the consuming app.
 
+## Escape hatches — when the framework doesn't fit
+
+The framework owns the generic 80%. The remaining 20% is app-specific. Five named escape hatches cover it:
+
+1. **`@fn.<name>` handlers** — `command/query/job/webhook/poller` surfaces accept `@fn.<name>` references that lower to user-written Go in `app/features/<feature>/handlers/<name>.go`. **Use when**: vendor API call, custom validation, derived field computation, multi-step orchestration that doesn't fit the typed effect catalog.
+
+2. **`api foo / handler "./path.go"`** — full-control HTTP endpoints that don't fit the typed `command`/`query` shape (e.g. a vendor's bespoke webhook callback with three nested polymorphic envelopes). **Use when**: the response body shape is genuinely opaque or vendor-quirky.
+
+3. **`query.sql @file`** (full form: `query.sql foo / @file.foo.sql`) — raw SQL blocks for aggregations, joins, window functions, or any SQL the typed `query.list` / `query.lookup` doesn't cover. **Use when**: the SQL needs a window function, recursive CTE, or computed aggregation across resources.
+
+4. **`extends @anchor.<name>`** view extensibility — frontend cells, drawers, list columns, and detail panels extended by sibling features via `extends @anchor.<name> / slot <position> / block @client.<widget>`. **Use when**: a sibling feature needs to add UI under a slot the source feature exposed.
+
+5. **User-owned `main.go` (main.go override)** — generated `main.go` is replaceable for runtime topology decisions (which subset of jobs to register per worker process, custom middleware ordering, integration-test hooks). **Use when**: the runtime topology is non-default.
+
+Together these cover every specific the framework doesn't model. **There is no sixth escape hatch coming**; if a need can't be expressed via these five, the framework grammar likely needs to grow (and that goes through a proposal).
+
+See `docs/scope-discipline.md` §"The five escape hatches" for the authoritative spec.
+
 ## When in doubt
 
 ```bash
@@ -87,6 +105,10 @@ Canon references (Lazuli framework repo):
 - `docs/canonical-semantics.md` — full normative spec
 - `docs/invariants.md` — closed grammar/IR constraints
 - `docs/plugin-authoring.md` — when adding a `@plugin/<name>` adapter
+- `docs/scope-discipline.md` — the five escape hatches + decision tree (core vs. plugin vs. app)
+- `docs/decisions/client_src_canonical_architecture_2026-05-17.md` — canonical `client/src/` 6+6 catalog (frontend)
+- `decisions/lazurite_monorepo_shape_2026-05-17.md` (lazuli-ops) — canonical monorepo layout
+- `docs/proposals/lazurite-grading-rubric.md` — the rubric Lazuli grades itself against
 
 ## What's auto-wired vs. authored
 
