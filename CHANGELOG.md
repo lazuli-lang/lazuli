@@ -118,18 +118,32 @@ Every `LZIR_SCHEMA` bump must ship a paired
   standalone `--expand=<axis>` invocation populates the lookup
   (Tier 4a oversight where `defaults` was lifted but not gated;
   corrected together in 4b.2). (`1327348`)
+- `migrations/recipes/0.14-to-0.15/schema-bump-additive/recipe.toml`
+  authored to satisfy `docs/release-policy.md` §"Migration recipes"
+  (CI gate `MIGRATION-RECIPE-001`). Recipe kind is `additive` —
+  identity input/output since the bump is binary-additive via
+  serde-default. (`836222b`)
+- `runtime/go/lazuli/internal/wiresmoke` meta-regression test guards
+  against `StatusNotImplemented` / "not yet implemented" / "not
+  implemented" literals re-appearing in `notifications/` or
+  `webhooks/` impl files. (`84c6217` + `8dfad59`)
+- 5 per-axis JSON-shape tests added covering each new
+  `--expand=<axis>` projection (commands / apis / resources /
+  queries / records). 529 `lazuli_cli` lib tests green (+5 from
+  baseline 524). (`8626334`)
+- `notifications.TestSendNotYetImplementedErrorGone` functional
+  meta-regression mirrors `webhooks.TestHandleOneNotImplementedStatusGone`.
+  LSP rich hovers for `command` / `api` / `query.list` /
+  `query.lookup` / `query.sql` plus the simple hovers for
+  `aggregate|entity` / `record` / `defaults` cross-reference their
+  `lazuli inspect --expand=<axis>` flag so cold-reader LLMs discover
+  the inspect projections from the keyword itself. (`99d9c5f`)
+- LSP hovers extended for `approval` / `invalidates` /
+  `external_calls` — the 3 new `Command` fields shipped in Tier 4b
+  whose docs were thin or absent. (`357c664`)
 
 ### Known gaps
 
-- **No `migrations/recipes/0.14-to-0.15/<recipe>/` directory exists**
-  for the `LZIR_SCHEMA` bump. Per `docs/release-policy.md` §"Migration
-  recipes" line 104-108, every schema bump requires at least one
-  recipe directory. The bump is technically additive + serde-default
-  so the rewrite is the empty diff, but a recipe directory with
-  `recipe.toml` + identity `input.lzi == output.lzi` fixture is still
-  the policy. CI gate `MIGRATION-RECIPE-001` is policy-only today
-  (no CI job yet); when the gate lands it will fail-closed on this
-  commit pair.
 - The 6 doctor diagnostics named in
   `phase-l-tier-4-spine-scope.md` acceptance lists
   (`resource_unique_qualifier_unknown`,
@@ -137,3 +151,8 @@ Every `LZIR_SCHEMA` bump must ship a paired
   literal codes. Deferred to a follow-up cycle as a diagnostic-naming
   reconciliation, not slice/IR work. (Noted in commit `09f15de`
   message.)
+- `cache_tags_referenced_but_undeclared` doctor lint remains a
+  placeholder at `crates/lazuli_cli/src/doctor.rs:12314`. Closes when
+  the parser lifts `invalidates tag:<label>` into a typed
+  `InvalidationTarget::Tag` variant. Not blocking pilots; LSP
+  fallback continues to cover the surface.
