@@ -9,6 +9,13 @@
 //!
 //! Detection is intentionally regex-free: generated and user-authored files
 //! are scanned line-by-line for leading `interface` / `type` declarations.
+//!
+//! The line-walker is **import-block aware**: lines that appear inside a
+//! multi-line `import { ... } from "..."` block are skipped so that named
+//! type imports written as `type Foo` (TS 4.5+ syntax) are not mistaken
+//! for local re-declarations. Wave F01 surfaced this false positive on
+//! the hostpoint canonical pilot: 20 of 31 reported diagnostics were
+//! framework noise from multi-line SDK imports of generated types.
 
 use std::collections::HashMap;
 use std::fs;
@@ -192,10 +199,36 @@ fn should_skip_dir(name: &str) -> bool {
 /// Extract exported type/interface names from a TS source string.
 /// Handles `export interface X`, `export type X =`, `interface X`,
 /// `type X =`. Stops at the identifier; does not parse the body.
+///
+/// Import-block aware: lines inside `import { ... } from "..."` blocks
+/// (whether single-line or multi-line) are skipped so that the TS 4.5+
+/// inline-`type` named-import syntax (`import { type Foo, ... }`) is not
+/// misread as a local re-declaration. See Wave F01 on the hostpoint pilot.
 fn extract_declared_type_names(source: &str) -> Vec<String> {
     let mut out = Vec::new();
+    let mut in_import_block = false;
+
     for line in source.lines() {
         let trimmed = line.trim_start();
+
+        // Single-line imports start and end on the same line.
+        // Multi-line imports span lines from `import {` through `} from "..."`.
+        if !in_import_block {
+            if is_import_block_open(trimmed) {
+                // Skip this line entirely; if the block doesn't close on
+                // this line, enter multi-line mode until the close.
+                if !is_import_block_close(trimmed) {
+                    in_import_block = true;
+                }
+                continue;
+            }
+        } else {
+            if is_import_block_close(trimmed) {
+                in_import_block = false;
+            }
+            continue;
+        }
+
         let after_export = trimmed.strip_prefix("export ").unwrap_or(trimmed);
         for prefix in &["interface ", "type "] {
             if let Some(rest) = after_export.strip_prefix(prefix) {
@@ -208,6 +241,53 @@ fn extract_declared_type_names(source: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// True if `trimmed` (already left-trimmed) begins a `import { ... }` block.
+/// Matches `import {`, `import type {`, with optional whitespace between
+/// the keyword and the brace. Bare `import "..."` (side-effect imports)
+/// and `import Default from "..."` (default-only, no brace) do not need
+/// type-line filtering and return false.
+fn is_import_block_open(trimmed: &str) -> bool {
+    let Some(rest) = trimmed.strip_prefix("import") else {
+        return false;
+    };
+    // Require word boundary after `import` to avoid matching e.g. `importance`.
+    let Some(first) = rest.chars().next() else {
+        return false;
+    };
+    if !first.is_whitespace() {
+        return false;
+    }
+    // Drop optional `type ` modifier: `import type { ... }`.
+    let rest = rest.trim_start();
+    let after_optional_type = match rest.strip_prefix("type") {
+        Some(after) if after.starts_with(char::is_whitespace) => after.trim_start(),
+        _ => rest,
+    };
+    after_optional_type.starts_with('{')
+}
+
+/// True if `trimmed` contains the closing `} from "..."` (or single-quoted)
+/// of an `import { ... } from "..."` statement. Tolerates trailing
+/// whitespace/semicolons; only checks that the close-brace and `from`
+/// clause coexist on the line.
+fn is_import_block_close(trimmed: &str) -> bool {
+    let Some(brace_idx) = trimmed.find('}') else {
+        return false;
+    };
+    let after = &trimmed[brace_idx + 1..];
+    let after = after.trim_start();
+    // Allow `} from "X"` or just `}` followed eventually by `from "X"`.
+    // Also accept lone `}` on its own line where `from` is on the next
+    // line — but in real TS that is rare; we conservatively also treat
+    // a lone trailing `}` as closing the block to avoid getting stuck.
+    if after.is_empty() || after.starts_with(';') || after.starts_with(',') {
+        return true;
+    }
+    let after = after.strip_prefix("from").unwrap_or(after);
+    let after = after.trim_start();
+    after.starts_with('"') || after.starts_with('\'')
 }
 
 /// Walk leading characters of `s` while they match `[A-Za-z_][A-Za-z0-9_]*`.
@@ -570,5 +650,164 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].type_name, "Chat");
+    }
+
+    // ---------------------------------------------------------------
+    // Wave S2 — import-block awareness (false-positive fix)
+    //
+    // Wave F01 surfaced that the canonical hostpoint pilot raised 31
+    // type-duplicate diagnostics, but 20 were framework noise from
+    // multi-line `import { type X, ... } from "..."` blocks being
+    // misread as local re-declarations. These tests lock the fix.
+    // ---------------------------------------------------------------
+
+    /// A multi-line `import { type Foo, type Bar } from "..."` block
+    /// must not produce type-duplicate diagnostics for `Foo`/`Bar`.
+    /// Mirrors the hostpoint `HostHome.tsx` real-world false positive.
+    #[test]
+    fn import_block_type_keyword_not_flagged() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/messaging/messaging.gen.ts",
+            "export interface Chat { id: string }\n\
+             export interface ChatMessage { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
+            "import {\n  \
+               type Chat,\n  \
+               type ChatMessage,\n\
+             } from \"@hostpoint/sdk/messaging/messaging.gen\";\n\
+             \n\
+             export function ChatExperience() { return null }\n",
+        );
+
+        assert!(
+            check(dir.path()).is_empty(),
+            "import-block type-keywords must not be flagged"
+        );
+    }
+
+    /// `import { type Foo as Bar } from "..."` — the `as` alias form
+    /// inside a multi-line import block must not flag the underlying
+    /// `Foo` identifier as a re-declaration.
+    #[test]
+    fn import_block_with_aliases_not_flagged() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/host/host.gen.ts",
+            "export type HostHomePending = { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/routes/HostHome.tsx",
+            "import {\n  \
+               type HostHomePending as SdkHostHomePending,\n\
+             } from \"@hostpoint/sdk/host/host.gen\";\n\
+             \n\
+             export function HostHome() { return null }\n",
+        );
+
+        assert!(
+            check(dir.path()).is_empty(),
+            "aliased type imports must not be flagged"
+        );
+    }
+
+    /// Single-line `import { type Foo, type Bar } from "..."` — same
+    /// rule applies on one line.
+    #[test]
+    fn single_line_import_type_not_flagged() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/messaging/messaging.gen.ts",
+            "export interface Chat { id: string }\n\
+             export interface ChatMessage { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
+            "import { type Chat, type ChatMessage } from \"@hostpoint/sdk/messaging/messaging.gen\";\n\
+             export function ChatExperience() { return null }\n",
+        );
+
+        assert!(
+            check(dir.path()).is_empty(),
+            "single-line inline-type imports must not be flagged"
+        );
+    }
+
+    /// After a legitimate import block closes, a real local
+    /// `type Foo = { ... }` redeclaration on a subsequent line MUST
+    /// still be flagged. Guards against the fix going too far and
+    /// permanently disabling the rule.
+    #[test]
+    fn local_type_after_import_still_flagged() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/host/host.gen.ts",
+            "export type HostHomePending = { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/routes/HostHome.tsx",
+            "import {\n  \
+               getHostHome,\n  \
+               type HostHomeSnapshot,\n\
+             } from \"@hostpoint/sdk/host/host.gen\";\n\
+             \n\
+             type HostHomePending = { local: true };\n\
+             \n\
+             export function HostHome() { return null }\n",
+        );
+
+        let findings = check(dir.path());
+        assert_eq!(findings.len(), 1, "found: {findings:?}", findings = findings.iter().map(|f| &f.type_name).collect::<Vec<_>>());
+        assert_eq!(findings[0].type_name, "HostHomePending");
+    }
+
+    /// Regression: hostpoint pilot pattern — a mix of legitimate
+    /// SDK type imports (must be silent) and legitimate local
+    /// re-declarations (must fire) in the same file. The 7 + 4
+    /// remaining pilot bugs after the false-positive fix should
+    /// still surface. This synthetic fixture mirrors the shape:
+    /// imports first, redeclarations after.
+    #[test]
+    fn regression_existing_legitimate_redeclaration() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/messaging/messaging.gen.ts",
+            "export interface Chat { id: string }\n\
+             export interface ChatMessage { id: string }\n\
+             export type ChatSummary = { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
+            "import {\n  \
+               type Chat,\n  \
+               type ChatMessage as SdkChatMessage,\n\
+             } from \"@hostpoint/sdk/messaging/messaging.gen\";\n\
+             \n\
+             // Legitimate redeclaration — drift-prone, should fire.\n\
+             interface ChatMessage { body: string }\n\
+             type ChatSummary = { snippet: string };\n\
+             \n\
+             export function ChatExperience() { return null }\n",
+        );
+
+        let findings = check(dir.path());
+        let names: Vec<&str> = findings.iter().map(|f| f.type_name.as_str()).collect();
+        assert_eq!(findings.len(), 2, "names: {names:?}");
+        assert!(names.contains(&"ChatMessage"), "names: {names:?}");
+        assert!(names.contains(&"ChatSummary"), "names: {names:?}");
+        // The aliased import of `Chat` must NOT fire.
+        assert!(!names.contains(&"Chat"), "names: {names:?}");
     }
 }
