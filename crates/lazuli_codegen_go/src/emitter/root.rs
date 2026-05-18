@@ -41,8 +41,8 @@
 use std::collections::BTreeMap;
 
 use lazuli_ir::{
-    AppLocale, AppLogging, AppObservability, AppTracing, EncryptionAlgorithm, EncryptionBinding,
-    EncryptionRotation, EncryptionSource, EncryptionTemplateAxis, Module,
+    AppCors, AppLocale, AppLogging, AppObservability, AppTracing, EncryptionAlgorithm,
+    EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplateAxis, Module,
 };
 
 use super::imports::ImportSet;
@@ -317,6 +317,10 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     if emit_encryption {
         imports.add("lazuli.dev/runtime/lazuli/encryption");
     }
+    if emit_cors_todo {
+        // `lazuli.AppCors` + `lazuli.SetCorsContract` live in the runtime root.
+        imports.add("lazuli.dev/runtime/lazuli");
+    }
 
     p.banner(source_label, "main");
     if !imports.is_empty() {
@@ -364,15 +368,7 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     }
     if emit_cors_todo {
         maybe_blank(&mut p, &mut first_block);
-        // `app.cors` lives on `ir::AppCors` but the Lazuli Go lib does
-        // not yet expose a `lazuli.CorsContract`. Surface the gap so the
-        // runtime team can land the matching shape (proposal §3.13.1
-        // sketches `lazuli.AppCors`). When the type exists this block
-        // upgrades to a real `var CorsContract = lazuli.CorsContract{...}`.
-        p.line("// TODO(runtime): emit `var CorsContract = lazuli.CorsContract{...}` once");
-        p.line("// the Lazuli Go lib exposes the typed CORS shape sketched in");
-        p.line("// docs/proposals/codegen-lazuli-go.md §3.13.1. `module.app.cors` is");
-        p.line("// declared but no matching runtime type exists yet.");
+        emit_cors_contract(&mut p, manifest.cors.as_ref().expect("cors guarded"));
     }
     if emit_routes_todo {
         maybe_blank(&mut p, &mut first_block);
@@ -518,6 +514,107 @@ fn emit_encryption_bindings(p: &mut GoPrinter, bindings: &[EncryptionBinding]) {
     p.line("}");
     p.dedent();
     p.line("}");
+}
+
+/// Emit the lowered `app.cors` block as a `lazuli.AppCors` value
+/// + `init()` that registers it with the runtime middleware via
+/// `lazuli.SetCorsContract`. The runtime CORS middleware (wire of
+/// `rs/cors`) consumes the registered contract at request time.
+///
+/// `app.cors`:
+///   allow_origins production "https://app.example.com"
+///   allow_origins local      "http://localhost:5173"
+///   allow_credentials true
+///   max_age "1h"
+///
+/// Emits as:
+///   var CorsContract = lazuli.AppCors{
+///       AllowOrigins: map[string][]string{
+///           "production": {"https://app.example.com"},
+///           "local":      {"http://localhost:5173"},
+///       },
+///       AllowCredentials: true,
+///       MaxAge:           3600,
+///   }
+///   func init() { lazuli.SetCorsContract(&CorsContract) }
+fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors) {
+    p.line("// CorsContract is the lowered `app.cors` block from app.lzi.");
+    p.line("// Origins are keyed by environment (matches `app.environments`).");
+    p.line("// The runtime middleware resolves the active set against");
+    p.line("// `LAZULI_ENV` at request time, wires `github.com/rs/cors` for");
+    p.line("// preflight + Access-Control-* headers.");
+    p.line("var CorsContract = lazuli.AppCors{");
+    p.indent();
+    if cors.allow_origins.is_empty() {
+        p.line("AllowOrigins: map[string][]string{},");
+    } else {
+        p.line("AllowOrigins: map[string][]string{");
+        p.indent();
+        // Merge any duplicate environment entries (DSL allows multiple
+        // `allow_origins <env>` lines per env).
+        let mut by_env: std::collections::BTreeMap<&str, Vec<&str>> =
+            std::collections::BTreeMap::new();
+        for rule in &cors.allow_origins {
+            let entry = by_env.entry(rule.environment.as_str()).or_default();
+            for o in &rule.origins {
+                entry.push(o.as_str());
+            }
+        }
+        for (env, origins) in by_env {
+            let origin_list = origins
+                .into_iter()
+                .map(|o| format!("{:?}", o))
+                .collect::<Vec<_>>()
+                .join(", ");
+            p.line(&format!("{:?}: {{{}}},", env, origin_list));
+        }
+        p.dedent();
+        p.line("},");
+    }
+    if cors.allow_credentials {
+        p.line("AllowCredentials: true,");
+    }
+    if let Some(max_age) = cors.max_age.as_deref() {
+        if let Some(seconds) = parse_duration_to_seconds(max_age) {
+            p.line(&format!("MaxAge: {},", seconds));
+        }
+    }
+    p.dedent();
+    p.line("}");
+    p.blank();
+    p.line("func init() {");
+    p.indent();
+    p.line("lazuli.SetCorsContract(&CorsContract)");
+    p.dedent();
+    p.line("}");
+}
+
+/// Parse a DSL duration literal ("1h", "30 minutes", "10s", "1d") to
+/// seconds. Returns `None` on shapes the runtime middleware can't accept
+/// (negative, zero, malformed). Mirror the small surface the proposal
+/// commits to — extend additively as more unit shapes appear in pilots.
+fn parse_duration_to_seconds(literal: &str) -> Option<i64> {
+    let trimmed = literal.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Strip a leading numeric prefix (digits + optional decimal not supported).
+    let (num_str, unit_str) = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|i| (&trimmed[..i], trimmed[i..].trim()))
+        .unwrap_or((trimmed, ""));
+    let n: i64 = num_str.parse().ok()?;
+    if n < 0 {
+        return None;
+    }
+    let mult: i64 = match unit_str.to_ascii_lowercase().as_str() {
+        "" | "s" | "sec" | "secs" | "second" | "seconds" => 1,
+        "m" | "min" | "mins" | "minute" | "minutes" => 60,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
+        "d" | "day" | "days" => 86_400,
+        _ => return None,
+    };
+    Some(n.saturating_mul(mult))
 }
 
 fn emit_encryption_binding_literal(p: &mut GoPrinter, binding: &EncryptionBinding) {
@@ -893,24 +990,56 @@ mod tests {
     }
 
     #[test]
-    fn lazuli_app_gen_flags_cors_as_todo() {
+    fn lazuli_app_gen_emits_cors_contract() {
         let mut app = manifest("AcmeCRM");
         app.cors = Some(AppCors {
-            allow_origins: Vec::new(),
-            allow_credentials: false,
-            max_age: None,
+            allow_origins: vec![
+                lazuli_ir::AppCorsOriginRule {
+                    environment: "production".to_owned(),
+                    origins: vec!["https://app.example.com".to_owned()],
+                },
+                lazuli_ir::AppCorsOriginRule {
+                    environment: "local".to_owned(),
+                    origins: vec![
+                        "http://localhost:5173".to_owned(),
+                        "http://localhost:5174".to_owned(),
+                    ],
+                },
+            ],
+            allow_credentials: true,
+            max_age: Some("1h".to_owned()),
             span_ref: None,
         });
         let module = module_with(Vec::new(), Some(app));
         let out = emit_lazuli_app_gen(&module, "AcmeCRM").expect("must emit");
 
-        // CORS Go contract doesn't exist yet — emit TODO comments,
-        // never a fake type ref.
+        // Real codegen now — no TODO marker, an actual lazuli.AppCors
+        // value + init() that registers with the runtime middleware.
         assert!(
-            out.contains("TODO(runtime): emit `var CorsContract"),
-            "expected CORS TODO comment, got:\n{}",
+            out.contains("var CorsContract = lazuli.AppCors{"),
+            "expected CorsContract var, got:\n{}",
             out
         );
+        assert!(out.contains("\"production\": {\"https://app.example.com\"}"));
+        assert!(
+            out.contains("\"local\": {\"http://localhost:5173\", \"http://localhost:5174\"}")
+        );
+        assert!(out.contains("AllowCredentials: true,"));
+        assert!(out.contains("MaxAge: 3600,"));
+        assert!(out.contains("lazuli.SetCorsContract(&CorsContract)"));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
+    }
+
+    #[test]
+    fn parse_duration_to_seconds_unit_table() {
+        assert_eq!(parse_duration_to_seconds("30s"), Some(30));
+        assert_eq!(parse_duration_to_seconds("10 minutes"), Some(600));
+        assert_eq!(parse_duration_to_seconds("1h"), Some(3600));
+        assert_eq!(parse_duration_to_seconds("2 hours"), Some(7200));
+        assert_eq!(parse_duration_to_seconds("1d"), Some(86_400));
+        assert_eq!(parse_duration_to_seconds("nonsense"), None);
+        assert_eq!(parse_duration_to_seconds(""), None);
+        assert_eq!(parse_duration_to_seconds("-5s"), None);
     }
 
     #[test]

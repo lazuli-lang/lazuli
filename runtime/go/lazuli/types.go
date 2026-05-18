@@ -99,10 +99,14 @@ type RateLimit string
 type Duration string
 
 // AppCors is the lowered `app.cors` contract emitted by Go codegen.
+// AllowOrigins is keyed by environment name (matches `app.environments`);
+// the runtime middleware resolves the active set against ctx environment
+// at request time. MaxAge is in seconds (codegen converts the DSL duration
+// literal "1h" / "30 minutes" / "10s" into seconds).
 type AppCors struct {
-	Allow       []string
-	Credentials bool
-	MaxAge      int64
+	AllowOrigins     map[string][]string
+	AllowCredentials bool
+	MaxAge           int64
 }
 
 // AppRoute is the lowered application route contract emitted by Go codegen.

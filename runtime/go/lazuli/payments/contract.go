@@ -21,14 +21,14 @@ import "context"
 // callback echoes this back via `WebhookEvent.ExternalReference` so
 // the consumer can correlate.
 type PreferenceRequest struct {
-	Reference    string // external reference / idempotency token
-	AmountCents  int64  // amount in minor units (cents, satoshis, etc.)
-	Currency     string // ISO 4217 (e.g. "BRL", "USD")
-	Description  string // human-readable; surfaces on provider UI
-	CallbackURL  string // success / pending / failure return URL
-	NotifyURL    string // webhook URL for async status updates
-	BuyerEmail   string // optional; provider-specific UX impact
-	Metadata     map[string]string // free-form provider-passthrough
+	Reference   string            // external reference / idempotency token
+	AmountCents int64             // amount in minor units (cents, satoshis, etc.)
+	Currency    string            // ISO 4217 (e.g. "BRL", "USD")
+	Description string            // human-readable; surfaces on provider UI
+	CallbackURL string            // success / pending / failure return URL
+	NotifyURL   string            // webhook URL for async status updates
+	BuyerEmail  string            // optional; provider-specific UX impact
+	Metadata    map[string]string // free-form provider-passthrough
 }
 
 // Preference is the provider's response after a successful create.
@@ -54,6 +54,9 @@ type WebhookEvent struct {
 	// differ from request when partial captures / installments apply).
 	AmountCents int64
 	Currency    string
+	// WhatsAppQRPayload carries the Pix copy-paste payload when a provider
+	// webhook includes one for WhatsApp checkout flows.
+	WhatsAppQRPayload string
 	// Raw is the original payload bytes for audit / replay.
 	Raw []byte
 }

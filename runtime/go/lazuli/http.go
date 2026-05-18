@@ -105,7 +105,12 @@ func Mux() http.Handler {
 	// "Auto-mount HTTP endpoints".
 	report.Mount(mux)
 
-	return loggingMiddleware(mux)
+	// Middleware order (outermost first):
+	//   CORS  → handles OPTIONS preflight + sets headers BEFORE downstream
+	//           middleware sees the request
+	//   logging → records timing/status of every dispatched request
+	//   mux   → typed command/query/api/webhook/healthz routing
+	return CorsMiddleware(loggingMiddleware(mux))
 }
 
 // webhookRouterAdapter bridges `*http.ServeMux` to the
