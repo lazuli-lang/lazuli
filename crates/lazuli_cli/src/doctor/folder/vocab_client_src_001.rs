@@ -36,10 +36,13 @@
 //!
 //! ## Skip discipline
 //!
-//! Non-Lazuli sub-apps under `external/<name>/` (per
-//! `[[lazurite_monorepo_shape_2026-05-17]]`) are invisible because the
-//! walker only enters `app/web/` and `app/clients/<name>/src/`. There
-//! is no `external/` entry point and no suppression after-the-fact.
+//! Non-Lazuli sub-apps under `app/clients/external/<name>/` (per
+//! `[[lazurite_monorepo_shape_2026-05-17]]` §2.2, revised 2026-05-18)
+//! are invisible: when listing `app/clients/<name>/`, the walker
+//! explicitly skips the `external` entry. The pre-revision top-level
+//! `external/` location is also invisible — the walker never enters
+//! it because it only descends into `app/web/` and
+//! `app/clients/<name>/src/`.
 //!
 //! Inside walked trees, the rule does not descend further than the
 //! checked levels — it inspects the immediate children of the client
@@ -109,6 +112,13 @@ pub fn check(root: &Path) -> Vec<Finding> {
         client_dirs.sort();
 
         for client_dir in client_dirs {
+            // Skip the polyglot escape-hatch subtree per
+            // `[[lazurite_monorepo_shape_2026-05-17]]` §2.2 (revised
+            // 2026-05-18) — `app/clients/external/<name>/` houses
+            // non-Lazuli frontends and is exempt from canon walks.
+            if client_dir.file_name().and_then(|n| n.to_str()) == Some("external") {
+                continue;
+            }
             let client_src = client_dir.join("src");
             if client_src.is_dir() {
                 check_client_tree(&client_src, &mut findings);
@@ -435,6 +445,34 @@ mod tests {
             findings.is_empty(),
             "external/ must be invisible; got: {:?}",
             findings
+        );
+    }
+
+    /// Fixture D' — `app/clients/external/<name>/` (the post-2026-05-18
+    /// revised location per `[[lazurite_monorepo_shape_2026-05-17]]`
+    /// §2.2) is also invisible. Walker enters `app/clients/` but
+    /// explicitly skips the `external` entry.
+    #[test]
+    fn app_clients_external_is_invisible() {
+        let temp = TempDir::new().unwrap();
+        // Anti-pattern names INSIDE app/clients/external/website/src/ —
+        // would fire if walker descended, but must not.
+        mkdir_p(&temp.path().join("app/clients/external/website/src/shared"));
+        mkdir_p(&temp.path().join("app/clients/external/website/src/presentation"));
+        mkdir_p(&temp.path().join("app/clients/external/website/src/pages"));
+        mkdir_p(&temp.path().join("app/clients/external/website/src/components"));
+        // Sibling Lazuli-native client with a real divergence — must still fire.
+        mkdir_p(&temp.path().join("app/clients/web-app/src/shared"));
+
+        let findings = check(temp.path());
+
+        assert_eq!(findings.len(), 1, "got: {:?}", findings);
+        assert!(
+            findings[0]
+                .path
+                .ends_with("app/clients/web-app/src/shared"),
+            "should fire only on the lazuli-native client: {:?}",
+            findings[0].path
         );
     }
 
