@@ -414,7 +414,7 @@ mod smoke_e2e {
 import "lazuli.dev/runtime/lazuli/auth"
 
 func AuthPasswordContract() auth.PasswordContract {
-	return accountAuthPassword
+	return AccountAuthPassword
 }
 "#;
 

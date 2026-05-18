@@ -51,7 +51,7 @@ function snakeToCamelKey(key: string): string {
       continue;
     }
     if (upper) {
-      out += ch.toUpperCase();
+      out += ch!.toUpperCase();
       upper = false;
     } else {
       out += ch;

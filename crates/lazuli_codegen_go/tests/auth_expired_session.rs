@@ -448,7 +448,7 @@ mod smoke_e2e {
 import "lazuli.dev/runtime/lazuli/auth"
 
 func SmokeSessionsContract() auth.SessionsContract {
-	return accountAuthSessions
+	return AccountAuthSessions
 }
 "#;
 
