@@ -591,6 +591,12 @@ struct ExpandSet {
     /// Phase L Tier 4d — `--expand=records` projects every lifted
     /// `ir::Record` on the feature (fields + discriminator_field).
     records: bool,
+    /// IR Error-Vocab (Cell PARSE-1) — `--expand=errors` projects the
+    /// lifted `ir::FeatureErrors` block on the feature (exposure
+    /// defaults + 4xx/5xx field allowlists + per-code message
+    /// overrides). Mirrors `commands`/`apis` shape. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.6.
+    errors: bool,
 }
 
 impl ExpandSet {
@@ -626,6 +632,7 @@ impl ExpandSet {
             resources: true,
             queries: true,
             records: true,
+            errors: true,
         }
     }
 
@@ -660,6 +667,7 @@ impl ExpandSet {
             || self.resources
             || self.queries
             || self.records
+            || self.errors
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -753,6 +761,9 @@ impl ExpandSet {
         }
         if self.records {
             labels.push("records");
+        }
+        if self.errors {
+            labels.push("errors");
         }
         labels
     }
@@ -5254,8 +5265,12 @@ fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // Phase L Tier 4d — projects every lifted `ir::Record`
             // on the feature (fields + discriminator_field).
             "records" => set.records = true,
+            // IR Error-Vocab (Cell PARSE-1) — projects the lifted
+            // `ir::FeatureErrors` block (exposure defaults + 4xx/5xx
+            // field allowlists + per-code message overrides).
+            "errors" => set.errors = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, or records"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, records, or errors"
             ),
         }
     }
@@ -5418,6 +5433,14 @@ struct InspectFeature {
     /// optional discriminator_field marker).
     #[serde(skip_serializing_if = "Option::is_none")]
     records: Option<Vec<lazuli_ir::Record>>,
+    /// IR Error-Vocab (Cell PARSE-1) — populated only when
+    /// `--expand=errors` is set. The lifted feature-level `errors`
+    /// block (`ir::FeatureErrors`): exposure defaults, 4xx/5xx field
+    /// allowlists, and per-code message overrides. `None` when the
+    /// feature declares no `errors` block; `Some(default)` (with all
+    /// vectors empty) when the block exists but has no overrides.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    errors: Option<lazuli_ir::FeatureErrors>,
 }
 
 #[derive(Debug, Serialize)]
@@ -6131,6 +6154,13 @@ struct InspectPolicy {
     origin: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     requires: Vec<InspectPolicyRequirement>,
+    /// IR Error-Vocab (Cell PARSE-1) — per-policy or per-command
+    /// `when_denied @translation.<key>` override surfaced from the
+    /// lifted IR. `None` when neither the `policies.<category>` nor
+    /// `command.policy` declared an override. Resolution-chain steps 1
+    /// and 2 (proposal §2.E).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    when_denied: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -6209,7 +6239,8 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         || expansions.apis
         || expansions.resources
         || expansions.queries
-        || expansions.records)
+        || expansions.records
+        || expansions.errors)
         && !is_lzx
     {
         collect_tier3_by_feature(source)
@@ -6289,6 +6320,7 @@ fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, 
                 resources: feature_ir.resources,
                 queries: feature_ir.queries,
                 records: feature_ir.records,
+                errors: feature_ir.errors,
             },
         );
     }
@@ -6345,6 +6377,10 @@ struct Tier3FeatureSlice {
     /// Phase L Tier 4d — lifted `record <Name>` declarations on the
     /// feature. Powers `--expand=records`.
     records: Vec<lazuli_ir::Record>,
+    /// IR Error-Vocab (Cell PARSE-1) — lifted `errors` block. `None`
+    /// when the feature declared no `errors` block. Powers
+    /// `--expand=errors` projection.
+    errors: Option<lazuli_ir::FeatureErrors>,
 }
 
 /// Phase L — run the canonical-indent slice and build a `feature_name ->
@@ -6541,6 +6577,14 @@ fn inspect_feature(
     let records_projection = expansions
         .records
         .then(|| tier3.map(|t| t.records.clone()).unwrap_or_default());
+    // IR Error-Vocab (Cell PARSE-1) — `--expand=errors` projects the
+    // lifted `ir::FeatureErrors` block (None when the feature has no
+    // `errors` block authored). The outer `Option` is gated by the
+    // expansion flag; the inner `Option` is gated by authoring.
+    let errors_projection = expansions
+        .errors
+        .then(|| tier3.and_then(|t| t.errors.clone()))
+        .flatten();
 
     InspectFeature {
         name,
@@ -6559,7 +6603,7 @@ fn inspect_feature(
         targets: expansions.targets.then(|| inspect_targets(lines)),
         policies: expansions
             .policies
-            .then(|| inspect_policies(lines, &policies)),
+            .then(|| inspect_policies(lines, &policies, tier3)),
         tests: expansions.tests.then(|| inspect_tests(lines, &policies)),
         tools,
         expose,
@@ -6576,6 +6620,7 @@ fn inspect_feature(
         resources: resources_projection,
         queries: queries_projection,
         records: records_projection,
+        errors: errors_projection,
     }
 }
 
@@ -8587,19 +8632,72 @@ fn inspect_targets(lines: &[String]) -> Vec<InspectTarget> {
 fn inspect_policies(
     lines: &[String],
     policy_atoms: &BTreeMap<String, Vec<String>>,
+    tier3: Option<&Tier3FeatureSlice>,
 ) -> Vec<InspectPolicy> {
     let mut policies = Vec::new();
+
+    // IR Error-Vocab (Cell PARSE-1) — build name -> when_denied
+    // lookups so the text walker can attach the per-command override
+    // (resolution-chain step 1) and the per-policy default
+    // (resolution-chain step 2) onto each InspectPolicy row.
+    let command_when_denied: BTreeMap<String, String> = tier3
+        .map(|t| {
+            t.commands
+                .iter()
+                .filter_map(|c| {
+                    c.policy_when_denied
+                        .as_ref()
+                        .map(|k| (c.name.clone(), k.key.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let policy_when_denied: BTreeMap<String, String> = tier3
+        .map(|t| {
+            t.policies
+                .categories
+                .iter()
+                .filter_map(|cat| {
+                    cat.when_denied
+                        .as_ref()
+                        .map(|k| (cat.name.clone(), k.key.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Helper — resolve the effective `when_denied` for a given policy
+    // string. Walks the resolution chain: prefer the per-command
+    // override (caller-supplied) over the per-policy category default.
+    let resolve_when_denied = |policy_text: &str, override_key: Option<&str>| -> Option<String> {
+        if let Some(k) = override_key {
+            return Some(k.to_owned());
+        }
+        // The `policy_text` carries `@policy.<name>` for named
+        // categories; strip the prefix to look up the category default.
+        if let Some(name) = policy_text
+            .trim()
+            .strip_prefix("@policy.")
+            .map(|s| s.split_whitespace().next().unwrap_or(""))
+        {
+            return policy_when_denied.get(name).cloned();
+        }
+        None
+    };
 
     for command in command_blocks(lines) {
         let name = command_name(command[0].trim_start()).unwrap_or("unknown");
 
         if let Some(policy) = direct_child_value(command, "policy ") {
+            let override_key = command_when_denied.get(name).map(String::as_str);
+            let when_denied = resolve_when_denied(&policy, override_key);
             policies.push(InspectPolicy {
                 subject: format!("command.{name}"),
                 atoms: resolve_policy_atoms(&policy, policy_atoms),
                 policy,
                 origin: "explicit".to_owned(),
                 requires: Vec::new(),
+                when_denied,
             });
         }
     }
@@ -8608,12 +8706,14 @@ fn inspect_policies(
         let name = query_name(query[0].trim_start()).unwrap_or("unknown");
 
         if let Some(policy) = direct_child_value(query, "policy ") {
+            let when_denied = resolve_when_denied(&policy, None);
             policies.push(InspectPolicy {
                 subject: format!("query.{name}"),
                 atoms: resolve_policy_atoms(&policy, policy_atoms),
                 policy,
                 origin: "explicit".to_owned(),
                 requires: Vec::new(),
+                when_denied,
             });
         }
     }
@@ -8647,6 +8747,7 @@ fn inspect_policies(
                     });
                 }
 
+                let when_denied = resolve_when_denied(&policy, None);
                 policies.push(InspectPolicy {
                     subject: format!(
                         "workflow.{}.{}",
@@ -8657,6 +8758,7 @@ fn inspect_policies(
                     policy,
                     origin: "workflow.policy".to_owned(),
                     requires,
+                    when_denied,
                 });
             }
         } else if leading_spaces(line) <= 2 {

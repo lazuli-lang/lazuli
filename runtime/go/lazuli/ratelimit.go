@@ -66,7 +66,7 @@ func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
 			spec, err = ParseRateLimit(limit)
 		})
 		if err != nil {
-			writeError(w, &Error{
+			writeError(w, r, &Error{
 				Status:  http.StatusInternalServerError,
 				Code:    CodeInternal,
 				Message: rateLimitMalformedState,

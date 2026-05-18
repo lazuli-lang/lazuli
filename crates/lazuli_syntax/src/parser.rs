@@ -15,8 +15,10 @@ use crate::ast::{
     Channel, CommandWriteWindow,
     ContainsRhs, CustomTokenAst, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
     DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
-    EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
-    FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl,
+    EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst,
+    EventGroup, FamilyTokenAst,
+    FeatureDefaults, FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureSkeleton, Field,
+    FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl,
     FieldPolicyDecl, FilterCardinalityAst, FilterDeclAst, FeatureGatesAst, GateDirectiveAst,
     HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
@@ -34,7 +36,8 @@ use crate::ast::{
     SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
     SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
     TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
-    TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, UsesClauseAst,
+    TranslationKeyDecl, TranslationKeyRefAst, TranslationPluralArmDecl, TranslationVariantDecl,
+    TypographyAst, UsesClauseAst,
     ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
     WebhookVerify, WeightTokenAst, ZTokenAst,
 };
@@ -3343,6 +3346,9 @@ fn parse_feature_skeleton(
     let mut queries: Vec<QueryDecl> = Vec::new();
     let mut records: Vec<RecordDecl> = Vec::new();
     let mut policies_block: Option<PoliciesDecl> = None;
+    // IR Error-Vocab (Cell PARSE-1) — at most one `errors` block per
+    // feature; duplicate is a parse error.
+    let mut errors_block: Option<FeatureErrorsDecl> = None;
     let mut enums: Vec<EnumDeclAst> = Vec::new();
     let mut translation: Option<TranslationDecl> = None;
     let mut pollers: Vec<PollerBlockAst> = Vec::new();
@@ -3642,6 +3648,22 @@ fn parse_feature_skeleton(
             continue;
         }
 
+        // IR Error-Vocab (Cell PARSE-1) — `errors` block at indent 2.
+        // At most one per feature; duplicate is a parse error.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "errors" {
+            if errors_block.is_some() {
+                return Err(line_error(
+                    line,
+                    "feature may declare at most one `errors` block",
+                ));
+            }
+            let (parsed, next) = parse_feature_errors_decl(lines, i)?;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            errors_block = Some(parsed);
+            i = next;
+            continue;
+        }
+
         // Phase L Tier 4 follow-up — `enum <Name>` declaration. The
         // fixture authors enums inside `domain` at indent 4. Header is
         // recognised unambiguously by the keyword prefix at indent > 2.
@@ -3717,6 +3739,7 @@ fn parse_feature_skeleton(
             queries,
             records,
             policies: policies_block,
+            errors: errors_block,
             enums,
             translation,
             pollers,
@@ -4063,13 +4086,56 @@ fn parse_policies_decl(
                 .filter(|atom| atom.starts_with('@'))
                 .map(str::to_owned)
                 .collect();
+            let category_header_line = line;
+            let category_header_end = line.end;
+            let mut category_last_end = category_header_end;
+            // IR Error-Vocab (Cell PARSE-1) — consume the optional
+            // `when_denied @translation.<key>` child(ren) at
+            // grandchild_indent (6 spaces under a feature). Zero-or-one
+            // per category; duplicate is a parse error.
+            let mut when_denied: Option<TranslationKeyRefAst> = None;
+            let mut j = i + 1;
+            while j < lines.len() {
+                let inner = &lines[j];
+                let inner_trim = inner.text.trim_start();
+                if is_trivia(inner_trim) {
+                    j += 1;
+                    continue;
+                }
+                if inner.indent <= child_indent {
+                    break;
+                }
+                if inner.indent != grandchild_indent {
+                    return Err(line_error(
+                        inner,
+                        "policy category children use one indentation level deeper than the category line",
+                    ));
+                }
+                if let Some(rest) = inner_trim.strip_prefix("when_denied ") {
+                    if when_denied.is_some() {
+                        return Err(line_error(
+                            inner,
+                            "policy category may declare at most one `when_denied` child (ERR-VOCAB-MULTIPLE-WHEN-DENIED)",
+                        ));
+                    }
+                    when_denied = Some(parse_translation_key_token(inner, rest)?);
+                    category_last_end = inner.end;
+                    j += 1;
+                    continue;
+                }
+                return Err(line_error(
+                    inner,
+                    "policy category children are `when_denied @translation.<key>` only",
+                ));
+            }
             categories.push(PolicyCategoryDecl {
                 name: name.to_owned(),
                 atoms,
-                span: Span::new(line.start, line.end),
+                when_denied,
+                span: Span::new(category_header_line.start, category_last_end),
             });
-            last_end = line.end;
-            i += 1;
+            last_end = category_last_end;
+            i = j;
             continue;
         }
 
@@ -4203,6 +4269,176 @@ fn is_policy_identifier(text: &str) -> bool {
         return false;
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// -----------------------------------------------------------------------------
+// IR Error-Vocab (Cell PARSE-1) — `errors` block parser.
+//
+// Promotes the pre-existing LSP-only shape validator (legacy site at
+// `crates/lazuli_lsp/src/lib.rs:6933` and around) into the canonical-indent
+// parser so the surface earns a real IR slot (`ir::FeatureErrors`).
+//
+// Header at indent 2 (FEATURE_CHILD); children at indent 4 (AGENT_CHILD).
+// Closed-catalog grammar (verbatim from
+// `docs/proposals/ir-error-messages-vocab.md` §2.C):
+//
+//   errors
+//     default hide
+//     expose client 4xx <comma-list>
+//     expose client 5xx <comma-list>
+//     <code> message @translation.<key>          (zero or more)
+//
+// Closed-catalog enforcement (allowed codes, allowed field-name lists)
+// lives analyzer-side / doctor-side (see ERR-VOCAB-CODE-UNKNOWN /
+// ERR-VOCAB-EXPOSE-UNKNOWN); the parser keeps verbatim tokens so doctor
+// diagnostics can surface canonical messages with the offending text.
+// -----------------------------------------------------------------------------
+
+fn parse_feature_errors_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(FeatureErrorsDecl, usize), ParseError> {
+    let header = &lines[start];
+    let header_indent = header.indent;
+    let child_indent = header_indent + 2;
+    let mut default: Option<ErrorExposureDefaultAst> = None;
+    let mut exposure_4xx: Option<Vec<String>> = None;
+    let mut exposure_5xx: Option<Vec<String>> = None;
+    let mut messages: Vec<FeatureErrorMessageDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= header_indent {
+            break;
+        }
+
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`errors` body children use one indentation level deeper than the header",
+            ));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("default ") {
+            if default.is_some() {
+                return Err(line_error(
+                    line,
+                    "`errors` may declare at most one `default <hide|expose>` line",
+                ));
+            }
+            match rest.trim() {
+                "hide" => default = Some(ErrorExposureDefaultAst::Hide),
+                "expose" => default = Some(ErrorExposureDefaultAst::Expose),
+                _ => {
+                    return Err(line_error(
+                        line,
+                        "`default` must be `default hide` or `default expose`",
+                    ));
+                }
+            }
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("expose client ") {
+            let rest = rest.trim();
+            let (kind, fields_text) = rest.split_once(' ').ok_or_else(|| {
+                line_error(
+                    line,
+                    "`expose client <4xx|5xx> <comma-list>` requires both a status family and a field list",
+                )
+            })?;
+            let fields: Vec<String> = fields_text
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect();
+            if fields.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`expose client <4xx|5xx>` requires at least one field",
+                ));
+            }
+            match kind {
+                "4xx" => {
+                    if exposure_4xx.is_some() {
+                        return Err(line_error(
+                            line,
+                            "`errors` may declare at most one `expose client 4xx` line",
+                        ));
+                    }
+                    exposure_4xx = Some(fields);
+                }
+                "5xx" => {
+                    if exposure_5xx.is_some() {
+                        return Err(line_error(
+                            line,
+                            "`errors` may declare at most one `expose client 5xx` line",
+                        ));
+                    }
+                    exposure_5xx = Some(fields);
+                }
+                _ => {
+                    return Err(line_error(
+                        line,
+                        "`expose client` status family must be `4xx` or `5xx`",
+                    ));
+                }
+            }
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        // `<code> message @translation.<key>` — closed-catalog enforced
+        // analyzer-side. The parser only checks structural shape (split
+        // on `message ` keyword).
+        if let Some((code_part, message_part)) = trimmed.split_once(" message ") {
+            let code = code_part.trim().to_owned();
+            if code.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`<code> message @translation.<key>` requires a code identifier",
+                ));
+            }
+            let key = parse_translation_key_token(line, message_part)?;
+            messages.push(FeatureErrorMessageDecl {
+                code,
+                message: key,
+                span: Span::new(line.start, line.end),
+            });
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        return Err(line_error(
+            line,
+            "`errors` children are `default <hide|expose>`, `expose client <4xx|5xx> <fields>`, or `<code> message @translation.<key>`",
+        ));
+    }
+
+    Ok((
+        FeatureErrorsDecl {
+            default,
+            exposure_4xx: exposure_4xx.unwrap_or_default(),
+            exposure_5xx: exposure_5xx.unwrap_or_default(),
+            messages,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
 }
 
 // -----------------------------------------------------------------------------
@@ -4605,6 +4841,9 @@ fn parse_command_decl(
     let mut input = CommandInputDecl::Empty;
     let mut policy: Option<String> = None;
     let mut policy_expr: Option<PolicyExprAst> = None;
+    // IR Error-Vocab (Cell PARSE-1) — `when_denied @translation.<key>`
+    // child under `policy` at indent 6 (GRANDCHILD).
+    let mut policy_when_denied: Option<TranslationKeyRefAst> = None;
     let mut rate_limit: Option<String> = None;
     let mut audit: Option<CommandAudit> = None;
     let mut approval: Option<CommandApproval> = None;
@@ -4675,7 +4914,44 @@ fn parse_command_decl(
             policy = Some(rest.trim().to_owned());
             policy_expr = try_parse_policy_expr(line, rest)?;
             last_end = line.end;
-            i += 1;
+            // IR Error-Vocab (Cell PARSE-1) — consume optional
+            // `when_denied @translation.<key>` child at indent 6
+            // under the `policy` line.
+            let mut j = i + 1;
+            while j < lines.len() {
+                let inner = &lines[j];
+                let inner_trim = inner.text.trim_start();
+                if is_trivia(inner_trim) {
+                    j += 1;
+                    continue;
+                }
+                if inner.indent <= AGENT_INDENT_AGENT_CHILD {
+                    break;
+                }
+                if inner.indent != AGENT_INDENT_GRANDCHILD {
+                    return Err(line_error(
+                        inner,
+                        "`policy` children use six-space indentation",
+                    ));
+                }
+                if let Some(rest) = inner_trim.strip_prefix("when_denied ") {
+                    if policy_when_denied.is_some() {
+                        return Err(line_error(
+                            inner,
+                            "`policy` may declare at most one `when_denied` child (ERR-VOCAB-MULTIPLE-WHEN-DENIED)",
+                        ));
+                    }
+                    policy_when_denied = Some(parse_translation_key_token(inner, rest)?);
+                    last_end = inner.end;
+                    j += 1;
+                    continue;
+                }
+                return Err(line_error(
+                    inner,
+                    "`policy` children are `when_denied @translation.<key>` only",
+                ));
+            }
+            i = j;
         } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
             rate_limit = Some(unquote_lzx_value(rest.trim()).to_owned());
             last_end = line.end;
@@ -4806,6 +5082,7 @@ fn parse_command_decl(
             input,
             policy,
             policy_expr,
+            policy_when_denied,
             rate_limit,
             audit,
             approval,
@@ -13451,6 +13728,48 @@ fn unquote_lzx_value(value: &str) -> &str {
         .unwrap_or(value)
 }
 
+/// IR Error-Vocab (Cell PARSE-1) — extract the bare key from a literal
+/// `@translation.<key>` token. Trailing whitespace and trailing tokens
+/// past the first whitespace are rejected; the surface intentionally
+/// keeps the form single-token to stay inside the existing
+/// `Rule.message @translation.<key>` precedent.
+fn parse_translation_key_token(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<TranslationKeyRefAst, ParseError> {
+    let trimmed = rest.trim();
+    if trimmed.is_empty() {
+        return Err(line_error(
+            line,
+            "`@translation.<key>` reference requires a key",
+        ));
+    }
+    let mut parts = trimmed.split_whitespace();
+    let first = parts.next().unwrap_or("");
+    if parts.next().is_some() {
+        return Err(line_error(
+            line,
+            "`@translation.<key>` reference must be a single token",
+        ));
+    }
+    let key = first.strip_prefix("@translation.").ok_or_else(|| {
+        line_error(
+            line,
+            "expected `@translation.<key>` reference (must start with `@translation.`)",
+        )
+    })?;
+    if key.is_empty() {
+        return Err(line_error(
+            line,
+            "`@translation.` reference requires a non-empty key after the dot",
+        ));
+    }
+    Ok(TranslationKeyRefAst {
+        key: key.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
+}
+
 fn parse_lzx_bool(value: &str) -> Option<bool> {
     match value {
         "true" => Some(true),
@@ -16526,6 +16845,265 @@ design legacy
         let ast = super::parse_design_document(source).expect("parses");
         assert!(ast.custom.is_empty());
         assert_eq!(ast.colors.len(), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // IR Error-Vocab (Cell PARSE-1) — parser slice tests for
+    //   * `when_denied @translation.<key>` under a command's `policy`
+    //   * `when_denied @translation.<key>` under a `policies` category
+    //   * `errors` block with `default`, `expose client <4xx|5xx>`, and
+    //     `<code> message @translation.<key>` lines.
+    //
+    // Each test exercises both the happy-path lift and at least one
+    // structural rejection. Closed-catalog enforcement (allowed codes,
+    // allowed exposure fields) lives analyzer/doctor side — the parser
+    // keeps verbatim tokens so doctor can quote the offending text.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn command_policy_when_denied_lifts_translation_key_ref() {
+        let source = r#"
+feature account
+  command choose_role
+    policy @policy.authenticated
+      when_denied @translation.choose_role_signin_required
+    input
+      role_id: ID required
+    returns User
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let command = features
+            .iter()
+            .find(|f| f.name == "account")
+            .and_then(|f| f.commands.iter().find(|c| c.name == "choose_role"))
+            .expect("choose_role command");
+        let key = command
+            .policy_when_denied
+            .as_ref()
+            .expect("policy_when_denied lifted");
+        assert_eq!(key.key, "choose_role_signin_required");
+    }
+
+    #[test]
+    fn command_policy_when_denied_rejects_duplicate() {
+        let source = r#"
+feature account
+  command choose_role
+    policy @policy.authenticated
+      when_denied @translation.first
+      when_denied @translation.second
+    input
+      role_id: ID required
+    returns User
+"#;
+        let err = parse_feature_skeletons(source)
+            .expect_err("duplicate when_denied must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("at most one `when_denied`"),
+            "expected duplicate-detection error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn command_policy_rejects_non_translation_when_denied() {
+        let source = r#"
+feature account
+  command choose_role
+    policy @policy.authenticated
+      when_denied "plain string"
+    input
+      role_id: ID required
+    returns User
+"#;
+        let err = parse_feature_skeletons(source)
+            .expect_err("non-@translation.<key> must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("@translation.")
+                || msg.contains("expected `@translation.<key>`"),
+            "expected `@translation.<key>` form error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn policy_category_when_denied_lifts_translation_key_ref() {
+        let source = r#"
+feature account
+  policies
+    authenticated: @scope.authenticated
+      when_denied @translation.must_be_signed_in
+    admin_only: @role.admin
+      when_denied @translation.admin_only_action
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let policies = features
+            .iter()
+            .find(|f| f.name == "account")
+            .and_then(|f| f.policies.as_ref())
+            .expect("policies block lifted");
+        assert_eq!(policies.categories.len(), 2);
+        let authenticated = policies
+            .categories
+            .iter()
+            .find(|c| c.name == "authenticated")
+            .expect("authenticated category");
+        assert_eq!(
+            authenticated
+                .when_denied
+                .as_ref()
+                .map(|k| k.key.as_str()),
+            Some("must_be_signed_in")
+        );
+        let admin = policies
+            .categories
+            .iter()
+            .find(|c| c.name == "admin_only")
+            .expect("admin_only category");
+        assert_eq!(
+            admin.when_denied.as_ref().map(|k| k.key.as_str()),
+            Some("admin_only_action")
+        );
+    }
+
+    #[test]
+    fn feature_errors_block_lifts_default_exposure_and_messages() {
+        let source = r#"
+feature account
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
+    policy_denied message @translation.account_signin_required
+    validation_failed message @translation.account_invalid_input
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let errors = features
+            .iter()
+            .find(|f| f.name == "account")
+            .and_then(|f| f.errors.as_ref())
+            .expect("errors block lifted");
+        assert_eq!(errors.default, Some(super::ErrorExposureDefaultAst::Hide));
+        assert_eq!(errors.exposure_4xx, vec!["message", "code"]);
+        assert_eq!(errors.exposure_5xx, vec!["code"]);
+        assert_eq!(errors.messages.len(), 2);
+        assert_eq!(errors.messages[0].code, "policy_denied");
+        assert_eq!(
+            errors.messages[0].message.key,
+            "account_signin_required"
+        );
+        assert_eq!(errors.messages[1].code, "validation_failed");
+        assert_eq!(
+            errors.messages[1].message.key,
+            "account_invalid_input"
+        );
+    }
+
+    #[test]
+    fn feature_errors_block_rejects_duplicate_block() {
+        let source = r#"
+feature account
+  errors
+    default hide
+  errors
+    default expose
+"#;
+        let err = parse_feature_skeletons(source)
+            .expect_err("duplicate errors block must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("at most one `errors` block"),
+            "expected duplicate-block error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_errors_block_rejects_invalid_default() {
+        let source = r#"
+feature account
+  errors
+    default sometimes
+"#;
+        let err = parse_feature_skeletons(source)
+            .expect_err("invalid default must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("`default hide` or `default expose`"),
+            "expected canonical default error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_errors_block_rejects_unknown_child() {
+        let source = r#"
+feature account
+  errors
+    splat ok
+"#;
+        let err = parse_feature_skeletons(source)
+            .expect_err("unknown errors child must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("`errors` children are"),
+            "expected children-enumeration error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_errors_round_trip_via_full_capsule_fixture() {
+        // Smoke check that the canonical fixture (extended in Cell
+        // PARSE-1) still parses end-to-end and the new IR slots are
+        // populated for the `customer` feature.
+        let source = include_str!("../../../examples/full-capsule/full-capsule.lzi");
+        let features = parse_feature_skeletons(source).expect("parses");
+        let customer = features
+            .iter()
+            .find(|f| f.name == "customer")
+            .expect("customer feature");
+
+        // Per-policy when_denied: `update` category gained one in the
+        // PARSE-1 fixture extension.
+        let policies = customer
+            .policies
+            .as_ref()
+            .expect("policies block present");
+        let update = policies
+            .categories
+            .iter()
+            .find(|c| c.name == "update")
+            .expect("update category");
+        assert_eq!(
+            update.when_denied.as_ref().map(|k| k.key.as_str()),
+            Some("customer_update_admin_only")
+        );
+
+        // Per-command when_denied: `capture_lead` gained one.
+        let capture_lead = customer
+            .commands
+            .iter()
+            .find(|c| c.name == "capture_lead")
+            .expect("capture_lead command");
+        assert_eq!(
+            capture_lead
+                .policy_when_denied
+                .as_ref()
+                .map(|k| k.key.as_str()),
+            Some("capture_lead_signin_required")
+        );
+
+        // Feature-level errors block: two `<code> message
+        // @translation.<key>` rows + the pre-existing exposure rules.
+        let errors = customer.errors.as_ref().expect("errors block present");
+        assert_eq!(errors.default, Some(super::ErrorExposureDefaultAst::Hide));
+        assert!(errors.exposure_4xx.contains(&"message".to_owned()));
+        assert!(errors.exposure_4xx.contains(&"code".to_owned()));
+        assert!(errors.exposure_5xx.contains(&"code".to_owned()));
+        assert_eq!(errors.messages.len(), 2);
+        let codes: Vec<&str> =
+            errors.messages.iter().map(|m| m.code.as_str()).collect();
+        assert!(codes.contains(&"policy_denied"));
+        assert!(codes.contains(&"validation_failed"));
     }
 }
 

@@ -143,7 +143,8 @@ func EvalPolicy(ctx *Ctx, p Policy) error {
 		}
 	}
 	return &Error{Status: 403, Code: CodePolicyDenied,
-		Message: "no policy atom matches the active actor for " + p.Name}
+		Message:    "no policy atom matches the active actor for " + p.Name,
+		MessageKey: "policy_denied"}
 }
 
 // Allow is the boolean form of EvalPolicy. Useful for call sites that

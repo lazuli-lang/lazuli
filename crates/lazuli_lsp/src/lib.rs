@@ -5,13 +5,15 @@ use lazuli_syntax::{Span, parse_document};
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, Documentation, Hover, HoverContents, HoverParams, InitializeParams,
-    InitializeResult, InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, Position,
-    Range, ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Url,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeActionProviderCapability, CodeActionResponse, CompletionItem, CompletionItemKind,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DocumentFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
+    Documentation, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult,
+    InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, Position, Range,
+    ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+    Url, WorkspaceEdit,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
@@ -86,6 +88,11 @@ impl LanguageServer for Backend {
                     ]),
                     ..CompletionOptions::default()
                 }),
+                // IR Error-Vocab — three code actions per proposal §7.4:
+                // scaffold the `errors` block, add `when_denied` to a
+                // `policies.<category>:` line, add `when_denied` to a
+                // `command.policy` line. See `error_vocab_code_actions`.
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
             server_info: Some(tower_lsp::lsp_types::ServerInfo {
@@ -144,13 +151,18 @@ impl LanguageServer for Backend {
         let Some(word) = word_at_position(source, position) else {
             return Ok(None);
         };
-        // Rich Markdown hover for the LSP-extended kinds
-        // (`command`/`query.*`/`api`/`policy`/`effect`/`audit`/
-        // `rate_limit`) — fall back to the brief one-line
-        // description for every other keyword so unrelated tooling
-        // stays unaffected.
+        // IR Error-Vocab — when the cursor sits on one of the 8 closed
+        // error codes inside a feature's `errors` block, show the
+        // **resolved** translation text (per proposal §7.2). Falls back to
+        // the built-in English string when the feature has no override.
+        // This path runs before `rich_keyword_hover` so the resolved-text
+        // surface wins when the cursor is unambiguously inside `errors`.
         let hover_markdown = if !is_design_lzi_uri(&uri) {
-            if let Some(markdown) = rich_keyword_hover(&word) {
+            if let Some(markdown) =
+                error_vocab_code_resolved_hover(source, position, &word)
+            {
+                Some(markdown)
+            } else if let Some(markdown) = rich_keyword_hover(&word) {
                 Some(markdown)
             } else {
                 keyword_description(&word).map(|d| format!("`{word}`\n\n{d}"))
@@ -308,6 +320,39 @@ impl LanguageServer for Backend {
             full_document_range(source),
             formatted,
         )]))
+    }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.range.start;
+        let documents = self.documents.read().await;
+        let Some(source) = documents.get(&uri) else {
+            return Ok(None);
+        };
+        // IR Error-Vocab — three actions per proposal §7.4. We always
+        // return whatever actions match the cursor position; the client
+        // filters by `only` / `trigger_kind`. Other code-action providers
+        // can be appended here later as the LSP grows.
+        let mut actions = error_vocab_code_actions(source, &uri, position);
+        if actions.is_empty() {
+            return Ok(None);
+        }
+        // Push under `quickfix` kind by default so they show up in the
+        // editor's lightbulb regardless of the requesting `only` filter
+        // (editors that filter narrowly already pre-fetched the kind list
+        // from the capabilities — we kept that list open via
+        // `CodeActionProviderCapability::Simple(true)`).
+        for action in &mut actions {
+            if let CodeActionOrCommand::CodeAction(ca) = action {
+                if ca.kind.is_none() {
+                    ca.kind = Some(CodeActionKind::QUICKFIX);
+                }
+            }
+        }
+        Ok(Some(actions))
     }
 }
 
@@ -6881,6 +6926,13 @@ fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         "feature error defaults use `default hide` or `default expose`.",
                     ));
                 }
+            } else if trimmed.contains(" message @translation.") {
+                // IR Error-Vocab (Cell PARSE-1) — `<code> message
+                // @translation.<key>` is the new feature-level catch-all
+                // form. Closed-catalog enforcement lives in doctor
+                // (ERR-VOCAB-CODE-UNKNOWN). The LSP-side shape check
+                // intentionally accepts the line so the new surface
+                // round-trips clean through `lazuli check`.
             } else if !valid_error_exposure_line(trimmed) {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
@@ -13803,6 +13855,27 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "has_permission" => Some(
             "Closed predicate inside a `policy` expression: `has_permission <resource>:<action>` evaluates to true when the actor's current role grants the permission via the catalog closure. Reference must resolve against a declared `permission`.",
         ),
+        // IR Error-Vocab — see `docs/proposals/ir-error-messages-vocab.md`
+        // §7. `when_denied` attaches to a `command.policy` line (per-command
+        // override) or under a `policies.<category>:` line (per-policy
+        // default); `message_key` is the new opt-in wire-envelope field.
+        // The 8 closed-catalog error codes get one-liners here too so they
+        // surface in completion lists; the **resolved-text** hover is in
+        // `rich_keyword_hover`.
+        "when_denied" => Some(
+            "Per-command or per-policy override for the `policy_denied` error message. References `@translation.<key>` in the surrounding feature's `translation` block. Highest-precedence layer in the resolution chain (proposal §2.E).",
+        ),
+        "message_key" => Some(
+            "Exposable 4xx wire-envelope field carrying the resolved `@translation.<key>` token. Lets clients with offline catalogs (mobile apps, kiosks) localize independently. Opt-in via `expose client 4xx message_key`.",
+        ),
+        "policy_denied" => error_vocab_code_detail("policy_denied"),
+        "validation_failed" => error_vocab_code_detail("validation_failed"),
+        "tenant_mismatch" => error_vocab_code_detail("tenant_mismatch"),
+        "not_found" => error_vocab_code_detail("not_found"),
+        "rate_limited" => error_vocab_code_detail("rate_limited"),
+        "bad_request" => error_vocab_code_detail("bad_request"),
+        "method_not_allowed" => error_vocab_code_detail("method_not_allowed"),
+        "integration_error" => error_vocab_code_detail("integration_error"),
         _ => None,
     }
 }
@@ -14125,6 +14198,106 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
             ]
             .join("\n"),
         ),
+        // IR Error-Vocab — see `docs/proposals/ir-error-messages-vocab.md`
+        // §7.2. Rich-Markdown hovers for `errors` (feature-level block
+        // keyword), `when_denied` (per-command + per-policy override),
+        // `message_key` (wire-envelope opt-in field). The 8 closed-catalog
+        // error codes get a separate **resolved-text** hover wired in the
+        // dispatch above this function (see `hover` handler) because the
+        // resolved text depends on the active document content, not just
+        // the keyword name.
+        "errors" => Some(
+            [
+                "**`errors`** — feature-level error contract. Combines (1) wire exposure rules and (2) typed per-code message overrides.",
+                "",
+                "**Children**",
+                "- `default hide` | `default expose` — wire-envelope default for `message`/`data`/`message_key`. `hide` is the secure default.",
+                "- `expose client 4xx <fields>` — comma-separated closed catalog: `message`, `code`, `data`, `message_key`.",
+                "- `expose client 5xx <fields>` — comma-separated closed catalog: `code`, `data`. (`message` deliberately excluded — 5xx text is framework-internal.)",
+                "- `<code> message @translation.<key>` — per-code typed override. Closed catalog of 8 codes: `policy_denied`, `validation_failed`, `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`, `method_not_allowed`, `integration_error`.",
+                "",
+                "**Resolution chain** (proposal §2.E)",
+                "1. `command.policy_when_denied` — per-command override.",
+                "2. `policies.<category>.when_denied` — per-policy default.",
+                "3. `feature.errors.<code> message` — per-feature catch-all (this block).",
+                "4. Runtime built-in PT-BR / en-US catalog — framework floor.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "feature account",
+                "  errors",
+                "    default hide",
+                "    expose client 4xx message, code, message_key",
+                "    expose client 5xx code",
+                "    policy_denied      message @translation.account_signin_required",
+                "    validation_failed  message @translation.account_invalid_input",
+                "```",
+                "",
+                "Doctor: `ERR-VOCAB-001`/`002`/`003`, `ERR-VOCAB-CODE-UNKNOWN`, `ERR-VOCAB-EXPOSE-UNKNOWN`, `ERR-VOCAB-EXPOSE-5XX-MESSAGE`.",
+            ]
+            .join("\n"),
+        ),
+        "when_denied" => Some(
+            [
+                "**`when_denied`** — typed override for the `policy_denied` error message rendered to the wire. Two attachment sites:",
+                "",
+                "- Under a `command.policy` line — per-command override (resolution-chain step 1).",
+                "- Under a `policies.<category>:` line — per-policy default (resolution-chain step 2).",
+                "",
+                "**Shape**",
+                "- `when_denied @translation.<key>` — references a key declared in the surrounding feature's `translation` block.",
+                "",
+                "**Resolution chain** (proposal §2.E)",
+                "1. `command.policy_when_denied` (this site, on a `command.policy` line).",
+                "2. `policies.<category>.when_denied` (this site, on a `policies` entry).",
+                "3. `feature.errors.policy_denied message`.",
+                "4. Runtime built-in localized message.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "feature account",
+                "  policies",
+                "    authenticated: @scope.authenticated",
+                "      when_denied @translation.must_be_signed_in",
+                "",
+                "  command choose_role",
+                "    policy @policy.authenticated",
+                "      when_denied @translation.choose_role_signin_required",
+                "```",
+                "",
+                "Doctor: `ERR-VOCAB-001` (warn, no override anywhere), `ERR-VOCAB-002` (error, key unresolved), `ERR-VOCAB-WHEN-DENIED-NO-POLICY` (error, attached to a command without a `policy`).",
+            ]
+            .join("\n"),
+        ),
+        "message_key" => Some(
+            [
+                "**`message_key`** — opt-in 4xx wire-envelope field exposing the resolved `@translation.<key>` token alongside `message`. Lets clients with offline catalogs (native mobile apps, kiosks) localize independently from the server-rendered string.",
+                "",
+                "**Shape**",
+                "- Listed inside `expose client 4xx <fields>` in a feature's `errors` block.",
+                "- Always namespaced on the wire: `<feature>.<key>` (e.g. `account.choose_role_signin_required`).",
+                "",
+                "**Example**",
+                "```lazuli",
+                "feature account",
+                "  errors",
+                "    expose client 4xx message, code, message_key",
+                "    policy_denied message @translation.account_signin_required",
+                "```",
+                "",
+                "Wire payload:",
+                "```json",
+                "{",
+                "  \"code\": \"policy_denied\",",
+                "  \"message\": \"Para escolher seu papel, entre na sua conta primeiro.\",",
+                "  \"message_key\": \"account.account_signin_required\"",
+                "}",
+                "```",
+                "",
+                "Closed-catalog field — alternatives (`message`, `code`, `data`) live under the same parent. Doctor: `ERR-VOCAB-EXPOSE-UNKNOWN` rejects unknown fields.",
+            ]
+            .join("\n"),
+        ),
         _ => None,
     }
 }
@@ -14345,6 +14518,15 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
     }
 
     if let Some(items) = error_page_value_completions(source, position, before) {
+        return Some(items);
+    }
+
+    // IR Error-Vocab — the 6 trigger positions from proposal §7.1. Runs
+    // before the indent-aware kind-child fallback because the matches are
+    // strictly narrower (`when_denied `, `<code> message `,
+    // `expose client 4xx ...`, `default ` inside `errors`, blank line inside
+    // `errors`).
+    if let Some(items) = error_vocab_completions(source, position) {
         return Some(items);
     }
 
@@ -15111,6 +15293,1126 @@ pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
         ),
         _ => None,
     }
+}
+
+// ── IR Error-Vocab — closed catalogs surfaced by the LSP ────────────────────
+//
+// See `docs/proposals/ir-error-messages-vocab.md` §2.C, §3.4, §7.
+// These mirror the runtime's `error.go:128-138` closed catalog of overridable
+// error codes and the exposure-field catalogs lowered into `FeatureErrors`.
+// The 8 codes here are the **only** error families authors can override via
+// `feature.errors.<code> message @translation.<key>`; adding a new code
+// requires a proposal (Rule Zero — closed catalog growth at zero).
+
+/// Closed catalog of overridable error codes for `feature.errors`. Mirrors
+/// the runtime's emitted-code set; the proposal §2.C pins this list.
+pub const ERROR_VOCAB_CODES: &[&str] = &[
+    "policy_denied",
+    "validation_failed",
+    "tenant_mismatch",
+    "not_found",
+    "rate_limited",
+    "bad_request",
+    "method_not_allowed",
+    "integration_error",
+];
+
+/// Closed catalog of exposable wire-envelope fields for `expose client 4xx`.
+/// `message_key` is the new opt-in field introduced by proposal §2.G; the
+/// other three (`message`, `code`, `data`) pre-existed in the LSP-only shape
+/// check (`error_exposure_fields_valid`).
+pub const ERROR_VOCAB_EXPOSE_4XX_FIELDS: &[&str] =
+    &["message", "code", "data", "message_key"];
+
+/// Closed catalog of exposable wire-envelope fields for `expose client 5xx`.
+/// `message` is **deliberately excluded** — 5xx errors are framework-internal
+/// and their messages may carry stack traces or implementation details.
+/// Doctor diagnostic `ERR-VOCAB-EXPOSE-5XX-MESSAGE` rejects `message` here.
+pub const ERROR_VOCAB_EXPOSE_5XX_FIELDS: &[&str] = &["code", "data"];
+
+/// Closed catalog of `errors default` values.
+pub const ERROR_VOCAB_DEFAULT_VALUES: &[&str] = &["hide", "expose"];
+
+/// Built-in PT-BR fallback strings shipped with the runtime — used by the
+/// LSP hover to **resolve** the displayed text when the surrounding feature
+/// has no override (proposal §2.D, §7.2). Mirrors
+/// `runtime/go/lazuli/i18n/builtin.pt-BR.json`; the LSP keeps a copy here so
+/// hover stays self-contained (no filesystem read at hover time).
+pub fn error_vocab_code_builtin_en_us(code: &str) -> Option<&'static str> {
+    match code {
+        "policy_denied" => Some("You need to sign in to do this."),
+        "validation_failed" => {
+            Some("Some of the information you sent is missing or incorrect.")
+        }
+        "tenant_mismatch" => Some("This action does not belong to the current workspace."),
+        "not_found" => Some("We couldn't find the requested item."),
+        "rate_limited" => Some("Too many attempts — please wait a moment."),
+        "bad_request" => Some("The request was sent in an invalid format."),
+        "method_not_allowed" => Some("This operation is not supported on this route."),
+        "integration_error" => Some("There was a problem reaching an external service."),
+        _ => None,
+    }
+}
+
+/// One-line catalog-style hover/completion description for each of the 8
+/// closed-catalog error codes. Shown inline in completion lists and as a
+/// fallback hover (when no feature-level override is found in the document).
+pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
+    match code {
+        "policy_denied" => Some(
+            "Authorization failure — actor lacks the required policy. Resolves through the per-command, per-policy, feature, builtin chain.",
+        ),
+        "validation_failed" => Some(
+            "Input validation failure — per-field details ride in `data.field_errors`; this message is the human-readable headline.",
+        ),
+        "tenant_mismatch" => Some(
+            "Cross-tenant access rejected — the targeted resource does not belong to the active workspace.",
+        ),
+        "not_found" => Some(
+            "Resource lookup failed — no row matched the requested key under the current scope.",
+        ),
+        "rate_limited" => Some(
+            "Throttle tripped — the caller exceeded the declared `rate_limit` axis budget.",
+        ),
+        "bad_request" => Some(
+            "Malformed request — the request envelope failed structural parsing or schema validation.",
+        ),
+        "method_not_allowed" => {
+            Some("HTTP verb mismatch — the route is registered under a different method.")
+        }
+        "integration_error" => Some(
+            "External service failure — an outbound integration returned an error or timed out.",
+        ),
+        _ => None,
+    }
+}
+
+/// Scan the source for a `<code> message @translation.<key>` line inside the
+/// feature's `errors` block and return the resolved translation text — the
+/// **resolved** hover the proposal §7.2 calls for. Falls back to the
+/// built-in English string when no feature-level override is found.
+///
+/// `source` is the full document; `feature_name` is the name of the feature
+/// the hover is rendered for; `code` is the closed-catalog error code.
+///
+/// Resolution chain mirrored here (best-effort, doc-local):
+/// 1. `feature.errors.<code> message @translation.<key>` → look up the key
+///    in the same feature's `translation` block and return the first locale
+///    variant's text.
+/// 2. Built-in English fallback (`error_vocab_code_builtin_en_us`).
+///
+/// The runtime walks a longer chain (per-command, per-policy first); the LSP
+/// hover surfaces the **feature-level** resolution because that's the layer
+/// authors edit most. The complete resolution table is visible via
+/// `lazuli inspect --expand=error-resolution-table`.
+pub fn error_vocab_resolved_text(
+    source: &str,
+    feature_name: &str,
+    code: &str,
+) -> Option<String> {
+    if let Some(key) = lookup_feature_error_key(source, feature_name, code) {
+        if let Some(text) = lookup_translation_first_variant(source, feature_name, &key) {
+            return Some(text);
+        }
+    }
+    error_vocab_code_builtin_en_us(code).map(str::to_owned)
+}
+
+/// Walk the source to find `feature <name>` ... `errors` ... `<code> message
+/// @translation.<key>` and return the key. Indent-based: looks for the
+/// matching feature header at indent 0, then the `errors` block at indent 2,
+/// then lines at indent 4 of the form `<code> message @translation.<key>`.
+fn lookup_feature_error_key(
+    source: &str,
+    feature_name: &str,
+    code: &str,
+) -> Option<String> {
+    let mut in_feature = false;
+    let mut in_errors = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            in_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| {
+                    rest.split_whitespace().next().unwrap_or("") == feature_name
+                })
+                .unwrap_or(false);
+            in_errors = false;
+            continue;
+        }
+        if !in_feature {
+            continue;
+        }
+        if indent == 2 {
+            in_errors = trimmed == "errors";
+            continue;
+        }
+        if in_errors && indent == 4 {
+            // `<code> message @translation.<key>`
+            let mut tokens = trimmed.split_whitespace();
+            let line_code = tokens.next().unwrap_or("");
+            if line_code != code {
+                continue;
+            }
+            if tokens.next() != Some("message") {
+                continue;
+            }
+            let r#ref = tokens.next().unwrap_or("");
+            if let Some(key) = r#ref.strip_prefix("@translation.") {
+                return Some(key.to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Find a `key <name>` declaration inside the surrounding feature's
+/// `translation` block and return the **first locale variant's text** as a
+/// resolved hover string. Best-effort indent-walk parsing — matches the
+/// canonical four-space indent layout the rest of the LSP assumes.
+fn lookup_translation_first_variant(
+    source: &str,
+    feature_name: &str,
+    key: &str,
+) -> Option<String> {
+    let mut in_feature = false;
+    let mut in_translation = false;
+    let mut in_key = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            in_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| {
+                    rest.split_whitespace().next().unwrap_or("") == feature_name
+                })
+                .unwrap_or(false);
+            in_translation = false;
+            in_key = false;
+            continue;
+        }
+        if !in_feature {
+            continue;
+        }
+        if indent == 2 {
+            in_translation = trimmed == "translation" || trimmed.starts_with("translation ");
+            in_key = false;
+            continue;
+        }
+        if !in_translation {
+            continue;
+        }
+        if indent == 4 {
+            // `key <name>` line opens a variant block; `catalog "<path>"`
+            // sits at the same indent but is a sibling header — skip.
+            in_key = trimmed
+                .strip_prefix("key ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == key)
+                .unwrap_or(false);
+            continue;
+        }
+        if in_key && indent == 6 {
+            // `<locale> "<text>"` — extract the text between the first
+            // double-quote pair.
+            if let Some(open) = trimmed.find('"') {
+                let rest = &trimmed[open + 1..];
+                if let Some(close) = rest.find('"') {
+                    return Some(rest[..close].to_owned());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Return the feature name the cursor sits inside, or `None` when the
+/// cursor is at the top level / inside `app` / `registry`. Best-effort
+/// indent-walk: scans backwards from `position.line` for a `feature <name>`
+/// header at indent 0.
+pub fn enclosing_feature_name(source: &str, position: Position) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    for idx in (0..=cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            if let Some(rest) = trimmed.strip_prefix("feature ") {
+                let name = rest.split_whitespace().next().unwrap_or("");
+                if !name.is_empty() {
+                    return Some(name.to_owned());
+                }
+                return None;
+            }
+            return None;
+        }
+    }
+    None
+}
+
+/// Collect declared `key <name>` entries from inside the named feature's
+/// `translation` block. Used by `@translation.<TAB>` completion (proposal
+/// §7.1).
+pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut in_feature = false;
+    let mut in_translation = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            in_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| {
+                    rest.split_whitespace().next().unwrap_or("") == feature_name
+                })
+                .unwrap_or(false);
+            in_translation = false;
+            continue;
+        }
+        if !in_feature {
+            continue;
+        }
+        if indent == 2 {
+            in_translation = trimmed == "translation" || trimmed.starts_with("translation ");
+            continue;
+        }
+        if in_translation && indent == 4 {
+            if let Some(rest) = trimmed.strip_prefix("key ") {
+                let name = rest.split_whitespace().next().unwrap_or("");
+                if !name.is_empty() && seen.insert(name.to_owned()) {
+                    keys.push(name.to_owned());
+                }
+            }
+        }
+    }
+    keys
+}
+
+/// Compute a completion list for the IR Error-Vocab trigger positions
+/// (proposal §7.1). Returns `None` when the cursor is outside any of the 6
+/// recognised positions; returns `Some(items)` when a position is matched.
+///
+/// The 6 trigger positions:
+/// 1. After `when_denied ` (on a `policy` line or under a `policies.<cat>:`
+///    line) — autocomplete `@translation.<key>` from the local feature's
+///    translation block.
+/// 2. Inside `feature.errors` block, new indented line — autocomplete the 8
+///    closed-catalog codes.
+/// 3. After `<code> message ` inside `errors` — autocomplete
+///    `@translation.<key>`.
+/// 4. After `expose client 4xx ` — autocomplete `message`/`code`/`data`/
+///    `message_key`.
+/// 5. After `expose client 5xx ` — autocomplete `code`/`data` (no
+///    `message`).
+/// 6. After `default ` inside `errors` — autocomplete `hide`/`expose`.
+pub fn error_vocab_completions(
+    source: &str,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let cursor = (position.character as usize).min(line.len());
+    let before = &line[..cursor];
+    let trimmed_before = before.trim_start();
+
+    // Position 1 — `when_denied ` (`@translation.` keys).
+    // Fires both on `when_denied ` and `when_denied @translation.` because
+    // the namespace prefix completion already handles the post-`@translation.`
+    // case via `namespace_prefix_completions` for `@translation`, but this
+    // path also lights up the moment the cursor is one space past
+    // `when_denied`, regardless of `@translation.` being typed.
+    if let Some(rest) = trimmed_before.strip_prefix("when_denied") {
+        // Either right after `when_denied ` (single space) or in the middle
+        // of typing `@translation.<key>`. Offer the local feature's
+        // translation keys (so the user gets exact key names) and, when no
+        // `@` has been typed yet, suggest the namespace prefix first.
+        let after = rest.trim_start();
+        let feature = enclosing_feature_name(source, position)?;
+        let keys = collect_translation_keys_for_feature(source, &feature);
+        let mut items: Vec<CompletionItem> = Vec::new();
+        if after.is_empty() || !after.starts_with('@') {
+            items.push(CompletionItem {
+                label: "@translation.".to_owned(),
+                kind: Some(CompletionItemKind::SNIPPET),
+                detail: Some(
+                    "Translation key reference — resolves against this feature's `translation` block."
+                        .to_owned(),
+                ),
+                ..CompletionItem::default()
+            });
+        }
+        items.extend(keys.into_iter().map(|key| CompletionItem {
+            label: format!("@translation.{key}"),
+            kind: Some(CompletionItemKind::REFERENCE),
+            detail: Some("Translation key declared in this feature.".to_owned()),
+            ..CompletionItem::default()
+        }));
+        return Some(items);
+    }
+
+    // Position 6 — `default ` inside `errors` block (`hide`/`expose`).
+    if let Some(rest) = trimmed_before.strip_prefix("default ") {
+        if rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && in_feature_errors_block(source, position)
+        {
+            return Some(
+                ERROR_VOCAB_DEFAULT_VALUES
+                    .iter()
+                    .map(|value| CompletionItem {
+                        label: (*value).to_owned(),
+                        kind: Some(CompletionItemKind::ENUM_MEMBER),
+                        detail: Some(match *value {
+                            "hide" => {
+                                "Errors omit `message` from the wire response by default; opt-in fields go through `expose client 4xx/5xx`."
+                                    .to_owned()
+                            }
+                            "expose" => {
+                                "Errors include the closed-catalog exposable fields by default; tighten per class with `expose client 4xx/5xx`."
+                                    .to_owned()
+                            }
+                            _ => String::new(),
+                        }),
+                        ..CompletionItem::default()
+                    })
+                    .collect(),
+            );
+        }
+    }
+
+    // Positions 4 + 5 — `expose client 4xx ` / `expose client 5xx `.
+    // Trigger when the cursor sits after the third token; offer the
+    // per-class closed catalog. We DON'T require the cursor to be inside an
+    // `errors` block here because the LSP-level `expose client ...` shape
+    // is the same wherever it appears (proposal §2.G).
+    if let Some(rest) = trimmed_before.strip_prefix("expose client ") {
+        // rest is `4xx ...` or `5xx ...`; we offer completions after the
+        // class token, on the field list (closed catalog).
+        let mut tokens = rest.split_whitespace();
+        let class = tokens.next().unwrap_or("");
+        let after_class_idx = rest
+            .find(class)
+            .map(|i| i + class.len())
+            .unwrap_or(rest.len());
+        let after_class = &rest[after_class_idx..];
+        // Need at least one space after the class token before offering
+        // field completions; the post-cursor cursor position then sits in
+        // the comma-separated field list.
+        if (class == "4xx" || class == "5xx") && after_class.starts_with(' ') {
+            let fields = if class == "4xx" {
+                ERROR_VOCAB_EXPOSE_4XX_FIELDS
+            } else {
+                ERROR_VOCAB_EXPOSE_5XX_FIELDS
+            };
+            return Some(
+                fields
+                    .iter()
+                    .map(|field| CompletionItem {
+                        label: (*field).to_owned(),
+                        kind: Some(CompletionItemKind::ENUM_MEMBER),
+                        detail: Some(match *field {
+                            "message" => {
+                                "Human-readable headline rendered through the resolver chain. Excluded from 5xx."
+                                    .to_owned()
+                            }
+                            "code" => "Stable string code from the closed error catalog.".to_owned(),
+                            "data" => {
+                                "Structured envelope payload (per-field validator errors, retry hints, etc.).".to_owned()
+                            }
+                            "message_key" => {
+                                "Resolved `@translation.<key>` token — lets clients with offline catalogs localize independently."
+                                    .to_owned()
+                            }
+                            _ => String::new(),
+                        }),
+                        ..CompletionItem::default()
+                    })
+                    .collect(),
+            );
+        }
+    }
+
+    // Position 3 — `<code> message ` inside `errors` block.
+    if in_feature_errors_block(source, position) {
+        let mut tokens = trimmed_before.split_whitespace();
+        let first = tokens.next().unwrap_or("");
+        let second = tokens.next().unwrap_or("");
+        if ERROR_VOCAB_CODES.contains(&first) && second == "message" {
+            // Cursor expected to be right after `message ` (with at least
+            // one space).
+            let head = format!("{first} message");
+            if let Some(after_idx) = trimmed_before.find(&head) {
+                let after = &trimmed_before[after_idx + head.len()..];
+                if after.starts_with(' ') {
+                    let feature = enclosing_feature_name(source, position)?;
+                    let keys = collect_translation_keys_for_feature(source, &feature);
+                    let mut items: Vec<CompletionItem> = vec![CompletionItem {
+                        label: "@translation.".to_owned(),
+                        kind: Some(CompletionItemKind::SNIPPET),
+                        detail: Some(
+                            "Translation key reference — resolves against this feature's `translation` block.".to_owned(),
+                        ),
+                        ..CompletionItem::default()
+                    }];
+                    items.extend(keys.into_iter().map(|key| CompletionItem {
+                        label: format!("@translation.{key}"),
+                        kind: Some(CompletionItemKind::REFERENCE),
+                        detail: Some("Translation key declared in this feature.".to_owned()),
+                        ..CompletionItem::default()
+                    }));
+                    return Some(items);
+                }
+            }
+        }
+
+        // Position 2 — bare indented line inside `errors` block: offer the
+        // 8 closed-catalog codes. Fires when the line is blank (cursor on
+        // indented whitespace) or the user has typed a partial alphanumeric
+        // prefix that doesn't already include a space (i.e. they haven't
+        // moved past the code token yet).
+        let is_blank_indented = trimmed_before.is_empty() && !before.is_empty();
+        let is_partial_code = !trimmed_before.is_empty()
+            && trimmed_before
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if is_blank_indented || is_partial_code {
+            return Some(
+                ERROR_VOCAB_CODES
+                    .iter()
+                    .map(|code| CompletionItem {
+                        label: (*code).to_owned(),
+                        kind: Some(CompletionItemKind::ENUM_MEMBER),
+                        detail: error_vocab_code_detail(code).map(str::to_owned),
+                        ..CompletionItem::default()
+                    })
+                    .collect(),
+            );
+        }
+    }
+
+    None
+}
+
+/// IR Error-Vocab code actions — three actions per proposal §7.4.
+///
+/// Returns a list of `CodeActionOrCommand` matching the cursor position:
+///
+/// 1. **Scaffold `errors` block with all 8 codes** — fires when the cursor
+///    is on a `feature <name>` header line (or inside a feature that has
+///    no `errors` block yet). Inserts a complete `errors` block plus stub
+///    `key` entries in the feature's `translation` block.
+/// 2. **Add `when_denied @translation.<stub>` on `policies.<category>:`** —
+///    fires when the cursor sits on a `policies` entry line that doesn't
+///    already have a child `when_denied`. Inserts the line + a stub
+///    translation key.
+/// 3. **Add `when_denied @translation.<stub>` on `command.policy`** —
+///    fires when the cursor sits on a `command.policy @policy.<name>` line
+///    without a `when_denied` child. Same shape as #2.
+///
+/// Each action emits a `WorkspaceEdit` targeting the active URI; we use
+/// plain `changes: HashMap<Url, Vec<TextEdit>>` so clients that don't
+/// implement `documentChanges` still work.
+pub fn error_vocab_code_actions(
+    source: &str,
+    uri: &Url,
+    position: Position,
+) -> Vec<CodeActionOrCommand> {
+    let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+    let line = source
+        .lines()
+        .nth(position.line as usize)
+        .unwrap_or("")
+        .to_owned();
+    let trimmed = line.trim_start();
+    let line_indent = leading_spaces(&line);
+
+    // Action 1 — scaffold `errors` block + 8 stub translation keys. Fires
+    // when the cursor is on a `feature <name>` header (indent 0) AND the
+    // feature has no `errors` block yet.
+    if line_indent == 0 {
+        if let Some(rest) = trimmed.strip_prefix("feature ") {
+            let feature_name = rest.split_whitespace().next().unwrap_or("");
+            if !feature_name.is_empty()
+                && !feature_has_errors_block(source, feature_name)
+            {
+                if let Some(action) = build_scaffold_errors_action(
+                    source,
+                    uri,
+                    feature_name,
+                ) {
+                    actions.push(action.into());
+                }
+            }
+        }
+    }
+
+    // Action 2 — add `when_denied @translation.<stub>` to a
+    // `policies.<category>:` line. Fires when the cursor sits on a line of
+    // the form `<name>: <atom>[, <atom>]+` inside a `policies` block AND
+    // the next line is not already a `when_denied` child.
+    if let Some(category) = policies_category_name(&line)
+        .filter(|_| in_policies_block(source, position))
+    {
+        if !has_when_denied_child(source, position.line as usize, line_indent) {
+            if let Some(action) = build_add_when_denied_policies_action(
+                source,
+                uri,
+                position.line as usize,
+                line_indent,
+                &category,
+            ) {
+                actions.push(action.into());
+            }
+        }
+    }
+
+    // Action 3 — add `when_denied @translation.<stub>` to a
+    // `command.policy @policy.<name>` line. Fires when the cursor sits on
+    // a line whose trimmed form starts with `policy @policy.` AND there is
+    // no `when_denied` child immediately following.
+    if trimmed.starts_with("policy @policy.")
+        && !has_when_denied_child(source, position.line as usize, line_indent)
+    {
+        if let Some(action) = build_add_when_denied_command_action(
+            source,
+            uri,
+            position.line as usize,
+            line_indent,
+        ) {
+            actions.push(action.into());
+        }
+    }
+
+    actions
+}
+
+/// Check whether the named feature already contains an `errors` block.
+/// Best-effort indent-walk — matches the same canonical layout the rest of
+/// the LSP assumes.
+fn feature_has_errors_block(source: &str, feature_name: &str) -> bool {
+    let mut in_feature = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            in_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| {
+                    rest.split_whitespace().next().unwrap_or("") == feature_name
+                })
+                .unwrap_or(false);
+            continue;
+        }
+        if in_feature && indent == 2 && trimmed == "errors" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Pull a `<name>:` category from a `policies` entry line. Returns the
+/// bare category name when `<line>` has the shape `<name>: <atom>[, ...]`,
+/// else `None`.
+fn policies_category_name(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let colon = trimmed.find(':')?;
+    let name = trimmed[..colon].trim();
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    // Must be followed by at least one token after `:` (an atom).
+    let after = trimmed[colon + 1..].trim_start();
+    if after.is_empty() {
+        return None;
+    }
+    Some(name.to_owned())
+}
+
+/// Walk backwards looking for whether `cursor_line_idx` sits inside a
+/// `policies` block (parent indent strictly less than the line's indent).
+fn in_policies_block(source: &str, position: Position) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
+    let cursor_indent = leading_spaces(cursor_line);
+    for idx in (0..cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent < cursor_indent {
+            return trimmed == "policies" || trimmed.starts_with("policies ");
+        }
+    }
+    false
+}
+
+/// Look ahead from `line_idx` for the next non-empty line. Return true
+/// when that line is indented deeper than `parent_indent` AND its trimmed
+/// form starts with `when_denied`.
+fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    for idx in (line_idx + 1)..lines.len() {
+        let line = lines[idx];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent <= parent_indent {
+            return false;
+        }
+        return trimmed.starts_with("when_denied");
+    }
+    false
+}
+
+/// Build the "Scaffold `errors` block with all 8 codes" code action. The
+/// action inserts a complete `errors` block plus 8 stub `key` entries in
+/// the feature's `translation` block (creating that block if absent).
+fn build_scaffold_errors_action(
+    source: &str,
+    uri: &Url,
+    feature_name: &str,
+) -> Option<CodeAction> {
+    let lines: Vec<&str> = source.lines().collect();
+    // Locate the feature header line index so we can position the inserted
+    // edits at the line after it (when the feature is empty) OR at the
+    // start of the first child line at indent 2 (when the feature already
+    // has children, insert *before* them so the canonical order is
+    // preserved).
+    let feature_header_line = lines.iter().position(|line| {
+        let trimmed = line.trim_start();
+        leading_spaces(line) == 0
+            && trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
+                .unwrap_or(false)
+    })?;
+    // Find the end of the feature (next indent-0 non-empty line) so we
+    // know where the feature body ends.
+    let feature_end = (feature_header_line + 1..lines.len())
+        .find(|&idx| {
+            let line = lines[idx];
+            let trimmed = line.trim_start();
+            !trimmed.is_empty()
+                && !trimmed.starts_with('#')
+                && leading_spaces(line) == 0
+        })
+        .unwrap_or(lines.len());
+
+    // Find an insertion point inside the feature: prefer right after the
+    // `policies` block (canonical-semantics §1 ordering: `policies ->
+    // errors`); fall back to right after the feature header.
+    let mut insertion_line = feature_header_line + 1;
+    let mut inside_policies = false;
+    let mut policies_end_line: Option<usize> = None;
+    for (idx, line) in lines.iter().enumerate().take(feature_end).skip(feature_header_line + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 2 {
+            if inside_policies {
+                policies_end_line = Some(idx);
+                inside_policies = false;
+            }
+            if trimmed == "policies" || trimmed.starts_with("policies ") {
+                inside_policies = true;
+                policies_end_line = None;
+            }
+        }
+    }
+    if inside_policies {
+        // policies runs to end of feature.
+        policies_end_line = Some(feature_end);
+    }
+    if let Some(end) = policies_end_line {
+        insertion_line = end;
+    }
+
+    // Build the inserted text. Two parts: the `errors` block itself plus
+    // 8 stub keys in a `translation` block (creating it if missing).
+    let errors_block = build_errors_block_text(feature_name);
+    let needs_translation_block = !feature_has_translation_block(source, feature_name);
+    let translation_text = if needs_translation_block {
+        build_translation_block_with_stubs(feature_name)
+    } else {
+        build_translation_stub_keys_only(feature_name)
+    };
+
+    let edit_range = position_at_line_start(insertion_line);
+    let edits = vec![TextEdit {
+        range: Range {
+            start: edit_range,
+            end: edit_range,
+        },
+        new_text: format!("{errors_block}\n{translation_text}\n"),
+    }];
+
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(uri.clone(), edits);
+    let workspace_edit = WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    };
+    Some(CodeAction {
+        title: format!("Scaffold `errors` block with all 8 codes ({feature_name})"),
+        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+        diagnostics: None,
+        edit: Some(workspace_edit),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Detect whether the named feature already has a `translation` block.
+fn feature_has_translation_block(source: &str, feature_name: &str) -> bool {
+    let mut in_feature = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            in_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
+                .unwrap_or(false);
+            continue;
+        }
+        if in_feature
+            && indent == 2
+            && (trimmed == "translation" || trimmed.starts_with("translation "))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Canonical text for a complete scaffold of the `errors` block. Mirrors
+/// the proposal §2.C example.
+fn build_errors_block_text(feature_name: &str) -> String {
+    [
+        "  errors".to_owned(),
+        "    default hide".to_owned(),
+        "    expose client 4xx message, code".to_owned(),
+        "    expose client 5xx code".to_owned(),
+        format!(
+            "    policy_denied      message @translation.{feature_name}_policy_denied"
+        ),
+        format!(
+            "    validation_failed  message @translation.{feature_name}_validation_failed"
+        ),
+        format!(
+            "    tenant_mismatch    message @translation.{feature_name}_tenant_mismatch"
+        ),
+        format!(
+            "    not_found          message @translation.{feature_name}_not_found"
+        ),
+        format!(
+            "    rate_limited       message @translation.{feature_name}_rate_limited"
+        ),
+        format!(
+            "    bad_request        message @translation.{feature_name}_bad_request"
+        ),
+        format!(
+            "    method_not_allowed message @translation.{feature_name}_method_not_allowed"
+        ),
+        format!(
+            "    integration_error  message @translation.{feature_name}_integration_error"
+        ),
+    ]
+    .join("\n")
+}
+
+/// Build a fresh `translation` block prepopulated with 8 stub keys (one
+/// per closed-catalog code). Used when the feature has no `translation`
+/// block yet.
+fn build_translation_block_with_stubs(feature_name: &str) -> String {
+    let mut lines: Vec<String> = vec![
+        "  translation".to_owned(),
+        format!("    catalog \"./i18n/{feature_name}.<locale>.json\""),
+    ];
+    for code in ERROR_VOCAB_CODES {
+        lines.push(format!("    key {feature_name}_{code}"));
+        lines.push("      en-US \"TODO: customize this message.\"".to_owned());
+    }
+    lines.join("\n")
+}
+
+/// Build only the 8 stub `key` lines (without a header) — used when the
+/// feature already has a `translation` block and we want to append entries
+/// to it. The author moves these into the existing block manually.
+fn build_translation_stub_keys_only(feature_name: &str) -> String {
+    let mut lines: Vec<String> =
+        vec!["  # error-vocab — add the 8 stub keys into the existing `translation` block:".to_owned()];
+    for code in ERROR_VOCAB_CODES {
+        lines.push(format!("  #   key {feature_name}_{code}"));
+        lines.push("  #     en-US \"TODO: customize this message.\"".to_owned());
+    }
+    lines.join("\n")
+}
+
+/// Build the "Add `when_denied @translation.<stub>`" code action for a
+/// `policies.<category>:` line. Inserts the child line right under the
+/// targeted line at +2 indent.
+fn build_add_when_denied_policies_action(
+    source: &str,
+    uri: &Url,
+    line_idx: usize,
+    parent_indent: usize,
+    category: &str,
+) -> Option<CodeAction> {
+    let feature = enclosing_feature_name(
+        source,
+        Position {
+            line: line_idx as u32,
+            character: 0,
+        },
+    )?;
+    let stub_key = format!("{feature}_{category}_denied");
+    let child_indent = " ".repeat(parent_indent + 2);
+    let new_line = format!("{child_indent}when_denied @translation.{stub_key}\n");
+    let insertion = position_at_line_start(line_idx + 1);
+    let edits = vec![TextEdit {
+        range: Range {
+            start: insertion,
+            end: insertion,
+        },
+        new_text: new_line,
+    }];
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(uri.clone(), edits);
+    let workspace_edit = WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    };
+    Some(CodeAction {
+        title: format!(
+            "Add `when_denied @translation.{stub_key}` (per-policy default)"
+        ),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(workspace_edit),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Build the "Add `when_denied @translation.<stub>`" code action for a
+/// `command.policy @policy.<name>` line. Inserts the child line right
+/// under the targeted line at +2 indent. Stub key follows the
+/// `<feature>_<command>_denied` pattern when the command name is
+/// recoverable from the surrounding context; otherwise falls back to a
+/// generic stub.
+fn build_add_when_denied_command_action(
+    source: &str,
+    uri: &Url,
+    line_idx: usize,
+    parent_indent: usize,
+) -> Option<CodeAction> {
+    let feature = enclosing_feature_name(
+        source,
+        Position {
+            line: line_idx as u32,
+            character: 0,
+        },
+    )?;
+    let command_name = enclosing_command_name(source, line_idx).unwrap_or_else(|| "command".to_owned());
+    let stub_key = format!("{feature}_{command_name}_denied");
+    let child_indent = " ".repeat(parent_indent + 2);
+    let new_line = format!("{child_indent}when_denied @translation.{stub_key}\n");
+    let insertion = position_at_line_start(line_idx + 1);
+    let edits = vec![TextEdit {
+        range: Range {
+            start: insertion,
+            end: insertion,
+        },
+        new_text: new_line,
+    }];
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(uri.clone(), edits);
+    let workspace_edit = WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    };
+    Some(CodeAction {
+        title: format!(
+            "Add `when_denied @translation.{stub_key}` (per-command override)"
+        ),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(workspace_edit),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Walk backwards from `line_idx` to find the enclosing `command <name>`
+/// (or `query.* <name>` / `api <name>` / ...) and return its name.
+fn enclosing_command_name(source: &str, line_idx: usize) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let target_line = lines.get(line_idx).copied().unwrap_or("");
+    let target_indent = leading_spaces(target_line);
+    for idx in (0..line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent >= target_indent {
+            continue;
+        }
+        // Look for `command <name>` / `query.list <name>` / `api <name>` /
+        // `webhook <name>`. Take the second token as the name.
+        let mut tokens = trimmed.split_whitespace();
+        let kind = tokens.next().unwrap_or("");
+        if matches!(
+            kind,
+            "command"
+                | "query.list"
+                | "query.lookup"
+                | "query.sql"
+                | "api"
+                | "webhook"
+                | "job"
+                | "agent"
+                | "workflow"
+                | "channel"
+        ) {
+            let name = tokens.next().unwrap_or("");
+            if !name.is_empty() {
+                return Some(name.to_owned());
+            }
+        }
+        return None;
+    }
+    None
+}
+
+/// Position at the start of `line_idx` (character 0). Used as both the
+/// start and end of an inserting `TextEdit` (zero-width range).
+fn position_at_line_start(line_idx: usize) -> Position {
+    Position {
+        line: line_idx as u32,
+        character: 0,
+    }
+}
+
+/// Resolved-text hover for the 8 closed-catalog error codes, fired when
+/// the cursor sits on one of them inside a feature's `errors` block. Shows
+/// the locally-resolved translation (from the same feature's `translation`
+/// block, first locale variant) or, if no feature-level override exists,
+/// the built-in English fallback shipped by the runtime.
+///
+/// Returns `None` when the cursor is outside an `errors` block or when
+/// `word` is not one of the 8 codes. The rich-markdown one-liner for the
+/// codes ships through `keyword_description` instead.
+pub fn error_vocab_code_resolved_hover(
+    source: &str,
+    position: Position,
+    word: &str,
+) -> Option<String> {
+    if !ERROR_VOCAB_CODES.contains(&word) {
+        return None;
+    }
+    if !in_feature_errors_block(source, position) {
+        return None;
+    }
+    let feature = enclosing_feature_name(source, position)?;
+    let resolved = error_vocab_resolved_text(source, &feature, word)?;
+    // Identify the resolution-chain source so the author / auditor sees
+    // **where** the resolved text came from. This mirrors the
+    // `--expand=error-resolution-table` projection (proposal §3.6).
+    let source_label = if lookup_feature_error_key(source, &feature, word).is_some() {
+        format!("`feature.{feature}.errors.{word}`")
+    } else {
+        "runtime built-in catalog (`en-US` fallback)".to_owned()
+    };
+    let detail = error_vocab_code_detail(word).unwrap_or("");
+    let lines = vec![
+        format!("**`{word}`** — closed-catalog error code."),
+        String::new(),
+        format!("**Resolved**: \"{resolved}\""),
+        String::new(),
+        format!("**Source**: {source_label}"),
+        String::new(),
+        detail.to_owned(),
+        String::new(),
+        "Customize by adding a per-code override inside this feature's `errors` block:".to_owned(),
+        "```lazuli".to_owned(),
+        format!("errors"),
+        format!("  {word} message @translation.<key>"),
+        "```".to_owned(),
+        String::new(),
+        "See `docs/proposals/ir-error-messages-vocab.md` §2.E (resolution chain) and §7.2 (hover).".to_owned(),
+    ];
+    Some(lines.join("\n"))
+}
+
+/// Detect whether the cursor sits inside a `feature.errors` block. The
+/// feature `errors` block lives at indent 2 (under a feature header at
+/// indent 0); children at indent 4. Cursor must be at indent >= 4 under a
+/// closer-than-feature `errors` header.
+fn in_feature_errors_block(source: &str, position: Position) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    // Walk backwards looking for either an `errors` header at indent 2
+    // (we're inside it) or any other indent-2 line / indent-0 line first
+    // (we're not).
+    for idx in (0..=cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Skip the cursor line itself when it might be the very `errors`
+        // header (we want to know whether children would be inside).
+        if idx == cursor_line_idx && leading_spaces(line) >= 4 {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 2 {
+            return trimmed == "errors";
+        }
+        if indent == 0 {
+            return false;
+        }
+    }
+    false
 }
 
 // ── doctor file-local diagnostics ────────────────────────────────────────────

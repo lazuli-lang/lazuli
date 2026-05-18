@@ -260,6 +260,7 @@ feature customer
     capture_lead: @scope.public
     create: @role.admin, @role.sales
     update: @role.admin, @role.sales
+      when_denied @translation.customer_update_admin_only
     delete: @role.admin
     read: @scope.same_org
     global_read: @role.admin
@@ -282,6 +283,9 @@ feature customer
     expose client 4xx message, code
     expose client 5xx code
 
+    policy_denied message @translation.customer_signin_required
+    validation_failed message @translation.customer_invalid_input
+
   translation
     catalog "./i18n/customer.<locale>.json"
 
@@ -297,11 +301,28 @@ feature customer
       pt-BR "Clientes enterprise exigem um proprietário antes da ativação"
       en-US "Enterprise customers require an owner before activation"
 
+    key customer_update_admin_only
+      pt-BR "Apenas administradores ou vendedores podem atualizar este cliente."
+      en-US "Only admins or sales reps can update this customer."
+
+    key customer_signin_required
+      pt-BR "Para gerenciar clientes, entre na sua conta primeiro."
+      en-US "Please sign in to manage customers."
+
+    key customer_invalid_input
+      pt-BR "Os dados do cliente estão incompletos ou incorretos."
+      en-US "The customer information is missing or incorrect."
+
+    key capture_lead_signin_required
+      pt-BR "Para capturar um lead, entre na sua conta primeiro."
+      en-US "Please sign in to capture a lead."
+
   command capture_lead
     input
       name: Text required
       email: @semantic.Email @pii.contact required
     policy @policy.capture_lead
+      when_denied @translation.capture_lead_signin_required
     rate_limit "10 per minute per ip"
     creates Customer
       name = input.name

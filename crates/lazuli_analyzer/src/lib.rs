@@ -2225,7 +2225,11 @@ pub fn lower_feature_skeleton(
         events: Vec::new(),
         rules: Vec::new(),
         policies,
-        errors: None,
+        // IR Error-Vocab (Cell PARSE-1) — lower the optional `errors`
+        // block onto the typed IR slot. Pre-vocab fixtures (no `errors`
+        // block) keep `None`; codegen treats `None` identically to a
+        // block with no overrides.
+        errors: skeleton.errors.as_ref().map(lower_feature_errors_decl),
         commands,
         apis,
         records,
@@ -2642,7 +2646,11 @@ fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
             name: c.name.clone(),
             atoms: c.atoms.clone(),
             previous_names: Vec::new(),
-            when_denied: None,
+            // IR Error-Vocab (Cell PARSE-1) — lower the optional
+            // `when_denied @translation.<key>` child onto the typed IR
+            // slot. Same-feature scope; cross-feature key resolution
+            // lives in doctor (`translation_key_unknown` + ERR-VOCAB-002).
+            when_denied: c.when_denied.as_ref().map(lower_translation_key_ref),
         })
         .collect();
     let fields = decl
@@ -3346,6 +3354,13 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
             }
         }
     });
+    // IR Error-Vocab (Cell PARSE-1) — lift the optional `when_denied
+    // @translation.<key>` child captured by the parser under `policy`.
+    // Resolution-chain step 1 (proposal §2.A).
+    let policy_when_denied = c
+        .policy_when_denied
+        .as_ref()
+        .map(lower_translation_key_ref);
     Ok(ir::Command {
         name: c.name.clone(),
         public_contract: lower_public_contract(&c.public_contract),
@@ -3357,7 +3372,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         effect,
         policy,
         policy_expr,
-        policy_when_denied: None,
+        policy_when_denied,
         emits,
         rate_limit: c.rate_limit.clone(),
         audit,
@@ -3641,6 +3656,50 @@ fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
 /// `ir::Translation`. Variant locales and plural arms come through
 /// verbatim; doctor validates them against `app.locale.supported` and
 /// the CLDR plural catalog.
+///
+/// IR Error-Vocab (Cell PARSE-1) — lower a surface
+/// `TranslationKeyRefAst` (parsed from `@translation.<key>`) onto the
+/// typed IR `TranslationKeyRef`. The `span_ref` is preserved so doctor
+/// can quote the offending line on `translation_key_unknown` /
+/// ERR-VOCAB-002 emission. Same-feature scope; v1 does not lower the
+/// cross-feature `<feature>.@translation.<key>` form (cf. proposal
+/// §3.1 — the surface token form keeps the parser single-shape).
+fn lower_translation_key_ref(decl: &syntax::TranslationKeyRefAst) -> ir::TranslationKeyRef {
+    ir::TranslationKeyRef {
+        key: decl.key.clone(),
+        span_ref: Some(span_of(decl.span)),
+    }
+}
+
+/// IR Error-Vocab (Cell PARSE-1) — lower a surface `FeatureErrorsDecl`
+/// onto `ir::FeatureErrors`. The `default hide` / `default expose` and
+/// `expose client 4xx|5xx <fields>` slots project 1:1; per-code message
+/// overrides keep their verbatim `code` so analyzer-side closed-catalog
+/// enforcement (ERR-VOCAB-CODE-UNKNOWN) can report the offending token.
+fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErrors {
+    ir::FeatureErrors {
+        default: decl.default.map(|d| match d {
+            syntax::ErrorExposureDefaultAst::Hide => ir::ErrorExposureDefault::Hide,
+            syntax::ErrorExposureDefaultAst::Expose => ir::ErrorExposureDefault::Expose,
+        }),
+        exposure_4xx: decl.exposure_4xx.clone(),
+        exposure_5xx: decl.exposure_5xx.clone(),
+        messages: decl
+            .messages
+            .iter()
+            .map(|m| ir::FeatureErrorMessage {
+                code: m.code.clone(),
+                message: lower_translation_key_ref(&m.message),
+                span_ref: Some(span_of(m.span)),
+            })
+            .collect(),
+        // Reserved for v2 — per-field validator-error references. v1
+        // parser leaves the slot empty (see proposal §3.4 deferral row).
+        field_messages: Vec::new(),
+        span_ref: Some(span_of(decl.span)),
+    }
+}
+
 fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
     ir::Translation {
         catalog: t.catalog.clone(),
@@ -6885,6 +6944,130 @@ design hostpoint
         assert_eq!(design.custom.len(), 2);
         assert_eq!(design.custom[0].base, "not-a-color");
         assert_eq!(design.custom[1].dark.as_deref(), Some("rgb(5,5,5)"));
+    }
+
+    // -------------------------------------------------------------------------
+    // IR Error-Vocab (Cell PARSE-1) — analyzer lowering round-trip tests
+    // for the three new IR slots populated by this cell:
+    //   * `Command.policy_when_denied` ← `command.policy.when_denied`
+    //   * `PolicyCategory.when_denied` ← `policies.<cat>.when_denied`
+    //   * `Feature.errors` ← `errors` block (default + 4xx/5xx + messages)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn lower_command_policy_when_denied_populates_typed_ref() {
+        let source = r#"
+feature account
+  command choose_role
+    policy @policy.authenticated
+      when_denied @translation.choose_role_signin_required
+    input
+      role_id: ID required
+    returns User
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let command = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "choose_role")
+            .expect("choose_role command");
+        let key = command
+            .policy_when_denied
+            .as_ref()
+            .expect("policy_when_denied lowered");
+        assert_eq!(key.key, "choose_role_signin_required");
+    }
+
+    #[test]
+    fn lower_policy_category_when_denied_populates_typed_ref() {
+        let source = r#"
+feature account
+  policies
+    authenticated: @scope.authenticated
+      when_denied @translation.must_be_signed_in
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let authenticated = feature
+            .policies
+            .categories
+            .iter()
+            .find(|c| c.name == "authenticated")
+            .expect("authenticated category");
+        let key = authenticated
+            .when_denied
+            .as_ref()
+            .expect("when_denied lowered");
+        assert_eq!(key.key, "must_be_signed_in");
+    }
+
+    #[test]
+    fn lower_feature_errors_populates_typed_block() {
+        let source = r#"
+feature account
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
+    policy_denied message @translation.account_signin_required
+    validation_failed message @translation.account_invalid_input
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let errors = feature.errors.as_ref().expect("errors block lowered");
+        assert_eq!(errors.default, Some(ir::ErrorExposureDefault::Hide));
+        assert_eq!(errors.exposure_4xx, vec!["message", "code"]);
+        assert_eq!(errors.exposure_5xx, vec!["code"]);
+        assert_eq!(errors.messages.len(), 2);
+        let policy_denied = errors
+            .messages
+            .iter()
+            .find(|m| m.code == "policy_denied")
+            .expect("policy_denied row");
+        assert_eq!(policy_denied.message.key, "account_signin_required");
+        let validation = errors
+            .messages
+            .iter()
+            .find(|m| m.code == "validation_failed")
+            .expect("validation_failed row");
+        assert_eq!(validation.message.key, "account_invalid_input");
+        // v1 leaves field_messages empty (reserved slot — proposal §3.4).
+        assert!(errors.field_messages.is_empty());
+    }
+
+    #[test]
+    fn lower_feature_without_errors_block_keeps_field_none() {
+        let source = r#"
+feature account
+  command choose_role
+    input
+      role_id: ID required
+    returns User
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        assert!(
+            feature.errors.is_none(),
+            "feature without `errors` block keeps `errors: None`"
+        );
+    }
+
+    #[test]
+    fn lower_feature_errors_default_expose_lowers_correctly() {
+        let source = r#"
+feature account
+  errors
+    default expose
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let errors = feature.errors.as_ref().expect("errors block lowered");
+        assert_eq!(errors.default, Some(ir::ErrorExposureDefault::Expose));
+        assert!(errors.exposure_4xx.is_empty());
+        assert!(errors.exposure_5xx.is_empty());
+        assert!(errors.messages.is_empty());
     }
 }
 

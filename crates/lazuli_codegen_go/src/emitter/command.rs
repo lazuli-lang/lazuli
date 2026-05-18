@@ -55,6 +55,9 @@ use std::collections::BTreeMap;
 
 use super::cross_feature::CrossFeatureIndex;
 use super::error_envelope::{bucket_names_for_external_calls, emit_wrap_helper, sentinel_buckets};
+use super::error_resolver::{
+    command_error_keys_var, command_has_error_keys, emit_command_error_keys,
+};
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::patterns::{
@@ -221,6 +224,17 @@ fn emit_command(
 
     let var_name = command_var_name(&command.name, &resource_pascal);
 
+    // Cell CODEGEN-1 (IR Error-Vocab) — when the command declares
+    // `policy_when_denied @translation.<key>`, emit the per-command
+    // `var <cmd>ErrorKeys = lazuli.ErrorKeys{ ... }` literal first so
+    // the `lazuli.Command[I, O]{ ... }` value below can reference it
+    // via the `ErrorKeys` kv row. The runtime resolver consults this
+    // struct as step 1 of the resolution chain (proposal §2.E).
+    if command_has_error_keys(command) {
+        emit_command_error_keys(p, command);
+        p.blank();
+    }
+
     let pattern = match command.effect {
         CommandEffect::Updates(_) => PATTERN_COMMAND_PGX_UPDATE,
         _ => PATTERN_COMMAND_PGX_INSERT,
@@ -264,6 +278,16 @@ fn emit_command(
     }
     if let Some(approval) = &command.approval {
         kv_rows.push(("Approval:".to_owned(), format_approval(approval)));
+    }
+    // Cell CODEGEN-1 — when the command declares
+    // `policy_when_denied`, point the runtime at the per-command
+    // `<cmd>ErrorKeys` literal emitted above. The Lazuli Go runtime
+    // (`lazuli.Command[I, O].ErrorKeys` field, Cell RUNTIME-1) reads
+    // this pointer at handler-construction time to short-circuit the
+    // resolver chain on `policy_denied`.
+    if command_has_error_keys(command) {
+        let keys_var = command_error_keys_var(command);
+        kv_rows.push(("ErrorKeys:".to_owned(), format!("&{keys_var},")));
     }
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {

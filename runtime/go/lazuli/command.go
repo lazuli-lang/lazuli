@@ -115,6 +115,15 @@ type Command[I, O any] struct {
 	// surfaces. nil means the command is live.
 	Deprecation *Deprecation
 
+	// ErrorKeys binds per-command framework-error translation keys per
+	// proposal §2.A (resolution-chain layer 1). Codegen emits a
+	// `var <command>ErrorKeys = lazuli.ErrorKeys{ ... }` literal and
+	// passes `&<command>ErrorKeys` here when the command declares
+	// `policy ... when_denied @translation.<key>`. nil means no
+	// per-command override — the resolver falls through to the per-
+	// feature `FeatureErrorContract`, then to the built-in catalog.
+	ErrorKeys *ErrorKeys
+
 	// untouched generic erasure marker for registry storage
 	_ struct{}
 }
@@ -140,6 +149,7 @@ func (c *Command[I, O]) erased() *commandErased {
 		Retry:         c.Retry,
 		Idempotency:   c.Idempotency,
 		Deprecation:   c.Deprecation,
+		ErrorKeys:     c.ErrorKeys,
 	}
 }
 
@@ -162,4 +172,5 @@ type commandErased struct {
 	Retry         *RetryPolicy
 	Idempotency   *IdempotencyKey
 	Deprecation   *Deprecation
+	ErrorKeys     *ErrorKeys
 }

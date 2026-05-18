@@ -18,6 +18,7 @@ use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
 use super::enums::emit_enum_file;
+use super::error_resolver::{APP_ERROR_RESOLUTION_PATH, emit_app_error_resolution, emit_feature_errors_file};
 use super::events::emit_events_file;
 use super::handlers::emit_handler_stubs;
 use super::imports::ImportSet;
@@ -391,6 +392,20 @@ pub fn emit_module(
             });
         }
 
+        // Cell CODEGEN-1 (IR Error-Vocab) — per-feature `errors.gen.go`
+        // emitted when the feature declares an `errors` block. Carries
+        // the lowered `FeatureErrorContract` (exposure rules + per-code
+        // message overrides). Skipped when `Feature.errors.is_none()`
+        // so the output listing stays signal-rich. See
+        // `docs/proposals/ir-error-messages-vocab.md` §4.1.2.
+        if let Some(contents) = emit_feature_errors_file(&source_label, feature) {
+            let errors_path = format!("{name}/errors.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: errors_path,
+                contents,
+            });
+        }
+
         // Cell E3 — `Command` emission. Walks every command on the
         // feature into a sibling `command.gen.go`. Features without
         // commands skip the file entirely (mirrors the resource /
@@ -647,6 +662,19 @@ pub fn emit_module(
                 contents,
             });
         }
+    }
+
+    // Cell CODEGEN-1 (IR Error-Vocab) — app-level
+    // `app/error_resolution.gen.go`. Walks every feature, gathers each
+    // declared `FeatureErrors`, and registers them with the runtime
+    // resolver via `lazuli.RegisterFeatureErrors(...)`. Skipped when no
+    // feature declares an `errors` block. See
+    // `docs/proposals/ir-error-messages-vocab.md` §4.1.3.
+    if let Some(contents) = emit_app_error_resolution(&source_label, module, &module_name) {
+        files.push(GeneratedFile {
+            path: APP_ERROR_RESOLUTION_PATH.to_owned(),
+            contents,
+        });
     }
 
     // Cell N3 — DDL migration emission. Walks all resources across all

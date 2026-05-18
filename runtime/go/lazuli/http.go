@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"lazuli.dev/runtime/lazuli/i18n"
 	"lazuli.dev/runtime/lazuli/report"
 	"lazuli.dev/runtime/lazuli/webhooks"
 )
@@ -130,21 +131,21 @@ func (w *webhookRouterAdapter) Method(method, pattern string, handler http.Handl
 func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandErased) {
 	handler := lookupCommandHandler(cmd.Name)
 	if handler == nil {
-		writeError(w, &Error{Status: 500, Code: CodeInternal,
+		writeError(w, r, &Error{Status: 500, Code: CodeInternal,
 			Message: "command registered without typed handler: " + cmd.Name})
 		return
 	}
 
 	body, err := readRequestBody(r)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 
 	ctx := newRequestCtx(r)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -156,14 +157,14 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistration) {
 	body, err := readRequestBody(r)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 
 	ctx := newRequestCtx(r)
 	out, err := api.Dispatch(ctx, body)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -174,21 +175,21 @@ func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistratio
 func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) {
 	handler := lookupQueryHandler(q.Name)
 	if handler == nil {
-		writeError(w, &Error{Status: 500, Code: CodeInternal,
+		writeError(w, r, &Error{Status: 500, Code: CodeInternal,
 			Message: "query registered without typed handler: " + q.Name})
 		return
 	}
 
 	body, err := readRequestBody(r)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 
 	ctx := newRequestCtx(r)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -241,18 +242,22 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // writeError encodes a runtime error envelope. Non-Lazuli errors map to 500.
-func writeError(w http.ResponseWriter, err error) {
+//
+// When `r` is non-nil, the boundary also:
+//   - negotiates locale from `Accept-Language` against the installed locale
+//     contract (`AppLocaleContract()`),
+//   - asks `i18n.Default()` to resolve the wire message via the four-layer
+//     chain (proposal §2.E),
+//   - gates `message_key` / `data` exposure via the feature's
+//     `FeatureErrorContract` (proposal §2.G).
+//
+// Callers without an `*http.Request` (e.g. middleware that fires before
+// request decoding) pass `nil`; the boundary then writes the legacy
+// envelope (Message/Code/Data) without resolution.
+func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var le *Error
 	if errors.As(err, &le) {
-		status := le.Status
-		if status == 0 {
-			status = http.StatusInternalServerError
-		}
-		writeJSON(w, status, map[string]any{
-			"code":    le.Code,
-			"message": le.Message,
-			"data":    le.Data,
-		})
+		writeLazuliError(w, r, le)
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, map[string]any{
@@ -260,6 +265,124 @@ func writeError(w http.ResponseWriter, err error) {
 		"message": err.Error(),
 	})
 }
+
+// writeLazuliError handles the typed `*Error` path: resolver +
+// exposure gating + JSON write.
+func writeLazuliError(w http.ResponseWriter, r *http.Request, le *Error) {
+	status := le.Status
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+
+	// Resolve the message via the four-layer chain. Skip entirely when
+	// the caller had no request (no locale, no source tag).
+	var (
+		feature   string
+		locale    string
+		hasCtx    = r != nil
+		resolver  = i18n.Default()
+		firedKey  string
+		resolved  string
+		hasResult bool
+	)
+	if hasCtx {
+		ctx := r.Context()
+		tag := SourceTagFromContext(ctx)
+		feature = tag.Feature
+		locale = negotiateErrorLocale(ctx, r.Header.Get("Accept-Language"))
+		resolved, firedKey = resolver.Resolve(i18n.ErrorRequest{
+			Code:       le.Code,
+			MessageKey: le.MessageKey,
+			Feature:    feature,
+			Locale:     locale,
+		})
+		hasResult = resolved != ""
+	}
+	if hasResult {
+		le.Message = resolved
+		if le.MessageKey == "" {
+			le.MessageKey = firedKey
+		}
+	}
+
+	// Exposure gating. When no feature contract is registered, default
+	// to the legacy behaviour (message + code + data exposed) so the
+	// pre-Error-Vocab callers don't lose information.
+	var (
+		contract       i18n.FeatureErrorContract
+		contractKnown  bool
+	)
+	if hasCtx && feature != "" {
+		contract, contractKnown = appErrorRegistry.Features[feature]
+	}
+
+	payload := map[string]any{
+		"code": le.Code,
+	}
+	if !contractKnown || i18n.ShouldExpose(contract, status, "message") {
+		payload["message"] = le.Message
+	}
+	if !contractKnown || i18n.ShouldExpose(contract, status, "data") {
+		if le.Data != nil {
+			payload["data"] = le.Data
+		} else if !contractKnown {
+			// Preserve legacy shape: pre-contract callers always wrote
+			// the "data" key (often null). Keep that until codegen
+			// ships a contract.
+			payload["data"] = le.Data
+		}
+	}
+	if le.MessageKey != "" && (!contractKnown || i18n.ShouldExpose(contract, status, "message_key")) {
+		payload["message_key"] = le.MessageKey
+	}
+
+	writeJSON(w, status, payload)
+}
+
+// negotiateErrorLocale resolves the locale used for error message
+// rendering. Order: request-context locale (set by `i18n.Middleware`)
+// → Accept-Language best-match against the installed locale contract
+// → installed-contract default → "en-US".
+func negotiateErrorLocale(ctx context.Context, acceptLanguage string) string {
+	if tag := i18n.LocaleFrom(ctx); tag != "" {
+		return tag
+	}
+	contract := AppLocaleContract()
+	if len(contract.Supported) > 0 {
+		return i18n.NegotiateAcceptLanguage(contract, acceptLanguage)
+	}
+	// No contract installed: ship a sensible default so the resolver
+	// has something to look up. The proposal's catalog ships en-US +
+	// pt-BR at minimum (RUNTIME-2), so en-US is a safe floor.
+	return "en-US"
+}
+
+// appErrorRegistry is the process-global error-resolution registry,
+// installed at boot by codegen-emitted `RegisterAppErrorResolver`
+// (proposal §4.1.3). Defaults to a zero registry — the boundary then
+// falls back to legacy envelope behaviour.
+var appErrorRegistry i18n.AppErrorResolverRegistry
+
+// RegisterAppErrorResolver installs the app-level error-resolution
+// registry. Codegen calls this once at boot from
+// `dist/go/app/error_resolution.gen.go`. Passing a zero value reinstalls
+// the empty registry (legacy envelope behaviour).
+func RegisterAppErrorResolver(reg i18n.AppErrorResolverRegistry) {
+	appErrorRegistry = reg
+}
+
+// appLocaleContract is the process-global locale contract. Codegen's
+// `app.locale` lowering installs it; absent that, `AppLocaleContract`
+// returns the zero value and the negotiator falls back to `en-US`.
+var appLocaleContract i18n.LocaleContract
+
+// AppLocaleContract returns the installed locale contract. Used by
+// the error boundary for `Accept-Language` negotiation.
+func AppLocaleContract() i18n.LocaleContract { return appLocaleContract }
+
+// RegisterAppLocaleContract installs the app-level locale contract.
+// Codegen calls this once at boot from the lowered `app.locale` block.
+func RegisterAppLocaleContract(c i18n.LocaleContract) { appLocaleContract = c }
 
 // loggingMiddleware logs every request with method, path, status, duration.
 func loggingMiddleware(next http.Handler) http.Handler {

@@ -22,8 +22,22 @@ type Error struct {
 
 	Status  int    // HTTP status; 0 lets the runtime choose by Code
 	Code    string // stable identifier ("policy_denied", "validation_failed")
-	Message string // human-readable
+	Message string // human-readable; literal English fallback (built-in last-resort)
 	Data    any    // Deprecated: transitional structured payload from the v1 flat envelope.
+
+	// MessageKey is the resolved translation key for this error envelope,
+	// fully-qualified at the producer site (e.g. "account.choose_role_signin_required").
+	// Codegen emits the per-command/policy override into this slot before the
+	// HTTP boundary; the runtime resolver reads it as the L1 lookup. Empty
+	// when the producer wants the resolver to fall through to feature/built-in
+	// layers. See IR Error-Vocab proposal §5.1.
+	//
+	// EXPERIMENTAL: additive; existing fields untouched.
+	MessageKey string
+	// MessageArgs carries optional ICU/strings.Replacer arguments for
+	// parameterized keys (e.g. {"duration": "30s"}). v1 leaves rendering
+	// engine to the i18n adapter; v2 may add structured args.
+	MessageArgs map[string]any
 }
 
 // ErrorBase carries the structural context shared by all typed errors.
