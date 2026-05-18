@@ -455,4 +455,120 @@ mod tests {
     fn extract_ignores_mixed_line_not_matching() {
         assert!(extract_declared_type_names("const x: Slug = value").is_empty());
     }
+
+    // ---------------------------------------------------------------
+    // Post-Wave-H 7+6 closed catalog — plural topology coverage
+    // ---------------------------------------------------------------
+
+    /// Wave H canon shape: `app/clients/<name>/src/cells/<feature>/...`
+    /// redeclaring a generated type fires. Mirrors the hostpoint pilot
+    /// `cells/messaging/ChatExperience.tsx` redeclaring `Chat`.
+    #[test]
+    fn post_wave_h_plural_cell_redeclaration_fires() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/messaging/messaging.gen.ts",
+            "export interface Chat { id: string }\n\
+             export interface ChatMessage { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
+            "interface Chat { name: string }\n\
+             interface ChatMessage { body: string }\n",
+        );
+
+        let findings = check(dir.path());
+
+        assert_eq!(findings.len(), 2, "found: {:?}", findings.len());
+        let names: Vec<String> = findings.iter().map(|f| f.type_name.clone()).collect();
+        assert!(names.contains(&"Chat".to_string()));
+        assert!(names.contains(&"ChatMessage".to_string()));
+    }
+
+    /// Wave H canon shape: `app/clients/<name>/src/routes/...`
+    /// redeclaring a generated type fires.
+    #[test]
+    fn post_wave_h_plural_route_redeclaration_fires() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/host/host.gen.ts",
+            "export type HostHomePending = { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/routes/HostHome.tsx",
+            "type HostHomePending = { local: true }\n",
+        );
+
+        let findings = check(dir.path());
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].type_name, "HostHomePending");
+        assert_eq!(
+            findings[0].user_file,
+            dir.path().join("app/clients/web-app/src/routes/HostHome.tsx")
+        );
+    }
+
+    /// A clean Wave H plural client tree (no type collisions) emits
+    /// zero findings even with generated types present.
+    #[test]
+    fn post_wave_h_plural_clean_tree_is_silent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/messaging/messaging.gen.ts",
+            "export interface Chat { id: string }\n",
+        );
+        // Canon-shape files that DON'T redeclare any generated type.
+        write(
+            dir.path(),
+            "app/clients/web-app/src/shell/App.tsx",
+            "import type { Chat } from \"@/sdk/messaging/messaging.gen\";\n\
+             export function App() { return null }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
+            "import type { Chat } from \"@/sdk/messaging/messaging.gen\";\n\
+             export function ChatExperience() { return null }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/ui/forms/Button.tsx",
+            "type LocalButtonProps = { label: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/clients/web-app/src/state/toast.store.ts",
+            "export type ToastMessage = { id: string; body: string }\n",
+        );
+
+        assert!(check(dir.path()).is_empty());
+    }
+
+    /// Wave H singular topology (`app/web/...`) — same redeclaration
+    /// detection.
+    #[test]
+    fn post_wave_h_singular_cell_redeclaration_fires() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "dist/ts-web/messaging/messaging.gen.ts",
+            "export interface Chat { id: string }\n",
+        );
+        write(
+            dir.path(),
+            "app/web/cells/messaging/ChatExperience.tsx",
+            "interface Chat { name: string }\n",
+        );
+
+        let findings = check(dir.path());
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].type_name, "Chat");
+    }
 }

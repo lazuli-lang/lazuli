@@ -1,15 +1,43 @@
 //! Doctor rule `feature-orphan-component`.
 //!
 //! Flags user-authored `.tsx` / `.ts` files in non-canonical paths under a
-//! Lazurite product repo. The canonical frontend layout is defined by L0 #1,
-//! `docs/proposals/lazurite-frontend-folder-canon.md` §4, and the forbidden
-//! React/Vite anti-pattern is listed in §5.1.
+//! Lazurite product repo. The canonical frontend layout is defined by L0 #1
+//! (`docs/proposals/lazurite-frontend-folder-canon.md` §4), the Wave H
+//! corrective (`[[client_src_canonical_architecture_2026-05-17]]` §3), and
+//! the singular-vs-plural decision
+//! (`[[frontend_layout_default_and_slicing_2026-05-16]]`).
 //!
-//! Canonical locations:
-//!   - `app/features/<feat>/web/{cells,views/<audience>}/*.{ts,tsx}`
-//!   - `app/features/<feat>/mobile/{cells,views/<audience>}/*.{ts,tsx}`
-//!   - `frontends/<target>/{shell,theme,ui,hooks,lib}/**/*.{ts,tsx}`
-//!   - `frontends/<target>/{main,vite.config,tailwind.config}.ts(x)`
+//! Canonical locations (post-Wave-H 7+6 closed catalog):
+//!
+//!   Plural client topology (`app/clients/<name>/src/...`):
+//!     - `app/clients/<name>/src/shell/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/routes/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/cells/<feature>/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/ui/{forms,feedback,navigation,display,overlays,layout}/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/theme/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/state/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/assets/**/*.{ts,tsx}`
+//!     - `app/clients/<name>/src/{index,main,vite-env}.{ts,tsx}` (wrapper-level files)
+//!     - `app/clients/<name>/{main,vite.config,tailwind.config,playwright.config,nativewind-env}.ts(x)` (client config)
+//!
+//!   Singular client topology (`app/web/...` — same shape, different wrapper):
+//!     - `app/web/shell/**/*.{ts,tsx}`
+//!     - `app/web/routes/**/*.{ts,tsx}`
+//!     - `app/web/cells/<feature>/**/*.{ts,tsx}`
+//!     - `app/web/ui/{forms,feedback,navigation,display,overlays,layout}/**/*.{ts,tsx}`
+//!     - `app/web/theme/**/*.{ts,tsx}`
+//!     - `app/web/state/**/*.{ts,tsx}`
+//!     - `app/web/assets/**/*.{ts,tsx}`
+//!     - `app/web/{index,main,vite-env}.{ts,tsx}`
+//!
+//!   Legacy DSL feature shape (still recognised — generators emit here):
+//!     - `app/features/<feat>/web/{cells,views/<audience>}/*.{ts,tsx}`
+//!     - `app/features/<feat>/mobile/{cells,views/<audience>}/*.{ts,tsx}`
+//!     - `features/<feat>/...` (test-fixture form, identical shape)
+//!
+//!   Legacy frontends wrapper (pre-Wave-H pilots):
+//!     - `frontends/<target>/{shell,theme,ui,hooks,lib}/**/*.{ts,tsx}`
+//!     - `frontends/<target>/{main,vite.config,tailwind.config}.ts(x)`
 //!
 //! Anything else inside the Lazuli-owned tree, such as `src/components/`,
 //! `app/components/`, or `lib/components/`, is an orphan component.
@@ -42,10 +70,15 @@ impl Finding {
 
     pub fn message(path: &Path) -> String {
         format!(
-            "`{}` is outside the canonical Lazurite frontend layout. Move \
-             to `app/features/<feat>/web/views/<audience>/` (page), \
-             `app/features/<feat>/web/cells/` (slot impl), or \
-             `frontends/<target>/ui/` (shared primitive).",
+            "`{}` is outside the canonical Lazurite frontend layout. \
+             Route into the 7+6 closed catalog per \
+             `[[client_src_canonical_architecture_2026-05-17]]` §3: \
+             `app/clients/<name>/src/routes/**` (page-level .tsx), \
+             `app/clients/<name>/src/cells/<feature>/**` (handcrafted slot \
+             widget), `app/clients/<name>/src/ui/{{forms,feedback,navigation,\
+             display,overlays,layout}}/**` (shared primitive), or \
+             `app/clients/<name>/src/{{shell,theme,state,assets}}/**`. \
+             Singular topology uses `app/web/` with the same shape.",
             path.display()
         )
     }
@@ -128,6 +161,52 @@ fn is_canonical_path(rel: &Path) -> bool {
     let parts = path_parts(rel);
 
     match parts.as_slice() {
+        // --- Wave H 7+6 canon, plural topology ---
+        // app/clients/<name>/src/{shell,routes,theme,state,assets}/<...>
+        ["app", "clients", _, "src", folder, rest @ ..]
+            if is_client_src_top_level(folder) && !rest.is_empty() =>
+        {
+            true
+        }
+        // app/clients/<name>/src/cells/<feature>/<...>
+        // (per Wave H amendment: subdirs MUST mirror app/features/<feature>/;
+        // the mirror enforcement is sibling rule's job — here we just accept
+        // any non-empty cells/<feature>/file shape).
+        ["app", "clients", _, "src", "cells", _feature, rest @ ..] if !rest.is_empty() => true,
+        // app/clients/<name>/src/ui/<sub-bucket>/<...>
+        ["app", "clients", _, "src", "ui", sub, rest @ ..]
+            if is_ui_sub_bucket(sub) && !rest.is_empty() =>
+        {
+            true
+        }
+        // app/clients/<name>/src/ui/index.{ts,tsx} — barrel file
+        // re-exporting the 6 sub-bucket primitives. Common pilot
+        // convention; not a sub-bucket so it has its own arm.
+        ["app", "clients", _, "src", "ui", file] if is_barrel_file(file) => true,
+        // app/clients/<name>/src/<wrapper-file>.{ts,tsx}
+        ["app", "clients", _, "src", file] if is_client_src_wrapper_file(file) => true,
+        // app/clients/<name>/<client-config>.{ts,tsx} — tooling configs that
+        // live at the wrapper level (vite.config.ts, playwright.config.ts,
+        // tailwind.config.ts, nativewind-env.d.ts, etc.).
+        ["app", "clients", _, file] if is_client_wrapper_config_file(file) => true,
+
+        // --- Wave H 7+6 canon, singular topology ---
+        // app/web/{shell,routes,theme,state,assets}/<...>
+        ["app", "web", folder, rest @ ..]
+            if is_client_src_top_level(folder) && !rest.is_empty() =>
+        {
+            true
+        }
+        // app/web/cells/<feature>/<...>
+        ["app", "web", "cells", _feature, rest @ ..] if !rest.is_empty() => true,
+        // app/web/ui/<sub-bucket>/<...>
+        ["app", "web", "ui", sub, rest @ ..] if is_ui_sub_bucket(sub) && !rest.is_empty() => true,
+        // app/web/ui/index.{ts,tsx} — barrel file
+        ["app", "web", "ui", file] if is_barrel_file(file) => true,
+        // app/web/<wrapper-file>.{ts,tsx} (top-level shell entry)
+        ["app", "web", file] if is_client_src_wrapper_file(file) => true,
+
+        // --- Legacy DSL feature shape ---
         // app/features/<feat>/web/cells/<file>.tsx
         // app/features/<feat>/mobile/cells/<file>.tsx
         ["app", "features", _, platform, "cells", rest @ ..]
@@ -156,6 +235,7 @@ fn is_canonical_path(rel: &Path) -> bool {
             true
         }
 
+        // --- Legacy frontends wrapper (pre-Wave-H pilots) ---
         // frontends/web/shell/<...>.tsx
         // frontends/mobile/theme/<...>.tsx
         ["frontends", platform, subdir, rest @ ..]
@@ -179,6 +259,70 @@ fn is_canonical_path(rel: &Path) -> bool {
 
         _ => false,
     }
+}
+
+/// Top-level folders of the post-Wave-H 7-folder closed catalog,
+/// excluding `cells/` (which has its own match arm because it requires a
+/// `<feature>` sub-bucket) and `ui/` (which has a closed sub-catalog).
+///
+/// Per `[[client_src_canonical_architecture_2026-05-17]]` §3.1 the 7 are
+/// `{shell, routes, ui, theme, state, assets, cells}`. This helper covers
+/// the 4 that accept any rest path (`shell`, `routes`, `theme`, `state`)
+/// plus `assets` (static files).
+fn is_client_src_top_level(name: &str) -> bool {
+    matches!(name, "shell" | "routes" | "theme" | "state" | "assets")
+}
+
+/// Closed catalog for `ui/` sub-buckets per
+/// `[[client_src_canonical_architecture_2026-05-17]]` §3.2.
+fn is_ui_sub_bucket(name: &str) -> bool {
+    matches!(
+        name,
+        "forms" | "feedback" | "navigation" | "display" | "overlays" | "layout"
+    )
+}
+
+/// Barrel-file names allowed at a folder's top level (a single
+/// re-export hub for the folder's primitives). Common pilot convention
+/// for `ui/index.ts` etc.; not part of the closed catalog but harmless.
+fn is_barrel_file(file: &str) -> bool {
+    matches!(file, "index.ts" | "index.tsx")
+}
+
+/// File names that may live directly under `app/clients/<name>/src/` or
+/// `app/web/` (the client wrapper root). These are the bootstrap entry
+/// points + Vite/TS housekeeping files that scaffolds emit at the
+/// wrapper level.
+fn is_client_src_wrapper_file(file: &str) -> bool {
+    matches!(
+        file,
+        "main.tsx"
+            | "main.ts"
+            | "index.ts"
+            | "index.tsx"
+            | "App.tsx"
+            | "App.ts"
+            | "vite-env.d.ts"
+    )
+}
+
+/// File names that may live directly under `app/clients/<name>/` (one
+/// level above `src/` — the client root). These are tooling configs
+/// that have to sit next to `package.json` so Vite / Playwright /
+/// Tailwind pick them up. Only `.ts(x)` entries are listed — sibling
+/// `.cjs` / `.mjs` / `.js` configs are out of scope for this rule (it
+/// only scans `.ts(x)` files; see `is_ts_or_tsx_file`).
+fn is_client_wrapper_config_file(file: &str) -> bool {
+    matches!(
+        file,
+        "vite.config.ts"
+            | "vitest.config.ts"
+            | "playwright.config.ts"
+            | "tailwind.config.ts"
+            | "postcss.config.ts"
+            | "nativewind-env.d.ts"
+            | "env.d.ts"
+    )
 }
 
 fn is_ts_or_tsx_file(path: &Path) -> bool {
@@ -414,6 +558,235 @@ mod tests {
                 PathBuf::from("frontends/web/junk/Alpha.tsx"),
                 PathBuf::from("frontends/web/junk/Zed.tsx"),
             ]
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Post-Wave-H 7+6 closed catalog — plural topology
+    // ---------------------------------------------------------------
+
+    /// Fixture: a full 7+6-canon plural client tree (mirroring the
+    /// hostpoint pilot's `app/clients/hostpoint-app/` shape). Mirrors
+    /// the `vocab_client_src_001` fixture-A pattern.
+    #[test]
+    fn post_wave_h_plural_client_full_canon_is_silent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // 7 top-level folders.
+        touch(tmp.path(), "app/clients/web-app/src/shell/App.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/routes/Home.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/theme/tokens.ts");
+        touch(tmp.path(), "app/clients/web-app/src/state/toast.store.ts");
+        touch(tmp.path(), "app/clients/web-app/src/assets/images.d.ts");
+        touch(tmp.path(), "app/clients/web-app/src/assets/index.ts");
+        // cells/<feature>/...
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
+        );
+        // 6 ui/ sub-buckets.
+        touch(tmp.path(), "app/clients/web-app/src/ui/forms/Button.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/ui/feedback/Toast.tsx");
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/ui/navigation/NavBar.tsx",
+        );
+        touch(tmp.path(), "app/clients/web-app/src/ui/display/Card.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/ui/overlays/Dialog.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/ui/layout/Stack.tsx");
+        // wrapper-level entry files.
+        touch(tmp.path(), "app/clients/web-app/src/main.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/vite-env.d.ts");
+        // client-root config files.
+        touch(tmp.path(), "app/clients/web-app/vite.config.ts");
+        touch(tmp.path(), "app/clients/web-app/playwright.config.ts");
+        touch(tmp.path(), "app/clients/web-app/nativewind-env.d.ts");
+
+        let findings = check(tmp.path());
+
+        assert!(
+            findings.is_empty(),
+            "Wave H 7+6 canon must not fire; got: {:?}",
+            findings
+        );
+    }
+
+    /// Deep nesting under canonical folders is allowed: `routes/onboarding/host/`,
+    /// `cells/messaging/threads/`, `ui/forms/inputs/`, `state/toast/queue/`.
+    #[test]
+    fn post_wave_h_deep_nesting_under_canonical_folders_is_silent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/routes/onboarding/host/Address.tsx",
+        );
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/routes/settings/panels/HostAddress.tsx",
+        );
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/cells/messaging/threads/Bubble.tsx",
+        );
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/ui/forms/inputs/Slider.tsx",
+        );
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/state/toast/queue/index.ts",
+        );
+
+        let findings = check(tmp.path());
+
+        assert!(
+            findings.is_empty(),
+            "deep canonical nesting must not fire; got: {:?}",
+            findings
+        );
+    }
+
+    /// Orphan inside an otherwise canonical plural client tree still
+    /// fires (the rule narrows the canon, it doesn't open it).
+    #[test]
+    fn post_wave_h_orphan_inside_client_src_still_fires() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Canonical neighbour.
+        touch(tmp.path(), "app/clients/web-app/src/ui/forms/Button.tsx");
+        // Orphan: `components/` is NOT in the closed catalog at any depth.
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/components/Sidebar.tsx",
+        );
+        // Orphan: `lib/` catch-all at the client-src top level.
+        touch(tmp.path(), "app/clients/web-app/src/lib/format.ts");
+        // Orphan: `ui/cards/` — `cards` is not in the 6-sub-bucket catalog.
+        touch(tmp.path(), "app/clients/web-app/src/ui/cards/PromoCard.tsx");
+
+        let findings = check(tmp.path());
+
+        assert_eq!(findings.len(), 3, "found: {:?}", findings);
+        let paths: Vec<PathBuf> = findings.iter().map(|f| f.path.clone()).collect();
+        assert!(paths.contains(&PathBuf::from(
+            "app/clients/web-app/src/components/Sidebar.tsx"
+        )));
+        assert!(paths.contains(&PathBuf::from("app/clients/web-app/src/lib/format.ts")));
+        assert!(paths.contains(&PathBuf::from(
+            "app/clients/web-app/src/ui/cards/PromoCard.tsx"
+        )));
+    }
+
+    /// Multiple clients under `app/clients/` are each their own
+    /// canonical tree — no cross-client interference.
+    #[test]
+    fn post_wave_h_multi_client_independent_walks() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Two clients, both canonical.
+        touch(tmp.path(), "app/clients/web-app/src/shell/App.tsx");
+        touch(tmp.path(), "app/clients/web-app/src/routes/Home.tsx");
+        touch(tmp.path(), "app/clients/web-os/src/shell/App.tsx");
+        touch(tmp.path(), "app/clients/web-os/src/theme/tokens.ts");
+        // One orphan in the second client only.
+        touch(tmp.path(), "app/clients/web-os/src/utils/format.ts");
+
+        let findings = check(tmp.path());
+
+        assert_eq!(findings.len(), 1, "found: {:?}", findings);
+        assert_eq!(
+            findings[0].path,
+            PathBuf::from("app/clients/web-os/src/utils/format.ts")
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Post-Wave-H 7+6 closed catalog — singular topology
+    // ---------------------------------------------------------------
+
+    /// Singular topology (`app/web/...`) must accept the same 7+6 shape
+    /// — only the wrapper differs.
+    #[test]
+    fn post_wave_h_singular_app_web_canon_is_silent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "app/web/shell/App.tsx");
+        touch(tmp.path(), "app/web/routes/Home.tsx");
+        touch(tmp.path(), "app/web/theme/tokens.ts");
+        touch(tmp.path(), "app/web/state/toast.store.ts");
+        touch(tmp.path(), "app/web/assets/images.d.ts");
+        touch(tmp.path(), "app/web/cells/messaging/ChatExperience.tsx");
+        touch(tmp.path(), "app/web/ui/forms/Button.tsx");
+        touch(tmp.path(), "app/web/ui/feedback/Toast.tsx");
+        touch(tmp.path(), "app/web/ui/navigation/NavBar.tsx");
+        touch(tmp.path(), "app/web/ui/display/Card.tsx");
+        touch(tmp.path(), "app/web/ui/overlays/Dialog.tsx");
+        touch(tmp.path(), "app/web/ui/layout/Stack.tsx");
+        touch(tmp.path(), "app/web/main.tsx");
+        touch(tmp.path(), "app/web/vite-env.d.ts");
+
+        let findings = check(tmp.path());
+
+        assert!(
+            findings.is_empty(),
+            "Wave H singular canon must not fire; got: {:?}",
+            findings
+        );
+    }
+
+    /// Orphan inside `app/web/` still fires (singular orphan path).
+    #[test]
+    fn post_wave_h_singular_app_web_orphan_fires() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "app/web/shell/App.tsx"); // canonical neighbour
+        touch(tmp.path(), "app/web/components/Sidebar.tsx"); // orphan
+        touch(tmp.path(), "app/web/ui/atoms/Button.tsx"); // orphan: atoms anti-pattern
+
+        let findings = check(tmp.path());
+
+        assert_eq!(findings.len(), 2, "found: {:?}", findings);
+        let paths: Vec<PathBuf> = findings.iter().map(|f| f.path.clone()).collect();
+        assert!(paths.contains(&PathBuf::from("app/web/components/Sidebar.tsx")));
+        assert!(paths.contains(&PathBuf::from("app/web/ui/atoms/Button.tsx")));
+    }
+
+    /// `ui/index.ts` barrels (common pilot convention re-exporting the
+    /// 6 sub-bucket primitives) are accepted at the `ui/` level.
+    #[test]
+    fn post_wave_h_ui_index_barrel_is_silent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "app/clients/web-app/src/ui/index.ts");
+        touch(tmp.path(), "app/clients/web-app/src/ui/forms/Button.tsx");
+        // Same for singular.
+        touch(tmp.path(), "app/web/ui/index.ts");
+
+        let findings = check(tmp.path());
+
+        assert!(
+            findings.is_empty(),
+            "ui/index.ts barrels must not fire; got: {:?}",
+            findings
+        );
+    }
+
+    /// Message updated to reference the post-Wave-H canon paths, not
+    /// the pre-canon `frontends/<target>/ui/`.
+    #[test]
+    fn message_references_post_wave_h_canon_paths() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        touch(tmp.path(), "app/components/Foo.tsx");
+
+        let findings = check(tmp.path());
+
+        assert_eq!(findings.len(), 1);
+        let msg = &findings[0].message;
+        assert!(
+            msg.contains("app/clients/<name>/src/routes/"),
+            "message should reference Wave H routes/ canon: {msg}"
+        );
+        assert!(
+            msg.contains("app/clients/<name>/src/cells/<feature>/"),
+            "message should reference Wave H cells/<feature>/ canon: {msg}"
+        );
+        assert!(
+            msg.contains("client_src_canonical_architecture_2026-05-17"),
+            "message should cite the Wave H decision anchor: {msg}"
         );
     }
 }
