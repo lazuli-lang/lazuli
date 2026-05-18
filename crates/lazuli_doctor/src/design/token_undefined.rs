@@ -21,13 +21,15 @@ use super::helpers::{
 /// Tailwind utility prefixes Doctor recognises. Each MUST also appear as a
 /// bucket key in `allowlist.json` (Cell B emits the buckets that match
 /// these prefixes). Order matters: longer prefixes MUST appear before
-/// shorter ones with the same head (`shadow-` before `shadow`) so the
-/// matcher picks the most specific bucket.
+/// shorter ones with the same head (`shadow-` before `shadow`,
+/// `ring-offset-` before `ring-`) so the matcher picks the most specific
+/// bucket.
 const KNOWN_PREFIXES: &[&str] = &[
     "bg-",
     "text-",
     "border-",
     "outline-",
+    "ring-offset-",
     "ring-",
     "fill-",
     "stroke-",
@@ -76,10 +78,59 @@ const BARE_CLASS_DEFAULTS: &[(&str, &str)] = &[("rounded", "rounded"), ("shadow"
 /// false-fire on every typography-scale class. `match_prefix` resolves
 /// the bucket key — `extra_buckets_for(bucket_key)` enumerates the
 /// additional buckets the rule must also probe before flagging.
+///
+/// The `ring-offset` bucket key is rare to be emitted on its own
+/// (Tailwind's ring-offset-color shares the project's color palette);
+/// we fall the lookup through to the `ring` color bucket so
+/// `ring-offset-background` resolves when `background` is declared as
+/// a ring color.
 fn extra_buckets_for(bucket_key: &str) -> &'static [&'static str] {
     match bucket_key {
         "text" => &["text-size"],
+        "ring-offset" => &["ring"],
         _ => &[],
+    }
+}
+
+/// `true` when `(prefix, suffix)` denotes a Tailwind ring-width or
+/// ring-offset-width built-in (`ring-2`, `ring-inherit`, `ring-offset-4`,
+/// `ring-offset-inherit`, etc). These are NOT design-token color
+/// references — they configure stroke width and never resolve via the
+/// allowlist. Doctor short-circuits them before the bucket lookup so
+/// projects don't have to declare numeric pseudo-tokens on every
+/// `ring` or `ring-offset` bucket.
+fn is_ring_width_builtin(prefix: &str, suffix: &str) -> bool {
+    if prefix != "ring-" && prefix != "ring-offset-" {
+        return false;
+    }
+    if suffix == "inherit" {
+        return true;
+    }
+    !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Strip Tailwind's opacity-slash modifier (`brand/90`, `primary/50`)
+/// when the substring after `/` is purely numeric. The modifier
+/// configures alpha and is not part of the design token's identity —
+/// `bg-brand/90` should resolve when `brand` is declared.
+///
+/// Used as a FALLBACK lookup: the rule first probes the allowlist with
+/// the modifier intact so projects that listed explicit `black/45`-style
+/// entries in their `allowlist.extension.json` keep working, and only
+/// strips when that direct probe misses.
+///
+/// Non-numeric tails (e.g. `fill-rule/even`-style hypotheticals) are
+/// left alone so we don't accidentally swallow class shapes that future
+/// Tailwind versions might give meaning to.
+fn strip_opacity_modifier(suffix: &str) -> &str {
+    let Some(idx) = suffix.rfind('/') else {
+        return suffix;
+    };
+    let tail = &suffix[idx + 1..];
+    if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
+        &suffix[..idx]
+    } else {
+        suffix
     }
 }
 
@@ -142,6 +193,12 @@ pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Fin
                 let Some((prefix, suffix)) = match_prefix(token) else {
                     continue;
                 };
+                // Tailwind ring-width / ring-offset-width built-ins
+                // (`ring-2`, `ring-inherit`, `ring-offset-4`) are NOT
+                // color references — short-circuit them here.
+                if is_ring_width_builtin(prefix, suffix) {
+                    continue;
+                }
                 // Empty suffix on a "bare" class (`rounded`, `shadow`) →
                 // check the `DEFAULT` slot in the bucket.
                 let lookup_suffix = if suffix.is_empty() {
@@ -167,6 +224,21 @@ pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Fin
                 if candidate_buckets
                     .iter()
                     .any(|b| allowlist.contains(b, lookup_suffix))
+                {
+                    continue;
+                }
+                // Opacity-slash modifier fallback: `bg-brand/90` may not be
+                // declared as a literal suffix, but `brand` should be — the
+                // `/N` tail is Tailwind's alpha modifier. Try the lookup
+                // again with the modifier stripped. This preserves the
+                // existing allowlist-extension escape hatch (projects can
+                // still list explicit `black/45` entries) while letting
+                // declared base tokens resolve under any opacity.
+                let stripped = strip_opacity_modifier(lookup_suffix);
+                if stripped != lookup_suffix
+                    && candidate_buckets
+                        .iter()
+                        .any(|b| allowlist.contains(b, stripped))
                 {
                     continue;
                 }
@@ -392,6 +464,95 @@ mod tests {
         assert!(f.is_empty(), "bg-primary regression; found: {:?}", f);
     }
 
+    // ── CC.4 — opacity-slash modifier + ring/ring-offset routing ────────────
+    //
+    // Tailwind allows `bg-X/N` for alpha; `ring-N` is a width built-in;
+    // `ring-offset-N` is the offset-width built-in; `ring-offset-<color>`
+    // shares the `ring` color palette. These tests pin the doctor-side
+    // routing so the final 5 hostpoint residuals resolve.
+
+    #[test]
+    fn opacity_slash_modifier_stripped_for_color_lookup() {
+        let lines = vec![r#"<div className="bg-brand/90 bg-brand/5" />"#];
+        let allowlist = al(&[("bg", &["brand"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "opacity-slash on color must resolve; found: {:?}", f);
+    }
+
+    #[test]
+    fn ring_width_builtin_not_flagged() {
+        // `ring-N` digits AND `ring-inherit` are width built-ins, never
+        // a color lookup — even when the `ring` color bucket exists.
+        let lines = vec![r#"<div className="ring-2 ring-1 ring-4 ring-8 ring-inherit" />"#];
+        let allowlist = al(&[("ring", &["primary", "background"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "ring width built-ins must not fire; found: {:?}", f);
+    }
+
+    #[test]
+    fn ring_offset_width_builtin_not_flagged() {
+        let lines = vec![
+            r#"<div className="ring-offset-0 ring-offset-2 ring-offset-4 ring-offset-8 ring-offset-inherit" />"#,
+        ];
+        let allowlist = al(&[("ring", &["primary", "background"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "ring-offset width built-ins must not fire; found: {:?}", f);
+    }
+
+    #[test]
+    fn ring_offset_color_resolves_via_color_bucket() {
+        // `ring-offset-background` falls through to the `ring` color
+        // bucket (Tailwind's ring-offset-color shares the project palette).
+        let lines = vec![r#"<div className="ring-offset-background" />"#];
+        let allowlist = al(&[("ring", &["primary", "background", "foreground"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "ring-offset-background must resolve via ring bucket; found: {:?}", f);
+    }
+
+    #[test]
+    fn ring_color_resolves_via_color_bucket() {
+        let lines = vec![r#"<div className="ring-primary ring-ring" />"#];
+        let allowlist = al(&[("ring", &["primary", "ring"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "ring-<color> must resolve; found: {:?}", f);
+    }
+
+    #[test]
+    fn unknown_ring_color_fires_diagnostic() {
+        // Regression guard: the width/offset relaxation must NOT
+        // over-allow arbitrary suffixes. Non-digit, non-`inherit`
+        // suffixes still hit the color lookup.
+        let lines = vec![r#"<div className="ring-undeclared" />"#];
+        let allowlist = al(&[("ring", &["primary"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].prefix, "ring");
+        assert_eq!(f[0].suffix, "undeclared");
+    }
+
+    #[test]
+    fn regression_opacity_slash_on_text_class() {
+        // `text-primary/50` must still resolve via the text color bucket.
+        let lines = vec![r#"<div className="text-primary/50" />"#];
+        let allowlist = al(&[("text", &["primary"]), ("text-size", &["base"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "text-primary/50 must resolve; found: {:?}", f);
+    }
+
+    #[test]
+    fn opacity_slash_explicit_extension_entry_honored() {
+        // The allowlist-extension escape hatch (`allowlist.extension.json`)
+        // lets projects declare literal `black/45`-style suffixes for
+        // colors that aren't part of the design.lzi palette. The doctor
+        // probes the full suffix BEFORE stripping, so these explicit
+        // entries continue to allow the class even after the opacity
+        // strip fallback was added.
+        let lines = vec![r#"<div className="bg-black/45" />"#];
+        let allowlist = al(&[("bg", &["primary", "black/45"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "explicit black/45 entry must allow; found: {:?}", f);
+    }
+
     #[test]
     fn test_file_skipped() {
         // Validated by walk_tsx_files unit tests; here we mainly assert
@@ -405,4 +566,5 @@ mod tests {
         let f = check_file(Path::new("x.test.tsx"), &lines, &allowlist);
         assert_eq!(f.len(), 1);
     }
+
 }
