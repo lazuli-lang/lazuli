@@ -54,6 +54,13 @@
 //! Anything else at the root is invisible to this rule. The Lazuli-owned
 //! tree's contents are still walked recursively from those entry points,
 //! so orphans inside `app/shared/ui/` or `app/components/` still fire.
+//!
+//! One subtree under `app/` is explicitly skipped: `app/clients/external/`
+//! is the polyglot escape-hatch per
+//! `[[lazurite_monorepo_shape_2026-05-17]]` §2.2 (revised 2026-05-18) —
+//! non-Lazuli frontends (Astro marketing sites, Rails dashboards, etc.)
+//! live grouped with Lazuli-native clients but follow their own
+//! conventions. Doctor does not descend into `app/clients/external/**`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -135,9 +142,13 @@ fn walk(root: &Path, dir: &Path, findings: &mut Vec<Finding>) {
         if file_type.is_dir() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if !should_skip_dir(&name) {
-                walk(root, &path, findings);
+            if should_skip_dir(&name) {
+                continue;
             }
+            if is_external_clients_subtree(root, &path) {
+                continue;
+            }
+            walk(root, &path, findings);
             continue;
         }
 
@@ -365,6 +376,14 @@ fn path_parts(path: &Path) -> Vec<&str> {
 
 fn is_platform(part: &str) -> bool {
     matches!(part, "web" | "mobile")
+}
+
+/// True if `path` is the `app/clients/external/` subtree under `root` —
+/// the polyglot escape-hatch per `[[lazurite_monorepo_shape_2026-05-17]]`
+/// §2.2 (revised 2026-05-18). Non-Lazuli frontends (Astro marketing,
+/// Rails dashboards, etc.) live here and are excluded from canon walks.
+fn is_external_clients_subtree(root: &Path, path: &Path) -> bool {
+    path == root.join("app").join("clients").join("external")
 }
 
 #[cfg(test)]
@@ -762,6 +781,38 @@ mod tests {
             findings.is_empty(),
             "ui/index.ts barrels must not fire; got: {:?}",
             findings
+        );
+    }
+
+    /// `app/clients/external/<name>/` is the polyglot escape-hatch per
+    /// `[[lazurite_monorepo_shape_2026-05-17]]` §2.2 (revised
+    /// 2026-05-18) — non-Lazuli frontends grouped under
+    /// `app/clients/` but excluded from Lazuli-canon walks. Doctor
+    /// must not descend into it.
+    #[test]
+    fn external_clients_subtree_is_invisible() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Astro-shape sub-app under app/clients/external/website/.
+        touch(tmp.path(), "app/clients/external/website/src/content/copy.ts");
+        touch(tmp.path(), "app/clients/external/website/src/pages/index.astro");
+        touch(
+            tmp.path(),
+            "app/clients/external/website/src/components/Hero.tsx",
+        );
+        // Sibling Lazuli-native client stays in scope.
+        touch(tmp.path(), "app/clients/web-app/src/shell/App.tsx");
+        // Orphan in the Lazuli-native client still fires.
+        touch(
+            tmp.path(),
+            "app/clients/web-app/src/components/Sidebar.tsx",
+        );
+
+        let findings = check(tmp.path());
+
+        assert_eq!(findings.len(), 1, "found: {:?}", findings);
+        assert_eq!(
+            findings[0].path,
+            PathBuf::from("app/clients/web-app/src/components/Sidebar.tsx")
         );
     }
 
