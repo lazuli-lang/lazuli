@@ -1,0 +1,36 @@
+# Doctor fixture — ERR-VOCAB-002 (error).
+# `policies.update.when_denied @translation.unknown_key` references a
+# key that is not declared in the feature's translation block. Same
+# diagnostic family extends to per-command `when_denied` and feature-
+# level `errors <code> message @translation.<key>` references; this
+# fixture exercises the per-policy site.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  policies
+    update: @role.admin
+      when_denied @translation.unknown_key
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key declared_only
+      pt-BR "Apenas declarada"
+
+  command update
+    policy @policy.update
+    updates Customer

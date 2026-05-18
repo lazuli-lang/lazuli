@@ -295,6 +295,7 @@ func writeLazuliError(w http.ResponseWriter, r *http.Request, le *Error) {
 			MessageKey: le.MessageKey,
 			Feature:    feature,
 			Locale:     locale,
+			Source:     le,
 		})
 		hasResult = resolved != ""
 	}

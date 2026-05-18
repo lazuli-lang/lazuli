@@ -1,0 +1,10 @@
+{
+  "policy_denied":      "Você precisa entrar na sua conta para fazer isso.",
+  "validation_failed":  "Os dados enviados estão incompletos ou incorretos.",
+  "tenant_mismatch":    "Esta ação não pertence ao espaço de trabalho atual.",
+  "not_found":          "Não encontramos o item solicitado.",
+  "rate_limited":       "Muitas tentativas — aguarde alguns instantes.",
+  "bad_request":        "A solicitação está em um formato inválido.",
+  "method_not_allowed": "Esta operação não é suportada nesta rota.",
+  "integration_error":  "Houve um problema ao conectar com um sistema externo."
+}

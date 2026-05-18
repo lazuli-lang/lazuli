@@ -19,6 +19,7 @@ pub mod cross_feature;
 pub mod design;
 pub mod domain;
 pub mod encryption;
+pub mod error_vocab;
 pub mod lifecycle;
 pub mod poller;
 pub mod report;

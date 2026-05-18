@@ -331,6 +331,15 @@ struct Tier3FeatureFacts {
     /// `AGGREGATE-*` and aggregate-scoped `INVARIANT-*` diagnostics
     /// at the aggregate header.
     aggregate_lines: BTreeMap<String, usize>,
+    /// IR Error-Vocab (Cell ANALYZE-1) — lifted `errors` block. `None`
+    /// when the feature did not author one. Used by the 7 `ERR-VOCAB-*`
+    /// checks for `default hide/expose`, `expose client 4xx/5xx`, and
+    /// per-code `<code> message @translation.<key>` rows.
+    errors: Option<lazuli_ir::FeatureErrors>,
+    /// IR Error-Vocab (Cell ANALYZE-1) — cloned `Feature.uses` so the
+    /// `ERR-VOCAB-002` cross-feature key resolver can walk imported
+    /// features without re-deriving the import set from `feature_uses`.
+    uses: Vec<String>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -756,6 +765,8 @@ impl DoctorPackage {
                                             report_decls: skeleton.reports.clone(),
                                             aggregates: feature.aggregates.clone(),
                                             aggregate_lines,
+                                            errors: feature.errors.clone(),
+                                            uses: feature.uses.clone(),
                                         });
                                     }
                                     // Phase L Tier 4 follow-up — populate the
@@ -1247,6 +1258,13 @@ impl DoctorPackage {
         // `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
         // `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
         diagnostics.extend(domain_diagnostics(&self.tier3_facts));
+
+        // IR Error-Vocab (Cell ANALYZE-1) — 7 typed `ERR-VOCAB-*` codes
+        // per `docs/proposals/ir-error-messages-vocab.md` §6. Operates
+        // on the lowered IR carried in `tier3_facts`; `files` is passed
+        // for `SpanRef -> line` resolution so each diagnostic anchors at
+        // the offending construct.
+        diagnostics.extend(error_vocab_diagnostics(&self.tier3_facts, &self.files));
 
         diagnostics.extend(folder_layout_diagnostics(
             &self.project_root,
@@ -12248,6 +12266,236 @@ fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     diagnostics
 }
 
+/// IR Error-Vocab (Cell ANALYZE-1) — dispatch the 7 `ERR-VOCAB-*` rules
+/// over every feature fact. Operates on the lowered IR carried in
+/// `tier3_facts`; `files` is passed so each finding's `SpanRef` resolves
+/// to a 1-based source line. Per the proposal §6.8:
+///
+/// * `ERR-VOCAB-001`                    — warning
+/// * `ERR-VOCAB-002`                    — error
+/// * `ERR-VOCAB-003`                    — warning
+/// * `ERR-VOCAB-CODE-UNKNOWN`           — error
+/// * `ERR-VOCAB-EXPOSE-UNKNOWN`         — error
+/// * `ERR-VOCAB-WHEN-DENIED-NO-POLICY`  — error
+/// * `ERR-VOCAB-EXPOSE-5XX-MESSAGE`     — error
+///
+/// `ERR-VOCAB-002` cross-feature resolution walks `Feature.uses`; the
+/// declared-key index is built once per dispatch from `fact.translation`.
+fn error_vocab_diagnostics(
+    facts: &[Tier3FeatureFacts],
+    files: &[DoctorFile],
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::error_vocab::error_vocab;
+
+    // Build the cross-feature translation-key index once. Maps each
+    // feature name to the set of `@translation.<key>` it declares.
+    let mut keys_by_feature: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for fact in facts {
+        let mut declared = BTreeSet::new();
+        if let Some(translation) = &fact.translation {
+            for key in &translation.keys {
+                declared.insert(key.name.clone());
+            }
+        }
+        keys_by_feature
+            .entry(fact.feature.clone())
+            .or_default()
+            .extend(declared);
+    }
+
+    let mut diagnostics = Vec::new();
+    for fact in facts {
+        let feature = make_synthetic_feature_for_error_vocab(fact);
+
+        // ERR-VOCAB-001 — warning
+        for finding in error_vocab::check_policies_no_when_denied(&feature, &fact.path) {
+            let line = span_line(files, &fact.path, finding.policies_span, fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: error_vocab::PoliciesNoWhenDeniedFinding::CODE.to_owned(),
+            });
+        }
+
+        // ERR-VOCAB-002 — error
+        for finding in
+            error_vocab::check_translation_key_unknown(&feature, &fact.path, &keys_by_feature)
+        {
+            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
+            // Render the declared-keys list using the visible set
+            // (same-feature + cross-feature `uses`).
+            let declared: Vec<String> = visible_keys_for_message(&feature, &keys_by_feature);
+            let declared_refs: Vec<&str> = declared.iter().map(String::as_str).collect();
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(&declared_refs),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: error_vocab::KeyUnknownFinding::CODE.to_owned(),
+            });
+        }
+
+        // ERR-VOCAB-003 — warning
+        for finding in error_vocab::check_builtin_fallback(&feature, &fact.path) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or_else(|| span_line(files, &fact.path, finding.span, fact.feature_line));
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: error_vocab::BuiltinFallbackFinding::CODE.to_owned(),
+            });
+        }
+
+        // ERR-VOCAB-CODE-UNKNOWN — error
+        for finding in error_vocab::check_code_unknown(&feature, &fact.path) {
+            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: error_vocab::CodeUnknownFinding::CODE.to_owned(),
+            });
+        }
+
+        // ERR-VOCAB-EXPOSE-UNKNOWN — error
+        for finding in error_vocab::check_expose_unknown(&feature, &fact.path) {
+            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: error_vocab::ExposeUnknownFinding::CODE.to_owned(),
+            });
+        }
+
+        // ERR-VOCAB-WHEN-DENIED-NO-POLICY — error. Per-command findings
+        // anchor at the command header (via `command_lines` lookup);
+        // per-policy findings anchor at the policy span captured during
+        // lowering, falling back to the feature header.
+        for finding in error_vocab::check_when_denied_no_policy(&feature, &fact.path) {
+            let line = match &finding.site {
+                error_vocab::WhenDeniedSite::Command(name) => fact
+                    .command_lines
+                    .get(name)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        span_line(files, &fact.path, finding.span, fact.feature_line)
+                    }),
+                error_vocab::WhenDeniedSite::Policy(_) => {
+                    span_line(files, &fact.path, finding.span, fact.feature_line)
+                }
+            };
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: error_vocab::WhenDeniedNoPolicyFinding::CODE.to_owned(),
+            });
+        }
+
+        // ERR-VOCAB-EXPOSE-5XX-MESSAGE — error
+        for finding in error_vocab::check_expose_5xx_message(&feature, &fact.path) {
+            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: error_vocab::Expose5xxMessageFinding::CODE.to_owned(),
+            });
+        }
+    }
+    diagnostics
+}
+
+/// IR Error-Vocab — render the visible-keys list (same-feature first,
+/// then cross-feature via `uses`) for an `ERR-VOCAB-002` message body.
+fn visible_keys_for_message(
+    feature: &lazuli_ir::Feature,
+    keys_by_feature: &BTreeMap<String, BTreeSet<String>>,
+) -> Vec<String> {
+    let mut keys: BTreeSet<String> = BTreeSet::new();
+    if let Some(translation) = &feature.translation {
+        for key in &translation.keys {
+            keys.insert(key.name.clone());
+        }
+    }
+    for used in &feature.uses {
+        if let Some(declared) = keys_by_feature.get(used) {
+            for key in declared {
+                keys.insert(key.clone());
+            }
+        }
+    }
+    keys.into_iter().collect()
+}
+
+/// IR Error-Vocab — synthesize a minimal `Feature` view from a
+/// `Tier3FeatureFacts` so the typed `error_vocab::check_*` functions can
+/// run without needing the doctor scaffolding. Only the slots the rules
+/// read are populated; everything else stays default. Mirrors the
+/// `make_synthetic_feature_for_reports` pattern.
+fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+    lazuli_ir::Feature {
+        name: fact.feature.clone(),
+        purpose: None,
+        non_goals: Vec::new(),
+        context_path: None,
+        defaults: lazuli_ir::Defaults::default(),
+        uses: fact.uses.clone(),
+        uses_spans: Vec::new(),
+        uses_versions: Vec::new(),
+        requirements: Vec::new(),
+        enums: Vec::new(),
+        resources: Vec::new(),
+        events: Vec::new(),
+        rules: Vec::new(),
+        policies: fact.policies.clone(),
+        errors: fact.errors.clone(),
+        commands: fact.commands.clone(),
+        apis: Vec::new(),
+        records: Vec::new(),
+        queries: Vec::new(),
+        workflows: Vec::new(),
+        jobs: Vec::new(),
+        webhooks: Vec::new(),
+        notifications: Vec::new(),
+        event_groups: Vec::new(),
+        tenant_migrations: Vec::new(),
+        translation: fact.translation.clone(),
+        auth: None,
+        surfaces: Vec::new(),
+        extensions: Vec::new(),
+        escape_routes: Vec::new(),
+        agents: Vec::new(),
+        reports: Vec::new(),
+        pollers: Vec::new(),
+        channels: Vec::new(),
+        caches: Vec::new(),
+        aggregates: Vec::new(),
+        mcp_servers: Vec::new(),
+        previous_names: Vec::new(),
+        span_ref: None,
+    }
+}
+
 fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -13919,6 +14167,8 @@ mod tests {
                                     report_decls: skeleton.reports.clone(),
                                     aggregates: feature.aggregates.clone(),
                                     aggregate_lines: BTreeMap::new(),
+                                    errors: feature.errors.clone(),
+                                    uses: feature.uses.clone(),
                                 });
                             }
                             // Phase L Tier 4 follow-up — mirror the IR-driven
@@ -14075,6 +14325,8 @@ mod tests {
                                     report_decls: skeleton.reports.clone(),
                                     aggregates: feature.aggregates.clone(),
                                     aggregate_lines: BTreeMap::new(),
+                                    errors: feature.errors.clone(),
+                                    uses: feature.uses.clone(),
                                 });
                             }
                         }
@@ -14593,7 +14845,15 @@ surface customer web
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        // Filter out the `ERR-VOCAB-*` family — those are the new Cell
+        // ANALYZE-1 warnings about missing `when_denied` overrides, not
+        // related to the surface-to-command resolution this test pins.
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("ERR-VOCAB-"))
+            .collect();
+        assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
 
     #[test]
@@ -14638,7 +14898,10 @@ surface customer web
         // migration to the top-level RBAC catalog) are non-blocking
         // suggestions and not part of this test's contract — the
         // assertion is "the platform action resolves through the
-        // abstract experience without breaking validation".
+        // abstract experience without breaking validation". The new
+        // `ERR-VOCAB-*` family (Cell ANALYZE-1) is also filtered here:
+        // those nudge authors toward customized `when_denied` text but
+        // do not block the surface-to-command resolution pinned here.
         let diagnostics = package.diagnostics();
         let blocking: Vec<_> = diagnostics
             .iter()
@@ -14646,7 +14909,7 @@ surface customer web
                 matches!(
                     d.severity,
                     DoctorSeverity::Error | DoctorSeverity::Warning
-                )
+                ) && !d.code.starts_with("ERR-VOCAB-")
             })
             .collect();
         assert!(
@@ -14722,7 +14985,15 @@ surface customer_auth web
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        // Filter out the `ERR-VOCAB-*` family — Cell ANALYZE-1 warnings
+        // about missing `when_denied` overrides are orthogonal to the
+        // route-binding-from-context behavior this test pins.
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("ERR-VOCAB-"))
+            .collect();
+        assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
 
     #[test]
@@ -18855,6 +19126,8 @@ feature customer
             report_decls: Vec::new(),
             aggregates: Vec::new(),
             aggregate_lines: BTreeMap::new(),
+            errors: None,
+            uses: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -18956,6 +19229,8 @@ feature customer
             report_decls: Vec::new(),
             aggregates: Vec::new(),
             aggregate_lines: BTreeMap::new(),
+            errors: None,
+            uses: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -20149,6 +20424,232 @@ registry
             !codes.contains("secret-rotation-binding-unknown"),
             "declared profile must satisfy the binding; got {:?}",
             codes
+        );
+    }
+
+    // =========================================================================
+    // IR Error-Vocab (Cell ANALYZE-1) — fixture-driven coverage for the 7
+    // `ERR-VOCAB-*` diagnostics. Each fixture trips exactly one rule (with
+    // ERR-VOCAB-003 occasionally co-firing alongside ERR-VOCAB-001 on the
+    // same source — both are legitimate, both warnings).
+    //
+    // The happy-path fixture asserts ZERO `ERR-VOCAB-*` codes fire.
+    //
+    // Cross-feature key resolution (`@translation.X` resolved through
+    // `uses`) is exercised by `err_vocab_002_silent_through_uses_two_features`.
+    //
+    // See `docs/proposals/ir-error-messages-vocab.md` §6 §11 Cell ANALYZE-1.
+    // =========================================================================
+
+    const ERR_VOCAB_NO_WHEN_DENIED_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/no_when_denied.lzi");
+    const ERR_VOCAB_KEY_UNKNOWN_FROM_POLICY_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/key_unknown_from_policy.lzi");
+    const ERR_VOCAB_BUILTIN_FALLBACK_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/builtin_fallback.lzi");
+    const ERR_VOCAB_CODE_UNKNOWN_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/code_unknown.lzi");
+    const ERR_VOCAB_EXPOSE_UNKNOWN_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/expose_unknown.lzi");
+    const ERR_VOCAB_WHEN_DENIED_NO_POLICY_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
+    const ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/expose_5xx_message.lzi");
+    const ERR_VOCAB_HAPPY_FIXTURE: &str =
+        include_str!("../tests/fixtures/error-vocab/happy.lzi");
+
+    fn err_vocab_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+        diagnostics
+            .iter()
+            .filter(|d| d.code.starts_with("ERR-VOCAB-"))
+            .collect()
+    }
+
+    fn count_code(diagnostics: &[DoctorDiagnostic], code: &str) -> usize {
+        diagnostics.iter().filter(|d| d.code == code).count()
+    }
+
+    #[test]
+    fn err_vocab_001_fires_for_no_when_denied_fixture() {
+        let package = package_from_sources(vec![("app.lzi", ERR_VOCAB_NO_WHEN_DENIED_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-001"),
+            1,
+            "expected ERR-VOCAB-001 to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_002_fires_for_key_unknown_from_policy_fixture() {
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            ERR_VOCAB_KEY_UNKNOWN_FROM_POLICY_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-002"),
+            1,
+            "expected ERR-VOCAB-002 to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_003_fires_for_builtin_fallback_fixture() {
+        let package = package_from_sources(vec![("app.lzi", ERR_VOCAB_BUILTIN_FALLBACK_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-003"),
+            1,
+            "expected ERR-VOCAB-003 to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_code_unknown_fires_for_code_unknown_fixture() {
+        let package = package_from_sources(vec![("app.lzi", ERR_VOCAB_CODE_UNKNOWN_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-CODE-UNKNOWN"),
+            1,
+            "expected ERR-VOCAB-CODE-UNKNOWN to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_expose_unknown_fires_for_expose_unknown_fixture() {
+        let package = package_from_sources(vec![("app.lzi", ERR_VOCAB_EXPOSE_UNKNOWN_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-EXPOSE-UNKNOWN"),
+            1,
+            "expected ERR-VOCAB-EXPOSE-UNKNOWN to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_when_denied_no_policy_fires_for_when_denied_no_policy_fixture() {
+        let package =
+            package_from_sources(vec![("app.lzi", ERR_VOCAB_WHEN_DENIED_NO_POLICY_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-WHEN-DENIED-NO-POLICY"),
+            1,
+            "expected ERR-VOCAB-WHEN-DENIED-NO-POLICY to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_expose_5xx_message_fires_for_expose_5xx_message_fixture() {
+        let package =
+            package_from_sources(vec![("app.lzi", ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "ERR-VOCAB-EXPOSE-5XX-MESSAGE"),
+            1,
+            "expected ERR-VOCAB-EXPOSE-5XX-MESSAGE to fire exactly once; got: {:?}",
+            err_vocab_diags(&diagnostics)
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn err_vocab_happy_fixture_fires_no_err_vocab_diagnostics() {
+        let package = package_from_sources(vec![("app.lzi", ERR_VOCAB_HAPPY_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let err_vocab: Vec<_> = err_vocab_diags(&diagnostics);
+        assert!(
+            err_vocab.is_empty(),
+            "happy.lzi must emit zero ERR-VOCAB-* diagnostics; got: {:?}",
+            err_vocab.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Cross-feature key resolution: `feature sales` declares
+    // `policies create.when_denied @translation.shared_key` and that key
+    // lives in `feature crm`'s translation block. `feature sales`
+    // imports it via `uses crm`. ERR-VOCAB-002 must stay silent.
+    #[test]
+    fn err_vocab_002_silent_through_uses_two_features() {
+        const CRM_FIXTURE: &str = r#"
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature crm
+  domain
+    resource Customer
+      id: ID required
+
+  translation
+    catalog "./i18n/crm.<locale>.json"
+
+    key shared_key
+      pt-BR "Apenas administradores podem realizar esta ação."
+"#;
+        const SALES_FIXTURE: &str = r#"
+feature sales
+  uses crm
+  domain
+    resource Lead
+      id: ID required
+
+  policies
+    create: @role.sales
+      when_denied @translation.shared_key
+
+  command create
+    policy @policy.create
+    creates Lead
+"#;
+        let package = package_from_sources(vec![
+            ("crm.lzi", CRM_FIXTURE),
+            ("sales.lzi", SALES_FIXTURE),
+        ]);
+        let diagnostics = package.diagnostics();
+        let err_vocab_002 = count_code(&diagnostics, "ERR-VOCAB-002");
+        assert_eq!(
+            err_vocab_002, 0,
+            "cross-feature `@translation.shared_key` (declared in `crm`, used by `sales`) must \
+             resolve through `uses crm`; got ERR-VOCAB-002 diagnostics: {:?}",
+            diagnostics
+                .iter()
+                .filter(|d| d.code == "ERR-VOCAB-002")
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
         );
     }
 }

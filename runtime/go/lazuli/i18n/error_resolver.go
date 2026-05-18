@@ -42,6 +42,13 @@ type ErrorRequest struct {
 	// already resolved against the supported list by the negotiation
 	// middleware. The resolver does not re-negotiate.
 	Locale string
+	// Source carries the original `*lazuli.Error` opaquely so the L0
+	// boot-time escape hatch (see `escapeRenderer` /
+	// `lazuli.RegisterErrorRendererEscape`) can inspect the full
+	// envelope. Typed as `any` to avoid an import cycle with the
+	// `lazuli` package. Nil for callers that never registered an
+	// escape — the four-layer chain still works.
+	Source any
 }
 
 // ErrorResolver renders the final error message string.
@@ -67,10 +74,24 @@ type DefaultResolver struct {
 	// FallbackLocale is the last-resort locale walked when the
 	// requested locale has no entry. Conventionally `en-US`.
 	FallbackLocale string
+	// UseBuiltinCatalog opts the resolver into the framework's
+	// embedded PT-BR + en-US catalog (Cell RUNTIME-2). When true,
+	// L3/L4 lookups for `builtin.<code>` keys fall through to the
+	// embedded JSON if `Catalogs` doesn't carry them. Default
+	// `false` preserves the legacy zero-resolver behaviour for
+	// tests that exercise the un-wired path.
+	UseBuiltinCatalog bool
 }
 
 // Resolve implements ErrorResolver. See package doc for the chain.
 func (r *DefaultResolver) Resolve(req ErrorRequest) (string, string) {
+	// L0 — process-global escape hatch (proposal §9.4). Runs BEFORE the
+	// four-layer chain. Non-empty return wins; empty falls through.
+	if escapeRenderer != nil {
+		if text := escapeRenderer(req); text != "" {
+			return text, ""
+		}
+	}
 	// L1 — per-command override key already on the error.
 	if req.MessageKey != "" {
 		if text, ok := r.lookup(req.MessageKey, req.Locale); ok {
@@ -105,23 +126,68 @@ func (r *DefaultResolver) Resolve(req ErrorRequest) (string, string) {
 }
 
 // lookup returns the catalog entry for (key, locale). Returns ("", false)
-// on miss.
+// on miss. Falls through to the embedded built-in catalog when the
+// resolver's `Catalogs` doesn't carry the locale or key under the
+// `builtin.` namespace — so the framework's PT-BR + en-US floor is
+// always available even when nothing was wired into `Catalogs`
+// explicitly. Authored feature keys (`account.signin_required`, …)
+// never hit the built-in path because the prefix doesn't match.
 func (r *DefaultResolver) lookup(key, locale string) (string, bool) {
 	if locale == "" {
 		return "", false
 	}
-	catalog, ok := r.Catalogs[locale]
-	if !ok {
-		return "", false
+	if catalog, ok := r.Catalogs[locale]; ok {
+		if text, ok := catalog[key]; ok {
+			return text, true
+		}
 	}
-	text, ok := catalog[key]
-	return text, ok
+	// Built-in catalog fall-through: only for `builtin.<code>` keys
+	// AND only when the resolver opted in via `UseBuiltinCatalog`
+	// (boot wiring sets it; tests that exercise the un-wired path
+	// leave it false to preserve legacy envelope behaviour).
+	if r.UseBuiltinCatalog {
+		const builtinPrefix = "builtin."
+		if strings.HasPrefix(key, builtinPrefix) {
+			code := key[len(builtinPrefix):]
+			if catalog, ok := builtinCatalogs[locale]; ok {
+				if text, ok := catalog[code]; ok {
+					return text, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// NewDefaultResolver returns a `DefaultResolver` pre-wired with the
+// framework's embedded built-in catalog (Cell RUNTIME-2). The
+// returned resolver carries:
+//
+//   - `UseBuiltinCatalog = true` — L3/L4 fall through to the
+//     embedded PT-BR / en-US JSON without any explicit `Catalogs`
+//     seeding.
+//   - `FallbackLocale = "en-US"` — the universal floor per §2.D.
+//   - `Registry` zero-valued — codegen's `RegisterFeatureErrors`
+//     overlays per-feature contracts on top.
+//
+// Boot wiring installs the result via `SetDefaultResolver`; that
+// single call is what closes the hostpoint field incident
+// (proposal §1.1) on every zero-authoring app.
+func NewDefaultResolver() *DefaultResolver {
+	return &DefaultResolver{
+		UseBuiltinCatalog: true,
+		FallbackLocale:    "en-US",
+	}
 }
 
 // defaultResolver is the process-global resolver substituted at the
-// HTTP boundary. Boot wiring installs the catalog-merged variant via
-// SetDefaultResolver; tests reset it via SetDefaultResolver(nil).
-var defaultResolver ErrorResolver = &DefaultResolver{}
+// HTTP boundary. The package-level `init` wires the
+// `NewDefaultResolver` (built-in catalog on) so zero-authoring apps
+// get the localized PT-BR / en-US floor without any boot glue. Tests
+// that exercise the un-wired path reset it via
+// SetDefaultResolver(nil) — that path keeps the legacy empty
+// behaviour (no catalogs, every Resolve returns the zero pair).
+var defaultResolver ErrorResolver = NewDefaultResolver()
 
 // SetDefaultResolver installs the process-global resolver. Passing nil
 // reinstalls the empty default (no catalogs — every Resolve returns
@@ -137,3 +203,20 @@ func SetDefaultResolver(r ErrorResolver) {
 // Default returns the process-global resolver. The HTTP boundary
 // (lazuli.writeError) consults this on every error response.
 func Default() ErrorResolver { return defaultResolver }
+
+// escapeRenderer is the process-global L0 hook installed by
+// `lazuli.RegisterErrorRendererEscape`. The `lazuli` package wraps
+// the caller's `func(*Error, string) string` into a closure that
+// type-asserts `ErrorRequest.Source` back to `*Error`. Nil when no
+// escape was registered — the resolver skips L0 entirely.
+//
+// Reserved for white-label SaaS hosts that need full control over
+// every byte of the wire payload. See
+// `docs/anti-patterns/error-renderer-escape.md`.
+var escapeRenderer func(ErrorRequest) string
+
+// SetEscapeRenderer installs the L0 escape hook. Idempotent: the
+// last registration wins. Pass nil to clear. Exposed for the
+// `lazuli` package's `RegisterErrorRendererEscape` bridge; not
+// intended for direct caller use.
+func SetEscapeRenderer(fn func(ErrorRequest) string) { escapeRenderer = fn }

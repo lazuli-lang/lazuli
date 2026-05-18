@@ -1,0 +1,31 @@
+# Doctor fixture — ERR-VOCAB-WHEN-DENIED-NO-POLICY (error).
+# A `policies.update:` line has no atoms on the right-hand side, but
+# declares a `when_denied @translation.blocked` child. The override is
+# dead code — the category gates nothing, so nothing can deny, so the
+# override never fires.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  policies
+    update:
+      when_denied @translation.blocked
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key blocked
+      pt-BR "Bloqueado"

@@ -1,0 +1,58 @@
+# Doctor fixture — happy path for the IR Error-Vocab analyzer cells.
+# Authors all three resolution-chain layers (per-command, per-policy,
+# feature-level catch-all), declares all keys in the local translation
+# block, and uses only closed-catalog codes / exposure fields. Doctor
+# emits zero `ERR-VOCAB-*` diagnostics from this fixture.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  policies
+    update: @role.admin
+      when_denied @translation.update_admin_only
+    delete: @role.admin
+      when_denied @translation.delete_admin_only
+
+  errors
+    default hide
+    expose client 4xx message, code, message_key
+    expose client 5xx code, data
+
+    policy_denied message @translation.signin_required
+    validation_failed message @translation.invalid_input
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key update_admin_only
+      pt-BR "Apenas administradores podem atualizar."
+    key delete_admin_only
+      pt-BR "Apenas administradores podem excluir."
+    key signin_required
+      pt-BR "Entre na sua conta."
+    key invalid_input
+      pt-BR "Dados inválidos."
+    key block_admin
+      pt-BR "Apenas administradores podem bloquear."
+
+  command update
+    policy @policy.update
+    updates Customer
+
+  command block
+    policy @policy.update
+      when_denied @translation.block_admin
+    updates Customer

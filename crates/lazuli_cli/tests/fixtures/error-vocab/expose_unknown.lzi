@@ -1,0 +1,24 @@
+# Doctor fixture — ERR-VOCAB-EXPOSE-UNKNOWN (error).
+# `expose client 4xx message, schmessage` contains a field name outside
+# the closed 4xx catalog (`message`, `code`, `data`, `message_key`).
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  errors
+    default hide
+    expose client 4xx message, schmessage
+    expose client 5xx code

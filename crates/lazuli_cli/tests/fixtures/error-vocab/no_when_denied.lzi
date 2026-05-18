@@ -1,0 +1,28 @@
+# Doctor fixture — ERR-VOCAB-001 (warning).
+# Feature has `policies` block with named policies but no `when_denied`
+# overrides AND no `errors policy_denied` catch-all. Authors will see
+# the framework's built-in PT-BR text on policy_denied.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+  locale
+    default "pt-BR"
+    supported "pt-BR"
+
+feature customer
+  domain
+    resource Customer
+      id: ID required
+
+  policies
+    update: @role.admin
+    delete: @role.admin
+
+  command update
+    policy @policy.update
+    updates Customer

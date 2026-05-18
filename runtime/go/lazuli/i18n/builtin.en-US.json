@@ -1,0 +1,10 @@
+{
+  "policy_denied":      "You need to sign in to do this.",
+  "validation_failed":  "Some of the information you sent is missing or incorrect.",
+  "tenant_mismatch":    "This action does not belong to the current workspace.",
+  "not_found":          "We couldn't find the requested item.",
+  "rate_limited":       "Too many attempts — please wait a moment.",
+  "bad_request":        "The request was sent in an invalid format.",
+  "method_not_allowed": "This operation is not supported on this route.",
+  "integration_error":  "There was a problem reaching an external service."
+}
