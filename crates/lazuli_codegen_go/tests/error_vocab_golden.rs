@@ -228,25 +228,29 @@ fn feature_errors_block_lowers_to_errors_gen_go_and_app_registry() {
         "errors.gen.go must declare `var FeatureErrors`:\n{errors_gen}"
     );
     assert!(
-        errors_gen.contains("Default:     lazuli.ExposureHide,"),
+        errors_gen.contains("Default:         lazuli.ExposureHide,"),
         "errors.gen.go must lower `default hide`:\n{errors_gen}"
     );
     assert!(
-        errors_gen.contains("Exposure4xx: []string{\"message\", \"code\"},"),
+        errors_gen.contains("ExposeClient4xx: []string{\"message\", \"code\"},"),
         "errors.gen.go must lower 4xx exposure list:\n{errors_gen}"
     );
     assert!(
-        errors_gen.contains("Exposure5xx: []string{\"code\"},"),
+        errors_gen.contains("ExposeClient5xx: []string{\"code\"},"),
         "errors.gen.go must lower 5xx exposure list:\n{errors_gen}"
     );
     // BTreeMap sort: `policy_denied` < `tenant_mismatch`.
     assert!(
-        errors_gen.contains("\"policy_denied\": \"account_signin_required\","),
-        "errors.gen.go must lower policy_denied override:\n{errors_gen}"
+        errors_gen.contains(
+            "\"policy_denied\": i18n.MessageRef{Feature: \"account\", Key: \"account_signin_required\"},"
+        ),
+        "errors.gen.go must lower policy_denied override as MessageRef:\n{errors_gen}"
     );
     assert!(
-        errors_gen.contains("\"tenant_mismatch\": \"account_wrong_workspace\","),
-        "errors.gen.go must lower tenant_mismatch override:\n{errors_gen}"
+        errors_gen.contains(
+            "\"tenant_mismatch\": i18n.MessageRef{Feature: \"account\", Key: \"account_wrong_workspace\"},"
+        ),
+        "errors.gen.go must lower tenant_mismatch override as MessageRef:\n{errors_gen}"
     );
 
     // App-level registry — exists and registers the feature.
@@ -315,8 +319,10 @@ fn command_policy_when_denied_lowers_to_error_keys_var() {
         "command.gen.go must declare the per-command ErrorKeys var:\n{command_gen}"
     );
     assert!(
-        command_gen.contains("PolicyDenied: \"choose_role_signin_required\","),
-        "command.gen.go must wire the policy_denied key reference:\n{command_gen}"
+        command_gen.contains(
+            "PolicyDenied: i18n.MessageRef{Feature: \"account\", Key: \"choose_role_signin_required\"},"
+        ),
+        "command.gen.go must wire the policy_denied key reference as MessageRef:\n{command_gen}"
     );
 
     // The lazuli.Command value must reference the ErrorKeys var via

@@ -369,7 +369,11 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     }
     if emit_cors_todo {
         maybe_blank(&mut p, &mut first_block);
-        emit_cors_contract(&mut p, manifest.cors.as_ref().expect("cors guarded"));
+        emit_cors_contract(
+            &mut p,
+            manifest.cors.as_ref().expect("cors guarded"),
+            manifest.locale.is_some(),
+        );
     }
     if emit_routes_todo {
         maybe_blank(&mut p, &mut first_block);
@@ -538,7 +542,7 @@ fn emit_encryption_bindings(p: &mut GoPrinter, bindings: &[EncryptionBinding]) {
 ///       MaxAge:           3600,
 ///   }
 ///   func init() { lazuli.SetCorsContract(&CorsContract) }
-fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors) {
+fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors, has_locale: bool) {
     p.line("// CorsContract is the lowered `app.cors` block from app.lzi.");
     p.line("// Origins are keyed by environment (matches `app.environments`).");
     p.line("// The runtime middleware resolves the active set against");
@@ -587,6 +591,14 @@ fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors) {
     p.line("func init() {");
     p.indent();
     p.line("lazuli.SetCorsContract(&CorsContract)");
+    if has_locale {
+        // IR Error-Vocab — register the lowered locale contract so the
+        // HTTP error boundary can negotiate `Accept-Language` against
+        // the supported set + default. Without this call the resolver
+        // falls back to `en-US` and the proposal's pt-BR floor never
+        // reaches the wire on a default-Locale install (proposal §2.E).
+        p.line("lazuli.RegisterAppLocaleContract(LocaleContract)")
+    }
     p.dedent();
     p.line("}");
 }

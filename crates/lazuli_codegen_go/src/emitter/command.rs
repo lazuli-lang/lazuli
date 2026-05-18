@@ -121,6 +121,12 @@ pub fn emit_command_file(
         imports.add("lazuli.dev/runtime/lazuli/billing");
         imports.add(&format!("{module_name}/plan"));
     }
+    // IR Error-Vocab — per-command `ErrorKeys` literals reference the
+    // typed `i18n.MessageRef` shape (proposal §5.1). Import the i18n
+    // package whenever any command in this feature has an override.
+    if commands.iter().any(|c| command_has_error_keys(c)) {
+        imports.add("lazuli.dev/runtime/lazuli/i18n");
+    }
     // Handlers live in the same Go package as the feature (see
     // `emitter/handlers.rs` module docs) — no extra package import
     // needed for `lazuli.Returns(<HandlerName>)` calls.
@@ -231,7 +237,7 @@ fn emit_command(
     // via the `ErrorKeys` kv row. The runtime resolver consults this
     // struct as step 1 of the resolution chain (proposal §2.E).
     if command_has_error_keys(command) {
-        emit_command_error_keys(p, command);
+        emit_command_error_keys(p, command, &feature.name);
         p.blank();
     }
 

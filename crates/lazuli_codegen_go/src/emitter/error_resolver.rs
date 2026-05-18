@@ -79,22 +79,23 @@ pub fn command_has_error_keys(command: &Command) -> bool {
 /// sit adjacent in the generated file.
 ///
 /// Runtime contract (Cell RUNTIME-1):
+///   type MessageRef struct { Feature, Key string }
 ///   type ErrorKeys struct {
-///       PolicyDenied      string
-///       ValidationFailed  string
-///       TenantMismatch    string
-///       NotFound          string
-///       RateLimited       string
-///       BadRequest        string
-///       MethodNotAllowed  string
-///       IntegrationError  string
+///       PolicyDenied      MessageRef
+///       ValidationFailed  MessageRef
+///       TenantMismatch    MessageRef
+///       NotFound          MessageRef
+///       RateLimited       MessageRef
+///       BadRequest        MessageRef
+///       MethodNotAllowed  MessageRef
+///       IntegrationError  MessageRef
 ///   }
 ///
-/// Each field is a `@translation.<key>` reference (carried in IR as a
-/// `TranslationKeyRef`). Zero-valued fields mean "fall through to the
-/// per-feature / built-in catalog" — the runtime resolver handles the
-/// chain (proposal §2.E).
-pub fn emit_command_error_keys(p: &mut GoPrinter, command: &Command) {
+/// Each field is a typed `@translation.<key>` reference (carried in IR
+/// as a `TranslationKeyRef`). Zero-valued (empty) `MessageRef` means
+/// "fall through to the per-feature / built-in catalog" — the runtime
+/// resolver handles the chain (proposal §2.E).
+pub fn emit_command_error_keys(p: &mut GoPrinter, command: &Command, feature_name: &str) {
     if !command_has_error_keys(command) {
         return;
     }
@@ -112,8 +113,8 @@ pub fn emit_command_error_keys(p: &mut GoPrinter, command: &Command) {
     p.indent();
     if let Some(key_ref) = command.policy_when_denied.as_ref() {
         p.line(&format!(
-            "PolicyDenied: {:?},",
-            translation_key_literal(key_ref)
+            "PolicyDenied: {},",
+            message_ref_literal(feature_name, key_ref)
         ));
     }
     p.dedent();
@@ -128,13 +129,13 @@ pub fn emit_command_error_keys(p: &mut GoPrinter, command: &Command) {
 ///
 /// Runtime contract (Cell RUNTIME-1):
 ///   type FeatureErrorContract struct {
-///       Default        ErrorExposureDefault
-///       Exposure4xx    []string
-///       Exposure5xx    []string
-///       Messages       map[string]string  // code -> @translation.<key>
-///       FieldMessages  map[string]string  // "<resource>.<field>.<code>" -> key
+///       Default          ErrorExposureDefault
+///       ExposeClient4xx  []string
+///       ExposeClient5xx  []string
+///       Messages         map[string]MessageRef   // code -> @translation.<key>
+///       FieldMessages    map[string]MessageRef   // "<resource>.<field>.<code>" -> key
 ///   }
-///   type ErrorExposureDefault int
+///   type ErrorExposureDefault uint8
 ///   const ( ExposureHide ErrorExposureDefault = iota; ExposureExpose )
 pub fn emit_feature_errors_file(source_label: &str, feature: &Feature) -> Option<String> {
     let errors = feature.errors.as_ref()?;
@@ -142,6 +143,9 @@ pub fn emit_feature_errors_file(source_label: &str, feature: &Feature) -> Option
     let mut p = GoPrinter::new();
     let mut imports = ImportSet::new();
     imports.add("lazuli.dev/runtime/lazuli");
+    if !errors.messages.is_empty() || !errors.field_messages.is_empty() {
+        imports.add("lazuli.dev/runtime/lazuli/i18n");
+    }
 
     p.banner(source_label, &gen_package_name(&feature.name));
     imports.emit(&mut p);
@@ -156,7 +160,7 @@ pub fn emit_feature_errors_file(source_label: &str, feature: &Feature) -> Option
     emit_pattern_header(&mut p, PATTERN_ERROR_RESOLVER);
     p.line("var FeatureErrors = lazuli.FeatureErrorContract{");
     p.indent();
-    emit_feature_errors_body(&mut p, errors);
+    emit_feature_errors_body(&mut p, errors, &feature.name);
     p.dedent();
     p.line("}");
 
@@ -166,22 +170,22 @@ pub fn emit_feature_errors_file(source_label: &str, feature: &Feature) -> Option
 /// Emit the body of the `lazuli.FeatureErrorContract{ ... }` literal.
 /// Kept separate so a future inspect projection can reuse the same
 /// field-order discipline. Field order matches §4.1.2.
-fn emit_feature_errors_body(p: &mut GoPrinter, errors: &FeatureErrors) {
+fn emit_feature_errors_body(p: &mut GoPrinter, errors: &FeatureErrors, feature_name: &str) {
     if let Some(default) = errors.default {
         p.line(&format!(
-            "Default:     {},",
+            "Default:         {},",
             exposure_default_const(default)
         ));
     }
     if !errors.exposure_4xx.is_empty() {
         p.line(&format!(
-            "Exposure4xx: []string{{{}}},",
+            "ExposeClient4xx: []string{{{}}},",
             format_string_slice(&errors.exposure_4xx)
         ));
     }
     if !errors.exposure_5xx.is_empty() {
         p.line(&format!(
-            "Exposure5xx: []string{{{}}},",
+            "ExposeClient5xx: []string{{{}}},",
             format_string_slice(&errors.exposure_5xx)
         ));
     }
@@ -192,13 +196,13 @@ fn emit_feature_errors_body(p: &mut GoPrinter, errors: &FeatureErrors) {
         for msg in &errors.messages {
             by_code.insert(msg.code.as_str(), msg);
         }
-        p.line("Messages: map[string]string{");
+        p.line("Messages: map[string]i18n.MessageRef{");
         p.indent();
         for (code, msg) in &by_code {
             p.line(&format!(
-                "{:?}: {:?},",
+                "{:?}: {},",
                 code,
-                translation_key_literal(&msg.message)
+                message_ref_literal(feature_name, &msg.message)
             ));
         }
         p.dedent();
@@ -310,6 +314,20 @@ pub fn emit_error_vocab_files(
 /// fully-qualifies at lookup time using the source-tag feature.
 fn translation_key_literal(key_ref: &TranslationKeyRef) -> &str {
     key_ref.key.as_str()
+}
+
+/// Format a `TranslationKeyRef` as the typed `i18n.MessageRef{Feature,
+/// Key}` Go literal the runtime expects (proposal §5.1). The owning
+/// feature is supplied by the caller since v1 IR carries only the bare
+/// key name on `TranslationKeyRef`; cross-feature consumption (proposal
+/// §2.B) is resolved at codegen time against the policy's owning
+/// feature, not the consumer's.
+fn message_ref_literal(feature_name: &str, key_ref: &TranslationKeyRef) -> String {
+    format!(
+        "i18n.MessageRef{{Feature: {:?}, Key: {:?}}}",
+        feature_name,
+        translation_key_literal(key_ref)
+    )
 }
 
 fn exposure_default_const(default: ErrorExposureDefault) -> &'static str {
@@ -436,7 +454,7 @@ mod tests {
         let command = empty_command("create");
         assert!(!command_has_error_keys(&command));
         let mut p = GoPrinter::new();
-        emit_command_error_keys(&mut p, &command);
+        emit_command_error_keys(&mut p, &command, "account");
         assert_eq!(p.finish(), String::new());
     }
 
@@ -449,7 +467,7 @@ mod tests {
         });
         assert!(command_has_error_keys(&command));
         let mut p = GoPrinter::new();
-        emit_command_error_keys(&mut p, &command);
+        emit_command_error_keys(&mut p, &command, "account");
         let out = p.finish();
         assert!(out.contains("//lazuli:pattern error_resolver v1"));
         // `command_var_name` interleaves the effect-pinned resource pascal
@@ -461,7 +479,9 @@ mod tests {
         let expected_var = command_error_keys_var(&command);
         assert_eq!(expected_var, "chooseResultRoleErrorKeys");
         assert!(out.contains(&format!("var {expected_var} = lazuli.ErrorKeys{{")));
-        assert!(out.contains("PolicyDenied: \"choose_role_signin_required\","));
+        assert!(out.contains(
+            "PolicyDenied: i18n.MessageRef{Feature: \"account\", Key: \"choose_role_signin_required\"},"
+        ));
     }
 
     #[test]
@@ -503,11 +523,12 @@ mod tests {
 
         assert!(out.contains("\npackage accountgen\n"));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
+        assert!(out.contains("\"lazuli.dev/runtime/lazuli/i18n\""));
         assert!(out.contains("//lazuli:pattern error_resolver v1"));
         assert!(out.contains("var FeatureErrors = lazuli.FeatureErrorContract{"));
-        assert!(out.contains("Default:     lazuli.ExposureHide,"));
-        assert!(out.contains("Exposure4xx: []string{\"message\", \"code\"},"));
-        assert!(out.contains("Exposure5xx: []string{\"code\"},"));
+        assert!(out.contains("Default:         lazuli.ExposureHide,"));
+        assert!(out.contains("ExposeClient4xx: []string{\"message\", \"code\"},"));
+        assert!(out.contains("ExposeClient5xx: []string{\"code\"},"));
         // BTreeMap sorts codes: `policy_denied` < `tenant_mismatch`.
         let policy = out
             .find("\"policy_denied\":")
@@ -519,8 +540,12 @@ mod tests {
             policy < tenant,
             "messages must be sorted by code:\n{out}"
         );
-        assert!(out.contains("\"policy_denied\": \"account_signin_required\","));
-        assert!(out.contains("\"tenant_mismatch\": \"account_wrong_workspace\","));
+        assert!(out.contains(
+            "\"policy_denied\": i18n.MessageRef{Feature: \"account\", Key: \"account_signin_required\"},"
+        ));
+        assert!(out.contains(
+            "\"tenant_mismatch\": i18n.MessageRef{Feature: \"account\", Key: \"account_wrong_workspace\"},"
+        ));
     }
 
     #[test]

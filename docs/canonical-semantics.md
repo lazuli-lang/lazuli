@@ -895,16 +895,163 @@ command reassign
 server loaders which query identities become stale after a command succeeds.
 It does not choose React Query, Redis, HTTP cache headers, or any provider.
 
-Feature-level error exposure is explicit:
+Feature-level error contracts combine exposure rules (which envelope fields
+reach the wire per status class) with typed per-code message overrides for the
+eight closed-catalog framework codes. The `customer` feature in
+`examples/full-capsule/full-capsule.lzi` is the canonical fixture:
 
 ```lazuli
-errors
-  default hide
-  expose client 4xx message, code
-  expose client 5xx code
+  policies
+    capture_lead: @scope.public
+    create: @role.admin, @role.sales
+    update: @role.admin, @role.sales
+      when_denied @translation.customer_update_admin_only
+    delete: @role.admin
+    read: @scope.same_org
+    global_read: @role.admin
+
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
+    policy_denied message @translation.customer_signin_required
+    validation_failed message @translation.customer_invalid_input
+
+  translation
+    catalog "./i18n/customer.<locale>.json"
+
+    key customer_update_admin_only
+      pt-BR "Apenas administradores ou vendedores podem atualizar este cliente."
+      en-US "Only admins or sales reps can update this customer."
+
+    key customer_signin_required
+      pt-BR "Para gerenciar clientes, entre na sua conta primeiro."
+      en-US "Please sign in to manage customers."
+
+    key customer_invalid_input
+      pt-BR "Os dados do cliente estão incompletos ou incorretos."
+      en-US "The customer information is missing or incorrect."
+
+    key capture_lead_signin_required
+      pt-BR "Para capturar um lead, entre na sua conta primeiro."
+      en-US "Please sign in to capture a lead."
+
+  command capture_lead
+    input
+      name: Text required
+      email: @semantic.Email @pii.contact required
+    policy @policy.capture_lead
+      when_denied @translation.capture_lead_signin_required
 ```
 
-Rules or commands may define named public error cases:
+The fixture exercises every authoring layer the error contract recognizes. See
+`docs/proposals/ir-error-messages-vocab.md` for the design rationale; the
+sections below describe the resolved surface as it ships.
+
+### Exposure rules
+
+The `errors` block declares wire-envelope exposure per status class:
+
+- `default hide` | `default expose` chooses whether the `message` field
+  reaches the wire by default. `hide` is the canonical floor.
+- `expose client 4xx <fields>` lists envelope fields that reach the client on
+  4xx responses. The closed catalog is `message`, `code`, `data`,
+  `message_key`.
+- `expose client 5xx <fields>` lists envelope fields that reach the client on
+  5xx responses. The closed catalog is `code`, `data`. `message` is
+  deliberately rejected here — 5xx errors are framework-internal and their
+  text contains stack traces or implementation details that must not reach the
+  client; server-side logs still capture the full message for operators
+  (`ERR-VOCAB-EXPOSE-5XX-MESSAGE`).
+
+`message_key` exposes the resolved `@translation.<key>` token in the wire
+payload so client UIs that ship offline catalogs (native mobile apps) can
+localize independently of the server-rendered text.
+
+### Closed catalog of framework error codes
+
+The eight codes the runtime can emit on its own are the only `<code>` tokens
+the `errors` block accepts:
+
+| Code | Status | When it fires |
+|---|---|---|
+| `policy_denied` | 401, 403 | An evaluator-gated boundary rejects the request because no policy branch matches the active actor. |
+| `validation_failed` | 400 | A request payload fails its declared validator or shape contract. |
+| `tenant_mismatch` | 400 | The active actor's tenant does not match the resource's tenant axis. |
+| `not_found` | 404 | A row referenced by a command or query is absent. |
+| `rate_limited` | 429 | A rate-limit throttle rejects the request. |
+| `bad_request` | 400 | The request body, headers, or path violate the wire contract (malformed JSON, unknown input field, missing route slot). |
+| `method_not_allowed` | 405 | The transport does not match the operation kind. |
+| `integration_error` | 502 | An adapter call to an external integration fails. |
+
+Author-declared typed errors (see below) are orthogonal — they declare new
+codes, not overrides for the eight framework codes.
+
+### Resolver chain
+
+Outgoing error messages are rendered through a four-layer resolver chain.
+The renderer walks from most specific to most generic and stops at the first
+hit. Every layer is opt-in additive — an `.lzi` with none of the override
+surface still parses, doctor still passes, the runtime falls back to the
+built-in catalog.
+
+1. **Command-level** — `command.policy ... when_denied @translation.<key>` is
+   the most specific override. One command's gate phrasing.
+
+   ```lazuli
+   command capture_lead
+     policy @policy.capture_lead
+       when_denied @translation.capture_lead_signin_required
+   ```
+
+2. **Per-policy** — `policies.<category>: ...` carries an optional
+   `when_denied @translation.<key>` child. Every command using that policy
+   inherits the phrasing unless it declares its own command-level override.
+
+   ```lazuli
+   policies
+     update: @role.admin, @role.sales
+       when_denied @translation.customer_update_admin_only
+   ```
+
+3. **Per-feature** — `feature.errors` carries `<code> message
+   @translation.<key>` rows for any of the eight closed-catalog codes. The
+   catch-all for every command in the feature that emits that code without
+   a command- or policy-level override.
+
+   ```lazuli
+   errors
+     policy_denied message @translation.customer_signin_required
+     validation_failed message @translation.customer_invalid_input
+   ```
+
+4. **Built-in catalog** — the runtime ships an opinionated PT-BR + en-US
+   catalog covering every closed-catalog code with a layperson native
+   message. This is the framework floor — a freshly-scaffolded app with zero
+   authoring of the error surface still emits a human-readable native string
+   instead of evaluator jargon.
+
+Each step is consulted only when the previous step found nothing or when the
+referenced `@translation.<key>` does not resolve under the active locale
+after `app.locale.fallbacks` has run. There is one fallback graph
+(`app.locale.fallbacks`) and it governs all key resolution — the error
+resolver does not introduce a parallel fallback chain.
+
+Cross-feature `@policy.<feature>.<name>` references resolve their `when_denied`
+key against the **owning** feature's `translation` keys, mirroring the
+cross-feature reference rule for `@translation.<key>`. Per-command
+`policy_when_denied @translation.<key>` always resolves against the command's
+own feature (no cross-feature consumption form for command overrides).
+
+The resolver always runs (so server logs always have the human-readable
+string), but the wire payload respects the exposure block: when
+`default hide` and no `expose client 4xx message`, the resolved text reaches
+the log but not the client. Exposure and resolution compose orthogonally.
+
+Rules or commands may still define **named typed errors** with their own code
+and exposure — these declare new error families and are orthogonal to the
+framework-code overrides above:
 
 ```lazuli
 rule "deleted customers cannot be archived"

@@ -105,7 +105,7 @@ sql step submit subscribes surface tags target template temperature
 tenancy tenant tenant_from terminate test tests then through timeouts
 timeout timestamps to tools top top_p totp trace trigger ttl type
 uniques unique uses using validates validator value verify view views
-webhook when window_function with workflow workspace write
+webhook when when_denied window_function with workflow workspace write
 ```
 
 (Names in this list are recognized as keywords only inside their
@@ -313,7 +313,12 @@ policies_block    = "policies" NEWLINE
                     INDENT policy_entry+ DEDENT ;
 
 policy_entry      = IDENT_LOWER ":" policy_atom_list NEWLINE
+                    ( INDENT when_denied_clause DEDENT )?
                   | "fields" NEWLINE INDENT field_policy+ DEDENT ;
+
+when_denied_clause = "when_denied" translation_key_ref NEWLINE ;
+translation_key_ref = "@translation." IDENT_LOWER
+                    | "@translation." IDENT_LOWER "." IDENT_LOWER ;
 
 policy_atom_list  = policy_atom ( "," policy_atom )* ;
 policy_atom       = "@role." IDENT_LOWER
@@ -326,10 +331,57 @@ field_policy      = IDENT_LOWER ":" policy_atom_list NEWLINE
 field_policy_axis = ( "read" | "write" ) ":" policy_atom_list NEWLINE ;
 
 errors_block      = "errors" NEWLINE
-                    INDENT error_entry+ DEDENT ;
-error_entry       = IDENT_UPPER "status" INTEGER
-                    ( "expose" ident_list )? NEWLINE ;
+                    INDENT errors_body DEDENT ;
+errors_body       = ( errors_default_line
+                    | errors_expose_line
+                    | errors_code_message_line
+                    )+ ;
+errors_default_line       = "default" ( "hide" | "expose" ) NEWLINE ;
+errors_expose_line        = "expose" "client" ( "4xx" | "5xx" )
+                            ident_list NEWLINE ;
+errors_code_message_line  = error_code "message" translation_key_ref NEWLINE ;
+error_code        = "policy_denied" | "validation_failed" | "tenant_mismatch"
+                  | "not_found" | "rate_limited" | "bad_request"
+                  | "method_not_allowed" | "integration_error" ;
 ```
+
+The `when_denied` child of a `policy_entry` is the per-policy default for the
+`policy_denied` framework error code: every command using the named policy
+inherits the phrasing unless it carries its own command-level
+`when_denied` line. The `@translation.<key>` reference resolves against the
+surrounding feature's `translation.keys` (same-feature shorthand) or against
+`<feature>.@translation.<key>` for cross-feature look-ups; doctor cross-checks
+under `translation_key_unknown` and the new `ERR-VOCAB-002`.
+
+```lazuli
+policies
+  update: @role.admin, @role.sales
+    when_denied @translation.customer_update_admin_only
+```
+
+The `errors` block under a `feature` declares the wire-envelope exposure rules
+(`default hide|expose`, `expose client 4xx|5xx <fields>`) and the typed
+per-code message overrides for the framework's closed catalog of eight error
+codes. Codes outside the closed catalog raise `ERR-VOCAB-CODE-UNKNOWN`;
+exposure fields outside `message`, `code`, `data`, `message_key` (4xx) or
+`code`, `data` (5xx) raise `ERR-VOCAB-EXPOSE-UNKNOWN`. `expose client 5xx
+message` is rejected (`ERR-VOCAB-EXPOSE-5XX-MESSAGE`) so framework-internal
+5xx text never reaches the wire. The `message_key` exposure token publishes
+the resolved `@translation.<key>` on the wire so client UIs that ship offline
+catalogs (native mobile apps) can render their own strings.
+
+```lazuli
+errors
+  default hide
+  expose client 4xx message, code, message_key
+  policy_denied message @translation.customer_signin_required
+```
+
+Author-declared **named typed errors** (e.g. `error CustomerAlreadyDeleted
+status 409 expose message, code`) are declared inside `rule` and `command`
+bodies via the `error_emit` clause (§8 `error_emit`) and define new error
+codes rather than overriding the eight framework codes. The two surfaces
+compose orthogonally.
 
 ## 8. Commands
 
@@ -403,7 +455,8 @@ cache_ref         = qualified_query_ref | qualified_query_ref "*" | "query.*" ;
 
 error_emit        = "error" IDENT_UPPER ( "if" expr )? NEWLINE ;
 
-policy_clause     = "policy" policy_atom_list NEWLINE ;
+policy_clause     = "policy" policy_atom_list NEWLINE
+                    ( INDENT when_denied_clause DEDENT )? ;
 
 rate_limit_clause = "rate_limit" STRING NEWLINE ;
 
@@ -415,6 +468,19 @@ idempotency_source = ( "input" | "envelope" | "payload" | "schedule"
 
 audit_clause      = "audit" ( "none" | "field" IDENT_LOWER
                             | "target" IDENT_UPPER )+ NEWLINE ;
+```
+
+A command-level `when_denied` is the highest-precedence step in the error
+resolver chain — it overrides any per-policy `when_denied` and any
+feature-level `errors policy_denied message ...` catch-all for this one
+command. See `docs/canonical-semantics.md` (errors section) for the four-layer
+resolver chain and `docs/proposals/ir-error-messages-vocab.md` §2 for the
+design rationale.
+
+```lazuli
+command capture_lead
+  policy @policy.capture_lead
+    when_denied @translation.capture_lead_signin_required
 ```
 
 ## 9. Custom HTTP API endpoints

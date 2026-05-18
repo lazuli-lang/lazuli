@@ -436,6 +436,25 @@ source that only fails later.
   contracts list explicit query targets under `invalidates`.
 - Feature-level `errors` defaults decide public/private client exposure. Named
   error cases declare HTTP status and exposed payload fields.
+- **Framework-emitted 4xx errors are rendered through the resolver chain — no
+  raw evaluator-internal string reaches the wire.** The resolver consults
+  command-level `policy ... when_denied @translation.<key>`, then per-policy
+  `policies.<category>.when_denied`, then per-feature `errors <code> message
+  @translation.<key>`, then the built-in catalog under
+  `runtime/go/lazuli/i18n/builtin.<locale>.json`. The built-in catalog ships
+  PT-BR and en-US for every closed-catalog framework error code
+  (`policy_denied`, `validation_failed`, `tenant_mismatch`, `not_found`,
+  `rate_limited`, `bad_request`, `method_not_allowed`, `integration_error`),
+  so even a freshly-scaffolded app with zero `.lzi` authoring of the error
+  surface emits a layperson native string instead of evaluator jargon like
+  `"no policy atom matches the active actor for @policy.<name>"`. The
+  layperson grep test (`TestBuiltinCatalogNoFrameworkJargon` in
+  `runtime/go/lazuli/i18n/builtin_catalog_test.go`) bans framework jargon
+  from the built-in catalog values, and the regression-guard HTTP test
+  (`TestZeroAuthoringPolicyDeniedEmitsBuiltinPTBR` in
+  `runtime/go/lazuli/http_error_resolution_smoke_test.go`) asserts the
+  legacy jargon string never reaches the wire payload. See
+  `docs/proposals/ir-error-messages-vocab.md` §2.D and §2.E.
 - Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
 - `registry.env` is the canonical home for environment schema. Every
