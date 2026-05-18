@@ -239,7 +239,7 @@ import (
 
 func MountOAuthGoogleSmokeRoute(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/oauth/google", func(w http.ResponseWriter, r *http.Request) {
-		contract := accountAuthOAuthGoogle
+		contract := AccountAuthOAuthGoogle
 		contract.ClientID = os.Getenv("GOOGLE_OAUTH_CLIENT_ID")
 		contract.ClientSecret = os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET")
 		contract.RedirectURL = "http://" + r.Host + "/auth/oauth/google/callback"

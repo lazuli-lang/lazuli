@@ -60,8 +60,12 @@ pub fn emit_auth_file(
 }
 
 fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: &EmitContext<'_>) {
-    let feature_camel = lower_camel(&feature.name);
-    let identity_var = format!("{feature_camel}AuthIdentity");
+    // Auth contract vars are PascalCase so cross-package handlers in
+    // `<feature>handlers` can reference them via `<feature>gen.AuthPassword`,
+    // `<feature>gen.AuthSessions`, etc. (Go exports start with an uppercase
+    // first letter.)
+    let feature_pascal = pascal_case(&feature.name);
+    let identity_var = format!("{feature_pascal}AuthIdentity");
 
     write_section_banner(
         p,
@@ -77,12 +81,12 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
 
     if let Some(password) = &auth_block.password {
         p.blank();
-        emit_password(p, &feature_camel, &identity_var, password);
+        emit_password(p, &feature_pascal, &identity_var, password);
     }
 
     if let Some(sessions) = &auth_block.sessions {
         p.blank();
-        emit_sessions(p, &feature_camel, sessions);
+        emit_sessions(p, &feature_pascal, sessions);
     }
 
     let mut oauth: Vec<&AuthOAuthProvider> = auth_block.oauth.iter().collect();
@@ -93,12 +97,12 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
     });
     for provider in oauth {
         p.blank();
-        emit_oauth(p, &feature_camel, provider);
+        emit_oauth(p, &feature_pascal, provider);
     }
 
     if let Some(mfa) = &auth_block.mfa {
         p.blank();
-        emit_mfa(p, &feature_camel, mfa);
+        emit_mfa(p, &feature_pascal, mfa);
     }
 
     let routes = auth_routes(auth_block);
@@ -120,12 +124,12 @@ fn emit_identity(p: &mut GoPrinter, identity_var: &str, auth_block: &Auth) {
 
 fn emit_password(
     p: &mut GoPrinter,
-    feature_camel: &str,
+    feature_pascal: &str,
     identity_var: &str,
     password: &AuthPassword,
 ) {
     p.line(&format!(
-        "var {feature_camel}AuthPassword = auth.PasswordContract{{"
+        "var {feature_pascal}AuthPassword = auth.PasswordContract{{"
     ));
     p.indent();
     let mut rows = vec![
@@ -154,10 +158,10 @@ fn emit_password(
     p.line("}");
 }
 
-fn emit_sessions(p: &mut GoPrinter, feature_camel: &str, sessions: &AuthSessions) {
+fn emit_sessions(p: &mut GoPrinter, feature_pascal: &str, sessions: &AuthSessions) {
     let (ttl_expr, ttl_todo) = duration_expr(&sessions.ttl);
     p.line(&format!(
-        "var {feature_camel}AuthSessions = auth.SessionsContract{{"
+        "var {feature_pascal}AuthSessions = auth.SessionsContract{{"
     ));
     p.indent();
     let rows = vec![
@@ -179,9 +183,9 @@ fn emit_sessions(p: &mut GoPrinter, feature_camel: &str, sessions: &AuthSessions
     p.line("}");
 }
 
-fn emit_oauth(p: &mut GoPrinter, feature_camel: &str, oauth: &AuthOAuthProvider) {
+fn emit_oauth(p: &mut GoPrinter, feature_pascal: &str, oauth: &AuthOAuthProvider) {
     p.line(&format!(
-        "var {feature_camel}AuthOAuth{} = auth.OAuthContract{{",
+        "var {feature_pascal}AuthOAuth{} = auth.OAuthContract{{",
         pascal_case(&oauth.provider)
     ));
     p.indent();
@@ -202,8 +206,8 @@ fn emit_oauth(p: &mut GoPrinter, feature_camel: &str, oauth: &AuthOAuthProvider)
     p.line("}");
 }
 
-fn emit_mfa(p: &mut GoPrinter, feature_camel: &str, mfa: &AuthMfa) {
-    p.line(&format!("var {feature_camel}AuthMfa = auth.MfaContract{{"));
+fn emit_mfa(p: &mut GoPrinter, feature_pascal: &str, mfa: &AuthMfa) {
+    p.line(&format!("var {feature_pascal}AuthMfa = auth.MfaContract{{"));
     p.indent();
     let mut rows = vec![
         (
@@ -470,10 +474,6 @@ fn pascal_case(s: &str) -> String {
     super::casing::pascal_case(s)
 }
 
-fn lower_camel(s: &str) -> String {
-    super::casing::lower_camel(s)
-}
-
 fn escape_string(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
@@ -665,19 +665,19 @@ mod tests {
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/auth\""));
         assert!(out.contains(
-            "var customerAuthAuthIdentity = auth.FieldRef{Resource: \"Customer\", Field: \"email\"}"
+            "var CustomerAuthAuthIdentity = auth.FieldRef{Resource: \"Customer\", Field: \"email\"}"
         ));
-        assert!(out.contains("var customerAuthAuthPassword = auth.PasswordContract{"));
-        assert!(out.contains("Identity:  customerAuthAuthIdentity,"));
+        assert!(out.contains("var CustomerAuthAuthPassword = auth.PasswordContract{"));
+        assert!(out.contains("Identity:  CustomerAuthAuthIdentity,"));
         assert!(out.contains("Algorithm: auth.AlgoArgon2id,"));
         assert!(out.contains("HashFn:    \"@fn.hash_customer_password\","));
         assert!(out.contains("RateLimit: \"5 per 10 minutes\","));
-        assert!(out.contains("var customerAuthAuthSessions = auth.SessionsContract{"));
+        assert!(out.contains("var CustomerAuthAuthSessions = auth.SessionsContract{"));
         assert!(out.contains("TTL:      7 * 24 * time.Hour,"));
         assert!(out.contains("Refresh:  false,"));
-        assert!(out.contains("var customerAuthAuthOAuthGoogle = auth.OAuthContract{"));
+        assert!(out.contains("var CustomerAuthAuthOAuthGoogle = auth.OAuthContract{"));
         assert!(out.contains("AdapterRef: \"@adapter.google_oauth\","));
-        assert!(out.contains("var customerAuthAuthMfa = auth.MfaContract{"));
+        assert!(out.contains("var CustomerAuthAuthMfa = auth.MfaContract{"));
         assert!(out.contains("Method:   auth.MfaMethodTOTP,"));
         assert!(out.contains("func init() {"));
         assert!(out.contains("Name:    \"customer_auth.auth.login\","));
@@ -702,7 +702,7 @@ mod tests {
         let mut feature = base_feature("portal");
         feature.auth = Some(auth_with_identity("User", "email"));
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("var portalAuthIdentity = auth.FieldRef"));
+        assert!(out.contains("var PortalAuthIdentity = auth.FieldRef"));
         assert!(!out.contains("PasswordContract"));
         assert!(!out.contains("SessionsContract"));
         assert!(!out.contains("MfaContract"));

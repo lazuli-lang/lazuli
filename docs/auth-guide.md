@@ -74,7 +74,7 @@ Runtime references:
 Use a public login command/API that maps its identity field into `auth.PasswordLoginInput.Identity`, then call `auth.LoginPassword` with the generated contracts:
 
 ```go
-session, err := auth.LoginPassword(ctx, accountAuthPassword, accountAuthSessions, auth.PasswordLoginInput{
+session, err := auth.LoginPassword(ctx, accountgen.AccountAuthPassword, accountgen.AccountAuthSessions, auth.PasswordLoginInput{
 	Identity: input.Email,
 	Password: input.Password,
 }, lookupUserByEmail)
