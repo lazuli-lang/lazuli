@@ -1,0 +1,17 @@
+app EventOutboxSmoke
+  uses
+    payments
+
+  targets
+    backend go
+
+  environments
+    local
+
+  urls
+    api local "http://localhost:3000"
+
+  runtime
+    unit api
+      serves webhooks
+      healthcheck "/healthz"

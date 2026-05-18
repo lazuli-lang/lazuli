@@ -4237,12 +4237,32 @@ fn lower_notification_throttle(
 /// strings; Tier 4 will lift these into typed shapes once the shared
 /// declarative parser exists.
 pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
+    // EVENT-OUTBOX §3.3 — lower the parallel bool vec into the typed
+    // `OutboxMode` catalog. Index-paired with `events`; when the AST
+    // emits an empty vec (legacy / pre-outbox payloads) we expand to
+    // a same-length `None` vec so downstream code can read by index.
+    let events_outbox: Vec<ir::OutboxMode> = if group.events_outbox_guaranteed.is_empty() {
+        vec![ir::OutboxMode::None; group.events.len()]
+    } else {
+        group
+            .events_outbox_guaranteed
+            .iter()
+            .map(|g| {
+                if *g {
+                    ir::OutboxMode::Guaranteed
+                } else {
+                    ir::OutboxMode::None
+                }
+            })
+            .collect()
+    };
     ir::EventGroup {
         pattern: group.pattern.clone(),
         on_resource: group.on_resource.clone(),
         raw_payload: group.payload.clone(),
         raw_audit: group.audit.clone(),
         events: group.events.clone(),
+        events_outbox,
         span_ref: Some(span_of(group.span)),
     }
 }

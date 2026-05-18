@@ -603,7 +603,8 @@ fn lower_camel(s: &str) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, BuiltinType, Defaults, EventKind, Field, Module, Policies, Resource, TypeRef,
+        AppManifest, BuiltinType, Defaults, EventKind, Field, Module, OutboxMode, Policies,
+        Resource, TypeRef,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -716,6 +717,8 @@ mod tests {
     }
 
     fn event_group(pattern: &str, events: Vec<&str>) -> EventGroup {
+        let events: Vec<String> = events.into_iter().map(str::to_owned).collect();
+        let events_outbox = vec![OutboxMode::None; events.len()];
         EventGroup {
             pattern: pattern.to_owned(),
             on_resource: Some("Customer".to_owned()),
@@ -724,7 +727,8 @@ mod tests {
                 "by_id = ctx.user.id when @actor.user".to_owned(),
             ],
             raw_audit: None,
-            events: events.into_iter().map(str::to_owned).collect(),
+            events,
+            events_outbox,
             span_ref: None,
         }
     }
@@ -769,6 +773,7 @@ mod tests {
             payload,
             payload_none: false,
             level: None,
+            outbox: OutboxMode::None,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -878,7 +883,8 @@ mod tests {
 mod feature_emit_tests {
     use super::*;
     use lazuli_ir::{
-        BuiltinType, Defaults, Event, EventField, EventKind, Feature, Module, Policies, TypeRef,
+        BuiltinType, Defaults, Event, EventField, EventKind, Feature, Module, OutboxMode, Policies,
+        TypeRef,
     };
 
     fn feature_with_standalone_event() -> Feature {
@@ -915,6 +921,7 @@ mod feature_emit_tests {
                 ],
                 payload_none: false,
                 level: None,
+                outbox: OutboxMode::None,
                 previous_names: Vec::new(),
                 span_ref: None,
             }],

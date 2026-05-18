@@ -1643,10 +1643,42 @@ pub struct Event {
     /// (`event_trace_level_on_domain_event_diagnostics`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<String>,
+    /// EVENT-OUTBOX §3.3 — transactional-outbox guarantee. `Guaranteed`
+    /// means the producing command's pgx tx writes a `lazuli_outbox` row
+    /// in the same commit as the resource mutation; the runtime pump
+    /// dispatches post-commit. `None` (default) preserves the legacy
+    /// best-effort post-commit Publish path.
+    #[serde(default, skip_serializing_if = "OutboxMode::is_none")]
+    pub outbox: OutboxMode,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// EVENT-OUTBOX §3.3 — closed catalog for the per-event outbox
+/// guarantee. The default is `None` (legacy best-effort dispatch);
+/// `Guaranteed` opts the event into the transactional outbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboxMode {
+    None,
+    Guaranteed,
+}
+
+impl Default for OutboxMode {
+    fn default() -> Self {
+        OutboxMode::None
+    }
+}
+
+impl OutboxMode {
+    pub fn is_none(&self) -> bool {
+        matches!(self, OutboxMode::None)
+    }
+    pub fn is_guaranteed(&self) -> bool {
+        matches!(self, OutboxMode::Guaranteed)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -4481,6 +4513,11 @@ pub struct EventGroup {
     /// rule (`event_group_can_own_short_event_declarations`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<String>,
+    /// EVENT-OUTBOX §3.3 — per-event outbox mode, parallel to `events`.
+    /// `events_outbox[i]` is the mode authored on `events[i]` (or
+    /// `OutboxMode::None` when the line did not author one).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events_outbox: Vec<OutboxMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

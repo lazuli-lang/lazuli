@@ -34,7 +34,22 @@ type EventEmit struct {
 	// align with the effect's binding names (e.g.
 	// `emits customer_reassigned` with `to_owner_id = input.owner_id`).
 	Bind Bindings
+
+	// Outbox declares the transactional-outbox guarantee per
+	// EVENT-OUTBOX §3.3. When `OutboxGuaranteed`, the runtime writes a
+	// `lazuli_outbox` row in the same pgx tx as the resource mutation
+	// and skips the post-commit `Publish` (the outbox pump dispatches).
+	// `OutboxNone` (zero value) preserves the legacy best-effort path.
+	Outbox OutboxMode
 }
+
+// OutboxMode is the closed catalog for EventEmit.Outbox.
+type OutboxMode string
+
+const (
+	OutboxNone       OutboxMode = ""
+	OutboxGuaranteed OutboxMode = "guaranteed"
+)
 
 // EventDeriveFrom names the effect a derived emit reads its payload from.
 type EventDeriveFrom string

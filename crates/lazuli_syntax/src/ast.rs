@@ -2232,6 +2232,11 @@ pub struct EventGroup {
     /// name strings. The full event bodies stay in the legacy lowering
     /// pipeline; this slot drives doctor's pattern-prefix rule.
     pub events: Vec<String>,
+    /// EVENT-OUTBOX §3.3 — parallel to `events`: `true` at index `i`
+    /// when the corresponding `event <name>` block authored
+    /// `outbox guaranteed`. Length always matches `events.len()`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events_outbox_guaranteed: Vec<bool>,
     pub span: Span,
 }
 

@@ -14,7 +14,7 @@ use lazuli_doctor::vocab::{
     vocab_money_multi_currency_001, vocab_resource_wide_cluster_001, vocab_shadow_record_001,
     vocab_tests_missing_001, vocab_union_001, vocab_union_002,
 };
-use lazuli_ir::{BuiltinType, Event, EventField, EventKind, TypeRef};
+use lazuli_ir::{BuiltinType, Event, EventField, EventKind, OutboxMode, TypeRef};
 
 fn examples_dir() -> PathBuf {
     let crate_dir = env!("CARGO_MANIFEST_DIR");
@@ -120,6 +120,7 @@ fn parse_event_declarations(source: &str) -> Vec<Event> {
             payload,
             payload_none,
             level: None,
+            outbox: OutboxMode::None,
             previous_names: vec![],
             span_ref: None,
         });
