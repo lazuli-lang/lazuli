@@ -1288,6 +1288,14 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     if let Some(token) = parse_cap_token_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::Token(token));
     }
+    // MONEY-1 §3.2 — `@semantic.Money(currency:<ISO>)` carries the
+    // declared currency through to IR so doctor checks
+    // (MONEY-COMPARE-001, MONEY-ARITHMETIC-001) can read it without
+    // re-walking surface text. Unknown currencies fall through to
+    // `UserDefined` so existing "unknown semantic" surfaces them.
+    if let Some(money) = parse_semantic_money_type(ty) {
+        return ir::TypeRef::Builtin(money);
+    }
     // Phase L Tier 4 follow-up — typed `@semantic.*` shorthand for the
     // closed catalog (Email/Phone/Url/Uuid). Other `@semantic.<X>`
     // names still fall through to `UserDefined` so the language can
@@ -1300,7 +1308,13 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
         "@semantic.Currency" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency),
         "@semantic.GeoPoint" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint),
-        "@semantic.Money" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney),
+        // Bare `@semantic.Money` (no args) is Hostpoint-pilot reality:
+        // single-currency app, defaults to BRL.
+        "@semantic.Money" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney {
+                currency: ir::CurrencyCode::BRL,
+            });
+        }
         _ => {}
     }
     match ty {
@@ -1310,10 +1324,15 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "Integer" | "Int" => ir::TypeRef::Builtin(ir::BuiltinType::Integer),
         "Decimal" | "Float" => ir::TypeRef::Builtin(ir::BuiltinType::Decimal),
         // Per proposal `semantic-types-money-brazilian.md` v0.3, `Money`
-        // is the currency-aware semantic type, NOT a Decimal alias. The
-        // codegen emits paired `<field>_currency TEXT` automatically;
-        // doctor lint VOCAB-MONEY-002 catches authors who meant Decimal.
-        "Money" => ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney),
+        // is the currency-aware semantic type, NOT a Decimal alias.
+        // Default currency is BRL (Hostpoint-pilot reality); authors
+        // override per-field via `@semantic.Money(currency:<ISO>)`.
+        // Codegen emits `<field>_currency` with a CHECK constraint
+        // pinned to the declared currency; doctor lint VOCAB-MONEY-002
+        // catches authors who meant Decimal.
+        "Money" => ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney {
+            currency: ir::CurrencyCode::BRL,
+        }),
         "Date" => ir::TypeRef::Builtin(ir::BuiltinType::Date),
         "DateTime" => ir::TypeRef::Builtin(ir::BuiltinType::DateTime),
         "JSON" | "Json" => ir::TypeRef::Builtin(ir::BuiltinType::Json),
@@ -1433,6 +1452,23 @@ fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
         visibility,
         signed_ttl,
     })
+}
+
+/// MONEY-1 §3.2 — `@semantic.Money(currency:<ISO>)`. Reuses the
+/// capability-arg syntax (`key:value`) for consistency with `@cap.*`.
+/// Returns `None` when:
+///   * the prefix doesn't match `@semantic.Money(`
+///   * the closing paren is missing
+///   * `currency` is absent
+///   * the ISO code isn't in the closed `CurrencyCode` catalog
+/// All four cases fall through to the existing `UserDefined`-with-
+/// diagnostic path so authors see a single consistent error surface.
+fn parse_semantic_money_type(ty: &str) -> Option<ir::BuiltinType> {
+    let inner = ty.strip_prefix("@semantic.Money(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+    let raw = args.get("currency")?;
+    let currency = ir::CurrencyCode::from_iso(raw)?;
+    Some(ir::BuiltinType::SemanticMoney { currency })
 }
 
 fn parse_capability_args(inner: &str) -> std::collections::BTreeMap<String, String> {

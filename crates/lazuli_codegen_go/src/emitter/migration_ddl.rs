@@ -282,12 +282,17 @@ fn resource_columns<'a>(
         columns.push(SqlColumn::typed("org_id", "BIGINT", true));
     }
 
-    // Per proposal `semantic-types-money-brazilian.md` v0.4: scan the
-    // resource once to detect which Money fields have an explicit
-    // `<money>_currency: Currency` opt-out pair authored. Those keep the
-    // per-field paired column. Money fields without an opt-out share
-    // ONE resource-level `currency` column emitted at the end of the
-    // field loop.
+    // MONEY-1 §3.2 (v0.5) — every `Money` field carries its currency
+    // through to IR (`BuiltinType::SemanticMoney { currency }`). DDL
+    // emits a paired `<field>_currency TEXT NOT NULL CHECK (<field>
+    // _currency = '<ISO>') DEFAULT '<ISO>'` immediately after the
+    // amount column. The v0.4 single-shared `currency TEXT` column
+    // pattern is retired — IR is now precise enough that the per-field
+    // shape is unambiguous and the CHECK constraint defends against
+    // ALTER-time drift. Authors keep the option to suppress the
+    // auto-emitted paired column by declaring `<field>_currency:
+    // Currency` themselves — useful when migrating an existing schema
+    // that already has the legacy column shape.
     let explicit_currency_overrides: std::collections::HashSet<String> = resource
         .fields
         .iter()
@@ -304,15 +309,6 @@ fn resource_columns<'a>(
             }
         })
         .collect();
-    let author_currency_field = resource.fields.iter().any(|f| {
-        f.name == "currency"
-            && matches!(
-                f.type_ref,
-                lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticCurrency)
-            )
-    });
-    let mut needs_shared_currency = false;
-    let mut shared_currency_required = false;
 
     for field in &resource.fields {
         let pg_type = pg_type_for_field(module, feature, field, cross_index);
@@ -327,36 +323,29 @@ fn resource_columns<'a>(
             None => column,
         };
         columns.push(column);
-        // v0.4 — per-field paired column only when the author authored
-        // an explicit `<field>_currency: Currency` opt-out. Otherwise the
-        // Money field opts into the shared resource-level `currency`.
-        if matches!(
-            field.type_ref,
-            lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticMoney)
-        ) {
+        if let lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticMoney {
+            currency,
+        }) = field.type_ref
+        {
             if explicit_currency_overrides.contains(&field.name) {
-                // Paired column is authored by the user — they'll
-                // declare its requiredness/default themselves; nothing
-                // to emit here.
-            } else {
-                needs_shared_currency = true;
-                if field.required {
-                    shared_currency_required = true;
-                }
+                // Paired column was authored explicitly — defer to the
+                // user's declaration.
+                continue;
             }
+            let iso = currency.as_iso();
+            let name = format!("{}_currency", field.name);
+            // `field.required` mirrors the amount column's nullability.
+            // Defaults to the declared ISO so old inserts (or hand-
+            // written ALTER backfills) cannot break the invariant.
+            columns.push(SqlColumn::raw(&format!(
+                "{} TEXT{} CHECK ({} = '{}') DEFAULT '{}'",
+                name,
+                if field.required { " NOT NULL" } else { "" },
+                name,
+                iso,
+                iso,
+            )));
         }
-    }
-
-    // v0.4 shared currency — exactly one column per resource, emitted
-    // after the authored fields and before tenancy/timestamp blocks.
-    // Suppressed when the author already wrote `currency: Currency`
-    // explicitly on the resource (e.g. to control name/default).
-    if needs_shared_currency && !author_currency_field {
-        columns.push(SqlColumn::typed(
-            "currency",
-            "TEXT",
-            shared_currency_required,
-        ));
     }
 
     if uses_timestamps(feature, resource) {
@@ -580,7 +569,7 @@ fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
         // `currency TEXT` column is auto-emitted (see resource_columns);
         // authors opt out per-field by declaring an explicit
         // `<money>_currency: Currency` pair.
-        BuiltinType::SemanticMoney => "NUMERIC(20,4)",
+        BuiltinType::SemanticMoney { .. } => "NUMERIC(20,4)",
         BuiltinType::SemanticGeoPoint => {
             return PgType {
                 sql: "geography(point, 4326)".to_owned(),
@@ -1188,7 +1177,13 @@ DROP TABLE IF EXISTS \"customer\";
                 builtin("website", BuiltinType::SemanticUrl, false),
                 builtin("uuid", BuiltinType::SemanticUuid, false),
                 builtin("currency", BuiltinType::SemanticCurrency, true),
-                builtin("cents", BuiltinType::SemanticMoney, true),
+                builtin(
+                    "cents",
+                    BuiltinType::SemanticMoney {
+                        currency: lazuli_ir::CurrencyCode::BRL,
+                    },
+                    true,
+                ),
             ],
         ));
 
@@ -1209,12 +1204,19 @@ DROP TABLE IF EXISTS \"customer\";
         assert!(sql.contains("phone TEXT,"));
         assert!(sql.contains("website TEXT,"));
         assert!(sql.contains("uuid TEXT,"));
-        // Author declared `currency: Currency` explicitly — v0.4 keeps
-        // the user-authored column and suppresses the auto-emitted
-        // shared currency to avoid a duplicate.
+        // The author-declared `currency: Currency` column stays as-is
+        // (the v0.5 codegen no longer mints a shared `currency` column
+        // — it only emits per-Money-field `<field>_currency` columns
+        // now — so there's no duplicate to suppress).
         assert!(sql.contains("currency TEXT NOT NULL,"));
-        // Money fields store as NUMERIC(20,4) per v0.4.
+        // MONEY-1 §3.2 (v0.5) — Money fields carry their currency in
+        // IR, so the DDL emits a paired `<field>_currency` column with
+        // a CHECK constraint pinned to the declared ISO and a DEFAULT
+        // so ALTER-time inserts cannot drift.
         assert!(sql.contains("cents NUMERIC(20,4) NOT NULL"));
+        assert!(sql.contains(
+            "cents_currency TEXT NOT NULL CHECK (cents_currency = 'BRL') DEFAULT 'BRL'"
+        ));
     }
 
     #[test]

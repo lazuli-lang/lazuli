@@ -14,6 +14,8 @@
 //! v0.6 shared helpers: universal_columns (used by shadow-record /
 //! resource-wide-cluster lints landing in subsequent cells).
 
+pub mod money_arithmetic_001;
+pub mod money_compare_001;
 pub mod universal_columns;
 pub mod vocab_audit_001;
 pub mod vocab_audit_002;

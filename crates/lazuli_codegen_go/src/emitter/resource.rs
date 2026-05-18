@@ -226,11 +226,13 @@ fn emit_resource(
         });
     }
 
-    // Per proposal `semantic-types-money-brazilian.md` v0.4: when a
-    // resource has 1+ Money fields without explicit
-    // `<money>_currency: Currency` opt-out fields, codegen emits a
-    // single shared `currency` column. Mirrors the DDL emitter
-    // (`migration_ddl::resource_columns` v0.4 block).
+    // MONEY-1 §3.2 (v0.5) — per-field `<field>_currency` Go fields
+    // mirror the per-field DDL columns emitted by `migration_ddl.rs`.
+    // Authors can suppress the auto-emit by declaring an explicit
+    // `<field>_currency: Currency` of their own (back-compat for
+    // hand-rolled migrations). The legacy v0.4 single shared `currency`
+    // column has been retired now that IR carries currency per Money
+    // field — see `BuiltinType::SemanticMoney { currency }`.
     let explicit_currency_overrides: std::collections::HashSet<String> = resource
         .fields
         .iter()
@@ -245,38 +247,30 @@ fn emit_resource(
             }
         })
         .collect();
-    let author_currency_field = resource.fields.iter().any(|f| {
+    for field in &resource.fields {
         use lazuli_ir::{BuiltinType, TypeRef};
-        f.name == "currency"
-            && matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticCurrency))
-    });
-    let needs_shared_currency = !author_currency_field
-        && resource.fields.iter().any(|f| {
-            use lazuli_ir::{BuiltinType, TypeRef};
-            matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticMoney))
-                && !explicit_currency_overrides.contains(&f.name)
-        });
-    let shared_currency_required = resource.fields.iter().any(|f| {
-        use lazuli_ir::{BuiltinType, TypeRef};
-        matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticMoney))
-            && f.required
-            && !explicit_currency_overrides.contains(&f.name)
-    });
-    if needs_shared_currency {
-        let go_type = if shared_currency_required {
-            "lazuli.Currency".to_owned()
-        } else {
-            "*lazuli.Currency".to_owned()
+        let TypeRef::Builtin(BuiltinType::SemanticMoney { .. }) = field.type_ref else {
+            continue;
         };
-        let json_suffix = if shared_currency_required {
-            "currency".to_owned()
+        if explicit_currency_overrides.contains(&field.name) {
+            continue;
+        }
+        let pair_name = format!("{}_currency", field.name);
+        let (go_type, json_suffix) = if field.required {
+            (
+                "lazuli.Currency".to_owned(),
+                pair_name.clone(),
+            )
         } else {
-            "currency,omitempty".to_owned()
+            (
+                "*lazuli.Currency".to_owned(),
+                format!("{},omitempty", pair_name),
+            )
         };
         tagged.push(TaggedField {
-            name: "Currency".to_owned(),
+            name: pascal_case(&pair_name),
             go_type,
-            db_col: "currency".to_owned(),
+            db_col: pair_name,
             json_suffix,
             comment: None,
         });
@@ -1088,7 +1082,13 @@ mod tests {
             public_contract: None,
             fields: vec![
                 simple_field("customer_id", BuiltinType::Id, true),
-                simple_field("amount", BuiltinType::SemanticMoney, true),
+                simple_field(
+                    "amount",
+                    BuiltinType::SemanticMoney {
+                        currency: lazuli_ir::CurrencyCode::BRL,
+                    },
+                    true,
+                ),
             ],
             discriminator_field: None,
             span_ref: None,

@@ -88,7 +88,9 @@ fn builtin_label(builtin: BuiltinType) -> &'static str {
         BuiltinType::DateTime => "DateTime",
         BuiltinType::Json => "Json",
         BuiltinType::SemanticEmail => "@semantic.Email",
-        BuiltinType::SemanticMoney => "@semantic.Money",
+        // Currency is intentionally omitted: this label is the
+        // typeface name, not the source-form decorator argument.
+        BuiltinType::SemanticMoney { .. } => "@semantic.Money",
         BuiltinType::SemanticPhone => "@semantic.Phone",
         BuiltinType::SemanticUrl => "@semantic.Url",
         BuiltinType::SemanticUuid => "@semantic.Uuid",

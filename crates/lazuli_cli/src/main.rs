@@ -2167,7 +2167,7 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
             // the rich struct on the TS side too. `Money` interface
             // lives in `@lazuli/runtime`; downstream consumers get the
             // shape via the typed import.
-            lazuli_ir::BuiltinType::SemanticMoney => "Money".to_owned(),
+            lazuli_ir::BuiltinType::SemanticMoney { .. } => "Money".to_owned(),
             lazuli_ir::BuiltinType::Date | lazuli_ir::BuiltinType::DateTime => "Time".to_owned(),
             lazuli_ir::BuiltinType::Json
             | lazuli_ir::BuiltinType::SemanticGeoPoint
@@ -2482,7 +2482,7 @@ fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef) -> &'static str {
             lazuli_ir::BuiltinType::Boolean => "z.boolean()",
             lazuli_ir::BuiltinType::Integer
             | lazuli_ir::BuiltinType::Decimal
-            | lazuli_ir::BuiltinType::SemanticMoney => "z.number()",
+            | lazuli_ir::BuiltinType::SemanticMoney { .. } => "z.number()",
             lazuli_ir::BuiltinType::Json
             | lazuli_ir::BuiltinType::SemanticGeoPoint
             | lazuli_ir::BuiltinType::CapFile => "z.unknown()",
@@ -8414,6 +8414,9 @@ fn built_in_trace_fires_per_word(kind: lazuli_ir::TraceFiresPer) -> &'static str
 fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
     use lazuli_ir::{BuiltinType, CapabilityRef, TypeRef};
     match t {
+        TypeRef::Builtin(BuiltinType::SemanticMoney { currency }) => {
+            format!("@semantic.Money(currency:{})", currency.as_iso())
+        }
         TypeRef::Builtin(b) => match b {
             BuiltinType::Text => "Text",
             BuiltinType::Integer => "Integer",
@@ -8427,7 +8430,8 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::SemanticPhone => "@semantic.Phone",
             BuiltinType::SemanticUrl => "@semantic.Url",
             BuiltinType::SemanticUuid => "@semantic.Uuid",
-            BuiltinType::SemanticMoney => "@semantic.Money",
+            // SemanticMoney handled above to surface its currency arg.
+            BuiltinType::SemanticMoney { .. } => unreachable!(),
             BuiltinType::SemanticCurrency => "@semantic.Currency",
             BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
             BuiltinType::CapSecret => "@cap.Secret",

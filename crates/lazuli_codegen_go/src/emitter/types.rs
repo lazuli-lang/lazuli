@@ -171,7 +171,7 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
         // type is the rich struct `lazuli.MoneyValue` (decimal +
         // currency), not the legacy `int64` alias `lazuli.Money`
         // which is preserved for backward compatibility.
-        BuiltinType::SemanticMoney => (
+        BuiltinType::SemanticMoney { .. } => (
             "lazuli.MoneyValue".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
