@@ -2067,8 +2067,14 @@ fn adapter_source_provenance(source: &str) -> Option<&'static str> {
 }
 
 fn valid_plugin_tail(value: &str) -> bool {
-    value.split('/').filter(|part| !part.is_empty()).count() >= 2
-        && value.split('/').all(valid_path_segment)
+    // Single-segment (`@plugin/<name>`) and multi-segment
+    // (`@plugin/<publisher>/<name>`) refs are both valid — the convention
+    // shipped by the existing plugin repos (chromadb, expo-push, google-maps,
+    // mercadopago, openai-embeddings, scalars-br, object-store, smtp, sms-twilio,
+    // social-google, social-apple) uses single-segment `@plugin/<name>` per their
+    // manifest.toml + Lazurite.toml [plugins] keys.
+    let segments: Vec<&str> = value.split('/').filter(|p| !p.is_empty()).collect();
+    !segments.is_empty() && segments.iter().all(|s| valid_path_segment(s))
 }
 
 fn valid_pathish_tail(value: &str) -> bool {

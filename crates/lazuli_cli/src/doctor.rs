@@ -5844,7 +5844,7 @@ fn adapter_source_diagnostic(
         severity: DoctorSeverity::Error,
         code: code.to_owned(),
         message: format!(
-            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path."
+            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@runtime/...`, `@plugin/<name>` (or `@plugin/<publisher>/<name>`), `@adapter.<local>`, or a local path."
         ),
     }
 }
