@@ -2182,6 +2182,22 @@ pub struct DesignDeclAst {
     pub motion: MotionAst,
     pub breakpoints: Vec<ScaleTokenAst>,
     pub z_indices: Vec<ZTokenAst>,
+    /// L0 #2 — 9th meta-group `custom` per `docs/proposals/design-tokens-custom.md`.
+    /// Flat sub-grammar (no state sub-blocks). Lowering enforces hex validity
+    /// + reserved-name + collision diagnostics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom: Vec<CustomTokenAst>,
+    pub span: Span,
+}
+
+/// L0 #2 — single `custom` entry: `<kebab-name> "<hex>" [dark "<hex>"]`.
+/// Verbatim values; lowering validates hex shape + reserved-name policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomTokenAst {
+    pub name: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dark: Option<String>,
     pub span: Span,
 }
 

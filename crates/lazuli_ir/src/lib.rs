@@ -5122,6 +5122,28 @@ pub struct Design {
     pub breakpoints: Vec<ScaleToken>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub z_indices: Vec<ZToken>,
+    /// L0 #2 — 9th meta-group `custom` (proposal-pending per
+    /// `docs/proposals/design-tokens-custom.md`). Product-domain color
+    /// tokens that don't fit the Shadcn-semantic vocabulary in `color`.
+    /// Lowering emits these alongside `colors` under the `--color-*` CSS-var
+    /// prefix; doctor enforces collision + reserved-name policy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom: Vec<CustomToken>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// L0 #2 — flat custom-group entry. `name` is kebab-case; `base` is the
+/// light-mode hex; `dark` is the optional dark-mode overlay. See
+/// `docs/proposals/design-tokens-custom.md` §2 for the grammar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomToken {
+    pub name: String,
+    /// Hex literal preserved verbatim, e.g. `"#dcf8c6"`.
+    pub base: String,
+    /// Optional `dark <hex>` overlay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dark: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

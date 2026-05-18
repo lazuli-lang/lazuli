@@ -32,6 +32,15 @@ pub fn emit_tokens_css(design: &Design) -> String {
         }
     }
 
+    // Custom (9th meta-group per `docs/proposals/design-tokens-custom.md`).
+    // Lowered under the `--color-*` prefix so the Tailwind utility classes
+    // (`bg-*`, `text-*`, etc.) reach them via the same `colors` map.
+    if !design.custom.is_empty() {
+        for tok in &design.custom {
+            writeln!(s, "  --color-{}: {};", kebab(&tok.name), tok.base).ok();
+        }
+    }
+
     // Typography
     if !design.typography.families.is_empty() {
         writeln!(s).ok();
@@ -125,18 +134,24 @@ pub fn emit_tokens_css(design: &Design) -> String {
 
     writeln!(s, "}}").ok();
 
-    // Dark override block — only emit if at least one color state has a dark
-    // value.
-    let has_dark = design
+    // Dark override block — only emit if at least one color state OR custom
+    // token has a dark value.
+    let has_color_dark = design
         .colors
         .iter()
         .flat_map(|c| &c.states)
         .any(|st| st.dark.is_some());
-    if has_dark {
+    let has_custom_dark = design.custom.iter().any(|t| t.dark.is_some());
+    if has_color_dark || has_custom_dark {
         writeln!(s).ok();
         writeln!(s, "[data-theme=\"dark\"] {{").ok();
         for color in &design.colors {
             emit_color_dark(&mut s, color);
+        }
+        for tok in &design.custom {
+            if let Some(dark) = &tok.dark {
+                writeln!(s, "  --color-{}: {};", kebab(&tok.name), dark).ok();
+            }
         }
         writeln!(s, "}}").ok();
     }
@@ -201,6 +216,7 @@ mod tests {
         ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion,
         ScaleToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
     };
+    use lazuli_ir::CustomToken;
 
     fn minimal() -> Design {
         Design {
@@ -237,6 +253,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         }
     }
@@ -325,6 +342,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         };
         let out = emit_tokens_css(&d);
@@ -369,6 +387,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         };
         let out = emit_tokens_css(&d);
@@ -408,6 +427,37 @@ mod tests {
         });
         let out = emit_tokens_css(&d);
         assert!(out.contains("  --font-weight-semibold: 600;"));
+    }
+
+    #[test]
+    fn custom_token_emits_under_color_prefix() {
+        // Z2 — `custom` 9th meta-group lowers under `--color-*`.
+        let mut d = minimal();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: None,
+            span_ref: None,
+        });
+        let out = emit_tokens_css(&d);
+        assert!(out.contains("  --color-chat-bubble-mine: #dcf8c6;"));
+        // No dark block — no dark overlay declared.
+        assert!(!out.contains("[data-theme"));
+    }
+
+    #[test]
+    fn custom_token_with_dark_emits_data_theme_block() {
+        let mut d = minimal();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: Some("#005c4b".to_owned()),
+            span_ref: None,
+        });
+        let out = emit_tokens_css(&d);
+        assert!(out.contains("  --color-chat-bubble-mine: #dcf8c6;"));
+        assert!(out.contains("[data-theme=\"dark\"] {"));
+        assert!(out.contains("  --color-chat-bubble-mine: #005c4b;"));
     }
 
     #[test]

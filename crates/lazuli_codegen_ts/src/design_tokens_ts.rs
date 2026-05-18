@@ -32,6 +32,30 @@ pub fn emit_tokens_ts(design: &Design) -> String {
     for color in &design.colors {
         emit_color(&mut s, color);
     }
+    // Custom tokens lower as siblings under `tokens.color`, with
+    // `{ base, dark? }` shape per `docs/proposals/design-tokens-custom.md` §5.2.
+    // Names are camelCased so they remain legal JS identifiers (e.g.
+    // `chat-bubble-mine` → `chatBubbleMine`).
+    for tok in &design.custom {
+        let key = quote_key(&kebab_to_camel(&tok.name));
+        match &tok.dark {
+            Some(dark) => writeln!(
+                s,
+                "    {}: {{ base: {}, dark: {} }},",
+                key,
+                ts_string(&tok.base),
+                ts_string(dark),
+            )
+            .ok(),
+            None => writeln!(
+                s,
+                "    {}: {{ base: {} }},",
+                key,
+                ts_string(&tok.base),
+            )
+            .ok(),
+        };
+    }
     writeln!(s, "  }},").ok();
 
     // typography
@@ -199,6 +223,28 @@ fn quote_key(name: &str) -> String {
     }
 }
 
+/// Convert kebab-case identifier (`chat-bubble-mine`) to camelCase
+/// (`chatBubbleMine`). Single-segment names (`chat`) pass through unchanged.
+/// Used by the `custom` token lowering — kebab is the lexer-visible form
+/// (Tailwind utility class compat); camelCase is the JS object-key form.
+fn kebab_to_camel(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut upper_next = false;
+    for c in name.chars() {
+        if c == '-' {
+            upper_next = true;
+            continue;
+        }
+        if upper_next {
+            out.extend(c.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn is_safe_ident(s: &str) -> bool {
     let mut it = s.chars();
     match it.next() {
@@ -234,6 +280,7 @@ mod tests {
         ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion,
         ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
     };
+    use lazuli_ir::CustomToken;
 
     fn minimal_design() -> Design {
         Design {
@@ -273,6 +320,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         }
     }
@@ -360,6 +408,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         };
         let out = emit_tokens_ts(&d);
@@ -415,6 +464,49 @@ mod tests {
         });
         let out = emit_tokens_ts(&d);
         assert!(out.contains("\"2xl\": { size: \"1.5rem\", lineHeight: \"2rem\" },"));
+    }
+
+    #[test]
+    fn custom_token_emits_as_camelcased_sibling_under_color() {
+        // Z2 — `custom` lowers as a sibling under `tokens.color`, kebab→camel.
+        let mut d = minimal_design();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: None,
+            span_ref: None,
+        });
+        let out = emit_tokens_ts(&d);
+        assert!(out.contains("chatBubbleMine: { base: \"#dcf8c6\" },"));
+    }
+
+    #[test]
+    fn custom_token_with_dark_emits_base_dark_pair() {
+        let mut d = minimal_design();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: Some("#005c4b".to_owned()),
+            span_ref: None,
+        });
+        let out = emit_tokens_ts(&d);
+        assert!(out.contains(
+            "chatBubbleMine: { base: \"#dcf8c6\", dark: \"#005c4b\" },"
+        ));
+    }
+
+    #[test]
+    fn custom_kebab_to_camel_handles_single_segment() {
+        // Single-word custom names pass through unchanged.
+        let mut d = minimal_design();
+        d.custom.push(CustomToken {
+            name: "highlight".to_owned(),
+            base: "#fff".to_owned(),
+            dark: None,
+            span_ref: None,
+        });
+        let out = emit_tokens_ts(&d);
+        assert!(out.contains("highlight: { base: \"#fff\" },"));
     }
 
     #[test]

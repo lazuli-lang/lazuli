@@ -43,7 +43,15 @@ pub fn emit_tailwind_v4_theme(design: &Design) -> String {
     for color in &design.colors {
         emit_color(&mut s, color);
     }
-    if !design.colors.is_empty() {
+    // Custom tokens (9th meta-group) — emit flat `--color-<n>` aliases so
+    // Tailwind v4's utility-class generator sees them alongside the
+    // Shadcn-semantic palette. See
+    // `docs/proposals/design-tokens-custom.md` §5.
+    for tok in &design.custom {
+        let n = kebab(&tok.name);
+        writeln!(s, "  --color-{}: var(--color-{});", n, n).ok();
+    }
+    if !design.colors.is_empty() || !design.custom.is_empty() {
         writeln!(s).ok();
     }
 
@@ -239,6 +247,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         }
     }
@@ -320,6 +329,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         };
         let out = emit_tailwind_v4_theme(&d);

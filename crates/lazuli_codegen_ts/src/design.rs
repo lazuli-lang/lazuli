@@ -295,6 +295,7 @@ mod integration_tests {
                     value: 1300,
                 },
             ],
+            custom: vec![],
             span_ref: None,
         }
     }

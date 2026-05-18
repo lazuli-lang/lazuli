@@ -44,6 +44,22 @@ pub fn emit_tokens_mobile_ts(design: &Design, rem_base: u32) -> String {
     for color in &design.colors {
         emit_color(&mut s, color);
     }
+    // Custom tokens — siblings under `color`, camelCased keys per
+    // `docs/proposals/design-tokens-custom.md` §5.2.
+    for tok in &design.custom {
+        let key = quote_key(&kebab_to_camel(&tok.name));
+        match &tok.dark {
+            Some(dark) => writeln!(
+                s,
+                "    {}: {{ light: {}, dark: {} }},",
+                key,
+                ts_string(&tok.base),
+                ts_string(dark),
+            )
+            .ok(),
+            None => writeln!(s, "    {}: {},", key, ts_string(&tok.base)).ok(),
+        };
+    }
     writeln!(s, "  }},").ok();
 
     // typography
@@ -461,6 +477,25 @@ fn quote_key(name: &str) -> String {
     }
 }
 
+/// Kebab → camelCase. See tokens_ts companion helper.
+fn kebab_to_camel(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut upper_next = false;
+    for c in name.chars() {
+        if c == '-' {
+            upper_next = true;
+            continue;
+        }
+        if upper_next {
+            out.extend(c.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn is_safe_ident(s: &str) -> bool {
     let mut it = s.chars();
     match it.next() {
@@ -538,6 +573,7 @@ mod tests {
                 value: "768px".to_owned(),
             }],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         }
     }
@@ -612,6 +648,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         };
         let out = emit_tokens_mobile_ts(&d, 16);

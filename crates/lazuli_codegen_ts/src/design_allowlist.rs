@@ -61,6 +61,18 @@ pub fn emit_allowlist_json(design: &Design) -> String {
         }
     }
 
+    // Custom tokens (9th meta-group). Each token expands to the four
+    // utility-class prefixes (`text-`, `bg-`, `border-`, `ring-`) under
+    // the same flat namespace as the colors map. No state suffixes —
+    // custom is intentionally flat per
+    // `docs/proposals/design-tokens-custom.md` §5.4.
+    for tok in &design.custom {
+        bg.push(format!("bg-{}", tok.name));
+        text_color.push(format!("text-{}", tok.name));
+        border_color.push(format!("border-{}", tok.name));
+        ring_color.push(format!("ring-{}", tok.name));
+    }
+
     // -------- spacing utilities --------
     let space_names: Vec<String> = design.spaces.iter().map(|t| t.name.clone()).collect();
     let p = utilities("p", &space_names);
@@ -202,6 +214,7 @@ mod tests {
         ColorState, ColorStateKind, ColorToken, Design, FamilyToken, Motion, ScaleToken,
         ShadowToken, TextScaleToken, Typography, WeightToken, ZToken,
     };
+    use lazuli_ir::CustomToken;
 
     fn minimal() -> Design {
         Design {
@@ -250,6 +263,7 @@ mod tests {
             motion: Motion::default(),
             breakpoints: vec![],
             z_indices: vec![],
+            custom: vec![],
             span_ref: None,
         }
     }
@@ -387,6 +401,43 @@ mod tests {
         let docked = out.find("\"z-docked\"").expect("docked present");
         let modal = out.find("\"z-modal\"").expect("modal present");
         assert!(docked < modal, "z-docked should sort before z-modal");
+    }
+
+    #[test]
+    fn custom_tokens_expand_to_four_utility_prefixes() {
+        // Z2 — each `custom` token emits text-, bg-, border-, ring- entries.
+        let mut d = minimal();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: None,
+            span_ref: None,
+        });
+        d.custom.push(CustomToken {
+            name: "map-marker-active".to_owned(),
+            base: "#ff5722".to_owned(),
+            dark: Some("#7c2410".to_owned()),
+            span_ref: None,
+        });
+        let out = emit_allowlist_json(&d);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&out).expect("valid JSON");
+        for prefix in ["bg", "text", "border", "ring"] {
+            let bucket = parsed
+                .get(prefix)
+                .and_then(|v| v.as_array())
+                .unwrap_or_else(|| panic!("missing prefix `{prefix}`"));
+            let entries: Vec<&str> =
+                bucket.iter().filter_map(|v| v.as_str()).collect();
+            assert!(
+                entries.contains(&format!("{prefix}-chat-bubble-mine").as_str()),
+                "missing {prefix}-chat-bubble-mine"
+            );
+            assert!(
+                entries.contains(&format!("{prefix}-map-marker-active").as_str()),
+                "missing {prefix}-map-marker-active"
+            );
+        }
     }
 
     #[test]

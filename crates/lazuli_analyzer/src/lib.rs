@@ -5030,6 +5030,16 @@ pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeEr
         .map(lower_design_z)
         .collect::<Result<Vec<_>, _>>()?;
 
+    // L0 #2 — `custom` 9th meta-group per
+    // `docs/proposals/design-tokens-custom.md`. Validate hex values here;
+    // collision + reserved-name policy is enforced by doctor (the analyzer
+    // stays surface-thin to keep proposal-pending diagnostics in doctor).
+    let custom = ast
+        .custom
+        .iter()
+        .map(lower_design_custom_token)
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(ir::Design {
         name: ast.name.clone(),
         extends: None,
@@ -5041,7 +5051,25 @@ pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeEr
         motion,
         breakpoints,
         z_indices,
+        custom,
         span_ref: Some(span_of(ast.span)),
+    })
+}
+
+fn lower_design_custom_token(
+    token: &syntax::CustomTokenAst,
+) -> Result<ir::CustomToken, AnalyzeError> {
+    // Hex validation for the `custom` 9th meta-group is intentionally
+    // delegated to doctor (`design-custom-invalid-value`) so the
+    // proposal-pending diagnostic surface ships as a doctor rule rather
+    // than a hard analyzer rejection. See
+    // `docs/proposals/design-tokens-custom.md` §4. Lowering preserves the
+    // verbatim value so doctor can produce an actionable error message.
+    Ok(ir::CustomToken {
+        name: token.name.clone(),
+        base: token.value.clone(),
+        dark: token.dark.clone(),
+        span_ref: Some(span_of(token.span)),
     })
 }
 
@@ -6561,6 +6589,7 @@ design example
             motion: MotionAst::default(),
             breakpoints: Vec::new(),
             z_indices: Vec::new(),
+            custom: Vec::new(),
             span: Span::new(0, 1),
         };
         let err = lower_design(&ast).unwrap_err();
@@ -6632,6 +6661,43 @@ design example
         assert_eq!(json["colors"][0]["states"][0]["kind"], "base");
         // ColorStateKind serializes as snake_case.
         assert_eq!(json["colors"][0]["states"][2]["kind"], "foreground");
+    }
+
+    // ── Z2 — `custom` 9th meta-group lowering ──────────────────────────────
+
+    #[test]
+    fn lower_design_lifts_custom_group_with_base_and_dark() {
+        let source = r##"
+design hostpoint
+  custom
+    chat-bubble-mine "#dcf8c6" dark "#005c4b"
+    chat-bubble-other "#ffffff"
+    map-marker-active "#ff5722"
+"##;
+        let design = lower_design_source(source);
+        assert_eq!(design.custom.len(), 3);
+        assert_eq!(design.custom[0].name, "chat-bubble-mine");
+        assert_eq!(design.custom[0].base, "#dcf8c6");
+        assert_eq!(design.custom[0].dark.as_deref(), Some("#005c4b"));
+        assert_eq!(design.custom[1].dark, None);
+        assert_eq!(design.custom[2].name, "map-marker-active");
+    }
+
+    #[test]
+    fn lower_design_preserves_invalid_custom_hex_for_doctor() {
+        // Analyzer is intentionally permissive on `custom` hex values —
+        // doctor's `design-custom-invalid-value` rule does the proposal-
+        // pending validation. See `docs/proposals/design-tokens-custom.md` §4.
+        let source = r##"
+design hostpoint
+  custom
+    oops "not-a-color"
+    chat-bubble "#dcf8c6" dark "rgb(5,5,5)"
+"##;
+        let design = lower_design_source(source);
+        assert_eq!(design.custom.len(), 2);
+        assert_eq!(design.custom[0].base, "not-a-color");
+        assert_eq!(design.custom[1].dark.as_deref(), Some("rgb(5,5,5)"));
     }
 }
 

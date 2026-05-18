@@ -1454,7 +1454,75 @@ fn design_token_diagnostics(
             }),
     );
 
+    // L0 #2 — `custom` 9th meta-group lints per
+    // `docs/proposals/design-tokens-custom.md` §4. Three Error-severity
+    // rules over the lowered `Design` IR. Severity is hard-coded to Error
+    // regardless of security_profile — these are structural collisions
+    // (reserved-name reuse, duplicate names, malformed values) that always
+    // produce wrong code if ignored.
+    if let Some(design) = read_design_ir(project_root) {
+        let design_path = project_root.join("design.lzi");
+        let display_path = doctor_rule_path(project_root, design_path);
+        diagnostics.extend(
+            design::custom::check_duplicate(&design)
+                .into_iter()
+                .map(|finding| {
+                    let message = finding.message();
+                    DoctorDiagnostic {
+                        path: display_path.clone(),
+                        line: 1,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: design::custom::DuplicateFinding::CODE.to_owned(),
+                        message,
+                    }
+                }),
+        );
+        diagnostics.extend(
+            design::custom::check_invalid_value(&design)
+                .into_iter()
+                .map(|finding| {
+                    let message = finding.message();
+                    DoctorDiagnostic {
+                        path: display_path.clone(),
+                        line: 1,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: design::custom::InvalidValueFinding::CODE.to_owned(),
+                        message,
+                    }
+                }),
+        );
+        diagnostics.extend(
+            design::custom::check_reserved_name(&design)
+                .into_iter()
+                .map(|finding| {
+                    let message = finding.message();
+                    DoctorDiagnostic {
+                        path: display_path.clone(),
+                        line: 1,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: design::custom::ReservedNameFinding::CODE.to_owned(),
+                        message,
+                    }
+                }),
+        );
+    }
+
     diagnostics
+}
+
+/// Parse `design.lzi` at the project root into the lowered IR. Returns
+/// `None` when the file is missing OR parse/lower fails — doctor's
+/// `design-custom-*` rules then suppress (no false positives when the
+/// file isn't authored yet). Mirrors the parse-then-lower pipeline used
+/// by `lazuli build`.
+fn read_design_ir(project_root: &Path) -> Option<lazuli_ir::Design> {
+    let path = project_root.join("design.lzi");
+    let source = std::fs::read_to_string(&path).ok()?;
+    let ast = lazuli_syntax::parse_design_document(&source).ok()?;
+    lazuli_analyzer::lower_design(&ast).ok()
 }
 
 fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
@@ -15655,6 +15723,97 @@ contract acme.ai.v1
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    // Z2 — `design-custom-*` doctor integration (3 rules over `design.lzi` IR).
+    #[test]
+    fn doctor_design_custom_lints_fire_for_collisions_reserved_and_bad_hex() {
+        let temp = tempfile::TempDir::new().expect("create tempdir");
+        let root = temp.path();
+
+        write_file(&root.join("app.lzi"), "app Acme\n");
+        // `design.lzi` with: a custom token that collides with a color group
+        // entry, a reserved Shadcn-semantic name, and an invalid hex value.
+        // We need the allowlist file present so `design_token_diagnostics`
+        // doesn't bail out early — emit a minimal stub.
+        write_file(
+            &root.join("dist/ts-web/design/allowlist.json"),
+            r#"{"bg":["brand-blue"],"text":[],"font":[]}"#,
+        );
+        write_file(
+            &root.join("design.lzi"),
+            r##"design hostpoint
+  color
+    brand-blue "#28bbdd"
+  custom
+    brand-blue "#28bbdd"
+    primary "#7c3aed"
+    oops "not-a-color"
+"##,
+        );
+
+        let package = DoctorPackage::load(root, SecurityProfile::Strict).expect("load package");
+        let diagnostics = package.diagnostics();
+        let surfaced = codes(&diagnostics);
+
+        assert!(
+            surfaced.contains("design-custom-duplicate"),
+            "expected duplicate diagnostic; got {:?}",
+            surfaced,
+        );
+        assert!(
+            surfaced.contains("design-custom-reserved-name"),
+            "expected reserved-name diagnostic; got {:?}",
+            surfaced,
+        );
+        assert!(
+            surfaced.contains("design-custom-invalid-value"),
+            "expected invalid-value diagnostic; got {:?}",
+            surfaced,
+        );
+    }
+
+    #[test]
+    fn doctor_design_custom_lints_silent_on_clean_design() {
+        // Regression: a `design.lzi` with a well-formed custom group should
+        // NOT fire any `design-custom-*` diagnostic.
+        let temp = tempfile::TempDir::new().expect("create tempdir");
+        let root = temp.path();
+
+        write_file(&root.join("app.lzi"), "app Acme\n");
+        write_file(
+            &root.join("dist/ts-web/design/allowlist.json"),
+            r#"{"bg":["primary","chat-bubble-mine"],"text":[],"font":[]}"#,
+        );
+        write_file(
+            &root.join("design.lzi"),
+            r##"design hostpoint
+  color
+    primary "#28bbdd"
+  custom
+    chat-bubble-mine "#dcf8c6" dark "#005c4b"
+    map-marker-active "#ff5722"
+"##,
+        );
+
+        let package = DoctorPackage::load(root, SecurityProfile::Strict).expect("load package");
+        let diagnostics = package.diagnostics();
+        let surfaced = codes(&diagnostics);
+        assert!(
+            !surfaced.contains("design-custom-duplicate"),
+            "unexpected duplicate diagnostic on clean design; got {:?}",
+            surfaced,
+        );
+        assert!(
+            !surfaced.contains("design-custom-reserved-name"),
+            "unexpected reserved-name diagnostic on clean design; got {:?}",
+            surfaced,
+        );
+        assert!(
+            !surfaced.contains("design-custom-invalid-value"),
+            "unexpected invalid-value diagnostic on clean design; got {:?}",
+            surfaced,
+        );
     }
 
     #[test]

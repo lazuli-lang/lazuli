@@ -11,6 +11,7 @@
 //!
 //! Reference: docs/proposals/design-tokens.md §6 (rules + escape hatch).
 
+pub mod custom;
 pub mod fontfamily_leak;
 pub mod helpers;
 pub mod hex_leak;

@@ -43,6 +43,20 @@ pub fn emit_tailwind_v3_preset(design: &Design) -> String {
     for color in &design.colors {
         emit_color(&mut s, color);
     }
+    // Custom tokens (9th meta-group) lower as flat var-string entries under
+    // the same `colors` map. The dark variant lives in the CSS layer; the
+    // preset shape stays var-backed. See
+    // `docs/proposals/design-tokens-custom.md` §5.3.
+    for tok in &design.custom {
+        let group = kebab(&tok.name);
+        let key = quote_key(&group);
+        writeln!(
+            s,
+            "        {}: \"var(--color-{})\",",
+            key, group
+        )
+        .ok();
+    }
     writeln!(s, "      }},").ok();
 
     // fontFamily
@@ -242,6 +256,7 @@ mod tests {
         ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion,
         ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
     };
+    use lazuli_ir::CustomToken;
 
     fn minimal() -> Design {
         Design {
@@ -287,6 +302,7 @@ mod tests {
                 name: "modal".to_owned(),
                 value: 1300,
             }],
+            custom: vec![],
             span_ref: None,
         }
     }
@@ -432,6 +448,41 @@ mod tests {
         let out = emit_tailwind_v3_preset(&d);
         assert!(out.contains("letterSpacing: {"));
         assert!(out.contains("tight: \"-0.025em\","));
+    }
+
+    #[test]
+    fn custom_token_emits_inside_colors_map_as_var_string() {
+        // Z2 — `custom` 9th meta-group lowers as a flat var-string entry
+        // alongside Shadcn-semantic palette names in the same `colors` map.
+        let mut d = minimal();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: None,
+            span_ref: None,
+        });
+        let out = emit_tailwind_v3_preset(&d);
+        assert!(out.contains(
+            "\"chat-bubble-mine\": \"var(--color-chat-bubble-mine)\","
+        ));
+    }
+
+    #[test]
+    fn custom_token_with_dark_preset_stays_var_backed() {
+        // Dark variant lives in tokens.css. Preset is identical shape.
+        let mut d = minimal();
+        d.custom.push(CustomToken {
+            name: "chat-bubble-mine".to_owned(),
+            base: "#dcf8c6".to_owned(),
+            dark: Some("#005c4b".to_owned()),
+            span_ref: None,
+        });
+        let out = emit_tailwind_v3_preset(&d);
+        assert!(out.contains(
+            "\"chat-bubble-mine\": \"var(--color-chat-bubble-mine)\","
+        ));
+        // Preset must NOT inline the dark hex.
+        assert!(!out.contains("#005c4b"));
     }
 
     #[test]
