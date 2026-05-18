@@ -303,7 +303,8 @@ fn emit_command(
 
     // Emits block.
     if !command.emits.is_empty() {
-        emit_emits(p, &command.emits);
+        let outbox_index = build_outbox_index(feature);
+        emit_emits(p, &command.emits, &outbox_index);
     }
 
     // Invalidates block.
@@ -1265,21 +1266,78 @@ fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>)
 /// only carries event names today; the spike's `from creates` axis is
 /// implicit when the surrounding effect is `Creates`. We default the
 /// `From` to the matching effect-derived constant.
-fn emit_emits(p: &mut GoPrinter, emits: &[String]) {
+///
+/// EVENT-OUTBOX §3.3 — when `outbox_index` reports `Guaranteed` for an
+/// event name, the literal carries `Outbox: lazuli.OutboxGuaranteed` so
+/// the runtime command path writes the outbox row in the resource tx.
+fn emit_emits(
+    p: &mut GoPrinter,
+    emits: &[String],
+    outbox_index: &std::collections::BTreeMap<String, lazuli_ir::OutboxMode>,
+) {
     p.line("Emits: []lazuli.EventEmit{");
     p.indent();
     for emit in emits {
+        let mode = outbox_index
+            .get(emit)
+            .copied()
+            .unwrap_or(lazuli_ir::OutboxMode::None);
+        let suffix = if mode.is_guaranteed() {
+            ", Outbox: lazuli.OutboxGuaranteed"
+        } else {
+            ""
+        };
         // Without typed `from <axis>` slots on the IR, we surface the
         // emit with `FromExplicit` (the runtime then requires an
         // explicit Bind block; the user's `let` declarations are
         // expected to land there in a follow-up cell).
         p.line(&format!(
-            "{{Name: \"{}\", From: lazuli.FromExplicit}},",
-            emit
+            "{{Name: \"{}\", From: lazuli.FromExplicit{}}},",
+            emit, suffix
         ));
     }
     p.dedent();
     p.line("},");
+}
+
+/// EVENT-OUTBOX §3.3 — build a lookup of `<event-name> -> OutboxMode`
+/// from one feature. Walks `feature.event_groups` (parallel
+/// `events`/`events_outbox`) and `feature.events`. Group events are
+/// indexed by both the short name and the prefix-qualified full name
+/// so command `emits` lines match regardless of authoring shape.
+fn build_outbox_index(
+    feature: &Feature,
+) -> std::collections::BTreeMap<String, lazuli_ir::OutboxMode> {
+    let mut index: std::collections::BTreeMap<String, lazuli_ir::OutboxMode> =
+        std::collections::BTreeMap::new();
+    for group in &feature.event_groups {
+        let prefix = group.pattern.strip_suffix('*').unwrap_or(&group.pattern);
+        for (i, short_name) in group.events.iter().enumerate() {
+            let mode = group
+                .events_outbox
+                .get(i)
+                .copied()
+                .unwrap_or(lazuli_ir::OutboxMode::None);
+            if mode.is_none() {
+                continue;
+            }
+            // Index both the short authored name and the prefix-qualified
+            // full name so command `emits` lines match either shape.
+            index.insert(short_name.clone(), mode);
+            let qualified = if short_name.starts_with(prefix) {
+                short_name.clone()
+            } else {
+                format!("{}{}", prefix, short_name)
+            };
+            index.insert(qualified, mode);
+        }
+    }
+    for event in &feature.events {
+        if event.outbox.is_guaranteed() {
+            index.insert(event.name.clone(), event.outbox);
+        }
+    }
+    index
 }
 
 /// Emit `Invalidates: []string{...}` block. Source is the IR

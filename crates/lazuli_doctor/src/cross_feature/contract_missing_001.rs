@@ -551,6 +551,7 @@ mod tests {
             payload,
             payload_none: false,
             level: None,
+            outbox: lazuli_ir::OutboxMode::None,
             previous_names: vec![],
             span_ref: None,
         }

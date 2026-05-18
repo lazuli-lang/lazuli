@@ -2,6 +2,9 @@ package lazuli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -66,6 +69,13 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 				return err
 			}
 			output = out
+			// EVENT-OUTBOX §3.3 — write outbox rows for guaranteed
+			// emits in the same tx as the resource mutation. Failure
+			// here rolls back the resource write, preserving the
+			// atomicity invariant.
+			if err := writeGuaranteedOutboxRows(ctx, tx, c.Emits, c.Effect, input, out); err != nil {
+				return err
+			}
 			return nil
 		})
 		if err != nil {
@@ -73,7 +83,9 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		}
 	}
 
-	// 5. emits (post-commit, best-effort).
+	// 5. emits (post-commit, best-effort). Guaranteed emits are
+	// dispatched by the outbox pump (see runtime/lazuli/events), so
+	// publishEmits skips them.
 	publishEmits(ctx, c.Emits, c.EmitsTrace, c.Effect, input, output)
 
 	// 6. audit (TODO: record according to c.Audit).
@@ -89,8 +101,15 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 // publishEmits derives event payloads from the producing command's effect
 // (or from explicit Bind maps) and publishes them through the in-process
 // event bus. Errors are logged but never propagated — emits are post-commit.
+//
+// EVENT-OUTBOX §3.3 — emits with `Outbox: OutboxGuaranteed` are written
+// to `lazuli_outbox` inside the producing tx; the outbox pump dispatches
+// them. We skip them here to avoid double-delivery.
 func publishEmits[I, O any](ctx *Ctx, emits []EventEmit, traces []EventTraceEmit, effect Effect, input I, output O) {
 	for _, emit := range emits {
+		if emit.Outbox == OutboxGuaranteed {
+			continue
+		}
 		payload, err := buildEmitPayload(ctx, emit, effect, input, output)
 		if err != nil {
 			continue
@@ -104,6 +123,57 @@ func publishEmits[I, O any](ctx *Ctx, emits []EventEmit, traces []EventTraceEmit
 		}
 		Publish(ctx, eventFromCtx(ctx, t.Name, true, payload))
 	}
+}
+
+// writeGuaranteedOutboxRows inserts a `lazuli_outbox` row for each
+// emit with `Outbox: OutboxGuaranteed`. Runs inside the same pgx tx
+// as the resource mutation (EVENT-OUTBOX §3.3) so the resource row
+// and the outbox row commit together — or roll back together if the
+// outbox INSERT fails.
+func writeGuaranteedOutboxRows[I, O any](
+	ctx *Ctx,
+	tx pgx.Tx,
+	emits []EventEmit,
+	effect Effect,
+	input I,
+	output O,
+) error {
+	for _, emit := range emits {
+		if emit.Outbox != OutboxGuaranteed {
+			continue
+		}
+		payload, err := buildEmitPayload(ctx, emit, effect, input, output)
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		envelopeID, err := newEnvelopeID()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO lazuli_outbox (envelope_id, event_name, payload)
+			 VALUES ($1, $2, $3)`,
+			envelopeID, emit.Name, raw,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// newEnvelopeID returns a fresh 128-bit hex identifier for the outbox
+// envelope. Wire-thin: crypto/rand is stdlib and sufficient for the
+// uniqueness the outbox dedup table requires.
+func newEnvelopeID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // eventFromCtx builds the common Event envelope from the active request ctx.

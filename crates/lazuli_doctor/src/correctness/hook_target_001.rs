@@ -120,7 +120,7 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         BuiltinType, Command, CommandEffect, CommandInput, CommandKind, Defaults, Event, EventKind,
-        Field, FieldConstraints, Policies, PolicyRef, QualifiedName, Record, Resource,
+        Field, FieldConstraints, OutboxMode, Policies, PolicyRef, QualifiedName, Record, Resource,
         ReturnsEffect,
     };
 
@@ -224,6 +224,7 @@ mod tests {
             payload: vec![],
             payload_none: true,
             level: None,
+            outbox: OutboxMode::None,
             previous_names: vec![],
             span_ref: None,
         }

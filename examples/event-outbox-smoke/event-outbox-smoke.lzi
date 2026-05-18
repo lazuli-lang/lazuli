@@ -1,0 +1,35 @@
+feature payments
+  purpose "Smoke fixture for EVENT-OUTBOX §3.3 — payment captures emit `payment_captured` with the transactional-outbox guarantee."
+
+  domain
+    resource Payment
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      external_reference: Text required unique
+      captured_at: DateTime required
+
+    event_group payment_* on Payment
+      payload
+        payment_id = id
+        amount = amount
+        currency = currency
+
+      event captured
+        outbox guaranteed
+
+  policies
+    read: @role.admin
+    create: @actor.system
+
+  command capture_payment
+    input
+      amount: @semantic.Money required
+      currency: @semantic.Currency required
+      external_reference: Text required
+      captured_at: DateTime required
+    policy @policy.create
+    rate_limit none
+      reason "internal system command, called from payment webhook"
+    creates Payment
+      from input
+    emits payment_captured

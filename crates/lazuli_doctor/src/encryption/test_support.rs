@@ -8,7 +8,7 @@
 use lazuli_ir::{
     AppManifest, CapabilityRef, Defaults, E2eeCapability, EncryptedCapability, EncryptionAlgorithm,
     EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate, Event, EventField,
-    EventKind, Feature, Field, FieldConstraints, Policies, Resource, TypeRef,
+    EventKind, Feature, Field, FieldConstraints, OutboxMode, Policies, Resource, TypeRef,
 };
 
 pub fn empty_app() -> AppManifest {
@@ -170,6 +170,7 @@ pub fn event_with_payload(name: &str, fields: Vec<EventField>) -> Event {
         payload: fields,
         payload_none: false,
         level: None,
+        outbox: OutboxMode::None,
         previous_names: vec![],
         span_ref: None,
     }

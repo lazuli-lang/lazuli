@@ -11884,7 +11884,11 @@ fn parse_event_group(
     let mut payload: Vec<String> = Vec::new();
     let mut audit: Option<String> = None;
     let mut events: Vec<String> = Vec::new();
+    let mut events_outbox_guaranteed: Vec<bool> = Vec::new();
     let mut in_payload = false;
+    // EVENT-OUTBOX §3.3 — when set, grandchild `outbox guaranteed` lines
+    // toggle the most recently authored event's outbox flag.
+    let mut current_event_idx: Option<usize> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -11903,6 +11907,7 @@ fn parse_event_group(
 
         if line.indent == child_indent {
             in_payload = false;
+            current_event_idx = None;
             if trimmed == "payload" {
                 in_payload = true;
             } else if let Some(rest) = trimmed.strip_prefix("audit ") {
@@ -11911,11 +11916,17 @@ fn parse_event_group(
                 let name = rest.split_whitespace().next().unwrap_or("").to_owned();
                 if !name.is_empty() {
                     events.push(name);
+                    events_outbox_guaranteed.push(false);
+                    current_event_idx = Some(events.len() - 1);
                 }
             } else if let Some(rest) = trimmed.strip_prefix("event.trace ") {
                 let name = rest.split_whitespace().next().unwrap_or("").to_owned();
                 if !name.is_empty() {
                     events.push(name);
+                    events_outbox_guaranteed.push(false);
+                    // Trace events cannot carry an outbox guarantee;
+                    // leave current_event_idx None so the keyword is
+                    // rejected by the closed grammar below.
                 }
             } else {
                 // Unknown child — Tier 4 may extend this; skip silently
@@ -11923,6 +11934,26 @@ fn parse_event_group(
             }
         } else if line.indent >= grandchild_indent && in_payload {
             payload.push(trimmed.to_owned());
+        } else if line.indent >= grandchild_indent
+            && let Some(idx) = current_event_idx
+            && let Some(rest) = trimmed.strip_prefix("outbox ")
+        {
+            // EVENT-OUTBOX §3.3 — accept `outbox guaranteed` under
+            // `event <name>`. Closed catalog: only `guaranteed` is
+            // authored; `outbox none` is implicit (the default).
+            match rest.trim() {
+                "guaranteed" => events_outbox_guaranteed[idx] = true,
+                "none" => events_outbox_guaranteed[idx] = false,
+                other => {
+                    return Err(line_error_owned(
+                        line,
+                        format!(
+                            "`outbox` only accepts `guaranteed` (or `none`); got `{}`",
+                            other
+                        ),
+                    ));
+                }
+            }
         } else {
             // Continuation of a non-payload child (e.g. event fields).
             // We do not lift these here — the legacy lowering still
@@ -11940,6 +11971,7 @@ fn parse_event_group(
             payload,
             audit,
             events,
+            events_outbox_guaranteed,
             span: Span::new(header.start, last_end),
         },
         i,

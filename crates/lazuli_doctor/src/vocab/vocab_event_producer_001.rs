@@ -118,8 +118,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AuditSpec, BuiltinType, Command, CommandInput, CommandKind, CreateEffect, Defaults, Event,
-        EventField, EventKind, Feature, Policies, PolicyRef, QualifiedName, ReturnsEffect, TypeRef,
-        UpdateEffect,
+        EventField, EventKind, Feature, OutboxMode, Policies, PolicyRef, QualifiedName,
+        ReturnsEffect, TypeRef, UpdateEffect,
     };
 
     fn qn(name: &str) -> QualifiedName {
@@ -182,6 +182,7 @@ mod tests {
             }],
             payload_none: false,
             level: None,
+            outbox: OutboxMode::None,
             previous_names: vec![],
             span_ref: None,
         }
