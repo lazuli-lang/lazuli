@@ -3,22 +3,28 @@
 //! this to decide whether a `.tsx` class like `bg-primary` is valid; see
 //! `docs/proposals/design-tokens.md` §6.1.
 //!
-//! Output shape (per the cell prompt):
+//! Output shape (per `lazuli_doctor::design::helpers::Allowlist` — bare
+//! suffixes, NOT full class names. Each bucket key encodes the prefix; the
+//! values are the declared token suffixes that complete it.):
 //!   {
-//!     "bg":          ["bg-primary", "bg-primary-hover", ...],
-//!     "text":        ["text-primary-foreground", ...],
-//!     "p":           ["p-1", "p-2", ...],
+//!     "bg":          ["primary", "primary-hover", ...],
+//!     "text":        ["primary-foreground", ...],
+//!     "p":           ["1", "2", ...],
 //!     "px"..."pl":   [...],
 //!     "m":           [...],
 //!     "mx"..."ml":   [...],
 //!     "gap":         [...],
 //!     "gap-x"/"gap-y": [...],
-//!     "rounded":     ["rounded-sm", "rounded", ...],
-//!     "shadow":      [...],
-//!     "z":           ["z-docked", ...],
-//!     "font":        ["font-sans", "font-mono", "font-regular", ...],
-//!     "text-size":   ["text-xs", "text-base", ...]
+//!     "rounded":     ["DEFAULT", "sm", "md", ...],
+//!     "shadow":      ["DEFAULT", "sm", ...],
+//!     "z":           ["docked", ...],
+//!     "font":        ["sans", "mono", "regular", ...],
+//!     "text-size":   ["xs", "base", ...]
 //!   }
+//!
+//! The `base` token in `radius`/`shadow` maps to the Tailwind `DEFAULT`
+//! slot, which `design-token-undefined` looks up when it sees a bare
+//! `rounded` or `shadow` class.
 //!
 //! Determinism: every utility list sorts alphabetically. JSON is pretty
 //! printed with two-space indent (no external crate — we render by hand to
@@ -37,82 +43,98 @@ pub fn emit_allowlist_json(design: &Design) -> String {
     let mut ring_color: Vec<String> = Vec::new();
 
     for color in &design.colors {
-        // Tailwind convention: `bg-<name>` for the default/base, and
-        // `bg-<name>-<state>` for explicit non-base states.
-        // The DEFAULT entry (no suffix) maps to the Base state in the preset.
-        let base_class = color.name.clone();
-        bg.push(format!("bg-{}", base_class));
-        text_color.push(format!("text-{}", base_class));
-        border_color.push(format!("border-{}", base_class));
-        ring_color.push(format!("ring-{}", base_class));
+        // Bare suffixes — the bucket key (`bg`/`text`/...) already encodes
+        // the Tailwind prefix. `bg-<name>` is recognised when `<name>` is in
+        // the `bg` bucket; `bg-<name>-<state>` when `<name>-<state>` is in
+        // the bucket.
+        let base = color.name.clone();
+        bg.push(base.clone());
+        text_color.push(base.clone());
+        border_color.push(base.clone());
+        ring_color.push(base.clone());
 
         for state in &color.states {
-            // Skip the implicit DEFAULT — already covered by the bare `bg-<name>`.
+            // Skip the implicit DEFAULT — already covered by the bare name.
             let state_name = match state.kind {
                 super::ir::ColorStateKind::Base => continue,
                 super::ir::ColorStateKind::Hover => "hover",
                 super::ir::ColorStateKind::Active => "active",
                 super::ir::ColorStateKind::Foreground => "foreground",
             };
-            bg.push(format!("bg-{}-{}", base_class, state_name));
-            text_color.push(format!("text-{}-{}", base_class, state_name));
-            border_color.push(format!("border-{}-{}", base_class, state_name));
-            ring_color.push(format!("ring-{}-{}", base_class, state_name));
+            let suffix = format!("{}-{}", base, state_name);
+            bg.push(suffix.clone());
+            text_color.push(suffix.clone());
+            border_color.push(suffix.clone());
+            ring_color.push(suffix);
         }
     }
 
-    // Custom tokens (9th meta-group). Each token expands to the four
-    // utility-class prefixes (`text-`, `bg-`, `border-`, `ring-`) under
-    // the same flat namespace as the colors map. No state suffixes —
-    // custom is intentionally flat per
+    // Custom tokens (9th meta-group). Each token populates the four
+    // color buckets (`bg`/`text`/`border`/`ring`) with the bare token
+    // name. No state suffixes — custom is intentionally flat per
     // `docs/proposals/design-tokens-custom.md` §5.4.
     for tok in &design.custom {
-        bg.push(format!("bg-{}", tok.name));
-        text_color.push(format!("text-{}", tok.name));
-        border_color.push(format!("border-{}", tok.name));
-        ring_color.push(format!("ring-{}", tok.name));
+        bg.push(tok.name.clone());
+        text_color.push(tok.name.clone());
+        border_color.push(tok.name.clone());
+        ring_color.push(tok.name.clone());
     }
 
     // -------- spacing utilities --------
+    // All spacing prefixes (`p`, `px`, `m`, `gap`, ...) share the same set
+    // of declared space names. We emit the bare token names per bucket;
+    // the bucket key encodes the prefix.
     let space_names: Vec<String> = design.spaces.iter().map(|t| t.name.clone()).collect();
-    let p = utilities("p", &space_names);
-    let px = utilities("px", &space_names);
-    let py = utilities("py", &space_names);
-    let pt = utilities("pt", &space_names);
-    let pr = utilities("pr", &space_names);
-    let pb = utilities("pb", &space_names);
-    let pl = utilities("pl", &space_names);
-    let m = utilities("m", &space_names);
-    let mx = utilities("mx", &space_names);
-    let my = utilities("my", &space_names);
-    let mt = utilities("mt", &space_names);
-    let mr = utilities("mr", &space_names);
-    let mb = utilities("mb", &space_names);
-    let ml = utilities("ml", &space_names);
-    let gap = utilities("gap", &space_names);
-    let gap_x = utilities("gap-x", &space_names);
-    let gap_y = utilities("gap-y", &space_names);
+    let p = space_names.clone();
+    let px = space_names.clone();
+    let py = space_names.clone();
+    let pt = space_names.clone();
+    let pr = space_names.clone();
+    let pb = space_names.clone();
+    let pl = space_names.clone();
+    let m = space_names.clone();
+    let mx = space_names.clone();
+    let my = space_names.clone();
+    let mt = space_names.clone();
+    let mr = space_names.clone();
+    let mb = space_names.clone();
+    let ml = space_names.clone();
+    let gap = space_names.clone();
+    let gap_x = space_names.clone();
+    let gap_y = space_names.clone();
 
     // -------- radius / shadow / z / font / text-size --------
-    let rounded = utilities_with_default("rounded", &design.radii.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
-    let shadow = utilities_with_default("shadow", &design.shadows.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
-    let z = utilities("z", &design.z_indices.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
+    // For `rounded`/`shadow`, the token named `base` maps to Tailwind's
+    // `DEFAULT` slot — `design-token-undefined` looks up the bare
+    // `rounded` / `shadow` class against the `DEFAULT` key.
+    let rounded = suffixes_with_default(
+        &design.radii.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
+    );
+    let shadow = suffixes_with_default(
+        &design.shadows.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+    );
+    let z: Vec<String> = design.z_indices.iter().map(|t| t.name.clone()).collect();
 
-    // font: families + weights all live under the `font-*` prefix in Tailwind.
+    // font: families + weights both live under the `font-*` prefix in
+    // Tailwind, so we collapse them into a single `font` bucket as bare
+    // suffixes.
     let mut font: Vec<String> = Vec::new();
     for fam in &design.typography.families {
-        font.push(format!("font-{}", fam.name));
+        font.push(fam.name.clone());
     }
     for w in &design.typography.weights {
-        font.push(format!("font-{}", w.name));
+        font.push(w.name.clone());
     }
 
-    // text-size: typography scale names — emit as `text-<name>`.
+    // text-size: typography scale names — bare suffixes under `text-size`
+    // (Doctor's `match_prefix` maps `text-<name>` against either the
+    // `text` color bucket or the `text-size` scale bucket; the bucket
+    // membership decides which token kind is in play).
     let text_size: Vec<String> = design
         .typography
         .scale
         .iter()
-        .map(|s| format!("text-{}", s.name))
+        .map(|s| s.name.clone())
         .collect();
 
     // Sort each list deterministically (lexicographic).
@@ -169,24 +191,19 @@ pub fn emit_allowlist_json(design: &Design) -> String {
     s
 }
 
-fn utilities(prefix: &str, names: &[String]) -> Vec<String> {
-    names
-        .iter()
-        .map(|n| format!("{}-{}", prefix, n))
-        .collect()
-}
-
-/// Like `utilities`, but the token named `base` collapses to the bare prefix
-/// (Tailwind's DEFAULT key). E.g. `radius.base` → `rounded`,
-/// `shadow.base` → `shadow`.
-fn utilities_with_default(prefix: &str, names: &[String]) -> Vec<String> {
+/// Convert a list of token names into bare allowlist suffixes, mapping the
+/// conventional `base` token to Tailwind's `DEFAULT` slot. Used by
+/// `rounded` / `shadow` where Doctor (`design-token-undefined`) looks up
+/// `"DEFAULT"` when it sees a bare `rounded` or `shadow` class with no
+/// suffix.
+fn suffixes_with_default(names: &[String]) -> Vec<String> {
     names
         .iter()
         .map(|n| {
             if n == "base" {
-                prefix.to_owned()
+                "DEFAULT".to_owned()
             } else {
-                format!("{}-{}", prefix, n)
+                n.clone()
             }
         })
         .collect()
@@ -279,9 +296,10 @@ mod tests {
         ] {
             assert!(out.contains(&format!("\"{}\"", key)), "missing key {key}");
         }
-        // Single-base color → only the bare `bg-success` (no state suffixes).
-        assert!(out.contains("\"bg-success\""));
-        assert!(!out.contains("bg-success-hover"));
+        // Single-base color → only the bare `success` suffix (no state
+        // suffixes). The bucket key (`bg`) encodes the `bg-` prefix.
+        assert!(out.contains("\"success\""));
+        assert!(!out.contains("success-hover"));
     }
 
     #[test]
@@ -309,19 +327,46 @@ mod tests {
             span_ref: None,
         });
         let out = emit_allowlist_json(&d);
-        assert!(out.contains("\"bg-primary\""));
-        assert!(out.contains("\"bg-primary-hover\""));
-        assert!(out.contains("\"bg-primary-foreground\""));
-        assert!(out.contains("\"text-primary-foreground\""));
-        assert!(out.contains("\"border-primary-hover\""));
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let bg: Vec<&str> = parsed["bg"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(bg.contains(&"primary"));
+        assert!(bg.contains(&"primary-hover"));
+        assert!(bg.contains(&"primary-foreground"));
+        let text: Vec<&str> = parsed["text"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(text.contains(&"primary-foreground"));
+        let border: Vec<&str> = parsed["border"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(border.contains(&"primary-hover"));
     }
 
     #[test]
     fn radius_base_collapses_to_rounded_default() {
         let out = emit_allowlist_json(&minimal());
-        // `radius.base` → bare `rounded` (no suffix).
-        assert!(out.contains("\"rounded\""));
-        assert!(!out.contains("rounded-base"));
+        // `radius.base` → `DEFAULT` slot — Doctor looks up "DEFAULT" when
+        // it sees a bare `rounded` class.
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let rounded: Vec<&str> = parsed["rounded"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(rounded.contains(&"DEFAULT"), "rounded should contain DEFAULT: {rounded:?}");
+        assert!(!rounded.contains(&"base"), "literal `base` must not leak");
     }
 
     #[test]
@@ -343,16 +388,30 @@ mod tests {
             value: "0 10px 15px #000".to_owned(),
         });
         let out = emit_allowlist_json(&d);
-        assert!(out.contains("\"shadow\""));
-        assert!(out.contains("\"shadow-lg\""));
-        assert!(!out.contains("shadow-base"));
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let shadow: Vec<&str> = parsed["shadow"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(shadow.contains(&"DEFAULT"));
+        assert!(shadow.contains(&"lg"));
+        assert!(!shadow.contains(&"base"));
     }
 
     #[test]
     fn font_lists_family_and_weight() {
         let out = emit_allowlist_json(&minimal());
-        assert!(out.contains("\"font-sans\""));
-        assert!(out.contains("\"font-bold\""));
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let font: Vec<&str> = parsed["font"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(font.contains(&"sans"));
+        assert!(font.contains(&"bold"));
     }
 
     #[test]
@@ -364,23 +423,37 @@ mod tests {
             line_height: "2rem".to_owned(),
         });
         let out = emit_allowlist_json(&d);
-        assert!(out.contains("\"text-base\""));
-        assert!(out.contains("\"text-2xl\""));
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let text_size: Vec<&str> = parsed["text-size"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(text_size.contains(&"base"));
+        assert!(text_size.contains(&"2xl"));
     }
 
     #[test]
     fn spaces_propagate_across_all_spacing_prefixes() {
         let out = emit_allowlist_json(&minimal());
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
         for prefix in [
             "p", "px", "py", "pt", "pr", "pb", "pl", "m", "mx", "my", "mt", "mr", "mb", "ml", "gap",
         ] {
+            let bucket: Vec<&str> = parsed[prefix]
+                .as_array()
+                .unwrap_or_else(|| panic!("missing bucket `{prefix}`"))
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
             assert!(
-                out.contains(&format!("\"{}-4\"", prefix)),
-                "missing `{prefix}-4` in allowlist"
+                bucket.contains(&"4"),
+                "missing `4` in `{prefix}` bucket: {bucket:?}"
             );
             assert!(
-                out.contains(&format!("\"{}-8\"", prefix)),
-                "missing `{prefix}-8` in allowlist"
+                bucket.contains(&"8"),
+                "missing `8` in `{prefix}` bucket: {bucket:?}"
             );
         }
     }
@@ -398,14 +471,14 @@ mod tests {
             value: 10,
         });
         let out = emit_allowlist_json(&d);
-        let docked = out.find("\"z-docked\"").expect("docked present");
-        let modal = out.find("\"z-modal\"").expect("modal present");
-        assert!(docked < modal, "z-docked should sort before z-modal");
+        let docked = out.find("\"docked\"").expect("docked present");
+        let modal = out.find("\"modal\"").expect("modal present");
+        assert!(docked < modal, "docked should sort before modal");
     }
 
     #[test]
     fn custom_tokens_expand_to_four_utility_prefixes() {
-        // Z2 — each `custom` token emits text-, bg-, border-, ring- entries.
+        // Z2 — each `custom` token populates the bg/text/border/ring buckets.
         let mut d = minimal();
         d.custom.push(CustomToken {
             name: "chat-bubble-mine".to_owned(),
@@ -430,12 +503,12 @@ mod tests {
             let entries: Vec<&str> =
                 bucket.iter().filter_map(|v| v.as_str()).collect();
             assert!(
-                entries.contains(&format!("{prefix}-chat-bubble-mine").as_str()),
-                "missing {prefix}-chat-bubble-mine"
+                entries.contains(&"chat-bubble-mine"),
+                "{prefix} missing chat-bubble-mine: {entries:?}"
             );
             assert!(
-                entries.contains(&format!("{prefix}-map-marker-active").as_str()),
-                "missing {prefix}-map-marker-active"
+                entries.contains(&"map-marker-active"),
+                "{prefix} missing map-marker-active: {entries:?}"
             );
         }
     }

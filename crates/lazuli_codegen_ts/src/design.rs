@@ -416,40 +416,43 @@ mod integration_tests {
         assert!(!mobile.contains("\n  z: "));
 
         // -- allowlist.json ----------------------------------------------------
+        // Buckets are keyed by Tailwind prefix; values are BARE SUFFIXES
+        // (matches `lazuli_doctor::design::helpers::Allowlist::contains`).
         let allow = emit_allowlist_json(&d);
         // Parse to ensure valid JSON.
         let parsed: serde_json::Value = serde_json::from_str(&allow).expect("valid JSON");
         let obj = parsed.as_object().expect("top-level object");
         let bg = obj.get("bg").unwrap().as_array().unwrap();
         let bg_strs: Vec<&str> = bg.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(bg_strs.contains(&"bg-primary"));
-        assert!(bg_strs.contains(&"bg-primary-hover"));
-        assert!(bg_strs.contains(&"bg-primary-foreground"));
-        assert!(bg_strs.contains(&"bg-success"));
-        // Sanity-check: no `bg-success-hover` since success has only Base.
-        assert!(!bg_strs.contains(&"bg-success-hover"));
+        assert!(bg_strs.contains(&"primary"));
+        assert!(bg_strs.contains(&"primary-hover"));
+        assert!(bg_strs.contains(&"primary-foreground"));
+        assert!(bg_strs.contains(&"success"));
+        // Sanity-check: no `success-hover` since success has only Base.
+        assert!(!bg_strs.contains(&"success-hover"));
         let rounded = obj.get("rounded").unwrap().as_array().unwrap();
         let rounded_strs: Vec<&str> = rounded.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(rounded_strs.contains(&"rounded"));
-        assert!(rounded_strs.contains(&"rounded-sm"));
-        assert!(rounded_strs.contains(&"rounded-md"));
-        assert!(rounded_strs.contains(&"rounded-lg"));
+        // `base` token → `DEFAULT` slot (Tailwind preset shape).
+        assert!(rounded_strs.contains(&"DEFAULT"));
+        assert!(rounded_strs.contains(&"sm"));
+        assert!(rounded_strs.contains(&"md"));
+        assert!(rounded_strs.contains(&"lg"));
         let shadow = obj.get("shadow").unwrap().as_array().unwrap();
         let shadow_strs: Vec<&str> = shadow.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(shadow_strs.contains(&"shadow"));
-        assert!(shadow_strs.contains(&"shadow-sm"));
-        assert!(shadow_strs.contains(&"shadow-md"));
+        assert!(shadow_strs.contains(&"DEFAULT"));
+        assert!(shadow_strs.contains(&"sm"));
+        assert!(shadow_strs.contains(&"md"));
         let z = obj.get("z").unwrap().as_array().unwrap();
         let z_strs: Vec<&str> = z.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(z_strs.contains(&"z-dropdown"));
-        assert!(z_strs.contains(&"z-modal"));
+        assert!(z_strs.contains(&"dropdown"));
+        assert!(z_strs.contains(&"modal"));
         let font = obj.get("font").unwrap().as_array().unwrap();
         let font_strs: Vec<&str> = font.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(font_strs.contains(&"font-sans"));
-        assert!(font_strs.contains(&"font-bold"));
+        assert!(font_strs.contains(&"sans"));
+        assert!(font_strs.contains(&"bold"));
         let text_size = obj.get("text-size").unwrap().as_array().unwrap();
         let ts_strs: Vec<&str> = text_size.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(ts_strs.contains(&"text-base"));
-        assert!(ts_strs.contains(&"text-2xl"));
+        assert!(ts_strs.contains(&"base"));
+        assert!(ts_strs.contains(&"2xl"));
     }
 }
