@@ -71,6 +71,7 @@ fn minimal_feature(name: &str) -> Feature {
         channels: Vec::new(),
         caches: Vec::new(),
         aggregates: Vec::new(),
+        mcp_servers: Vec::new(),
         previous_names: Vec::new(),
         span_ref: None,
     }

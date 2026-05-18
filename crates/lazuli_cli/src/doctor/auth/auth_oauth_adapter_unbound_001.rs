@@ -142,6 +142,7 @@ mod tests {
             channels: vec![],
             caches: vec![],
             aggregates: vec![],
+            mcp_servers: vec![],
             auth: Some(Auth {
                 identity: AuthIdentity {
                     field: FieldRef {

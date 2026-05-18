@@ -1973,6 +1973,7 @@ mod feature_emit_tests {
             channels: Vec::new(),
             caches: Vec::new(),
             aggregates: vec![],
+            mcp_servers: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -2197,6 +2198,7 @@ mod tests {
             channels: Vec::new(),
             caches: Vec::new(),
             aggregates: vec![],
+            mcp_servers: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }

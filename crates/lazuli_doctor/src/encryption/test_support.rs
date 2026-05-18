@@ -98,6 +98,7 @@ pub fn empty_feature(name: &str) -> Feature {
         channels: vec![],
             caches: vec![],
         aggregates: vec![],
+            mcp_servers: vec![],
         previous_names: vec![],
         span_ref: None,
     }

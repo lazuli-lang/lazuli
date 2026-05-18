@@ -1,0 +1,41 @@
+feature knowledge
+  domain
+    record EchoOutput
+      message: Text required
+
+  policies
+    public: @scope.public
+
+  command echo
+    input
+      message: Text required
+    returns EchoOutput
+    policy @policy.public
+    rate_limit "60 per minute per ip"
+    handler @fn.echo
+
+  # MCP bucket cycle smoke fixture. Declares one mcp_server with one
+  # tool, one resource, and one prompt — minimal end-to-end exercise
+  # of grammar + IR + codegen + runtime.
+  mcp_server knowledge_smoke
+    transport stdio
+    scope feature.knowledge
+    auth bearer env.MCP_AUTH_TOKEN
+    metadata
+      name "Knowledge Smoke"
+      description "Smoke test for the bucket-mcp-cycle integration."
+      version "0.1.0"
+    tool search
+      description "Echoes a search query back as a JSON result."
+      params
+        query: string required
+      handler @fn.mcp_search
+    resource note
+      uri_template "note://{id}"
+      mime "application/json"
+      handler @fn.mcp_read_note
+    prompt summarize
+      description "Render a summary prompt for the given subject."
+      params
+        subject: string required
+      template "./prompts/summarize.tmpl"

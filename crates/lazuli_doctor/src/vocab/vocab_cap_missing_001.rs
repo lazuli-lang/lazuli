@@ -327,6 +327,7 @@ mod tests {
             channels: vec![],
             caches: vec![],
             aggregates: vec![],
+            mcp_servers: vec![],
             auth: None,
             surfaces: vec![],
             extensions: vec![],

@@ -299,6 +299,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         channels: Vec::new(),
         caches: Vec::new(),
         aggregates: Vec::new(),
+        mcp_servers: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(ir::SpanRef {
             start: document.span.start,
@@ -2142,6 +2143,14 @@ pub fn lower_feature_skeleton(
         .iter()
         .map(lower_aggregate_decl)
         .collect::<Vec<_>>();
+    // MCP bucket cycle — lower `mcp_server <name>` blocks. Lowering is
+    // value-preserving except for the closed-catalog `transport` mapping
+    // (rejects unknown literals with a typed error).
+    let mcp_servers: Vec<ir::MCPServerSpec> = skeleton
+        .mcp_servers
+        .iter()
+        .map(lower_mcp_server)
+        .collect::<Result<Vec<_>, _>>()?;
     // Cross-feature contracts §5.4 — lift the feature-level
     // `uses <feature>[, ...]+ [version v<N>]` clauses into parallel
     // `uses` / `uses_spans` / `uses_versions` lists. Each clause from a
@@ -2202,6 +2211,7 @@ pub fn lower_feature_skeleton(
             .map(lower_cache_profile_decl)
             .collect(),
         aggregates,
+        mcp_servers,
         previous_names: Vec::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
@@ -4076,6 +4086,113 @@ pub fn lower_notification(
         previous_names: Vec::new(),
         span_ref: Some(span_of(notification.span)),
     })
+}
+
+/// MCP bucket cycle — lower a canonical-indent `mcp_server` block into
+/// `ir::MCPServerSpec`. Value-preserving except for the closed-catalog
+/// `transport` mapping, which rejects unknown literals at lower-time.
+pub fn lower_mcp_server(server: &syntax::McpServer) -> Result<ir::MCPServerSpec, AnalyzeError> {
+    let transport = match server.transport.as_str() {
+        "stdio" => ir::MCPTransport::Stdio,
+        "http_sse" => ir::MCPTransport::HttpSse,
+        "http_streamable" => ir::MCPTransport::HttpStreamable,
+        other => {
+            return Err(AnalyzeError::UnknownEnum {
+                kind: format!("MCP-TRANSPORT-001 mcp_server `{}` transport", server.name),
+                value: other.to_owned(),
+            });
+        }
+    };
+    let auth = server.auth.as_deref().and_then(parse_mcp_auth);
+    let metadata = ir::MCPServerMetadata {
+        name: server.metadata.name.clone(),
+        description: server.metadata.description.clone(),
+        version: server.metadata.version.clone(),
+    };
+    let tools = server
+        .tools
+        .iter()
+        .map(lower_mcp_tool)
+        .collect::<Vec<_>>();
+    let resources = server
+        .resources
+        .iter()
+        .map(lower_mcp_resource)
+        .collect::<Vec<_>>();
+    let prompts = server
+        .prompts
+        .iter()
+        .map(lower_mcp_prompt)
+        .collect::<Vec<_>>();
+    Ok(ir::MCPServerSpec {
+        name: server.name.clone(),
+        transport,
+        scope_feature: server.scope_feature.clone(),
+        auth,
+        metadata,
+        tools,
+        resources,
+        prompts,
+        span_ref: Some(span_of(server.span)),
+    })
+}
+
+/// Parse `bearer env.<NAME>` into `ir::MCPAuth::BearerEnvVar`. Anything
+/// else (future `oauth ...`, malformed line) returns `None`; doctor
+/// `MCP-AUTH-001` (registered in proposal) catches malformed shapes.
+fn parse_mcp_auth(raw: &str) -> Option<ir::MCPAuth> {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("bearer env.") {
+        let env = rest.trim().to_owned();
+        if env.is_empty() {
+            return None;
+        }
+        return Some(ir::MCPAuth::BearerEnvVar { env });
+    }
+    None
+}
+
+fn lower_mcp_tool(tool: &syntax::McpTool) -> ir::MCPTool {
+    let params = tool.params.iter().map(lower_mcp_param).collect();
+    ir::MCPTool {
+        name: tool.name.clone(),
+        description: tool.description.clone(),
+        params,
+        returns_kind: tool.returns.clone(),
+        handler_fn: tool.handler.clone(),
+        policy: tool.policy.clone(),
+        span_ref: Some(span_of(tool.span)),
+    }
+}
+
+fn lower_mcp_resource(resource: &syntax::McpResource) -> ir::MCPResource {
+    ir::MCPResource {
+        name: resource.name.clone(),
+        uri_template: resource.uri_template.clone(),
+        mime: resource.mime.clone(),
+        handler_fn: resource.handler.clone(),
+        policy: resource.policy.clone(),
+        span_ref: Some(span_of(resource.span)),
+    }
+}
+
+fn lower_mcp_prompt(prompt: &syntax::McpPrompt) -> ir::MCPPrompt {
+    let params = prompt.params.iter().map(lower_mcp_param).collect();
+    ir::MCPPrompt {
+        name: prompt.name.clone(),
+        description: prompt.description.clone(),
+        params,
+        template_path: prompt.template.clone(),
+        span_ref: Some(span_of(prompt.span)),
+    }
+}
+
+fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
+    ir::MCPParam {
+        name: param.name.clone(),
+        ty_literal: param.ty.clone(),
+        required: param.required,
+    }
 }
 
 /// Notifications expanded bucket cycle — lower AST `NotificationDigest`

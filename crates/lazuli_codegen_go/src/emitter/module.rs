@@ -22,6 +22,7 @@ use super::events::emit_events_file;
 use super::handlers::emit_handler_stubs;
 use super::imports::ImportSet;
 use super::job::emit_job_file;
+use super::mcp_server::emit_mcp_server_file;
 use super::lint::check_generated_file;
 use super::migration::emit_migration_file;
 use super::migration_ddl::emit_migrations;
@@ -552,6 +553,20 @@ pub fn emit_module(
             let poller_path = format!("{name}/poller.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: poller_path,
+                contents,
+            });
+        }
+
+        // MCP bucket cycle (M8) — emit `<feature>/mcp_server.gen.go`
+        // containing one `mcp.ServerRegistration` literal per declared
+        // `mcp_server <name>` block plus an `init()` that registers
+        // them with the global runtime registry
+        // (`lazuli.dev/runtime/lazuli/mcp.RegisterServer`). The Lazuli
+        // boot path enumerates the registry and starts each transport.
+        if let Some(contents) = emit_mcp_server_file(&source_label, feature) {
+            let mcp_path = format!("{name}/mcp_server.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: mcp_path,
                 contents,
             });
         }

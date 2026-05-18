@@ -1478,6 +1478,7 @@ const FEATURE_BODY_KINDS: &[&str] = &[
     "imports",
     "invariants",
     "job",
+    "mcp_server",
     "non_goals",
     "notification",
     "operation",

@@ -28,6 +28,7 @@ pub mod handlers;
 pub mod imports;
 pub mod job;
 pub mod lint;
+pub mod mcp_server;
 pub mod migration;
 pub mod migration_ddl;
 pub mod module;

@@ -143,6 +143,7 @@ mod tests {
             channels: vec![],
             caches: vec![],
             aggregates,
+            mcp_servers: vec![],
             previous_names: vec![],
             span_ref: None,
         }
