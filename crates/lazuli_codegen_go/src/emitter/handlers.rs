@@ -1435,7 +1435,7 @@ fn go_type_for_builtin(builtin: BuiltinType) -> &'static str {
         BuiltinType::DateTime => "lazuli.Time",
         BuiltinType::Json => "lazuli.JSON",
         BuiltinType::SemanticEmail => "lazuli.Email",
-        BuiltinType::SemanticMoney => "lazuli.Money",
+        BuiltinType::SemanticMoney { .. } => "lazuli.Money",
         BuiltinType::SemanticPhone => "lazuli.Phone",
         BuiltinType::SemanticUrl => "lazuli.URL",
         BuiltinType::SemanticUuid => "lazuli.UUID",

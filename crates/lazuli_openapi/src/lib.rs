@@ -790,7 +790,7 @@ fn builtin_to_openapi(b: ir::BuiltinType) -> (&'static str, Option<&'static str>
         SemanticPhone => ("string", None),
         SemanticUrl => ("string", Some("uri")),
         SemanticUuid => ("string", Some("uuid")),
-        SemanticMoney => ("number", None),
+        SemanticMoney { .. } => ("number", None),
         SemanticCurrency => ("string", None),
         // GeoPoint follow-up — `@semantic.GeoPoint` carries
         // `{ lat, lng }`. OpenAPI does not have a `geography` format,

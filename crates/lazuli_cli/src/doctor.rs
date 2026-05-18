@@ -511,6 +511,22 @@ impl DoctorPackage {
                                         );
                                     file.local_diagnostics
                                         .extend(semantic_type_surface_diagnostics);
+                                    // MONEY-1 §3.2 — currency-tagged Money
+                                    // doctor checks. Severity is fixed at
+                                    // `Error` regardless of security profile
+                                    // because mixed-currency arithmetic /
+                                    // comparison is a structural bug (loses
+                                    // money silently), not a style nit.
+                                    file.local_diagnostics
+                                        .extend(money_compare_001_diagnostics(
+                                            &file.path,
+                                            &feature,
+                                        ));
+                                    file.local_diagnostics
+                                        .extend(money_arithmetic_001_diagnostics(
+                                            &file.path,
+                                            &feature,
+                                        ));
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
                                     // Migrations bucket cycle Route C —
@@ -1285,6 +1301,56 @@ fn vocab_grammar_form_diagnostics(
                         message,
                     }
                 })
+        })
+        .collect()
+}
+
+/// MONEY-1 §3.2 — bridge `lazuli_doctor::vocab::money_compare_001` into the
+/// CLI's `DoctorDiagnostic` shape. Fixed `Error` severity per the proposal:
+/// mixed-currency comparisons silently lose money, which is a bug
+/// regardless of `prototype`/`strict`/`production` posture.
+fn money_compare_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::vocab::money_compare_001;
+    money_compare_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: money_compare_001::Finding::CODE.to_owned(),
+                message,
+            }
+        })
+        .collect()
+}
+
+/// MONEY-1 §3.2 — bridge `lazuli_doctor::vocab::money_arithmetic_001` into
+/// the CLI's `DoctorDiagnostic` shape. Same fixed-`Error` policy as the
+/// comparison check: cross-currency or Money-times-Money arithmetic is a
+/// structural bug.
+fn money_arithmetic_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::vocab::money_arithmetic_001;
+    money_arithmetic_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: money_arithmetic_001::Finding::CODE.to_owned(),
+                message,
+            }
         })
         .collect()
 }

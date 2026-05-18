@@ -366,13 +366,13 @@ fn type_ref_ts(type_ref: &ir::TypeRef) -> &'static str {
             | ir::BuiltinType::Date
             | ir::BuiltinType::DateTime
             | ir::BuiltinType::SemanticEmail
-            | ir::BuiltinType::SemanticMoney
             | ir::BuiltinType::SemanticPhone
             | ir::BuiltinType::SemanticUrl
             | ir::BuiltinType::SemanticUuid
             | ir::BuiltinType::SemanticCurrency
             | ir::BuiltinType::SemanticGeoPoint,
         ) => "string",
+        ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney { .. }) => "string",
         ir::TypeRef::Builtin(ir::BuiltinType::Json) => "unknown",
         ir::TypeRef::Builtin(ir::BuiltinType::CapSecret | ir::BuiltinType::CapFile) => "unknown",
         ir::TypeRef::EnumRef(_) | ir::TypeRef::UserDefined(_) | ir::TypeRef::Unresolved(_) => {

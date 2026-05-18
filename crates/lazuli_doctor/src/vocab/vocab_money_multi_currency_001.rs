@@ -92,7 +92,7 @@ fn check_resource(feature: &Feature, resource: &Resource, path: &Path) -> Option
 fn is_money(field: &lazuli_ir::Field) -> bool {
     matches!(
         field.type_ref,
-        TypeRef::Builtin(BuiltinType::SemanticMoney)
+        TypeRef::Builtin(BuiltinType::SemanticMoney { .. })
     )
 }
 
@@ -126,7 +126,12 @@ mod tests {
     }
 
     fn money(name: &str) -> Field {
-        mk_field(name, TypeRef::Builtin(BuiltinType::SemanticMoney))
+        mk_field(
+            name,
+            TypeRef::Builtin(BuiltinType::SemanticMoney {
+                currency: lazuli_ir::CurrencyCode::BRL,
+            }),
+        )
     }
 
     fn currency(name: &str) -> Field {
