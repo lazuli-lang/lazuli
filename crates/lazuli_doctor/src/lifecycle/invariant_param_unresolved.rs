@@ -141,6 +141,7 @@ mod tests {
             events: vec![],
             rules: vec![],
             policies: Policies::default(),
+            errors: None,
             commands: vec![],
             apis: vec![],
             records: vec![],

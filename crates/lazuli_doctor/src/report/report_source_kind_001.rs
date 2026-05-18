@@ -78,6 +78,7 @@ mod tests {
             events: vec![],
             rules: vec![],
             policies: Policies::default(),
+            errors: None,
             commands: vec![],
             apis: vec![],
             records: vec![],
@@ -145,6 +146,7 @@ mod tests {
             scope: vec![],
             scope_override: false,
             filters: vec![],
+            policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
         });
@@ -167,6 +169,7 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
         });

@@ -51,6 +51,7 @@ fn empty_feature(name: &str) -> Feature {
             fields: Vec::new(),
             span_ref: None,
         },
+        errors: None,
         commands: Vec::new(),
         apis: Vec::new(),
         records: Vec::new(),
@@ -145,6 +146,7 @@ fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
         effect: CommandEffect::None,
         policy: PolicyRef::None,
         policy_expr: None,
+        policy_when_denied: None,
         emits: Vec::new(),
         rate_limit: None,
         audit: None,
@@ -671,16 +673,15 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         .find(|f| f.path == "customer/resource.gen.go")
         .expect("expected customer/resource.gen.go");
 
+    // Resource-typed cross-feature FK collapses to `lazuli.ID` —
+    // the DB column holds the FK as BIGINT, and the prior struct
+    // ref shape would fault `pgx.RowToStructByName`. The
+    // cross-feature import is no longer required for this field
+    // alone; resources with mixed (record + FK) refs may still
+    // pull the import.
     assert!(
-        customer_resource.contents.contains("Owner orggen.User"),
-        "expected cross-feature `orggen.User` ref, got:\n{}",
-        customer_resource.contents
-    );
-    assert!(
-        customer_resource
-            .contents
-            .contains("\"lazuli/test-app/org\""),
-        "expected cross-feature import path `lazuli/test-app/org`, got:\n{}",
+        customer_resource.contents.contains("Owner lazuli.ID"),
+        "expected `Owner lazuli.ID` FK shape, got:\n{}",
         customer_resource.contents
     );
 
@@ -796,6 +797,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         }),
         policy: PolicyRef::Atom("@role.admin".to_owned()),
         policy_expr: None,
+        policy_when_denied: None,
         emits: vec!["customer_created".to_owned()],
         rate_limit: Some("30 per hour per ip".to_owned()),
         audit: None,

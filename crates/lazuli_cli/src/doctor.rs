@@ -12135,6 +12135,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         events: Vec::new(),
         rules: Vec::new(),
         policies: lazuli_ir::Policies::default(),
+        errors: None,
         commands: Vec::new(),
         apis: fact.apis.clone(),
         records: fact.records.clone(),
@@ -18807,6 +18808,7 @@ feature customer
             paginate: None,
             modifier: None,
             cache: Some(cache),
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         });

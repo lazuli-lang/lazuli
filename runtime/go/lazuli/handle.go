@@ -420,9 +420,22 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	}
 
 	if eff.Resource.Tenancy == TenancyOrg && ctx.Tenant != nil {
-		cols = append(cols, quoteIdent("org_id"))
-		values = append(values, ctx.Tenant.OrgID)
-		placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
+		// The TenancyOrg migration emit produces TWO columns:
+		//   * org_id — auto-tenancy column injected by the DDL emitter
+		//   * org    — FK column derived from the `org: Org required` field
+		// Both are NOT NULL, so both must be populated. Authors don't bind
+		// either column explicitly — the runtime mirrors the session.go
+		// INSERT pattern (`(org_id, org, ...) VALUES ($1, $1, ...)`) so a
+		// single tenant value satisfies both NOT NULL constraints.
+		// Skip whichever column the bindings have already filled.
+		for _, col := range [...]string{"org_id", "org"} {
+			if _, bound := eff.Bind[col]; bound {
+				continue
+			}
+			cols = append(cols, quoteIdent(col))
+			values = append(values, ctx.Tenant.OrgID)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
+		}
 	}
 
 	// Encrypt @cap.Encrypted / @cap.E2ee bound columns before they

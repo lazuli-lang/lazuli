@@ -427,6 +427,13 @@ pub struct Feature {
     pub events: Vec<Event>,
     pub rules: Vec<Rule>,
     pub policies: Policies,
+    /// IR Error-Vocab — `errors` block lifted into IR. Carries both
+    /// exposure rules (legacy LSP surface, now lowered) and typed
+    /// per-code message overrides. `None` when the feature uses the
+    /// runtime defaults. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub errors: Option<FeatureErrors>,
     pub commands: Vec<Command>,
     /// Phase L Tier 4b — `api <name>` declarations lifted from the
     /// canonical-indent slice. Legacy lowering leaves this empty;
@@ -1097,6 +1104,15 @@ pub struct Command {
     /// a bare atom or absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExpr>,
+    /// IR Error-Vocab — per-command override for the `policy_denied`
+    /// error message. Highest-precedence step in the resolution chain
+    /// (proposal §2.E step 1). When `Some`, the codegen emits a
+    /// per-command `ErrorKeys.PolicyDenied` entry and the runtime
+    /// resolver picks it before consulting `PolicyCategory.when_denied`
+    /// or `FeatureErrors.messages`. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
     /// Phase L Tier 4b — `rate_limit "<N per period per scope>"` literal.
@@ -1520,6 +1536,13 @@ pub struct ListQuery {
     /// Cache bucket cycle — typed `cache` block (key/ttl/tags?/namespace?).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<QueryCache>,
+    /// IR Error-Vocab — per-query override for the `policy_denied`
+    /// error message. Highest-precedence step in the resolution chain
+    /// for queries (proposal §3.3). Codegen wiring tracks the
+    /// `Command` slot — queries are end-user-reachable HTTP boundaries
+    /// in the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1540,6 +1563,11 @@ pub struct LookupQuery {
     pub scope_override: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<Filter>,
+    /// IR Error-Vocab — per-query override for the `policy_denied`
+    /// error message. Same shape as `Command.policy_when_denied`. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1565,6 +1593,11 @@ pub struct SqlQuery {
     /// only authors cache on list/sql shapes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<QueryCache>,
+    /// IR Error-Vocab — per-query override for the `policy_denied`
+    /// error message. Same shape as `Command.policy_when_denied`. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2114,6 +2147,13 @@ pub struct Workflow {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub default_emits: Vec<String>,
     pub transitions: Vec<Transition>,
+    /// IR Error-Vocab — reserved-slot per-workflow override for the
+    /// `policy_denied` error message. v1 codegen does not consume this
+    /// slot (workflow transitions are author-driven, not end-user HTTP
+    /// boundaries); the IR shape exists so v2 promotion is purely
+    /// additive. See `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3226,6 +3266,120 @@ pub struct TranslationPluralArm {
     pub variants: Vec<TranslationVariant>,
 }
 
+// =============================================================================
+// IR Error-Vocab — typed translation key references + feature-level errors
+// block lowering. See `docs/proposals/ir-error-messages-vocab.md` §3.
+//
+// Additive: every new shape lives behind `Option`/`Vec` slots wired with
+// `#[serde(default, skip_serializing_if = "...")]` so pre-vocab fixtures
+// deserialize unchanged. Complements the legacy `Rule.message_ref:
+// Option<String>` — that string-form stays untouched for back-compat.
+// =============================================================================
+
+/// A `@translation.<key>` reference used by feature-level errors blocks,
+/// per-command/per-policy `when_denied` overrides, and (post-pilot) per-
+/// field validator errors. The key resolves against the surrounding
+/// feature's `Translation.keys[]` at analyze time; doctor cross-checks
+/// the key against the resolved feature's catalog
+/// (`translation_key_unknown` + ERR-VOCAB-002).
+///
+/// Complements the legacy `Rule.message_ref: Option<String>` — the
+/// string form stays for back-compat in v1; v2 migrates rules onto this
+/// struct.
+///
+/// See `docs/proposals/ir-error-messages-vocab.md` §3.1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationKeyRef {
+    /// The key name, e.g. `must_be_signed_in`.
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of feature-level `errors default ...` resolutions.
+/// `Hide` means error envelope fields default to suppressed unless an
+/// `expose client 4xx/5xx ...` line opts them in; `Expose` flips the
+/// default. Mirrors the pre-existing LSP validator at
+/// `valid_error_exposure_line`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorExposureDefault {
+    Hide,
+    Expose,
+}
+
+/// Feature-level error contract lowered from the `errors` block.
+/// Subsumes both the pre-existing LSP-validated `default hide / expose
+/// client 4xx ...` exposure surface (now lowered into IR) and the new
+/// typed per-code message overrides introduced by the error-vocab
+/// proposal.
+///
+/// Resolution-chain step 3 (see proposal §2.E): when neither the
+/// per-command `policy_when_denied` nor the per-policy `when_denied`
+/// resolves, the runtime falls through to `messages[].message` for the
+/// matching closed-catalog `code`.
+///
+/// See `docs/proposals/ir-error-messages-vocab.md` §3.4.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeatureErrors {
+    /// `default hide` | `default expose`. `None` defers to the runtime
+    /// default (currently `Hide`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<ErrorExposureDefault>,
+    /// 4xx envelope-field exposure. Closed catalog: `message`, `code`,
+    /// `data`, `message_key`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exposure_4xx: Vec<String>,
+    /// 5xx envelope-field exposure. Closed catalog: `code`, `data`.
+    /// (`message` deliberately not allowed for 5xx — see proposal §2.C.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exposure_5xx: Vec<String>,
+    /// Per-code message overrides; one entry per `<code> message
+    /// @translation.<key>` line. Resolution-chain step 3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<FeatureErrorMessage>,
+    /// Reserved for v2 — per-field validator error references
+    /// (`validates field <Field>.<code> message @translation.<key>`).
+    /// v1 parser leaves this empty; codegen ignores. The slot lives in
+    /// IR so v2 promotion is purely additive.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_messages: Vec<FeatureFieldError>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// One `<code> message @translation.<key>` row inside a feature's
+/// `errors` block. `code` is constrained to the closed catalog of
+/// overridable error families (`policy_denied`, `validation_failed`,
+/// `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`,
+/// `method_not_allowed`, `integration_error`) — doctor diagnostic
+/// `ERR-VOCAB-CODE-UNKNOWN` rejects unknown codes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeatureErrorMessage {
+    pub code: String,
+    pub message: TranslationKeyRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Reserved-for-v2 per-field validator error reference. v1 parser leaves
+/// this slot empty; the IR shape exists so v2 lowering and codegen
+/// promotion can land additively without an IR-ABI churn.
+///
+/// `resource` + `field` identify the target (e.g. `Customer.email`);
+/// `code` is the per-field validator error code (`format_invalid`,
+/// `required_missing`, ...); `message` is the typed key reference into
+/// the surrounding feature's `Translation.keys[]`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeatureFieldError {
+    pub resource: String,
+    pub field: String,
+    pub code: String,
+    pub message: TranslationKeyRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppBinding {
     pub target_feature: String,
@@ -4004,6 +4158,13 @@ pub struct Job {
     /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExpr>,
+    /// IR Error-Vocab — reserved-slot per-job override for the
+    /// `policy_denied` error message. v1 codegen does not consume this
+    /// slot (jobs do not reach end users directly); the IR shape exists
+    /// so v2 promotion is purely additive. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
     /// Lowered from the canonical-indent slice; doctor cross-checks
     /// the path against the resource tenancy axis.
@@ -4123,6 +4284,13 @@ pub struct Webhook {
     /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExpr>,
+    /// IR Error-Vocab — per-webhook override for the `policy_denied`
+    /// error message. Inbound webhook providers receive the error body
+    /// the same way HTTP clients do, so customizing the message helps
+    /// the integration author debug from the upstream's logs. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     pub handler: PathRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub returns: Option<TypeRef>,
@@ -4607,6 +4775,14 @@ pub struct Channel {
     pub tenant_from: TenantFromSpec,
     /// `policy @policy.<name>` — read policy gating subscribers.
     pub policy: PolicyRef,
+    /// IR Error-Vocab — reserved-slot per-channel override for the
+    /// `policy_denied` error message. v1 codegen does not consume this
+    /// slot (subscriber rejections surface through realtime transport,
+    /// not HTTP envelopes); the IR shape exists so v2 promotion is
+    /// purely additive. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     /// `payload <RecordType>` — verbatim type name. Doctor
     /// `CHANNEL-PAYLOAD-001` resolves it against
     /// `Feature.records` / `Feature.resources`.
@@ -4803,6 +4979,14 @@ pub struct Agent {
     pub context: Option<TargetExpr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyRef>,
+    /// IR Error-Vocab — reserved-slot per-agent override for the
+    /// `policy_denied` error message. v1 codegen does not consume this
+    /// slot (agents only surface errors when exposed via HTTP, which is
+    /// modeled separately on `Agent.expose_http`); the IR shape exists
+    /// so v2 promotion is purely additive. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<String>,
     pub output_kind: AgentOutputKind,
@@ -4886,6 +5070,12 @@ pub struct Api {
     /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExpr>,
+    /// IR Error-Vocab — per-api override for the `policy_denied` error
+    /// message. Custom HTTP boundaries reach end users directly, so the
+    /// override seam mirrors `Command.policy_when_denied`. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<String>,
     /// `output <TypeRef>` — required for canonical APIs today. Captured
@@ -5280,6 +5470,14 @@ pub struct PolicyCategory {
     pub atoms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
+    /// IR Error-Vocab — per-policy default error message. When `Some`,
+    /// every command/query using this policy emits `policy_denied` with
+    /// the resolved `TranslationKeyRef` unless the operation declares
+    /// its own `policy_when_denied`. Resolution-chain step 2
+    /// (proposal §2.E step 2). See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_denied: Option<TranslationKeyRef>,
 }
 
 /// Per-resource field policies: `fields Customer\n  email\n    read: ...`.

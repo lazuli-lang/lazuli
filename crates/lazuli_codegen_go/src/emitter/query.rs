@@ -1024,6 +1024,7 @@ mod tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),
@@ -1167,6 +1168,7 @@ mod tests {
                 namespace: Some("customer".to_owned()),
                 profile_ref: None,
             }),
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1203,6 +1205,7 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1211,8 +1214,9 @@ mod tests {
         let module = module_with_features(vec![customer, account]);
 
         let out = emit_from_module(&module, "customer").expect("must emit");
-        assert!(out.contains("\"lazuli/test/account\""));
-        assert!(out.contains("User *accountgen.User `json:\"user,omitempty\"`"));
+        // Resource refs collapse to `lazuli.ID` — query args are FK
+        // ids on the wire, never the embedded resource row.
+        assert!(out.contains("User *lazuli.ID `json:\"user,omitempty\"`"));
     }
 
     #[test]
@@ -1234,6 +1238,7 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1242,8 +1247,9 @@ mod tests {
         let module = module_with_features(vec![customer, account]);
 
         let out = emit_from_module(&module, "customer").expect("must emit");
-        assert!(out.contains("\"lazuli/test/account\""));
-        assert!(out.contains("Reviewers []accountgen.User `json:\"reviewers\"`"));
+        // []Resource collapses to []lazuli.ID — see the singular case
+        // above for the rationale.
+        assert!(out.contains("Reviewers []lazuli.ID `json:\"reviewers\"`"));
     }
 
     #[test]
@@ -1268,6 +1274,7 @@ mod tests {
             scope: Vec::new(),
             scope_override: false,
             filters: Vec::new(),
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1303,6 +1310,7 @@ mod tests {
                 namespace: None,
                 profile_ref: None,
             }),
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1332,6 +1340,7 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1346,6 +1355,7 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1376,6 +1386,7 @@ mod tests {
             paginate: Some(50),
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1446,6 +1457,7 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));
@@ -1538,6 +1550,7 @@ mod feature_emit {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),
@@ -1631,6 +1644,7 @@ mod feature_emit {
             paginate: Some(25),
             modifier: None,
             cache: None,
+            policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
         }));

@@ -120,6 +120,7 @@ mod tests {
             events: Vec::new(),
             rules: Vec::new(),
             policies: Policies::default(),
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),

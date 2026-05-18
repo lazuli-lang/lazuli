@@ -971,6 +971,7 @@ mod tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),
@@ -1534,13 +1535,15 @@ mod tests {
         let out = emit_resource_file("examples/x.lzi", &customer, "lazuli/test", &index)
             .expect("must emit");
 
+        // Resource FK fields collapse to `lazuli.ID` — the DB column
+        // is BIGINT, so `pgx.RowToStructByName` can't scan into a
+        // `*orggen.User` struct. The cross-feature import isn't
+        // required for the FK column itself (it's just a BIGINT) but
+        // it may still appear if other fields on the resource use a
+        // record/enum from `org`; this resource has none.
         assert!(
-            out.contains("Owner *orggen.User"),
-            "expected `*orggen.User` cross-feature ref, got:\n{out}"
-        );
-        assert!(
-            out.contains("\"lazuli/test/org\""),
-            "expected cross-feature import `lazuli/test/org`, got:\n{out}"
+            out.contains("Owner *lazuli.ID"),
+            "expected `*lazuli.ID` FK field for cross-feature resource ref, got:\n{out}"
         );
     }
 
@@ -1796,6 +1799,7 @@ mod feature_emit_tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),

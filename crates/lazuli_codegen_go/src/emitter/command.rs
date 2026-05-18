@@ -2010,6 +2010,7 @@ mod feature_emit_tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),
@@ -2140,6 +2141,7 @@ mod feature_emit_tests {
             effect: CommandEffect::None,
             policy: PolicyRef::None,
             policy_expr: None,
+            policy_when_denied: None,
             emits: Vec::new(),
             rate_limit: None,
             audit: None,
@@ -2235,6 +2237,7 @@ mod tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),
@@ -2432,6 +2435,7 @@ mod tests {
             effect: CommandEffect::None,
             policy: PolicyRef::None,
             policy_expr: None,
+            policy_when_denied: None,
             emits: Vec::new(),
             rate_limit: None,
             audit: None,
@@ -2889,11 +2893,12 @@ mod tests {
     }
 
     #[test]
-    fn cross_feature_input_type_emits_qualified_ref_and_import() {
-        // Command in `customer` takes `User.ID` from the `org` feature
-        // — surfaces an `*orggen.User` qualified ref + the cross-feature
-        // import. Test exercises the same cross-feature pathway the
-        // resource emitter already covers.
+    fn cross_feature_input_type_emits_lazuli_id() {
+        // Command in `customer` takes a `User` (declared in `org`) as
+        // an input slot. The input collapses to `lazuli.ID` — JSON
+        // bodies carry FK ids, never the embedded resource row — so
+        // the cross-feature import is dropped along with the struct
+        // ref. Records would still emit `orggen.<Name>` + import.
         let mut customer = base_feature("customer");
         customer.resources.push(simple_resource("Customer"));
         let mut cmd = base_command("reassign");
@@ -2927,8 +2932,10 @@ mod tests {
         )
         .expect("must emit");
 
-        assert!(out.contains("Owner orggen.User"));
-        assert!(out.contains("\"lazuli/test/org\""));
+        assert!(
+            out.contains("Owner lazuli.ID"),
+            "expected `Owner lazuli.ID` for cross-feature resource input, got:\n{out}"
+        );
     }
 
     #[test]
@@ -3212,6 +3219,7 @@ mod tests {
                 name: "delete".to_owned(),
                 atoms: vec!["@scope.owner".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3258,6 +3266,7 @@ mod tests {
                 name: "update".to_owned(),
                 atoms: vec!["@scope.owner".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3289,6 +3298,7 @@ mod tests {
                 name: "update".to_owned(),
                 atoms: vec!["@scope.same_org".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3321,6 +3331,7 @@ mod tests {
                 name: "admin".to_owned(),
                 atoms: vec!["@role.admin".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3375,6 +3386,7 @@ mod tests {
                 name: "update".to_owned(),
                 atoms: vec!["@scope.owner".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3413,6 +3425,7 @@ mod tests {
                 name: "update".to_owned(),
                 atoms: vec!["@scope.owner".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3452,6 +3465,7 @@ mod tests {
                 name: "delete".to_owned(),
                 atoms: vec!["@scope.owner".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3527,6 +3541,7 @@ mod tests {
                 name: "choose_role".to_owned(),
                 atoms: vec!["@scope.self".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,
@@ -3573,6 +3588,7 @@ mod tests {
                 name: "logout".to_owned(),
                 atoms: vec!["@scope.owner".to_owned()],
                 previous_names: Vec::new(),
+                when_denied: None,
             }],
             fields: Vec::new(),
             span_ref: None,

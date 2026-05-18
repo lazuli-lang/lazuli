@@ -30,7 +30,7 @@
 
 use lazuli_ir::{BuiltinType, CapabilityRef, TypeRef};
 
-use super::cross_feature::CrossFeatureIndex;
+use super::cross_feature::{CrossFeatureIndex, DeclKind};
 
 /// Context the per-feature emitter passes to [`go_type_for`] so the
 /// closed-catalog mapping can resolve cross-feature references.
@@ -107,6 +107,22 @@ fn resolve_named(
     // `MfaContract`. Acronyms in the closed table (`api`, `id`,
     // `url`, `json`, ...) uppercase consistently across files.
     let go_name = super::casing::pascal_case(&qname.name);
+
+    // A `TypeRef::UserDefined(<Resource>)` field is an FK. The DB
+    // column holds a BIGINT id, NOT the full row, so the Go field
+    // must be `lazuli.ID` for `pgx.RowToStructByName` to scan
+    // correctly. Emitting `*orggen.User` here would fault every
+    // `creates`/`updates` `RETURNING *` and every `query.list`.
+    // Records and enums keep their struct/enum identity — they DON'T
+    // scan from a BIGINT column. `kind()` returns `None` for
+    // unknown/ambiguous names; those fall through the existing
+    // resolver and emit a sanitised bare ref.
+    if matches!(
+        ctx.cross_index.kind(&qname.name),
+        Some(DeclKind::Resource)
+    ) {
+        return ("lazuli.ID".to_owned(), None);
+    }
 
     // Step 1 — honour the analyzer's resolution if it landed. Today
     // `qname.feature` is always `None` (analyzer lifts every unknown
@@ -296,6 +312,7 @@ mod tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),
@@ -368,6 +385,16 @@ mod tests {
             design: None,
             rbac: None,
             features,
+        }
+    }
+
+    fn make_record(name: &str) -> Record {
+        Record {
+            name: name.to_owned(),
+            public_contract: None,
+            fields: Vec::new(),
+            discriminator_field: None,
+            span_ref: None,
         }
     }
 
@@ -474,9 +501,13 @@ mod tests {
     }
 
     #[test]
-    fn user_defined_same_package_renders_bare_name_without_import() {
-        // `Customer` resolved in the `customer` feature where it is
-        // declared — bare ref, no import.
+    fn user_defined_resource_ref_emits_lazuli_id_no_import() {
+        // Resource refs are FKs (BIGINT in DB). The emitted Go field
+        // must be `lazuli.ID` so `pgx.RowToStructByName` can scan the
+        // column; the prior `Customer`/`orggen.Customer` shape would
+        // fault every `RETURNING *`. Same-package and cross-feature
+        // both collapse to `lazuli.ID` for this reason — the FK id is
+        // unqualified.
         let module = cross_ref_module();
         let index = CrossFeatureIndex::build(&module);
         let ctx = TypeCtx {
@@ -489,14 +520,15 @@ mod tests {
             name: "Customer".to_owned(),
         };
         let (go, import) = go_type_for(&TypeRef::UserDefined(qname), &ctx);
-        assert_eq!(go, "Customer");
+        assert_eq!(go, "lazuli.ID");
         assert_eq!(import, None);
     }
 
     #[test]
-    fn user_defined_cross_feature_emits_qualified_ref_and_import() {
-        // `User` declared in `org`, referenced from `customer`. Emits
-        // `orggen.User` and `lazuli/test/org` import.
+    fn user_defined_cross_feature_resource_ref_collapses_to_lazuli_id() {
+        // Resource refs (here `User` declared in `org`) emit
+        // `lazuli.ID` regardless of which feature consumes them —
+        // the underlying DB column is BIGINT in every case.
         let module = cross_ref_module();
         let index = CrossFeatureIndex::build(&module);
         let ctx = TypeCtx {
@@ -509,7 +541,34 @@ mod tests {
             name: "User".to_owned(),
         };
         let (go, import) = go_type_for(&TypeRef::UserDefined(qname), &ctx);
-        assert_eq!(go, "orggen.User");
+        assert_eq!(go, "lazuli.ID");
+        assert_eq!(import, None);
+    }
+
+    #[test]
+    fn user_defined_record_ref_emits_struct_with_qualified_import() {
+        // Records ARE struct-shaped (no FK collapse) so their refs
+        // keep the qualified-name + import treatment when consumed
+        // from another feature. This is the path that authoring
+        // typically hits from `Function[Input, Output]` extension
+        // shapes referencing a feature-local Record.
+        let mut customer = empty_feature("customer");
+        let mut org = empty_feature("org");
+        org.records.push(make_record("UserSnapshot"));
+        let module = module_with_features(vec![customer.clone(), org]);
+        let index = CrossFeatureIndex::build(&module);
+        let _ = &mut customer;
+        let ctx = TypeCtx {
+            current_feature: "customer",
+            module_name: "lazuli/test",
+            cross_index: &index,
+        };
+        let qname = QualifiedName {
+            feature: None,
+            name: "UserSnapshot".to_owned(),
+        };
+        let (go, import) = go_type_for(&TypeRef::UserDefined(qname), &ctx);
+        assert_eq!(go, "orggen.UserSnapshot");
         assert_eq!(import.as_deref(), Some("lazuli/test/org"));
     }
 

@@ -270,6 +270,7 @@ mod tests {
             events: Vec::new(),
             rules: Vec::new(),
             policies: Policies { categories: Vec::new(), fields: Vec::new(), span_ref: None },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),

@@ -44,14 +44,26 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::Module;
 
+/// Kind of the declaring slot. Used by `types::go_type_for` to decide
+/// whether a `TypeRef::UserDefined` field renders as a struct ref
+/// (records hold subfields, scan by name) or as `lazuli.ID` (resources
+/// are FKs to a BIGINT column — scanning into the full struct is a
+/// type mismatch).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DeclKind {
+    Resource,
+    Record,
+    Enum,
+}
+
 /// Maps every type-bearing declaration name to the feature that owns
 /// it. Built once per `generate_v1` run and threaded through the
 /// per-feature walkers via `types::TypeCtx`.
 pub struct CrossFeatureIndex<'a> {
-    /// `type_name -> feature_name` for non-ambiguous declarations.
+    /// `type_name -> (feature_name, kind)` for non-ambiguous declarations.
     /// Names that collide across features are removed from this map
     /// and recorded in `ambiguous` instead.
-    map: BTreeMap<&'a str, &'a str>,
+    map: BTreeMap<&'a str, (&'a str, DeclKind)>,
     /// `type_name -> [feature_name; ...]` for names declared in two
     /// or more features. `owner()` returns `None` for these.
     ambiguous: BTreeMap<&'a str, Vec<&'a str>>,
@@ -63,25 +75,34 @@ impl<'a> CrossFeatureIndex<'a> {
     /// in two or more features are tracked separately so the caller can
     /// emit a fallback warning instead of guessing.
     pub fn build(module: &'a Module) -> Self {
-        let mut map: BTreeMap<&'a str, &'a str> = BTreeMap::new();
+        let mut map: BTreeMap<&'a str, (&'a str, DeclKind)> = BTreeMap::new();
         let mut ambiguous: BTreeMap<&'a str, Vec<&'a str>> = BTreeMap::new();
 
         for feature in &module.features {
             let feature_name = feature.name.as_str();
-            // Three catalog sources today. `Field.type_ref`,
-            // `Resource.fields[*].type_ref`, etc. can only point to
-            // names declared by one of these three slots — adding more
-            // slots later (e.g. `Workflow.name` if it ever becomes a
-            // type) is a single-line change.
+            // Three catalog sources today. Each contributes its kind
+            // so downstream emitters can branch (resource FKs become
+            // `lazuli.ID`; records and enums keep their struct/enum
+            // identity).
             let names = feature
                 .resources
                 .iter()
-                .map(|r| r.name.as_str())
-                .chain(feature.records.iter().map(|r| r.name.as_str()))
-                .chain(feature.enums.iter().map(|e| e.name.as_str()));
+                .map(|r| (r.name.as_str(), DeclKind::Resource))
+                .chain(
+                    feature
+                        .records
+                        .iter()
+                        .map(|r| (r.name.as_str(), DeclKind::Record)),
+                )
+                .chain(
+                    feature
+                        .enums
+                        .iter()
+                        .map(|e| (e.name.as_str(), DeclKind::Enum)),
+                );
 
-            for name in names {
-                Self::register(&mut map, &mut ambiguous, name, feature_name);
+            for (name, kind) in names {
+                Self::register(&mut map, &mut ambiguous, name, feature_name, kind);
             }
         }
 
@@ -89,10 +110,11 @@ impl<'a> CrossFeatureIndex<'a> {
     }
 
     fn register(
-        map: &mut BTreeMap<&'a str, &'a str>,
+        map: &mut BTreeMap<&'a str, (&'a str, DeclKind)>,
         ambiguous: &mut BTreeMap<&'a str, Vec<&'a str>>,
         name: &'a str,
         feature: &'a str,
+        kind: DeclKind,
     ) {
         if let Some(existing) = ambiguous.get_mut(name) {
             if !existing.contains(&feature) {
@@ -101,18 +123,18 @@ impl<'a> CrossFeatureIndex<'a> {
             return;
         }
         match map.remove(name) {
-            Some(prev) if prev == feature => {
+            Some((prev_feature, prev_kind)) if prev_feature == feature => {
                 // Same feature redeclares the name — silently coalesce.
                 // (Doctor surfaces duplicate-resource diagnostics
                 // separately; codegen shouldn't double-fault on them.)
-                map.insert(name, prev);
+                map.insert(name, (prev_feature, prev_kind));
             }
-            Some(prev) => {
+            Some((prev_feature, _)) => {
                 // Collision across features. Promote to ambiguous.
-                ambiguous.insert(name, vec![prev, feature]);
+                ambiguous.insert(name, vec![prev_feature, feature]);
             }
             None => {
-                map.insert(name, feature);
+                map.insert(name, (feature, kind));
             }
         }
     }
@@ -121,7 +143,17 @@ impl<'a> CrossFeatureIndex<'a> {
     /// when the name is unknown or ambiguous. Callers distinguish
     /// "unknown" from "ambiguous" via [`Self::is_ambiguous`].
     pub fn owner(&self, type_name: &str) -> Option<&'a str> {
-        self.map.get(type_name).copied()
+        self.map.get(type_name).map(|(feature, _)| *feature)
+    }
+
+    /// Return the declaring slot kind for `type_name`, or `None` when
+    /// the name is unknown or ambiguous. `types::go_type_for` consults
+    /// this so a `TypeRef::UserDefined(<Resource>)` field renders as
+    /// `lazuli.ID` (the actual DB column shape) instead of the resource
+    /// struct ref (which would fail `pgx.RowToStructByName` scan into
+    /// a BIGINT FK column).
+    pub fn kind(&self, type_name: &str) -> Option<DeclKind> {
+        self.map.get(type_name).map(|(_, kind)| *kind)
     }
 
     /// `true` when `type_name` is declared in two or more features.
@@ -163,6 +195,7 @@ mod tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),

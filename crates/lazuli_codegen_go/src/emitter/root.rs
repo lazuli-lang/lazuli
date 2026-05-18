@@ -47,7 +47,8 @@ use lazuli_ir::{
 
 use super::imports::ImportSet;
 use super::patterns::{
-    PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT, emit_pattern_header,
+    PATTERN_CORS_REGISTER, PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT,
+    emit_pattern_header,
 };
 use super::printer::GoPrinter;
 use crate::LazuriteManifest;
@@ -582,6 +583,7 @@ fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors) {
     p.dedent();
     p.line("}");
     p.blank();
+    emit_pattern_header(p, PATTERN_CORS_REGISTER);
     p.line("func init() {");
     p.indent();
     p.line("lazuli.SetCorsContract(&CorsContract)");
@@ -776,6 +778,7 @@ mod tests {
                 fields: Vec::new(),
                 span_ref: None,
             },
+            errors: None,
             commands: Vec::new(),
             apis: Vec::new(),
             records: Vec::new(),

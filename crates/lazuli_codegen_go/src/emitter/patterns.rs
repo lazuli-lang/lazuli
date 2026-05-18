@@ -25,6 +25,7 @@ pub const PATTERN_POLLER_REGISTER: (&str, &str) = ("poller_register", "v1");
 pub const PATTERN_RBAC_REGISTER: (&str, &str) = ("rbac_register", "v1");
 pub const PATTERN_FEATURE_REGISTER: (&str, &str) = ("feature_register", "v1");
 pub const PATTERN_MCP_SERVER_REGISTER: (&str, &str) = ("mcp_server_register", "v1");
+pub const PATTERN_CORS_REGISTER: (&str, &str) = ("cors_register", "v1");
 
 pub fn emit_pattern_header(p: &mut GoPrinter, pattern: (&str, &str)) {
     p.line(&format!("//lazuli:pattern {} {}", pattern.0, pattern.1));

@@ -12,6 +12,17 @@ truth for the rubric. The agent definition at
 `.claude/agents/lazuli-language-architect.md` and the slash
 command at `.claude/commands/lazuli-grade.md` reference this file.
 
+## Changelog
+
+- **2026-05-18** — Added Criterion 11 (framework error message
+  contract, 6%) per proposal `grader-error-message-criterion.md`;
+  weights redistributed (C1 −1, C2 −1, C3 −1, C7 −1, C10 −2). Sum
+  remains 100%. **Forward-only hardening — no past PASS retroactively
+  becomes BLOCK.** Full provenance in §Versioning → "Notable changes."
+- **2026-05-17** — Inserted Criterion 8.5 (Diagnostic identifier
+  truthfulness, 3%); AI-first weight 14% → 11%. See §Versioning →
+  "Notable changes" for the full record.
+
 ## How to use
 
 This rubric exists to turn vibes into a number. Three classes of
@@ -51,17 +62,18 @@ Sum of weights = 100%.
 
 | # | Criterion | Weight | What you're measuring |
 |---|---|---|---|
-| 1 | Legibility (cold human read) | 12% | Can a senior dev read 1000+ lines of fixture top-to-bottom without backtracking or doc-lookup? |
-| 2 | Semantic density for LLM | 18% | Are `@policy.*`, `@cap.*`, `@semantic.*`, `@actor.*`, `@pii.*`, `@key.*`, `@llm.*`, `@tool.*` namespaces tight, closed, and unambiguous? |
-| 3 | Token efficiency | 10% | Is there gordura recorrente? Count tokens of repeated boilerplate × number of repetitions. |
+| 1 | Legibility (cold human read) | 11% | Can a senior dev read 1000+ lines of fixture top-to-bottom without backtracking or doc-lookup? |
+| 2 | Semantic density for LLM | 17% | Are `@policy.*`, `@cap.*`, `@semantic.*`, `@actor.*`, `@pii.*`, `@key.*`, `@llm.*`, `@tool.*` namespaces tight, closed, and unambiguous? |
+| 3 | Token efficiency | 9% | Is there gordura recorrente? Count tokens of repeated boilerplate × number of repetitions. |
 | 4 | Escape hatches | 8% | Can authors drop to `handler "./..."`, `validates resource "./..."`, custom Go without polluting source? Are the hatches minimal and visible? |
 | 5 | Determinism (one way to say each thing) | 10% | If the same intent has two surface forms with no rule for choosing, that's a deduction. |
 | 6 | Composability | 8% | Do `extends @anchor.*`, `extensible_by`, `packs`, `has_many`, `event_group` combine cleanly? |
-| 7 | Multi-target fit (Go/React/Expo) | 8% | Are surface projections (`.web.lzx` / `.mobile.lzx`) clean? Does any contract leak transport mechanics? |
+| 7 | Multi-target fit (Go/React/Expo) | 7% | Are surface projections (`.web.lzx` / `.mobile.lzx`) clean? Does any contract leak transport mechanics? |
 | 8 | Operational coverage | 6% | Do `runtime`, `deploy`, `profiles`, `services`, `architecture` cover real production needs without becoming Kubernetes config? |
 | 8.5 | Diagnostic identifier truthfulness | 3% | For every diagnostic code named in a proposal's acceptance lists: does the code (a) exist in `crates/lazuli_cli/src/doctor.rs` or `crates/lazuli_lsp/src/lib.rs`, or (b) explicitly appear under a `## New diagnostics` heading as net-new? Mechanical grep check. See §"How the rubric is enforced" for the runbook. |
 | 9 | Declarative testability | 6% | Are `tests` blocks expressive enough for rules / transitions / anchors / commands without becoming a mock framework? |
-| 10 | AI-first readiness | 11% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
+| 10 | AI-first readiness | 9% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
+| 11 | Framework error message contract | 6% | Are framework-emitted runtime errors (anything that reaches the HTTP wire without passing through an authored `rule "..." message @translation.<key>` block) keyed by a translation identifier under `@translation.<key>` (or equivalent message-namespace identifier), negotiated against the active locale, and override-able by app or feature surface? Hardcoded English in `Message:` fields of `&Error{...}` constructors in the runtime is an automatic 0. See §"Criterion 11 — Framework error message contract (runbook)" below. |
 
 ## Scoring scale
 
@@ -110,6 +122,15 @@ boundary violation is any of:
   LSP visibility.
 - Lazuli runtime mechanics (DI, broker plumbing, transport details)
   pushed into the language layer.
+- Framework runtime constructs an error envelope whose `Message`,
+  `message`, or equivalent user-visible field is a hardcoded literal
+  in the runtime's authoring language (e.g., English in `runtime/go/`)
+  *and* the proposal does not introduce a translation-key surface for
+  it. Hardcoded English message **with** a documented migration to
+  `@translation.<key>` is not a violation; it's a tracked cut. The
+  principle is symmetric to the line above: the language must not leak
+  transport mechanics into the runtime, *and* the runtime must not
+  leak prose into the wire.
 
 A boundary violation is a *deletion*, not a *deferral*. Reject in
 line; do not log as a tracked cut.
@@ -125,6 +146,7 @@ line; do not log as a tracked cut.
 | 2 | Semantic density | 9.2 | path:line | path:line |
 | ... |
 | 10 | AI-first readiness | 8.7 | path:line | path:line |
+| 11 | Framework error message contract | 7.0 | path:line | path:line |
 
 ### Top atritos
 - path:line — 1-line description — affects criterion N.
@@ -278,6 +300,68 @@ Closes the false-negative-by-naming pattern surfaced 2026-05-17.
 Audit: `c:/Users/lucas/lazuli-ops/.claude/swarm/reports/mgr-rule-naming-reconciliation-2026-05-17.md`.
 Proposal: `c:/Users/lucas/lazuli-ops/docs/proposals/naming-reconciliation-2026-05-17.md`.
 
+### Criterion 11 — Framework error message contract (runbook)
+
+For every proposal that claims a score ≥ 7 on Criterion 11, the grader
+runs four probes. The probe commands are deliberately written against
+the current and near-future shape of the runtime; at grading time, a
+file may not yet exist, and that's the probe's signal.
+
+```bash
+# Probe 1: framework runtime emits raw English strings on Error.Message.
+# Expect: 0 hits when the runtime is correct. Each hit -> deduct from 10.
+rg --no-heading -F 'Message: "' runtime/go/lazuli/ \
+   --glob '!*_test.go' --glob '!*/i18n/*'
+
+# Probe 2: a translation key namespace exists for framework errors.
+# Expect: ≥ 1 hit in the IR catalog or docs naming the framework
+# message surface (e.g. `@translation.framework.policy_denied`).
+rg --no-heading '@(translation|framework_message)\.' \
+   crates/lazuli_ir/src docs/
+
+# Probe 3: doctor lints missing framework-message coverage.
+# Expect: ≥ 1 hit naming a diagnostic that fires on missing coverage.
+rg --no-heading 'framework_message|policy_message_missing|error_message_locale' \
+   crates/lazuli_cli/src/doctor.rs crates/lazuli_doctor/src/
+
+# Probe 4: error contract documents the message-key surface.
+# Expect (for scores ≥ 9): both terms anchored in docs/error-contract.md.
+rg --no-heading -F 'when_denied' docs/error-contract.md
+rg --no-heading -F 'message_key' docs/error-contract.md
+```
+
+Scoring anchors (mirroring §4.2 of the source proposal):
+
+| Score | What the grader sees in the candidate |
+|---|---|
+| 0 | Any framework error path constructs `Message: "<english literal>"` (or equivalent in the codegen target's runtime) and that string reaches the JSON wire unmodified. Probe 1 returns ≥ 1 hit. Auto-BLOCK per the boundary-violation amendment if no migration is documented. |
+| 3 | Defaults exist as English literals **but** an interception hook exists (app-level `OnFrameworkError(err) ErrorView`) that authors can wire to swap messages. No locale negotiation. |
+| 5 | Defaults route through a translation key (`@framework.policy_denied`, `@framework.validation_failed`, etc.) but only one locale ships; no fallback graph honored on framework errors. |
+| 7 | Translation keys per framework error kind; locale negotiation honored via `i18n.Resolve`; PT-BR + EN ship; doctor warns on missing keys for any supported locale. Probes 1+2+3 anchored. |
+| 9 | All of the above **plus** per-command override (`command X { ... when_denied @translation.<key> }`) and per-feature override (`feature.errors.policy_denied @translation.<key>`); LSP completes the override surface. Probe 4 anchored. |
+| 10 | All of the above **plus** doctor enforces that every framework error kind enumerated in `docs/error-contract.md` has at least one `@translation.<key>` registered for every locale declared in `app.locale`, with a tracked-cuts row generated when a locale lacks coverage. Round-trip eval: a fixture authored in PT only, with locale `en` requested, emits the EN fallback and never the framework string. |
+
+False-positive carve-outs (Criterion 11 does NOT fire on):
+
+- **5xx internal errors** (status ≥ 500). These represent invariant
+  violations or platform bugs; their messages are for operators reading
+  logs, not end users. Browser/PWA error boundaries should render
+  generic copy regardless of message body. Only `Error.Status < 500`
+  paths count toward C11; Probe 1 must be filtered by HTTP status when
+  the deduction is computed.
+- **CLI / development errors** (`lazuli inspect`, `lazuli doctor`,
+  `lazuli generate`). Errors emitted from `crates/lazuli_cli/` binaries
+  are out of scope for C11. The criterion is scoped to the **generated
+  runtime's wire output**.
+- **Diagnostic source-map prose** (`source`, `feature`, `path` fields
+  of the error envelope per `docs/error-contract.md`). These are
+  intentional introspection aids for tooling. C11 only constrains the
+  `message` field.
+
+Triggered by the hostpoint PWA framework-string leak (2026-05-18). See
+proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
+for the full provenance, audit table, and fixture-list expectations.
+
 ## Versioning
 
 The rubric is part of the language contract. Changes to the
@@ -295,6 +379,19 @@ History of changes lives in `git log -- docs/grading-rubric.md`.
 
 Notable changes:
 
+- **2026-05-18 — Criterion 11 inserted (Framework error message
+  contract, 6%); weights redistributed (C1 −1, C2 −1, C3 −1, C7 −1,
+  C10 −2).** Sum stays at 100%. Triggered by the hostpoint PWA
+  field incident (`runtime/go/lazuli/policy.go:138,146`) where the
+  framework's English diagnostic string reached the end user. Source
+  proposal: `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
+  (self-graded PASS 9.16; architect re-grade pending). Forward-only
+  hardening: no past PASS retroactively becomes BLOCK. Past PASS
+  verdicts at the boundary (e.g., the 9.02 from Wave R) may degrade
+  to "PASS with notes" with C11 logged as a tracked cut — see §5 of
+  the source proposal for the estimate. Criterion 2 + 8.5 + 10 + 11
+  = 17 + 3 + 9 + 6 = 35%, equal to the AI-first ceiling under the
+  open-questions section.
 - **2026-05-17 — Criterion 8.5 inserted; AI-first weight 14% → 11%.**
   Architect grade PASS 8.9/10 per
   `c:/Users/lucas/lazuli-ops/.claude/swarm/reports/architect-grade-naming-reconciliation-2026-05-17.md`.
@@ -306,21 +403,33 @@ Notable changes:
 
 ## Open questions
 
-- **Should there be a 11th criterion for "migration / backward
+- **Should there be a criterion for "migration / backward
   compat"?** Today the rubric weighs migration through Criterion 5
   (determinism — by ensuring there's one canonical form,
   migrations stay simple). Real product pressure may justify a
   dedicated axis. Defer until ≥ 3 cuts produce migration debt.
-- **Should the AI-first weight grow?** Currently 14% (Criterion
-  10) plus 18% on semantic density (Criterion 2) = 32% weighted on
-  AI-first concerns. The thesis of Lazuli is AI-first, but
-  pushing past 35% would flatten the human-cold-read criterion.
-  Defer; revisit if real LLM-author tests show systemic gaps the
-  rubric misses.
+- **Should the AI-first weight grow?** Currently 9% (Criterion
+  10) plus 17% on semantic density (Criterion 2) plus 3% on
+  Criterion 8.5 plus 6% on Criterion 11 = 35% weighted on AI-first
+  concerns. The thesis of Lazuli is AI-first, but pushing past 35%
+  would flatten the human-cold-read criterion. The 2026-05-18
+  insertion of Criterion 11 took the axis exactly to the 35%
+  ceiling; future AI-first additions must reclaim weight from
+  inside the axis rather than expand it. Defer growth; revisit if
+  real LLM-author tests show systemic gaps the rubric misses.
 - **Should the rubric be per-construct?** Today it grades the
   whole language. Per-construct grading would let proposals
   target specific axes. Plausible after Cut A's IR migration
   delivers per-construct typed shapes.
+- **Should Criterion 11 apply to non-Go runtimes once they
+  exist?** Yes, symmetrically, but Probe 1's grep target becomes
+  language-conditional (`runtime/<language>/lazuli/`). Capture in
+  the criterion when the second runtime ships.
+- **Should the framework-message namespace be `@translation.*` or
+  a sibling `@framework_message.*`?** Recommendation from the
+  source proposal: `@translation.framework.<kind>` — same root
+  namespace, subnamespace for searchability. Architect to
+  ratify when the runtime team lands the migration.
 
 ## Reserved
 
@@ -332,3 +441,28 @@ Notable changes:
   parse and pass doctor on first try") would be the most direct
   AI-first measure. Reserved until evals against the LSP
   diagnostics produce a reliable corpus.
+
+## Manual TODO (post-2026-05-18 rubric bump)
+
+The Criterion 11 insertion is **forward-only hardening**: no past
+PASS verdict retroactively flips to BLOCK. The source proposal
+(`c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`,
+§5) lists the following past PASS verdicts that *may* degrade to
+"PASS with notes" once C11 is applied retroactively for record-keeping:
+
+- `lazurite-rubric-pass-confirmed-2026-05-17.md` (9.02) — C11 estimate ~3.
+  Expected re-graded score ≈ 8.84, **still PASS with notes** (C11=3
+  is above the 6-block floor and below the 7-floor → tracked cut).
+- `naming-reconciliation-2026-05-17.md` (8.9) — n/a (doesn't touch errors).
+  Re-weight alone drops it ≈ 0.1.
+- `ai-primitives-v0` (second pass, 8.8) — n/a. Re-weight ≈ unchanged.
+- `bucket-i18n-cycle` (graded internally) — C11 estimate ~6. Likely
+  PASS with notes.
+
+**TODO** — Lucas / architect: decide whether to (a) re-grade the
+listed proposals against the new rubric and update their score
+tables in-place, (b) annotate them with a "graded against pre-C11
+rubric" stamp, or (c) leave them as historical records and only
+apply C11 to net-new grades from 2026-05-18 forward. Option (c) is
+the default per the "forward-only hardening" rule above; (a) and (b)
+are opt-in audit-trail work.

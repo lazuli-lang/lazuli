@@ -102,6 +102,7 @@ mod tests {
                 },
             },
             policy: PolicyRef::Atom("@policy.read".to_owned()),
+            policy_when_denied: None,
             payload: payload.to_owned(),
             span_ref: None,
         }
@@ -172,6 +173,7 @@ mod tests {
             events: vec![],
             rules: vec![],
             policies: Policies::default(),
+            errors: None,
             commands: vec![],
             apis: vec![],
             records,
