@@ -69,6 +69,20 @@ const KNOWN_PREFIXES: &[&str] = &[
 /// shape uses `DEFAULT` for the unscoped utility.
 const BARE_CLASS_DEFAULTS: &[(&str, &str)] = &[("rounded", "rounded"), ("shadow", "shadow")];
 
+/// Tailwind prefixes whose `<prefix>-<suffix>` form is ambiguous across
+/// multiple allowlist buckets. The `text-` prefix has dual meaning:
+/// `text-<color>` (color bucket: `text`) and `text-<size>` (typography
+/// scale bucket: `text-size`). Looking up only the first bucket would
+/// false-fire on every typography-scale class. `match_prefix` resolves
+/// the bucket key — `extra_buckets_for(bucket_key)` enumerates the
+/// additional buckets the rule must also probe before flagging.
+fn extra_buckets_for(bucket_key: &str) -> &'static [&'static str] {
+    match bucket_key {
+        "text" => &["text-size"],
+        _ => &[],
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub path: PathBuf,
@@ -136,10 +150,24 @@ pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Fin
                     suffix
                 };
                 let bucket_key = prefix.trim_end_matches('-');
-                if !allowlist.knows_prefix(bucket_key) {
+                // Candidate buckets: the primary one parsed from the prefix,
+                // plus any ambiguous-overload buckets (e.g. `text-` → also
+                // probe `text-size` for the typography scale). The class is
+                // allowed when ANY candidate bucket contains the suffix; the
+                // diagnostic fires only when NONE do.
+                let candidate_buckets: Vec<&str> = std::iter::once(bucket_key)
+                    .chain(extra_buckets_for(bucket_key).iter().copied())
+                    .collect();
+                // Suppress the rule entirely when none of the candidate
+                // buckets are known — these prefixes aren't design-token
+                // bound in this project.
+                if !candidate_buckets.iter().any(|b| allowlist.knows_prefix(b)) {
                     continue;
                 }
-                if allowlist.contains(bucket_key, lookup_suffix) {
+                if candidate_buckets
+                    .iter()
+                    .any(|b| allowlist.contains(b, lookup_suffix))
+                {
                     continue;
                 }
                 if is_allowed_by_escape_comment(lines, idx0, Finding::CODE) {
@@ -288,6 +316,80 @@ mod tests {
         let allowlist = al(&[("bg", &["primary"])]);
         let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
         assert!(f.is_empty());
+    }
+
+    // ── BB.4 — `text-` prefix ambiguity (color vs typography scale) ───────────
+    //
+    // The `text-` prefix has dual meaning in Tailwind: `text-<color>` (color
+    // bucket) and `text-<size>` (typography scale bucket). The doctor probes
+    // BOTH the `text` bucket (color) and the `text-size` bucket (scale); the
+    // diagnostic fires only when NEITHER contains the suffix.
+
+    #[test]
+    fn text_size_class_resolves_via_scale_bucket() {
+        // `text-xs` with the scale bucket containing `xs` → no diagnostic,
+        // even when the color bucket has no `xs` entry.
+        let lines = vec![r#"<div className="text-xs" />"#];
+        let allowlist = al(&[
+            ("text", &["primary", "foreground"]),
+            ("text-size", &["xs", "sm", "base", "lg", "2xl"]),
+        ]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "text-xs should resolve via text-size; found: {:?}", f);
+    }
+
+    #[test]
+    fn text_color_class_resolves_via_color_bucket() {
+        // `text-primary` with the color bucket containing `primary` → no
+        // diagnostic, even when the scale bucket has no `primary` entry.
+        let lines = vec![r#"<div className="text-primary" />"#];
+        let allowlist = al(&[
+            ("text", &["primary", "foreground"]),
+            ("text-size", &["xs", "base"]),
+        ]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "text-primary should resolve via text; found: {:?}", f);
+    }
+
+    #[test]
+    fn text_class_fires_when_in_neither_bucket() {
+        // `text-asdf` not in either bucket → diagnostic fires.
+        let lines = vec![r#"<div className="text-asdf" />"#];
+        let allowlist = al(&[
+            ("text", &["primary"]),
+            ("text-size", &["xs", "base"]),
+        ]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].prefix, "text");
+        assert_eq!(f[0].suffix, "asdf");
+    }
+
+    #[test]
+    fn text_class_resolves_when_in_only_color_bucket() {
+        // Scale bucket missing entirely → fall back to color bucket only.
+        let lines = vec![r#"<div className="text-primary" />"#];
+        let allowlist = al(&[("text", &["primary"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "found: {:?}", f);
+    }
+
+    #[test]
+    fn text_class_resolves_when_in_only_scale_bucket() {
+        // Color bucket missing entirely → fall back to scale bucket only.
+        let lines = vec![r#"<div className="text-base" />"#];
+        let allowlist = al(&[("text-size", &["xs", "base", "lg"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "found: {:?}", f);
+    }
+
+    #[test]
+    fn regression_existing_color_class_still_works() {
+        // Non-`text-` prefix path must not regress under the bucket fan-out.
+        let lines = vec![r#"<div className="bg-primary" />"#];
+        let allowlist = al(&[("bg", &["primary", "success"])]);
+        let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
+        assert!(f.is_empty(), "bg-primary regression; found: {:?}", f);
     }
 
     #[test]
