@@ -33,6 +33,7 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "useLazuliQuery",
   "useLazuliCommand",
   "evaluatePolicy",
+  "withTanStackGuard",
   "RouteGuard",
   "useActor",
   // Universal view-helper hooks

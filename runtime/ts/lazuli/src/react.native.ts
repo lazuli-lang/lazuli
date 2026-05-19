@@ -47,9 +47,11 @@ export { useLocalSetting } from "./local-setting.native.js";
 export { useDrawerSubView } from "./drawer-sub-view.native.js";
 export {
   evaluatePolicy,
+  withTanStackGuard,
   type LazuliActor,
   type LazuliRouteGuardPolicy,
   type RouteGuardVerdict,
+  type WithTanStackGuardOptions,
 } from "./route-guard.js";
 export { RouteGuard, type RouteGuardProps } from "./route-guard-component.js";
 export { useActor, useLazuliClient, type UseActorResult } from "./use-actor.js";

@@ -144,6 +144,25 @@ export declare function evaluatePolicy(
   policy: LazuliRouteGuardPolicy,
 ): RouteGuardVerdict;
 
+export type WithTanStackGuardOptions = {
+  readonly onUnauthenticated?: string | null;
+  readonly onUnauthorized?: string | null;
+  readonly redirect: (params: { to: string }) => unknown;
+};
+
+/**
+ * TanStack Router beforeLoad guard. Caller passes the `redirect` import
+ * from `@tanstack/react-router` so `@lazuli/runtime/react` itself does
+ * NOT take a hard dependency on the router (consumers without TanStack
+ * don't pay the bundle cost). The router context must carry the
+ * LazuliClient on `context.client`.
+ */
+export declare function withTanStackGuard<TContext extends { client: LazuliClient }>(
+  phantomContext: Partial<TContext>,
+  policy: LazuliRouteGuardPolicy,
+  options: WithTanStackGuardOptions,
+): (params: { context: TContext }) => Promise<void>;
+
 export declare function useActor(): UseActorResult;
 
 export interface RouteGuardProps {
