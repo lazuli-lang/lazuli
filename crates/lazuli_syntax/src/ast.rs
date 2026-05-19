@@ -1542,6 +1542,14 @@ pub struct LookupQueryDecl {
     /// `by <field>: <Type>` keys. Authored on the same line as the
     /// header in the fixture (`query.lookup by_id by id: ID`).
     pub keys: Vec<LookupKey>,
+    /// `filters` block — verbatim lines (`field = ctx.actor.X` form),
+    /// same shape as ListQueryDecl.filters. Lowered into
+    /// `ir::LookupQuery.filters` by the analyzer; codegen merges them
+    /// with `keys` into `LookupBy` so a ctx-keyed lookup (e.g.
+    /// `my_host` filtered by `user_id = ctx.actor.user_id`) round-trips
+    /// through the runtime's RunLookup mechanism.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<String>,
     pub span: Span,
 }
 

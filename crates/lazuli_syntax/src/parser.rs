@@ -9177,8 +9177,6 @@ fn parse_query_lookup_decl(
             })
             .collect()
     };
-    let _ = filters; // captured for future doctor cross-check; not yet
-    // promoted to IR predicate.
     Ok((
         QueryDecl::Lookup(LookupQueryDecl {
             name,
@@ -9186,6 +9184,7 @@ fn parse_query_lookup_decl(
             policy,
             policy_expr,
             keys,
+            filters,
             span: Span::new(header.start, last_end),
         }),
         i,

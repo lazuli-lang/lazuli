@@ -2414,7 +2414,7 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
                 .collect(),
             scope: Vec::new(),
             scope_override: false,
-            filters: Vec::new(),
+            filters: lower_query_filter_lines(&lookup.filters),
             // QUERY-POLICY-001 — same lowering as `query.list`.
             policy: lookup
                 .policy

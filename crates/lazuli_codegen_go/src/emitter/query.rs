@@ -248,10 +248,7 @@ fn emit_lookup_query(
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.lookup", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
-    if !query.filters.is_empty() {
-        p.line("// TODO(runtime): LookupQuery.filters are not applied by Lazuli Go RunLookup yet.");
-    }
-    emit_lookup_by(p, feature, resource, &query.keys);
+    emit_lookup_by_with_filters(p, feature, resource, &query.keys, &query.filters);
     p.dedent();
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
@@ -559,27 +556,43 @@ fn emit_order(
     p.line("},");
 }
 
-fn emit_lookup_by(
+/// Emits `LookupBy: [...]` merging the canonical `by ... = ...` keys
+/// with each `filters` entry (which the LookupQuery shape parses but
+/// the runtime can only consume through LookupBy). Filters are
+/// rendered the same way `query.list` does — including the owned-via
+/// FK lift — so a `query.lookup` filtered by `<FK>_id = ctx.actor.user_id`
+/// stays consistent with its list-sibling.
+fn emit_lookup_by_with_filters(
     p: &mut GoPrinter,
     feature: &Feature,
     resource: Option<&Resource>,
     keys: &[KeyClause],
+    filters: &[Filter],
 ) {
-    if keys.is_empty() {
-        return;
-    }
-    p.line("LookupBy: []lazuli.LookupKey{");
-    p.indent();
+    let mut entries: Vec<(String, String)> = Vec::with_capacity(keys.len() + filters.len());
     for key in keys {
         let column = normalize_resource_column(
             feature,
             resource,
             &column_from_segments(&key.path.segments),
         );
-        let source = format_source_expr(&key.equals);
+        entries.push((column, format_source_expr(&key.equals)));
+    }
+    for filter in filters {
+        match filter_rule(filter, feature, resource) {
+            Ok(pair) => entries.push(pair),
+            Err(message) => p.line(&format!("// TODO(ir): {message}")),
+        }
+    }
+    if entries.is_empty() {
+        return;
+    }
+    p.line("LookupBy: []lazuli.LookupKey{");
+    p.indent();
+    for (column, source) in &entries {
         p.line(&format!(
             "{{Column: \"{}\", Source: {source}}},",
-            escape_string(&column)
+            escape_string(column)
         ));
     }
     p.dedent();
