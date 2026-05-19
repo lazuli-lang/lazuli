@@ -10,7 +10,11 @@ app AcmeCRM
     default "pt-BR"
     supported "pt-BR", "en-US"
     fallback "en-US" -> "pt-BR"
+  actor_query "customer.query.by_id"
   auth_failed_redirect public_login
+  route_guard
+    on_unauthenticated redirect "/login"
+    on_unauthorized redirect "/not-found"
   not_found public_not_found
 
   uses

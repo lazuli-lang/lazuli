@@ -334,6 +334,22 @@ pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModul
 }
 
 fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
+    let route_guard = app
+        .route_guard
+        .as_ref()
+        .map(lower_route_guard_defaults)
+        .or_else(|| {
+            app.auth_failed_redirect
+                .as_ref()
+                .map(|redirect| ir::RouteGuardDefaults {
+                    default_policy: None,
+                    on_unauthenticated: Some(redirect.clone()),
+                    on_unauthorized: None,
+                    skeleton: None,
+                    span_ref: Some(span_of(app.span)),
+                })
+        });
+
     ir::AppManifest {
         name: app.name.clone(),
         title: app.title.clone(),
@@ -377,8 +393,8 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         proxy: None,
         limits: None,
         // ir-route-guards Cell IR-1 — slots wired by Cell PARSE-1.
-        route_guard: None,
-        actor_query: None,
+        route_guard,
+        actor_query: app.actor_query.clone(),
         span_ref: Some(span_of(app.span)),
     }
 }
@@ -394,7 +410,7 @@ fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
         lazy: route.lazy,
         prerender: route.prerender.clone(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: None,
+        guard: route.guard.as_ref().map(lower_view_guard),
         span_ref: Some(span_of(route.span)),
     }
 }
@@ -426,7 +442,7 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
         opens: view.opens.clone(),
         tests: view.tests.clone(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: None,
+        guard: view.guard.as_ref().map(lower_view_guard),
         span_ref: Some(span_of(view.span)),
     }
 }
@@ -489,7 +505,7 @@ fn lower_audience_surface(audience: &syntax::LzxAudience) -> ir::AudienceSurface
         qualifiers: audience.qualifiers.clone(),
         views: audience.views.iter().map(lower_platform_view).collect(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: None,
+        guard: audience.guard.as_ref().map(lower_view_guard),
         span_ref: Some(span_of(audience.span)),
     }
 }
@@ -508,8 +524,27 @@ fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
         submit: view.submit.clone(),
         blocks: view.blocks.clone(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: None,
+        guard: view.guard.as_ref().map(lower_view_guard),
         span_ref: Some(span_of(view.span)),
+    }
+}
+
+fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
+    ir::ViewGuard {
+        policy: guard.policy.clone(),
+        on_unauthenticated: guard.on_unauthenticated.clone(),
+        on_unauthorized: guard.on_unauthorized.clone(),
+        span_ref: Some(span_of(guard.span)),
+    }
+}
+
+fn lower_route_guard_defaults(defaults: &syntax::LzxRouteGuardDefaults) -> ir::RouteGuardDefaults {
+    ir::RouteGuardDefaults {
+        default_policy: defaults.default_policy.clone(),
+        on_unauthenticated: defaults.on_unauthenticated.clone(),
+        on_unauthorized: defaults.on_unauthorized.clone(),
+        skeleton: defaults.skeleton.clone(),
+        span_ref: Some(span_of(defaults.span)),
     }
 }
 
@@ -5914,6 +5949,112 @@ experience customer_tags
                 .map(|order| (order.relation.as_str(), order.target.as_str())),
             Some(("after", "activity_timeline"))
         );
+    }
+
+    #[test]
+    fn lowers_lzx_route_guards_to_ir_with_spans() {
+        let source = r#"
+app AcmeCRM
+  actor_query "account.query.me"
+  route_guard
+    default_policy @scope.authenticated
+    on_unauthenticated redirect "/sign-in"
+    on_unauthorized redirect "/403"
+    skeleton @client.route_guard_skeleton
+
+route admin_home
+  path "/admin"
+  to customer.view.list
+  surface customer web
+  audience admin
+  policy @policy.admin_only
+    on_unauthenticated redirect "/sign-in"
+
+experience customer
+  view list
+    policy @policy.admin_only
+      on_unauthorized redirect "/"
+    source customer.query.list
+
+surface customer web
+  uses experience customer
+
+  audience admin
+    policy @policy.admin_only
+      on_unauthenticated redirect "/sign-in"
+    view list Table
+      policy @policy.admin_only
+        on_unauthorized redirect "/"
+      columns name
+"#;
+
+        let document = parse_lzx_document(source).unwrap();
+        let module = lower_lzx_document(&document);
+        let app = module.app.as_ref().unwrap();
+        let defaults = app.route_guard.as_ref().unwrap();
+
+        assert_eq!(app.actor_query.as_deref(), Some("account.query.me"));
+        assert_eq!(
+            defaults.default_policy.as_deref(),
+            Some("@scope.authenticated")
+        );
+        assert_eq!(defaults.on_unauthenticated.as_deref(), Some("/sign-in"));
+        assert_eq!(defaults.on_unauthorized.as_deref(), Some("/403"));
+        assert_eq!(
+            defaults.skeleton.as_deref(),
+            Some("@client.route_guard_skeleton")
+        );
+        assert!(defaults.span_ref.is_some());
+
+        let route_guard = module.routes[0].guard.as_ref().unwrap();
+        assert_eq!(route_guard.policy, "@policy.admin_only");
+        assert_eq!(
+            route_guard.on_unauthenticated.as_deref(),
+            Some("/sign-in")
+        );
+        assert!(route_guard.span_ref.is_some());
+
+        let view_guard = module.experiences[0].views[0].guard.as_ref().unwrap();
+        assert_eq!(view_guard.policy, "@policy.admin_only");
+        assert_eq!(view_guard.on_unauthorized.as_deref(), Some("/"));
+        assert!(view_guard.span_ref.is_some());
+
+        let audience_guard = module.surfaces[0].audiences[0].guard.as_ref().unwrap();
+        assert_eq!(
+            audience_guard.on_unauthenticated.as_deref(),
+            Some("/sign-in")
+        );
+        assert!(audience_guard.span_ref.is_some());
+
+        let platform_guard = module.surfaces[0].audiences[0].views[0]
+            .guard
+            .as_ref()
+            .unwrap();
+        assert_eq!(platform_guard.on_unauthorized.as_deref(), Some("/"));
+        assert!(platform_guard.span_ref.is_some());
+    }
+
+    #[test]
+    fn full_capsule_lzx_route_guards_ir_json_round_trip_is_byte_identical() {
+        let source = include_str!("../../../examples/full-capsule/full-capsule.lzx");
+        let document = parse_lzx_document(source).unwrap();
+        let module = lower_lzx_document(&document);
+        let guard = module
+            .experiences
+            .iter()
+            .find(|experience| experience.name == "customer_auth")
+            .and_then(|experience| experience.views.iter().find(|view| view.name == "enable_mfa"))
+            .and_then(|view| view.guard.as_ref())
+            .expect("full-capsule enable_mfa guard");
+
+        assert_eq!(guard.policy, "@policy.update");
+        assert_eq!(guard.on_unauthenticated.as_deref(), Some("/sign-in"));
+
+        let first = serde_json::to_string_pretty(&module).unwrap();
+        let decoded: ir::ExperienceModule = serde_json::from_str(&first).unwrap();
+        let second = serde_json::to_string_pretty(&decoded).unwrap();
+
+        assert_eq!(first, second);
     }
 
     #[test]

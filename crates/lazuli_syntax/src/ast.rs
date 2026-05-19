@@ -89,9 +89,28 @@ pub struct LzxApp {
     pub default_locale: Option<String>,
     pub default_timezone: Option<String>,
     pub auth_failed_redirect: Option<String>,
+    pub route_guard: Option<LzxRouteGuardDefaults>,
+    pub actor_query: Option<String>,
     pub not_found: Option<String>,
     pub error_pages: Vec<LzxErrorPage>,
     pub uses: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxRouteGuardDefaults {
+    pub default_policy: Option<String>,
+    pub on_unauthenticated: Option<String>,
+    pub on_unauthorized: Option<String>,
+    pub skeleton: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxViewGuard {
+    pub policy: String,
+    pub on_unauthenticated: Option<String>,
+    pub on_unauthorized: Option<String>,
     pub span: Span,
 }
 
@@ -113,6 +132,7 @@ pub struct LzxRoute {
     pub audience: Option<String>,
     pub lazy: Option<bool>,
     pub prerender: Option<String>,
+    pub guard: Option<LzxViewGuard>,
     pub span: Span,
 }
 
@@ -137,6 +157,7 @@ pub struct LzxExperienceView {
     pub actions: Vec<LzxAction>,
     pub opens: Vec<String>,
     pub tests: Vec<String>,
+    pub guard: Option<LzxViewGuard>,
     pub span: Span,
 }
 
@@ -192,6 +213,7 @@ pub struct LzxAudience {
     pub name: String,
     pub qualifiers: Vec<String>,
     pub views: Vec<LzxPlatformView>,
+    pub guard: Option<LzxViewGuard>,
     pub span: Span,
 }
 
@@ -208,6 +230,7 @@ pub struct LzxPlatformView {
     pub actions: Vec<String>,
     pub submit: Option<String>,
     pub blocks: Vec<String>,
+    pub guard: Option<LzxViewGuard>,
     pub span: Span,
 }
 

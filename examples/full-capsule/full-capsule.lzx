@@ -93,6 +93,8 @@ experience customer_auth
     submit customer_auth.command.login
 
   view enable_mfa
+    policy @policy.update
+      on_unauthenticated redirect "/sign-in"
     submit customer_auth.command.enable_mfa
 
 experience customer_tags

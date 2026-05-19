@@ -8,9 +8,9 @@ use lazuli_ir::{
     ContractImport, ContractOperation, ContractOperationError, ContractRecord, CookieProfile,
     DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource,
     EncryptionTemplate, ErrorPage, FeatureRequirement, LocaleFallback, LocaleNegotiate,
-    QualifiedName, RegistryToolEntry, SecretRotation, ToolEffect, WebhookEvent, WebhookEventField,
-    WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
-    WorkspaceGatewayRoute,
+    QualifiedName, RegistryToolEntry, RouteGuardDefaults, SecretRotation, SpanRef, ToolEffect,
+    WebhookEvent, WebhookEventField, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication,
+    WorkspaceGateway, WorkspaceGatewayRoute,
 };
 
 /// Side-channel captured during registry parsing for entries that exist
@@ -323,6 +323,7 @@ pub fn parse_app_workspace(source: &str) -> Option<AppWorkspace> {
 
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let lines: Vec<_> = source.lines().collect();
+    let line_starts = line_start_offsets(source);
     let start = lines
         .iter()
         .position(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("app "))?;
@@ -394,7 +395,7 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     // populate it.
     let mut current_cookie_profile: Option<usize> = None;
 
-    for line in lines.iter().skip(start + 1) {
+    for (line_index, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
@@ -432,6 +433,18 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     current_child = None;
                 } else if let Some(rest) = trimmed.strip_prefix("auth_failed_redirect ") {
                     app.auth_failed_redirect = Some(rest.trim().to_owned());
+                    current_child = None;
+                } else if trimmed == "route_guard" {
+                    app.route_guard = Some(RouteGuardDefaults {
+                        default_policy: None,
+                        on_unauthenticated: None,
+                        on_unauthorized: None,
+                        skeleton: None,
+                        span_ref: Some(line_span_ref(&line_starts, line_index, line)),
+                    });
+                    current_child = Some("route_guard");
+                } else if let Some(rest) = trimmed.strip_prefix("actor_query ") {
+                    app.actor_query = Some(unquote(rest.trim()).to_owned());
                     current_child = None;
                 } else if let Some(rest) = trimmed.strip_prefix("not_found ") {
                     app.not_found = Some(rest.trim().to_owned());
@@ -481,6 +494,28 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                         } else if let Some(rest) = trimmed.strip_prefix("audience ") {
                             page.audience = Some(rest.trim().to_owned());
                         }
+                    }
+                }
+                Some("route_guard") => {
+                    let route_guard = app.route_guard.get_or_insert(RouteGuardDefaults {
+                        default_policy: None,
+                        on_unauthenticated: None,
+                        on_unauthorized: None,
+                        skeleton: None,
+                        span_ref: Some(line_span_ref(&line_starts, line_index, line)),
+                    });
+                    if let Some(rest) = trimmed.strip_prefix("default_policy ") {
+                        route_guard.default_policy = Some(rest.trim().to_owned());
+                    } else if let Some(rest) = trimmed.strip_prefix("on_unauthenticated ") {
+                        if let Some(target) = parse_route_guard_redirect(rest.trim()) {
+                            route_guard.on_unauthenticated = Some(target);
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("on_unauthorized ") {
+                        if let Some(target) = parse_route_guard_redirect(rest.trim()) {
+                            route_guard.on_unauthorized = Some(target);
+                        }
+                    } else if let Some(rest) = trimmed.strip_prefix("skeleton ") {
+                        route_guard.skeleton = Some(rest.trim().to_owned());
                     }
                 }
                 Some("targets") => app.targets.push(trimmed.to_owned()),
@@ -1059,6 +1094,18 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                 }
             }
             _ => {}
+        }
+    }
+
+    if app.route_guard.is_none() {
+        if let Some(redirect) = app.auth_failed_redirect.clone() {
+            app.route_guard = Some(RouteGuardDefaults {
+                default_policy: None,
+                on_unauthenticated: Some(redirect),
+                on_unauthorized: None,
+                skeleton: None,
+                span_ref: Some(line_span_ref(&line_starts, start, lines[start])),
+            });
         }
     }
 
@@ -1840,6 +1887,7 @@ fn app_child(trimmed: &str) -> Option<&'static str> {
         "cookie" => Some("cookie"),
         "proxy" => Some("proxy"),
         "limits" => Some("limits"),
+        "route_guard" => Some("route_guard"),
         _ => None,
     }
 }
@@ -2281,11 +2329,34 @@ fn integration_source_name(source: &str) -> Option<&str> {
         .or_else(|| source.strip_prefix("registry.integrations."))
 }
 
+fn parse_route_guard_redirect(value: &str) -> Option<String> {
+    let target = value.strip_prefix("redirect ")?.trim();
+    Some(unquote(target).to_owned())
+}
+
 fn unquote(value: &str) -> &str {
     value
         .strip_prefix('"')
         .and_then(|value| value.strip_suffix('"'))
         .unwrap_or(value)
+}
+
+fn line_start_offsets(source: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    for (index, byte) in source.bytes().enumerate() {
+        if byte == b'\n' {
+            starts.push(index + 1);
+        }
+    }
+    starts
+}
+
+fn line_span_ref(line_starts: &[usize], line_index: usize, line: &str) -> SpanRef {
+    let start = line_starts.get(line_index).copied().unwrap_or_default();
+    SpanRef {
+        start,
+        end: start + line.len(),
+    }
 }
 
 fn leading_spaces(line: &str) -> usize {
@@ -2433,6 +2504,52 @@ app AcmeCRM
                 .and_then(|deploy| deploy.rollback.as_deref()),
             Some("on_failed_healthcheck")
         );
+    }
+
+    #[test]
+    fn parses_app_route_guard_and_actor_query() {
+        let source = r#"
+app AcmeCRM
+  actor_query "account.query.me"
+  route_guard
+    default_policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+    on_unauthorized redirect "/403"
+    skeleton @client.route_guard_skeleton
+"#;
+
+        let manifest = parse_app_manifest(source).unwrap();
+        let route_guard = manifest.route_guard.as_ref().expect("route_guard");
+
+        assert_eq!(manifest.actor_query.as_deref(), Some("account.query.me"));
+        assert_eq!(
+            route_guard.default_policy.as_deref(),
+            Some("@policy.authenticated")
+        );
+        assert_eq!(route_guard.on_unauthenticated.as_deref(), Some("/sign-in"));
+        assert_eq!(route_guard.on_unauthorized.as_deref(), Some("/403"));
+        assert_eq!(
+            route_guard.skeleton.as_deref(),
+            Some("@client.route_guard_skeleton")
+        );
+        assert!(route_guard.span_ref.is_some());
+    }
+
+    #[test]
+    fn auth_failed_redirect_lowers_to_route_guard_when_absent() {
+        let source = r#"
+app AcmeCRM
+  auth_failed_redirect public_login
+"#;
+
+        let manifest = parse_app_manifest(source).unwrap();
+        let route_guard = manifest.route_guard.as_ref().expect("route_guard");
+
+        assert_eq!(
+            route_guard.on_unauthenticated.as_deref(),
+            Some("public_login")
+        );
+        assert!(route_guard.span_ref.is_some());
     }
 
     #[test]
