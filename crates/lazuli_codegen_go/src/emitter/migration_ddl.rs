@@ -278,7 +278,8 @@ fn resource_columns<'a>(
         columns.push(SqlColumn::raw("id BIGSERIAL PRIMARY KEY"));
     }
 
-    if matches!(effective_tenancy(feature, resource), Tenancy::Org) {
+    let tenancy = effective_tenancy(feature, resource);
+    if matches!(tenancy, Tenancy::Org) {
         columns.push(SqlColumn::typed("org_id", "BIGINT", true));
     }
 
@@ -361,6 +362,7 @@ fn resource_columns<'a>(
         columns.push(SqlColumn::typed("deleted_at", "TIMESTAMPTZ", false));
     }
 
+    columns.extend(inline_unique_constraint_sql(resource, &tenancy));
     columns.extend(
         resource
             .constraints
@@ -628,15 +630,38 @@ fn unique_constraint_sql(constraint: &Constraint) -> Option<SqlColumn> {
     let Constraint::Unique(unique) = constraint else {
         return None;
     };
-    if unique.fields.is_empty() {
+
+    unique_fields_sql(
+        unique.fields.iter().map(String::as_str),
+        unique.per.as_deref(),
+    )
+}
+
+fn inline_unique_constraint_sql(resource: &Resource, tenancy: &Tenancy) -> Vec<SqlColumn> {
+    let per = if matches!(tenancy, Tenancy::Org) {
+        Some("Org")
+    } else {
+        None
+    };
+    resource
+        .fields
+        .iter()
+        .filter(|field| field.unique)
+        .filter_map(|field| unique_fields_sql(std::iter::once(field.name.as_str()), per))
+        .collect()
+}
+
+fn unique_fields_sql<'a>(
+    fields: impl IntoIterator<Item = &'a str>,
+    per: Option<&str>,
+) -> Option<SqlColumn> {
+    let mut fields: Vec<String> = fields.into_iter().map(sql_ident).collect();
+    if fields.is_empty() {
         return None;
     }
-
-    let mut fields: Vec<String> = unique.fields.iter().map(|field| sql_ident(field)).collect();
-    if let Some(per) = unique.per.as_deref() {
+    if let Some(per) = per {
         fields.push(sql_ident(&format!("{}_id", lower_snake(per))));
     }
-
     Some(SqlColumn::raw(&format!("UNIQUE ({})", fields.join(", "))))
 }
 
@@ -987,6 +1012,18 @@ mod tests {
         }
     }
 
+    fn parsed_module(source: &str) -> Module {
+        let features = lazuli_syntax::parse_feature_skeletons(source)
+            .expect("feature source should parse")
+            .into_iter()
+            .map(|feature| {
+                lazuli_analyzer::lower_feature_skeleton(&feature)
+                    .expect("feature source should lower")
+            })
+            .collect();
+        base_module(features)
+    }
+
     fn base_feature(name: &str) -> Feature {
         Feature {
             name: name.to_owned(),
@@ -1307,6 +1344,63 @@ DROP TABLE IF EXISTS \"customer\";
 
         assert!(sql.contains("UNIQUE (email, org_id),"));
         assert!(sql.contains("UNIQUE (external_id)"));
+    }
+
+    #[test]
+    fn inline_unique_field_on_org_tenancy_emits_composite_unique() {
+        let module = parsed_module(
+            r#"feature account
+  defaults
+    tenancy org
+
+  domain
+    resource User
+      email: @semantic.Email required unique
+      name: Text required
+"#,
+        );
+        assert!(module.features[0].resources[0].fields[0].unique);
+
+        let files = emit_migrations(&module, "hostpoint");
+        let sql = files
+            .iter()
+            .find(|file| file.path == "migrations/001_account_user.sql")
+            .map(|file| file.contents.as_str())
+            .expect("expected account user migration");
+
+        assert!(
+            sql.contains("UNIQUE (email, org_id)"),
+            "TenancyOrg inline unique field should be org-scoped:\n{sql}"
+        );
+    }
+
+    #[test]
+    fn inline_unique_field_on_non_tenant_resource_emits_plain_unique() {
+        let module = parsed_module(
+            r#"feature account
+  domain
+    resource User
+      email: @semantic.Email required unique
+      name: Text required
+"#,
+        );
+        assert!(module.features[0].resources[0].fields[0].unique);
+
+        let files = emit_migrations(&module, "hostpoint");
+        let sql = files
+            .iter()
+            .find(|file| file.path == "migrations/001_account_user.sql")
+            .map(|file| file.contents.as_str())
+            .expect("expected account user migration");
+
+        assert!(
+            sql.contains("UNIQUE (email)"),
+            "non-tenant inline unique field should be global:\n{sql}"
+        );
+        assert!(
+            !sql.contains("UNIQUE (email, org_id)"),
+            "non-tenant inline unique field must not include org_id:\n{sql}"
+        );
     }
 
     #[test]
