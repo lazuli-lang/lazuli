@@ -1665,9 +1665,49 @@ pub struct AuthSessions {
     pub resource: String,
     /// `ttl "7 days"` — duration string parsed by the adapter.
     pub ttl: String,
-    /// `refresh true|false` — whether refresh tokens are issued.
+    /// `refresh true|false` — legacy placeholder retained for back-compat.
+    /// When omitted, lowering treats it as `false`.
     pub refresh: bool,
+    /// `access_ttl "15 minutes"` — optional short-lived access-token TTL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_ttl: Option<AuthDurationClause>,
+    /// `rotation` nested block. Presence enables refresh-token rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<AuthSessionRotation>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthDurationClause {
+    pub value: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthSessionRotation {
+    /// `refresh_ttl "30 days"` — optional; IR defaults when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_ttl: Option<AuthDurationClause>,
+    /// `grace "30 seconds"` — optional; IR defaults when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grace: Option<AuthDurationClause>,
+    /// `theft_detection_action <verb>` — optional closed catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theft_detection_action: Option<AuthTheftDetectionActionClause>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthTheftDetectionActionClause {
+    pub action: AuthTheftDetectionAction,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthTheftDetectionAction {
+    RevokeSessionFamily,
+    RevokeUser,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

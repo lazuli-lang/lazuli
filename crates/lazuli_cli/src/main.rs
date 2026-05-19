@@ -3596,6 +3596,26 @@ fn collect_package_lzi_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+fn read_package_lzi_source(dir: &Path) -> Result<String> {
+    let mut files = Vec::new();
+    collect_package_lzi_files(dir, &mut files)?;
+    files.sort();
+    if files.is_empty() {
+        bail!("{} contains no `.lzi` files to inspect", dir.display());
+    }
+
+    let mut source = String::new();
+    for path in files {
+        if !source.is_empty() {
+            source.push_str("\n\n");
+        }
+        source.push_str(
+            &fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+        );
+    }
+    Ok(source)
+}
+
 /// Build a `lazuli_ir::Module` from a `.lzi` file or directory by
 /// walking every `.lzi` file in the canonical fixture and lowering its
 /// `feature` blocks through the canonical-indent slice (Phase L Tier
@@ -4036,16 +4056,31 @@ fn check_command(
         version::enforce_manifest_pin(manifest.as_ref())?;
     }
 
-    let source =
-        fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
-    let diagnostics =
-        lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile.into());
-    let has_error = diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
+    let inputs = if input.is_dir() {
+        let mut files = Vec::new();
+        collect_package_lzi_files(input, &mut files)?;
+        files.sort();
+        files
+    } else {
+        vec![input.to_path_buf()]
+    };
+    if inputs.is_empty() {
+        bail!("{} contains no `.lzi` files to check", input.display());
+    }
 
-    for diagnostic in &diagnostics {
-        print_diagnostic(input, diagnostic);
+    let mut has_error = false;
+    let profile = security_profile.into();
+    for path in &inputs {
+        let source = fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let diagnostics = lazuli_lsp::diagnostics_for_source_with_profile(&source, profile);
+        has_error |= diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
+
+        for diagnostic in &diagnostics {
+            print_diagnostic(path, diagnostic);
+        }
     }
 
     if has_error {
@@ -4126,8 +4161,17 @@ fn inspect_command(
 
     let expansions = parse_expand_set(expand)?;
     let source_path = inspect_source_path(input);
-    let source = fs::read_to_string(&source_path)
-        .with_context(|| format!("failed to read {}", source_path.display()))?;
+    let source = if input.is_dir() && expansions.any() {
+        read_package_lzi_source(input)?
+    } else {
+        fs::read_to_string(&source_path)
+            .with_context(|| format!("failed to read {}", source_path.display()))?
+    };
+    let report_input = if input.is_dir() && expansions.any() {
+        input
+    } else {
+        source_path.as_path()
+    };
 
     match format {
         InspectFormat::Json => {
@@ -4136,8 +4180,7 @@ fn inspect_command(
             // `app/app.lzi`. The manifest lives at the *original*
             // directory; pass both so the plugin alias-map lookup
             // anchors at the right Lazurite.toml.
-            let output =
-                inspect_json_value(&source, &source_path, input, expansions, include)?;
+            let output = inspect_json_value(&source, report_input, input, expansions, include)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         InspectFormat::Lazuli => {
@@ -5802,6 +5845,10 @@ struct InspectAuthSessions {
     resource: String,
     ttl: String,
     refresh: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_ttl: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rotation: Option<lazuli_ir::RotationConfig>,
     origin: InspectOrigin,
 }
 
@@ -7477,6 +7524,8 @@ fn project_auth(feature_name: &str, auth: &lazuli_ir::Auth) -> InspectAuth {
             resource: s.resource.name.clone(),
             ttl: s.ttl.clone(),
             refresh: s.refresh,
+            access_ttl: s.access_ttl.clone(),
+            rotation: s.rotation.clone(),
             origin: origin.clone(),
         }),
         mfa: auth.mfa.as_ref().map(|m| InspectAuthMfa {
