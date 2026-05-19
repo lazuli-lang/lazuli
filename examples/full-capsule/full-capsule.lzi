@@ -609,7 +609,11 @@ feature customer_auth
     sessions
       resource CustomerSession
       ttl "7 days"
-      refresh false
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_session_family
 
   command login
     input

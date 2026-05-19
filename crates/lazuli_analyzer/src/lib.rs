@@ -4981,10 +4981,29 @@ fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
         refresh: sessions.refresh,
         // Populated in S3 when the orchestrator wires resource FieldSpec lookup.
         extra_columns: vec![],
-        // ir-auth-refresh-rotation Cell IR-1: new slots default to None
-        // until Cell PARSE-1 wires the .lzi grammar.
-        access_ttl: None,
-        rotation: None,
+        access_ttl: sessions.access_ttl.as_ref().map(|ttl| ttl.value.clone()),
+        rotation: sessions.rotation.as_ref().map(lower_auth_session_rotation),
+    }
+}
+
+fn lower_auth_session_rotation(rotation: &syntax::AuthSessionRotation) -> ir::RotationConfig {
+    ir::RotationConfig {
+        refresh_ttl: rotation.refresh_ttl.as_ref().map(|ttl| ttl.value.clone()),
+        grace: rotation.grace.as_ref().map(|grace| grace.value.clone()),
+        theft_detection_action: rotation
+            .theft_detection_action
+            .as_ref()
+            .map(|action| lower_auth_theft_action(action.action)),
+        span_ref: Some(span_of(rotation.span)),
+    }
+}
+
+fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::TheftAction {
+    match action {
+        syntax::AuthTheftDetectionAction::RevokeSessionFamily => {
+            ir::TheftAction::RevokeSessionFamily
+        }
+        syntax::AuthTheftDetectionAction::RevokeUser => ir::TheftAction::RevokeUser,
     }
 }
 
@@ -6420,10 +6439,110 @@ feature customer_auth
         assert_eq!(sessions.resource.name, "CustomerSession");
         assert_eq!(sessions.ttl, "7 days");
         assert!(!sessions.refresh);
+        assert!(sessions.access_ttl.is_none());
+        assert!(sessions.rotation.is_none());
 
         assert_eq!(auth.oauth.len(), 1);
         assert_eq!(auth.oauth[0].provider, "google");
         assert_eq!(auth.oauth[0].adapter, "@adapter.google_oauth");
+    }
+
+    #[test]
+    fn lower_auth_sessions_rotation_block_to_ir() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_user
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let sessions = feature
+            .auth
+            .as_ref()
+            .expect("auth lowered")
+            .sessions
+            .as_ref()
+            .expect("sessions lowered");
+
+        assert_eq!(sessions.access_ttl.as_deref(), Some("15 minutes"));
+        let rotation = sessions.rotation.as_ref().expect("rotation lowered");
+        assert_eq!(rotation.refresh_ttl.as_deref(), Some("30 days"));
+        assert_eq!(rotation.grace.as_deref(), Some("30 seconds"));
+        assert_eq!(
+            rotation.theft_detection_action,
+            Some(ir::TheftAction::RevokeUser)
+        );
+        assert!(rotation.span_ref.is_some());
+    }
+
+    #[test]
+    fn lower_auth_sessions_empty_rotation_block_uses_ir_defaults_later() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      rotation
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let sessions = feature
+            .auth
+            .as_ref()
+            .expect("auth lowered")
+            .sessions
+            .as_ref()
+            .expect("sessions lowered");
+
+        let rotation = sessions.rotation.as_ref().expect("rotation lowered");
+        assert!(rotation.refresh_ttl.is_none());
+        assert!(rotation.grace.is_none());
+        assert!(rotation.theft_detection_action.is_none());
+        assert_eq!(sessions.resolved_access_ttl(), "15 minutes");
+        assert_eq!(sessions.resolved_refresh_ttl(), Some("30 days"));
+        assert_eq!(sessions.resolved_rotation_grace(), Some("30 seconds"));
+        assert_eq!(
+            sessions.resolved_theft_action(),
+            Some(ir::TheftAction::RevokeSessionFamily)
+        );
+    }
+
+    #[test]
+    fn lower_auth_sessions_without_legacy_refresh_keeps_rotation_none() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let sessions = feature
+            .auth
+            .as_ref()
+            .expect("auth lowered")
+            .sessions
+            .as_ref()
+            .expect("sessions lowered");
+
+        assert!(!sessions.refresh);
+        assert!(sessions.access_ttl.is_none());
+        assert!(sessions.rotation.is_none());
     }
 
     #[test]
