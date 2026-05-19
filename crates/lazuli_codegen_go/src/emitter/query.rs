@@ -15,7 +15,7 @@
 use lazuli_ir::{
     BuiltinType, CacheTtl, CacheTtlLiteral, CompareOp, Expr, Feature, Filter, Gate, KeyClause,
     ListQuery, LookupQuery, OrderDir, PolicyRef, Predicate, Query, QueryCache, Resource, SqlQuery,
-    TypeRef, TypedSlot,
+    Tenancy, TypeRef, TypedSlot,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -155,8 +155,8 @@ fn emit_list_query(
     if query.modifier.is_some() {
         p.line("// TODO(runtime): ListQuery.modifier is not yet in Lazuli Go lib.");
     }
-    emit_filters(p, &query.filters);
-    emit_order(p, &query.order);
+    emit_filters(p, feature, resource, &query.filters);
+    emit_order(p, feature, resource, &query.order);
     if let Some(page_size) = query.paginate {
         p.line(&format!("Paginate: {page_size},"));
     }
@@ -221,7 +221,7 @@ fn emit_lookup_query(
     if !query.filters.is_empty() {
         p.line("// TODO(runtime): LookupQuery.filters are not applied by Lazuli Go RunLookup yet.");
     }
-    emit_lookup_by(p, &query.keys);
+    emit_lookup_by(p, feature, resource, &query.keys);
     p.dedent();
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
@@ -398,14 +398,19 @@ fn emit_scope_gaps(p: &mut GoPrinter, scope: &[Predicate], scope_override: bool)
     }
 }
 
-fn emit_filters(p: &mut GoPrinter, filters: &[Filter]) {
+fn emit_filters(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    resource: Option<&Resource>,
+    filters: &[Filter],
+) {
     if filters.is_empty() {
         return;
     }
     p.line("Filters: []lazuli.FilterRule{");
     p.indent();
     for filter in filters {
-        match filter_rule(filter) {
+        match filter_rule(filter, feature, resource) {
             Ok((column, source)) => p.line(&format!(
                 "{{Column: \"{}\", When: {source}}},",
                 escape_string(&column)
@@ -417,7 +422,12 @@ fn emit_filters(p: &mut GoPrinter, filters: &[Filter]) {
     p.line("},");
 }
 
-fn emit_order(p: &mut GoPrinter, order: &[lazuli_ir::OrderBy]) {
+fn emit_order(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    resource: Option<&Resource>,
+    order: &[lazuli_ir::OrderBy],
+) {
     if order.is_empty() {
         return;
     }
@@ -425,23 +435,37 @@ fn emit_order(p: &mut GoPrinter, order: &[lazuli_ir::OrderBy]) {
     p.indent();
     for clause in order {
         let desc = matches!(clause.direction, OrderDir::Desc);
+        let column = normalize_resource_column(
+            feature,
+            resource,
+            &column_from_segments(&[clause.field.clone()]),
+        );
         p.line(&format!(
             "{{Column: \"{}\", Desc: {desc}}},",
-            escape_string(&column_from_segments(&[clause.field.clone()]))
+            escape_string(&column)
         ));
     }
     p.dedent();
     p.line("},");
 }
 
-fn emit_lookup_by(p: &mut GoPrinter, keys: &[KeyClause]) {
+fn emit_lookup_by(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    resource: Option<&Resource>,
+    keys: &[KeyClause],
+) {
     if keys.is_empty() {
         return;
     }
     p.line("LookupBy: []lazuli.LookupKey{");
     p.indent();
     for key in keys {
-        let column = column_from_segments(&key.path.segments);
+        let column = normalize_resource_column(
+            feature,
+            resource,
+            &column_from_segments(&key.path.segments),
+        );
         let source = format_source_expr(&key.equals);
         p.line(&format!(
             "{{Column: \"{}\", Source: {source}}},",
@@ -482,7 +506,11 @@ fn emit_cache(p: &mut GoPrinter, cache: &QueryCache) {
     p.line("},");
 }
 
-fn filter_rule(filter: &Filter) -> Result<(String, String), String> {
+fn filter_rule(
+    filter: &Filter,
+    feature: &Feature,
+    resource: Option<&Resource>,
+) -> Result<(String, String), String> {
     let Predicate::Comparison { left, op, right } = &filter.predicate else {
         return Err("FilterRule only supports comparison predicates today.".to_owned());
     };
@@ -490,8 +518,8 @@ fn filter_rule(filter: &Filter) -> Result<(String, String), String> {
         return Err("FilterRule only supports equality predicates today.".to_owned());
     }
 
-    let left_col = column_from_expr(left);
-    let right_col = column_from_expr(right);
+    let left_col = column_from_expr(left, feature, resource);
+    let right_col = column_from_expr(right, feature, resource);
     let column = left_col
         .or(right_col)
         .ok_or_else(|| "filter predicate has no column side.".to_owned())?;
@@ -501,7 +529,7 @@ fn filter_rule(filter: &Filter) -> Result<(String, String), String> {
             input_source_path(&[param.clone()])
         ),
         None => {
-            if column_from_expr(left).is_some() {
+            if column_from_expr(left, feature, resource).is_some() {
                 format_source_expr(right)
             } else {
                 format_source_expr(left)
@@ -571,11 +599,17 @@ fn format_path_source(segments: &[String]) -> String {
     }
 }
 
-fn column_from_expr(expr: &Expr) -> Option<String> {
+fn column_from_expr(
+    expr: &Expr,
+    feature: &Feature,
+    resource: Option<&Resource>,
+) -> Option<String> {
     match expr {
-        Expr::Path(path) if !is_source_path(&path.segments) => {
-            Some(column_from_segments(&path.segments))
-        }
+        Expr::Path(path) if !is_source_path(&path.segments) => Some(normalize_resource_column(
+            feature,
+            resource,
+            &column_from_segments(&path.segments),
+        )),
         _ => None,
     }
 }
@@ -603,6 +637,60 @@ fn column_from_segments(segments: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("_"),
     }
+}
+
+/// Query authors commonly write FK predicates in semantic id form
+/// (`user_id = ctx.actor.user_id`) or path form (`user.id = ...`).
+/// Lazuli's DDL keeps declared FK fields at their authored column
+/// name (`user: User` -> `user`) because `tenancy org` already owns
+/// the implicit `org_id` column. Normalize those semantic query
+/// columns back to the actual resource column when the resource has
+/// a matching FK field, but preserve real columns such as `id` and
+/// tenant `org_id`.
+fn normalize_resource_column(
+    feature: &Feature,
+    resource: Option<&Resource>,
+    column: &str,
+) -> String {
+    let Some(resource) = resource else {
+        return column.to_owned();
+    };
+    if resource_has_column(feature, resource, column) {
+        return column.to_owned();
+    }
+    let Some(stem) = column.strip_suffix("_id") else {
+        return column.to_owned();
+    };
+    if resource
+        .fields
+        .iter()
+        .any(|field| field.name == stem && is_fk_field(field))
+    {
+        return stem.to_owned();
+    }
+    column.to_owned()
+}
+
+fn resource_has_column(feature: &Feature, resource: &Resource, column: &str) -> bool {
+    if column == "id" {
+        return true;
+    }
+    if matches!(effective_tenancy(feature, resource), Tenancy::Org) && column == "org_id" {
+        return true;
+    }
+    resource.fields.iter().any(|field| field.name == column)
+}
+
+fn is_fk_field(field: &lazuli_ir::Field) -> bool {
+    matches!(&field.type_ref, TypeRef::UserDefined(_))
+}
+
+fn effective_tenancy(feature: &Feature, resource: &Resource) -> Tenancy {
+    resource
+        .tenancy
+        .clone()
+        .or_else(|| feature.defaults.tenancy.clone())
+        .unwrap_or(Tenancy::None)
 }
 
 fn input_source_path(segments: &[String]) -> String {
@@ -1219,6 +1307,74 @@ mod tests {
     }
 
     #[test]
+    fn list_query_normalizes_semantic_fk_id_filter_to_declared_fk_column() {
+        let mut feature = base_feature("account");
+        feature.defaults.tenancy = Some(Tenancy::Org);
+        feature.resources.push(resource("Org", Vec::new()));
+        feature.resources.push(resource("User", Vec::new()));
+        feature.resources.push(resource(
+            "UserSession",
+            vec![
+                field("org", TypeRef::UserDefined(qname("Org")), true),
+                field("user", TypeRef::UserDefined(qname("User")), true),
+                field("token_hash", TypeRef::Builtin(BuiltinType::Text), true),
+            ],
+        ));
+        feature.queries.push(Query::List(ListQuery {
+            name: "mine_sessions".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: vec![
+                Filter {
+                    predicate: Predicate::Comparison {
+                        left: Expr::Path(lazuli_ir::Path::from_segments(["org_id"])),
+                        op: CompareOp::Eq,
+                        right: Expr::Path(lazuli_ir::Path::from_segments([
+                            "ctx", "actor", "org_id",
+                        ])),
+                    },
+                    when: None,
+                },
+                Filter {
+                    predicate: Predicate::Comparison {
+                        left: Expr::Path(lazuli_ir::Path::from_segments(["user_id"])),
+                        op: CompareOp::Eq,
+                        right: Expr::Path(lazuli_ir::Path::from_segments([
+                            "ctx", "actor", "user_id",
+                        ])),
+                    },
+                    when: None,
+                },
+            ],
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("{Column: \"org_id\", When: lazuli.FromCtx(\"actor.org_id\")},"),
+            "tenant org_id must stay on the implicit tenancy column:\n{out}"
+        );
+        assert!(
+            out.contains("{Column: \"user\", When: lazuli.FromCtx(\"actor.user_id\")},"),
+            "semantic user_id filter must target the declared FK column:\n{out}"
+        );
+        assert!(
+            !out.contains("{Column: \"user_id\""),
+            "user_id must not leak as a physical column for `user: User`:\n{out}"
+        );
+    }
+
+    #[test]
     fn list_query_args_resolve_unresolved_cross_feature_ref() {
         let mut customer = base_feature("customer");
         customer.resources.push(resource("Customer", Vec::new()));
@@ -1319,6 +1475,49 @@ mod tests {
         assert!(out.contains("var customerByEmail = lazuli.Query[CustomerByEmailArgs, Customer]{"));
         assert!(out.contains("Kind:     lazuli.QueryLookup,"));
         assert!(out.contains("{Column: \"email\", Source: lazuli.FromInput(\"Email\")},"));
+    }
+
+    #[test]
+    fn lookup_query_normalizes_semantic_fk_id_key_to_declared_fk_column() {
+        let mut feature = base_feature("traveler");
+        feature.resources.push(resource("User", Vec::new()));
+        feature.resources.push(resource(
+            "Traveler",
+            vec![
+                field("user", TypeRef::UserDefined(qname("User")), true),
+                field("name", TypeRef::Builtin(BuiltinType::Text), true),
+            ],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "my_traveler".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![KeyClause {
+                path: lazuli_ir::Path::from_segments(["user_id"]),
+                equals: Expr::Path(lazuli_ir::Path::from_segments([
+                    "ctx", "actor", "user_id",
+                ])),
+            }],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("type MyTravelerArgs struct {"));
+        assert!(
+            out.contains("{Column: \"user\", Source: lazuli.FromCtx(\"actor.user_id\")},"),
+            "semantic lookup user_id key must target the declared FK column:\n{out}"
+        );
+        assert!(
+            !out.contains("{Column: \"user_id\""),
+            "user_id must not leak as a physical lookup column for `user: User`:\n{out}"
+        );
     }
 
     #[test]
