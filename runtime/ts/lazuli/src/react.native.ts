@@ -18,10 +18,11 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { createContext, createElement, useContext, type ReactNode } from "react";
+import { createElement, type ReactNode } from "react";
 
 import { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
+import { LazuliClientContext, useLazuliClient as useLazuliClientImpl } from "./use-actor.js";
 
 // Universal view-helper re-exports — same in `.web.ts` and `.native.ts`.
 export {
@@ -44,10 +45,22 @@ export {
 // Platform-split hook bodies (native variants).
 export { useLocalSetting } from "./local-setting.native.js";
 export { useDrawerSubView } from "./drawer-sub-view.native.js";
+export {
+  evaluatePolicy,
+  type LazuliActor,
+  type LazuliRouteGuardPolicy,
+  type RouteGuardVerdict,
+} from "./route-guard.js";
+export { RouteGuard, type RouteGuardProps } from "./route-guard-component.js";
+export { useActor, useLazuliClient, type UseActorResult } from "./use-actor.js";
+export {
+  withTanStackGuard,
+  type TanStackGuardContext,
+  type TanStackGuardRedirects,
+  type TanStackRedirect,
+} from "./tanstack-adapter.js";
 
 // --- Universal client/query/command hooks --------------------------------
-
-const LazuliClientContext = createContext<LazuliClient | null>(null);
 
 export interface LazuliProviderProps {
   client: LazuliClient;
@@ -56,19 +69,6 @@ export interface LazuliProviderProps {
 
 export function LazuliProvider({ client, children }: LazuliProviderProps) {
   return createElement(LazuliClientContext.Provider, { value: client }, children);
-}
-
-export function useLazuliClient(override?: LazuliClient): LazuliClient {
-  if (override) {
-    return override;
-  }
-  const ctx = useContext(LazuliClientContext);
-  if (!ctx) {
-    throw new Error(
-      "useLazuliClient: no LazuliClient in context. Wrap the app in <LazuliProvider client={...}>.",
-    );
-  }
-  return ctx;
 }
 
 export function queryKeyFor(spec: QuerySpec<unknown, unknown>, args: unknown): unknown[] {
@@ -88,7 +88,7 @@ export function useLazuliQuery<Args, Result>(
   options: UseLazuliQueryOptions<Result> = {},
 ): UseQueryResult<Result, Error> {
   const { client: clientOverride, ...queryOptions } = options;
-  const client = useLazuliClient(clientOverride);
+  const client = useLazuliClientImpl(clientOverride);
   return useQuery<Result, Error, Result, unknown[]>({
     queryKey: queryKeyFor(spec, args),
     queryFn: () => client.runQuery(spec, args),
@@ -108,7 +108,7 @@ export function useLazuliCommand<Input, Output>(
   options: UseLazuliCommandOptions<Input, Output> = {},
 ): UseMutationResult<Output, Error, Input> {
   const { client: clientOverride, onSuccess: userOnSuccess, ...mutationOptions } = options;
-  const client = useLazuliClient(clientOverride);
+  const client = useLazuliClientImpl(clientOverride);
   const queryClient = useQueryClient();
   return useMutation<Output, Error, Input>({
     mutationFn: (input) => client.runCommand(spec, input),

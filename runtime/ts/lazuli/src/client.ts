@@ -12,7 +12,12 @@
 
 import { camelToSnakeDeep, snakeToCamelDeep } from "./case-mapper.js";
 import { LazuliError, type LazuliErrorEnvelope } from "./error.js";
+import type { LazuliActor } from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
+
+export interface LazuliRouter {
+  navigate(to: string | { to: string; replace?: boolean }): unknown;
+}
 
 export interface LazuliClientOptions {
   // Base URL of the Go runtime. Trailing slashes are tolerated.
@@ -24,18 +29,31 @@ export interface LazuliClientOptions {
   // Per-request headers merged with the per-call ones. Useful for
   // auth tokens or `X-Lazuli-Org-ID` in dev sessions.
   headers?: HeadersInit;
+
+  // Optional app-level actor query generated from `app.actor_query`.
+  actorQuery?: QuerySpec<unknown, LazuliActor | null>;
+  actorQueryArgs?: unknown;
+
+  // Optional route adapter used by <RouteGuard>; callers can wrap any router.
+  router?: LazuliRouter;
 }
 
 export class LazuliClient {
   readonly baseUrl: string;
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly defaultHeaders: Headers;
+  private readonly actorQuery: QuerySpec<unknown, LazuliActor | null> | null;
+  private readonly actorQueryArgs: unknown;
+  readonly router: LazuliRouter | null;
   private authToken: string | null = null;
 
   constructor(options: LazuliClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.defaultHeaders = new Headers(options.headers ?? {});
+    this.actorQuery = options.actorQuery ?? null;
+    this.actorQueryArgs = options.actorQueryArgs ?? {};
+    this.router = options.router ?? null;
   }
 
   /**
@@ -74,6 +92,11 @@ export class LazuliClient {
     init?: RequestInit,
   ): Promise<Result> {
     return this.post<Result>(`/api/v1/q/${spec.name}`, args, init);
+  }
+
+  async resolveActor(): Promise<LazuliActor | null> {
+    if (!this.actorQuery) return null;
+    return this.runQuery(this.actorQuery, this.actorQueryArgs);
   }
 
   private async post<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
