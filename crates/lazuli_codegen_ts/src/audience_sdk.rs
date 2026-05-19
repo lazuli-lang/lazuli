@@ -41,6 +41,10 @@ use lazuli_ir::{
 };
 
 use crate::GeneratedFile;
+pub use crate::lifecycle_gate_emit::{
+    LifecycleGateIntegration, LifecycleGateTarget, emit_lifecycle_gate_artifacts,
+    emit_lifecycle_gate_artifacts_from_json,
+};
 use crate::lzx::lzx_router_adapter::route_guard_pattern_header;
 use crate::lzx_audience_slot::ir::Audience;
 use crate::lzx_audience_slot::pascal_case;

@@ -19,6 +19,7 @@
 //! §9.1. Runtime team: `docs/runtime-handoff.md`.
 
 pub mod design;
+pub mod lifecycle_gate_emit;
 pub mod lzx;
 pub mod lzx_audience_slot;
 pub mod mobile_runtime;
@@ -108,6 +109,11 @@ pub fn generate(module: &Module) -> Vec<GeneratedFile> {
         &[],
         &module.features,
         lzx_audience_slot::RouteGuardTarget::Web,
+    ));
+    files.extend(lifecycle_gate_emit::emit_lifecycle_gate_artifacts(
+        module,
+        lifecycle_gate_emit::LifecycleGateTarget::Web,
+        lifecycle_gate_emit::LifecycleGateIntegration::TanStack,
     ));
 
     // RB.C — emit `dist/ts-web/rbac/rbac.gen.ts` when the package
