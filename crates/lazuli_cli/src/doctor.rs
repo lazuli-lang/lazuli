@@ -202,6 +202,10 @@ struct Tier3FeatureFacts {
     /// not declare a default. Doctor's tenant_from / fanout checks
     /// use this to cross-check axis references.
     tenancy_axis: Option<String>,
+    /// Feature-level default policy from `defaults.policy`. Queries
+    /// with no per-query policy inherit this; absent defaults imply the
+    /// runtime's public fallback.
+    defaults_policy: Option<lazuli_ir::PolicyRef>,
     jobs: Vec<lazuli_ir::Job>,
     webhooks: Vec<lazuli_ir::Webhook>,
     notifications: Vec<lazuli_ir::Notification>,
@@ -727,6 +731,7 @@ impl DoctorPackage {
                                             path: file.path.clone(),
                                             feature_line: header_line,
                                             tenancy_axis: tenancy_axis_for(&feature),
+                                            defaults_policy: feature.defaults.policy.clone(),
                                             jobs: feature.jobs.clone(),
                                             webhooks: feature.webhooks.clone(),
                                             notifications: feature.notifications.clone(),
@@ -1038,6 +1043,7 @@ impl DoctorPackage {
             &self.experiences,
             &self.commands,
         ));
+        diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
             self.registry.as_ref(),
@@ -3658,6 +3664,44 @@ fn policy_reachability_diagnostics(
                     }
                 }
             }
+        }
+    }
+
+    diagnostics
+}
+
+fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for fact in facts {
+        for finding in correctness::missing_policy_on_query_001::check_queries(
+            &fact.feature,
+            fact.defaults_policy.as_ref(),
+            &fact.queries,
+            &fact.path,
+        ) {
+            let line = fact
+                .query_lines
+                .get(&finding.query_name)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            if !seen.insert((
+                finding.path.clone(),
+                finding.feature.clone(),
+                finding.query_kind,
+                finding.query_name.clone(),
+            )) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: correctness::missing_policy_on_query_001::Finding::CODE.to_owned(),
+            });
         }
     }
 
@@ -14265,6 +14309,7 @@ mod tests {
                                     path: file.path.clone(),
                                     feature_line: header_line,
                                     tenancy_axis: tenancy_axis_for(&feature),
+                                    defaults_policy: feature.defaults.policy.clone(),
                                     jobs: feature.jobs.clone(),
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
@@ -14423,6 +14468,7 @@ mod tests {
                                     path: file.path.clone(),
                                     feature_line: header_line,
                                     tenancy_axis: tenancy_axis_for(&feature),
+                                    defaults_policy: feature.defaults.policy.clone(),
                                     jobs: feature.jobs.clone(),
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
@@ -19176,6 +19222,60 @@ feature customer
     }
 
     // =========================================================================
+    // MISSING-POLICY-ON-QUERY-001 - query public fallback visibility.
+    // =========================================================================
+
+    const MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE: &str =
+        include_str!("../tests/fixtures/missing-policy-on-query/happy.lzi");
+    const MISSING_POLICY_ON_QUERY_MISSING_FIXTURE: &str =
+        include_str!("../tests/fixtures/missing-policy-on-query/missing.lzi");
+    const MISSING_POLICY_ON_QUERY_EXPLICIT_PUBLIC_FIXTURE: &str =
+        include_str!("../tests/fixtures/missing-policy-on-query/explicit_public.lzi");
+
+    #[test]
+    fn missing_policy_on_query_happy_fixture_has_zero_diagnostics() {
+        let package = package_from_sources(vec![(
+            "happy.lzi",
+            MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            diagnostics.is_empty(),
+            "expected happy fixture to emit zero diagnostics, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn missing_policy_on_query_missing_fixture_fires_once() {
+        let package = package_from_sources(vec![(
+            "missing.lzi",
+            MISSING_POLICY_ON_QUERY_MISSING_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "MISSING-POLICY-ON-QUERY-001"),
+            1,
+            "expected exactly one MISSING-POLICY-ON-QUERY-001 in {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn missing_policy_on_query_explicit_public_fixture_has_zero_diagnostics() {
+        let package = package_from_sources(vec![(
+            "explicit_public.lzi",
+            MISSING_POLICY_ON_QUERY_EXPLICIT_PUBLIC_FIXTURE,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            diagnostics.is_empty(),
+            "expected explicit public fixture to emit zero diagnostics, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // =========================================================================
     // Cache bucket cycle (row 51) — 5 doctor diagnostics on QueryCache /
     // Command.invalidates / registry capabilities.
     // =========================================================================
@@ -19263,6 +19363,7 @@ feature customer
             path: PathBuf::from("x.lzi"),
             feature_line: 1,
             tenancy_axis: None,
+            defaults_policy: None,
             jobs: Vec::new(),
             webhooks: Vec::new(),
             notifications: Vec::new(),
@@ -19366,6 +19467,7 @@ feature customer
             path: PathBuf::from("legacy.lzi"),
             feature_line: 1,
             tenancy_axis: None,
+            defaults_policy: None,
             jobs: Vec::new(),
             webhooks: Vec::new(),
             notifications: Vec::new(),

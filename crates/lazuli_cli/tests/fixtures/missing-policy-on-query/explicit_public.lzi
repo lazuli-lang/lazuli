@@ -1,0 +1,6 @@
+# Doctor fixture - explicit public policy acknowledges anonymous access.
+
+feature marketing
+  domain
+    query.list registration_landing_marketing
+      policy @policy.public
