@@ -1,0 +1,48 @@
+app HostPoint
+  actor_query account.query.me
+  uses account
+
+feature account
+  domain
+    resource Account
+      id: ID required
+      role: Text optional
+
+    query.lookup me by id: ID
+      policy @policy.authenticated
+
+    query.list host_dashboard
+      policy @policy.host
+
+  policies
+    public: @scope.public
+    authenticated: @scope.authenticated
+    host: @scope.authenticated, @role.host
+
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+    policy_denied message @translation.signin_required
+
+  translation
+    catalog "./i18n/account.<locale>.json"
+
+    key signin_required
+      en-US "Sign in."
+
+  command save_profile
+    input
+      id: ID required
+    policy @policy.authenticated
+    returns Boolean
+
+feature host
+  uses account
+
+  domain
+    resource Host
+      id: ID required
+
+    query.lookup profile by id: ID
+      policy @policy.account.authenticated

@@ -94,7 +94,7 @@ experience customer_auth
 
   view enable_mfa
     policy @policy.update
-      on_unauthenticated redirect "/sign-in"
+      on_unauthenticated redirect "/login"
     submit customer_auth.command.enable_mfa
 
 experience customer_tags

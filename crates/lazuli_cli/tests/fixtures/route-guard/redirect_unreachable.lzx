@@ -1,0 +1,18 @@
+route host_home
+  path "/host"
+  to account.view.host_dashboard
+  surface account web
+  audience host
+
+experience account
+  view host_dashboard
+    policy @policy.host
+      on_unauthenticated redirect "/does-not-exist"
+    source account.query.host_dashboard
+
+surface account web
+  uses experience account
+
+  audience host
+    view host_dashboard Detail
+      sections main

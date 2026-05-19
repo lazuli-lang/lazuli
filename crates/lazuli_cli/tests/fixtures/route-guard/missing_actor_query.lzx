@@ -1,0 +1,34 @@
+route sign_in
+  path "/sign-in"
+  to account.view.sign_in
+  surface account web
+  audience public
+
+route forbidden
+  path "/403"
+  to account.view.forbidden
+  surface account web
+  audience public
+
+route profile
+  path "/profile"
+  to account.view.profile
+  surface account web
+  audience account
+
+experience account
+  view sign_in
+
+  view forbidden
+
+  view profile
+    policy @policy.authenticated
+    source account.query.me
+
+surface account web
+  uses experience account
+
+  audience account
+    policy @policy.authenticated
+    view profile Detail
+      sections main
