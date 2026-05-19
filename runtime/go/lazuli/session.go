@@ -82,6 +82,13 @@ type SessionResolver interface {
 	Resolve(ctx context.Context, token string) (userID, orgID ID, sessionID ID, found bool, err error)
 }
 
+// SessionExpiryResolver is optionally implemented by rotation-aware
+// resolvers. It distinguishes an expired access token with a stored refresh
+// hash from an anonymous request so the HTTP boundary can emit token_expired.
+type SessionExpiryResolver interface {
+	ResolveAccessWithExpiry(ctx context.Context, token string) (expiredAt time.Time, refreshable bool, err error)
+}
+
 var sessionResolver SessionResolver
 
 // RegisterSessionResolver installs the production session resolver.
@@ -109,6 +116,17 @@ func populateProductionSession(r *http.Request, ctx *Ctx) {
 	if token == "" {
 		return
 	}
+	if expResolver, ok := resolver.(SessionExpiryResolver); ok {
+		expiredAt, refreshable, err := expResolver.ResolveAccessWithExpiry(r.Context(), token)
+		if err != nil {
+			slog.Warn("lazuli: session expiry resolver error", "error", err)
+			return
+		}
+		if refreshable {
+			ctx.SessionExpiredAt = &expiredAt
+			return
+		}
+	}
 	userID, orgID, sessionID, found, err := resolver.Resolve(r.Context(), token)
 	if err != nil {
 		// Genuine DB faults bubble up so ops can spot them in logs;
@@ -126,6 +144,14 @@ func populateProductionSession(r *http.Request, ctx *Ctx) {
 	}
 	ctx.SessionID = sessionID
 	ctx.SessionToken = token
+}
+
+func sessionExpiredError(ctx *Ctx) error {
+	if ctx == nil || ctx.SessionExpiredAt == nil || ctx.Actor != ActorAnonymous {
+		return nil
+	}
+	return &Error{Status: http.StatusUnauthorized, Code: CodeTokenExpired,
+		Message: "session expired", MessageKey: CodeTokenExpired}
 }
 
 // extractSessionToken returns the opaque session token from the

@@ -36,6 +36,16 @@ type SessionsContract struct {
 	TTL any
 	// Refresh enables refresh-token rotation. Default `false`.
 	Refresh bool
+	// Rotation is the post-IR-refresh name for the same two-token path.
+	Rotation bool
+	// AccessTTL is the short-lived access token lifetime.
+	AccessTTL any
+	// RefreshTTL is the long-lived refresh token lifetime.
+	RefreshTTL any
+	// RotationGrace is the tolerated race window for repeated refresh use.
+	RotationGrace any
+	// TheftDetectionAction decides the revocation blast radius on replay.
+	TheftDetectionAction TheftAction
 }
 
 // SessionAttrs carries optional session metadata reserved for generated
@@ -214,6 +224,81 @@ func MapSessionResolveError(err error) error {
 // SessionDB exposes the configured sessionDB handle to codegen callers.
 // Uses _ for ctx; reserved for future tenant-scoped connection pools.
 func SessionDB(_ *lazuli.Ctx) sessionDB { return sessionDBProvider() }
+
+func findRefreshRow(ctx *lazuli.Ctx, c SessionsContract, h string) (refreshRow, bool, error) {
+	var r refreshRow
+	q := fmt.Sprintf(`SELECT id, "user", org_id, refresh_expires_at, revoked_at FROM %s WHERE refresh_token_hash = $1 LIMIT 1`, quoteSessionIdent(c.Resource))
+	err := sessionDBProvider().QueryRow(ctxOrBackground(ctx), q, h).Scan(&r.ID, &r.UserID, &r.OrgID, &r.RefreshExpiresAt, &r.RevokedAt)
+	r.HasOrg = err == nil
+	if isUndefinedColumn(err) {
+		q = fmt.Sprintf(`SELECT id, "user", refresh_expires_at, revoked_at FROM %s WHERE refresh_token_hash = $1 LIMIT 1`, quoteSessionIdent(c.Resource))
+		err = sessionDBProvider().QueryRow(ctxOrBackground(ctx), q, h).Scan(&r.ID, &r.UserID, &r.RefreshExpiresAt, &r.RevokedAt)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r, false, nil
+	}
+	if err != nil {
+		return r, false, lazuli.ClassifyDBError("refresh lookup", err)
+	}
+	return r, true, nil
+}
+
+func childInsertSQL(c SessionsContract, p refreshRow, ah, fh string, ae, fe, now time.Time, mark bool) (string, []any) {
+	t := quoteSessionIdent(c.Resource)
+	if mark && p.HasOrg {
+		return fmt.Sprintf(`WITH marked AS (UPDATE %s SET revoked_at=$8 WHERE id=$7 AND revoked_at IS NULL RETURNING id) INSERT INTO %s (org_id, org, "user", token_hash, refresh_token_hash, refresh_expires_at, expires_at, created_at, parent_session_id) SELECT $1, $1, $2, $3, $4, $5, $6, $8, id FROM marked RETURNING id`, t, t), []any{p.OrgID, p.UserID, ah, fh, fe, ae, p.ID, now}
+	}
+	if mark {
+		return fmt.Sprintf(`WITH marked AS (UPDATE %s SET revoked_at=$7 WHERE id=$6 AND revoked_at IS NULL RETURNING id) INSERT INTO %s ("user", token_hash, refresh_token_hash, refresh_expires_at, expires_at, created_at, parent_session_id) SELECT $1, $2, $3, $4, $5, $7, id FROM marked RETURNING id`, t, t), []any{p.UserID, ah, fh, fe, ae, p.ID, now}
+	}
+	if p.HasOrg {
+		return fmt.Sprintf(`INSERT INTO %s (org_id, org, "user", token_hash, refresh_token_hash, refresh_expires_at, expires_at, created_at, parent_session_id) VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, t), []any{p.OrgID, p.UserID, ah, fh, fe, ae, now, p.ID}
+	}
+	return fmt.Sprintf(`INSERT INTO %s ("user", token_hash, refresh_token_hash, refresh_expires_at, expires_at, created_at, parent_session_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`, t), []any{p.UserID, ah, fh, fe, ae, now, p.ID}
+}
+
+func issueChild(ctx *lazuli.Ctx, c SessionsContract, p refreshRow, now time.Time, mark bool) (string, string, error) {
+	a, ah, err := newSessionToken()
+	if err != nil {
+		return "", "", err
+	}
+	f, fh, err := newSessionToken()
+	if err != nil {
+		return "", "", err
+	}
+	q, args := childInsertSQL(c, p, ah, fh, now.Add(accessTTL(c)), now.Add(refreshTTL(c)), now, mark)
+	var id lazuli.ID
+	err = sessionDBProvider().QueryRow(ctxOrBackground(ctx), q, args...).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) && mark {
+		return "", "", errConcurrentRotate
+	}
+	if err != nil {
+		return "", "", lazuli.ClassifyDBError("refresh rotate", err)
+	}
+	return a, f, nil
+}
+
+func accessTTL(c SessionsContract) time.Duration {
+	if c.AccessTTL != nil {
+		return sessionTTL(c.AccessTTL)
+	}
+	return 15 * time.Minute
+}
+func refreshTTL(c SessionsContract) time.Duration {
+	if c.RefreshTTL != nil {
+		return sessionTTL(c.RefreshTTL)
+	}
+	return 30 * 24 * time.Hour
+}
+func rotationGrace(c SessionsContract) time.Duration {
+	if c.RotationGrace != nil {
+		return sessionTTL(c.RotationGrace)
+	}
+	return 30 * time.Second
+}
+func refreshError(code string, cause error) *lazuli.Error {
+	return &lazuli.Error{Status: 401, Code: code, Message: cause.Error(), MessageKey: code, Base: lazuli.ErrorBase{Cause: cause}}
+}
 
 func newSessionToken() (string, string, error) {
 	buf := make([]byte, 32)
