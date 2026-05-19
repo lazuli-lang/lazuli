@@ -71,7 +71,12 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		}
 	}
 
-	sql := "SELECT * FROM " + quoteIdent(res.Name)
+	// Resource.Name is the authored PascalCase (`User`, `UserSession`);
+	// the migration emit snake_lowercases it (`user`, `user_session`).
+	// `quoteResourceTable` applies the same transform so SELECT round-
+	// trips with the migrated schema. The legacy `quoteIdent(res.Name)`
+	// produced `"UserSession"` (case-sensitive, no table) → 42P01.
+	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
 	if len(conds) > 0 {
 		sql += " WHERE " + strings.Join(conds, " AND ")
 	}
@@ -151,7 +156,11 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 		values = append(values, val)
 	}
 
-	sql := "SELECT * FROM " + quoteIdent(res.Name)
+	// Same snake_case lowering as `RunList` — `Resource.Name` is the
+	// authored PascalCase while the migrated table is snake_lower.
+	// `quoteResourceTable` is the canonical transform; see comment
+	// above on the list path.
+	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
 	if len(conds) > 0 {
 		sql += " WHERE " + strings.Join(conds, " AND ")
 	}

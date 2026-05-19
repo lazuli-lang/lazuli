@@ -2160,8 +2160,14 @@ fn command_output_ts_type(
         lazuli_ir::CommandEffect::Creates(effect) => resource_ts_name(&effect.resource, module),
         lazuli_ir::CommandEffect::Updates(effect) => resource_ts_name(&effect.resource, module),
         lazuli_ir::CommandEffect::Deletes(effect) => resource_ts_name(&effect.resource, module),
+        // For `returns User` we want the full resource interface (User)
+        // not the FK collapse to `ID`. `ts_type_for_type_ref` collapses
+        // any `UserDefined(<Resource>)` to `ID` because that's correct
+        // for resource-field positions (FK column). But the return
+        // position carries the typed row — same fix as the Go side
+        // (`types::go_return_type_for`).
         lazuli_ir::CommandEffect::Returns(effect) => {
-            ts_type_for_type_ref(&effect.return_type, module)
+            ts_return_type_for_type_ref(&effect.return_type, module)
         }
         // CommandEffect::None means the command has an `@fn.*` handler
         // with no declared return effect — the Go side returns `struct{}`
@@ -2170,6 +2176,32 @@ fn command_output_ts_type(
         // wildly wrong types (e.g. every catalog command typed as
         // `UploadedAsset` — see WAR-VOCAB-HOSTPROPDETAIL-02).
         lazuli_ir::CommandEffect::None => "void".to_owned(),
+    }
+}
+
+/// Variant of [`ts_type_for_type_ref`] that resolves resource refs to
+/// their full interface name (`User`) instead of the FK collapse (`ID`).
+/// Used by [`command_output_ts_type`] for `Returns` — the handler emits
+/// the typed row, not the row id. Mirrors the Go side's
+/// `go_return_type_for` / `command_output_type` split (see
+/// `crates/lazuli_codegen_go/src/emitter/types.rs`).
+fn ts_return_type_for_type_ref(
+    type_ref: &lazuli_ir::TypeRef,
+    module: &lazuli_ir::Module,
+) -> String {
+    match type_ref {
+        lazuli_ir::TypeRef::UserDefined(name) if is_resource_ref(type_ref, module) => {
+            // Skip the FK collapse — return the resource interface name.
+            find_resource(module, name)
+                .map(|r| pascal_case(&r.name))
+                .unwrap_or_else(|| pascal_case(&name.name))
+        }
+        lazuli_ir::TypeRef::Many(inner) => {
+            format!("{}[]", ts_return_type_for_type_ref(inner, module))
+        }
+        // Everything else (builtins, capabilities, enums, records,
+        // unresolved) shares the same shape as field-position resolution.
+        other => ts_type_for_type_ref(other, module),
     }
 }
 

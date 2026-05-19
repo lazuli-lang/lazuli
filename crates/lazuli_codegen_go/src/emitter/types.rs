@@ -84,6 +84,76 @@ pub fn go_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
     }
 }
 
+/// Variant of [`go_type_for`] that resolves resource references to their
+/// full struct type (e.g. `User`, `<owner>gen.User`) instead of the FK
+/// collapse to `lazuli.ID`.
+///
+/// `go_type_for` is correct for resource fields — `org: Org required`
+/// is a BIGINT FK column and `pgx.RowToStructByName` needs `lazuli.ID`
+/// at scan time. But command return positions (`command me returns User`
+/// → `Command[Input, User]` + `ReturnsFromRegistry[Input, User]`) want
+/// the full row shape; the handler returns the struct, not the id.
+///
+/// Mirrors `query.rs`'s `resource_type = pascal_case(&r.name)` path for
+/// `Query[A, R]` — both axes carry the typed row.
+pub fn go_return_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
+    match ty {
+        TypeRef::Builtin(builtin) => {
+            let (go, import) = go_type_for_builtin(builtin);
+            (go, import.map(str::to_owned))
+        }
+        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => {
+            resolve_named_full(qname, ctx)
+        }
+        TypeRef::Many(inner) => {
+            let (inner_go, import) = go_return_type_for(inner, ctx);
+            (format!("[]{}", inner_go), import)
+        }
+        TypeRef::Unresolved(name) => (sanitise_go_ident(name), None),
+        TypeRef::Capability(cap) => {
+            let (go, import) = go_type_for_capability(cap);
+            (go, import.map(str::to_owned))
+        }
+    }
+}
+
+/// Like [`resolve_named`] but skips the FK collapse. Resources resolve
+/// to their full struct name (same-feature) or `<owner>gen.<Name>`
+/// (cross-feature) so the consumer (command return type) gets the typed
+/// row instead of the BIGINT id alias.
+fn resolve_named_full(
+    qname: &lazuli_ir::QualifiedName,
+    ctx: &TypeCtx,
+) -> (String, Option<String>) {
+    if qname.name.starts_with('@') {
+        return (sanitise_go_ident(&qname.name), None);
+    }
+
+    let go_name = super::casing::pascal_case(&qname.name);
+
+    // Honour any analyzer-supplied owner directly — skips the kind
+    // lookup so future analyzer resolve-pass output keeps working
+    // without a re-index.
+    if let Some(owner) = qname.feature.as_deref() {
+        if owner == ctx.current_feature {
+            return (go_name, None);
+        }
+        let import = format!("{}/{}", ctx.module_name, owner);
+        let gen_pkg = super::casing::gen_package_name(owner);
+        return (format!("{}.{}", gen_pkg, go_name), Some(import));
+    }
+
+    match ctx.cross_index.owner(&qname.name) {
+        Some(owner) if owner == ctx.current_feature => (go_name, None),
+        Some(owner) => {
+            let import = format!("{}/{}", ctx.module_name, owner);
+            let gen_pkg = super::casing::gen_package_name(owner);
+            (format!("{}.{}", gen_pkg, go_name), Some(import))
+        }
+        None => (go_name, None),
+    }
+}
+
 /// Cross-feature resolver for `UserDefined` and `EnumRef` qnames.
 /// Returns the rendered Go type plus the import path to register on
 /// the file's `ImportSet`. See module-level doc for the three cases.

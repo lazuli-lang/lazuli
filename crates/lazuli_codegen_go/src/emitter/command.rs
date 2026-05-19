@@ -596,7 +596,15 @@ fn emit_effect(
             emit_deletes_effect(p, command, delete, scope_bindings)
         }
         CommandEffect::Returns(ret) => {
-            let (return_type, _import) = types::go_type_for(&ret.return_type, ctx);
+            // Resolve the Output generic via the return-position resolver
+            // so resource refs (`returns User`) render as the full struct
+            // (`User` same-feature, `<owner>gen.User` cross-feature) and
+            // not the FK collapse (`lazuli.ID`). The collapse is right
+            // for fields (BIGINT column scan) but wrong for the return
+            // axis — the handler returns the row, not the id. Mirrors
+            // `query.rs`'s `Query[A, R]` resolution. Closes the
+            // `command me returns User` 500-internal at dispatch.
+            let (return_type, _import) = types::go_return_type_for(&ret.return_type, ctx);
             // Prefer explicit handler ref name (handler @fn.<name>)
             // when present; fall back to the command name. Either way
             // the registry name is `<feature>.<name>` so dispatches
@@ -618,11 +626,20 @@ fn emit_effect(
         CommandEffect::None => {
             if let Some(handler_short) = handler_ref_name(handler) {
                 let qualified = format!("{feature_name}.{handler_short}");
+                // `command X` with no `returns` clause and an `@fn`
+                // handler — the Go handler stub is emitted as
+                // `(struct{}, error)` (see `handlers.rs`) so the
+                // registry generic must match. Emitting `any` here
+                // breaks the runtime's `ReturnsFromRegistry` type-assert
+                // (the registered fn yields `struct{}`, the dispatch
+                // path expects `any` — Go's interface conversion blows
+                // up). The implicit no-return contract is `struct{}`
+                // and that's what we pin.
                 p.line(&format!(
-                    "Effect: lazuli.ReturnsFromRegistry[{input_type}, any](\"{qualified}\"),"
+                    "Effect: lazuli.ReturnsFromRegistry[{input_type}, struct{{}}](\"{qualified}\"),"
                 ));
                 p.line(&format!(
-                    "// Wire {pascal} as `func(ctx *lazuli.Ctx, input {input_type}) (any, error)`",
+                    "// Wire {pascal} as `func(ctx *lazuli.Ctx, input {input_type}) (struct{{}}, error)`",
                     pascal = pascal_case(&handler_short),
                 ));
                 p.line(&format!(
@@ -1594,13 +1611,19 @@ fn resource_var_for_qname(qname: &QualifiedName) -> String {
 /// pin the type to the resource pascal name; `Returns` consumes the
 /// declared `TypeRef`; `None` falls back to an empty struct so the
 /// generic still parses.
+///
+/// For `Returns`, we use `go_return_type_for` (not `go_type_for`) so
+/// resource refs render as the full struct (`User`) rather than the
+/// FK collapse (`lazuli.ID`). The FK collapse is correct for field
+/// positions (BIGINT column) and wrong for return positions (handler
+/// returns the typed row, not the id).
 fn command_output_type(effect: &CommandEffect, ctx: &TypeCtx<'_>) -> String {
     match effect {
         CommandEffect::Creates(c) => pascal_case(&c.resource.name),
         CommandEffect::Updates(u) => pascal_case(&u.resource.name),
         CommandEffect::Deletes(d) => pascal_case(&d.resource.name),
         CommandEffect::Returns(r) => {
-            let (ty, _import) = types::go_type_for(&r.return_type, ctx);
+            let (ty, _import) = types::go_return_type_for(&r.return_type, ctx);
             ty
         }
         CommandEffect::None => "struct{}".to_owned(),
@@ -2237,10 +2260,10 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
-        DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, IdempotencyKey, LetBinding,
-        Lifecycle, LifecycleState, LifecycleStateKind, LifecycleTransition, Module, NamedArg, Path,
-        Policies, QualifiedName, Record, Resource, RetryPolicy, RouteSlot, Tenancy, TypeRef,
-        UpdateEffect,
+        DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, HandlerRef, IdempotencyKey,
+        LetBinding, Lifecycle, LifecycleState, LifecycleStateKind, LifecycleTransition, Module,
+        NamedArg, Path, Policies, QualifiedName, Record, Resource, ReturnsEffect, RetryPolicy,
+        RouteSlot, Tenancy, TypeRef, UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -3679,6 +3702,85 @@ mod tests {
         assert!(
             out.contains("\"tag_id\": lazuli.FromInput(\"TagID\"),"),
             "second route slot should bind:\n{out}"
+        );
+    }
+
+    /// `command me returns User` — the IR lowers to
+    /// `CommandEffect::Returns(ReturnsEffect { return_type: UserDefined("User") })`.
+    /// The emitted Output generic must be the full resource struct
+    /// (`Customer` same-feature, `<owner>gen.Customer` cross-feature),
+    /// NOT the `lazuli.ID` FK collapse used for resource-field positions.
+    /// Closes the `account.me` 500-internal at dispatch — the runtime's
+    /// `ReturnsFromRegistry[I, O]` type-asserts the registered fn as
+    /// `func(*Ctx, I) (O, error)`; with `O = lazuli.ID` and the
+    /// registered handler returning `(User, error)`, the assertion
+    /// fails and the runtime emits a 500 internal.
+    #[test]
+    fn returns_user_defined_resource_emits_full_struct_not_id() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("me");
+        cmd.input = CommandInput::Empty;
+        cmd.effect = CommandEffect::Returns(ReturnsEffect {
+            return_type: TypeRef::UserDefined(local_qname("Customer")),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        // Output generic in the Command[I, O] declaration is the full
+        // struct (`Customer`) — NOT `lazuli.ID`. `command_var_name`
+        // composes `meCustomer` from `verb=me, resource=Customer`.
+        assert!(
+            out.contains("var meCustomer = lazuli.Command[struct{}, Customer]{"),
+            "Command[I, O] should pin O to the resource struct, got:\n{out}"
+        );
+        // Effect's ReturnsFromRegistry generic pins the same struct.
+        assert!(
+            out.contains("Effect: lazuli.ReturnsFromRegistry[struct{}, Customer]("),
+            "ReturnsFromRegistry should pin O to Customer (not lazuli.ID), got:\n{out}"
+        );
+        assert!(
+            !out.contains("ReturnsFromRegistry[struct{}, lazuli.ID]"),
+            "regression: ReturnsFromRegistry must NOT collapse Customer to lazuli.ID:\n{out}"
+        );
+        // Handler comment matches the registered fn shape — the
+        // emitted Wire comment names `Customer` as the return type.
+        assert!(
+            out.contains("(Customer, error)"),
+            "handler signature comment should return Customer, got:\n{out}"
+        );
+    }
+
+    /// `command logout` (no `returns`, `handler @fn.logout`) — the IR
+    /// lowers to `CommandEffect::None` with a handler ref. The Go
+    /// handler stub is generated as `(struct{}, error)`. The emitted
+    /// `ReturnsFromRegistry` Output generic MUST be `struct{}` so the
+    /// runtime's type-assert (`fn.(func(*Ctx, I) (O, error))`) matches.
+    /// Previously emitted `any`, which failed the assert and 500'd.
+    #[test]
+    fn none_effect_with_fn_handler_emits_struct_output_generic() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("logout");
+        cmd.input = CommandInput::Empty;
+        cmd.effect = CommandEffect::None;
+        cmd.handler = Some(HandlerRef {
+            namespace: "fn".to_owned(),
+            name: "logout".to_owned(),
+            span_ref: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("Effect: lazuli.ReturnsFromRegistry[struct{}, struct{}](\"customer.logout\"),"),
+            "no-returns + @fn handler should emit O=struct{{}} (matches Go handler stub):\n{out}"
+        );
+        assert!(
+            !out.contains("ReturnsFromRegistry[struct{}, any]"),
+            "regression: O=any breaks the runtime type-assert against the registered (struct{{}}, error) handler:\n{out}"
+        );
+        assert!(
+            out.contains("// Wire Logout as `func(ctx *lazuli.Ctx, input struct{}) (struct{}, error)`"),
+            "handler signature comment should match the (struct{{}}, error) shape, got:\n{out}"
         );
     }
 }

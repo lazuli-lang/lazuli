@@ -43,3 +43,31 @@ func TestWhereConditionFragmentRefusesUnsafeIdent(t *testing.T) {
 	src := FromCtxOwnedVia("ho;st", "user_id", "user.id")
 	_ = whereConditionFragment("host", src, 1)
 }
+
+// quoteResourceTable lowercases + snake_cases the resource's authored
+// PascalCase name so SELECT/INSERT/UPDATE/DELETE round-trip with the
+// migration emit. The list/lookup SELECT path in `run.go` previously
+// used the raw `quoteIdent(res.Name)` which produced quoted PascalCase
+// — case-sensitive in Postgres and failing with 42P01 against the
+// snake_case migrated tables. The 3 fixtures cover the shapes that
+// surfaced during the hostpoint booking-flow validation:
+//   - single-word resource (`User` → `user`)
+//   - multi-word PascalCase (`UserSession` → `user_session`)
+//   - 3+ words for completeness (`ServiceTransaction` → `service_transaction`).
+func TestQuoteResourceTableSnakeCasesPascalName(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{in: "User", want: `"user"`},
+		{in: "UserSession", want: `"user_session"`},
+		{in: "ServiceTransaction", want: `"service_transaction"`},
+	}
+	for _, tc := range cases {
+		got := quoteResourceTable(tc.in)
+		if got != tc.want {
+			t.Errorf("quoteResourceTable(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
