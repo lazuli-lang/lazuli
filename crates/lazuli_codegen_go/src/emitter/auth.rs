@@ -246,7 +246,7 @@ fn emit_sessions(p: &mut GoPrinter, feature_pascal: &str, sessions: &AuthSession
         rows.push(("Rotation:".to_owned(), "true,".to_owned()));
         rows.push(("RotationGrace:".to_owned(), format!("{rotation_grace},")));
         rows.push((
-            "TheftAction:".to_owned(),
+            "TheftDetectionAction:".to_owned(),
             format!(
                 "{},",
                 theft_action_expr(

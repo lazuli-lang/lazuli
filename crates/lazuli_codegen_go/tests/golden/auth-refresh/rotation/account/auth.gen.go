@@ -20,14 +20,14 @@ import (
 var AccountAuthIdentity = auth.FieldRef{Resource: "User", Field: "email"}
 
 var AccountAuthSessions = auth.SessionsContract{
-	Resource:      "UserSession",
-	TTL:           7 * 24 * time.Hour,
-	AccessTTL:     15 * time.Minute,
-	RefreshTTL:    30 * 24 * time.Hour,
-	Rotation:      true,
-	RotationGrace: 30 * time.Second,
-	TheftAction:   auth.TheftRevokeSessionFamily,
-	Refresh:       true,
+	Resource:             "UserSession",
+	TTL:                  7 * 24 * time.Hour,
+	AccessTTL:            15 * time.Minute,
+	RefreshTTL:           30 * 24 * time.Hour,
+	Rotation:             true,
+	RotationGrace:        30 * time.Second,
+	TheftDetectionAction: auth.TheftRevokeSessionFamily,
+	Refresh:              true,
 }
 
 // ----------------------------------------------------------------------------

@@ -15,5 +15,5 @@ import (
 
 //lazuli:pattern auth_refresh v1
 func init() {
-	lazuli.RegisterFn("account.auth.refresh", auth.RotateSession(AccountAuthSessions))
+	lazuli.RegisterFn("account.auth.refresh", auth.RefreshHandler)
 }

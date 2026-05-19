@@ -29,3 +29,12 @@ func SignupHandler(_ *lazuli.Ctx, _ any) (any, error) {
 func LogoutHandler(_ *lazuli.Ctx, _ any) (any, error) {
 	return nil, errors.New("auth: LogoutHandler not implemented; provide @fn.logout")
 }
+
+// RefreshHandler is the default `/auth/refresh` command handler wired by
+// the auth-refresh codegen when `auth.sessions.rotation` is enabled.
+// Stubbed until the per-request refresh-token extraction wire lands
+// (tracked as LAZ-84). Override by registering a different handler under
+// `<feature>.auth.refresh` in user code.
+func RefreshHandler(_ *lazuli.Ctx, _ any) (any, error) {
+	return nil, errors.New("auth: RefreshHandler not yet wired (LAZ-84); per-request refresh-token extraction pending")
+}

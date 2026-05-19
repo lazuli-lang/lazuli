@@ -44,8 +44,9 @@ pub fn emit_auth_refresh_file(source_label: &str, feature: &Feature) -> Option<S
     emit_pattern_header(&mut p, PATTERN_AUTH_REFRESH);
     p.line("func init() {");
     p.indent();
+    let _ = feature_pascal;
     p.line(&format!(
-        "lazuli.RegisterFn(\"{}.auth.refresh\", auth.RotateSession({feature_pascal}AuthSessions))",
+        "lazuli.RegisterFn(\"{}.auth.refresh\", auth.RefreshHandler)",
         escape_string(&feature.name),
     ));
     p.dedent();
