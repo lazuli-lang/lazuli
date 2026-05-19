@@ -22,8 +22,17 @@ import type {
 } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import type { LazuliClient } from "./client.js";
+import type { LazuliClient, LazuliRouter } from "./client.js";
+import type {
+  LazuliActor,
+  LazuliRouteGuardPolicy,
+  RouteGuardVerdict,
+} from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
+import type {
+  TanStackGuardContext,
+  TanStackGuardRedirects,
+} from "./tanstack-adapter.js";
 import type { DrawerConfig, DrawerSubView } from "./view-helpers.js";
 
 // Universal view-helper types and functions are re-exported as-is from
@@ -92,6 +101,46 @@ export declare function useLazuliCommand<Input, Output>(
   spec: CommandSpec<Input, Output>,
   options?: UseLazuliCommandOptions<Input, Output>,
 ): UseMutationResult<Output, Error, Input>;
+
+// --- Route guards ---------------------------------------------------------
+
+export type {
+  LazuliActor,
+  LazuliRouteGuardPolicy,
+  RouteGuardVerdict,
+  TanStackGuardContext,
+  TanStackGuardRedirects,
+};
+
+export type UseActorResult = {
+  readonly data: LazuliActor | null;
+  readonly isLoading: boolean;
+  readonly isError: boolean;
+};
+
+export declare function evaluatePolicy(
+  actor: LazuliActor | null,
+  policy: LazuliRouteGuardPolicy,
+): RouteGuardVerdict;
+
+export declare function useActor(): UseActorResult;
+
+export interface RouteGuardProps {
+  readonly policy: LazuliRouteGuardPolicy;
+  readonly onUnauthenticated?: string | null;
+  readonly onUnauthorized?: string | null;
+  readonly children: ReactNode;
+  readonly skeleton?: ReactNode;
+  readonly router?: LazuliRouter | null;
+}
+
+export declare function RouteGuard(props: RouteGuardProps): ReactNode;
+
+export declare function withTanStackGuard(
+  routeOpts: { readonly beforeLoad?: (ctx: TanStackGuardContext) => unknown },
+  policy: LazuliRouteGuardPolicy,
+  redirects: TanStackGuardRedirects,
+): (ctx: TanStackGuardContext) => Promise<void>;
 
 // --- Platform-split hooks --------------------------------------------------
 
