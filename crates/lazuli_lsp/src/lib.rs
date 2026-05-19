@@ -1750,7 +1750,14 @@ const APP_BODY_KINDS: &[&str] = &[
 /// Closed catalog of indent-2 child kinds inside `registry`.
 /// Mirrors `registry_child` in `lazuli_cli/src/app_manifest.rs` plus
 /// the LSP's own `registry_contract_diagnostics` allow-list. Sorted.
+///
+/// B1 (W3-blockers) — `bindings` is registry-level sugar over
+/// `integrations`. Same IR, same codegen, but the indent-6
+/// child grammar additionally accepts `endpoint env.X` and
+/// `auth keys env.A env.B` so authors can write the
+/// roadmap §3.5 shape directly.
 const REGISTRY_BODY_KINDS: &[&str] = &[
+    "bindings",
     "capabilities",
     "env",
     "integrations",
@@ -1960,7 +1967,7 @@ fn registry_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "unknown registry block kind `{first}`. Did you mean `{suggested}`?"
             ),
             None => format!(
-                "unknown registry block kind `{first}`. Valid kinds: env / capabilities / integrations / packs / tools / webhook_event / webhook_events / secret_rotation."
+                "unknown registry block kind `{first}`. Valid kinds: env / capabilities / integrations / bindings / packs / tools / webhook_event / webhook_events / secret_rotation."
             ),
         };
         diagnostics.push(simple_canonical_diagnostic(
@@ -8905,6 +8912,15 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "env" => Some("env"),
                     "capabilities" => Some("capabilities"),
                     "integrations" => Some("integrations"),
+                    // B1 (W3-blockers) — `bindings` is registry-level
+                    // sugar over `integrations`. Same indent-4
+                    // integration header (`<name>: <CapabilityType>`)
+                    // and the same canonical indent-6 children, plus
+                    // the simplified `endpoint env.X` /
+                    // `auth keys env.A env.B` surface. We reuse the
+                    // `integrations` sentinel so the existing
+                    // header + child validators apply unchanged.
+                    "bindings" => Some("integrations"),
                     "packs" => Some("packs"),
                     "tools" => Some("tools"),
                     "webhook_event" => Some("webhook_event"),
@@ -8927,7 +8943,7 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                             line,
                             DiagnosticSeverity::WARNING,
                             "registry-contract",
-                            "registry blocks use `env`, `capabilities`, `integrations`, `packs`, `tools`, `webhook_event <name>`, `webhook_events`, or `secret_rotation`.",
+                            "registry blocks use `env`, `capabilities`, `integrations`, `bindings`, `packs`, `tools`, `webhook_event <name>`, `webhook_events`, or `secret_rotation`.",
                         ));
                         None
                     }
@@ -10070,12 +10086,27 @@ fn validate_app_integration_child(
         ["data_classification", classification] if classification.starts_with("@pii.") => {
             *current_integration_child = None;
         }
+        // B1 (W3-blockers) — `bindings` registry sugar accepted at the
+        // same indent-6 site as the canonical integration children.
+        // `endpoint <source>` lowers to a single credential binding;
+        // `auth keys <id-source> <secret-source>` lowers to the two
+        // positional S3-style credential bindings. Both lines reuse
+        // the existing `parse_credential_binding`-shaped source grammar
+        // (env.X / secrets.X / literal).
+        ["endpoint", source] if !source.is_empty() => {
+            *current_integration_child = None;
+        }
+        ["auth", "keys", id_source, secret_source]
+            if !id_source.is_empty() && !secret_source.is_empty() =>
+        {
+            *current_integration_child = None;
+        }
         _ => diagnostics.push(simple_canonical_diagnostic(
             line_index,
             line,
             DiagnosticSeverity::WARNING,
             "app-integration-contract",
-            "integration children use `adapter @runtime/...`, `adapter @plugin/publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, or `data_classification @pii.<class>`.",
+            "integration children use `adapter @runtime/...`, `adapter @plugin/publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, `endpoint env.<NAME>`, `auth keys env.<ID> env.<SECRET>`, or `data_classification @pii.<class>`.",
         )),
     }
 }
@@ -13137,7 +13168,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             Some("Declares public app URLs used by clients, CORS, emails, callbacks, and webhooks.")
         }
         "bindings" => Some(
-            "Binds abstract feature requirements to concrete app or registry integration entries.",
+            "Two shapes by context. (1) Under `app` / `profile`: binds abstract feature requirements to concrete integration entries (`<feature>.<slot> = integrations.<name>`). (2) Under `registry`: sugar alias for `integrations`, with the simplified `endpoint env.<NAME>` / `auth keys env.<ID> env.<SECRET>` child surface for adapter credential wiring (B1 — see W3-blockers + hostpoint-complete-roadmap §3.5).",
         ),
         "packs" => Some(
             "Declares Lazuli pack catalog entries in `registry.lzi` or enabled pack references in `app.lzi`.",
@@ -17199,6 +17230,7 @@ registry
     server INBOUND_WEBHOOK_SECRET: Secret required
   capabilities
   integrations
+  bindings
   packs
   tools
   webhook_events
@@ -17210,6 +17242,35 @@ registry
             "valid registry children must not fire registry-unknown-kind; got {:#?}",
             hits
         );
+    }
+
+    #[test]
+    fn registry_bindings_sugar_does_not_fire_contract_warnings() {
+        // B1 (W3-blockers) — the `bindings` registry sugar accepts the
+        // simplified child grammar (endpoint + auth keys) at indent-6,
+        // identical to the indent-6 children of `integrations`. No
+        // `registry-unknown-kind`, no `registry-contract`, no
+        // `app-integration-contract` warning should fire.
+        let source = r#"
+registry
+  bindings
+    object_store: ObjectStore
+      adapter @plugin/object-store
+      endpoint env.S3_ENDPOINT
+      auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
+"#;
+        let diagnostics = diagnostics_for(source);
+        for code in [
+            "registry-unknown-kind",
+            "registry-contract",
+            "app-integration-contract",
+        ] {
+            let hits = diagnostics_with_code(&diagnostics, code);
+            assert!(
+                hits.is_empty(),
+                "valid `registry bindings` sugar must not fire `{code}`; got {hits:#?}",
+            );
+        }
     }
 
     #[test]

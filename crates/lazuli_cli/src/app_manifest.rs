@@ -1333,6 +1333,25 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                     } else if let Some(rest) = trimmed.strip_prefix("data_classification ") {
                         integration.data_classification = Some(rest.trim().to_owned());
                         current_integration_child = None;
+                    } else if let Some(bindings) = parse_bindings_sugar_line(trimmed) {
+                        // B1 (W3-blockers) — `bindings` registry sugar.
+                        // The author writes `endpoint env.X` or
+                        // `auth keys env.A env.B` at indent-6 directly
+                        // under the integration header instead of nesting
+                        // under `credentials platform`. The parser lowers
+                        // each sugar line into the equivalent credential
+                        // binding(s); the synthesized credentials block
+                        // defaults to `platform` scope.
+                        let credentials = integration
+                            .credentials
+                            .get_or_insert_with(|| AppIntegrationCredentials {
+                                scope: "platform".to_owned(),
+                                bindings: Vec::new(),
+                            });
+                        credentials.bindings.extend(bindings.into_iter().map(
+                            |(name, source)| AppIntegrationCredentialBinding { name, source },
+                        ));
+                        current_integration_child = None;
                     }
                 } else if current_child == Some("packs") {
                     let Some(pack_index) = current_pack else {
@@ -1869,6 +1888,13 @@ fn registry_child(trimmed: &str) -> Option<&'static str> {
     match trimmed.split_whitespace().next()? {
         "env" => Some("env"),
         "integrations" => Some("integrations"),
+        // B1 (W3-blockers) — `bindings` is registry-level sugar over
+        // `integrations`. Same IR target (`AppIntegration`), same
+        // codegen, but indent-6 children may use the simplified
+        // `endpoint env.X` / `auth keys env.A env.B` surface instead
+        // of nesting under `credentials platform`. The parser lowers
+        // the sugar to canonical credential bindings on the fly.
+        "bindings" => Some("integrations"),
         "capabilities" => Some("capabilities"),
         "packs" => Some("packs"),
         "tools" => Some("tools"),
@@ -2171,6 +2197,53 @@ fn parse_credential_binding(trimmed: &str) -> Option<(String, String)> {
     } else {
         None
     }
+}
+
+/// B1 (W3-blockers) — recognize the `bindings` registry sugar at
+/// indent-6 directly under an integration header. Two shapes:
+///
+/// ```text
+/// endpoint env.S3_ENDPOINT
+/// auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
+/// ```
+///
+/// `endpoint <env-or-secret>` desugars to a single credential
+/// binding (`endpoint -> env.S3_ENDPOINT`). `auth keys A B`
+/// desugars to two bindings (`access_key_id -> A`,
+/// `secret_access_key -> B`). Both lines synthesize an
+/// implicit `credentials platform` scope when none is declared.
+///
+/// Returns `Some(bindings)` if the line matches one of the
+/// sugared shapes, `None` otherwise (so the caller can fall
+/// through to the canonical integration grammar or surface a
+/// shape error).
+fn parse_bindings_sugar_line(trimmed: &str) -> Option<Vec<(String, String)>> {
+    if let Some(rest) = trimmed.strip_prefix("endpoint ") {
+        let source = rest.trim();
+        if source.is_empty() {
+            return None;
+        }
+        return Some(vec![("endpoint".to_owned(), source.to_owned())]);
+    }
+    if let Some(rest) = trimmed.strip_prefix("auth ") {
+        // `auth keys env.A env.B` — positional S3-style credentials.
+        // Two positional sources map to `access_key_id` +
+        // `secret_access_key` in that order. Anything else (zero,
+        // one, three+ sources) falls through so doctor can flag it.
+        let mut parts = rest.split_whitespace();
+        if parts.next() != Some("keys") {
+            return None;
+        }
+        let sources: Vec<&str> = parts.collect();
+        if sources.len() != 2 {
+            return None;
+        }
+        return Some(vec![
+            ("access_key_id".to_owned(), sources[0].to_owned()),
+            ("secret_access_key".to_owned(), sources[1].to_owned()),
+        ]);
+    }
+    None
 }
 
 fn parse_app_binding(trimmed: &str) -> Option<AppBinding> {
@@ -2527,6 +2600,85 @@ registry
                 .and_then(|credentials| credentials.bindings.first())
                 .map(|binding| binding.source.as_str()),
             Some("env.MERCADOPAGO_ACCESS_TOKEN")
+        );
+    }
+
+    #[test]
+    fn parses_registry_bindings_sugar_lowers_to_integration_credentials() {
+        // B1 (W3-blockers) — `bindings` is registry-level sugar over
+        // `integrations`. The simplified shape (endpoint + auth keys)
+        // lowers to the canonical `credentials platform` + bindings.
+        let source = r#"
+registry
+  bindings
+    object_store: ObjectStore
+      adapter @plugin/object-store
+      endpoint env.S3_ENDPOINT
+      auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
+"#;
+
+        let registry = parse_app_registry(source).expect("registry");
+        assert_eq!(registry.integrations.len(), 1);
+        let integration = &registry.integrations[0];
+        assert_eq!(integration.name, "object_store");
+        assert_eq!(integration.kind, "ObjectStore");
+        assert_eq!(integration.adapter.as_deref(), Some("@plugin/object-store"));
+        assert_eq!(integration.adapter_provenance.as_deref(), Some("plugin"));
+
+        let credentials = integration
+            .credentials
+            .as_ref()
+            .expect("sugar must synthesize implicit `credentials platform`");
+        assert_eq!(credentials.scope, "platform");
+
+        // Sugar lowers to three credential bindings in declaration order:
+        // endpoint (from `endpoint`), access_key_id + secret_access_key
+        // (from positional `auth keys`).
+        let by_name: std::collections::BTreeMap<&str, &str> = credentials
+            .bindings
+            .iter()
+            .map(|binding| (binding.name.as_str(), binding.source.as_str()))
+            .collect();
+        assert_eq!(by_name.get("endpoint"), Some(&"env.S3_ENDPOINT"));
+        assert_eq!(
+            by_name.get("access_key_id"),
+            Some(&"env.S3_ACCESS_KEY_ID")
+        );
+        assert_eq!(
+            by_name.get("secret_access_key"),
+            Some(&"env.S3_SECRET_ACCESS_KEY")
+        );
+    }
+
+    #[test]
+    fn registry_bindings_additive_with_integrations_block() {
+        // The legacy `integrations` block must still parse alongside the
+        // new `bindings` block — additive, not breaking.
+        let source = r#"
+registry
+  integrations
+    payment_gateway: PaymentGateway
+      adapter @plugin/mercadopago
+  bindings
+    object_store: ObjectStore
+      adapter @plugin/object-store
+      endpoint env.S3_ENDPOINT
+      auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
+"#;
+
+        let registry = parse_app_registry(source).expect("registry");
+        assert_eq!(registry.integrations.len(), 2);
+        assert_eq!(registry.integrations[0].name, "payment_gateway");
+        assert_eq!(registry.integrations[1].name, "object_store");
+        // Legacy integration carries no synthesized credentials.
+        assert!(registry.integrations[0].credentials.is_none());
+        // Sugar integration carries the synthesized `platform` scope.
+        assert_eq!(
+            registry.integrations[1]
+                .credentials
+                .as_ref()
+                .map(|credentials| credentials.scope.as_str()),
+            Some("platform")
         );
     }
 
