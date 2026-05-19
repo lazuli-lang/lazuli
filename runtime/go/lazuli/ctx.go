@@ -52,6 +52,13 @@ type Ctx struct {
 	// + reissue). Empty when SessionID is zero.
 	SessionToken string
 
+	// RefreshToken is the raw refresh-token cookie value the transport
+	// extracted from `lazuli_refresh` (cookie) or `Authorization: Bearer`
+	// (mobile/bearer mode). Populated unconditionally — independent of
+	// whether the access token validated — so the refresh handler can
+	// rotate a session whose access token already expired.
+	RefreshToken string
+
 	// SessionExpiredAt is set when a shape-valid access token maps to
 	// a refresh-capable session row whose access TTL elapsed.
 	SessionExpiredAt *time.Time
@@ -118,6 +125,29 @@ func (c *Ctx) SetSessionCookie(token string, ttl time.Duration) {
 // logout handlers after `auth.InvalidateSession`.
 func (c *Ctx) ClearSessionCookie() {
 	c.DeleteCookie(ProductionSessionCookieName)
+}
+
+// SetRefreshCookie issues the canonical `lazuli_refresh` cookie carrying
+// the long-lived refresh token. Cookie is HttpOnly + SameSite=Lax +
+// Secure-when-TLS, same as the session cookie. Used by the refresh
+// handler after `auth.RotateSession` returns a new refresh token.
+func (c *Ctx) SetRefreshCookie(token string, ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = SessionCookieTTL
+	}
+	c.SetCookie(ProductionRefreshCookieName, token, CookieOpts{
+		TTL:      ttl,
+		Path:     "/",
+		AllowJS:  false,
+		Secure:   sessionCookieSecureDefault(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// ClearRefreshCookie deletes the canonical refresh cookie. Used after
+// a refresh failure (theft detection forces logout).
+func (c *Ctx) ClearRefreshCookie() {
+	c.DeleteCookie(ProductionRefreshCookieName)
 }
 
 // sessionCookieSecureDefault returns whether the canonical session

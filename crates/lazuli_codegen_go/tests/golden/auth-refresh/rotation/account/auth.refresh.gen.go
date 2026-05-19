@@ -14,6 +14,14 @@ import (
 // ----------------------------------------------------------------------------
 
 //lazuli:pattern auth_refresh v1
+var AccountAuthRefresh = lazuli.Command[auth.RefreshInput, auth.RefreshOutput]{
+	Name:   "account.auth.refresh",
+	Policy: lazuli.Policy{Name: "@policy.public", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "public"}}},
+	Effect: lazuli.ReturnsFromRegistry[auth.RefreshInput, auth.RefreshOutput]("account.auth.refresh"),
+}
+
+//lazuli:pattern auth_refresh v1
 func init() {
 	lazuli.RegisterFn("account.auth.refresh", auth.RefreshHandler)
+	lazuli.Register(&AccountAuthRefresh)
 }

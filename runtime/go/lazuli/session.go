@@ -60,6 +60,12 @@ func populateDevSession(r *http.Request, ctx *Ctx) {
 // callers (e.g. the hostpoint login handler).
 const ProductionSessionCookieName = "lazuli_session"
 
+// ProductionRefreshCookieName is the canonical cookie name carrying
+// the long-lived refresh token. Issued by the auth refresh handler
+// after `auth.RotateSession` returns a new refresh value; read by the
+// production middleware to populate `ctx.RefreshToken`.
+const ProductionRefreshCookieName = "lazuli_refresh"
+
 // SessionResolver is the runtime-side adapter that turns an opaque
 // session token into a populated actor. Implemented by the `auth`
 // package and registered at boot from the per-feature `auth.gen.go`
@@ -117,6 +123,13 @@ func RegisterSessionResolver(r SessionResolver) {
 // Cookie wins over Authorization so browser-based clients that mirror
 // the token to localStorage don't fight the cookie source-of-truth.
 func populateProductionSession(r *http.Request, ctx *Ctx) {
+	// Refresh token is extracted unconditionally so the refresh
+	// command handler can rotate a session whose access token already
+	// expired (the access path below will skip the resolver hop when
+	// the access token is missing or invalid).
+	if rt := extractRefreshToken(r); rt != "" {
+		ctx.RefreshToken = rt
+	}
 	resolver := sessionResolver
 	if resolver == nil {
 		return
@@ -187,6 +200,18 @@ func extractSessionToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(authz[len(prefix):])
+}
+
+// extractRefreshToken returns the long-lived refresh token from the
+// request. Prefers the `lazuli_refresh` cookie (browser flow); falls
+// back to `X-Lazuli-Refresh` (bearer/mobile flow where the SDK keeps
+// the refresh token outside HttpOnly storage). Returns "" when neither
+// path supplies a value.
+func extractRefreshToken(r *http.Request) string {
+	if cookie, err := r.Cookie(ProductionRefreshCookieName); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+	return strings.TrimSpace(r.Header.Get("X-Lazuli-Refresh"))
 }
 
 // SessionCookieTTL is the default TTL used by `Ctx.SetSessionCookie`

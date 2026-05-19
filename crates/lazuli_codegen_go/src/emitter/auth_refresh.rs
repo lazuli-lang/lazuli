@@ -41,14 +41,30 @@ pub fn emit_auth_refresh_file(source_label: &str, feature: &Feature) -> Option<S
             "  wires the framework-emitted auth.refresh handler".to_owned(),
         ],
     );
+    let cmd_name = format!("{}.auth.refresh", escape_string(&feature.name));
+    let var_name = format!("{feature_pascal}AuthRefresh");
+
+    emit_pattern_header(&mut p, PATTERN_AUTH_REFRESH);
+    p.line(&format!(
+        "var {var_name} = lazuli.Command[auth.RefreshInput, auth.RefreshOutput]{{"
+    ));
+    p.indent();
+    p.line(&format!("Name:   \"{cmd_name}\","));
+    p.line("Policy: lazuli.Policy{Name: \"@policy.public\", Atoms: []lazuli.PolicyAtom{{Namespace: \"scope\", Name: \"public\"}}},");
+    p.line(&format!(
+        "Effect: lazuli.ReturnsFromRegistry[auth.RefreshInput, auth.RefreshOutput](\"{cmd_name}\"),"
+    ));
+    p.dedent();
+    p.line("}");
+    p.blank();
+
     emit_pattern_header(&mut p, PATTERN_AUTH_REFRESH);
     p.line("func init() {");
     p.indent();
-    let _ = feature_pascal;
     p.line(&format!(
-        "lazuli.RegisterFn(\"{}.auth.refresh\", auth.RefreshHandler)",
-        escape_string(&feature.name),
+        "lazuli.RegisterFn(\"{cmd_name}\", auth.RefreshHandler)"
     ));
+    p.line(&format!("lazuli.Register(&{var_name})"));
     p.dedent();
     p.line("}");
 
