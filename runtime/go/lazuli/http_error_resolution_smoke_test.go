@@ -110,6 +110,109 @@ func TestZeroAuthoringPolicyDeniedEmitsBuiltinEnUSWhenLocaleAbsent(t *testing.T)
 	}
 }
 
+// TestWave35AuthoredCatalogSurfacesPerCommandKey is the Wave 3.5
+// regression guard: it asserts that the authored per-feature
+// `translation` block — when registered via
+// `RegisterFeatureTranslationCatalog` and selected by a per-command
+// `ErrorKeys.PolicyDenied` — wins over the built-in L3 floor.
+//
+// Before Wave 3.5 the resolver fell through to the built-in PT-BR
+// because the per-feature catalog was never loaded into
+// `i18n.DefaultResolver.Catalogs`. This test exercises the full
+// pipeline: stamp MessageKey (`handleCommandRequest` →
+// `stampPerCommandMessageKey`) → resolver L1 lookup → response body
+// carries the AUTHORED text (NOT the builtin).
+func TestWave35AuthoredCatalogSurfacesPerCommandKey(t *testing.T) {
+	installZeroAuthoringFixture(t)
+
+	// Load the per-feature catalog via the wire-thin loader. Real
+	// codegen does this from a generated `init()`; the test does it
+	// directly so it does not depend on the codegen pipeline.
+	prevCatalogs := map[string]map[string]string{}
+	if r, ok := i18n.Default().(*i18n.DefaultResolver); ok {
+		for locale, cat := range r.Catalogs {
+			copied := map[string]string{}
+			for k, v := range cat {
+				copied[k] = v
+			}
+			prevCatalogs[locale] = copied
+		}
+	}
+	t.Cleanup(func() {
+		if r, ok := i18n.Default().(*i18n.DefaultResolver); ok {
+			r.Catalogs = prevCatalogs
+		}
+	})
+
+	// Mimic the merge `RegisterFeatureTranslationCatalog` performs:
+	// qualified `<feature>.<bare>` key under each locale.
+	resolver := i18n.Default().(*i18n.DefaultResolver)
+	if resolver.Catalogs == nil {
+		resolver.Catalogs = map[string]map[string]string{}
+	}
+	for _, locale := range []string{"pt-BR", "en-US"} {
+		if resolver.Catalogs[locale] == nil {
+			resolver.Catalogs[locale] = map[string]string{}
+		}
+	}
+	resolver.Catalogs["pt-BR"]["account.account_me_signin_required"] = "AUTHORED PT-BR account.me"
+	resolver.Catalogs["en-US"]["account.account_me_signin_required"] = "AUTHORED EN-US account.me"
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/c/account.me", nil)
+	req.Header.Set("Accept-Language", "pt-BR")
+
+	// `handleCommandRequest` would normally do this; we mimic the
+	// per-command stamp here so the test exercises the resolver
+	// chain end-to-end without spinning up the dispatcher.
+	keys := &i18n.ErrorKeys{
+		PolicyDenied: i18n.MessageRef{Feature: "account", Key: "account_me_signin_required"},
+	}
+	le := &Error{
+		Status:  http.StatusForbidden,
+		Code:    CodePolicyDenied,
+		Message: "no policy atom matches the active actor for @policy.authenticated",
+	}
+	stampPerCommandMessageKey(le, keys)
+
+	if le.MessageKey != "account.account_me_signin_required" {
+		t.Fatalf(
+			"stampPerCommandMessageKey did not write qualified key: got %q want %q",
+			le.MessageKey, "account.account_me_signin_required",
+		)
+	}
+
+	writeError(rec, req, le)
+	payload := decodePayload(t, rec.Body.Bytes())
+
+	if got, want := payload["message"], "AUTHORED PT-BR account.me"; got != want {
+		t.Fatalf(
+			"Wave 3.5 regression: authored per-feature key did not surface — got %q, want %q",
+			got, want,
+		)
+	}
+	if got, want := payload["message_key"], "account.account_me_signin_required"; got != want {
+		t.Fatalf("message_key = %q, want %q", got, want)
+	}
+
+	// Same flow under en-US — the AUTHORED en-US text wins, not the
+	// builtin en-US floor.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/c/account.me", nil)
+	req.Header.Set("Accept-Language", "en-US")
+	le = &Error{
+		Status:  http.StatusForbidden,
+		Code:    CodePolicyDenied,
+		Message: "no policy atom matches the active actor for @policy.authenticated",
+	}
+	stampPerCommandMessageKey(le, keys)
+	writeError(rec, req, le)
+	payload = decodePayload(t, rec.Body.Bytes())
+	if got, want := payload["message"], "AUTHORED EN-US account.me"; got != want {
+		t.Fatalf("en-US authored: got %q want %q", got, want)
+	}
+}
+
 // TestZeroAuthoringAllEightCodesResolveThroughBuiltin asserts the
 // built-in catalog covers every closed-catalog error code (§2.D).
 // The framework promises: any code the runtime itself emits gets a

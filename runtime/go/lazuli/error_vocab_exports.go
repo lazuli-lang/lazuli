@@ -1,6 +1,10 @@
 package lazuli
 
-import "lazuli.dev/runtime/lazuli/i18n"
+import (
+	"embed"
+
+	"lazuli.dev/runtime/lazuli/i18n"
+)
 
 // Re-exports of the error-vocab contract types so codegen-emitted Go
 // (`dist/go/<feature>/errors.gen.go`, `dist/go/<feature>/command.gen.go`,
@@ -50,4 +54,25 @@ func RegisterFeatureErrors(feature string, contract FeatureErrorContract) {
 		appErrorRegistry.Features = map[string]FeatureErrorContract{}
 	}
 	appErrorRegistry.Features[feature] = contract
+}
+
+// RegisterFeatureTranslationCatalog merges a feature's authored
+// `translation` block (lowered by codegen into per-locale JSON files
+// embedded in `fs`) into the process-global default resolver's
+// `Catalogs` map. Codegen's `<feature>/translation.gen.go` calls this
+// once at boot per feature (Wave 3.5). Without it the authored
+// per-feature keys never reach the resolver's L1/L2 layers and the
+// chain falls through to the built-in L3 floor — that's the gap this
+// re-export closes.
+//
+// Catalog naming convention: `<basePath>/<feature>.<locale>.json`.
+// Bare JSON keys get qualified to `<feature>.<bare_key>` before
+// insertion so `MessageRef.Qualified()` lookups hit the inserted text.
+// Re-registering the same feature replaces its prior entries.
+//
+// Errors propagate from JSON parse / FS read failures so the codegen-
+// emitted init() can `panic` and fail the build loudly when a catalog
+// file is malformed.
+func RegisterFeatureTranslationCatalog(feature string, fs embed.FS, basePath string) error {
+	return i18n.RegisterFeatureTranslationCatalog(feature, fs, basePath)
 }

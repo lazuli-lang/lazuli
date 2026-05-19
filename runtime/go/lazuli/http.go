@@ -145,10 +145,66 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 	ctx := newRequestCtx(r)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
+		// Wave 3.5 — stamp the per-command MessageKey override on the
+		// error envelope before the resolver runs. Codegen sets
+		// `Command.ErrorKeys` for every command authoring
+		// `policy ... when_denied @translation.<key>` (and, post-pilot,
+		// other per-code overrides); without this stamp the resolver's
+		// L1 layer would miss every per-command authored key because
+		// `EvalPolicy` / validators write the bare code (e.g.
+		// `policy_denied`) into `Error.MessageKey`, not the qualified
+		// override key. See proposal §2.E step 1.
+		stampPerCommandMessageKey(err, cmd.ErrorKeys)
 		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// stampPerCommandMessageKey overrides `Error.MessageKey` with the
+// qualified per-command key for the matching code (proposal §2.E
+// step 1). No-op when the command has no ErrorKeys, the error is not
+// a typed `*Error`, or the matching field is zero.
+//
+// The function intentionally clobbers any pre-existing MessageKey:
+// `EvalPolicy` writes the bare `"policy_denied"` literal at
+// `policy.go:147`, and we want the qualified override (e.g.
+// `account.account_me_signin_required`) to win whenever the command
+// authored one. The resolver's L1 layer then hits the catalog entry
+// instead of falling through to L3 builtin.
+func stampPerCommandMessageKey(err error, keys *i18n.ErrorKeys) {
+	if keys == nil {
+		return
+	}
+	var le *Error
+	if !errors.As(err, &le) {
+		return
+	}
+	var ref i18n.MessageRef
+	switch le.Code {
+	case CodePolicyDenied:
+		ref = keys.PolicyDenied
+	case CodeValidationFailed:
+		ref = keys.ValidationFailed
+	case CodeTenantMismatch:
+		ref = keys.TenantMismatch
+	case CodeNotFound:
+		ref = keys.NotFound
+	case CodeRateLimited:
+		ref = keys.RateLimited
+	case CodeBadRequest:
+		ref = keys.BadRequest
+	case CodeMethodNotAllowed:
+		ref = keys.MethodNotAllowed
+	case CodeIntegrationError:
+		ref = keys.IntegrationError
+	default:
+		return
+	}
+	if ref.IsZero() {
+		return
+	}
+	le.MessageKey = ref.Qualified()
 }
 
 // handleApiRequest is the per-Api HTTP handler. It builds the request

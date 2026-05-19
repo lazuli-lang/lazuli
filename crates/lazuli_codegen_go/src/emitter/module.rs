@@ -586,10 +586,14 @@ pub fn emit_module(
             });
         }
 
-        // Cell G3a — Translation emission. Per-feature `i18n.Catalog`
-        // + `//go:embed i18n/*.json` + `embed.FS` in `translation.gen.go`.
-        // Now also emits `i18n/_placeholder.json` companion so the
-        // `//go:embed` directive resolves at compile time (cell B1).
+        // Cell G3a (Wave 3.5) — Translation emission. Lowers
+        // `feature.translation.keys[]` into one `translation.gen.go`
+        // that calls `lazuli.RegisterFeatureTranslationCatalog(...)`
+        // plus one `i18n/<feature>.<locale>.json` per locale the
+        // feature authored variants for. The runtime loader merges
+        // every authored bare key as `<feature>.<bare_key>` into the
+        // default resolver's `Catalogs` map so L1/L2 lookups hit
+        // authored text (proposal §2.E, §5.1).
         files.extend(emit_translation_files(
             &source_label,
             feature,
