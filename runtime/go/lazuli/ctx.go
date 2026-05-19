@@ -2,6 +2,7 @@ package lazuli
 
 import (
 	"context"
+	"net/http"
 	"time"
 )
 
@@ -50,7 +51,84 @@ type Ctx struct {
 	// isn't enough (e.g. step-up auth flows that need to invalidate
 	// + reissue). Empty when SessionID is zero.
 	SessionToken string
+
+	// responseWriter is the per-request `http.ResponseWriter` populated
+	// by the HTTP boundary so handlers can set cookies through
+	// `Ctx.SetSessionCookie` / `Ctx.SetCookie` / `Ctx.DeleteCookie`
+	// without taking a writer argument. Nil for non-HTTP contexts (jobs,
+	// webhooks invoked through fixtures) — the helpers then become
+	// no-ops so out-of-band code can call them safely.
+	responseWriter http.ResponseWriter
 }
+
+// withResponseWriter is the runtime-internal hook the HTTP boundary
+// uses to wire the per-request `http.ResponseWriter` into the Ctx.
+// Exposed lowercase to keep the surface tight: external handlers see
+// only the typed cookie helpers.
+func (c *Ctx) withResponseWriter(w http.ResponseWriter) {
+	c.responseWriter = w
+}
+
+// SetCookie writes a cookie on the active response. No-op when the
+// Ctx isn't attached to an HTTP request (job / fixture). Handlers use
+// this to issue session cookies without taking a writer parameter.
+//
+//	ctx.SetCookie("lazuli_session", token, lazuli.CookieOpts{TTL: 7 * 24 * time.Hour})
+func (c *Ctx) SetCookie(name, value string, opts CookieOpts) {
+	if c == nil || c.responseWriter == nil {
+		return
+	}
+	SetCookie(c.responseWriter, name, value, opts)
+}
+
+// DeleteCookie clears a cookie on the active response. No-op when the
+// Ctx isn't attached to an HTTP request. Pairs with `SetCookie` —
+// handlers use this on logout.
+//
+//	ctx.DeleteCookie("lazuli_session")
+func (c *Ctx) DeleteCookie(name string) {
+	if c == nil || c.responseWriter == nil {
+		return
+	}
+	DeleteCookie(c.responseWriter, name)
+}
+
+// SetSessionCookie issues the canonical `lazuli_session` cookie with
+// the runtime defaults (HttpOnly + SameSite=Lax + Secure when TLS).
+// Used by login handlers after `auth.IssueSession` returns the opaque
+// token. Pass `ttl=0` to use `SessionCookieTTL` (7 days).
+func (c *Ctx) SetSessionCookie(token string, ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = SessionCookieTTL
+	}
+	c.SetCookie(ProductionSessionCookieName, token, CookieOpts{
+		TTL:      ttl,
+		Path:     "/",
+		AllowJS:  false,
+		Secure:   sessionCookieSecureDefault(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// ClearSessionCookie deletes the canonical session cookie. Used by
+// logout handlers after `auth.InvalidateSession`.
+func (c *Ctx) ClearSessionCookie() {
+	c.DeleteCookie(ProductionSessionCookieName)
+}
+
+// sessionCookieSecureDefault returns whether the canonical session
+// cookie should set the `Secure` attribute. Defaults to `true` so
+// production deployments stay safe; tests and local dev flip it to
+// `false` via `SetSessionCookieSecure(false)` if the dev server isn't
+// behind HTTPS.
+var sessionCookieSecureFlag = false
+
+func sessionCookieSecureDefault() bool { return sessionCookieSecureFlag }
+
+// SetSessionCookieSecure toggles the `Secure` attribute on the
+// canonical session cookie. Boot wiring calls this with `true` in
+// production and `false` for local dev (when the API runs on http://).
+func SetSessionCookieSecure(secure bool) { sessionCookieSecureFlag = secure }
 
 // Actor names the kind of caller. Mirrors the DSL `@actor.*` namespace.
 type Actor string

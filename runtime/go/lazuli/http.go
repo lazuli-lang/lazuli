@@ -155,6 +155,7 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 	}
 
 	ctx := newRequestCtx(r)
+	ctx.withResponseWriter(w)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
 		// Wave 3.5 — stamp the per-command MessageKey override on the
@@ -238,6 +239,7 @@ func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistratio
 	}
 
 	ctx := newRequestCtx(r)
+	ctx.withResponseWriter(w)
 	out, err := api.Dispatch(ctx, body)
 	if err != nil {
 		writeError(w, r, err)
@@ -263,6 +265,7 @@ func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) 
 	}
 
 	ctx := newRequestCtx(r)
+	ctx.withResponseWriter(w)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
 		writeError(w, r, err)
@@ -286,10 +289,19 @@ func readRequestBody(r *http.Request) (json.RawMessage, error) {
 	return json.RawMessage(buf), nil
 }
 
-// newRequestCtx builds the Ctx for an inbound HTTP request. The dev-mode
-// session reader (`populateDevSession`) reads `X-Lazuli-*` headers to set
-// Actor / User / Tenant; the future auth cut replaces that helper with
-// real cookie/JWT/HMAC sessions without changing this function's contract.
+// newRequestCtx builds the Ctx for an inbound HTTP request. Two
+// auth-population paths run in order:
+//
+//  1. populateProductionSession: cookie or `Authorization: Bearer` →
+//     `SessionResolver.Resolve` → Ctx.User / Tenant / SessionID /
+//     SessionToken. No-op when no resolver is registered or the
+//     request carries no token.
+//  2. populateDevSession: `X-Lazuli-*` headers. Wins over the
+//     production path so test scaffolding stays green even when a
+//     real session cookie happens to be present.
+//
+// Either path may leave the Ctx anonymous; the policy layer decides
+// whether to deny.
 func newRequestCtx(r *http.Request) *Ctx {
 	ctx := &Ctx{
 		Context:   r.Context(),
@@ -300,6 +312,7 @@ func newRequestCtx(r *http.Request) *Ctx {
 		TraceID:   r.Header.Get("X-Trace-ID"),
 		Now:       time.Now(),
 	}
+	populateProductionSession(r, ctx)
 	populateDevSession(r, ctx)
 	return ctx
 }

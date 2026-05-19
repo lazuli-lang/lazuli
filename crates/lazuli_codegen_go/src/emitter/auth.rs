@@ -110,7 +110,34 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
         p.blank();
         emit_auth_routes(p, feature, &routes, emit_ctx);
     }
+    if auth_block.sessions.is_some() {
+        p.blank();
+        emit_session_resolver_register(p, feature, &feature_pascal);
+    }
     emit_ctx.reset_line_directive(p, line_directive_emitted);
+}
+
+/// Emit an `init()` block that registers the feature's
+/// `auth.sessions` contract with the runtime session resolver.
+/// Wires the production session middleware to this feature's table
+/// so `Authorization: Bearer <token>` and the `lazuli_session`
+/// cookie populate `Ctx.User` automatically.
+fn emit_session_resolver_register(p: &mut GoPrinter, feature: &Feature, feature_pascal: &str) {
+    write_section_banner(
+        p,
+        &[
+            format!("Auth session resolver: {}", feature.name),
+            "  wires the production session middleware to this feature".to_owned(),
+        ],
+    );
+    emit_pattern_header(p, PATTERN_AUTH_LOGIN);
+    p.line("func init() {");
+    p.indent();
+    p.line(&format!(
+        "auth.RegisterSessionContract({feature_pascal}AuthSessions)"
+    ));
+    p.dedent();
+    p.line("}");
 }
 
 fn emit_identity(p: &mut GoPrinter, identity_var: &str, auth_block: &Auth) {
@@ -696,6 +723,9 @@ mod tests {
         assert!(out.contains("Path:    \"/auth/oauth/google/callback\","));
         assert!(out.contains("Handler: auth.OAuthCallbackHandler,"));
         assert!(out.contains("// TODO(runtime): handler name verification"));
+        // Session resolver wire — production middleware lookup.
+        assert!(out.contains("// Auth session resolver: customer_auth"));
+        assert!(out.contains("auth.RegisterSessionContract(CustomerAuthAuthSessions)"));
     }
 
     #[test]
@@ -709,6 +739,7 @@ mod tests {
         assert!(!out.contains("MfaContract"));
         assert!(!out.contains("OAuthContract"));
         assert!(!out.contains("RegisterApi"));
+        assert!(!out.contains("RegisterSessionContract"));
         assert!(!out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(!out.contains("\"time\""));
     }
@@ -764,6 +795,8 @@ mod tests {
         assert!(out.contains("Handler: auth.LogoutHandler,"));
         assert!(!out.contains("portal.auth.login"));
         assert!(!out.contains("portal.auth.signup"));
+        // Session contract wired to the runtime resolver.
+        assert!(out.contains("auth.RegisterSessionContract(PortalAuthSessions)"));
     }
 
     #[test]

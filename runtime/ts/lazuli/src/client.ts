@@ -29,12 +29,35 @@ export interface LazuliClientOptions {
 export class LazuliClient {
   readonly baseUrl: string;
   private readonly fetchImpl: typeof globalThis.fetch;
-  private readonly defaultHeaders: HeadersInit;
+  private readonly defaultHeaders: Headers;
+  private authToken: string | null = null;
 
   constructor(options: LazuliClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.defaultHeaders = options.headers ?? {};
+    this.defaultHeaders = new Headers(options.headers ?? {});
+  }
+
+  /**
+   * Set the bearer token applied to every subsequent request as
+   * `Authorization: Bearer <token>`. Pass `null` to clear (logout).
+   *
+   * Typical use: after `loginAccount` returns the session token,
+   * call `client.setAuthToken(token)` so `me`/queries/commands behind
+   * `@policy.authenticated` work without each call threading the
+   * header through.
+   *
+   * Storage is in-memory; consumers wanting cross-tab/persistent auth
+   * should mirror the token to `localStorage` themselves and rehydrate
+   * with `client.setAuthToken(stored)` at app boot.
+   */
+  setAuthToken(token: string | null): void {
+    this.authToken = token;
+  }
+
+  /** Read the currently-set bearer token (or null if none). */
+  getAuthToken(): string | null {
+    return this.authToken;
   }
 
   async runCommand<Input, Output>(
@@ -55,6 +78,9 @@ export class LazuliClient {
 
   private async post<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
     const headers = new Headers(this.defaultHeaders);
+    if (this.authToken) {
+      headers.set("Authorization", `Bearer ${this.authToken}`);
+    }
     if (init?.headers) {
       new Headers(init.headers).forEach((value: string, key: string) => headers.set(key, value));
     }
