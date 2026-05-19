@@ -28,6 +28,18 @@ pub enum RouterTarget {
     Tauri,
 }
 
+/// Pattern attribution for route-guard metadata emit. The Go emitter owns the
+/// canonical catalog today; TS keeps the same tuple locally so generated files
+/// can carry the same stable marker.
+pub const PATTERN_ROUTE_GUARD: (&str, &str) = ("route_guard", "v1");
+
+pub fn route_guard_pattern_header() -> String {
+    format!(
+        "//lazuli:pattern {} {}\n",
+        PATTERN_ROUTE_GUARD.0, PATTERN_ROUTE_GUARD.1
+    )
+}
+
 /// Emit the single import line that puts a `useParams` hook in scope.
 ///
 /// The returned slice ends with a newline; emitters can write it

@@ -31,11 +31,19 @@
 //! algorithm flips on automatically — there is one place
 //! (`policy_atoms_for_query`) to wire it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 
 use lazuli_codegen_spec::{RuntimeCommand, RuntimeFeature, RuntimeQuery};
+use lazuli_ir::{
+    AppManifest, AppRoute, Experience, Feature, Platform, PlatformSurface, RouteGuardDefaults,
+    ViewGuard,
+};
 
-use crate::lzx_audience_slot::ir::{Audience, PolicyAtom};
+use crate::GeneratedFile;
+use crate::lzx::lzx_router_adapter::route_guard_pattern_header;
+use crate::lzx_audience_slot::ir::Audience;
+use crate::lzx_audience_slot::pascal_case;
 use crate::runtime::emit_feature_ts;
 
 /// Projection of the per-frontend audience set onto a feature's
@@ -217,6 +225,641 @@ pub fn emit_feature_sdk_filtered(
             .collect(),
     };
     emit_feature_ts(&filtered)
+}
+
+/// Target prefix for route-guard artifacts. Route guards are emitted beside
+/// audience SDK files (`dist/ts-web/...` or `dist/ts-mobile/...`) without
+/// changing runtime code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RouteGuardTarget {
+    Web,
+    Mobile,
+}
+
+impl RouteGuardTarget {
+    fn dist_prefix(self) -> &'static str {
+        match self {
+            RouteGuardTarget::Web => "ts-web",
+            RouteGuardTarget::Mobile => "ts-mobile",
+        }
+    }
+
+    fn platform_label(self) -> &'static str {
+        match self {
+            RouteGuardTarget::Web => "web",
+            RouteGuardTarget::Mobile => "mobile",
+        }
+    }
+
+    fn platform(self) -> Platform {
+        match self {
+            RouteGuardTarget::Web => Platform::Web,
+            RouteGuardTarget::Mobile => Platform::Mobile,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RouteGroupKey {
+    feature: String,
+    platform: String,
+    audience: String,
+}
+
+impl RouteGroupKey {
+    fn file_path(&self, target: RouteGuardTarget) -> String {
+        format!(
+            "dist/{}/{}/{}.{}.{}.gen.ts",
+            target.dist_prefix(),
+            self.feature,
+            self.feature,
+            self.platform,
+            self.audience
+        )
+    }
+
+    fn registry_import_path(&self) -> String {
+        format!(
+            "../{}/{}.{}.{}.gen.js",
+            self.feature, self.feature, self.platform, self.audience
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedPolicy {
+    name: Option<String>,
+    atoms: Vec<RoutePolicyAtom>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedGuard {
+    policy: ResolvedPolicy,
+    on_unauthenticated: Option<String>,
+    on_unauthorized: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RoutePolicyAtom {
+    namespace: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteObject {
+    path: String,
+    const_name: String,
+    component: String,
+    guard: ResolvedGuard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteRegistryEntry {
+    path: String,
+    const_name: String,
+    group: RouteGroupKey,
+}
+
+/// Emit route-guard metadata artifacts for the new guard-bearing `.lzx` IR.
+///
+/// No-op contract: when no route/view/audience guard is declared and the app
+/// has no `route_guard` block, this returns an empty vec even if
+/// `actor_query` is set. That keeps existing projects byte-for-byte stable.
+pub fn emit_route_guard_artifacts(
+    app: Option<&AppManifest>,
+    routes: &[AppRoute],
+    surfaces: &[PlatformSurface],
+    experiences: &[Experience],
+    features: &[Feature],
+    target: RouteGuardTarget,
+) -> Vec<GeneratedFile> {
+    if !has_route_guard_surface(app, routes, surfaces, experiences) {
+        return Vec::new();
+    }
+
+    let policy_lookup = build_policy_lookup(features);
+    let app_defaults = app.and_then(|app| app.route_guard.as_ref());
+    let mut groups: BTreeMap<RouteGroupKey, Vec<RouteObject>> = BTreeMap::new();
+    let mut registry_entries: Vec<RouteRegistryEntry> = Vec::new();
+
+    for route in routes {
+        let Some(path) = route.path.as_ref() else {
+            continue;
+        };
+
+        let (group, view_guard, audience_guard, experience_guard) =
+            route_context(route, surfaces, experiences, target);
+        let default_feature = group.feature.as_str();
+        let Some(guard) = resolve_route_guard(
+            route.guard.as_ref(),
+            view_guard,
+            experience_guard,
+            audience_guard,
+            app_defaults,
+            &policy_lookup,
+            default_feature,
+        ) else {
+            continue;
+        };
+
+        let const_name = route_const_name(&route.name);
+        let object = RouteObject {
+            path: path.clone(),
+            const_name: const_name.clone(),
+            component: route_component_name(route),
+            guard,
+        };
+        registry_entries.push(RouteRegistryEntry {
+            path: path.clone(),
+            const_name,
+            group: group.clone(),
+        });
+        groups.entry(group).or_default().push(object);
+    }
+
+    for objects in groups.values_mut() {
+        objects.sort_by(|a, b| a.const_name.cmp(&b.const_name));
+    }
+    registry_entries.sort_by(|a, b| a.path.cmp(&b.path).then(a.const_name.cmp(&b.const_name)));
+
+    let mut files = Vec::new();
+    for (group, objects) in &groups {
+        files.push(GeneratedFile {
+            path: group.file_path(target),
+            contents: emit_audience_route_guard_sdk(objects),
+        });
+    }
+
+    files.push(GeneratedFile {
+        path: format!("dist/{}/app/route-guards.gen.ts", target.dist_prefix()),
+        contents: emit_route_guard_registry(app, app_defaults, &policy_lookup, &registry_entries),
+    });
+
+    files
+}
+
+fn has_route_guard_surface(
+    app: Option<&AppManifest>,
+    routes: &[AppRoute],
+    surfaces: &[PlatformSurface],
+    experiences: &[Experience],
+) -> bool {
+    app.and_then(|app| app.route_guard.as_ref()).is_some()
+        || routes.iter().any(|route| route.guard.is_some())
+        || surfaces.iter().any(|surface| {
+            surface.audiences.iter().any(|audience| {
+                audience.guard.is_some() || audience.views.iter().any(|view| view.guard.is_some())
+            })
+        })
+        || experiences
+            .iter()
+            .any(|experience| experience.views.iter().any(|view| view.guard.is_some()))
+}
+
+fn route_context<'a>(
+    route: &AppRoute,
+    surfaces: &'a [PlatformSurface],
+    experiences: &'a [Experience],
+    target: RouteGuardTarget,
+) -> (
+    RouteGroupKey,
+    Option<&'a ViewGuard>,
+    Option<&'a ViewGuard>,
+    Option<&'a ViewGuard>,
+) {
+    let view_name =
+        route_target_view_name(route.to.as_deref()).unwrap_or_else(|| route.name.clone());
+    let route_surface = route.surface.as_deref();
+    let route_audience = route.audience.as_deref().unwrap_or("default");
+    let route_feature = route_target_feature(route.to.as_deref())
+        .or_else(|| surface_feature(route_surface))
+        .unwrap_or_else(|| route_feature_from_name(&route.name));
+
+    let surface = surfaces
+        .iter()
+        .filter(|surface| surface.platform == target.platform())
+        .find(|surface| surface_matches(surface, route_surface, &route_feature, target));
+
+    let audience = surface.and_then(|surface| {
+        surface
+            .audiences
+            .iter()
+            .find(|audience| audience.name == route_audience)
+            .or_else(|| {
+                if route.audience.is_none() {
+                    surface.audiences.first()
+                } else {
+                    None
+                }
+            })
+    });
+
+    let view_guard = audience.and_then(|audience| {
+        audience
+            .views
+            .iter()
+            .find(|view| view.name == view_name)
+            .and_then(|view| view.guard.as_ref())
+    });
+    let audience_guard = audience.and_then(|audience| audience.guard.as_ref());
+    let experience_guard = surface.and_then(|surface| {
+        let experience_name = surface
+            .uses_experience
+            .as_deref()
+            .unwrap_or(surface.experience.as_str());
+        experiences
+            .iter()
+            .find(|experience| experience.name == experience_name)
+            .and_then(|experience| {
+                experience
+                    .views
+                    .iter()
+                    .find(|view| view.name == view_name)
+                    .and_then(|view| view.guard.as_ref())
+            })
+    });
+
+    let group = RouteGroupKey {
+        feature: surface
+            .map(|surface| surface.experience.clone())
+            .unwrap_or(route_feature),
+        platform: target.platform_label().to_owned(),
+        audience: audience
+            .map(|audience| audience.name.clone())
+            .or_else(|| route.audience.clone())
+            .unwrap_or_else(|| "default".to_owned()),
+    };
+
+    (group, view_guard, audience_guard, experience_guard)
+}
+
+fn surface_matches(
+    surface: &PlatformSurface,
+    route_surface: Option<&str>,
+    route_feature: &str,
+    target: RouteGuardTarget,
+) -> bool {
+    let Some(route_surface) = route_surface else {
+        return surface.experience == route_feature;
+    };
+    let labels = [
+        surface.experience.clone(),
+        format!("{} {}", surface.experience, target.platform_label()),
+        format!("{}.{}", surface.experience, target.platform_label()),
+    ];
+    labels.iter().any(|label| label == route_surface)
+}
+
+fn resolve_route_guard(
+    route_guard: Option<&ViewGuard>,
+    view_guard: Option<&ViewGuard>,
+    experience_guard: Option<&ViewGuard>,
+    audience_guard: Option<&ViewGuard>,
+    app_defaults: Option<&RouteGuardDefaults>,
+    policies: &BTreeMap<(String, String), Vec<RoutePolicyAtom>>,
+    default_feature: &str,
+) -> Option<ResolvedGuard> {
+    let guard_chain = [route_guard, view_guard, experience_guard, audience_guard];
+    let policy_text = guard_chain
+        .iter()
+        .find_map(|guard| guard.map(|guard| guard.policy.as_str()))
+        .or_else(|| app_defaults.and_then(|defaults| defaults.default_policy.as_deref()))?;
+    let policy = resolve_policy(policy_text, policies, default_feature);
+    let on_unauthenticated = guard_chain
+        .iter()
+        .find_map(|guard| guard.and_then(|guard| guard.on_unauthenticated.clone()))
+        .or_else(|| app_defaults.and_then(|defaults| defaults.on_unauthenticated.clone()));
+    let on_unauthorized = guard_chain
+        .iter()
+        .find_map(|guard| guard.and_then(|guard| guard.on_unauthorized.clone()))
+        .or_else(|| app_defaults.and_then(|defaults| defaults.on_unauthorized.clone()));
+
+    Some(ResolvedGuard {
+        policy,
+        on_unauthenticated,
+        on_unauthorized,
+    })
+}
+
+fn build_policy_lookup(features: &[Feature]) -> BTreeMap<(String, String), Vec<RoutePolicyAtom>> {
+    let mut out = BTreeMap::new();
+    for feature in features {
+        for category in &feature.policies.categories {
+            let mut atoms: Vec<RoutePolicyAtom> = category
+                .atoms
+                .iter()
+                .filter_map(|atom| parse_policy_atom(atom))
+                .collect();
+            sort_policy_atoms(&mut atoms);
+            out.insert((feature.name.clone(), category.name.clone()), atoms);
+        }
+    }
+    out
+}
+
+fn resolve_policy(
+    policy: &str,
+    policies: &BTreeMap<(String, String), Vec<RoutePolicyAtom>>,
+    default_feature: &str,
+) -> ResolvedPolicy {
+    if !policy.starts_with("@policy.") {
+        if let Some(atom) = parse_policy_atom(policy) {
+            return ResolvedPolicy {
+                name: None,
+                atoms: vec![atom],
+            };
+        }
+    }
+
+    if let Some((feature, category)) = parse_policy_ref(policy, default_feature) {
+        let atoms = policies
+            .get(&(feature, category))
+            .cloned()
+            .unwrap_or_default();
+        return ResolvedPolicy {
+            name: Some(policy.to_owned()),
+            atoms,
+        };
+    }
+
+    ResolvedPolicy {
+        name: Some(policy.to_owned()),
+        atoms: Vec::new(),
+    }
+}
+
+fn parse_policy_ref(policy: &str, default_feature: &str) -> Option<(String, String)> {
+    let tail = policy.strip_prefix("@policy.")?;
+    let mut parts = tail.split('.');
+    let first = parts.next()?.trim();
+    let second = parts.next();
+    if let Some(second) = second {
+        let rest = std::iter::once(second)
+            .chain(parts)
+            .collect::<Vec<_>>()
+            .join(".");
+        Some((first.to_owned(), rest))
+    } else {
+        Some((default_feature.to_owned(), first.to_owned()))
+    }
+}
+
+fn parse_policy_atom(value: &str) -> Option<RoutePolicyAtom> {
+    let raw = value.trim().trim_start_matches('@');
+    let (namespace, name) = raw.split_once('.')?;
+    if namespace.is_empty() || name.is_empty() || namespace == "policy" {
+        return None;
+    }
+    Some(RoutePolicyAtom {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+    })
+}
+
+fn sort_policy_atoms(atoms: &mut Vec<RoutePolicyAtom>) {
+    atoms.sort_by(|a, b| {
+        policy_namespace_rank(&a.namespace)
+            .cmp(&policy_namespace_rank(&b.namespace))
+            .then(a.namespace.cmp(&b.namespace))
+            .then(a.name.cmp(&b.name))
+    });
+    atoms.dedup_by(|a, b| a.namespace == b.namespace && a.name == b.name);
+}
+
+fn policy_namespace_rank(namespace: &str) -> u8 {
+    match namespace {
+        "scope" => 0,
+        "role" => 1,
+        "actor" => 2,
+        _ => 9,
+    }
+}
+
+fn emit_audience_route_guard_sdk(routes: &[RouteObject]) -> String {
+    let mut s = String::new();
+    s.push_str("// Code generated by lazuli; DO NOT EDIT.\n");
+    s.push_str(&route_guard_pattern_header());
+    writeln!(
+        s,
+        "import type {{ RouteGuardSpec }} from \"@lazuli/runtime/react\";"
+    )
+    .ok();
+
+    let components: BTreeSet<&str> = routes
+        .iter()
+        .map(|route| route.component.as_str())
+        .collect();
+    for component in components {
+        writeln!(
+            s,
+            "import {{ {} }} from \"./components/{}.js\";",
+            component, component
+        )
+        .ok();
+    }
+    writeln!(s).ok();
+
+    for (index, route) in routes.iter().enumerate() {
+        writeln!(s, "export const {} = {{", route.const_name).ok();
+        writeln!(s, "  path: {},", ts_string(&route.path)).ok();
+        writeln!(s, "  component: {},", route.component).ok();
+        write_policy_property(&mut s, "policy", &route.guard.policy, 2);
+        if let Some(path) = &route.guard.on_unauthenticated {
+            writeln!(s, "  onUnauthenticated: {},", ts_string(path)).ok();
+        }
+        if let Some(path) = &route.guard.on_unauthorized {
+            writeln!(s, "  onUnauthorized: {},", ts_string(path)).ok();
+        }
+        writeln!(
+            s,
+            "}} as const satisfies RouteGuardSpec<typeof {}>;",
+            route.component
+        )
+        .ok();
+        if index + 1 < routes.len() {
+            writeln!(s).ok();
+        }
+    }
+
+    s
+}
+
+fn emit_route_guard_registry(
+    app: Option<&AppManifest>,
+    app_defaults: Option<&RouteGuardDefaults>,
+    policies: &BTreeMap<(String, String), Vec<RoutePolicyAtom>>,
+    entries: &[RouteRegistryEntry],
+) -> String {
+    let mut s = String::new();
+    s.push_str("// Code generated by lazuli; DO NOT EDIT.\n");
+    s.push_str(&route_guard_pattern_header());
+    writeln!(
+        s,
+        "import type {{ ActorQueryRef, RouteGuard, RouteGuardRegistry }} from \"@lazuli/runtime/react\";"
+    )
+    .ok();
+
+    let mut imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for entry in entries {
+        imports
+            .entry(entry.group.registry_import_path())
+            .or_default()
+            .insert(entry.const_name.clone());
+    }
+    for (path, names) in imports {
+        let joined = names.into_iter().collect::<Vec<_>>().join(", ");
+        writeln!(s, "import {{ {} }} from \"{}\";", joined, path).ok();
+    }
+    writeln!(s).ok();
+
+    writeln!(
+        s,
+        "const resolvedRouteGuards: Record<string, RouteGuard> = {{"
+    )
+    .ok();
+    for entry in entries {
+        writeln!(s, "  {}: {},", ts_string(&entry.path), entry.const_name).ok();
+    }
+    writeln!(s, "}};").ok();
+    writeln!(s).ok();
+
+    writeln!(s, "export const routeGuardRegistry = {{").ok();
+    writeln!(s, "  defaults: {{").ok();
+    if let Some(default_policy) = app_defaults.and_then(|defaults| defaults.default_policy.as_ref())
+    {
+        let policy = resolve_policy(default_policy, policies, "");
+        write_policy_property(&mut s, "policy", &policy, 4);
+    } else {
+        writeln!(s, "    policy: null,").ok();
+    }
+    write_nullable_string_property(
+        &mut s,
+        "unauthenticated",
+        app_defaults.and_then(|defaults| defaults.on_unauthenticated.as_deref()),
+        4,
+    );
+    write_nullable_string_property(
+        &mut s,
+        "unauthorized",
+        app_defaults.and_then(|defaults| defaults.on_unauthorized.as_deref()),
+        4,
+    );
+    write_nullable_string_property(
+        &mut s,
+        "skeleton",
+        app_defaults.and_then(|defaults| defaults.skeleton.as_deref()),
+        4,
+    );
+    writeln!(s, "  }},").ok();
+    match app.and_then(|app| app.actor_query.as_ref()) {
+        Some(actor_query) => {
+            writeln!(
+                s,
+                "  actorQuery: {} as ActorQueryRef,",
+                ts_string(actor_query)
+            )
+            .ok();
+        }
+        None => {
+            writeln!(s, "  actorQuery: null,").ok();
+        }
+    }
+    writeln!(s, "  routes: resolvedRouteGuards,").ok();
+    writeln!(s, "}} as const satisfies RouteGuardRegistry;").ok();
+
+    s
+}
+
+fn write_policy_property(s: &mut String, property: &str, policy: &ResolvedPolicy, indent: usize) {
+    let pad = " ".repeat(indent);
+    writeln!(s, "{}{}: {{", pad, property).ok();
+    if let Some(name) = &policy.name {
+        writeln!(s, "{}  name: {},", pad, ts_string(name)).ok();
+    }
+    writeln!(s, "{}  atoms: [", pad).ok();
+    for atom in &policy.atoms {
+        writeln!(
+            s,
+            "{}    {{ namespace: {}, name: {} }},",
+            pad,
+            ts_string(&atom.namespace),
+            ts_string(&atom.name)
+        )
+        .ok();
+    }
+    writeln!(s, "{}  ],", pad).ok();
+    writeln!(s, "{}}},", pad).ok();
+}
+
+fn write_nullable_string_property(
+    s: &mut String,
+    property: &str,
+    value: Option<&str>,
+    indent: usize,
+) {
+    let pad = " ".repeat(indent);
+    match value {
+        Some(value) => {
+            writeln!(s, "{}{}: {},", pad, property, ts_string(value)).ok();
+        }
+        None => {
+            writeln!(s, "{}{}: null,", pad, property).ok();
+        }
+    }
+}
+
+fn route_const_name(name: &str) -> String {
+    let pascal = pascal_case(name);
+    let mut chars = pascal.chars();
+    match chars.next() {
+        Some(first) => {
+            let mut out = String::with_capacity(pascal.len() + "Route".len());
+            for c in first.to_lowercase() {
+                out.push(c);
+            }
+            out.push_str(chars.as_str());
+            out.push_str("Route");
+            out
+        }
+        None => "route".to_owned(),
+    }
+}
+
+fn route_component_name(route: &AppRoute) -> String {
+    format!("{}Screen", pascal_case(&route.name))
+}
+
+fn route_target_feature(to: Option<&str>) -> Option<String> {
+    let target = to?.split('(').next()?.trim();
+    let (feature, _) = target.split_once(".view.")?;
+    (!feature.is_empty()).then(|| feature.to_owned())
+}
+
+fn route_target_view_name(to: Option<&str>) -> Option<String> {
+    let target = to?.split('(').next()?.trim();
+    let after_view = target.split(".view.").nth(1)?;
+    let view = after_view.split('.').next()?.trim();
+    (!view.is_empty()).then(|| view.to_owned())
+}
+
+fn surface_feature(surface: Option<&str>) -> Option<String> {
+    surface?
+        .split(|ch: char| ch == ' ' || ch == '.')
+        .next()
+        .filter(|feature| !feature.is_empty())
+        .map(str::to_owned)
+}
+
+fn route_feature_from_name(name: &str) -> String {
+    name.split(['_', '-'])
+        .next()
+        .filter(|feature| !feature.is_empty())
+        .unwrap_or("app")
+        .to_owned()
+}
+
+fn ts_string(value: &str) -> String {
+    serde_json::to_string(value).expect("string literal must serialize")
 }
 
 // ---------------------------------------------------------------------------

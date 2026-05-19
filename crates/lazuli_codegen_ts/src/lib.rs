@@ -101,6 +101,15 @@ pub fn generate(module: &Module) -> Vec<GeneratedFile> {
         ]);
     }
 
+    files.extend(lzx_audience_slot::emit_route_guard_artifacts(
+        module.app.as_ref(),
+        &[],
+        &[],
+        &[],
+        &module.features,
+        lzx_audience_slot::RouteGuardTarget::Web,
+    ));
+
     // RB.C — emit `dist/ts-web/rbac/rbac.gen.ts` when the package
     // declares a `permission` / `role` catalog. Audience-scoping is
     // deferred per docs/proposals/rbac-catalog-vocab.md §Codegen-TS;

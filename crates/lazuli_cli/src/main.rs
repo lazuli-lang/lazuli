@@ -1042,6 +1042,17 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         });
     }
 
+    files.extend(
+        lazuli_codegen_ts::lzx_audience_slot::emit_route_guard_artifacts(
+            module.app.as_ref(),
+            &[],
+            &[],
+            &[],
+            &module.features,
+            lazuli_codegen_ts::lzx_audience_slot::RouteGuardTarget::Web,
+        ),
+    );
+
     // Per-feature: SDK (audience-filtered if frontend declares audiences),
     // Zod schemas, .lzx view hooks (one file per audience/view tuple),
     // slot interfaces (one per @client.<slot> binding).

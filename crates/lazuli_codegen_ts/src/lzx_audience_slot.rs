@@ -28,7 +28,8 @@ pub mod audience_sdk;
 pub mod slot_interface;
 
 pub use audience_sdk::{
-    AudienceProjection, compute_audience_projection, emit_feature_sdk_filtered,
+    AudienceProjection, RouteGuardTarget, compute_audience_projection, emit_feature_sdk_filtered,
+    emit_route_guard_artifacts,
 };
 pub use slot_interface::emit_slot_interface;
 
