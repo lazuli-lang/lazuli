@@ -24,6 +24,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
+    "tsc": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

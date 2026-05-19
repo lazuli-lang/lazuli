@@ -53,8 +53,21 @@ export {
   type RouteGuardVerdict,
   type WithTanStackGuardOptions,
 } from "./route-guard.js";
-export { RouteGuard, type RouteGuardProps } from "./route-guard-component.js";
+export {
+  RouteGuard,
+  useRouteGuardSkeleton,
+  withRouteGuard,
+  type RouteGuardOptions,
+  type RouteGuardProps,
+} from "./route-guard-component.js";
 export { useActor, useLazuliClient, type UseActorResult } from "./use-actor.js";
+export {
+  useLifecycleGate,
+  withLifecycleGate,
+  type LifecycleGateEvaluator,
+  type LifecycleGateMetadata,
+  type LifecycleVerdict,
+} from "./lifecycle-gate.js";
 
 // --- Universal client/query/command hooks --------------------------------
 
