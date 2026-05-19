@@ -685,6 +685,8 @@ mod tests {
             returns: TypeRef::Many(Box::new(user_defined(Some("account"), "User"))),
             sql_path: "queries/recent_users.sql".to_owned(),
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,

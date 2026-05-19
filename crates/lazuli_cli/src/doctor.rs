@@ -19252,6 +19252,8 @@ feature customer
             paginate: None,
             modifier: None,
             cache: Some(cache),
+            policy: lazuli_ir::PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,

@@ -1208,6 +1208,8 @@ fn lower_query(query: &syntax::Query) -> ir::Query {
         paginate: None,
         modifier: None,
         cache: None,
+        policy: ir::PolicyRef::None,
+        policy_expr: None,
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: Some(span_of(query.span)),
@@ -2336,6 +2338,15 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
                 list.cache_profile_ref.as_deref(),
                 caches,
             ),
+            // QUERY-POLICY-001 — route the parsed `policy @policy.<X>`
+            // atom into IR so codegen can emit a non-empty
+            // `lazuli.Policy{...}` literal. Mirrors `lower_command_decl`.
+            policy: list
+                .policy
+                .as_deref()
+                .map(lower_policy_atom)
+                .unwrap_or(ir::PolicyRef::None),
+            policy_expr: list.policy_expr.as_ref().map(lower_policy_expr),
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(list.span)),
@@ -2355,6 +2366,13 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
             scope: Vec::new(),
             scope_override: false,
             filters: Vec::new(),
+            // QUERY-POLICY-001 — same lowering as `query.list`.
+            policy: lookup
+                .policy
+                .as_deref()
+                .map(lower_policy_atom)
+                .unwrap_or(ir::PolicyRef::None),
+            policy_expr: lookup.policy_expr.as_ref().map(lower_policy_expr),
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(lookup.span)),
@@ -2372,6 +2390,13 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
             returns: type_ref_from_text(&sql.returns),
             sql_path: sql.sql_path.clone(),
             cache: None,
+            // QUERY-POLICY-001 — same lowering as `query.list`.
+            policy: sql
+                .policy
+                .as_deref()
+                .map(lower_policy_atom)
+                .unwrap_or(ir::PolicyRef::None),
+            policy_expr: sql.policy_expr.as_ref().map(lower_policy_expr),
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(sql.span)),

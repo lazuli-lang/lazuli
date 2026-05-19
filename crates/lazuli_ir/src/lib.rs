@@ -1402,14 +1402,25 @@ pub struct Assignment {
 /// Policy reference. `Local` = feature-local policy category. `Atom` = closed
 /// `@role.*`/`@scope.*`/`@actor.*` namespace. `External` = `<feature>.<name>`.
 /// `Unresolved` covers legacy strings until full lowering lands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", content = "value")]
 pub enum PolicyRef {
     Local(String),
     Atom(String),
     External { feature: String, name: String },
     Unresolved(String),
+    #[default]
     None,
+}
+
+impl PolicyRef {
+    /// Returns `true` when the policy is unset. Used by serde's
+    /// `skip_serializing_if` on query / command IR fields so absent
+    /// per-callable policies serialize cleanly and round-trip back to
+    /// `PolicyRef::None` (the explicit "feature-default applies" marker).
+    pub fn is_none(&self) -> bool {
+        matches!(self, PolicyRef::None)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1557,6 +1568,19 @@ pub struct ListQuery {
     /// Cache bucket cycle — typed `cache` block (key/ttl/tags?/namespace?).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<QueryCache>,
+    /// Per-query authored `policy @policy.<name>`. Mirrors
+    /// `Command.policy`. `PolicyRef::None` (the default) means "fall
+    /// back to the feature-level default policy" — preserving the
+    /// pre-existing precedence for fixtures that never authored a
+    /// per-query policy.
+    #[serde(default, skip_serializing_if = "PolicyRef::is_none")]
+    pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form when the authored
+    /// policy contained predicates (`has_role` / `has_permission` /
+    /// `authenticated`) or boolean combinators. Coexists with `policy`
+    /// (legacy atom ref) for back-compat. Mirrors `Command.policy_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     /// IR Error-Vocab — per-query override for the `policy_denied`
     /// error message. Highest-precedence step in the resolution chain
     /// for queries (proposal §3.3). Codegen wiring tracks the
@@ -1584,6 +1608,15 @@ pub struct LookupQuery {
     pub scope_override: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<Filter>,
+    /// Per-query authored `policy @policy.<name>`. Mirrors
+    /// `Command.policy`. `PolicyRef::None` (the default) means "fall
+    /// back to the feature-level default policy".
+    #[serde(default, skip_serializing_if = "PolicyRef::is_none")]
+    pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form. Mirrors
+    /// `Command.policy_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     /// IR Error-Vocab — per-query override for the `policy_denied`
     /// error message. Same shape as `Command.policy_when_denied`. See
     /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
@@ -1614,6 +1647,15 @@ pub struct SqlQuery {
     /// only authors cache on list/sql shapes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<QueryCache>,
+    /// Per-query authored `policy @policy.<name>`. Mirrors
+    /// `Command.policy`. `PolicyRef::None` (the default) means "fall
+    /// back to the feature-level default policy".
+    #[serde(default, skip_serializing_if = "PolicyRef::is_none")]
+    pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form. Mirrors
+    /// `Command.policy_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
     /// IR Error-Vocab — per-query override for the `policy_denied`
     /// error message. Same shape as `Command.policy_when_denied`. See
     /// `docs/proposals/ir-error-messages-vocab.md` §3.3.

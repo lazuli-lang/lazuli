@@ -167,7 +167,7 @@ fn resource_name_from_type_ref(type_ref: &TypeRef) -> Option<&str> {
 mod tests {
     use lazuli_ir::{
         Audience, Defaults, EnumDecl, FieldConstraints, FilterCardinality, FilterDecl, ListQuery,
-        ListRender, Policies, QualifiedName, SpanRef, Surface, SurfaceTarget, ViewList,
+        ListRender, Policies, PolicyRef, QualifiedName, SpanRef, Surface, SurfaceTarget, ViewList,
     };
 
     use super::*;
@@ -275,6 +275,8 @@ mod tests {
                     paginate: None,
                     modifier: None,
                     cache: None,
+                    policy: PolicyRef::None,
+                    policy_expr: None,
                     policy_when_denied: None,
                     previous_names: Vec::new(),
                     span_ref: None,

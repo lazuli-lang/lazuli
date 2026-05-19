@@ -147,6 +147,8 @@ fn emit_list_query(
         emit_ctx,
         &query.name,
         query.span_ref,
+        &query.policy,
+        query.policy_expr.as_ref(),
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.list", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
@@ -211,6 +213,8 @@ fn emit_lookup_query(
         emit_ctx,
         &query.name,
         query.span_ref,
+        &query.policy,
+        query.policy_expr.as_ref(),
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.lookup", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
@@ -262,6 +266,8 @@ fn emit_sql_query(
         emit_ctx,
         &query.name,
         query.span_ref,
+        &query.policy,
+        query.policy_expr.as_ref(),
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.sql", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
@@ -287,6 +293,8 @@ fn emit_query_header(
     emit_ctx: &EmitContext<'_>,
     op: &str,
     span: Option<lazuli_ir::SpanRef>,
+    query_policy: &PolicyRef,
+    query_policy_expr: Option<&lazuli_ir::PolicyExpr>,
 ) {
     let mut kv_rows: Vec<(String, String)> = Vec::new();
     kv_rows.push(("Name:".to_owned(), format!("\"{qualified_name}\",")));
@@ -299,17 +307,33 @@ fn emit_query_header(
         kv_rows.push(("Resource:".to_owned(), "nil,".to_owned()));
     }
     kv_rows.push(("Kind:".to_owned(), format!("{kind_const},")));
-    let policy = match &feature.defaults.policy {
-        Some(policy) => super::command::format_policy_with_expr_public(
-            policy,
-            None,
+    // QUERY-POLICY-001 — precedence mirrors `Command`: per-query
+    // authored `policy @policy.<X>` (carried on the IR field) wins;
+    // `PolicyRef::None` (the default) means "no override authored on
+    // this query" and falls back to the feature-level default. Without
+    // this branch, every authored `policy @policy.X` line on a query
+    // was lost between parse and emit, and the runtime refused to run
+    // the query with a `command/query registered with empty policy`
+    // panic.
+    let policy = if !query_policy.is_none() || query_policy_expr.is_some() {
+        super::command::format_policy_with_expr_public(
+            query_policy,
+            query_policy_expr,
             Some(&feature.policies),
-        ),
-        None => super::command::format_policy_with_expr_public(
-            &PolicyRef::None,
-            None,
-            Some(&feature.policies),
-        ),
+        )
+    } else {
+        match &feature.defaults.policy {
+            Some(policy) => super::command::format_policy_with_expr_public(
+                policy,
+                None,
+                Some(&feature.policies),
+            ),
+            None => super::command::format_policy_with_expr_public(
+                &PolicyRef::None,
+                None,
+                Some(&feature.policies),
+            ),
+        }
     };
     kv_rows.push(("Policy:".to_owned(), policy));
 
@@ -1168,6 +1192,8 @@ mod tests {
                 namespace: Some("customer".to_owned()),
                 profile_ref: None,
             }),
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1205,6 +1231,8 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1238,6 +1266,8 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1274,6 +1304,8 @@ mod tests {
             scope: Vec::new(),
             scope_override: false,
             filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1310,6 +1342,8 @@ mod tests {
                 namespace: None,
                 profile_ref: None,
             }),
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1340,6 +1374,8 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1355,6 +1391,8 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1386,6 +1424,8 @@ mod tests {
             paginate: Some(50),
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1457,6 +1497,8 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
@@ -1466,6 +1508,151 @@ mod tests {
         assert!(
             !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "no billing import when no gates:\n{out}"
+        );
+    }
+
+    /// QUERY-POLICY-001 — `query.lookup` authoring `policy
+    /// @policy.<name>` must emit a non-empty `lazuli.Policy{Name,
+    /// Atoms}` literal that resolves through the feature's `Policies`
+    /// catalog. The runtime rejects any registered command/query with
+    /// an empty policy (`command/query registered with empty policy`),
+    /// so a regression here panics every hostpoint API call.
+    #[test]
+    fn lookup_query_with_authored_policy_emits_resolved_atoms() {
+        let mut feature = base_feature("traveler");
+        feature.resources.push(resource(
+            "Traveler",
+            vec![field("name", TypeRef::Builtin(BuiltinType::Text), true)],
+        ));
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "traveler_only".to_owned(),
+                atoms: vec!["@actor.traveler".to_owned()],
+                previous_names: Vec::new(),
+                when_denied: None,
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "my_traveler".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![KeyClause {
+                path: lazuli_ir::Path::from_segments(["id"]),
+                equals: Expr::Path(lazuli_ir::Path::from_segments(["id"])),
+            }],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::Local("traveler_only".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "Policy:   lazuli.Policy{Name: \"@policy.traveler_only\", Atoms: []lazuli.PolicyAtom{{Namespace: \"actor\", Name: \"traveler\"}}},"
+            ),
+            "per-lookup-query policy should resolve to feature catalog atoms; got:\n{out}"
+        );
+        assert!(
+            !out.contains("Policy:   lazuli.Policy{},"),
+            "no empty-policy literal should leak through:\n{out}"
+        );
+    }
+
+    /// QUERY-POLICY-001 — when the query authors NO `policy` and the
+    /// feature has a `defaults.policy`, the feature default wins
+    /// (back-compat with the pre-fix behavior).
+    #[test]
+    fn list_query_without_authored_policy_falls_back_to_feature_default() {
+        let mut feature = base_feature("customer");
+        feature.defaults.policy = Some(PolicyRef::Local("read".to_owned()));
+        feature.resources.push(resource("Customer", Vec::new()));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        // The pre-fix golden assertion at line 1182 still matches —
+        // feature-level default kept its precedence when the query
+        // is silent.
+        assert!(
+            out.contains("Policy:   lazuli.Policy{Name: \"@policy.read\"},"),
+            "feature-default policy should still apply when query is silent; got:\n{out}"
+        );
+    }
+
+    /// QUERY-POLICY-001 — when the query authors a `policy` AND the
+    /// feature also has a `defaults.policy`, the per-query authoring
+    /// wins (Command precedence parity).
+    #[test]
+    fn sql_query_authored_policy_overrides_feature_default() {
+        let mut feature = base_feature("customer");
+        feature.defaults.policy = Some(PolicyRef::Local("read".to_owned()));
+        feature.policies = Policies {
+            categories: vec![
+                lazuli_ir::PolicyCategory {
+                    name: "read".to_owned(),
+                    atoms: vec!["@scope.same_org".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                },
+                lazuli_ir::PolicyCategory {
+                    name: "audit".to_owned(),
+                    atoms: vec!["@role.admin".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                },
+            ],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        feature.records.push(record("AuditRow"));
+        feature.queries.push(Query::Sql(SqlQuery {
+            name: "audit_dump".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("AuditRow")))),
+            sql_path: "./queries/audit_dump.sql".to_owned(),
+            cache: None,
+            policy: PolicyRef::Local("audit".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "Policy:   lazuli.Policy{Name: \"@policy.audit\", Atoms: []lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}},"
+            ),
+            "per-query authored `policy` should beat feature-default; got:\n{out}"
+        );
+        assert!(
+            !out.contains("Name: \"@policy.read\""),
+            "feature-default policy should NOT leak when query authored its own; got:\n{out}"
         );
     }
 }
@@ -1644,6 +1831,8 @@ mod feature_emit {
             paginate: Some(25),
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,

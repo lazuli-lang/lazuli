@@ -217,6 +217,8 @@ mod tests {
             paginate: None,
             modifier: None,
             cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
