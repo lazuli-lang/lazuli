@@ -1716,6 +1716,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
 /// Sorted alphabetically for diff hygiene.
 const APP_BODY_KINDS: &[&str] = &[
     "architecture",
+    "actor_query",
     "auth_failed_redirect",
     "bindings",
     "capabilities",
@@ -1738,6 +1739,7 @@ const APP_BODY_KINDS: &[&str] = &[
     "not_found",
     "packs",
     "proxy",
+    "route_guard",
     "runtime",
     "services",
     "targets",
@@ -1789,6 +1791,7 @@ const VIEW_BODY_KINDS: &[&str] = &[
     "filter",
     "filters",
     "lazy",
+    "policy",
     "prerender",
     "route",
     "search",
@@ -1872,7 +1875,7 @@ const QUERY_STATEMENT_KINDS: &[&str] = &[
 /// `view list|detail|create <name>` are valid. The `requires` lines
 /// are filtered out by the leading-`@` skip; we catalog the bare kind
 /// keywords here.
-const AUDIENCE_BODY_KINDS: &[&str] = &["requires", "view"];
+const AUDIENCE_BODY_KINDS: &[&str] = &["policy", "requires", "view"];
 
 /// 2026-05-15 — Indent-2 kind keywords inside `app <name>`. Without
 /// this lint, a typo like `urls` → `urs` is silently dropped by the
@@ -1913,7 +1916,7 @@ fn app_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "unknown app block kind `{first}`. Did you mean `{suggested}`?"
             ),
             None => format!(
-                "unknown app block kind `{first}`. Valid kinds: title / version / lazuli_version / targets / bindings / packs / environments / urls / cors / headers / cookie / proxy / limits / env / integrations / capabilities / architecture / services / communication / runtime / deploy / logging / tracing / locale / encryption / error_page / uses / default_locale / default_timezone / auth_failed_redirect / not_found."
+                "unknown app block kind `{first}`. Valid kinds: title / version / lazuli_version / targets / bindings / packs / environments / urls / cors / headers / cookie / proxy / limits / env / integrations / capabilities / architecture / services / communication / runtime / deploy / logging / tracing / locale / encryption / error_page / uses / default_locale / default_timezone / auth_failed_redirect / route_guard / actor_query / not_found."
             ),
         };
         diagnostics.push(simple_canonical_diagnostic(
@@ -8669,6 +8672,9 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 // `parse_app_manifest`; skip the "unknown app block"
                 // warning here.
                 Some("locale") => {}
+                // ir-route-guards Cell PARSE-1 — app-level guard
+                // defaults are validated by the parser/analyzer.
+                Some("route_guard") => {}
                 // Encryption bucket cycle — `encryption` children are
                 // `key @key.<scope>` lines validated by doctor's
                 // encryption_binding_diagnostics; skip the "unknown
@@ -8851,6 +8857,7 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
         "communication" => Some("communication"),
         "runtime" => Some("runtime"),
         "deploy" => Some("deploy"),
+        "route_guard" => Some("route_guard"),
         // Observability bucket cycle row 36 — `app.logging` /
         // `app.tracing` are first-class app blocks. Child slots
         // (`level`/`format`/`redact`/`sample_rate` for logging;
@@ -9600,6 +9607,7 @@ fn is_app_scalar_child(trimmed: &str) -> bool {
                 | "default_locale"
                 | "default_timezone"
                 | "auth_failed_redirect"
+                | "actor_query"
                 | "not_found"
         )
     )
@@ -9626,6 +9634,7 @@ fn validate_app_child_header(
             | "services"
             | "communication"
             | "runtime"
+            | "route_guard"
             | "deploy"
     ) && trimmed != first
     {

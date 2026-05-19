@@ -5,5 +5,7 @@ surface customer_auth web
 
   audience account
     view enable_mfa Form
+      policy @policy.update
+        on_unauthenticated redirect "/sign-in"
       fields totp_code
       submit customer_auth.command.enable_mfa

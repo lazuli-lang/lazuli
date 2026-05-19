@@ -4056,24 +4056,14 @@ fn check_command(
         version::enforce_manifest_pin(manifest.as_ref())?;
     }
 
-    let inputs = if input.is_dir() {
-        let mut files = Vec::new();
-        collect_package_lzi_files(input, &mut files)?;
-        files.sort();
-        files
-    } else {
-        vec![input.to_path_buf()]
-    };
-    if inputs.is_empty() {
-        bail!("{} contains no `.lzi` files to check", input.display());
-    }
-
+    let inputs = check_inputs(input)?;
     let mut has_error = false;
-    let profile = security_profile.into();
+
     for path in &inputs {
-        let source = fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let diagnostics = lazuli_lsp::diagnostics_for_source_with_profile(&source, profile);
+        let source =
+            fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+        let diagnostics =
+            lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile.into());
         has_error |= diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
@@ -4093,6 +4083,38 @@ fn check_command(
 
     println!("{} passed Lazuli checks", input.display());
     Ok(())
+}
+
+fn check_inputs(input: &Path) -> Result<Vec<PathBuf>> {
+    if !input.is_dir() {
+        return Ok(vec![input.to_path_buf()]);
+    }
+
+    let mut paths = Vec::new();
+    let mut stack = vec![input.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        for entry in fs::read_dir(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?
+        {
+            let path = entry
+                .with_context(|| format!("failed to read entry under {}", path.display()))?
+                .path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if matches!(
+                path.extension().and_then(|extension| extension.to_str()),
+                Some("lzi" | "lzx")
+            ) {
+                paths.push(path);
+            }
+        }
+    }
+
+    paths.sort();
+    if paths.is_empty() {
+        bail!("no .lzi or .lzx files found under {}", input.display());
+    }
+    Ok(paths)
 }
 
 fn print_diagnostic(input: &Path, diagnostic: &Diagnostic) {
