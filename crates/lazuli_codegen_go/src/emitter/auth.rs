@@ -15,12 +15,13 @@
 
 use lazuli_ir::{
     Auth, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Feature, QualifiedName,
+    TheftAction,
 };
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
-use super::patterns::{PATTERN_AUTH_LOGIN, emit_pattern_header};
+use super::patterns::{PATTERN_AUTH_LOGIN, PATTERN_AUTH_REFRESH, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/auth.gen.go` for a feature, or `None` when the
@@ -112,7 +113,12 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
     }
     if auth_block.sessions.is_some() {
         p.blank();
-        emit_session_resolver_register(p, feature, &feature_pascal);
+        emit_session_resolver_register(
+            p,
+            feature,
+            &feature_pascal,
+            auth_block.sessions.as_ref().unwrap(),
+        );
     }
     emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
@@ -122,7 +128,12 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
 /// Wires the production session middleware to this feature's table
 /// so `Authorization: Bearer <token>` and the `lazuli_session`
 /// cookie populate `Ctx.User` automatically.
-fn emit_session_resolver_register(p: &mut GoPrinter, feature: &Feature, feature_pascal: &str) {
+fn emit_session_resolver_register(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    feature_pascal: &str,
+    sessions: &AuthSessions,
+) {
     write_section_banner(
         p,
         &[
@@ -130,12 +141,22 @@ fn emit_session_resolver_register(p: &mut GoPrinter, feature: &Feature, feature_
             "  wires the production session middleware to this feature".to_owned(),
         ],
     );
-    emit_pattern_header(p, PATTERN_AUTH_LOGIN);
+    let pattern = if sessions.is_rotation_enabled() {
+        PATTERN_AUTH_REFRESH
+    } else {
+        PATTERN_AUTH_LOGIN
+    };
+    emit_pattern_header(p, pattern);
     p.line("func init() {");
     p.indent();
     p.line(&format!(
         "auth.RegisterSessionContract({feature_pascal}AuthSessions)"
     ));
+    if sessions.is_rotation_enabled() {
+        p.line(&format!(
+            "auth.RegisterRefreshContract({feature_pascal}AuthSessions)"
+        ));
+    }
     p.dedent();
     p.line("}");
 }
@@ -191,7 +212,7 @@ fn emit_sessions(p: &mut GoPrinter, feature_pascal: &str, sessions: &AuthSession
         "var {feature_pascal}AuthSessions = auth.SessionsContract{{"
     ));
     p.indent();
-    let rows = vec![
+    let mut rows = vec![
         (
             "Resource:".to_owned(),
             format!(
@@ -200,10 +221,52 @@ fn emit_sessions(p: &mut GoPrinter, feature_pascal: &str, sessions: &AuthSession
             ),
         ),
         ("TTL:".to_owned(), format!("{ttl_expr},")),
-        ("Refresh:".to_owned(), format!("{},", sessions.refresh)),
     ];
-    write_aligned_kv_rows(p, &rows);
+    let mut todos = Vec::new();
     if let Some(todo) = ttl_todo {
+        todos.push(todo);
+    }
+    if sessions.is_rotation_enabled() {
+        let (access_ttl, access_ttl_todo) =
+            duration_expr_for(sessions.resolved_access_ttl(), "AuthSessions.access_ttl");
+        let (refresh_ttl, refresh_ttl_todo) = duration_expr_for(
+            sessions
+                .resolved_refresh_ttl()
+                .expect("rotation-enabled sessions must resolve refresh_ttl"),
+            "AuthSessions.rotation.refresh_ttl",
+        );
+        let (rotation_grace, rotation_grace_todo) = duration_expr_for(
+            sessions
+                .resolved_rotation_grace()
+                .expect("rotation-enabled sessions must resolve rotation grace"),
+            "AuthSessions.rotation.grace",
+        );
+        rows.push(("AccessTTL:".to_owned(), format!("{access_ttl},")));
+        rows.push(("RefreshTTL:".to_owned(), format!("{refresh_ttl},")));
+        rows.push(("Rotation:".to_owned(), "true,".to_owned()));
+        rows.push(("RotationGrace:".to_owned(), format!("{rotation_grace},")));
+        rows.push((
+            "TheftAction:".to_owned(),
+            format!(
+                "{},",
+                theft_action_expr(
+                    sessions
+                        .resolved_theft_action()
+                        .expect("rotation-enabled sessions must resolve theft action"),
+                )
+            ),
+        ));
+        rows.push(("Refresh:".to_owned(), "true,".to_owned()));
+        todos.extend(
+            [access_ttl_todo, refresh_ttl_todo, rotation_grace_todo]
+                .into_iter()
+                .flatten(),
+        );
+    } else {
+        rows.push(("Refresh:".to_owned(), format!("{},", sessions.refresh)));
+    }
+    write_aligned_kv_rows(p, &rows);
+    for todo in todos {
         p.line(&todo);
     }
     p.dedent();
@@ -422,15 +485,26 @@ fn mfa_method_expr(raw: &str) -> String {
 }
 
 fn duration_expr(raw: &str) -> (String, Option<String>) {
+    duration_expr_for(raw, "AuthSessions.ttl")
+}
+
+fn duration_expr_for(raw: &str, label: &str) -> (String, Option<String>) {
     match parse_duration_literal(raw) {
         Some(expr) => (expr, None),
         None => (
             "0 * time.Second".to_owned(),
             Some(format!(
-                "// TODO(auth-ttl): unsupported AuthSessions.ttl literal \"{}\"; emit a time.Duration expression.",
-                escape_string(raw)
+                "// TODO(auth-ttl): unsupported {label} literal \"{}\"; emit a time.Duration expression.",
+                escape_string(raw),
             )),
         ),
+    }
+}
+
+fn theft_action_expr(action: TheftAction) -> &'static str {
+    match action {
+        TheftAction::RevokeSessionFamily => "auth.TheftRevokeSessionFamily",
+        TheftAction::RevokeUser => "auth.TheftRevokeUser",
     }
 }
 

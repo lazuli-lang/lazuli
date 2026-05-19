@@ -17,6 +17,7 @@ pub mod api;
 pub mod app_integration;
 pub mod audit;
 pub mod auth;
+pub mod auth_refresh;
 pub mod casing;
 pub mod check;
 pub mod command;

@@ -14,6 +14,7 @@ use lazuli_ir::{FileId, Gate, Module, SourceMap, SpanRef};
 use super::api::emit_api_file;
 use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
 use super::auth::emit_auth_file;
+use super::auth_refresh::emit_auth_refresh_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
@@ -504,6 +505,18 @@ pub fn emit_module(
                     contents,
                 });
             }
+        }
+
+        // IR Auth Refresh CODEGEN-1 — the framework-emitted
+        // `auth.refresh` command handler wire. Skipped unless
+        // `auth.sessions.rotation` is enabled so un-authored shapes
+        // produce no extra `.gen.go` file.
+        if let Some(contents) = emit_auth_refresh_file(&source_label, feature) {
+            let auth_refresh_path = format!("{name}/auth.refresh.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: auth_refresh_path,
+                contents,
+            });
         }
 
         // Cell G2a — Job emission. Per-feature `lazuli.JobContract`
