@@ -268,6 +268,11 @@ const projectRoot = path.resolve(__dirname, "../..");
 
 export default defineConfig({
   root: __dirname,
+  // .env lives at the Lazurite project root (`projectRoot`) so the
+  // backend (Go API) and the frontend (vite) share a single env file.
+  // Vite's default is to read .env from `root` — we override here so
+  // `VITE_*` vars defined at the monorepo root reach the bundle.
+  envDir: projectRoot,
   plugins: [react()],
   resolve: {
     alias: {
