@@ -149,9 +149,7 @@ impl LanguageServer for Backend {
         let Some(source) = documents.get(&uri) else {
             return Ok(None);
         };
-        let Some(word) = word_at_position(source, position) else {
-            return Ok(None);
-        };
+        let word = word_at_position(source, position);
         // IR Error-Vocab — when the cursor sits on one of the 8 closed
         // error codes inside a feature's `errors` block, show the
         // **resolved** translation text (per proposal §7.2). Falls back to
@@ -159,20 +157,30 @@ impl LanguageServer for Backend {
         // This path runs before `rich_keyword_hover` so the resolved-text
         // surface wins when the cursor is unambiguously inside `errors`.
         let hover_markdown = if !is_design_lzi_uri(&uri) {
-            if let Some(markdown) = route_guard_hover(source, position, &word) {
+            if let Some(markdown) = lifecycle_gate_hover(source, position, word.as_deref()) {
                 Some(markdown)
-            } else if let Some(markdown) = error_vocab_code_resolved_hover(source, position, &word)
+            } else if let Some(markdown) = word
+                .as_deref()
+                .and_then(|word| route_guard_hover(source, position, word))
             {
                 Some(markdown)
-            } else if let Some(markdown) = rich_keyword_hover(&word) {
+            } else if let Some(markdown) = word
+                .as_deref()
+                .and_then(|word| error_vocab_code_resolved_hover(source, position, word))
+            {
+                Some(markdown)
+            } else if let Some(markdown) = word.as_deref().and_then(rich_keyword_hover) {
                 Some(markdown)
             } else {
-                keyword_description(&word).map(|d| format!("`{word}`\n\n{d}"))
+                word.as_deref()
+                    .and_then(|word| keyword_description(word).map(|d| format!("`{word}`\n\n{d}")))
             }
         } else {
-            design_keyword_description(&word)
-                .or_else(|| keyword_description(&word))
-                .map(|d| format!("`{word}`\n\n{d}"))
+            word.as_deref().and_then(|word| {
+                design_keyword_description(word)
+                    .or_else(|| keyword_description(word))
+                    .map(|d| format!("`{word}`\n\n{d}"))
+            })
         };
         let Some(value) = hover_markdown else {
             return Ok(None);
@@ -206,8 +214,13 @@ impl LanguageServer for Backend {
         if is_lzx_uri(&uri) {
             let documents = self.documents.read().await;
             if let Some(source) = documents.get(&uri) {
-                if let Some(items) = route_guard_completions(source, position) {
-                    return Ok(Some(CompletionResponse::Array(items)));
+                let lifecycle_items = lifecycle_gate_completions(source, position);
+                let route_guard_items = route_guard_completions(source, position);
+                if lifecycle_items.is_some() || route_guard_items.is_some() {
+                    return Ok(Some(CompletionResponse::Array(merge_completion_items(
+                        lifecycle_items,
+                        route_guard_items,
+                    ))));
                 }
                 return Ok(Some(CompletionResponse::Array(
                     lzx_completion::completions_for_lzx(source, position),
@@ -340,6 +353,7 @@ impl LanguageServer for Backend {
         let mut actions = error_vocab_code_actions(source, &uri, position);
         actions.extend(auth_refresh_code_actions(source, &uri, position));
         actions.extend(route_guard_code_actions(source, &uri, position));
+        actions.extend(lifecycle_gate_code_actions(source, &uri, position));
         if actions.is_empty() {
             return Ok(None);
         }
@@ -365,6 +379,20 @@ fn completion_items_for_uri(uri: &Url) -> Vec<CompletionItem> {
     }
 
     lazuli_keyword_completion_items()
+}
+
+fn merge_completion_items(
+    primary: Option<Vec<CompletionItem>>,
+    secondary: Option<Vec<CompletionItem>>,
+) -> Vec<CompletionItem> {
+    let mut items = primary.unwrap_or_default();
+    let mut labels: HashSet<String> = items.iter().map(|item| item.label.clone()).collect();
+    for item in secondary.unwrap_or_default() {
+        if labels.insert(item.label.clone()) {
+            items.push(item);
+        }
+    }
+    items
 }
 
 fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
@@ -10185,6 +10213,7 @@ fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
                 | "search"
                 | "cache"
                 | "storage"
+                | "secret_provider"
                 | "integration"
                 | "secret_provider"
                 | "payment_gateway"
@@ -12908,7 +12937,7 @@ fn position_for_offset(source: &str, offset: usize) -> Position {
 
 fn word_at_position(source: &str, position: Position) -> Option<String> {
     let line = source.lines().nth(position.line as usize)?;
-    let target = position.character as usize;
+    let target = byte_index_for_utf16_position(line, position.character);
     let mut start = target.min(line.len());
     let mut end = target.min(line.len());
     let bytes = line.as_bytes();
@@ -12930,6 +12959,26 @@ fn word_at_position(source: &str, position: Position) -> Option<String> {
 
 fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
+}
+
+fn line_prefix_at_position(line: &str, character: u32) -> &str {
+    let byte_index = byte_index_for_utf16_position(line, character);
+    &line[..byte_index]
+}
+
+fn byte_index_for_utf16_position(line: &str, character: u32) -> usize {
+    let mut utf16 = 0u32;
+    for (byte_index, ch) in line.char_indices() {
+        if utf16 >= character {
+            return byte_index;
+        }
+        let next = utf16 + ch.len_utf16() as u32;
+        if next > character {
+            return byte_index;
+        }
+        utf16 = next;
+    }
+    line.len()
 }
 
 fn is_design_lzi_uri(uri: &Url) -> bool {
@@ -13469,6 +13518,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "route_guard" => Some(
             "App-level route guard defaults. Children: `default_policy`, `default_unauthenticated_redirect`, and `default_unauthorized_redirect`.",
         ),
+        "requires_lifecycle" => Some(LIFECYCLE_REQUIRES_HOVER),
+        "on_lifecycle_pending" => Some(LIFECYCLE_PENDING_HOVER),
+        "resume" => Some(LIFECYCLE_RESUME_HOVER),
         "actor_query" => Some(
             "App-level query reference that resolves the active actor for route guards. Format: `<feature>.query.<name>`.",
         ),
@@ -14591,15 +14643,16 @@ fn block_kind_at(source: &str, position: Position) -> Option<&'static str> {
 ///    offers the closed axis catalog (`ip`/`user`/`org`/`tenant`).
 fn context_aware_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
-    let cursor = (position.character as usize).min(line.len());
-    let before = &line[..cursor];
+    let before = line_prefix_at_position(line, position.character);
 
     // IR Route-Guards — narrow context completions for view policies,
     // redirect paths, `actor_query`, and `app.route_guard` defaults.
     // Runs before generic namespace completion so `policy @policy.` inside
     // a view can offer full `@policy.<name>` refs instead of bare names.
-    if let Some(items) = route_guard_completions(source, position) {
-        return Some(items);
+    let lifecycle_items = lifecycle_gate_completions(source, position);
+    let route_guard_items = route_guard_completions(source, position);
+    if lifecycle_items.is_some() || route_guard_items.is_some() {
+        return Some(merge_completion_items(lifecycle_items, route_guard_items));
     }
 
     // 1. `@<ns>.` prefix completion.
@@ -14694,10 +14747,7 @@ struct AuthRotationBlock {
 /// Completion provider for Cell LSP-1 of auth refresh rotation. This stays
 /// text/indent based to mirror the rest of this crate's lightweight LSP
 /// helpers and avoid touching parser, IR, codegen, or runtime layers.
-pub fn auth_refresh_completions(
-    source: &str,
-    position: Position,
-) -> Option<Vec<CompletionItem>> {
+pub fn auth_refresh_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
@@ -14711,10 +14761,10 @@ pub fn auth_refresh_completions(
         ));
     }
 
-    if enclosing_auth_sessions_block(source, position).is_some()
-        && trimmed_before == "rotation"
-    {
-        return Some(vec![rotation_block_snippet_completion(leading_spaces(line))]);
+    if enclosing_auth_sessions_block(source, position).is_some() && trimmed_before == "rotation" {
+        return Some(vec![rotation_block_snippet_completion(leading_spaces(
+            line,
+        ))]);
     }
 
     if enclosing_auth_rotation_block(source, position).is_some() {
@@ -14829,10 +14879,7 @@ fn auth_refresh_rotation_clause_completion_items() -> Vec<CompletionItem> {
     .collect()
 }
 
-fn enclosing_auth_sessions_block(
-    source: &str,
-    position: Position,
-) -> Option<AuthSessionsBlock> {
+fn enclosing_auth_sessions_block(source: &str, position: Position) -> Option<AuthSessionsBlock> {
     let lines: Vec<&str> = source.lines().collect();
     if lines.is_empty() {
         return None;
@@ -14862,10 +14909,7 @@ fn enclosing_auth_sessions_block(
     None
 }
 
-fn enclosing_auth_rotation_block(
-    source: &str,
-    position: Position,
-) -> Option<AuthRotationBlock> {
+fn enclosing_auth_rotation_block(source: &str, position: Position) -> Option<AuthRotationBlock> {
     let lines: Vec<&str> = source.lines().collect();
     if lines.is_empty() {
         return None;
@@ -15211,8 +15255,7 @@ struct RouteGuardViewBlock {
 /// the new surface.
 pub fn route_guard_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
-    let cursor = (position.character as usize).min(line.len());
-    let before = &line[..cursor];
+    let before = line_prefix_at_position(line, position.character);
     let trimmed_before = before.trim_start();
 
     if route_guard_redirect_path_trigger(trimmed_before).is_some() {
@@ -16295,6 +16338,1395 @@ fn simple_edit_action(
     }
 }
 
+// ── IR Lifecycle Route-Gates — LSP completion / hover / code actions ───────
+
+const LIFECYCLE_REQUIRES_HOVER: &str = "Gate this view on the actor's `<Resource>.lifecycle_state`. Codegen emits a TanStack `beforeLoad` that fetches the source query and redirects via `@resume` on mismatch.";
+const LIFECYCLE_PENDING_HOVER: &str = "Name of the `resume <name>` block to redirect through when `requires_lifecycle` doesn't match.";
+const LIFECYCLE_RESUME_HOVER: &str = "Block declaring how to route a user whose lifecycle state of a particular resource is mid-flow.";
+const LIFECYCLE_SOURCE_QUERY_HOVER: &str = "The lookup query that fetches the actor's row of the resource. Must return a single record OR not-found (404).";
+const LIFECYCLE_NONE_HOVER: &str =
+    "Arm matched when the source query returns 404 (the actor's row doesn't exist yet).";
+const LIFECYCLE_WILDCARD_HOVER: &str = "Catch-all arm. Matches any state not explicitly listed. Required when `resume` arms don't cover every state in the lifecycle, OR for forward-compatibility.";
+const LIFECYCLE_ARROW_HOVER: &str = "Arrow token mapping a lifecycle state arm to a target view in a `resume` block. Both Unicode `→` and ASCII `->` accepted.";
+
+#[derive(Debug, Clone)]
+struct LifecycleResourceInfo {
+    feature: Option<String>,
+    name: String,
+    states: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LifecycleLookupQueryInfo {
+    feature: String,
+    name: String,
+    returns: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LifecycleResumeBlock {
+    name: String,
+    feature_hint: Option<String>,
+    header_line: usize,
+    header_indent: usize,
+    end_line: usize,
+    source_query: Option<String>,
+    arms: Vec<LifecycleResumeArm>,
+}
+
+#[derive(Debug, Clone)]
+struct LifecycleResumeArm {
+    state: String,
+    line: usize,
+}
+
+pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let before = line_prefix_at_position(line, position.character);
+    let trimmed_before = before.trim_start();
+
+    if let Some(resource) = requires_lifecycle_state_trigger(trimmed_before) {
+        let feature = route_guard_context_feature(source, position);
+        return Some(lifecycle_state_completion_items(
+            source,
+            feature.as_deref(),
+            resource,
+        ));
+    }
+
+    if let Some(rest) = trimmed_before.strip_prefix("requires_lifecycle ") {
+        if lifecycle_identifier_prefix(rest) {
+            let feature = route_guard_context_feature(source, position);
+            return Some(lifecycle_resource_completion_items(
+                source,
+                feature.as_deref(),
+            ));
+        }
+    }
+
+    if let Some(rest) = trimmed_before.strip_prefix("on_lifecycle_pending @resume ") {
+        if lifecycle_identifier_prefix(rest) {
+            let feature = route_guard_context_feature(source, position);
+            return Some(lifecycle_resume_completion_items(
+                source,
+                feature.as_deref(),
+            ));
+        }
+    }
+
+    if let Some(resume) = enclosing_lifecycle_resume_block(source, position) {
+        if let Some(rest) = trimmed_before.strip_prefix("source query.lookup ") {
+            if lifecycle_identifier_prefix(rest) {
+                return Some(lifecycle_lookup_query_completion_items(
+                    source,
+                    resume.feature_hint.as_deref(),
+                ));
+            }
+        }
+
+        if resume_arm_view_target_trigger(trimmed_before) {
+            return Some(lifecycle_view_completion_items(
+                source,
+                resume.feature_hint.as_deref(),
+            ));
+        }
+
+        if resume_arm_view_keyword_trigger(trimmed_before, &resume) {
+            return Some(vec![lifecycle_keyword_completion(
+                "view ",
+                "view ",
+                "Map this lifecycle arm to a target view.",
+            )]);
+        }
+
+        if resume_header_source_trigger(trimmed_before, &resume, position) {
+            return Some(vec![snippet_completion(
+                "source query.lookup <q>",
+                "source query.lookup ${1:lookup_query}",
+                "Choose the lookup query that fetches the actor's lifecycle row.",
+            )]);
+        }
+
+        if resume_arm_start_trigger(source, before, &resume, position) {
+            return Some(lifecycle_resume_arm_completion_items(source, &resume));
+        }
+    }
+
+    if lifecycle_view_slot_trigger(source, position, before) {
+        return Some(vec![
+            lifecycle_keyword_completion(
+                "requires_lifecycle ",
+                "requires_lifecycle ",
+                "Gate this view on a resource lifecycle state.",
+            ),
+            lifecycle_keyword_completion(
+                "on_lifecycle_pending @resume ",
+                "on_lifecycle_pending @resume ",
+                "Redirect lifecycle mismatches through a resume router.",
+            ),
+        ]);
+    }
+
+    None
+}
+
+fn lifecycle_keyword_completion(label: &str, insert_text: &str, detail: &str) -> CompletionItem {
+    CompletionItem {
+        label: label.to_owned(),
+        kind: Some(CompletionItemKind::KEYWORD),
+        detail: Some(detail.to_owned()),
+        insert_text: Some(insert_text.to_owned()),
+        documentation: Some(Documentation::String(detail.to_owned())),
+        ..CompletionItem::default()
+    }
+}
+
+fn lifecycle_reference_completion(label: String, detail: &str) -> CompletionItem {
+    CompletionItem {
+        label,
+        kind: Some(CompletionItemKind::REFERENCE),
+        detail: Some(detail.to_owned()),
+        ..CompletionItem::default()
+    }
+}
+
+fn lifecycle_identifier_prefix(rest: &str) -> bool {
+    rest.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+}
+
+fn requires_lifecycle_state_trigger(trimmed_before: &str) -> Option<&str> {
+    let rest = trimmed_before.strip_prefix("requires_lifecycle ")?;
+    let (resource, value_part) = rest.split_once('=')?;
+    let resource = resource.trim();
+    if resource.is_empty()
+        || !resource
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    if value_part
+        .trim_start()
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        Some(resource)
+    } else {
+        None
+    }
+}
+
+fn lifecycle_resource_completion_items(
+    source: &str,
+    feature_hint: Option<&str>,
+) -> Vec<CompletionItem> {
+    collect_lifecycle_resources(source)
+        .into_iter()
+        .filter(|resource| {
+            lifecycle_feature_is_reachable(source, feature_hint, resource.feature.as_deref())
+        })
+        .map(|resource| CompletionItem {
+            label: resource.name,
+            kind: Some(CompletionItemKind::CLASS),
+            detail: Some("Resource with a declared lifecycle.".to_owned()),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn lifecycle_state_completion_items(
+    source: &str,
+    feature_hint: Option<&str>,
+    resource_name: &str,
+) -> Vec<CompletionItem> {
+    lifecycle_resource_for_name(source, feature_hint, resource_name)
+        .map(|resource| {
+            resource
+                .states
+                .into_iter()
+                .map(|state| CompletionItem {
+                    label: state,
+                    kind: Some(CompletionItemKind::ENUM_MEMBER),
+                    detail: Some(format!("Declared state of `{resource_name}.lifecycle`.")),
+                    ..CompletionItem::default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn lifecycle_resume_completion_items(
+    source: &str,
+    feature_hint: Option<&str>,
+) -> Vec<CompletionItem> {
+    collect_lifecycle_resume_blocks(source)
+        .into_iter()
+        .filter(|resume| {
+            lifecycle_feature_is_reachable(source, feature_hint, resume.feature_hint.as_deref())
+        })
+        .map(|resume| {
+            let label =
+                lifecycle_scoped_label(feature_hint, resume.feature_hint.as_deref(), &resume.name);
+            lifecycle_reference_completion(label, "Declared `resume <name>` router.")
+        })
+        .collect()
+}
+
+fn lifecycle_lookup_query_completion_items(
+    source: &str,
+    feature_hint: Option<&str>,
+) -> Vec<CompletionItem> {
+    collect_lifecycle_lookup_queries(source)
+        .into_iter()
+        .filter(|query| lifecycle_feature_is_reachable(source, feature_hint, Some(&query.feature)))
+        .map(|query| {
+            let label = lifecycle_scoped_label(feature_hint, Some(&query.feature), &query.name);
+            lifecycle_reference_completion(label, "Declared `query.lookup` source.")
+        })
+        .collect()
+}
+
+fn lifecycle_view_completion_items(
+    source: &str,
+    feature_hint: Option<&str>,
+) -> Vec<CompletionItem> {
+    collect_lifecycle_view_names(source, feature_hint)
+        .into_iter()
+        .map(|view| lifecycle_reference_completion(view, "Declared view in this experience."))
+        .collect()
+}
+
+fn lifecycle_resume_arm_completion_items(
+    source: &str,
+    resume: &LifecycleResumeBlock,
+) -> Vec<CompletionItem> {
+    let mut items = Vec::new();
+    let consumed: HashSet<String> = resume.arms.iter().map(|arm| arm.state.clone()).collect();
+    items.push(CompletionItem {
+        label: "none".to_owned(),
+        kind: Some(CompletionItemKind::ENUM_MEMBER),
+        detail: Some("No-row lifecycle arm.".to_owned()),
+        ..CompletionItem::default()
+    });
+    if let Some(resource) = lifecycle_resource_for_resume(source, resume) {
+        for state in resource.states {
+            if !consumed.contains(&state) {
+                items.push(CompletionItem {
+                    label: state,
+                    kind: Some(CompletionItemKind::ENUM_MEMBER),
+                    detail: Some("Unconsumed lifecycle state.".to_owned()),
+                    ..CompletionItem::default()
+                });
+            }
+        }
+    }
+    items.push(CompletionItem {
+        label: "*".to_owned(),
+        kind: Some(CompletionItemKind::ENUM_MEMBER),
+        detail: Some("Wildcard lifecycle arm.".to_owned()),
+        ..CompletionItem::default()
+    });
+    items
+}
+
+fn lifecycle_scoped_label(
+    context_feature: Option<&str>,
+    item_feature: Option<&str>,
+    name: &str,
+) -> String {
+    match (context_feature, item_feature) {
+        (Some(context), Some(feature)) if context != feature => format!("{feature}.{name}"),
+        (None, Some(feature)) => format!("{feature}.{name}"),
+        _ => name.to_owned(),
+    }
+}
+
+fn resume_header_source_trigger(
+    trimmed_before: &str,
+    resume: &LifecycleResumeBlock,
+    position: Position,
+) -> bool {
+    let cursor_line = position.line as usize;
+    if cursor_line == resume.header_line && trimmed_before.starts_with("resume ") {
+        return true;
+    }
+    resume.source_query.is_none()
+        && cursor_line > resume.header_line
+        && (trimmed_before.is_empty()
+            || trimmed_before
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+}
+
+fn resume_arm_start_trigger(
+    source: &str,
+    before: &str,
+    resume: &LifecycleResumeBlock,
+    position: Position,
+) -> bool {
+    if position.line as usize <= resume.header_line {
+        return false;
+    }
+    let trimmed_before = before.trim_start();
+    let line_indent = source
+        .lines()
+        .nth(position.line as usize)
+        .map(leading_spaces)
+        .unwrap_or_else(|| leading_spaces(before));
+    line_indent == resume.header_indent + 2
+        && (trimmed_before.is_empty()
+            || trimmed_before
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '*'))
+}
+
+fn resume_arm_view_keyword_trigger(trimmed_before: &str, resume: &LifecycleResumeBlock) -> bool {
+    let state = trimmed_before.split_whitespace().next().unwrap_or("");
+    if !lifecycle_resume_arm_state_known(state, resume) {
+        return false;
+    }
+    if trimmed_before.ends_with(' ') && trimmed_before.split_whitespace().count() == 1 {
+        return true;
+    }
+    if let Some(after_arrow) = lifecycle_after_arrow(trimmed_before) {
+        return after_arrow
+            .trim_start()
+            .chars()
+            .all(|c| c.is_ascii_alphabetic() || c == '_');
+    }
+    false
+}
+
+fn resume_arm_view_target_trigger(trimmed_before: &str) -> bool {
+    let Some(after_arrow) = lifecycle_after_arrow(trimmed_before) else {
+        return false;
+    };
+    let after_arrow = after_arrow.trim_start();
+    let Some(rest) = after_arrow.strip_prefix("view ") else {
+        return false;
+    };
+    rest.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+}
+
+fn lifecycle_after_arrow(trimmed_before: &str) -> Option<&str> {
+    if let Some(index) = trimmed_before.rfind("->") {
+        return Some(&trimmed_before[index + 2..]);
+    }
+    if let Some(index) = trimmed_before.rfind('→') {
+        return Some(&trimmed_before[index + '→'.len_utf8()..]);
+    }
+    None
+}
+
+fn lifecycle_resume_arm_state_known(state: &str, resume: &LifecycleResumeBlock) -> bool {
+    !state.is_empty()
+        && (state == "none"
+            || state == "*"
+            || resume.arms.iter().any(|arm| arm.state == state)
+            || state.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+}
+
+fn lifecycle_view_slot_trigger(source: &str, position: Position, before: &str) -> bool {
+    if enclosing_lifecycle_resume_block(source, position).is_some() {
+        return false;
+    }
+    let trimmed_before = before.trim_start();
+    if !(trimmed_before.is_empty()
+        || trimmed_before
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    {
+        return false;
+    }
+    let Some(view) = enclosing_view_block(source, position) else {
+        return false;
+    };
+    let line = source.lines().nth(position.line as usize).unwrap_or("");
+    if leading_spaces(line) != view.header_indent + 2 {
+        return false;
+    }
+    let lines: Vec<&str> = source.lines().collect();
+    lines
+        .iter()
+        .enumerate()
+        .take(position.line as usize)
+        .skip(view.header_line + 1)
+        .any(|(_, line)| {
+            leading_spaces(line) == view.header_indent + 2
+                && matches!(
+                    line.trim_start().split_whitespace().next(),
+                    Some("policy" | "path" | "submit")
+                )
+        })
+}
+
+pub fn lifecycle_gate_hover(
+    source: &str,
+    position: Position,
+    word: Option<&str>,
+) -> Option<String> {
+    let line = source.lines().nth(position.line as usize).unwrap_or("");
+    if lifecycle_hover_is_arrow(line, position)
+        && enclosing_lifecycle_resume_block(source, position).is_some()
+    {
+        return Some(format!("`→` / `->`\n\n{LIFECYCLE_ARROW_HOVER}"));
+    }
+
+    if lifecycle_hover_is_wildcard(line, position)
+        && enclosing_lifecycle_resume_block(source, position).is_some()
+    {
+        return Some(format!("`*`\n\n{LIFECYCLE_WILDCARD_HOVER}"));
+    }
+
+    let word = word?;
+    if word == "source" || word == "query.lookup" {
+        if line.trim_start().starts_with("source query.lookup ")
+            && enclosing_lifecycle_resume_block(source, position).is_some()
+        {
+            return Some(format!(
+                "`source query.lookup`\n\n{LIFECYCLE_SOURCE_QUERY_HOVER}"
+            ));
+        }
+    }
+
+    match word {
+        "requires_lifecycle" if enclosing_view_block(source, position).is_some() => Some(format!(
+            "`requires_lifecycle`\n\n{LIFECYCLE_REQUIRES_HOVER}"
+        )),
+        "on_lifecycle_pending" if enclosing_view_block(source, position).is_some() => Some(
+            format!("`on_lifecycle_pending`\n\n{LIFECYCLE_PENDING_HOVER}"),
+        ),
+        "resume" if enclosing_lifecycle_resume_block(source, position).is_some() => {
+            Some(format!("`resume`\n\n{LIFECYCLE_RESUME_HOVER}"))
+        }
+        "none" if enclosing_lifecycle_resume_block(source, position).is_some() => {
+            Some(format!("`none`\n\n{LIFECYCLE_NONE_HOVER}"))
+        }
+        _ => lifecycle_resolved_gate_hover(source, position, word),
+    }
+}
+
+fn lifecycle_hover_is_wildcard(line: &str, position: Position) -> bool {
+    let index = byte_index_for_utf16_position(line, position.character);
+    let bytes = line.as_bytes();
+    (index < bytes.len() && bytes[index] == b'*') || (index > 0 && bytes[index - 1] == b'*')
+}
+
+fn lifecycle_hover_is_arrow(line: &str, position: Position) -> bool {
+    let index = byte_index_for_utf16_position(line, position.character);
+    let before = &line[..index.min(line.len())];
+    let after = &line[index.min(line.len())..];
+    before.ends_with("->")
+        || after.starts_with("->")
+        || before.ends_with('→')
+        || after.starts_with('→')
+}
+
+fn lifecycle_resolved_gate_hover(source: &str, position: Position, word: &str) -> Option<String> {
+    let line = source.lines().nth(position.line as usize)?;
+    let trimmed = line.trim_start();
+    let rest = trimmed.strip_prefix("requires_lifecycle ")?;
+    let (resource, state) = rest.split_once('=')?;
+    let resource = resource.trim();
+    let state = state.split_whitespace().next().unwrap_or("");
+    if word != state || state.is_empty() {
+        return None;
+    }
+    let view = enclosing_view_block(source, position)?;
+    let resume_name =
+        lifecycle_pending_resume_for_view(source, &view).unwrap_or_else(|| "<resume>".to_owned());
+    let states = lifecycle_resource_for_name(source, view.feature_hint.as_deref(), resource)
+        .map(|resource| resource.states.join(", "))
+        .unwrap_or_else(|| "unresolved".to_owned());
+    Some(format!(
+        "currently the view requires `{resource}.lifecycle_state = {state}`. On mismatch, redirects via `resume {resume_name}`. Lifecycle states declared: `{states}`."
+    ))
+}
+
+pub fn lifecycle_gate_code_actions(
+    source: &str,
+    uri: &Url,
+    position: Position,
+) -> Vec<CodeActionOrCommand> {
+    let mut actions = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    let line = lines.get(line_idx).copied().unwrap_or("");
+    let trimmed = line.trim_start();
+
+    if trimmed.starts_with("view ") {
+        if let Some(action) = build_add_lifecycle_gate_action(source, uri, line_idx) {
+            actions.push(action.into());
+        }
+    }
+
+    if let Some(resume) = enclosing_lifecycle_resume_block(source, position) {
+        if let Some(action) =
+            build_remove_stale_lifecycle_arm_action(source, uri, line_idx, &resume)
+        {
+            actions.push(action.into());
+        }
+        let missing = lifecycle_missing_resume_states(source, &resume);
+        if !missing.is_empty() {
+            if let Some(action) = build_add_missing_lifecycle_arms_action(uri, &resume, &missing) {
+                actions.push(action.into());
+            }
+            if missing.len() >= 2 {
+                if let Some(action) = build_convert_lifecycle_arms_to_wildcard_action(uri, &resume)
+                {
+                    actions.push(action.into());
+                }
+            }
+        }
+    }
+
+    actions
+}
+
+fn build_add_missing_lifecycle_arms_action(
+    uri: &Url,
+    resume: &LifecycleResumeBlock,
+    missing: &[String],
+) -> Option<CodeAction> {
+    let indent = " ".repeat(resume.header_indent + 2);
+    let new_text = missing
+        .iter()
+        .map(|state| format!("{indent}{state} → view <TODO>\n"))
+        .collect::<String>();
+    if new_text.is_empty() {
+        return None;
+    }
+    Some(simple_edit_action(
+        uri,
+        "Add missing state arms",
+        CodeActionKind::QUICKFIX,
+        vec![TextEdit {
+            range: Range {
+                start: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
+                end: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
+            },
+            new_text,
+        }],
+        true,
+    ))
+}
+
+fn build_convert_lifecycle_arms_to_wildcard_action(
+    uri: &Url,
+    resume: &LifecycleResumeBlock,
+) -> Option<CodeAction> {
+    if resume.arms.iter().any(|arm| arm.state == "*") {
+        return None;
+    }
+    let indent = " ".repeat(resume.header_indent + 2);
+    Some(simple_edit_action(
+        uri,
+        "Convert to wildcard",
+        CodeActionKind::REFACTOR_REWRITE,
+        vec![TextEdit {
+            range: Range {
+                start: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
+                end: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
+            },
+            new_text: format!("{indent}* → view <fallback>\n"),
+        }],
+        false,
+    ))
+}
+
+fn build_remove_stale_lifecycle_arm_action(
+    source: &str,
+    uri: &Url,
+    line_idx: usize,
+    resume: &LifecycleResumeBlock,
+) -> Option<CodeAction> {
+    let stale = lifecycle_stale_resume_arm_on_line(source, resume, line_idx)?;
+    Some(simple_edit_action(
+        uri,
+        "Remove stale arm",
+        CodeActionKind::QUICKFIX,
+        vec![TextEdit {
+            range: Range {
+                start: position_at_line_start(stale.line),
+                end: position_at_line_start(stale.line + 1),
+            },
+            new_text: String::new(),
+        }],
+        true,
+    ))
+}
+
+fn build_add_lifecycle_gate_action(
+    source: &str,
+    uri: &Url,
+    view_line_idx: usize,
+) -> Option<CodeAction> {
+    let view = enclosing_view_block(
+        source,
+        Position {
+            line: view_line_idx as u32,
+            character: 0,
+        },
+    )?;
+    if view_has_requires_lifecycle(source, &view) {
+        return None;
+    }
+    let candidate = lifecycle_gate_candidate_for_view(source, &view)?;
+    let child_indent = " ".repeat(view.header_indent + 2);
+    let resume =
+        lifecycle_resume_for_resource(source, view.feature_hint.as_deref(), &candidate.resource)
+            .unwrap_or_else(|| format!("{}_lifecycle", snake_case(&candidate.resource)));
+    let new_text = format!(
+        "{child_indent}requires_lifecycle {} = {}\n{child_indent}on_lifecycle_pending @resume {resume}\n",
+        candidate.resource, candidate.state
+    );
+    let insertion_line = lifecycle_gate_insertion_line(source, &view);
+    Some(simple_edit_action(
+        uri,
+        "Add lifecycle gate",
+        CodeActionKind::QUICKFIX,
+        vec![TextEdit {
+            range: Range {
+                start: position_at_line_start(insertion_line),
+                end: position_at_line_start(insertion_line),
+            },
+            new_text,
+        }],
+        true,
+    ))
+}
+
+#[derive(Debug, Clone)]
+struct LifecycleGateCandidate {
+    resource: String,
+    state: String,
+}
+
+fn lifecycle_missing_resume_states(source: &str, resume: &LifecycleResumeBlock) -> Vec<String> {
+    if resume.arms.iter().any(|arm| arm.state == "*") {
+        return Vec::new();
+    }
+    let Some(resource) = lifecycle_resource_for_resume(source, resume) else {
+        return Vec::new();
+    };
+    let consumed: HashSet<&str> = resume.arms.iter().map(|arm| arm.state.as_str()).collect();
+    resource
+        .states
+        .into_iter()
+        .filter(|state| !consumed.contains(state.as_str()))
+        .collect()
+}
+
+fn lifecycle_stale_resume_arm_on_line(
+    source: &str,
+    resume: &LifecycleResumeBlock,
+    line_idx: usize,
+) -> Option<LifecycleResumeArm> {
+    let resource = lifecycle_resource_for_resume(source, resume)?;
+    let states: HashSet<&str> = resource.states.iter().map(String::as_str).collect();
+    resume
+        .arms
+        .iter()
+        .find(|arm| {
+            arm.line == line_idx
+                && arm.state != "none"
+                && arm.state != "*"
+                && !states.contains(arm.state.as_str())
+        })
+        .cloned()
+}
+
+fn lifecycle_resume_arm_insertion_line(resume: &LifecycleResumeBlock) -> usize {
+    resume
+        .arms
+        .iter()
+        .map(|arm| arm.line + 1)
+        .max()
+        .unwrap_or_else(|| resume.end_line)
+}
+
+fn lifecycle_gate_candidate_for_view(
+    source: &str,
+    view: &RouteGuardViewBlock,
+) -> Option<LifecycleGateCandidate> {
+    for resource in lifecycle_resources_hosted_by_view(source, view) {
+        let state = lifecycle_state_from_view_path(source, view, &resource).or_else(|| {
+            lifecycle_default_gate_state(source, view.feature_hint.as_deref(), &resource)
+        })?;
+        return Some(LifecycleGateCandidate { resource, state });
+    }
+    None
+}
+
+fn lifecycle_resources_hosted_by_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut resources = Vec::new();
+    let mut seen = HashSet::new();
+    for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
+        if leading_spaces(line) != view.header_indent + 2 {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let hosted = if let Some(rest) = trimmed.strip_prefix("source ") {
+            lifecycle_resource_for_source_ref(source, view.feature_hint.as_deref(), rest)
+        } else if let Some(rest) = trimmed.strip_prefix("submit ") {
+            lifecycle_resource_for_submit_ref(source, view.feature_hint.as_deref(), rest)
+        } else {
+            None
+        };
+        if let Some(resource) = hosted {
+            if lifecycle_resource_for_name(source, view.feature_hint.as_deref(), &resource)
+                .is_some()
+                && seen.insert(resource.clone())
+            {
+                resources.push(resource);
+            }
+        }
+    }
+    resources
+}
+
+fn lifecycle_resource_for_source_ref(
+    source: &str,
+    feature_hint: Option<&str>,
+    rest: &str,
+) -> Option<String> {
+    let mut tokens = rest.split_whitespace();
+    let first = tokens.next()?;
+    let query_ref = if first == "query.lookup" {
+        tokens.next()?.to_owned()
+    } else {
+        first.split('(').next().unwrap_or(first).to_owned()
+    };
+    resolve_lifecycle_lookup_query(source, feature_hint, &query_ref)?.returns
+}
+
+fn lifecycle_resource_for_submit_ref(
+    source: &str,
+    feature_hint: Option<&str>,
+    rest: &str,
+) -> Option<String> {
+    let command_ref = rest
+        .split_whitespace()
+        .next()?
+        .split('(')
+        .next()
+        .unwrap_or("");
+    resolve_lifecycle_command_resource(source, feature_hint, command_ref)
+}
+
+fn lifecycle_default_gate_state(
+    source: &str,
+    feature_hint: Option<&str>,
+    resource_name: &str,
+) -> Option<String> {
+    let resource = lifecycle_resource_for_name(source, feature_hint, resource_name)?;
+    resource
+        .states
+        .iter()
+        .find(|state| state.as_str() == "complete")
+        .cloned()
+        .or_else(|| resource.states.first().cloned())
+}
+
+fn lifecycle_state_from_view_path(
+    source: &str,
+    view: &RouteGuardViewBlock,
+    resource_name: &str,
+) -> Option<String> {
+    let path = lifecycle_view_path(source, view)?;
+    let segments = path
+        .trim_matches('"')
+        .trim_start_matches('/')
+        .split('/')
+        .collect::<Vec<_>>();
+    if segments.len() < 3 || segments.first().copied() != Some("onboarding") {
+        return None;
+    }
+    let resource_slug = slug_for_lifecycle_token(resource_name);
+    if segments.get(1).copied() != Some(resource_slug.as_str()) {
+        return None;
+    }
+    let state_slug = segments[2..].join("-");
+    let resource =
+        lifecycle_resource_for_name(source, view.feature_hint.as_deref(), resource_name)?;
+    resource.states.into_iter().find(|state| {
+        let slug = slug_for_lifecycle_token(state);
+        slug == state_slug || slug.strip_suffix("-pending") == Some(state_slug.as_str())
+    })
+}
+
+fn lifecycle_view_path(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
+        if leading_spaces(line) == view.header_indent + 2 {
+            if let Some(rest) = line.trim_start().strip_prefix("path ") {
+                let trimmed = rest.trim();
+                return first_quoted_value(trimmed).or_else(|| {
+                    trimmed
+                        .split_whitespace()
+                        .next()
+                        .filter(|path| path.starts_with('/'))
+                        .map(str::to_owned)
+                });
+            }
+        }
+    }
+    None
+}
+
+fn lifecycle_gate_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut fallback = view.header_line + 1;
+    for (idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(view.end_line)
+        .skip(view.header_line + 1)
+    {
+        if leading_spaces(line) != view.header_indent + 2 {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("policy ") {
+            return idx + 1;
+        }
+        if trimmed.starts_with("path ") {
+            fallback = idx + 1;
+        }
+    }
+    fallback
+}
+
+fn view_has_requires_lifecycle(source: &str, view: &RouteGuardViewBlock) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    lines
+        .iter()
+        .take(view.end_line)
+        .skip(view.header_line + 1)
+        .any(|line| {
+            leading_spaces(line) == view.header_indent + 2
+                && line.trim_start().starts_with("requires_lifecycle ")
+        })
+}
+
+fn lifecycle_pending_resume_for_view(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
+        if leading_spaces(line) != view.header_indent + 2 {
+            continue;
+        }
+        if let Some(rest) = line
+            .trim_start()
+            .strip_prefix("on_lifecycle_pending @resume ")
+        {
+            return Some(rest.split_whitespace().next()?.to_owned());
+        }
+    }
+    None
+}
+
+fn lifecycle_resume_for_resource(
+    source: &str,
+    feature_hint: Option<&str>,
+    resource_name: &str,
+) -> Option<String> {
+    collect_lifecycle_resume_blocks(source)
+        .into_iter()
+        .find(|resume| {
+            lifecycle_feature_is_reachable(source, feature_hint, resume.feature_hint.as_deref())
+                && lifecycle_resource_for_resume(source, resume)
+                    .map(|resource| resource.name == resource_name)
+                    .unwrap_or(false)
+        })
+        .map(|resume| {
+            lifecycle_scoped_label(feature_hint, resume.feature_hint.as_deref(), &resume.name)
+        })
+}
+
+fn lifecycle_resource_for_resume(
+    source: &str,
+    resume: &LifecycleResumeBlock,
+) -> Option<LifecycleResourceInfo> {
+    let source_query = resume.source_query.as_deref()?;
+    let query =
+        resolve_lifecycle_lookup_query(source, resume.feature_hint.as_deref(), source_query)?;
+    let resource_name = query.returns?;
+    lifecycle_resource_for_name(source, resume.feature_hint.as_deref(), &resource_name)
+}
+
+fn resolve_lifecycle_lookup_query(
+    source: &str,
+    feature_hint: Option<&str>,
+    query_ref: &str,
+) -> Option<LifecycleLookupQueryInfo> {
+    let queries = collect_lifecycle_lookup_queries(source);
+    let (feature, name) = if let Some((feature, rest)) = query_ref.split_once(".query.") {
+        (Some(feature), rest)
+    } else if let Some((feature, name)) = query_ref.split_once('.') {
+        (Some(feature), name)
+    } else {
+        (feature_hint, query_ref)
+    };
+    queries
+        .into_iter()
+        .find(|query| query.name == name && feature.map(|f| f == query.feature).unwrap_or(true))
+}
+
+fn resolve_lifecycle_command_resource(
+    source: &str,
+    feature_hint: Option<&str>,
+    command_ref: &str,
+) -> Option<String> {
+    let (feature, name) = if let Some((feature, rest)) = command_ref.split_once(".command.") {
+        (Some(feature), rest)
+    } else if let Some((feature, name)) = command_ref.split_once('.') {
+        (Some(feature), name)
+    } else {
+        (feature_hint, command_ref)
+    };
+    let lines: Vec<&str> = source.lines().collect();
+    let mut current_feature: Option<String> = None;
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            current_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
+            continue;
+        }
+        let Some(current) = current_feature.as_deref() else {
+            continue;
+        };
+        if feature.map(|f| f != current).unwrap_or(false) {
+            continue;
+        }
+        if !trimmed
+            .strip_prefix("command ")
+            .map(|rest| rest.split_whitespace().next().unwrap_or("") == name)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let end = find_block_end(&lines, idx, leading_spaces(line));
+        for child in lines.iter().take(end).skip(idx + 1) {
+            let child_trimmed = child.trim_start();
+            for prefix in ["creates ", "updates ", "target "] {
+                if let Some(rest) = child_trimmed.strip_prefix(prefix) {
+                    let resource = rest.split_whitespace().next().unwrap_or("").to_owned();
+                    if !resource.is_empty() {
+                        return Some(resource);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn lifecycle_resource_for_name(
+    source: &str,
+    feature_hint: Option<&str>,
+    resource_name: &str,
+) -> Option<LifecycleResourceInfo> {
+    collect_lifecycle_resources(source)
+        .into_iter()
+        .find(|resource| {
+            resource.name == resource_name
+                && lifecycle_feature_is_reachable(source, feature_hint, resource.feature.as_deref())
+        })
+}
+
+fn lifecycle_feature_is_reachable(
+    source: &str,
+    context_feature: Option<&str>,
+    candidate_feature: Option<&str>,
+) -> bool {
+    let Some(candidate) = candidate_feature else {
+        return true;
+    };
+    let Some(context) = context_feature else {
+        return true;
+    };
+    lifecycle_reachable_features(source, context)
+        .iter()
+        .any(|feature| feature == candidate)
+}
+
+fn lifecycle_reachable_features(source: &str, context_feature: &str) -> Vec<String> {
+    let mut features = vec![context_feature.to_owned()];
+    let mut seen = HashSet::from([context_feature.to_owned()]);
+    let lines: Vec<&str> = source.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        if leading_spaces(line) != 0 {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let Some((_, name)) = lifecycle_top_level_named_header(trimmed) else {
+            continue;
+        };
+        if name != context_feature {
+            continue;
+        }
+        let end = find_block_end(&lines, idx, 0);
+        for used in lifecycle_uses_in_block(&lines, idx + 1, end) {
+            if seen.insert(used.clone()) {
+                features.push(used);
+            }
+        }
+    }
+    features
+}
+
+fn lifecycle_top_level_named_header(trimmed: &str) -> Option<(&str, &str)> {
+    for keyword in ["feature", "experience", "surface"] {
+        if let Some(rest) = trimmed.strip_prefix(&format!("{keyword} ")) {
+            let name = rest.split_whitespace().next().unwrap_or("");
+            if !name.is_empty() {
+                return Some((keyword, name));
+            }
+        }
+    }
+    None
+}
+
+fn lifecycle_uses_in_block(lines: &[&str], start: usize, end: usize) -> Vec<String> {
+    let mut uses = Vec::new();
+    let mut seen = HashSet::new();
+    for idx in start..end {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed == "uses" {
+            let indent = leading_spaces(line);
+            for child in lines.iter().take(end).skip(idx + 1) {
+                if child.trim_start().is_empty() || child.trim_start().starts_with('#') {
+                    continue;
+                }
+                if leading_spaces(child) <= indent {
+                    break;
+                }
+                let name = child.trim_start().split_whitespace().next().unwrap_or("");
+                if lifecycle_ident(name) && seen.insert(name.to_owned()) {
+                    uses.push(name.to_owned());
+                }
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("uses ") {
+            for name in lifecycle_parse_uses_rest(rest) {
+                if seen.insert(name.clone()) {
+                    uses.push(name);
+                }
+            }
+        }
+    }
+    uses
+}
+
+fn lifecycle_parse_uses_rest(rest: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for token in rest.replace(',', " ").split_whitespace() {
+        if token == "version" {
+            break;
+        }
+        if matches!(token, "feature" | "experience") {
+            continue;
+        }
+        if lifecycle_ident(token) {
+            names.push(token.to_owned());
+        }
+    }
+    names
+}
+
+fn lifecycle_ident(token: &str) -> bool {
+    !token.is_empty()
+        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && token
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphabetic() || c == '_')
+            .unwrap_or(false)
+}
+
+fn collect_lifecycle_resources(source: &str) -> Vec<LifecycleResourceInfo> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut resources = Vec::new();
+    let mut current_feature: Option<String> = None;
+    let mut feature_end = 0usize;
+    let mut idx = 0usize;
+    while idx < lines.len() {
+        let line = lines[idx];
+        let trimmed = line.trim_start();
+        if leading_spaces(line) == 0 {
+            current_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
+            feature_end = if current_feature.is_some() {
+                find_block_end(&lines, idx, 0)
+            } else {
+                idx
+            };
+        }
+
+        if current_feature.is_some() && idx < feature_end {
+            if let Some(rest) = trimmed.strip_prefix("resource ") {
+                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+                let end = find_block_end(&lines, idx, leading_spaces(line));
+                if let Some(states) = lifecycle_states_in_resource_block(&lines, idx + 1, end) {
+                    resources.push(LifecycleResourceInfo {
+                        feature: current_feature.clone(),
+                        name,
+                        states,
+                    });
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("lifecycle status of ") {
+                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+                let end = find_block_end(&lines, idx, leading_spaces(line));
+                let states =
+                    lifecycle_state_children(&lines, idx + 1, end, leading_spaces(line) + 2);
+                if !name.is_empty() && !states.is_empty() {
+                    resources.push(LifecycleResourceInfo {
+                        feature: current_feature.clone(),
+                        name,
+                        states,
+                    });
+                }
+            }
+        }
+        idx += 1;
+    }
+    resources
+}
+
+fn lifecycle_states_in_resource_block(
+    lines: &[&str],
+    start: usize,
+    end: usize,
+) -> Option<Vec<String>> {
+    for (idx, line) in lines.iter().enumerate().take(end).skip(start) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("lifecycle ") {
+            let states = lifecycle_state_children(lines, idx + 1, end, leading_spaces(line) + 2);
+            if !states.is_empty() {
+                return Some(states);
+            }
+        }
+    }
+    None
+}
+
+fn lifecycle_state_children(
+    lines: &[&str],
+    start: usize,
+    end: usize,
+    child_indent: usize,
+) -> Vec<String> {
+    let mut states = Vec::new();
+    let mut seen = HashSet::new();
+    for line in lines.iter().take(end).skip(start) {
+        if leading_spaces(line) != child_indent {
+            continue;
+        }
+        if let Some(rest) = line.trim_start().strip_prefix("state ") {
+            let name = rest.split_whitespace().next().unwrap_or("");
+            if lifecycle_ident(name) && seen.insert(name.to_owned()) {
+                states.push(name.to_owned());
+            }
+        }
+    }
+    states
+}
+
+fn collect_lifecycle_lookup_queries(source: &str) -> Vec<LifecycleLookupQueryInfo> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut queries = Vec::new();
+    let mut current_feature: Option<String> = None;
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            current_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
+            continue;
+        }
+        let Some(feature) = current_feature.as_deref() else {
+            continue;
+        };
+        let Some(rest) = trimmed.strip_prefix("query.lookup ") else {
+            continue;
+        };
+        let name = rest.split_whitespace().next().unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        let end = find_block_end(&lines, idx, leading_spaces(line));
+        let returns = lines
+            .iter()
+            .take(end)
+            .skip(idx + 1)
+            .find_map(|child| {
+                child
+                    .trim_start()
+                    .strip_prefix("returns ")
+                    .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+            })
+            .filter(|value| !value.is_empty());
+        queries.push(LifecycleLookupQueryInfo {
+            feature: feature.to_owned(),
+            name: name.to_owned(),
+            returns,
+        });
+    }
+    queries
+}
+
+fn collect_lifecycle_view_names(source: &str, feature_hint: Option<&str>) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut current_top: Option<String> = None;
+    for line in &lines {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            current_top =
+                lifecycle_top_level_named_header(trimmed).map(|(_, name)| name.to_owned());
+        }
+        let context_matches = feature_hint
+            .map(|feature| current_top.as_deref() == Some(feature))
+            .unwrap_or(true);
+        if !context_matches {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("view ") {
+            let name = rest.split_whitespace().next().unwrap_or("");
+            if lifecycle_ident(name) && seen.insert(name.to_owned()) {
+                names.push(name.to_owned());
+            }
+        }
+    }
+    names
+}
+
+fn collect_lifecycle_resume_blocks(source: &str) -> Vec<LifecycleResumeBlock> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut blocks = Vec::new();
+    let mut current_top: Option<String> = None;
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            current_top =
+                lifecycle_top_level_named_header(trimmed).map(|(_, name)| name.to_owned());
+        }
+        let Some(rest) = trimmed.strip_prefix("resume ") else {
+            continue;
+        };
+        let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+        if name.is_empty() {
+            continue;
+        }
+        let header_indent = leading_spaces(line);
+        let end_line = find_block_end(&lines, idx, header_indent);
+        let mut source_query = None;
+        let mut arms = Vec::new();
+        for (child_idx, child) in lines.iter().enumerate().take(end_line).skip(idx + 1) {
+            if leading_spaces(child) != header_indent + 2 {
+                continue;
+            }
+            let child_trimmed = child.trim_start();
+            if let Some(rest) = child_trimmed.strip_prefix("source query.lookup ") {
+                source_query = rest
+                    .split_whitespace()
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned);
+                continue;
+            }
+            if let Some(arm) = lifecycle_parse_resume_arm(child_trimmed, child_idx) {
+                arms.push(arm);
+            }
+        }
+        blocks.push(LifecycleResumeBlock {
+            name,
+            feature_hint: current_top.clone(),
+            header_line: idx,
+            header_indent,
+            end_line,
+            source_query,
+            arms,
+        });
+    }
+    blocks
+}
+
+fn lifecycle_parse_resume_arm(trimmed: &str, line: usize) -> Option<LifecycleResumeArm> {
+    let state = trimmed.split_whitespace().next()?.to_owned();
+    if !(state == "none" || state == "*" || lifecycle_ident(&state)) {
+        return None;
+    }
+    let _after_arrow = lifecycle_after_arrow(trimmed)?;
+    Some(LifecycleResumeArm { state, line })
+}
+
+fn enclosing_lifecycle_resume_block(
+    source: &str,
+    position: Position,
+) -> Option<LifecycleResumeBlock> {
+    let line_idx = position.line as usize;
+    collect_lifecycle_resume_blocks(source)
+        .into_iter()
+        .find(|block| line_idx >= block.header_line && line_idx < block.end_line)
+}
+
+fn slug_for_lifecycle_token(token: &str) -> String {
+    let mut slug = String::new();
+    for (idx, ch) in token.chars().enumerate() {
+        if ch == '_' || ch == ' ' {
+            slug.push('-');
+        } else if ch.is_ascii_uppercase() {
+            if idx > 0 {
+                slug.push('-');
+            }
+            slug.push(ch.to_ascii_lowercase());
+        } else {
+            slug.push(ch.to_ascii_lowercase());
+        }
+    }
+    slug
+}
+
+fn snake_case(token: &str) -> String {
+    let mut out = String::new();
+    for (idx, ch) in token.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if idx > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch == '-' || ch == ' ' {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// Inside a `rate_limit "<N> per <window> per "` value, offer the
 /// closed axis catalog. Returns `None` outside that context.
 fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
@@ -16481,6 +17913,9 @@ const KEYWORDS: &[&str] = &[
     "paginate",
     "experience",
     "surface",
+    "requires_lifecycle",
+    "on_lifecycle_pending",
+    "resume",
     "imports",
     "uses",
     "bindings",
@@ -16679,14 +18114,10 @@ pub const AUTH_CATALOG_VALUES: &[&str] = &[
     "false",
 ];
 
-pub const AUTH_REFRESH_ACCESS_DURATION_LITERALS: &[&str] =
-    &["\"15 minutes\"", "\"1 hour\""];
-pub const AUTH_REFRESH_REFRESH_DURATION_LITERALS: &[&str] =
-    &["\"30 days\"", "\"7 days\""];
-pub const AUTH_REFRESH_GRACE_DURATION_LITERALS: &[&str] =
-    &["\"30 seconds\"", "\"5 minutes\""];
-pub const AUTH_REFRESH_THEFT_ACTION_VALUES: &[&str] =
-    &["revoke_session_family", "revoke_user"];
+pub const AUTH_REFRESH_ACCESS_DURATION_LITERALS: &[&str] = &["\"15 minutes\"", "\"1 hour\""];
+pub const AUTH_REFRESH_REFRESH_DURATION_LITERALS: &[&str] = &["\"30 days\"", "\"7 days\""];
+pub const AUTH_REFRESH_GRACE_DURATION_LITERALS: &[&str] = &["\"30 seconds\"", "\"5 minutes\""];
+pub const AUTH_REFRESH_THEFT_ACTION_VALUES: &[&str] = &["revoke_session_family", "revoke_user"];
 
 pub const ERROR_PAGE_STATUS_VALUES: &[&str] = &[
     "400", "401", "403", "404", "405", "410", "422", "429", "500", "502", "503", "504",
@@ -17372,9 +18803,7 @@ pub fn auth_refresh_code_actions(
     if is_rotation_line(trimmed) {
         if let Some(rotation) = enclosing_auth_rotation_block(source, position) {
             if !auth_rotation_has_children(source, rotation) {
-                if let Some(action) =
-                    build_scaffold_rotation_block_action(source, uri, rotation)
-                {
+                if let Some(action) = build_scaffold_rotation_block_action(source, uri, rotation) {
                     actions.push(action.into());
                 }
             }
@@ -17383,11 +18812,9 @@ pub fn auth_refresh_code_actions(
 
     if let Some(sessions) = enclosing_auth_sessions_block(source, position) {
         if !auth_sessions_has_child(source, sessions, "rotation") {
-            if let Some(action) = build_promote_single_token_to_rotation_action(
-                source,
-                uri,
-                sessions,
-            ) {
+            if let Some(action) =
+                build_promote_single_token_to_rotation_action(source, uri, sessions)
+            {
                 actions.push(action.into());
             }
         }
@@ -17469,7 +18896,11 @@ fn build_rotation_defaults_text(sessions_indent: usize, include_access_ttl: bool
         ));
     }
     lines.push(format!("{session_child_indent}rotation"));
-    lines.push(build_rotation_inner_defaults_text(sessions_indent + 2).trim_end().to_owned());
+    lines.push(
+        build_rotation_inner_defaults_text(sessions_indent + 2)
+            .trim_end()
+            .to_owned(),
+    );
     format!("{}\n", lines.join("\n"))
 }
 
