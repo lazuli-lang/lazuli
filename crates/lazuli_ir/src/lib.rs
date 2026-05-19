@@ -3953,7 +3953,7 @@ pub struct RequiresLifecycle {
     /// snake_case state name matching `LifecycleState.name`.
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span: Option<Span>,
+    pub span_ref: Option<SpanRef>,
 }
 
 /// `resume <name>` block at feature top-level.
@@ -3966,7 +3966,7 @@ pub struct ResumeRouter {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arms: Vec<ResumeArm>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span: Option<Span>,
+    pub span_ref: Option<SpanRef>,
 }
 
 /// One match arm in a `resume` block.
@@ -3976,7 +3976,7 @@ pub struct ResumeArm {
     /// View name in the same feature, or `<feature>.<view>` cross-feature.
     pub target_view: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span: Option<Span>,
+    pub span_ref: Option<SpanRef>,
 }
 
 /// Lifecycle state name, `none` marker, or wildcard arm kind.
