@@ -200,6 +200,7 @@ fn lazurite_manifest(
                         module: Some(module.to_owned()),
                         version: Some("v0.1.0".to_owned()),
                         path: None,
+                        go_module: Some(module.to_owned()),
                     },
                 )
             })
@@ -1012,7 +1013,10 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
     assert!(expo < mercado, "expected plugin imports sorted by ref");
     assert!(main
         .contents
-        .contains("// Plugin imports - registered at init time via lazuli.RegisterAdapter."));
+        .contains("// Plugin imports — side-effect aliases so each plugin's package"));
+    assert!(main
+        .contents
+        .contains("init order across plugins"));
 }
 
 #[test]

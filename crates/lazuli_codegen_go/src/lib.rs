@@ -65,6 +65,27 @@ pub struct LazuritePlugin {
     pub module: Option<String>,
     pub version: Option<String>,
     pub path: Option<String>,
+    /// Resolved Go module path for this plugin — the value of the
+    /// first-line `module ...` directive in the plugin's `go.mod`.
+    ///
+    /// For `Plugin::Remote { module, .. }` entries this equals
+    /// `module` (the Lazurite.toml authoring shape IS the Go module
+    /// path). For `Plugin::Local { path }` entries the CLI reads
+    /// `<path>/go.mod` at translation time and threads the discovered
+    /// value here.
+    ///
+    /// Codegen emits one `_ "<go_module>"` side-effect import per
+    /// plugin in `main.go` so each plugin's `init()` runs and its
+    /// `lazuli.RegisterAdapter(...)` populates the adapter registry
+    /// before the first facade call resolves. Without this side-effect
+    /// import the binary's transitive import graph never visits the
+    /// plugin and the runtime panics at first `ResolveAdapter`.
+    ///
+    /// `None` when the plugin has no resolvable Go module (the CLI
+    /// could not read `<path>/go.mod`, or the plugin manifest declares
+    /// a non-Go runtime). The emitter skips imports for `None` entries
+    /// rather than fabricating a guess.
+    pub go_module: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

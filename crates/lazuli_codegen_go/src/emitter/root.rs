@@ -296,15 +296,38 @@ fn emit_main_imports(
         }
     }
     if let Some(manifest) = manifest {
-        let plugins = manifest
+        // Plugin side-effect imports — one `_ "<go_module>"` per
+        // declared plugin so the plugin package's `init()` runs and
+        // populates the runtime adapter registry (`lazuli.RegisterAdapter`)
+        // BEFORE the first facade call resolves. The go module path is
+        // resolved by the CLI translator: for `Plugin::Remote { module,
+        // .. }` it equals the Lazurite.toml `module`; for `Plugin::Local
+        // { path }` it is read from `<path>/go.mod`'s first-line
+        // `module ...` directive. Plugins where the CLI could not
+        // resolve a go_module are skipped — the runtime surfaces them
+        // as `ErrAdapterMissing` at facade resolve time, which points
+        // straight at the missing plugin manifest / go.mod gap.
+        //
+        // Deferred resolution in `runtime/go/lazuli/app_integration.go`
+        // means init() order between plugins and the codegen-emitted
+        // `app/app_integrations.gen.go` does NOT matter — each plugin
+        // can register its adapter independently and the facade calls
+        // resolve at request time. The side-effect imports below are
+        // the missing piece that brings the plugin packages into the
+        // binary's transitive import graph in the first place.
+        let plugin_modules: Vec<String> = manifest
             .plugins
             .iter()
-            .filter_map(|(_ref_str, plugin)| plugin.module.as_deref())
-            .collect::<Vec<_>>();
-        if !plugins.is_empty() {
+            .filter_map(|(_ref_str, plugin)| plugin.go_module.clone())
+            .collect();
+        if !plugin_modules.is_empty() {
             p.blank();
-            p.line("// Plugin imports - registered at init time via lazuli.RegisterAdapter.");
-            for module in plugins {
+            p.line("// Plugin imports — side-effect aliases so each plugin's package");
+            p.line("// init() runs and calls lazuli.RegisterAdapter(...) into the");
+            p.line("// runtime registry. Deferred resolution in the runtime means");
+            p.line("// init order across plugins + app_integrations.gen.go no longer");
+            p.line("// matters — see runtime/go/lazuli/app_integration.go.");
+            for module in plugin_modules {
                 p.line(&format!("_ \"{}\"", module));
             }
         }

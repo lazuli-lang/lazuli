@@ -19,7 +19,7 @@ type AppIntegrationName = string
 
 var (
 	appIntegrationMu       sync.RWMutex
-	appIntegrationRegistry = map[AppIntegrationName]Adapter{}
+	appIntegrationRegistry = map[AppIntegrationName]AdapterRef{}
 )
 
 // ErrAppIntegrationMissing signals that a handler asked for a binding
@@ -29,36 +29,48 @@ var (
 // than panicking on the first request.
 var ErrAppIntegrationMissing = errors.New("lazuli: app integration not registered")
 
-// RegisterAppIntegration records the resolved adapter behind a binding
-// slot. Codegen calls this at boot:
+// RegisterAppIntegration records the adapter REF STRING behind a
+// binding slot. Codegen calls this at boot:
 //
 //	func init() {
-//	    lazuli.RegisterAppIntegration("object_store", lazuli.MustResolveAdapter("@plugin/object-store"))
+//	    lazuli.RegisterAppIntegration("object_store", "@plugin/object-store")
 //	}
 //
-// The two-step (adapter ref → binding name) keeps the codegen emit
-// wire-thin: codegen knows the binding name + plugin ref pair from
-// `registry.lzi`; the plugin's own `init()` registers itself with
-// `RegisterAdapter`; the codegen-emitted call wires the two together.
+// Deferred resolution: the registry stores the binding-name → adapter
+// ref pair. The actual adapter lookup runs lazily inside
+// `ResolveAppIntegration` so plugin-package init() can register its
+// adapter AFTER the codegen-emitted `RegisterAppIntegration` runs.
+// This eliminates the init-order panic class entirely — every package
+// init() finishes before the first facade call lands.
 //
 // Idempotent — the last registration wins. Call before `Mux()` is
-// built; runtime lookups after boot are read-only.
-func RegisterAppIntegration(name AppIntegrationName, impl Adapter) {
+// built; runtime lookups after boot are read-only on the binding map
+// (the adapter registry is still safe under sync.RWMutex).
+func RegisterAppIntegration(name AppIntegrationName, ref AdapterRef) {
 	appIntegrationMu.Lock()
 	defer appIntegrationMu.Unlock()
-	appIntegrationRegistry[name] = impl
+	appIntegrationRegistry[name] = ref
 }
 
-// ResolveAppIntegration returns the adapter behind a binding slot, or
-// `ErrAppIntegrationMissing` when no registration matches. Facades
-// (`lazuli.ObjectStore`, `lazuli.PaymentGateway`, ...) call this then
-// type-assert against their typed contract.
+// ResolveAppIntegration returns the adapter behind a binding slot.
+// Performs deferred adapter resolution: looks up the binding's
+// registered adapter ref then calls `ResolveAdapter` at call time.
+// Returns `ErrAppIntegrationMissing` when the binding has no
+// registration; returns `ErrAdapterMissing` (via `ResolveAdapter`)
+// when the plugin's `RegisterAdapter` never ran.
+//
+// Facades (`lazuli.ObjectStore`, `lazuli.PaymentGateway`, ...) call
+// this then type-assert against their typed contract.
 func ResolveAppIntegration(name AppIntegrationName) (Adapter, error) {
 	appIntegrationMu.RLock()
-	defer appIntegrationMu.RUnlock()
-	impl, ok := appIntegrationRegistry[name]
+	ref, ok := appIntegrationRegistry[name]
+	appIntegrationMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("lazuli: app integration %q: %w", name, ErrAppIntegrationMissing)
 	}
-	return impl, nil
+	adapter, err := ResolveAdapter(ref)
+	if err != nil {
+		return nil, fmt.Errorf("lazuli: app integration %q -> %w", name, err)
+	}
+	return adapter, nil
 }

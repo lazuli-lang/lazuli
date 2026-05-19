@@ -3036,12 +3036,29 @@ fn codegen_lazurite_manifest(
                 }
                 lazurite_manifest::Plugin::Local { path } => (None, None, Some(path.clone())),
             };
+            // Resolve the plugin's Go module path so codegen can emit a
+            // side-effect import in main.go. For Remote plugins the
+            // Lazurite.toml `module` IS the Go module path; for Local
+            // plugins we read the first-line `module ...` from
+            // `<path>/go.mod`. This closes the init-order panic class
+            // by guaranteeing the plugin's package init() lands in the
+            // binary's transitive import graph — see
+            // `runtime/go/lazuli/app_integration.go` for the deferred
+            // resolution that lets Local plugins register their adapter
+            // before the first facade call.
+            let go_module = match plugin {
+                lazurite_manifest::Plugin::Remote { module, .. } => Some(module.clone()),
+                lazurite_manifest::Plugin::Local { path } => {
+                    read_plugin_go_module(project_root, path)
+                }
+            };
             (
                 plugin_ref.clone(),
                 lazuli_codegen_go::LazuritePlugin {
                     module,
                     version,
                     path,
+                    go_module,
                 },
             )
         })
@@ -3075,6 +3092,42 @@ fn codegen_lazurite_manifest(
         generate_go,
         dev,
     }
+}
+
+/// Read the first-line `module <path>` directive from a local plugin's
+/// `go.mod`. Used by `codegen_lazurite_manifest` to discover the Go
+/// module path the codegen needs to emit a `_ "<module>"` side-effect
+/// import in main.go (so the plugin's package init() runs and its
+/// `lazuli.RegisterAdapter(...)` populates the registry).
+///
+/// Returns `None` when:
+/// - the path does not resolve to a directory containing `go.mod`
+/// - the file is unreadable
+/// - no `module` directive is found in the first ~20 lines
+///
+/// `None` is a soft failure: the emitter skips that plugin's import,
+/// which surfaces as the existing `ErrAdapterMissing` at facade resolve
+/// time rather than as a codegen panic. This matches the proposal's
+/// "additive, never break the build" discipline.
+fn read_plugin_go_module(project_root: &Path, plugin_path: &str) -> Option<String> {
+    let plugin_root = if Path::new(plugin_path).is_absolute() {
+        std::path::PathBuf::from(plugin_path)
+    } else {
+        project_root.join(plugin_path)
+    };
+    let go_mod = plugin_root.join("go.mod");
+    let contents = std::fs::read_to_string(&go_mod).ok()?;
+    for line in contents.lines().take(40) {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("module ") {
+            // Trim trailing comments (`// indirect` style) and whitespace.
+            let module = rest.split("//").next()?.trim();
+            if !module.is_empty() {
+                return Some(module.to_owned());
+            }
+        }
+    }
+    None
 }
 
 struct RuntimeDevReplace {

@@ -9,14 +9,22 @@
 //!
 //! ```go
 //! func init() {
-//!     lazuli.RegisterAppIntegration("object_store", lazuli.MustResolveAdapter("@plugin/object-store"))
+//!     lazuli.RegisterAppIntegration("object_store", "@plugin/object-store")
 //! }
 //! ```
 //!
 //! The two-step (adapter ref → binding name) keeps codegen wire-thin:
 //! the plugin package's own `init()` populates the adapter registry
-//! via `lazuli.RegisterAdapter`; the codegen-emitted call below maps
-//! the binding name (`object_store`) to the resolved adapter.
+//! via `lazuli.RegisterAdapter`; the codegen-emitted call below
+//! records the binding name (`object_store`) → adapter ref pair so
+//! the runtime can resolve the binding at request time.
+//!
+//! Deferred resolution: the emitted call passes the adapter REF STRING
+//! (not a `MustResolveAdapter`-resolved value). The runtime's
+//! `ResolveAppIntegration` performs the adapter lookup lazily, at the
+//! first facade call, so init() ordering between this file and each
+//! plugin package no longer matters. See
+//! `runtime/go/lazuli/app_integration.go` for the deferred mechanic.
 //!
 //! Skipped entirely when the module declares no `integrations`
 //! carrying an adapter, so the output listing stays signal-rich.
@@ -93,8 +101,12 @@ pub fn emit_app_integrations(source_label: &str, module: &Module) -> Option<Stri
     p.line("func init() {");
     p.indent();
     for (name, adapter) in &by_name {
+        // Deferred resolution: pass the adapter REF STRING. The
+        // runtime's `ResolveAppIntegration` performs the adapter
+        // lookup lazily so plugin package `init()`s can land in any
+        // order. See `runtime/go/lazuli/app_integration.go`.
         p.line(&format!(
-            "lazuli.RegisterAppIntegration({name:?}, lazuli.MustResolveAdapter({adapter:?}))",
+            "lazuli.RegisterAppIntegration({name:?}, {adapter:?})",
         ));
     }
     p.dedent();
@@ -231,8 +243,15 @@ mod tests {
         assert!(out.contains("package app"));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(out.contains(
-            "lazuli.RegisterAppIntegration(\"object_store\", lazuli.MustResolveAdapter(\"@plugin/object-store\"))"
+            "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
         ));
+        // Deferred resolution invariant: emitter must NOT call
+        // `MustResolveAdapter` at codegen-emit time. The init-order
+        // panic class is closed precisely by avoiding eager resolution.
+        assert!(
+            !out.contains("MustResolveAdapter"),
+            "emitter regression: codegen must pass adapter ref string, not call MustResolveAdapter:\n{out}"
+        );
         assert!(out.contains("//lazuli:pattern app_integration_register v1"));
     }
 
@@ -249,8 +268,12 @@ mod tests {
         )]);
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
         assert!(out.contains(
-            "lazuli.RegisterAppIntegration(\"object_store\", lazuli.MustResolveAdapter(\"@plugin/object-store\"))"
+            "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
         ));
+        assert!(
+            !out.contains("MustResolveAdapter"),
+            "emitter regression: registry path must also pass ref string:\n{out}"
+        );
     }
 
     #[test]
