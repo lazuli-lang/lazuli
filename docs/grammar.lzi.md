@@ -998,7 +998,41 @@ The grammar admits constructs that doctor or `lazuli check` reject:
   nowhere. Files using the brace syntax must be migrated by
   `lazuli fmt --canonical` before parsing under this grammar.
 
-## 23. Out of scope for this file
+## 23. App manifest route guards
+
+`app.lzi` has its own sibling grammar in `docs/grammar.app.md`. The route-guard
+surface is repeated here because `.lzi` feature views, `.lzx` surfaces, and the
+app manifest participate in one guard resolution chain:
+
+```ebnf
+app_route_guard_top = actor_query_decl
+                    | route_guard_block ;
+
+actor_query_decl  = "actor_query" qualified_query_ref NEWLINE ;
+
+route_guard_block = "route_guard" NEWLINE
+                    INDENT route_guard_entry* DEDENT ;
+
+route_guard_entry = "default_policy" policy_ref NEWLINE
+                  | "on_unauthenticated" "redirect" STRING NEWLINE
+                  | "on_unauthorized" "redirect" STRING NEWLINE
+                  | "skeleton" "@client." IDENT_LOWER NEWLINE ;
+
+qualified_query_ref = feature_ref "." "query" "." IDENT_LOWER ;
+
+policy_ref        = "@policy." IDENT_LOWER
+                  | "@scope." IDENT_LOWER
+                  | "@role." IDENT_LOWER
+                  | "@actor." IDENT_LOWER ;
+```
+
+`actor_query` references a query that returns `LazuliActor | null`; the runtime
+uses it to resolve the active actor before evaluating route guards. The
+`route_guard` block is app-scoped and has cardinality 0..1. Its child slots are
+independent app defaults for the view -> audience -> app -> built-in guard
+resolution chain.
+
+## 24. Out of scope for this file
 
 - `.lzx` (experiences, surfaces, route declarations).
 - `app.lzi` (deploy topology, env, runtime units).

@@ -101,6 +101,27 @@ command delete_user
 
 The Go runtime authorization engine is `runtime/go/lazuli/authz/policy.go`. It evaluates explicit `authz.Rule` entries first, then falls back to `authz.RoleGraph` permissions and role inheritance.
 
+### Route guards
+
+Backend policy still gates commands, queries, and APIs. Route guards apply the
+same policy vocabulary before a screen renders:
+
+```lazuli
+app AcmeCRM
+  actor_query account.query.me
+  route_guard
+    default_policy @scope.authenticated
+    on_unauthenticated redirect "/sign-in"
+    on_unauthorized redirect "/403"
+```
+
+`actor_query` resolves the current `LazuliActor | null`; route guard policies
+use that actor to decide whether to render, redirect as unauthenticated, or
+redirect as unauthorized. Views and audiences may override the app fallback with
+their own `policy @policy.<name>` guard. The resolved view guard must be at
+least as strict as every backend command/query the view `submit`s or `source`s,
+so users do not see screens that only fail at API time.
+
 ### OAuth-only mode
 
 Skip `auth password` and declare one or more OAuth providers:

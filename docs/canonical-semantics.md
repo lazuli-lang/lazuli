@@ -2288,7 +2288,9 @@ acme` changes the list view, it redeclares the whole view. Partial operations
 such as `columns += account_manager` are invalid because they make the final UI
 exist only after merge resolution.
 
-Read views consume query sources. A view does not need to restate `policy @policy.read` if the source query is scoped and the feature has a `read` policy.
+Read views consume query sources. A view can inherit a matching route guard from
+its audience or app instead of restating `policy @policy.read`; if the resolved
+guard is laxer than the source query, `ROUTE-GUARD-002` rejects it.
 
 ```lazuli
 view detail SidePanel
@@ -2309,6 +2311,104 @@ Platform projections should not use bare submit verbs such as `submit create`.
 Use `command.create` for same-experience commands or a feature-qualified target
 such as `customer.command.capture_lead` when the command lives in another
 feature namespace.
+
+### View-level policy
+
+A `view` may declare a route guard with `policy @policy.<name>`. The policy
+uses the same feature-local policy vocabulary as backend commands and queries,
+but it controls navigation: whether the active actor may see the screen before
+any hosted API call runs. The guard can also declare
+`on_unauthenticated redirect "<path>"` and
+`on_unauthorized redirect "<path>"` child slots. Each redirect slot is optional
+and resolves independently from the policy slot.
+
+The view guard must not be laxer than the backend operations the view hosts. If
+a view `submit`s a command or `source`s a query whose backend policy is stricter
+than the view's resolved guard, `lazuli doctor` rejects it with
+`ROUTE-GUARD-002`.
+
+### Audience-level policy
+
+An `audience` block inside a platform `surface` may declare the same
+`policy @policy.<name>` guard. This is the audience default: child views inherit
+the audience policy and redirect slots unless they set their own view-level
+slot. The cascade is per slot, so a view may override only the policy while
+continuing to inherit `on_unauthenticated` or `on_unauthorized`.
+
+Audience policies resolve in the surface owner's feature scope. A cross-feature
+surface still keeps the policy source visible at the audience site; if it needs
+another feature's policy category, use a feature-qualified policy reference.
+
+### App-level route_guard block
+
+`app.lzi` may declare an app fallback with `actor_query` and `route_guard`:
+
+```lazuli
+app HostPoint
+  actor_query account.query.me
+  route_guard
+    default_policy @scope.authenticated
+    on_unauthenticated redirect "/sign-in"
+    on_unauthorized redirect "/403"
+```
+
+`actor_query <feature>.query.<name>` names the query the generated runtime SDK
+uses to resolve the current actor. The query returns `LazuliActor | null`;
+`null` means no actor is signed in. Without `actor_query`, the runtime cannot
+evaluate authentication-class route policies and doctor reports the missing
+actor source when any non-public route guard exists.
+
+Inside `route_guard`, `default_policy` is the app-wide fallback policy for
+routes with no view or audience policy. `on_unauthenticated` redirects an actor
+who is not signed in. `on_unauthorized` redirects a signed-in actor who fails
+the guard policy. The optional `skeleton @client.<name>` slot renders while the
+actor query hydrates; if absent, the runtime renders no guarded content until
+the verdict is known.
+
+### Resolution chain
+
+At navigation time, each guard slot resolves through this chain:
+
+1. View-level `policy`, `on_unauthenticated`, `on_unauthorized`.
+2. Audience-level `policy`, `on_unauthenticated`, `on_unauthorized`.
+3. App-level `route_guard.default_policy`, `on_unauthenticated`,
+   `on_unauthorized`.
+4. Built-in default: render unguarded.
+
+The walk is per slot. A view can set `policy @policy.host_only` and inherit the
+redirect paths from the audience or app. If every layer leaves `policy` unset,
+the route remains unguarded for backward compatibility.
+
+Until `crates/lazuli_cli/tests/fixtures/route-guard/happy.lzx` exists, this
+example follows the shipped proposal/parser grammar:
+
+```lazuli
+app HostPoint
+  actor_query account.query.me
+  route_guard
+    default_policy @scope.authenticated
+    on_unauthenticated redirect "/sign-in"
+    on_unauthorized redirect "/403"
+
+surface host web
+  uses experience host
+
+  audience host
+    policy @policy.host_only
+      on_unauthenticated redirect "/sign-in"
+      on_unauthorized redirect "/explore"
+
+    view property_create Form
+      submit catalog.command.create_property
+```
+
+For `/host/properties/new` backed by `property_create`, a logged-out actor gets
+`@policy.host_only` from the audience and falls through to
+`on_unauthenticated`, which resolves to `/sign-in`. A signed-in non-host actor
+gets the same audience policy, fails it as unauthorized, and resolves
+`on_unauthorized` to `/explore`. A signed-in host passes and the view renders.
+If the view later declares its own `policy`, only that slot changes unless the
+view also declares redirect children.
 
 The compiler should surface this derivation in `explain`.
 

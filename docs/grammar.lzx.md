@@ -23,9 +23,10 @@ Identical to `docs/grammar.lzi.md §1`. Re-uses `INDENT`/`DEDENT`/
 
 ```
 action anchor at audience block columns detail experience extends
-extensible_by filter form imports lazy lookup mobile mode opens
-params path platforms platform route search slot source submit
-surface tests to view web
+extensible_by filter form imports lazy lookup mobile mode
+on_unauthenticated on_unauthorized opens params path platforms
+platform policy redirect route search slot source submit surface tests
+to view web
 ```
 
 These are recognized as keywords only inside their parent
@@ -109,6 +110,7 @@ view_body         = ( "source" target_query_call NEWLINE
                     | "filter" filter_field_list NEWLINE
                     | "search" "by" ident_list NEWLINE
                     | "submit" target_command_call NEWLINE
+                    | view_guard_decl
                     | action_decl
                     | opens_decl
                     | block_decl
@@ -122,6 +124,14 @@ target_query_call = feature_ref "." "query" ( "." IDENT_LOWER )?
                     "." IDENT_LOWER ( "(" arg_list_view ")" )? ;
 target_command_call = feature_ref "." "command" "." IDENT_LOWER
                       ( "(" arg_list_view ")" )? ;
+view_guard_decl  = "policy" policy_ref NEWLINE
+                    ( INDENT route_guard_redirect+ DEDENT )? ;
+route_guard_redirect = ( "on_unauthenticated" | "on_unauthorized" )
+                       "redirect" STRING NEWLINE ;
+policy_ref        = "@policy." IDENT_LOWER
+                  | "@scope." IDENT_LOWER
+                  | "@role." IDENT_LOWER
+                  | "@actor." IDENT_LOWER ;
 arg_list_view     = arg_view ( "," arg_view )* ;
 arg_view          = IDENT_LOWER ":" view_arg_value ;
 view_arg_value    = "route" "." IDENT_LOWER
@@ -154,14 +164,22 @@ surface_decl      = "surface" feature_ref platform_target NEWLINE
                     INDENT surface_body DEDENT ;
 
 surface_body      = ( "uses" "experience" feature_ref NEWLINE
-                    | "audience" IDENT_LOWER NEWLINE INDENT view_decl+ DEDENT
+                    | "audience" IDENT_LOWER NEWLINE
+                      INDENT audience_body DEDENT
+                    | view_decl
+                    )+ ;
+
+audience_body     = ( view_guard_decl
                     | view_decl
                     )+ ;
 ```
 
 When `audience` is used as a child block, its body contains
-view-level declarations that apply only to that audience. Top-level
-`view_decl` children of a surface apply to all audiences.
+an optional audience guard and view-level declarations that apply only to that
+audience. Top-level `view_decl` children of a surface apply to all audiences.
+`policy` has cardinality 0..1 per `view` and 0..1 per `audience`.
+`on_unauthenticated` and `on_unauthorized` are optional redirect children of a
+`policy` guard; each has cardinality 0..1.
 
 ## 6. Cross-feature view extension
 
