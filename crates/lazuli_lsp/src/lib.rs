@@ -11,9 +11,9 @@ use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
     Documentation, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult,
-    InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, Position, Range,
-    ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-    Url, WorkspaceEdit,
+    InitializedParams, InsertTextFormat, MarkupContent, MarkupKind, MessageType, OneOf, Position,
+    Range, ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Url, WorkspaceEdit,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
@@ -91,7 +91,8 @@ impl LanguageServer for Backend {
                 // IR Error-Vocab — three code actions per proposal §7.4:
                 // scaffold the `errors` block, add `when_denied` to a
                 // `policies.<category>:` line, add `when_denied` to a
-                // `command.policy` line. See `error_vocab_code_actions`.
+                // `command.policy` line. Auth-refresh rotation contributes
+                // text-edit scaffolds for `auth.sessions.rotation`.
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
@@ -332,11 +333,11 @@ impl LanguageServer for Backend {
         let Some(source) = documents.get(&uri) else {
             return Ok(None);
         };
-        // IR Error-Vocab — three actions per proposal §7.4. We always
-        // return whatever actions match the cursor position; the client
-        // filters by `only` / `trigger_kind`. Other code-action providers
-        // can be appended here later as the LSP grows.
+        // IR Error-Vocab and Auth Refresh return whatever actions match
+        // the cursor position; the client filters by `only` /
+        // `trigger_kind`.
         let mut actions = error_vocab_code_actions(source, &uri, position);
+        actions.extend(auth_refresh_code_actions(source, &uri, position));
         if actions.is_empty() {
             return Ok(None);
         }
@@ -13317,7 +13318,21 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "mfa" => {
             Some("MFA subcontract: `mfa <method>` with `enroll` + `verify`. v0 method: `totp`.")
         }
-        "sessions" => Some("Sessions subcontract: backing resource + ttl + refresh policy."),
+        "sessions" => Some(
+            "Sessions subcontract: backing resource, legacy `ttl`, optional short-lived `access_ttl`, and optional nested `rotation` refresh-token discipline.",
+        ),
+        "access_ttl" => Some(
+            "Short-lived access token TTL. Used on every API request. Framework default under `rotation` is `15 minutes`. Shorter reduces stolen-access-token blast radius; longer reduces refresh round trips. Doctor warns above 1 hour (AUTH-REFRESH-005).",
+        ),
+        "refresh_ttl" => Some(
+            "Long-lived refresh token TTL inside `auth.sessions.rotation`. Used only by the refresh endpoint. Framework default is `30 days`; it must exceed `access_ttl` so access tokens stay short-lived (AUTH-REFRESH-001).",
+        ),
+        "grace" => Some(
+            "Refresh rotation grace window. A recently revoked refresh can still succeed briefly to absorb legitimate two-tab races. Framework default is `30 seconds`; longer windows weaken theft detection and doctor warns above 5 minutes (AUTH-REFRESH-004).",
+        ),
+        "theft_detection_action" => Some(
+            "Closed auth-rotation catalog for revoked-refresh reuse past grace. `revoke_session_family` revokes this device chain; `revoke_user` revokes every session for the user. Framework default is `revoke_session_family`.",
+        ),
         "refresh" => Some("Whether the session adapter issues refresh tokens. Default `false`."),
         "enroll" => {
             Some("Enrolment function reference (`@fn.*`) returning method-specific enrolment data.")
@@ -13601,7 +13616,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
             "App-level encryption key binding catalog. One `key @key.<scope>` child per `@cap.Encrypted` / `@cap.E2ee` scope used in the capsule. Closed catalog: `@key.app`, `@key.tenant`, `@key.user`, `@key.record`. Per `docs/proposals/encryption-vocab.md`.",
         ),
         "rotation" => Some(
-            "Key rotation strategy on `encryption.key @key.<scope>`. v0 catalog: `manual` (rewrite env, re-encrypt rows via a job). `kms_managed` is deferred to a future cut.",
+            "In `auth.sessions`, enables refresh-token rotation: every refresh issues a new access token and refresh token, then revokes the old refresh so replay becomes a theft signal through the parent_session_id chain. Framework default is absent/disabled for back-compat; production apps should declare `rotation`. In `encryption.key`, `rotation` remains the key rotation strategy; v0 catalog includes `manual`.",
         ),
         "rotation_profile" => Some(
             "Binds an `encryption.key @key.<scope>` to a `registry.secret_rotation <name>` profile. Cadence/overlap/auto_rollback live on the profile; the binding is a name reference. Doctor's `secret-rotation-binding-unknown` flags references to undeclared profiles.",
@@ -14556,6 +14571,14 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
         return Some(items);
     }
 
+    // IR Auth Refresh Rotation — narrow completions for
+    // `auth.sessions.access_ttl` and nested `rotation` children. This runs
+    // before error-vocab and kind-child fallback because the triggers are
+    // specific to the auth.sessions indent shape.
+    if let Some(items) = auth_refresh_completions(source, position) {
+        return Some(items);
+    }
+
     // IR Error-Vocab — the 6 trigger positions from proposal §7.1. Runs
     // before the indent-aware kind-child fallback because the matches are
     // strictly narrower (`when_denied `, `<code> message `,
@@ -14604,6 +14627,296 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
         });
     }
     Some(items)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AuthSessionsBlock {
+    line_idx: usize,
+    indent: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AuthRotationBlock {
+    line_idx: usize,
+    indent: usize,
+}
+
+/// Completion provider for Cell LSP-1 of auth refresh rotation. This stays
+/// text/indent based to mirror the rest of this crate's lightweight LSP
+/// helpers and avoid touching parser, IR, codegen, or runtime layers.
+pub fn auth_refresh_completions(
+    source: &str,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let cursor = (position.character as usize).min(line.len());
+    let before = &line[..cursor];
+    let trimmed_before = before.trim_start();
+
+    if enclosing_auth_sessions_block(source, position).is_some()
+        && after_keyword_value_prefix(trimmed_before, "access_ttl")
+    {
+        return Some(duration_literal_completion_items(
+            AUTH_REFRESH_ACCESS_DURATION_LITERALS,
+        ));
+    }
+
+    if enclosing_auth_sessions_block(source, position).is_some()
+        && trimmed_before == "rotation"
+    {
+        return Some(vec![rotation_block_snippet_completion(leading_spaces(line))]);
+    }
+
+    if enclosing_auth_rotation_block(source, position).is_some() {
+        if after_keyword_value_prefix(trimmed_before, "refresh_ttl") {
+            return Some(duration_literal_completion_items(
+                AUTH_REFRESH_REFRESH_DURATION_LITERALS,
+            ));
+        }
+        if after_keyword_value_prefix(trimmed_before, "grace") {
+            return Some(duration_literal_completion_items(
+                AUTH_REFRESH_GRACE_DURATION_LITERALS,
+            ));
+        }
+        if after_keyword_value_prefix(trimmed_before, "theft_detection_action") {
+            return Some(auth_refresh_theft_action_completion_items());
+        }
+
+        let is_blank_indented = trimmed_before.is_empty() && !before.is_empty();
+        let is_partial_child = !trimmed_before.is_empty()
+            && !trimmed_before.chars().any(char::is_whitespace)
+            && trimmed_before
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if is_blank_indented || is_partial_child {
+            return Some(auth_refresh_rotation_clause_completion_items());
+        }
+    }
+
+    None
+}
+
+fn after_keyword_value_prefix(trimmed_before: &str, keyword: &str) -> bool {
+    let Some(rest) = trimmed_before.strip_prefix(keyword) else {
+        return false;
+    };
+    rest.starts_with(' ')
+        && rest
+            .trim_start()
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '"' || c == ' ')
+}
+
+fn duration_literal_completion_items(values: &[&str]) -> Vec<CompletionItem> {
+    values
+        .iter()
+        .map(|value| CompletionItem {
+            label: (*value).to_owned(),
+            kind: Some(CompletionItemKind::VALUE),
+            detail: Some("Duration literal for auth session rotation.".to_owned()),
+            insert_text: Some((*value).to_owned()),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn auth_refresh_theft_action_completion_items() -> Vec<CompletionItem> {
+    AUTH_REFRESH_THEFT_ACTION_VALUES
+        .iter()
+        .map(|value| CompletionItem {
+            label: (*value).to_owned(),
+            kind: Some(CompletionItemKind::ENUM_MEMBER),
+            detail: auth_refresh_theft_action_detail(value).map(str::to_owned),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn rotation_block_snippet_completion(line_indent: usize) -> CompletionItem {
+    let child_indent = " ".repeat(line_indent + 2);
+    CompletionItem {
+        label: "scaffold rotation block".to_owned(),
+        kind: Some(CompletionItemKind::SNIPPET),
+        detail: Some(
+            "Insert refresh_ttl, grace, and theft_detection_action defaults under rotation."
+                .to_owned(),
+        ),
+        insert_text: Some(format!(
+            "\n{child_indent}refresh_ttl \"30 days\" # framework default\n{child_indent}grace \"30 seconds\" # framework default\n{child_indent}theft_detection_action revoke_session_family # framework default"
+        )),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..CompletionItem::default()
+    }
+}
+
+fn auth_refresh_rotation_clause_completion_items() -> Vec<CompletionItem> {
+    [
+        (
+            "refresh_ttl \"30 days\"",
+            "refresh_ttl \"30 days\"",
+            "Long-lived refresh token TTL. Framework default: 30 days.",
+        ),
+        (
+            "grace \"30 seconds\"",
+            "grace \"30 seconds\"",
+            "Two-tab refresh race window. Framework default: 30 seconds.",
+        ),
+        (
+            "theft_detection_action revoke_session_family",
+            "theft_detection_action revoke_session_family",
+            "Default theft response: revoke this session family.",
+        ),
+    ]
+    .into_iter()
+    .map(|(label, insert_text, detail)| CompletionItem {
+        label: label.to_owned(),
+        kind: Some(CompletionItemKind::SNIPPET),
+        detail: Some(detail.to_owned()),
+        insert_text: Some(insert_text.to_owned()),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..CompletionItem::default()
+    })
+    .collect()
+}
+
+fn enclosing_auth_sessions_block(
+    source: &str,
+    position: Position,
+) -> Option<AuthSessionsBlock> {
+    let lines: Vec<&str> = source.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+
+    for idx in 0..=cursor_line_idx {
+        let line = lines[idx];
+        let trimmed = line.trim_start();
+        if is_trivia_line(line) || !is_sessions_line(trimmed) {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if !has_auth_parent(&lines, idx, indent) {
+            continue;
+        }
+        let end_line = block_end_line(&lines, idx, indent);
+        if cursor_line_idx >= idx && cursor_line_idx < end_line {
+            return Some(AuthSessionsBlock {
+                line_idx: idx,
+                indent,
+                end_line,
+            });
+        }
+    }
+
+    None
+}
+
+fn enclosing_auth_rotation_block(
+    source: &str,
+    position: Position,
+) -> Option<AuthRotationBlock> {
+    let lines: Vec<&str> = source.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+
+    for idx in 0..=cursor_line_idx {
+        let line = lines[idx];
+        let trimmed = line.trim_start();
+        if is_trivia_line(line) || !is_rotation_line(trimmed) {
+            continue;
+        }
+        if enclosing_auth_sessions_block(
+            source,
+            Position {
+                line: idx as u32,
+                character: 0,
+            },
+        )
+        .is_none()
+        {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        let end_line = block_end_line(&lines, idx, indent);
+        if cursor_line_idx >= idx && cursor_line_idx < end_line {
+            return Some(AuthRotationBlock {
+                line_idx: idx,
+                indent,
+            });
+        }
+    }
+
+    None
+}
+
+fn is_sessions_line(trimmed: &str) -> bool {
+    trimmed.split_whitespace().next() == Some("sessions")
+}
+
+fn is_rotation_line(trimmed: &str) -> bool {
+    trimmed.split_whitespace().next() == Some("rotation")
+}
+
+fn has_auth_parent(lines: &[&str], line_idx: usize, child_indent: usize) -> bool {
+    for idx in (0..line_idx).rev() {
+        let line = lines[idx];
+        if is_trivia_line(line) {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent < child_indent {
+            let trimmed = line.trim_start();
+            return trimmed == "auth" || trimmed.starts_with("auth ");
+        }
+    }
+    false
+}
+
+fn block_end_line(lines: &[&str], start_idx: usize, block_indent: usize) -> usize {
+    for idx in (start_idx + 1)..lines.len() {
+        let line = lines[idx];
+        if is_trivia_line(line) {
+            continue;
+        }
+        if leading_spaces(line) <= block_indent {
+            return idx;
+        }
+    }
+    lines.len()
+}
+
+fn auth_sessions_has_child(source: &str, block: AuthSessionsBlock, keyword: &str) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    for idx in (block.line_idx + 1)..block.end_line.min(lines.len()) {
+        let line = lines[idx];
+        if is_trivia_line(line) || leading_spaces(line) <= block.indent {
+            continue;
+        }
+        if line.trim_start().split_whitespace().next() == Some(keyword) {
+            return true;
+        }
+    }
+    false
+}
+
+fn auth_rotation_has_children(source: &str, rotation: AuthRotationBlock) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    for idx in (rotation.line_idx + 1)..lines.len() {
+        let line = lines[idx];
+        if is_trivia_line(line) {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent <= rotation.indent {
+            return false;
+        }
+        return true;
+    }
+    false
 }
 
 fn error_page_value_completions(
@@ -14985,6 +15298,11 @@ const KEYWORDS: &[&str] = &[
     "oauth",
     "mfa",
     "sessions",
+    "access_ttl",
+    "rotation",
+    "refresh_ttl",
+    "grace",
+    "theft_detection_action",
     "refresh",
     "enroll",
     "verify",
@@ -15190,6 +15508,15 @@ pub const AUTH_CATALOG_VALUES: &[&str] = &[
     "false",
 ];
 
+pub const AUTH_REFRESH_ACCESS_DURATION_LITERALS: &[&str] =
+    &["\"15 minutes\"", "\"1 hour\""];
+pub const AUTH_REFRESH_REFRESH_DURATION_LITERALS: &[&str] =
+    &["\"30 days\"", "\"7 days\""];
+pub const AUTH_REFRESH_GRACE_DURATION_LITERALS: &[&str] =
+    &["\"30 seconds\"", "\"5 minutes\""];
+pub const AUTH_REFRESH_THEFT_ACTION_VALUES: &[&str] =
+    &["revoke_session_family", "revoke_user"];
+
 pub const ERROR_PAGE_STATUS_VALUES: &[&str] = &[
     "400", "401", "403", "404", "405", "410", "422", "429", "500", "502", "503", "504",
 ];
@@ -15226,6 +15553,18 @@ pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
         "totp" => Some("MFA method — Time-based One-Time Password."),
         "true" => Some("Boolean — `true`."),
         "false" => Some("Boolean — `false`."),
+        _ => None,
+    }
+}
+
+pub fn auth_refresh_theft_action_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "revoke_session_family" => Some(
+            "Default theft response: revoke the parent_session_id family for this device chain; other devices stay signed in.",
+        ),
+        "revoke_user" => Some(
+            "Aggressive theft response: revoke every session for the user; use for high-stakes apps.",
+        ),
         _ => None,
     }
 }
@@ -15867,6 +16206,141 @@ pub fn error_vocab_completions(
     }
 
     None
+}
+
+/// Auth-refresh rotation code actions for Cell LSP-1.
+///
+/// 1. Promote an `auth.sessions` block with no `rotation` child by adding
+///    `access_ttl` plus a complete defaulted `rotation` block.
+/// 2. Scaffold missing children below a bare `rotation` line.
+pub fn auth_refresh_code_actions(
+    source: &str,
+    uri: &Url,
+    position: Position,
+) -> Vec<CodeActionOrCommand> {
+    let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+    let line = source.lines().nth(position.line as usize).unwrap_or("");
+    let trimmed = line.trim_start();
+
+    if is_rotation_line(trimmed) {
+        if let Some(rotation) = enclosing_auth_rotation_block(source, position) {
+            if !auth_rotation_has_children(source, rotation) {
+                if let Some(action) =
+                    build_scaffold_rotation_block_action(source, uri, rotation)
+                {
+                    actions.push(action.into());
+                }
+            }
+        }
+    }
+
+    if let Some(sessions) = enclosing_auth_sessions_block(source, position) {
+        if !auth_sessions_has_child(source, sessions, "rotation") {
+            if let Some(action) = build_promote_single_token_to_rotation_action(
+                source,
+                uri,
+                sessions,
+            ) {
+                actions.push(action.into());
+            }
+        }
+    }
+
+    actions
+}
+
+fn build_promote_single_token_to_rotation_action(
+    source: &str,
+    uri: &Url,
+    sessions: AuthSessionsBlock,
+) -> Option<CodeAction> {
+    let include_access_ttl = !auth_sessions_has_child(source, sessions, "access_ttl");
+    let new_text = build_rotation_defaults_text(sessions.indent, include_access_ttl);
+    let insertion = position_at_line_start(sessions.end_line);
+    let edits = vec![TextEdit {
+        range: Range {
+            start: insertion,
+            end: insertion,
+        },
+        new_text,
+    }];
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(uri.clone(), edits);
+    Some(CodeAction {
+        title: "Promote single-token to rotation".to_owned(),
+        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+fn build_scaffold_rotation_block_action(
+    _source: &str,
+    uri: &Url,
+    rotation: AuthRotationBlock,
+) -> Option<CodeAction> {
+    let insertion = position_at_line_start(rotation.line_idx + 1);
+    let edits = vec![TextEdit {
+        range: Range {
+            start: insertion,
+            end: insertion,
+        },
+        new_text: build_rotation_inner_defaults_text(rotation.indent),
+    }];
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(uri.clone(), edits);
+    Some(CodeAction {
+        title: "Scaffold rotation block".to_owned(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+fn build_rotation_defaults_text(sessions_indent: usize, include_access_ttl: bool) -> String {
+    let session_child_indent = " ".repeat(sessions_indent + 2);
+    let mut lines: Vec<String> = Vec::new();
+    if include_access_ttl {
+        lines.push(format!(
+            "{session_child_indent}access_ttl \"15 minutes\" # framework default: short-lived access"
+        ));
+    }
+    lines.push(format!("{session_child_indent}rotation"));
+    lines.push(build_rotation_inner_defaults_text(sessions_indent + 2).trim_end().to_owned());
+    format!("{}\n", lines.join("\n"))
+}
+
+fn build_rotation_inner_defaults_text(rotation_indent: usize) -> String {
+    let child_indent = " ".repeat(rotation_indent + 2);
+    [
+        format!(
+            "{child_indent}refresh_ttl \"30 days\" # framework default: long-lived refresh"
+        ),
+        format!(
+            "{child_indent}grace \"30 seconds\" # framework default: two-tab race window"
+        ),
+        format!(
+            "{child_indent}theft_detection_action revoke_session_family # framework default: revoke this session family"
+        ),
+    ]
+    .join("\n")
+        + "\n"
 }
 
 /// IR Error-Vocab code actions — three actions per proposal §7.4.
