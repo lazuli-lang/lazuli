@@ -14,6 +14,7 @@ pub const PATTERN_QUERY_PGX_SQL: (&str, &str) = ("query_pgx_sql", "v1");
 pub const PATTERN_JOB_HANDLER: (&str, &str) = ("job_handler", "v1");
 pub const PATTERN_WEBHOOK_RECEIVER: (&str, &str) = ("webhook_receiver", "v1");
 pub const PATTERN_AUTH_LOGIN: (&str, &str) = ("auth_login", "v1");
+pub const PATTERN_AUTH_REFRESH: (&str, &str) = ("auth_refresh", "v1");
 pub const PATTERN_NOTIFICATION_DISPATCH: (&str, &str) = ("notification_dispatch", "v1");
 pub const PATTERN_ERROR_WRAP_HELPER: (&str, &str) = ("error_wrap_helper", "v1");
 pub const PATTERN_MAIN_ENTRYPOINT: (&str, &str) = ("main_entrypoint", "v1");
