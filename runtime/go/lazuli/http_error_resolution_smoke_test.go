@@ -217,6 +217,9 @@ func TestWave35AuthoredCatalogSurfacesPerCommandKey(t *testing.T) {
 // built-in catalog covers every closed-catalog error code (§2.D).
 // The framework promises: any code the runtime itself emits gets a
 // layperson native message even on zero-authoring apps.
+//
+// DB-INTEGRITY-CATALOG-EXT (2026-05-19): extended to cover the 4
+// db-integrity codes emitted by `classifyDBError`.
 func TestZeroAuthoringAllEightCodesResolveThroughBuiltin(t *testing.T) {
 	installZeroAuthoringFixture(t)
 
@@ -232,6 +235,10 @@ func TestZeroAuthoringAllEightCodesResolveThroughBuiltin(t *testing.T) {
 		{"bad_request", http.StatusBadRequest},
 		{"method_not_allowed", http.StatusMethodNotAllowed},
 		{"integration_error", http.StatusBadGateway},
+		{"unique_violation", http.StatusConflict},
+		{"foreign_key_violation", http.StatusBadRequest},
+		{"not_null_violation", http.StatusBadRequest},
+		{"check_violation", http.StatusBadRequest},
 	}
 	for _, c := range codes {
 		c := c

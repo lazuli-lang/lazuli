@@ -142,6 +142,18 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 		return
 	}
 
+	// DB-INTEGRITY-CATALOG-EXT (2026-05-19): stamp the source tag onto
+	// the http.Request context BEFORE dispatch so writeError can read
+	// `SourceTag.Feature` and walk the L2 feature-level catch-all in the
+	// resolver (proposal §2.E step 3). Without this propagation, the
+	// source tag stays trapped inside `*Ctx.Context` and the L2 layer
+	// is dark — feature-level overrides like `errors unique_violation
+	// message @translation.account_email_already_registered` would
+	// silently fall through to the builtin floor.
+	if cmd.WithSource != nil {
+		r = r.WithContext(cmd.WithSource(r.Context()))
+	}
+
 	ctx := newRequestCtx(r)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
@@ -198,6 +210,14 @@ func stampPerCommandMessageKey(err error, keys *i18n.ErrorKeys) {
 		ref = keys.MethodNotAllowed
 	case CodeIntegrationError:
 		ref = keys.IntegrationError
+	case CodeUniqueViolation:
+		ref = keys.UniqueViolation
+	case CodeForeignKeyViolation:
+		ref = keys.ForeignKeyViolation
+	case CodeNotNullViolation:
+		ref = keys.NotNullViolation
+	case CodeCheckViolation:
+		ref = keys.CheckViolation
 	default:
 		return
 	}

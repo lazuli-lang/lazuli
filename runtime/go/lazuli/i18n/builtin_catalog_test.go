@@ -7,9 +7,12 @@ import (
 
 // expectedCodes mirrors the closed catalog of framework-emitted
 // error codes (proposal §2.D, §5.4). The PT-BR and en-US JSON files
-// MUST cover all eight — otherwise the resolver's L3/L4 falls
+// MUST cover all twelve — otherwise the resolver's L3/L4 falls
 // through to the zero pair on a code that the framework itself
 // emits, restoring the pre-RUNTIME-1 wire jargon.
+//
+// DB-INTEGRITY-CATALOG-EXT (2026-05-19): extended with the 4 db-integrity
+// codes emitted by `classifyDBError` (handle_db_errors.go).
 var expectedCodes = []string{
 	"policy_denied",
 	"validation_failed",
@@ -19,6 +22,10 @@ var expectedCodes = []string{
 	"bad_request",
 	"method_not_allowed",
 	"integration_error",
+	"unique_violation",
+	"foreign_key_violation",
+	"not_null_violation",
+	"check_violation",
 }
 
 func TestBuiltinCatalogPTBRCoversAllCodes(t *testing.T) {

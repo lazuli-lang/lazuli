@@ -49,11 +49,28 @@ const ExposureExpose = i18n.ExposureExpose
 //
 // Safe to call repeatedly — each invocation overwrites the prior entry
 // for the same feature. A nil registry map is lazily allocated.
+//
+// DB-INTEGRITY-CATALOG-EXT (2026-05-19): the contract is now also
+// mirrored into the process-global resolver's Registry so the L2
+// feature-level catch-all (proposal §2.E step 3) actually fires for
+// codes the runtime emits without a per-command override. Without
+// this mirror, db-integrity codes like `unique_violation` would always
+// fall through to the L3 builtin floor, dropping authored
+// feature-level overrides (e.g. `errors unique_violation message
+// @translation.account_email_already_registered`) on the floor.
 func RegisterFeatureErrors(feature string, contract FeatureErrorContract) {
 	if appErrorRegistry.Features == nil {
 		appErrorRegistry.Features = map[string]FeatureErrorContract{}
 	}
 	appErrorRegistry.Features[feature] = contract
+
+	// Mirror into the resolver's own Registry so the L2 walk fires.
+	if r, ok := i18n.Default().(*i18n.DefaultResolver); ok {
+		if r.Registry.Features == nil {
+			r.Registry.Features = map[string]FeatureErrorContract{}
+		}
+		r.Registry.Features[feature] = contract
+	}
 }
 
 // RegisterFeatureTranslationCatalog merges a feature's authored

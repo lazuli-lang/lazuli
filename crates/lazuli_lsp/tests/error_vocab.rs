@@ -24,9 +24,10 @@ use tower_lsp::lsp_types::{CodeActionOrCommand, CompletionItemKind, Position, Ur
 
 #[test]
 fn closed_catalog_codes_match_proposal() {
-    // Proposal §2.C — the exact 8 codes the runtime ships in
-    // error.go:128-138. Adding/removing one requires a proposal (Rule
-    // Zero). The order here mirrors the canonical-semantics example.
+    // Proposal §2.C + DB-INTEGRITY-CATALOG-EXT (2026-05-19) — the
+    // exact 12 codes the runtime ships in `error.go:142-156`.
+    // Adding/removing one requires a proposal (Rule Zero). The order
+    // here mirrors the canonical-semantics example.
     let expected = [
         "policy_denied",
         "validation_failed",
@@ -36,6 +37,10 @@ fn closed_catalog_codes_match_proposal() {
         "bad_request",
         "method_not_allowed",
         "integration_error",
+        "unique_violation",
+        "foreign_key_violation",
+        "not_null_violation",
+        "check_violation",
     ];
     assert_eq!(ERROR_VOCAB_CODES, &expected);
     for code in expected {
@@ -374,9 +379,11 @@ fn completion_after_default_inside_errors_offers_hide_expose() {
 // ── code action coverage ───────────────────────────────────────────────────
 
 #[test]
-fn code_action_scaffold_errors_block_inserts_eight_codes() {
+fn code_action_scaffold_errors_block_inserts_all_codes() {
     // Proposal §7.4 row 2 — cursor on a feature header without an
-    // `errors` block surfaces "Scaffold `errors` block with all 8 codes".
+    // `errors` block surfaces "Scaffold `errors` block with all <n> codes".
+    // DB-INTEGRITY-CATALOG-EXT (2026-05-19): the catalog grew to 12; the
+    // iteration over `ERROR_VOCAB_CODES` covers whatever the canon ships.
     let source = "\
 feature account
   command list

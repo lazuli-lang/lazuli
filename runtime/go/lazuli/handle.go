@@ -457,15 +457,13 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 
 	rows, err := tx.Query(ctx, sql, values...)
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "insert failed: " + err.Error()}
+		return zero, classifyDBError("insert", err)
 	}
 	defer rows.Close()
 
 	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[O])
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "insert scan failed: " + err.Error()}
+		return zero, classifyDBError("insert scan", err)
 	}
 	// Decrypt server-readable encrypted fields on the returned row so
 	// downstream code (events, response bodies, audit) sees plaintext.
@@ -560,8 +558,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 
 	rows, err := tx.Query(ctx, sql, values...)
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "update failed: " + err.Error()}
+		return zero, classifyDBError("update", err)
 	}
 	defer rows.Close()
 
@@ -571,8 +568,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 			Message: "no row matches update where clause"}
 	}
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "update scan failed: " + err.Error()}
+		return zero, classifyDBError("update scan", err)
 	}
 	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,
@@ -618,8 +614,7 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 
 	rows, err := tx.Query(ctx, sql, values...)
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "delete failed: " + err.Error()}
+		return zero, classifyDBError("delete", err)
 	}
 	defer rows.Close()
 
@@ -629,8 +624,7 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 			Message: "no row matches delete where clause"}
 	}
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "delete scan failed: " + err.Error()}
+		return zero, classifyDBError("delete scan", err)
 	}
 	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
 		return zero, &Error{Status: 500, Code: CodeInternal,

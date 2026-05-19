@@ -1,10 +1,14 @@
 {
-  "policy_denied":      "You need to sign in to do this.",
-  "validation_failed":  "Some of the information you sent is missing or incorrect.",
-  "tenant_mismatch":    "This action does not belong to the current workspace.",
-  "not_found":          "We couldn't find the requested item.",
-  "rate_limited":       "Too many attempts — please wait a moment.",
-  "bad_request":        "The request was sent in an invalid format.",
-  "method_not_allowed": "This operation is not supported on this route.",
-  "integration_error":  "There was a problem reaching an external service."
+  "policy_denied":         "You need to sign in to do this.",
+  "validation_failed":     "Some of the information you sent is missing or incorrect.",
+  "tenant_mismatch":       "This action does not belong to the current workspace.",
+  "not_found":             "We couldn't find the requested item.",
+  "rate_limited":          "Too many attempts — please wait a moment.",
+  "bad_request":           "The request was sent in an invalid format.",
+  "method_not_allowed":    "This operation is not supported on this route.",
+  "integration_error":     "There was a problem reaching an external service.",
+  "unique_violation":      "This item already exists. Try another value.",
+  "foreign_key_violation": "We couldn't complete this because a related item is missing.",
+  "not_null_violation":    "Some required information is missing. Please review and try again.",
+  "check_violation":       "One of the values doesn't meet the rules for this operation."
 }

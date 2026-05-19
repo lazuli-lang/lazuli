@@ -22,8 +22,14 @@ use lazuli_ir::{
 // and the IR comment on `FeatureErrors.exposure_4xx` / `exposure_5xx`.
 // =============================================================================
 
-/// Closed catalog of 8 framework error codes that may be overridden via
+/// Closed catalog of 12 framework error codes that may be overridden via
 /// `errors <code> message @translation.<key>` (proposal §2.B).
+///
+/// DB-INTEGRITY-CATALOG-EXT (2026-05-19): extended with the 4 db-integrity
+/// codes emitted by the runtime's `classifyDBError` helper. These map
+/// Postgres class-23 SQLSTATEs (`23505`, `23503`, `23502`, `23514`) to
+/// stable wire codes so authors can author `errors unique_violation
+/// message @translation.<key>` overrides without leaking SQL internals.
 pub const FRAMEWORK_ERROR_CODES: &[&str] = &[
     "policy_denied",
     "validation_failed",
@@ -33,6 +39,10 @@ pub const FRAMEWORK_ERROR_CODES: &[&str] = &[
     "bad_request",
     "method_not_allowed",
     "integration_error",
+    "unique_violation",
+    "foreign_key_violation",
+    "not_null_violation",
+    "check_violation",
 ];
 
 /// Closed catalog of `expose client 4xx <field>` tokens (proposal §2.C).
@@ -404,7 +414,8 @@ impl CodeUnknownFinding {
         format!(
             "error code `{}` is not in the framework catalog: `policy_denied`, \
              `validation_failed`, `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`, \
-             `method_not_allowed`, `integration_error`. To register a new code, propose an \
+             `method_not_allowed`, `integration_error`, `unique_violation`, `foreign_key_violation`, \
+             `not_null_violation`, `check_violation`. To register a new code, propose an \
              addition to `crates/lazuli/runtime/go/lazuli/error.go`.",
             self.code
         )
@@ -998,10 +1009,31 @@ mod tests {
     }
 
     #[test]
-    fn err_vocab_code_unknown_silent_for_all_8_known_codes() {
+    fn err_vocab_code_unknown_silent_for_all_known_codes() {
         let mut f = mk_feature("customer");
         f.errors = Some(FeatureErrors {
             messages: FRAMEWORK_ERROR_CODES
+                .iter()
+                .map(|code| FeatureErrorMessage {
+                    code: (*code).to_owned(),
+                    message: key_ref("k"),
+                    span_ref: Some(span()),
+                })
+                .collect(),
+            ..Default::default()
+        });
+        assert!(check_code_unknown(&f, path()).is_empty());
+    }
+
+    #[test]
+    fn err_vocab_code_unknown_silent_for_db_integrity_codes() {
+        // DB-INTEGRITY-CATALOG-EXT regression guard: the 4 new
+        // db-integrity codes must parse cleanly in `errors` blocks so
+        // hostpoint can author `errors unique_violation message
+        // @translation.account_email_already_registered`.
+        let mut f = mk_feature("account");
+        f.errors = Some(FeatureErrors {
+            messages: ["unique_violation", "foreign_key_violation", "not_null_violation", "check_violation"]
                 .iter()
                 .map(|code| FeatureErrorMessage {
                     code: (*code).to_owned(),

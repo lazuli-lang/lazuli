@@ -135,15 +135,25 @@ func (r MessageRef) IsZero() bool { return r.Key == "" }
 //
 // Adding a new error code → add a new field here AND a matching entry
 // in `keyForCode` (error_resolver.go).
+//
+// DB-INTEGRITY-CATALOG-EXT (2026-05-19): the four `*Violation` fields
+// match the codes emitted by `classifyDBError` in the runtime. Authors
+// override them with `errors unique_violation message @translation.<key>`
+// (etc.) when the feature wants a domain-specific message; otherwise the
+// builtin layperson catalog (L3) wins.
 type ErrorKeys struct {
-	PolicyDenied     MessageRef
-	ValidationFailed MessageRef
-	TenantMismatch   MessageRef
-	NotFound         MessageRef
-	RateLimited      MessageRef
-	BadRequest       MessageRef
-	MethodNotAllowed MessageRef
-	IntegrationError MessageRef
+	PolicyDenied        MessageRef
+	ValidationFailed    MessageRef
+	TenantMismatch      MessageRef
+	NotFound            MessageRef
+	RateLimited         MessageRef
+	BadRequest          MessageRef
+	MethodNotAllowed    MessageRef
+	IntegrationError    MessageRef
+	UniqueViolation     MessageRef
+	ForeignKeyViolation MessageRef
+	NotNullViolation    MessageRef
+	CheckViolation      MessageRef
 }
 
 // FeatureErrorContract is the lowered `feature.errors` block. Codegen

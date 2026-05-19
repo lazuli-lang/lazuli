@@ -13907,6 +13907,10 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "bad_request" => error_vocab_code_detail("bad_request"),
         "method_not_allowed" => error_vocab_code_detail("method_not_allowed"),
         "integration_error" => error_vocab_code_detail("integration_error"),
+        "unique_violation" => error_vocab_code_detail("unique_violation"),
+        "foreign_key_violation" => error_vocab_code_detail("foreign_key_violation"),
+        "not_null_violation" => error_vocab_code_detail("not_null_violation"),
+        "check_violation" => error_vocab_code_detail("check_violation"),
         _ => None,
     }
 }
@@ -14245,7 +14249,7 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "- `default hide` | `default expose` — wire-envelope default for `message`/`data`/`message_key`. `hide` is the secure default.",
                 "- `expose client 4xx <fields>` — comma-separated closed catalog: `message`, `code`, `data`, `message_key`.",
                 "- `expose client 5xx <fields>` — comma-separated closed catalog: `code`, `data`. (`message` deliberately excluded — 5xx text is framework-internal.)",
-                "- `<code> message @translation.<key>` — per-code typed override. Closed catalog of 8 codes: `policy_denied`, `validation_failed`, `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`, `method_not_allowed`, `integration_error`.",
+                "- `<code> message @translation.<key>` — per-code typed override. Closed catalog of 12 codes: `policy_denied`, `validation_failed`, `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`, `method_not_allowed`, `integration_error`, `unique_violation`, `foreign_key_violation`, `not_null_violation`, `check_violation`.",
                 "",
                 "**Resolution chain** (proposal §2.E)",
                 "1. `command.policy_when_denied` — per-command override.",
@@ -15331,9 +15335,12 @@ pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
 // See `docs/proposals/ir-error-messages-vocab.md` §2.C, §3.4, §7.
 // These mirror the runtime's `error.go:128-138` closed catalog of overridable
 // error codes and the exposure-field catalogs lowered into `FeatureErrors`.
-// The 8 codes here are the **only** error families authors can override via
+// The 12 codes here are the **only** error families authors can override via
 // `feature.errors.<code> message @translation.<key>`; adding a new code
 // requires a proposal (Rule Zero — closed catalog growth at zero).
+//
+// DB-INTEGRITY-CATALOG-EXT (2026-05-19): extended with the 4 db-integrity
+// codes emitted by the runtime's `classifyDBError` helper (handle_db_errors.go).
 
 /// Closed catalog of overridable error codes for `feature.errors`. Mirrors
 /// the runtime's emitted-code set; the proposal §2.C pins this list.
@@ -15346,6 +15353,10 @@ pub const ERROR_VOCAB_CODES: &[&str] = &[
     "bad_request",
     "method_not_allowed",
     "integration_error",
+    "unique_violation",
+    "foreign_key_violation",
+    "not_null_violation",
+    "check_violation",
 ];
 
 /// Closed catalog of exposable wire-envelope fields for `expose client 4xx`.
@@ -15381,6 +15392,14 @@ pub fn error_vocab_code_builtin_en_us(code: &str) -> Option<&'static str> {
         "bad_request" => Some("The request was sent in an invalid format."),
         "method_not_allowed" => Some("This operation is not supported on this route."),
         "integration_error" => Some("There was a problem reaching an external service."),
+        "unique_violation" => Some("This item already exists. Try another value."),
+        "foreign_key_violation" => {
+            Some("We couldn't complete this because a related item is missing.")
+        }
+        "not_null_violation" => {
+            Some("Some required information is missing. Please review and try again.")
+        }
+        "check_violation" => Some("One of the values doesn't meet the rules for this operation."),
         _ => None,
     }
 }
@@ -15413,6 +15432,18 @@ pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
         }
         "integration_error" => Some(
             "External service failure — an outbound integration returned an error or timed out.",
+        ),
+        "unique_violation" => Some(
+            "Database unique constraint tripped (Postgres SQLSTATE 23505). Maps to HTTP 409. Authors override with `errors unique_violation message @translation.<key>` for domain-specific phrasing.",
+        ),
+        "foreign_key_violation" => Some(
+            "Database foreign-key constraint tripped (Postgres SQLSTATE 23503). Maps to HTTP 400. A row references a parent that does not exist (or was deleted).",
+        ),
+        "not_null_violation" => Some(
+            "Database NOT NULL constraint tripped (Postgres SQLSTATE 23502). Maps to HTTP 400. A required column was left blank by the request bindings.",
+        ),
+        "check_violation" => Some(
+            "Database CHECK constraint tripped (Postgres SQLSTATE 23514). Maps to HTTP 400. A column value failed the table's declared check expression.",
         ),
         _ => None,
     }
@@ -15842,7 +15873,7 @@ pub fn error_vocab_completions(
 ///
 /// Returns a list of `CodeActionOrCommand` matching the cursor position:
 ///
-/// 1. **Scaffold `errors` block with all 8 codes** — fires when the cursor
+/// 1. **Scaffold `errors` block with all 12 codes** — fires when the cursor
 ///    is on a `feature <name>` header line (or inside a feature that has
 ///    no `errors` block yet). Inserts a complete `errors` block plus stub
 ///    `key` entries in the feature's `translation` block.
@@ -16017,8 +16048,8 @@ fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) ->
     false
 }
 
-/// Build the "Scaffold `errors` block with all 8 codes" code action. The
-/// action inserts a complete `errors` block plus 8 stub `key` entries in
+/// Build the "Scaffold `errors` block with all 12 codes" code action. The
+/// action inserts a complete `errors` block plus 12 stub `key` entries in
 /// the feature's `translation` block (creating that block if absent).
 fn build_scaffold_errors_action(
     source: &str,
@@ -16109,7 +16140,7 @@ fn build_scaffold_errors_action(
         change_annotations: None,
     };
     Some(CodeAction {
-        title: format!("Scaffold `errors` block with all 8 codes ({feature_name})"),
+        title: format!("Scaffold `errors` block with all 12 codes ({feature_name})"),
         kind: Some(CodeActionKind::REFACTOR_REWRITE),
         diagnostics: None,
         edit: Some(workspace_edit),
@@ -16370,7 +16401,7 @@ fn position_at_line_start(line_idx: usize) -> Position {
 /// the built-in English fallback shipped by the runtime.
 ///
 /// Returns `None` when the cursor is outside an `errors` block or when
-/// `word` is not one of the 8 codes. The rich-markdown one-liner for the
+/// `word` is not one of the 12 codes. The rich-markdown one-liner for the
 /// codes ships through `keyword_description` instead.
 pub fn error_vocab_code_resolved_hover(
     source: &str,

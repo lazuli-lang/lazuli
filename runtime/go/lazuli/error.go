@@ -139,14 +139,23 @@ func (e *Error) Unwrap() error { return e.Base.Cause }
 
 // Common error codes used by the runtime itself. Generated commands or
 // validators may produce additional codes from the DSL `errors` block.
+//
+// DB-INTEGRITY: the four `*_violation` codes are emitted by `classifyDBError`
+// (handle_db_errors.go) when a pgx INSERT/UPDATE/DELETE surfaces a Postgres
+// constraint violation. They replace the legacy `code:"internal"` + raw
+// SQLSTATE wire string with a stable, localizable envelope.
 const (
-	CodePolicyDenied     = "policy_denied"
-	CodeRateLimited      = "rate_limited"
-	CodeValidationFailed = "validation_failed"
-	CodeNotFound         = "not_found"
-	CodeTenantMismatch   = "tenant_mismatch"
-	CodeInternal         = "internal"
-	CodeBadRequest       = "bad_request"
-	CodeMethodNotAllowed = "method_not_allowed"
-	CodeIntegrationError = "integration_error"
+	CodePolicyDenied        = "policy_denied"
+	CodeRateLimited         = "rate_limited"
+	CodeValidationFailed    = "validation_failed"
+	CodeNotFound            = "not_found"
+	CodeTenantMismatch      = "tenant_mismatch"
+	CodeInternal            = "internal"
+	CodeBadRequest          = "bad_request"
+	CodeMethodNotAllowed    = "method_not_allowed"
+	CodeIntegrationError    = "integration_error"
+	CodeUniqueViolation     = "unique_violation"
+	CodeForeignKeyViolation = "foreign_key_violation"
+	CodeNotNullViolation    = "not_null_violation"
+	CodeCheckViolation      = "check_violation"
 )
