@@ -6,8 +6,8 @@
 use std::fmt::Write;
 
 use lazuli_ir::{
-    BuiltinType, CapabilityRef, CompositeKey, Constraint, Feature, Field, Module, Resource,
-    Tenancy, TypeRef,
+    AuthSessions, BuiltinType, CapabilityRef, CompositeKey, Constraint, Feature, Field, Module,
+    Resource, Tenancy, TypeRef,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -167,6 +167,10 @@ fn emit_resource_migration<'a>(
             sql_ident(&field.name)
         )
         .unwrap();
+    }
+
+    if session_rotation_enabled_for_resource(module, feature, resource).is_some() {
+        emit_session_rotation_indexes(&mut sql, &table_name);
     }
 
     sql
@@ -349,6 +353,10 @@ fn resource_columns<'a>(
         }
     }
 
+    if session_rotation_enabled_for_resource(module, feature, resource).is_some() {
+        extend_session_rotation_columns(&mut columns, resource, &lower_snake(&resource.name));
+    }
+
     if uses_timestamps(feature, resource) {
         columns.push(SqlColumn::raw(
             "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
@@ -380,6 +388,92 @@ fn resource_columns<'a>(
     ));
 
     columns
+}
+
+fn session_rotation_enabled_for_resource<'a>(
+    module: &'a Module,
+    resource_feature: &Feature,
+    resource: &Resource,
+) -> Option<&'a AuthSessions> {
+    module.features.iter().find_map(|auth_feature| {
+        let sessions = auth_feature.auth.as_ref()?.sessions.as_ref()?;
+        if sessions.is_rotation_enabled()
+            && session_resource_matches(auth_feature, sessions, resource_feature, resource)
+        {
+            Some(sessions)
+        } else {
+            None
+        }
+    })
+}
+
+fn session_resource_matches(
+    auth_feature: &Feature,
+    sessions: &AuthSessions,
+    resource_feature: &Feature,
+    resource: &Resource,
+) -> bool {
+    if sessions.resource.name != resource.name {
+        return false;
+    }
+
+    match sessions.resource.feature.as_deref() {
+        Some(owner) => owner == resource_feature.name,
+        None => auth_feature.name == resource_feature.name,
+    }
+}
+
+fn extend_session_rotation_columns(columns: &mut Vec<SqlColumn>, resource: &Resource, table: &str) {
+    push_if_missing(
+        columns,
+        resource,
+        "refresh_token_hash",
+        "refresh_token_hash TEXT NOT NULL DEFAULT ''",
+    );
+    push_if_missing(
+        columns,
+        resource,
+        "refresh_expires_at",
+        "refresh_expires_at TIMESTAMPTZ",
+    );
+    push_if_missing(
+        columns,
+        resource,
+        "parent_session_id",
+        &format!(
+            "parent_session_id BIGINT REFERENCES {} (id) ON DELETE SET NULL",
+            quote_ident(table)
+        ),
+    );
+    push_if_missing(
+        columns,
+        resource,
+        "theft_detected_at",
+        "theft_detected_at TIMESTAMPTZ",
+    );
+}
+
+fn push_if_missing(columns: &mut Vec<SqlColumn>, resource: &Resource, name: &str, ddl: &str) {
+    if !resource.fields.iter().any(|field| field.name == name) {
+        columns.push(SqlColumn::raw(ddl));
+    }
+}
+
+fn emit_session_rotation_indexes(sql: &mut String, table: &str) {
+    writeln!(sql).unwrap();
+    writeln!(
+        sql,
+        "CREATE INDEX ON {} (parent_session_id) WHERE parent_session_id IS NOT NULL;",
+        quote_ident(table)
+    )
+    .unwrap();
+    writeln!(sql).unwrap();
+    writeln!(
+        sql,
+        "CREATE INDEX ON {} (refresh_token_hash) WHERE refresh_token_hash != '';",
+        quote_ident(table)
+    )
+    .unwrap();
 }
 
 /// Roadmap §1.5 (CL.C.2) — render the `composite_key` block as either a
@@ -994,9 +1088,9 @@ fn lower_snake(raw: &str) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        CapabilityRef, Defaults, EncryptedCapability, Feature, Field, HashAlgorithm,
-        HashedCapability, Module, Policies, QualifiedName, Resource, Tenancy, TokenCapability,
-        TokenStore, TypeRef, UniqueConstraint,
+        Auth, AuthIdentity, AuthSessions, CapabilityRef, Defaults, EncryptedCapability, Feature,
+        Field, FieldRef, HashAlgorithm, HashedCapability, Module, Policies, QualifiedName,
+        Resource, RotationConfig, Tenancy, TokenCapability, TokenStore, TypeRef, UniqueConstraint,
     };
 
     fn base_module(features: Vec<Feature>) -> Module {
@@ -1119,6 +1213,57 @@ mod tests {
         field(name, TypeRef::Builtin(builtin), required)
     }
 
+    fn qname(name: &str) -> QualifiedName {
+        QualifiedName {
+            feature: None,
+            name: name.to_owned(),
+        }
+    }
+
+    fn auth_session_module(rotation: Option<RotationConfig>) -> Module {
+        let mut feature = base_feature("account");
+        feature.resources.push(resource(
+            "User",
+            vec![builtin("email", BuiltinType::SemanticEmail, true)],
+        ));
+        feature.resources.push(resource(
+            "UserSession",
+            vec![
+                field("user", TypeRef::UserDefined(qname("User")), true),
+                field(
+                    "token_hash",
+                    TypeRef::Capability(CapabilityRef::Hashed(HashedCapability {
+                        algorithm: HashAlgorithm::Argon2id,
+                    })),
+                    true,
+                ),
+                builtin("expires_at", BuiltinType::DateTime, true),
+            ],
+        ));
+        feature.auth = Some(Auth {
+            identity: AuthIdentity {
+                field: FieldRef {
+                    resource: qname("User"),
+                    field: "email".to_owned(),
+                },
+                public_contract: None,
+            },
+            password: None,
+            sessions: Some(AuthSessions {
+                resource: qname("UserSession"),
+                ttl: "7 days".to_owned(),
+                refresh: false,
+                extra_columns: Vec::new(),
+                access_ttl: None,
+                rotation,
+            }),
+            mfa: None,
+            oauth: Vec::new(),
+            span_ref: None,
+        });
+        base_module(vec![feature])
+    }
+
     #[test]
     fn emits_audit_log_down_for_modules_without_resources() {
         let module = base_module(vec![base_feature("customer")]);
@@ -1173,6 +1318,74 @@ DROP TABLE IF EXISTS audit_log;
                 && file.contents.contains("DROP TABLE IF EXISTS \"zulu\";")
         }));
         assert!(files[0].contents.contains("-- resource: alpha.Alpha"));
+    }
+
+    #[test]
+    fn no_rotation_session_migration_stays_byte_identical() {
+        let module = auth_session_module(None);
+        let files = emit_migrations(&module, "auth-refresh");
+        let session = files
+            .iter()
+            .find(|file| file.path == "migrations/002_account_user_session.sql")
+            .expect("expected session migration");
+
+        assert_eq!(
+            session.contents,
+            "\
+-- Code generated by lazuli; DO NOT EDIT.
+-- source: auth-refresh
+-- resource: account.UserSession
+
+CREATE TABLE IF NOT EXISTS \"user_session\" (
+    id BIGSERIAL PRIMARY KEY,
+    \"user\" BIGINT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    FOREIGN KEY (\"user\") REFERENCES \"user\" (id)
+);
+"
+        );
+    }
+
+    #[test]
+    fn rotation_session_migration_adds_refresh_columns_and_indexes() {
+        let module = auth_session_module(Some(RotationConfig {
+            refresh_ttl: None,
+            grace: None,
+            theft_detection_action: None,
+            span_ref: None,
+        }));
+        let files = emit_migrations(&module, "auth-refresh");
+        let session = files
+            .iter()
+            .find(|file| file.path == "migrations/002_account_user_session.sql")
+            .expect("expected session migration");
+
+        assert_eq!(session.path, "migrations/002_account_user_session.sql");
+        assert_eq!(
+            session.contents,
+            "\
+-- Code generated by lazuli; DO NOT EDIT.
+-- source: auth-refresh
+-- resource: account.UserSession
+
+CREATE TABLE IF NOT EXISTS \"user_session\" (
+    id BIGSERIAL PRIMARY KEY,
+    \"user\" BIGINT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    refresh_expires_at TIMESTAMPTZ,
+    parent_session_id BIGINT REFERENCES \"user_session\" (id) ON DELETE SET NULL,
+    theft_detected_at TIMESTAMPTZ,
+    FOREIGN KEY (\"user\") REFERENCES \"user\" (id)
+);
+
+CREATE INDEX ON \"user_session\" (parent_session_id) WHERE parent_session_id IS NOT NULL;
+
+CREATE INDEX ON \"user_session\" (refresh_token_hash) WHERE refresh_token_hash != '';
+"
+        );
     }
 
     #[test]
