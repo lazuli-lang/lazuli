@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod auth_refresh;
 pub mod folder;
 pub mod lzx;
 pub mod rbac;
@@ -1186,6 +1187,13 @@ impl DoctorPackage {
             &self.feature_adapters,
             &self.feature_uses,
             self.registry.as_ref(),
+        ));
+        diagnostics.extend(auth_refresh::diagnostics(
+            &self.auth_facts,
+            &self.feature_resources,
+            &self.feature_uses,
+            self.app.as_ref(),
+            &self.files,
         ));
         diagnostics.extend(check_auth_session_callsite_001(
             &self.auth_facts,
@@ -20930,5 +20938,135 @@ feature sales
                 .map(|d| &d.message)
                 .collect::<Vec<_>>()
         );
+    }
+
+
+    const AUTH_REFRESH_HAPPY: &str = include_str!("../tests/fixtures/auth-refresh/happy.lzi");
+    const AUTH_REFRESH_001: &str =
+        include_str!("../tests/fixtures/auth-refresh/missing_secret_provider.lzi");
+    const AUTH_REFRESH_002: &str =
+        include_str!("../tests/fixtures/auth-refresh/grace_exceeds_refresh_ttl.lzi");
+    const AUTH_REFRESH_003: &str =
+        include_str!("../tests/fixtures/auth-refresh/schema_missing_columns.lzi");
+    const AUTH_REFRESH_004: &str =
+        include_str!("../tests/fixtures/auth-refresh/revoke_user_missing_user_fk.lzi");
+    const AUTH_REFRESH_005: &str =
+        include_str!("../tests/fixtures/auth-refresh/refresh_ttl_long.lzi");
+    const AUTH_REFRESH_006: &str =
+        include_str!("../tests/fixtures/auth-refresh/missing_on_refresh_failure.lzi");
+    const AUTH_REFRESH_007: &str =
+        include_str!("../tests/fixtures/auth-refresh/auto_promotion_applied.lzi");
+    const AUTH_REFRESH_008: &str =
+        include_str!("../tests/fixtures/auth-refresh/auto_refresh_not_surfaced.lzi");
+    const AUTH_REFRESH_009: &str =
+        include_str!("../tests/fixtures/auth-refresh/cookie_domain_missing.lzi");
+
+    fn auth_refresh_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+        diagnostics
+            .iter()
+            .filter(|d| d.code.starts_with("AUTH-REFRESH-"))
+            .collect()
+    }
+
+    fn assert_auth_refresh_fixture(source: &str, expected_code: &str) -> Vec<DoctorDiagnostic> {
+        let package = package_from_sources(vec![("auth_refresh.lzi", source)]);
+        let diagnostics = package.diagnostics();
+        let auth_refresh = auth_refresh_diags(&diagnostics);
+        assert_eq!(
+            auth_refresh.len(),
+            1,
+            "expected exactly one AUTH-REFRESH diagnostic ({expected_code}); got {:?}",
+            auth_refresh
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(auth_refresh[0].code, expected_code);
+        diagnostics
+    }
+
+    #[test]
+    fn auth_refresh_happy_fixture_has_zero_diagnostics() {
+        let package = package_from_sources(vec![("auth_refresh.lzi", AUTH_REFRESH_HAPPY)]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            diagnostics.is_empty(),
+            "happy auth-refresh fixture must emit zero diagnostics; got {:?}",
+            diagnostics
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn auth_refresh_fixtures_trigger_exact_codes() {
+        for (source, code) in [
+            (AUTH_REFRESH_001, "AUTH-REFRESH-001"),
+            (AUTH_REFRESH_002, "AUTH-REFRESH-002"),
+            (AUTH_REFRESH_003, "AUTH-REFRESH-003"),
+            (AUTH_REFRESH_004, "AUTH-REFRESH-004"),
+            (AUTH_REFRESH_005, "AUTH-REFRESH-005"),
+            (AUTH_REFRESH_006, "AUTH-REFRESH-006"),
+            (AUTH_REFRESH_007, "AUTH-REFRESH-007"),
+            (AUTH_REFRESH_008, "AUTH-REFRESH-008"),
+            (AUTH_REFRESH_009, "AUTH-REFRESH-009"),
+        ] {
+            assert_auth_refresh_fixture(source, code);
+        }
+    }
+
+    #[test]
+    fn auth_refresh_003_fires_for_incomplete_column_set() {
+        let diagnostics = assert_auth_refresh_fixture(AUTH_REFRESH_003, "AUTH-REFRESH-003");
+        let diag = diagnostics
+            .iter()
+            .find(|d| d.code == "AUTH-REFRESH-003")
+            .expect("AUTH-REFRESH-003 present");
+        assert!(
+            diag.message.contains("parent_session_id"),
+            "missing-column message should name the incomplete column set: {}",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn auth_refresh_007_message_surfaces_resolved_defaults() {
+        let diagnostics = assert_auth_refresh_fixture(AUTH_REFRESH_007, "AUTH-REFRESH-007");
+        let diag = diagnostics
+            .iter()
+            .find(|d| d.code == "AUTH-REFRESH-007")
+            .expect("AUTH-REFRESH-007 present");
+        assert!(diag.message.contains("refresh_ttl 14d"), "{}", diag.message);
+        assert!(diag.message.contains("rotation_grace 1m"), "{}", diag.message);
+        assert!(
+            diag.message
+                .contains("theft_detection_action revoke_session_family"),
+            "{}",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn auth_refresh_info_diagnostics_are_non_blocking() {
+        for (source, code) in [
+            (AUTH_REFRESH_006, "AUTH-REFRESH-006"),
+            (AUTH_REFRESH_007, "AUTH-REFRESH-007"),
+            (AUTH_REFRESH_008, "AUTH-REFRESH-008"),
+            (AUTH_REFRESH_009, "AUTH-REFRESH-009"),
+        ] {
+            let diagnostics = assert_auth_refresh_fixture(source, code);
+            let diag = diagnostics
+                .iter()
+                .find(|d| d.code == code)
+                .expect("diagnostic present");
+            assert_eq!(diag.severity, DoctorSeverity::Info, "{code}");
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|d| d.severity != DoctorSeverity::Error),
+                "{code} fixture should not contain error-severity diagnostics"
+            );
+        }
     }
 }

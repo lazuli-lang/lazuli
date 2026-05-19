@@ -540,6 +540,9 @@ feature customer_auth
       provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
       provider: AuthProvider required
       expires_at: DateTime required
+      refresh_expires_at: DateTime optional
+      parent_session_id: ID optional
+      theft_detected_at: DateTime optional
       retention 30d then delete
 
     resource CustomerMfaConfig

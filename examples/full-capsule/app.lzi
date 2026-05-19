@@ -37,6 +37,12 @@ app AcmeCRM
     staging
     production
 
+  env
+    server AUTH_REFRESH_SECRET: Secret required
+
+  capabilities
+    secret_provider env.AUTH_REFRESH_SECRET
+
   urls
     web local "http://localhost:3000"
     api local "http://localhost:8080"

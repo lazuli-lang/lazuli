@@ -1,0 +1,44 @@
+app AuthRefreshFixture
+  lazuli_version "0.15"
+  targets
+    web react
+  environments
+    local
+  urls
+    web local "http://localhost:3000"
+  uses
+    account
+  env
+    server AUTH_REFRESH_SECRET: Secret required
+  capabilities
+    secret_provider env.AUTH_REFRESH_SECRET
+    on_refresh_failure @fn.handle_refresh_failure
+    enableAutoRefresh true
+    refresh_token_storage cookie
+    cookie_domain example.test
+
+feature account
+  domain
+    resource User
+      email: @semantic.Email required unique
+
+    resource UserSession
+      token_hash: Text required
+      expires_at: DateTime required
+      created_at: DateTime required
+      refresh_token_hash: Text optional
+      refresh_expires_at: DateTime optional
+      parent_session_id: ID optional
+      theft_detected_at: DateTime optional
+
+  auth
+    identity User.email
+
+    sessions
+      resource UserSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "14d"
+        grace "1m"
+        theft_detection_action revoke_user
