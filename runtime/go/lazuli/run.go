@@ -50,8 +50,8 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		if isNilOrZero(val) {
 			continue // optional filter; skip when args don't carry it
 		}
-		conds = append(conds, fmt.Sprintf("%s = $%d", quoteIdent(f.Column), len(values)+1))
 		values = append(values, val)
+		conds = append(conds, whereConditionFragment(f.Column, f.When, len(values)))
 	}
 
 	if q.Search != nil && len(q.Search.Over) > 0 {

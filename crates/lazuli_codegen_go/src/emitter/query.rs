@@ -631,22 +631,88 @@ fn filter_rule(
     let left_col = column_from_expr(left, feature, resource);
     let right_col = column_from_expr(right, feature, resource);
     let column = left_col
+        .clone()
         .or(right_col)
         .ok_or_else(|| "filter predicate has no column side.".to_owned())?;
+    let value_expr = if left_col.is_some() { right } else { left };
+
+    // Owner-via traversal: when a query filters by a FK column whose
+    // target resource has a `user` field, and the RHS resolves to
+    // `ctx.actor.user_id`, lift the comparison to
+    // `<col> IN (SELECT id FROM <related> WHERE user = $N)` via
+    // `FromCtxOwnedVia`. Closes the catalog `mine_*` filter shape
+    // (host_id = ctx.actor.user_id) without a per-app handler.
+    if filter.when.is_none() {
+        if let Some(owned_via) = owned_via_source(&column, value_expr, feature, resource) {
+            return Ok((column, owned_via));
+        }
+    }
+
     let source = match &filter.when {
         Some(param) => format!(
             "lazuli.FromInput(\"{}\")",
             input_source_path(&[param.clone()])
         ),
-        None => {
-            if column_from_expr(left, feature, resource).is_some() {
-                format_source_expr(right)
-            } else {
-                format_source_expr(left)
-            }
-        }
+        None => format_source_expr(value_expr),
     };
     Ok((column, source))
+}
+
+/// Render `FromCtxOwnedVia(<related_table>, <owner_column>, <ctx_path>)`
+/// when `column` is a FK on `resource` and the RHS is a `ctx.<path>`
+/// expression. The owner column is conventionally `"user"` — the FK
+/// from the related resource to the User identity — matching the
+/// canonical Lazuli auth-identity shape. Returns `None` for any other
+/// shape so the caller falls back to scalar `FromCtx(...)` emit.
+fn owned_via_source(
+    column: &str,
+    rhs: &Expr,
+    feature: &Feature,
+    resource: Option<&Resource>,
+) -> Option<String> {
+    let resource = resource?;
+    let field = resource.fields.iter().find(|f| f.name == column)?;
+    let TypeRef::UserDefined(qname) = &field.type_ref else {
+        return None;
+    };
+    let related_type = qname.name.clone();
+    // Direct-FK to User collapses to scalar comparison (e.g.
+    // `UserSession.user = ctx.actor.user_id`). Owned-via only applies
+    // when the FK points to a related resource that itself joins back
+    // to User via a `user` column.
+    if related_type == "User" {
+        return None;
+    }
+    let Expr::Path(path) = rhs else {
+        return None;
+    };
+    if path.segments.first().map(|s| s.as_str()) != Some("ctx") {
+        return None;
+    }
+    let ctx_path = path.segments[1..].join(".");
+    if ctx_path != "actor.user_id" {
+        return None;
+    }
+    let _ = feature;
+    let related_table = pascal_to_snake(&related_type);
+    Some(format!(
+        "lazuli.FromCtxOwnedVia(\"{related_table}\", \"user\", \"{ctx_path}\")"
+    ))
+}
+
+fn pascal_to_snake(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn format_source_expr(expr: &Expr) -> String {
