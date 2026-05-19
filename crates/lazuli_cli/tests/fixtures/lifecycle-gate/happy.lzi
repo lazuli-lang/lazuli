@@ -1,0 +1,136 @@
+app HostPoint
+  title "HostPoint"
+  version "0.1.0"
+  targets
+    backend go
+  actor_query host.query.me
+  uses host, account
+  route_guard
+    default_policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+
+feature host
+  uses account
+
+  domain
+    resource Host
+      id: ID required
+      lifecycle_state: Text required
+
+      lifecycle status
+        state intermediation_terms_pending initial
+        state basic_details_pending
+        state address_pending
+        state languages_pending
+        state complete terminal
+
+        transition accept_terms
+          from intermediation_terms_pending
+          to basic_details_pending
+          policy @policy.authenticated
+
+        transition add_details
+          from basic_details_pending
+          to address_pending
+          policy @policy.authenticated
+
+        transition add_address
+          from address_pending
+          to languages_pending
+          policy @policy.authenticated
+
+        transition finish
+          from languages_pending
+          to complete
+          policy @policy.authenticated
+
+    query.lookup me by id: ID
+      policy @policy.authenticated
+
+    query.lookup my_host by id: ID
+      policy @policy.authenticated
+
+    query.list host_list
+      policy @policy.authenticated
+
+    resource Traveler
+      id: ID required
+      lifecycle_state: Text required
+
+      lifecycle status
+        state intermediation_terms_pending initial
+        state basic_details_pending
+        state address_pending
+        state languages_pending
+        state complete terminal
+
+        transition accept_terms
+          from intermediation_terms_pending
+          to basic_details_pending
+          policy @policy.authenticated
+
+        transition add_details
+          from basic_details_pending
+          to address_pending
+          policy @policy.authenticated
+
+        transition add_address
+          from address_pending
+          to languages_pending
+          policy @policy.authenticated
+
+        transition finish
+          from languages_pending
+          to complete
+          policy @policy.authenticated
+
+    query.lookup my_traveler by id: ID
+      policy @policy.authenticated
+
+  policies
+    authenticated: @scope.authenticated
+
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+    policy_denied message @translation.signin_required
+
+  translation
+    catalog "./i18n/host.<locale>.json"
+
+    key signin_required
+      en-US "Sign in."
+
+feature account
+  domain
+    resource Account
+      id: ID required
+      lifecycle_state: Text required
+
+      lifecycle status
+        state pending initial
+        state active terminal
+
+        transition activate
+          from pending
+          to active
+          policy @policy.authenticated
+
+    query.lookup my_account by id: ID
+      policy @policy.authenticated
+
+  policies
+    authenticated: @scope.authenticated
+
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+    policy_denied message @translation.signin_required
+
+  translation
+    catalog "./i18n/account.<locale>.json"
+
+    key signin_required
+      en-US "Sign in."

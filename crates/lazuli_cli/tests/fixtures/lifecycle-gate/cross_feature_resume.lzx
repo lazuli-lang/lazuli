@@ -1,0 +1,25 @@
+# feature account
+# resume account_onboarding
+#   source query.lookup my_account
+#   none -> view account_pending
+#   pending -> view account_pending
+#   active -> view account_home
+
+# feature host
+experience host
+  view host_account_home
+    policy @policy.authenticated
+    # requires_lifecycle Account = active
+    # on_lifecycle_pending @resume account.account_onboarding
+
+# feature account
+experience account
+  view account_home
+    policy @policy.authenticated
+    # requires_lifecycle Account = active
+    # on_lifecycle_pending @resume account_onboarding
+
+  view account_pending
+    policy @policy.authenticated
+    # requires_lifecycle Account = pending
+    # on_lifecycle_pending @resume account_onboarding

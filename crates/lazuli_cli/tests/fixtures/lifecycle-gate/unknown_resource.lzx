@@ -1,0 +1,4 @@
+experience host
+  view host_home
+    policy @policy.authenticated
+    # requires_lifecycle Foo = complete
