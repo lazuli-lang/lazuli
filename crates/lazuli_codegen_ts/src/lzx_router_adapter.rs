@@ -33,10 +33,23 @@ pub enum RouterTarget {
 /// can carry the same stable marker.
 pub const PATTERN_ROUTE_GUARD: (&str, &str) = ("route_guard", "v1");
 
+/// Pattern attribution for lifecycle-gate metadata emit. Kept beside the
+/// router adapter because both TanStack beforeLoad and fallback HOC emission
+/// are route-target integrations.
+pub const PATTERN_LIFECYCLE_GATE_METADATA: (&str, &str) =
+    ("pattern_lifecycle_gate_metadata", "v1");
+
 pub fn route_guard_pattern_header() -> String {
     format!(
         "//lazuli:pattern {} {}\n",
         PATTERN_ROUTE_GUARD.0, PATTERN_ROUTE_GUARD.1
+    )
+}
+
+pub fn lifecycle_gate_pattern_header() -> String {
+    format!(
+        "//lazuli:pattern {} {}\n",
+        PATTERN_LIFECYCLE_GATE_METADATA.0, PATTERN_LIFECYCLE_GATE_METADATA.1
     )
 }
 
