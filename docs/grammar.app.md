@@ -21,14 +21,14 @@ Identical to `docs/grammar.lzi.md §1`. Reserved words specific to
 ```
 api app architecture async backend bindings capabilities client
 communication compatibility consumes contract default
-default_locale default_timezone deploy destructive_migrations
+default_locale default_policy default_timezone deploy destructive_migrations
 enforce_service_boundaries env environments expose exposes
 external gateway group healthcheck integration integrations
 internal locale migration_lock migrations mobile mode optional
-owns packs path policy production propagate provider provides
-publishes queue queues rate_limit readiness redirect required
-require_approval restore retry rpc runs runtime serves service
-service_ready services stream subscribes sync targets timeout
+on_unauthenticated on_unauthorized owns packs path policy production
+propagate provider provides publishes queue queues rate_limit readiness
+redirect required require_approval restore retry route_guard rpc runs runtime
+serves service service_ready services stream subscribes sync targets timeout
 title topology unit units uses validation version web webhooks
 workflows
 ```
@@ -57,6 +57,8 @@ app_body          = ( meta_stmt
                     | migrations_block
                     | not_found_redirect
                     | auth_failed_redirect
+                    | actor_query_decl
+                    | route_guard_block
                     )+ ;
 
 meta_stmt         = "title" STRING NEWLINE
@@ -66,6 +68,21 @@ meta_stmt         = "title" STRING NEWLINE
 
 not_found_redirect = "not_found" IDENT_LOWER NEWLINE ;
 auth_failed_redirect = "auth_failed_redirect" IDENT_LOWER NEWLINE ;
+actor_query_decl  = "actor_query" qualified_query_ref NEWLINE ;
+
+route_guard_block = "route_guard" NEWLINE
+                    INDENT route_guard_entry* DEDENT ;
+
+route_guard_entry = "default_policy" policy_ref NEWLINE
+                  | "on_unauthenticated" "redirect" STRING NEWLINE
+                  | "on_unauthorized" "redirect" STRING NEWLINE
+                  | "skeleton" "@client." IDENT_LOWER NEWLINE ;
+
+qualified_query_ref = IDENT_LOWER "." "query" "." IDENT_LOWER ;
+policy_ref        = "@policy." IDENT_LOWER
+                  | "@scope." IDENT_LOWER
+                  | "@role." IDENT_LOWER
+                  | "@actor." IDENT_LOWER ;
 ```
 
 ## 3. Uses, bindings, targets, environments, urls
@@ -278,6 +295,13 @@ compatibility_kind = "backward" | "forward" | "none" ;
 - `runtime` `serves surfaces <platform>` requires the platform to
   appear in `targets`.
 - `auth_failed_redirect` and `not_found` route names must exist in
+  `.lzx` route declarations.
+- `route_guard` appears at most once. Its `default_policy`,
+  `on_unauthenticated`, `on_unauthorized`, and `skeleton` children each appear
+  at most once.
+- `actor_query` references an existing query whose runtime shape is
+  `LazuliActor | null`.
+- `on_unauthenticated` and `on_unauthorized` redirect paths must exist in
   `.lzx` route declarations.
 - `architecture mode microservices` requires
   `enforce_service_boundaries true`.

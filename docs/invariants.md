@@ -97,6 +97,9 @@ source that only fails later.
 - App `auth_failed_redirect` and `not_found` reference top-level `.lzx route`
   names declared in this package. `lazuli doctor` rejects references to routes
   that do not exist.
+- **Route guard alignment**: A view's resolved guard policy must be at least as
+  strict as every backend command/query its `submit` or `source` references.
+  Codified by ROUTE-GUARD-002.
 - Resource fields may use `<name>: <Type> derived from <expression>` to declare
   read-time computed values. Derived fields are not persisted, must not declare
   `default`, `required`, or `optional`, and must not appear as input/effect
