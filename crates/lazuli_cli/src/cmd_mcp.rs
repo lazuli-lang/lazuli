@@ -789,7 +789,9 @@ fn inspect_value(path: &Path, expansions: ExpandSet) -> Result<Value> {
     let source = fs::read_to_string(&source_path)
         .with_context(|| format!("reading {}", source_path.display()))?;
     let include: Vec<InspectInclude> = Vec::new();
-    inspect_json_value(&source, &source_path, expansions, &include)
+    // Pass `path` as the project-root hint so manifest lookup hits
+    // the directory the MCP caller authored.
+    inspect_json_value(&source, &source_path, path, expansions, &include)
 }
 
 fn expansions_from(axes: &[String]) -> std::result::Result<ExpandSet, McpError> {

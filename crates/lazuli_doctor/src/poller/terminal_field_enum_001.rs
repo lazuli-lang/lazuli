@@ -62,7 +62,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 
 fn type_ref_label(type_ref: &TypeRef) -> String {
     match type_ref {
-        TypeRef::Builtin(builtin) => builtin_label(*builtin).to_string(),
+        TypeRef::Builtin(builtin) => builtin_label(builtin),
         TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qname_label(qn),
         TypeRef::Many(inner) => format!("{}*", type_ref_label(inner)),
         TypeRef::Unresolved(name) => format!("unresolved {name}"),
@@ -77,27 +77,32 @@ fn qname_label(qn: &QualifiedName) -> String {
     }
 }
 
-fn builtin_label(builtin: BuiltinType) -> &'static str {
+fn builtin_label(builtin: &BuiltinType) -> String {
     match builtin {
-        BuiltinType::Id => "Id",
-        BuiltinType::Text => "Text",
-        BuiltinType::Boolean => "Boolean",
-        BuiltinType::Integer => "Integer",
-        BuiltinType::Decimal => "Decimal",
-        BuiltinType::Date => "Date",
-        BuiltinType::DateTime => "DateTime",
-        BuiltinType::Json => "Json",
-        BuiltinType::SemanticEmail => "@semantic.Email",
+        BuiltinType::Id => "Id".to_string(),
+        BuiltinType::Text => "Text".to_string(),
+        BuiltinType::Boolean => "Boolean".to_string(),
+        BuiltinType::Integer => "Integer".to_string(),
+        BuiltinType::Decimal => "Decimal".to_string(),
+        BuiltinType::Date => "Date".to_string(),
+        BuiltinType::DateTime => "DateTime".to_string(),
+        BuiltinType::Json => "Json".to_string(),
+        BuiltinType::SemanticEmail => "@semantic.Email".to_string(),
         // Currency is intentionally omitted: this label is the
         // typeface name, not the source-form decorator argument.
-        BuiltinType::SemanticMoney { .. } => "@semantic.Money",
-        BuiltinType::SemanticPhone => "@semantic.Phone",
-        BuiltinType::SemanticUrl => "@semantic.Url",
-        BuiltinType::SemanticUuid => "@semantic.Uuid",
-        BuiltinType::SemanticCurrency => "@semantic.Currency",
-        BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
-        BuiltinType::CapSecret => "@cap.Secret",
-        BuiltinType::CapFile => "@cap.File",
+        BuiltinType::SemanticMoney { .. } => "@semantic.Money".to_string(),
+        BuiltinType::SemanticPhone => "@semantic.Phone".to_string(),
+        BuiltinType::SemanticUrl => "@semantic.Url".to_string(),
+        BuiltinType::SemanticUuid => "@semantic.Uuid".to_string(),
+        BuiltinType::SemanticCurrency => "@semantic.Currency".to_string(),
+        BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint".to_string(),
+        // B3 — surface the alias `@semantic.<Name>` as the label so
+        // diagnostics still read in source-form. Terminal-field checks
+        // need a non-string canonical name to compare against, and the
+        // plugin alias is the source-of-truth.
+        BuiltinType::SemanticPluginType { name, .. } => format!("@semantic.{}", name),
+        BuiltinType::CapSecret => "@cap.Secret".to_string(),
+        BuiltinType::CapFile => "@cap.File".to_string(),
     }
 }
 

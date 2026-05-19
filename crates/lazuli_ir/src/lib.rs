@@ -820,7 +820,7 @@ pub enum TypeRef {
     Capability(CapabilityRef),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinType {
     Id,
     Text,
@@ -859,6 +859,27 @@ pub enum BuiltinType {
     /// `postgis.Point` in generated Go + drive the `GIST` index
     /// emission in DDL migrations.
     SemanticGeoPoint,
+    /// B3 — plugin-contributed `@semantic.<Name>` resolved through a
+    /// plugin's `manifest.toml`. The IR layer is locale-agnostic: it
+    /// knows only the declaring plugin namespace (`@plugin/scalars-br`),
+    /// the manifest-local alias terminal name (`BrazilianCPF`), the
+    /// carrier built-in (currently always `Text`), and the validator
+    /// function name from the manifest. Codegen reads the validator
+    /// to build the `<plugin-short>.<validator>` go-playground tag
+    /// without re-reading the manifest at emission time. The plugin
+    /// owns checksum rules, formatting, and any upstream library. See
+    /// `docs/proposals/semantic-types-plugin-locales.md`.
+    SemanticPluginType {
+        plugin: String,
+        name: String,
+        carrier: Box<BuiltinType>,
+        /// Exported Go function on the plugin adapter (e.g.
+        /// `ValidateCPF`). Carried so codegen can emit the validate
+        /// tag without re-reading `manifest.toml`. Authoritative
+        /// source is the plugin's manifest `[[semantic_types]].validator`
+        /// — the resolver pass copies it here at lift time.
+        validator: String,
+    },
     CapSecret,
     /// Deprecated: the flat `CapFile` variant never carried arguments.
     /// Phase L Tier 2 introduces `TypeRef::Capability(CapabilityRef::File(...))`
@@ -5822,6 +5843,25 @@ mod lifecycle_tests {
         assert!(json.contains("\"kind\":\"single_state_per_scope\""));
         assert!(json.contains("\"state\":\"gold\""));
         assert!(json.contains("\"scope_field\":\"item_id\""));
+    }
+
+    #[test]
+    fn semantic_plugin_type_round_trips_through_json() {
+        // B3 — see `docs/proposals/semantic-types-plugin-locales.md`.
+        let plugin = BuiltinType::SemanticPluginType {
+            plugin: "@plugin/scalars-br".to_owned(),
+            name: "BrazilianCPF".to_owned(),
+            carrier: Box::new(BuiltinType::Text),
+            validator: "ValidateCPF".to_owned(),
+        };
+        let json = serde_json::to_string(&plugin).expect("serialize");
+        let back: BuiltinType = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(plugin, back);
+        // Round-trip-stable. The variant name landing in the JSON keeps
+        // the inspect serde-default path readable for cold readers.
+        assert!(json.contains("SemanticPluginType"));
+        assert!(json.contains("BrazilianCPF"));
+        assert!(json.contains("ValidateCPF"));
     }
 
     #[test]

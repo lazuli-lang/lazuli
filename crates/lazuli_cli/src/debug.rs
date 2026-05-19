@@ -103,6 +103,7 @@ fn load_project_ir(
     Ok(super::inspect_json_value(
         &source,
         &source_path,
+        project_root,
         expansions,
         &[],
     )?)

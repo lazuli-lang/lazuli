@@ -163,6 +163,7 @@ fn emit_resource(
         go_type: "lazuli.ID".to_owned(),
         db_col: "id".to_owned(),
         json_suffix: "id".to_owned(),
+        validate: None,
         comment: None,
     });
 
@@ -174,6 +175,7 @@ fn emit_resource(
             go_type: "lazuli.ID".to_owned(),
             db_col: "org_id".to_owned(),
             json_suffix: "org_id".to_owned(),
+            validate: None,
             comment: None,
         });
     }
@@ -189,6 +191,7 @@ fn emit_resource(
                 go_type: String::new(),
                 db_col: String::new(),
                 json_suffix: String::new(),
+                validate: None,
                 comment: Some(format!(
                     "// {} is derived (`derived from {}`); column lives in DDL only.",
                     pascal_case(&field.name),
@@ -217,11 +220,19 @@ fn emit_resource(
             field.name.clone()
         };
         let db_col = db_col_for(field, &field.type_ref);
+        // B3 — plugin-contributed `@semantic.<Name>` carries the
+        // declaring plugin + validator function; surface as a
+        // `validate:"<plugin.name>.<validator>"` tag clause. The
+        // validator key is decoded by the runtime dispatcher to
+        // invoke the plugin adapter at write/read boundaries. See
+        // `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
+        let validate = plugin_semantic_validate_tag(&field.type_ref);
         tagged.push(TaggedField {
             name: pascal_case(&field.name),
             go_type: final_type,
             db_col,
             json_suffix,
+            validate,
             comment: None,
         });
     }
@@ -272,6 +283,7 @@ fn emit_resource(
             go_type,
             db_col: pair_name,
             json_suffix,
+            validate: None,
             comment: None,
         });
     }
@@ -285,6 +297,7 @@ fn emit_resource(
             go_type: "lazuli.Time".to_owned(),
             db_col: "created_at".to_owned(),
             json_suffix: "created_at".to_owned(),
+            validate: None,
             comment: None,
         });
         tagged.push(TaggedField {
@@ -292,6 +305,7 @@ fn emit_resource(
             go_type: "lazuli.Time".to_owned(),
             db_col: "updated_at".to_owned(),
             json_suffix: "updated_at".to_owned(),
+            validate: None,
             comment: None,
         });
     }
@@ -304,6 +318,7 @@ fn emit_resource(
             go_type: "*lazuli.Time".to_owned(),
             db_col: "deleted_at".to_owned(),
             json_suffix: "deleted_at,omitempty".to_owned(),
+            validate: None,
             comment: None,
         });
     }
@@ -416,6 +431,7 @@ fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>) {
                 go_type: String::new(),
                 db_col: String::new(),
                 json_suffix: String::new(),
+                validate: None,
                 comment: Some(format!(
                     "// {} is derived (`derived from {}`).",
                     pascal_case(&field.name),
@@ -444,11 +460,17 @@ fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>) {
             field.name.clone()
         };
         let db_col = db_col_for(field, &field.type_ref);
+        // B3 — record fields participate in the same plugin-semantic
+        // validate-tag emission as resource fields. The shape carries
+        // through (the Go validator runtime reads identical tags from
+        // any struct).
+        let validate = plugin_semantic_validate_tag(&field.type_ref);
         tagged.push(TaggedField {
             name: pascal_case(&field.name),
             go_type: final_type,
             db_col,
             json_suffix,
+            validate,
             comment: None,
         });
     }
@@ -663,6 +685,13 @@ struct TaggedField {
     go_type: String,
     db_col: String,
     json_suffix: String,
+    /// B3 — when set, append `validate:"<value>"` to the tag. Used for
+    /// plugin-contributed semantic types: the value is
+    /// `<plugin.name>.<validator>` (e.g. `scalars-br.ValidateCPF`).
+    /// The runtime dispatcher reads this tag to invoke the plugin
+    /// adapter's exported validator function.
+    /// See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
+    validate: Option<String>,
     /// When set, render as a standalone comment line — used for
     /// `derived from` columns that live in DDL only.
     comment: Option<String>,
@@ -698,7 +727,12 @@ fn write_struct_rows(p: &mut GoPrinter, tagged: &[TaggedField]) {
             None => Row::Data {
                 name: field.name.clone(),
                 ty: field.go_type.clone(),
-                tag: build_tag(&field.db_col, &field.json_suffix, max_db_width),
+                tag: build_tag(
+                    &field.db_col,
+                    &field.json_suffix,
+                    field.validate.as_deref(),
+                    max_db_width,
+                ),
             },
         })
         .collect();
@@ -748,16 +782,32 @@ fn db_segment(db_col: &str) -> String {
 
 /// Build a column-aligned tag string padding the `db:"…"` portion so
 /// the `json:` token aligns across the struct. Mirrors the pattern
-/// proven in `runtime.rs:664-682`.
-fn build_tag(db_col: &str, json_suffix: &str, max_db_width: usize) -> String {
+/// proven in `runtime.rs:664-682`. When `validate` is set, a
+/// `validate:"<value>"` clause follows the `json:` clause; this is
+/// the B3 plugin-semantic dispatch tag.
+fn build_tag(
+    db_col: &str,
+    json_suffix: &str,
+    validate: Option<&str>,
+    max_db_width: usize,
+) -> String {
     let db_part = db_segment(db_col);
     let pad = max_db_width.saturating_sub(db_part.len());
-    format!(
-        "`{}{} json:\"{}\"`",
-        db_part,
-        " ".repeat(pad),
-        json_suffix
-    )
+    match validate {
+        Some(v) => format!(
+            "`{}{} json:\"{}\" validate:\"{}\"`",
+            db_part,
+            " ".repeat(pad),
+            json_suffix,
+            v
+        ),
+        None => format!(
+            "`{}{} json:\"{}\"`",
+            db_part,
+            " ".repeat(pad),
+            json_suffix
+        ),
+    }
 }
 
 /// Resolve effective tenancy by combining feature defaults with the
@@ -815,6 +865,27 @@ fn db_col_for(field: &lazuli_ir::Field, type_ref: &TypeRef) -> String {
         return format!("{},type:geography(point,4326)", field.name);
     }
     field.name.clone()
+}
+
+/// B3 — derive the `validate:"<plugin-short>.<validator>"` clause for
+/// plugin-contributed `@semantic.<Name>` fields. The IR carries the
+/// plugin namespace verbatim (`@plugin/scalars-br`) — strip the
+/// `@plugin/` prefix to recover the short name — plus the `validator`
+/// function name lifted directly from the plugin's manifest. The
+/// runtime dispatcher maps `<plugin-short>.<validator>` to the
+/// registered Go function via the anonymous-import contract
+/// described at `docs/plugin-authoring.md:227`.
+///
+/// See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
+fn plugin_semantic_validate_tag(type_ref: &TypeRef) -> Option<String> {
+    let TypeRef::Builtin(BuiltinType::SemanticPluginType {
+        plugin, validator, ..
+    }) = type_ref
+    else {
+        return None;
+    };
+    let short = plugin.strip_prefix("@plugin/").unwrap_or(plugin.as_str());
+    Some(format!("{}.{}", short, validator))
 }
 
 fn is_geo_point(type_ref: &TypeRef) -> bool {
@@ -1073,6 +1144,48 @@ mod tests {
         assert!(!out.contains("RetentionSpec"));
         // No soft-delete row.
         assert!(!out.contains("DeletedAt"));
+    }
+
+    #[test]
+    fn semantic_plugin_type_field_emits_validate_tag() {
+        // B3 — `@semantic.BrazilianCPF` lowers to
+        // `SemanticPluginType { plugin: "@plugin/scalars-br", name:
+        // "BrazilianCPF", carrier: Text, validator: "ValidateCPF" }`.
+        // The emitted struct field must carry the `string` carrier
+        // Go type plus a `validate:"scalars-br.ValidateCPF"` tag clause.
+        // See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
+        let mut feature = base_feature("host");
+        let plugin_field = Field {
+            name: "cpf".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::SemanticPluginType {
+                plugin: "@plugin/scalars-br".to_owned(),
+                name: "BrazilianCPF".to_owned(),
+                carrier: Box::new(BuiltinType::Text),
+                validator: "ValidateCPF".to_owned(),
+            }),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            span_ref: None,
+        };
+        feature.resources.push(simple_resource("Host", vec![plugin_field]));
+        let out = emit(&feature).expect("must emit");
+
+        // Carrier is `Text` → Go `string`.
+        assert!(out.contains("Cpf string"));
+        // Validate tag uses the plugin short name + validator function.
+        assert!(
+            out.contains("validate:\"scalars-br.ValidateCPF\""),
+            "expected validate tag, got: {out}"
+        );
+        // db + json tags preserved alongside validate.
+        assert!(out.contains("db:\"cpf\""));
+        assert!(out.contains("json:\"cpf\""));
     }
 
     #[test]

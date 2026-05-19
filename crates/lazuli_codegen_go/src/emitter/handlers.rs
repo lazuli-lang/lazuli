@@ -1416,7 +1416,7 @@ func init() {{
 
 fn go_type_for_stub(type_ref: &TypeRef) -> String {
     match type_ref {
-        TypeRef::Builtin(builtin) => go_type_for_builtin(*builtin).to_owned(),
+        TypeRef::Builtin(builtin) => go_type_for_builtin(builtin),
         TypeRef::Capability(capability) => go_type_for_capability(capability).to_owned(),
         TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => pascal_case(&qname.name),
         TypeRef::Many(inner) => format!("[]{}", go_type_for_stub(inner)),
@@ -1424,25 +1424,30 @@ fn go_type_for_stub(type_ref: &TypeRef) -> String {
     }
 }
 
-fn go_type_for_builtin(builtin: BuiltinType) -> &'static str {
+fn go_type_for_builtin(builtin: &BuiltinType) -> String {
     match builtin {
-        BuiltinType::Id => "lazuli.ID",
-        BuiltinType::Text => "string",
-        BuiltinType::Boolean => "bool",
-        BuiltinType::Integer => "int64",
-        BuiltinType::Decimal => "float64",
-        BuiltinType::Date => "lazuli.Date",
-        BuiltinType::DateTime => "lazuli.Time",
-        BuiltinType::Json => "lazuli.JSON",
-        BuiltinType::SemanticEmail => "lazuli.Email",
-        BuiltinType::SemanticMoney { .. } => "lazuli.Money",
-        BuiltinType::SemanticPhone => "lazuli.Phone",
-        BuiltinType::SemanticUrl => "lazuli.URL",
-        BuiltinType::SemanticUuid => "lazuli.UUID",
-        BuiltinType::SemanticCurrency => "lazuli.Currency",
-        BuiltinType::SemanticGeoPoint => "any",
-        BuiltinType::CapSecret => "lazuli.Secret",
-        BuiltinType::CapFile => "any",
+        BuiltinType::Id => "lazuli.ID".to_string(),
+        BuiltinType::Text => "string".to_string(),
+        BuiltinType::Boolean => "bool".to_string(),
+        BuiltinType::Integer => "int64".to_string(),
+        BuiltinType::Decimal => "float64".to_string(),
+        BuiltinType::Date => "lazuli.Date".to_string(),
+        BuiltinType::DateTime => "lazuli.Time".to_string(),
+        BuiltinType::Json => "lazuli.JSON".to_string(),
+        BuiltinType::SemanticEmail => "lazuli.Email".to_string(),
+        BuiltinType::SemanticMoney { .. } => "lazuli.Money".to_string(),
+        BuiltinType::SemanticPhone => "lazuli.Phone".to_string(),
+        BuiltinType::SemanticUrl => "lazuli.URL".to_string(),
+        BuiltinType::SemanticUuid => "lazuli.UUID".to_string(),
+        BuiltinType::SemanticCurrency => "lazuli.Currency".to_string(),
+        BuiltinType::SemanticGeoPoint => "any".to_string(),
+        // B3 — plugin-contributed `@semantic.<Name>` lowers to the
+        // carrier's Go type for handler stubs (no plugin import here;
+        // the validate tag wired in resource emission handles the
+        // adapter dispatch).
+        BuiltinType::SemanticPluginType { carrier, .. } => go_type_for_builtin(carrier),
+        BuiltinType::CapSecret => "lazuli.Secret".to_string(),
+        BuiltinType::CapFile => "any".to_string(),
     }
 }
 

@@ -61,7 +61,7 @@ pub struct TypeCtx<'a> {
 pub fn go_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
     match ty {
         TypeRef::Builtin(builtin) => {
-            let (go, import) = go_type_for_builtin(*builtin);
+            let (go, import) = go_type_for_builtin(builtin);
             (go, import.map(str::to_owned))
         }
         TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => resolve_named(qname, ctx),
@@ -168,7 +168,7 @@ fn resolve_named(
     }
 }
 
-fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
+fn go_type_for_builtin(builtin: &BuiltinType) -> (String, Option<&'static str>) {
     match builtin {
         BuiltinType::Id => ("lazuli.ID".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::Text => ("string".to_owned(), None),
@@ -215,6 +215,14 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
             "postgis.Point".to_owned(),
             Some("github.com/cridenour/go-postgis"),
         ),
+        // B3 — plugin-contributed `@semantic.<Name>` materialises as
+        // the carrier's Go type. The validate tag (emitted at
+        // resource-field-tag time per resource.rs) drives the
+        // runtime adapter dispatch via the validator key
+        // `<plugin.name>.<validator>`. v1 closed-catalog carrier is
+        // `String` → Go `string` (no import). Wider carriers gated by
+        // a separate proposal.
+        BuiltinType::SemanticPluginType { carrier, .. } => go_type_for_builtin(carrier),
         BuiltinType::CapSecret => (
             "lazuli.Secret".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
@@ -695,6 +703,32 @@ mod tests {
         let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticGeoPoint), &ctx);
         assert_eq!(go, "postgis.Point");
         assert_eq!(import.as_deref(), Some("github.com/cridenour/go-postgis"));
+    }
+
+    #[test]
+    fn semantic_plugin_type_emits_carrier_go_type() {
+        // B3 — plugin-contributed `@semantic.<Name>` materialises as
+        // the carrier's Go type (v1 closed catalog: `String` → `string`,
+        // no import). The validate-tag emission lives in `resource.rs`
+        // and is golden-tested via `plugin_semantic_validate_tag` plus
+        // the hostpoint pipeline.
+        // See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
+        let module = cross_ref_module();
+        let index = CrossFeatureIndex::build(&module);
+        let ctx = TypeCtx {
+            current_feature: "customer",
+            module_name: "lazuli/test",
+            cross_index: &index,
+        };
+        let plugin_type = TypeRef::Builtin(BuiltinType::SemanticPluginType {
+            plugin: "@plugin/scalars-br".to_owned(),
+            name: "BrazilianCPF".to_owned(),
+            carrier: Box::new(BuiltinType::Text),
+            validator: "ValidateCPF".to_owned(),
+        });
+        let (go, import) = go_type_for(&plugin_type, &ctx);
+        assert_eq!(go, "string");
+        assert!(import.is_none());
     }
 
     #[test]

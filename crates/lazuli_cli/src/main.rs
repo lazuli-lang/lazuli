@@ -27,6 +27,8 @@ mod inspect {
 }
 mod lazurite_manifest;
 mod migrate;
+mod plugin_manifest;
+mod plugin_semantic_resolver;
 mod profile;
 mod seed;
 mod templates;
@@ -1292,6 +1294,7 @@ fn emit_feature_sdk_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module)
     .ok();
     writeln!(s).ok();
     write_cross_feature_imports(&mut s, feature, module);
+    write_plugin_semantic_aliases(&mut s, feature);
     write_referenced_enum_aliases(&mut s, feature, module);
 
     let mut records: Vec<&lazuli_ir::Record> = feature.records.iter().collect();
@@ -1470,6 +1473,76 @@ fn owner_feature_for_type(
         }
     }
     None
+}
+
+/// B3 — emit `export type <Name> = string;` brand aliases for every
+/// plugin-contributed `@semantic.<Name>` referenced by this feature.
+/// Per `docs/proposals/semantic-types-plugin-locales.md` §Codegen the
+/// TS layer is type-only — no runtime validation — so an opaque alias
+/// is the right surface. The Go side keeps the validate dispatch.
+///
+/// Sorted output keeps generated TS byte-stable across runs.
+fn write_plugin_semantic_aliases(s: &mut String, feature: &lazuli_ir::Feature) {
+    let mut aliases: BTreeSet<String> = BTreeSet::new();
+    collect_plugin_semantic_aliases_in_feature(feature, &mut aliases);
+    if aliases.is_empty() {
+        return;
+    }
+    writeln!(
+        s,
+        "// Plugin-contributed semantic types (docs/proposals/semantic-types-plugin-locales.md)."
+    )
+    .ok();
+    for name in aliases {
+        // Carrier is `Text` in v1 → `string`. The proposal closed
+        // carrier catalog locks to `String`; widening needs a separate
+        // proposal that also threads a non-string TS shape.
+        writeln!(s, "export type {} = string;", pascal_case(&name)).ok();
+    }
+    writeln!(s).ok();
+}
+
+fn collect_plugin_semantic_aliases_in_feature(
+    feature: &lazuli_ir::Feature,
+    out: &mut BTreeSet<String>,
+) {
+    for resource in &feature.resources {
+        for field in &resource.fields {
+            collect_plugin_semantic_aliases_in_type(&field.type_ref, out);
+        }
+    }
+    for record in &feature.records {
+        for field in &record.fields {
+            collect_plugin_semantic_aliases_in_type(&field.type_ref, out);
+        }
+    }
+    for event in &feature.events {
+        for field in &event.payload {
+            collect_plugin_semantic_aliases_in_type(&field.type_ref, out);
+        }
+    }
+    for command in &feature.commands {
+        if let lazuli_ir::CommandInput::Typed(slots) = &command.input {
+            for slot in slots {
+                collect_plugin_semantic_aliases_in_type(&slot.type_ref, out);
+            }
+        }
+    }
+}
+
+fn collect_plugin_semantic_aliases_in_type(
+    type_ref: &lazuli_ir::TypeRef,
+    out: &mut BTreeSet<String>,
+) {
+    match type_ref {
+        lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType { name, .. }) => {
+            out.insert(name.clone());
+        }
+        lazuli_ir::TypeRef::Many(inner) => {
+            collect_plugin_semantic_aliases_in_type(inner, out);
+        }
+        _ => {}
+    }
 }
 
 fn write_referenced_enum_aliases(
@@ -2171,6 +2244,12 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
             | lazuli_ir::BuiltinType::SemanticUuid
             | lazuli_ir::BuiltinType::SemanticCurrency
             | lazuli_ir::BuiltinType::CapSecret => "string".to_owned(),
+            // B3 — plugin-contributed `@semantic.<Name>` projects to
+            // the brand alias name (e.g. `BrazilianCPF`). The SDK
+            // emitter (`emit_feature_sdk_ts`) writes the
+            // `export type <Name> = string;` line at file head so
+            // every consuming interface picks up the alias.
+            lazuli_ir::BuiltinType::SemanticPluginType { name, .. } => pascal_case(name),
             lazuli_ir::BuiltinType::Boolean => "boolean".to_owned(),
             lazuli_ir::BuiltinType::Integer
             | lazuli_ir::BuiltinType::Decimal => "number".to_owned(),
@@ -3534,6 +3613,28 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         attach_lzx_surfaces(input, &mut module);
     }
 
+    // B3 — plugin-contributed `@semantic.<Name>` resolution. Reads the
+    // app's `Lazurite.toml [plugins]`, opens each plugin's
+    // `manifest.toml`, builds the alias map, and rewrites
+    // `TypeRef::UserDefined("@semantic.<Name>")` field references to
+    // `TypeRef::Builtin(BuiltinType::SemanticPluginType { ... })` so
+    // codegen, doctor, and inspect see the typed shape.
+    // Map failures are non-fatal here so a single-file `lazuli check`
+    // (no project root) still works; the doctor surfaces conflicts /
+    // unresolved aliases as `SEMANTIC-PLUGIN-001` against the field
+    // site. See `docs/proposals/semantic-types-plugin-locales.md`.
+    if input.is_dir() {
+        let project_root = project_root_for_input(input);
+        if let Ok(manifest) = lazurite_manifest::load(&project_root) {
+            if let Ok(alias_map) = plugin_manifest::build_alias_map(manifest.as_ref(), &project_root) {
+                plugin_semantic_resolver::apply_plugin_semantic_resolution(
+                    &mut module,
+                    &alias_map,
+                );
+            }
+        }
+    }
+
     Ok(module)
 }
 
@@ -3945,7 +4046,13 @@ fn inspect_command(
 
     match format {
         InspectFormat::Json => {
-            let output = inspect_json_value(&source, &source_path, expansions, include)?;
+            // B3 — `input` carries the directory the author passed
+            // (often `.`), while `source_path` has already resolved to
+            // `app/app.lzi`. The manifest lives at the *original*
+            // directory; pass both so the plugin alias-map lookup
+            // anchors at the right Lazurite.toml.
+            let output =
+                inspect_json_value(&source, &source_path, input, expansions, include)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         InspectFormat::Lazuli => {
@@ -4361,11 +4468,53 @@ fn inspect_source_path(input: &Path) -> PathBuf {
 fn inspect_json_value(
     source: &str,
     input: &Path,
+    project_root_hint: &Path,
     expansions: ExpandSet,
     include: &[InspectInclude],
 ) -> Result<serde_json::Value> {
-    let report = inspect_canonical_source(source, input, expansions);
-    let project_root = project_root_for_input(input);
+    // Prefer the caller-supplied project root (the directory the
+    // author passed on the command line). When the hint isn't a
+    // directory (typical for single-file `lazuli inspect host.lzi`
+    // invocations), walk upward from the input's parent to find a
+    // directory that contains `Lazurite.toml` — without this, the
+    // single-file path never sees the manifest and B3's plugin
+    // alias map stays empty.
+    let project_root = if project_root_hint.is_dir() {
+        project_root_hint.to_path_buf()
+    } else {
+        let mut candidate: PathBuf = project_root_for_input(input);
+        // Bounded walk-up so we don't escape the workspace; 8 levels
+        // is generous for `app/features/<name>/<file>.lzi` layouts.
+        for _ in 0..8 {
+            if candidate.join("Lazurite.toml").is_file()
+                || candidate.join("lazurite.toml").is_file()
+            {
+                break;
+            }
+            let Some(parent) = candidate.parent().map(Path::to_path_buf) else {
+                break;
+            };
+            if parent == candidate {
+                break;
+            }
+            candidate = parent;
+        }
+        candidate
+    };
+    // B3 — build the plugin alias map up front so the inspect report
+    // and the optional `plugin_semantic_types` manifest projection
+    // share a single source of truth. The map is read once per
+    // inspect invocation per
+    // `docs/proposals/semantic-types-plugin-locales.md` §IR and resolution.
+    let alias_map = lazurite_manifest::load(&project_root)
+        .ok()
+        .flatten()
+        .and_then(|manifest| {
+            plugin_manifest::build_alias_map(Some(&manifest), &project_root).ok()
+        })
+        .unwrap_or_default();
+    let report =
+        inspect_canonical_source_with_aliases(source, input, expansions, &alias_map);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(
             "failed to read {}",
@@ -4374,9 +4523,18 @@ fn inspect_json_value(
     })?;
 
     if let Some(manifest) = manifest {
+        // B3 — surface the plugin-contributed `@semantic.<Name>` alias
+        // map alongside the existing manifest projection so agents
+        // reading `lazuli inspect --include=manifest --format=json`
+        // discover which aliases are active and where each resolves.
+        // The per-alias entry carries the proposal-mandated keys:
+        // `kind`, `plugin`, `name`, `alias`, `carrier`, `origin`.
+        let plugin_semantic_types =
+            inspect_plugin_semantic_types(&manifest, &project_root);
         return Ok(serde_json::json!({
             "ir": report,
             "manifest": manifest.inspect_view(),
+            "plugin_semantic_types": plugin_semantic_types,
         }));
     }
 
@@ -4384,10 +4542,45 @@ fn inspect_json_value(
         return Ok(serde_json::json!({
             "ir": report,
             "manifest": serde_json::Value::Null,
+            "plugin_semantic_types": serde_json::Value::Array(Vec::new()),
         }));
     }
 
     Ok(serde_json::to_value(report)?)
+}
+
+/// B3 — flatten the resolved plugin semantic alias map into the
+/// proposal §IR-and-resolution shape: each entry exposes
+/// `{ kind, plugin, name, alias, carrier, origin, validator,
+/// formatter }`. Sorted by alias.
+fn inspect_plugin_semantic_types(
+    manifest: &lazurite_manifest::Manifest,
+    project_root: &Path,
+) -> serde_json::Value {
+    let map = match plugin_manifest::build_alias_map(Some(manifest), project_root) {
+        Ok(map) => map,
+        Err(err) => {
+            // Surface the failure so consumers see something rather
+            // than silently emitting an empty array.
+            return serde_json::json!({ "error": err.to_string() });
+        }
+    };
+    let entries: Vec<serde_json::Value> = map
+        .into_iter()
+        .map(|(alias, resolved)| {
+            serde_json::json!({
+                "kind": "semantic_plugin",
+                "plugin": resolved.plugin_namespace,
+                "name": resolved.name,
+                "alias": alias,
+                "carrier": format!("{:?}", resolved.carrier),
+                "validator": resolved.validator,
+                "formatter": resolved.formatter,
+                "origin": format!("plugin manifest:{}", resolved.plugin_namespace),
+            })
+        })
+        .collect();
+    serde_json::Value::Array(entries)
 }
 
 fn project_root_for_input(input: &Path) -> PathBuf {
@@ -6183,6 +6376,19 @@ struct InspectTestAssertion {
 }
 
 fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -> InspectReport {
+    inspect_canonical_source_with_aliases(source, input, expansions, &std::collections::BTreeMap::new())
+}
+
+/// B3 — variant of [`inspect_canonical_source`] that applies a plugin
+/// alias map to lifted features so `--expand=resources` projections
+/// surface `SemanticPluginType` carriers rather than the unresolved
+/// `UserDefined` placeholders authored in `.lzi`.
+fn inspect_canonical_source_with_aliases(
+    source: &str,
+    input: &Path,
+    expansions: ExpandSet,
+    alias_map: &std::collections::BTreeMap<String, plugin_manifest::ResolvedPluginSemantic>,
+) -> InspectReport {
     let lines: Vec<String> = source.lines().map(str::to_owned).collect();
 
     let is_lzx = input
@@ -6243,7 +6449,7 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
         || expansions.errors)
         && !is_lzx
     {
-        collect_tier3_by_feature(source)
+        collect_tier3_by_feature_with_aliases(source, alias_map)
     } else {
         std::collections::BTreeMap::new()
     };
@@ -6290,14 +6496,44 @@ fn inspect_canonical_source(source: &str, input: &Path, expansions: ExpandSet) -
 /// failures fall through to an empty map so `--expand=jobs` etc. are
 /// projections, not checks.
 fn collect_tier3_by_feature(source: &str) -> std::collections::BTreeMap<String, Tier3FeatureSlice> {
+    collect_tier3_by_feature_with_aliases(source, &std::collections::BTreeMap::new())
+}
+
+/// B3 — variant that applies the plugin alias map to lifted features
+/// so inspect's `--expand=resources` projection surfaces
+/// `SemanticPluginType` carriers rather than `UserDefined` placeholders.
+fn collect_tier3_by_feature_with_aliases(
+    source: &str,
+    alias_map: &std::collections::BTreeMap<String, plugin_manifest::ResolvedPluginSemantic>,
+) -> std::collections::BTreeMap<String, Tier3FeatureSlice> {
     let mut map = std::collections::BTreeMap::new();
     let Ok(features) = lazuli_syntax::parse_feature_skeletons(source) else {
         return map;
     };
     for feature_ast in features {
-        let Ok(feature_ir) = lazuli_analyzer::lower_feature_skeleton(&feature_ast) else {
+        let Ok(mut feature_ir) = lazuli_analyzer::lower_feature_skeleton(&feature_ast) else {
             continue;
         };
+        if !alias_map.is_empty() {
+            // Reuse the package-level resolver pass on this single
+            // feature. Wrap in a transient module so the walker
+            // signature is stable across both callers.
+            let mut transient = lazuli_ir::Module {
+                workspace: None,
+                contracts: Vec::new(),
+                app: None,
+                registry: None,
+                profiles: Vec::new(),
+                design: None,
+                rbac: None,
+                features: vec![feature_ir],
+            };
+            plugin_semantic_resolver::apply_plugin_semantic_resolution(
+                &mut transient,
+                alias_map,
+            );
+            feature_ir = transient.features.pop().unwrap();
+        }
         map.insert(
             feature_ir.name.clone(),
             Tier3FeatureSlice {
@@ -8462,6 +8698,11 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
         TypeRef::Builtin(BuiltinType::SemanticMoney { currency }) => {
             format!("@semantic.Money(currency:{})", currency.as_iso())
         }
+        // B3 — surface plugin-contributed `@semantic.<Name>` back as
+        // the authored alias so inspect-text renderings stay stable.
+        TypeRef::Builtin(BuiltinType::SemanticPluginType { name, .. }) => {
+            format!("@semantic.{}", name)
+        }
         TypeRef::Builtin(b) => match b {
             BuiltinType::Text => "Text",
             BuiltinType::Integer => "Integer",
@@ -8475,8 +8716,9 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::SemanticPhone => "@semantic.Phone",
             BuiltinType::SemanticUrl => "@semantic.Url",
             BuiltinType::SemanticUuid => "@semantic.Uuid",
-            // SemanticMoney handled above to surface its currency arg.
+            // SemanticMoney + SemanticPluginType handled above.
             BuiltinType::SemanticMoney { .. } => unreachable!(),
+            BuiltinType::SemanticPluginType { .. } => unreachable!(),
             BuiltinType::SemanticCurrency => "@semantic.Currency",
             BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
             BuiltinType::CapSecret => "@cap.Secret",
@@ -11168,6 +11410,87 @@ mod tests {
         }
     }
 
+    #[test]
+    fn plugin_semantic_type_emits_ts_alias_and_field_reference() {
+        // B3 — `@semantic.BrazilianCPF` lowers to a SemanticPluginType
+        // with carrier = Text. The SDK emitter writes
+        // `export type BrazilianCPF = string;` at the file head and
+        // references it in every consuming interface. See
+        // `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
+        let mut feature = lazuli_ir::Feature {
+            name: "host".to_owned(),
+            purpose: None,
+            non_goals: vec![],
+            context_path: None,
+            defaults: lazuli_ir::Defaults::default(),
+            uses: vec![],
+            uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
+            requirements: vec![],
+            enums: vec![],
+            resources: vec![],
+            events: vec![],
+            rules: vec![],
+            policies: lazuli_ir::Policies::default(),
+            errors: None,
+            commands: vec![],
+            apis: vec![],
+            records: vec![],
+            queries: vec![],
+            workflows: vec![],
+            jobs: vec![],
+            webhooks: vec![],
+            notifications: vec![],
+            event_groups: vec![],
+            tenant_migrations: vec![],
+            translation: None,
+            pollers: vec![],
+            auth: None,
+            surfaces: vec![],
+            extensions: vec![],
+            escape_routes: vec![],
+            agents: vec![],
+            reports: vec![],
+            channels: vec![],
+            caches: vec![],
+            aggregates: vec![],
+            mcp_servers: vec![],
+            previous_names: vec![],
+            span_ref: None,
+        };
+        feature.resources.push(resource(
+            "Host",
+            vec![field(
+                "cpf",
+                lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+                    plugin: "@plugin/scalars-br".to_owned(),
+                    name: "BrazilianCPF".to_owned(),
+                    carrier: Box::new(lazuli_ir::BuiltinType::Text),
+                    validator: "ValidateCPF".to_owned(),
+                }),
+            )],
+        ));
+        let module = lazuli_ir::Module {
+            workspace: None,
+            contracts: vec![],
+            app: None,
+            registry: None,
+            profiles: vec![],
+            design: None,
+            rbac: None,
+            features: vec![feature.clone()],
+        };
+        let out = emit_feature_sdk_ts(&feature, &module);
+        assert!(
+            out.contains("export type BrazilianCPF = string;"),
+            "expected brand alias, got:\n{out}"
+        );
+        assert!(
+            out.contains("cpf: BrazilianCPF;"),
+            "expected typed field, got:\n{out}"
+        );
+    }
+
     fn local_qn(name: &str) -> lazuli_ir::QualifiedName {
         lazuli_ir::QualifiedName {
             feature: None,
@@ -12006,7 +12329,8 @@ strategy = "auto"
         .unwrap();
 
         let source = fs::read_to_string(&app_path).unwrap();
-        let json = inspect_json_value(&source, &app_path, ExpandSet::default(), &[]).unwrap();
+        let json =
+            inspect_json_value(&source, &app_path, &root, ExpandSet::default(), &[]).unwrap();
 
         assert_eq!(json["manifest"]["origin"], "Lazurite.toml");
         assert_eq!(json["manifest"]["project"]["name"], "marketplace");

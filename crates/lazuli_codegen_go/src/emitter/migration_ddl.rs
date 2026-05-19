@@ -515,7 +515,7 @@ struct PgType {
 
 fn pg_type_for(type_ref: &TypeRef) -> PgType {
     match type_ref {
-        TypeRef::Builtin(builtin) => pg_type_for_builtin(*builtin),
+        TypeRef::Builtin(builtin) => pg_type_for_builtin(builtin),
         TypeRef::Many(inner) => {
             let inner = pg_type_for(inner);
             PgType {
@@ -549,7 +549,7 @@ fn pg_type_for_field<'a>(
     pg_type_for(&field.type_ref)
 }
 
-fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
+fn pg_type_for_builtin(builtin: &BuiltinType) -> PgType {
     let sql = match builtin {
         BuiltinType::Id => "BIGINT",
         BuiltinType::Text => "TEXT",
@@ -576,6 +576,12 @@ fn pg_type_for_builtin(builtin: BuiltinType) -> PgType {
                 uses_postgis: true,
             };
         }
+        // B3 — plugin-contributed `@semantic.<Name>` columns inherit
+        // the DDL of the carrier. v1 closed-catalog carrier is `String`
+        // → `TEXT` (per `docs/proposals/semantic-types-plugin-locales.md`
+        // §Manifest mechanism — non-string carriers need a separate
+        // proposal because they affect DDL + wire shape).
+        BuiltinType::SemanticPluginType { carrier, .. } => return pg_type_for_builtin(carrier),
         BuiltinType::CapSecret | BuiltinType::CapFile => "TEXT",
     };
 

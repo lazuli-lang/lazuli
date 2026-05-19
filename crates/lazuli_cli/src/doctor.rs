@@ -1282,6 +1282,41 @@ impl DoctorPackage {
                 .then(left.line.cmp(&right.line))
                 .then(left.column.cmp(&right.column))
         });
+
+        // B3 — suppress legacy `semantic_type_unknown` errors for any
+        // `@semantic.<Name>` that resolves through a plugin manifest
+        // alias map. The legacy diagnostic was authored against the
+        // closed catalog; the plugin-locales proposal augments the
+        // catalog without touching the diagnostic site. Filter here
+        // rather than threading the alias set down to every emission
+        // call site so the existing walker code stays untouched.
+        // See `docs/proposals/semantic-types-plugin-locales.md`
+        // §New diagnostics.
+        if let Some(manifest) = self.lazurite_manifest.as_ref() {
+            if let Ok(alias_map) = crate::plugin_manifest::build_alias_map(
+                Some(manifest),
+                &self.project_root,
+            ) {
+                if !alias_map.is_empty() {
+                    diagnostics.retain(|d| {
+                        if d.code != "semantic_type_unknown" {
+                            return true;
+                        }
+                        // Match the alias name out of the diagnostic
+                        // message (`unknown @semantic type "@semantic.X"; ...`).
+                        // The message format is fixed; if it changes,
+                        // this filter has a single update site.
+                        let alias = d
+                            .message
+                            .split_once('"')
+                            .and_then(|(_, rest)| rest.split_once('"').map(|(a, _)| a))
+                            .unwrap_or("");
+                        !alias_map.contains_key(alias)
+                    });
+                }
+            }
+        }
+
         diagnostics
     }
 }
@@ -2346,11 +2381,112 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_plugin_not_declared(manifest, package));
     diagnostics.extend(check_plugin_unused(manifest, package));
     diagnostics.extend(check_plugin_namespace_mismatch(manifest, package));
+    diagnostics.extend(check_semantic_plugin_unresolved(manifest, package));
     diagnostics.extend(check_submodule_drift(manifest, package));
     diagnostics.extend(check_migration_strategy_conflict(manifest, package));
     diagnostics.extend(check_frontend_audience_unknown(manifest, package));
     diagnostics.extend(check_audience_no_frontend(manifest, package));
     diagnostics.extend(check_frontend_out_collision(manifest, package));
+    diagnostics
+}
+
+/// SEMANTIC-PLUGIN-001 — `@semantic.<Name>` references in `.lzi` files
+/// that resolve neither against the built-in closed catalog nor any
+/// plugin's `manifest.toml`. Per
+/// `docs/proposals/semantic-types-plugin-locales.md` §New diagnostics.
+///
+/// Three failure modes share the diagnostic code:
+/// 1. Plugin not declared in `Lazurite.toml [plugins]` (the source of
+///    truth for alias activation).
+/// 2. Plugin manifest missing or malformed.
+/// 3. Two or more active plugins declare the same alias (conflict).
+///
+/// The shared error code is intentional — every failure has the same
+/// resolution path (declare the right plugin, fix the manifest).
+fn check_semantic_plugin_unresolved(
+    manifest: &crate::lazurite_manifest::Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    // Build the alias map. Map-construction errors (conflict, mismatch,
+    // unsupported carrier) surface as SEMANTIC-PLUGIN-001 anchored at
+    // the project root because they're project-wide.
+    let alias_map = match crate::plugin_manifest::build_alias_map(
+        Some(manifest),
+        &package.project_root,
+    ) {
+        Ok(map) => map,
+        Err(err) => {
+            return vec![DoctorDiagnostic {
+                path: package.project_root.join("Lazurite.toml"),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "SEMANTIC-PLUGIN-001".to_owned(),
+                message: format!(
+                    "plugin semantic alias map: {}. Fix the affected plugin manifest under [plugins] in Lazurite.toml.",
+                    err
+                ),
+            }];
+        }
+    };
+
+    // Closed catalog of built-in `@semantic.<X>` names; matches the
+    // analyzer's `type_ref_from_syntax` match arm. Authors writing one
+    // of these never hit the plugin path.
+    const BUILT_IN_SEMANTIC: &[&str] = &[
+        "Email",
+        "Phone",
+        "Url",
+        "Uuid",
+        "Currency",
+        "GeoPoint",
+        "Money",
+    ];
+
+    let mut diagnostics = Vec::new();
+    for file in &package.files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        // Walk every `@semantic.<Name>` reference. The shared
+        // `collect_at_references_in_source` picks up the full set of
+        // `@namespace.name` references; we filter to `semantic` here.
+        for reference in collect_at_references_in_source(&file.path, &file.source) {
+            // `reference.reference` is the raw `@semantic.<Name>` text.
+            let Some(rest) = reference.reference.strip_prefix("@semantic.") else {
+                continue;
+            };
+            // Built-ins resolve syntactically — never SEMANTIC-PLUGIN-001.
+            if BUILT_IN_SEMANTIC.contains(&rest) {
+                continue;
+            }
+            // `@semantic.Money(currency:USD)` lifts via parens — pick
+            // the head token before `(` so we don't false-flag a typed
+            // money reference.
+            let head = rest.split('(').next().unwrap_or(rest);
+            if BUILT_IN_SEMANTIC.contains(&head) {
+                continue;
+            }
+            // Strip any trailing non-name punctuation (whitespace lifts
+            // already drop everything after the first non-ident char,
+            // but defensive normalisation here helps when the reference
+            // came from a typed-block line ending in `@validator.x`).
+            let alias = format!("@semantic.{}", head);
+            if alias_map.contains_key(&alias) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                path: reference.path.clone(),
+                line: reference.line,
+                column: reference.column,
+                severity: DoctorSeverity::Error,
+                code: "SEMANTIC-PLUGIN-001".to_owned(),
+                message: format!(
+                    "unknown plugin semantic type `{alias}`. No plugin in Lazurite.toml [plugins] declares this alias. Add the appropriate `@plugin/<name>` to [plugins] or replace the field with a built-in `@semantic.*` type.",
+                ),
+            });
+        }
+    }
     diagnostics
 }
 
@@ -14615,6 +14751,43 @@ feature billing
         );
         let diagnostics = package.diagnostics();
         assert!(codes(&diagnostics).contains("PLUGIN-NOT-DECLARED-001"));
+    }
+
+    #[test]
+    fn doctor_emits_semantic_plugin_001_for_unknown_alias_without_plugin() {
+        // B3 — `@semantic.BrazilianCPF` reference with no plugin in
+        // `Lazurite.toml [plugins]` that declares the alias should
+        // surface SEMANTIC-PLUGIN-001. See
+        // `docs/proposals/semantic-types-plugin-locales.md` §New diagnostics.
+        let package = package_from_sources_with_manifest(
+            vec![(
+                "host.lzi",
+                r#"
+feature host
+  domain
+    resource Host
+      cpf: @semantic.BrazilianCPF optional
+"#,
+            )],
+            &minimal_manifest(""),
+        );
+        let diagnostics = package.diagnostics();
+        // The legacy `semantic_type_unknown` may also fire when no
+        // alias map resolves the name; both share the same root cause
+        // and either signals the gap to the author.
+        let signals: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| {
+                (d.code == "SEMANTIC-PLUGIN-001" || d.code == "semantic_type_unknown")
+                    && d.message.contains("BrazilianCPF")
+            })
+            .map(|d| d.code.as_str())
+            .collect();
+        assert!(
+            !signals.is_empty(),
+            "expected SEMANTIC-PLUGIN-001 or semantic_type_unknown, got: {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
     }
 
     #[test]

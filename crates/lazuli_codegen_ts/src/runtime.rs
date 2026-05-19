@@ -373,6 +373,13 @@ fn type_ref_ts(type_ref: &ir::TypeRef) -> &'static str {
             | ir::BuiltinType::SemanticGeoPoint,
         ) => "string",
         ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney { .. }) => "string",
+        // B3 — plugin-contributed `@semantic.<Name>` resolves through
+        // the carrier (always `Text` in v1, per the proposal closed
+        // carrier catalog), so the wire surface is a string. The
+        // SDK emitter at `lazuli_cli::main::emit_feature_sdk_ts`
+        // additionally produces a `type <Name> = string` brand alias
+        // for richer typing in app code.
+        ir::TypeRef::Builtin(ir::BuiltinType::SemanticPluginType { .. }) => "string",
         ir::TypeRef::Builtin(ir::BuiltinType::Json) => "unknown",
         ir::TypeRef::Builtin(ir::BuiltinType::CapSecret | ir::BuiltinType::CapFile) => "unknown",
         ir::TypeRef::EnumRef(_) | ir::TypeRef::UserDefined(_) | ir::TypeRef::Unresolved(_) => {

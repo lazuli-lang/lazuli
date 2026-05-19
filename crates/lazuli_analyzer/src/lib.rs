@@ -2929,6 +2929,13 @@ fn validate_constraint_type_compatibility(
             | B::SemanticUrl
             | B::SemanticUuid
             | B::SemanticCurrency
+    ) || matches!(
+        &builtin,
+        // B3 — a plugin-contributed semantic with a text carrier
+        // accepts the same inline constraint families as Text. Wider
+        // carriers gated by a separate proposal so they cannot land
+        // here yet (loader enforces `carrier_type = "String"` only).
+        B::SemanticPluginType { carrier, .. } if matches!(**carrier, B::Text)
     );
     let is_numeric = matches!(builtin, B::Integer | B::Decimal);
     let is_min_max_compatible = is_text_like || is_numeric;

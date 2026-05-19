@@ -513,7 +513,7 @@ fn emit_command_input_schema(out: &mut YamlEmitter, cmd: &ir::Command) {
 fn emit_schema_inline(out: &mut YamlEmitter, ty: &ir::TypeRef) {
     match ty {
         ir::TypeRef::Builtin(b) => {
-            let (kind, fmt) = builtin_to_openapi(*b);
+            let (kind, fmt) = builtin_to_openapi(b);
             out.line(&format!("type: {}", kind));
             if let Some(fmt) = fmt {
                 out.line(&format!("format: {}", fmt));
@@ -775,7 +775,7 @@ fn backoff_literal(backoff: ir::BackoffStrategy) -> &'static str {
     }
 }
 
-fn builtin_to_openapi(b: ir::BuiltinType) -> (&'static str, Option<&'static str>) {
+fn builtin_to_openapi(b: &ir::BuiltinType) -> (&'static str, Option<&'static str>) {
     use ir::BuiltinType::*;
     match b {
         Text => ("string", None),
@@ -797,6 +797,10 @@ fn builtin_to_openapi(b: ir::BuiltinType) -> (&'static str, Option<&'static str>
         // so we surface it as a generic `object` here; codegen-go is
         // the consumer that materialises the PostGIS-aware shape.
         SemanticGeoPoint => ("object", None),
+        // B3 — plugin-contributed `@semantic.<Name>` projects to the
+        // carrier's OpenAPI shape. The plugin owns validator + format
+        // affinity; the wire surface here is the carrier alone.
+        SemanticPluginType { carrier, .. } => builtin_to_openapi(carrier),
         CapSecret => ("string", None),
         CapFile => ("string", Some("binary")),
     }

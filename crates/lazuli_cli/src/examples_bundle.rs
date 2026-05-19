@@ -143,8 +143,13 @@ fn validate_curated_example(
 
     let source = fs::read_to_string(&lzi_path)?;
     let inspect_path = lzi_path.strip_prefix(project_root).unwrap_or(&lzi_path);
-    let actual =
-        super::inspect_json_value(&source, inspect_path, super::ExpandSet::default(), &[])?;
+    let actual = super::inspect_json_value(
+        &source,
+        inspect_path,
+        project_root,
+        super::ExpandSet::default(),
+        &[],
+    )?;
     if normalize_snapshot(actual) != normalize_snapshot(example.ir_snippet) {
         return Err(format!(
             "IR snapshot mismatch for {}; regenerate {}",
@@ -274,6 +279,7 @@ mod tests {
         let expected = super::super::inspect_json_value(
             &source,
             inspect_path,
+            &root,
             super::super::ExpandSet::default(),
             &[],
         )
