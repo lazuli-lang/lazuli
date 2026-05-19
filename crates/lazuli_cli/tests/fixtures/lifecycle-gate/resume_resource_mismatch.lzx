@@ -1,0 +1,22 @@
+experience host
+  view host_home
+    policy @policy.authenticated
+    # requires_lifecycle Host = complete
+    # on_lifecycle_pending @resume traveler_onboarding
+
+  view traveler_intermediation
+
+  view traveler_basic_details
+
+  view traveler_address
+
+  view traveler_languages
+
+# resume traveler_onboarding
+#   source query.lookup my_traveler
+#   none -> view traveler_intermediation
+#   intermediation_terms_pending -> view traveler_intermediation
+#   basic_details_pending -> view traveler_basic_details
+#   address_pending -> view traveler_address
+#   languages_pending -> view traveler_languages
+#   complete -> view host_home

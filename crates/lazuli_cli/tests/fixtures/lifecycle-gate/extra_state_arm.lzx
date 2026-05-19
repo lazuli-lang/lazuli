@@ -1,0 +1,23 @@
+experience host
+  view host_home
+    policy @policy.authenticated
+    # requires_lifecycle Host = complete
+    # on_lifecycle_pending @resume host_onboarding
+
+  view host_onboarding_intermediation
+
+  view host_onboarding_basic_details
+
+  view host_onboarding_address
+
+  view host_onboarding_languages
+
+# resume host_onboarding
+#   source query.lookup my_host
+#   none -> view host_onboarding_intermediation
+#   intermediation_terms_pending -> view host_onboarding_intermediation
+#   basic_details_pending -> view host_onboarding_basic_details
+#   address_pending -> view host_onboarding_address
+#   languages_pending -> view host_onboarding_languages
+#   complete -> view host_home
+#   removed_state -> view host_onboarding_intermediation

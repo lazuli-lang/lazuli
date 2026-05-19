@@ -8,9 +8,8 @@ authors.workspace = true
 [dependencies]
 lazuli_ir = { path = "../lazuli_ir" }
 lazuli_syntax = { path = "../lazuli_syntax" }
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-serde_json.workspace = true
-

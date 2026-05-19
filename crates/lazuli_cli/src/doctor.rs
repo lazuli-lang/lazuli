@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod auth_refresh;
 pub mod folder;
+pub mod lifecycle_gate;
 pub mod lzx;
 pub mod rbac;
 pub mod route_guard;
@@ -1281,6 +1282,11 @@ impl DoctorPackage {
         // the offending construct.
         diagnostics.extend(error_vocab_diagnostics(&self.tier3_facts, &self.files));
         diagnostics.extend(route_guard::diagnostics(
+            &self.files,
+            self.app.as_ref(),
+            &self.tier3_facts,
+        ));
+        diagnostics.extend(lifecycle_gate::diagnostics(
             &self.files,
             self.app.as_ref(),
             &self.tier3_facts,
@@ -20768,6 +20774,30 @@ registry
         include_str!("../tests/fixtures/route-guard/missing_actor_query.lzx");
     const ROUTE_GUARD_AUDIENCE_LZX: &str =
         include_str!("../tests/fixtures/route-guard/audience_runtime_disagreement.lzx");
+    const LIFECYCLE_GATE_HAPPY_LZI: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/happy.lzi");
+    const LIFECYCLE_GATE_HAPPY_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/happy.lzx");
+    const LIFECYCLE_GATE_UNKNOWN_RESOURCE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/unknown_resource.lzx");
+    const LIFECYCLE_GATE_UNKNOWN_STATE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/unknown_state.lzx");
+    const LIFECYCLE_GATE_MISSING_STATE_COVERAGE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/missing_state_coverage.lzx");
+    const LIFECYCLE_GATE_EXTRA_STATE_ARM_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/extra_state_arm.lzx");
+    const LIFECYCLE_GATE_WILDCARD_OVERUSE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/wildcard_overuse.lzx");
+    const LIFECYCLE_GATE_REDIRECT_CYCLE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/redirect_cycle.lzx");
+    const LIFECYCLE_GATE_RESUME_RESOURCE_MISMATCH_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/resume_resource_mismatch.lzx");
+    const LIFECYCLE_GATE_WRONG_QUERY_KIND_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/wrong_query_kind.lzx");
+    const LIFECYCLE_GATE_WITHOUT_ACTOR_GATE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/lifecycle_without_actor_gate.lzx");
+    const LIFECYCLE_GATE_CROSS_FEATURE_LZX: &str =
+        include_str!("../tests/fixtures/lifecycle-gate/cross_feature_resume.lzx");
 
     fn err_vocab_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics
@@ -20787,9 +20817,25 @@ registry
             .collect()
     }
 
+    fn lifecycle_gate_diags<'a>(
+        diagnostics: &'a [DoctorDiagnostic],
+    ) -> Vec<&'a DoctorDiagnostic> {
+        diagnostics
+            .iter()
+            .filter(|d| d.code.starts_with("LIFECYCLE-GATE-"))
+            .collect()
+    }
+
     fn route_guard_fixture(lzx: &str) -> DoctorPackage {
         package_from_sources(vec![
             ("happy.lzi", ROUTE_GUARD_HAPPY_LZI),
+            ("case.lzx", lzx),
+        ])
+    }
+
+    fn lifecycle_gate_fixture(lzx: &str) -> DoctorPackage {
+        package_from_sources(vec![
+            ("happy.lzi", LIFECYCLE_GATE_HAPPY_LZI),
             ("case.lzx", lzx),
         ])
     }
@@ -21100,6 +21146,82 @@ feature sales
         assert_eq!(route_guard.len(), 1, "got {route_guard:?}");
         assert_eq!(route_guard[0].code, "ROUTE-GUARD-005");
         assert_eq!(route_guard[0].severity, DoctorSeverity::Info);
+    }
+
+    #[test]
+    fn lifecycle_gate_happy_fixture_fires_no_lifecycle_gate_diagnostics() {
+        let package = package_from_sources(vec![
+            ("happy.lzi", LIFECYCLE_GATE_HAPPY_LZI),
+            ("happy.lzx", LIFECYCLE_GATE_HAPPY_LZX),
+        ]);
+        let diagnostics = package.diagnostics();
+        let lifecycle_gate = lifecycle_gate_diags(&diagnostics);
+        assert!(
+            lifecycle_gate.is_empty(),
+            "happy lifecycle gate fixtures must emit zero LIFECYCLE-GATE-* diagnostics; got: {:?}",
+            lifecycle_gate
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn lifecycle_gate_fixtures_emit_exactly_the_documented_code() {
+        for (source, expected) in [
+            (
+                LIFECYCLE_GATE_UNKNOWN_RESOURCE_LZX,
+                "LIFECYCLE-GATE-001",
+            ),
+            (LIFECYCLE_GATE_UNKNOWN_STATE_LZX, "LIFECYCLE-GATE-002"),
+            (
+                LIFECYCLE_GATE_MISSING_STATE_COVERAGE_LZX,
+                "LIFECYCLE-GATE-003",
+            ),
+            (LIFECYCLE_GATE_EXTRA_STATE_ARM_LZX, "LIFECYCLE-GATE-004"),
+            (LIFECYCLE_GATE_WILDCARD_OVERUSE_LZX, "LIFECYCLE-GATE-005"),
+            (LIFECYCLE_GATE_REDIRECT_CYCLE_LZX, "LIFECYCLE-GATE-006"),
+            (
+                LIFECYCLE_GATE_RESUME_RESOURCE_MISMATCH_LZX,
+                "LIFECYCLE-GATE-007",
+            ),
+            (LIFECYCLE_GATE_WRONG_QUERY_KIND_LZX, "LIFECYCLE-GATE-008"),
+            (
+                LIFECYCLE_GATE_WITHOUT_ACTOR_GATE_LZX,
+                "LIFECYCLE-GATE-009",
+            ),
+        ] {
+            let package = lifecycle_gate_fixture(source);
+            let diagnostics = package.diagnostics();
+            let lifecycle_gate = lifecycle_gate_diags(&diagnostics);
+            assert_eq!(
+                lifecycle_gate
+                    .iter()
+                    .map(|d| d.code.as_str())
+                    .collect::<Vec<_>>(),
+                vec![expected],
+                "expected exactly {expected}; got {:?}",
+                lifecycle_gate
+                    .iter()
+                    .map(|d| (&d.code, &d.message))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn lifecycle_gate_cross_feature_resume_resolves_through_uses() {
+        let package = lifecycle_gate_fixture(LIFECYCLE_GATE_CROSS_FEATURE_LZX);
+        let diagnostics = package.diagnostics();
+        let lifecycle_gate = lifecycle_gate_diags(&diagnostics);
+        assert!(
+            lifecycle_gate.is_empty(),
+            "qualified @resume account.account_onboarding must resolve through host.uses account; got {:?}",
+            lifecycle_gate
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
