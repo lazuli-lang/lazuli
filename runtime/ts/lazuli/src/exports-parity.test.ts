@@ -35,7 +35,6 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "evaluatePolicy",
   "RouteGuard",
   "useActor",
-  "withTanStackGuard",
   // Universal view-helper hooks
   "canonicalizeSearch",
   "parseSegments",
