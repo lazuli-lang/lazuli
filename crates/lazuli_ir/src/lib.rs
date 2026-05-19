@@ -5082,19 +5082,138 @@ pub struct AuthPassword {
     pub rate_limit: Option<String>,
 }
 
+/// `theft_detection_action <verb>` — what the runtime does when a revoked
+/// refresh token is used after the grace window has expired AND the
+/// session family has a grandchild (i.e. the token has provably been
+/// rotated past).
+///
+/// Closed catalog — adding a new action requires a proposal.
+///
+/// See `docs/proposals/ir-auth-refresh-rotation.md` §3.1, §2.H.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TheftAction {
+    /// Walk the family chain (parents + descendants) of the offending
+    /// session; revoke every row. The user stays logged in on other
+    /// devices (other session families are untouched). Recommended default.
+    RevokeSessionFamily,
+    /// Revoke ALL sessions for the user. The user is logged out on every
+    /// device. Stronger blast radius — reserve for high-stakes apps.
+    RevokeUser,
+}
+
+impl Default for TheftAction {
+    fn default() -> Self {
+        TheftAction::RevokeSessionFamily
+    }
+}
+
+/// Rotation policy for refresh tokens. Present iff the author declared a
+/// `rotation` block under `auth.sessions`. Each inner slot is independently
+/// optional — framework defaults kick in when absent (post-§2.B
+/// auto-promotion).
+///
+/// See `docs/proposals/ir-auth-refresh-rotation.md` §2.A (authoring shape),
+/// §3.2 (lowering shape).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RotationConfig {
+    /// Long-lived refresh token TTL. When `None`, framework reads
+    /// `"30 days"`. See proposal §2.A.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_ttl: Option<String>,
+    /// Grace window for legitimate two-tab refresh races. When `None`,
+    /// framework reads `"30 seconds"`. See proposal §2.G.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grace: Option<String>,
+    /// What to do when theft is detected (revoked refresh used past
+    /// grace with a successor). When `None`, framework reads
+    /// `RevokeSessionFamily`. See proposal §2.H.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theft_detection_action: Option<TheftAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthSessions {
     /// `resource CustomerSession`
     pub resource: QualifiedName,
-    /// `ttl "7 days"` — duration string parsed by the adapter.
+    /// `ttl "7 days"` — legacy single-token duration. PRESERVED for
+    /// back-compat. When `access_ttl` is `None` AND `rotation` is `None`,
+    /// the runtime uses this as the session lifetime (current single-token
+    /// behavior).
     pub ttl: String,
-    /// `refresh false` — whether refresh tokens are issued.
+    /// `refresh false` — legacy bool. Originally a placeholder for the
+    /// rotation work landed in proposal `ir-auth-refresh-rotation`.
+    /// PRESERVED for back-compat. When `rotation` is `Some(...)`, this
+    /// field is silent (the new rotation slot takes over). Doctor warns
+    /// on `refresh = true` && `rotation` absent
+    /// (AUTH-REFRESH-LEGACY-REFRESH-BOOL).
     pub refresh: bool,
     /// Extra session-table columns beyond the v0 baseline
     /// (`id`, `user`, `token_hash`, `expires_at`, `created_at`).
     /// Empty for single-tenant resources — back-compat guaranteed.
     #[serde(default)]
     pub extra_columns: Vec<SessionExtraColumn>,
+    /// IR Auth Refresh — short-lived access token TTL. When rotation is
+    /// enabled and this is `None`, the framework reads `"15 minutes"`.
+    /// See proposal §2.A, §2.L.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_ttl: Option<String>,
+    /// IR Auth Refresh — rotation discipline. Presence = enabled; inner
+    /// slots each optional with framework defaults. When `None`, the
+    /// runtime uses the single-token path (preserves legacy behavior).
+    /// See proposal §2.A.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<RotationConfig>,
+}
+
+impl AuthSessions {
+    /// Returns `true` when the resolved configuration uses two-token
+    /// rotation. Used by codegen + runtime to branch.
+    pub fn is_rotation_enabled(&self) -> bool {
+        self.rotation.is_some()
+    }
+
+    /// Resolved access TTL. Reads `access_ttl` if present; else the
+    /// framework default when rotation is on (`"15 minutes"`); else
+    /// `ttl` (legacy single-token).
+    pub fn resolved_access_ttl(&self) -> &str {
+        if let Some(t) = self.access_ttl.as_deref() {
+            return t;
+        }
+        if self.is_rotation_enabled() {
+            return "15 minutes";
+        }
+        self.ttl.as_str()
+    }
+
+    /// Resolved refresh TTL. Reads `rotation.refresh_ttl` if present;
+    /// else the framework default when rotation is on (`"30 days"`);
+    /// else `None` (no refresh — single-token mode).
+    pub fn resolved_refresh_ttl(&self) -> Option<&str> {
+        self.rotation
+            .as_ref()
+            .map(|r| r.refresh_ttl.as_deref().unwrap_or("30 days"))
+    }
+
+    /// Resolved rotation grace. Reads `rotation.grace` if present; else
+    /// the framework default when rotation is on (`"30 seconds"`); else
+    /// `None`.
+    pub fn resolved_rotation_grace(&self) -> Option<&str> {
+        self.rotation
+            .as_ref()
+            .map(|r| r.grace.as_deref().unwrap_or("30 seconds"))
+    }
+
+    /// Resolved theft action. Reads explicit value if present; else
+    /// framework default when rotation is on (`RevokeSessionFamily`);
+    /// else `None`.
+    pub fn resolved_theft_action(&self) -> Option<TheftAction> {
+        self.rotation
+            .as_ref()
+            .map(|r| r.theft_detection_action.unwrap_or_default())
+    }
 }
 
 /// One non-baseline column on a session resource (e.g. `org: Org required`).
@@ -6258,5 +6377,172 @@ mod l0_6_ir_tests {
                 "source": { "feature": "item", "kind": "lookup", "name": "by_id" }
             })
         );
+    }
+
+    // -------------------------------------------------------------------
+    // ir-auth-refresh-rotation §3 — TheftAction + RotationConfig + AuthSessions
+    // resolver methods. See docs/proposals/ir-auth-refresh-rotation.md.
+    // -------------------------------------------------------------------
+
+    fn user_session_qn() -> QualifiedName {
+        QualifiedName {
+            feature: Some("account".to_string()),
+            name: "UserSession".to_string(),
+        }
+    }
+
+    fn legacy_sessions() -> AuthSessions {
+        AuthSessions {
+            resource: user_session_qn(),
+            ttl: "7 days".to_string(),
+            refresh: false,
+            extra_columns: Vec::new(),
+            access_ttl: None,
+            rotation: None,
+        }
+    }
+
+    fn rotation_sessions(rotation: RotationConfig) -> AuthSessions {
+        AuthSessions {
+            resource: user_session_qn(),
+            ttl: "7 days".to_string(),
+            refresh: false,
+            extra_columns: Vec::new(),
+            access_ttl: None,
+            rotation: Some(rotation),
+        }
+    }
+
+    #[test]
+    fn theft_action_round_trip_and_default() {
+        round_trip(&TheftAction::RevokeSessionFamily);
+        round_trip(&TheftAction::RevokeUser);
+        assert_eq!(TheftAction::default(), TheftAction::RevokeSessionFamily);
+
+        // snake_case at the wire — required for parity with .lzi keyword.
+        assert_eq!(
+            serde_json::to_value(TheftAction::RevokeSessionFamily).unwrap(),
+            json!("revoke_session_family")
+        );
+        assert_eq!(
+            serde_json::to_value(TheftAction::RevokeUser).unwrap(),
+            json!("revoke_user")
+        );
+    }
+
+    #[test]
+    fn rotation_config_round_trips_with_all_slots() {
+        round_trip(&RotationConfig {
+            refresh_ttl: Some("30 days".to_string()),
+            grace: Some("30 seconds".to_string()),
+            theft_detection_action: Some(TheftAction::RevokeSessionFamily),
+            span_ref: Some(SpanRef { start: 100, end: 200 }),
+        });
+    }
+
+    #[test]
+    fn rotation_config_round_trips_with_all_slots_absent() {
+        // Empty rotation block: presence = enabled, all defaults kick in.
+        round_trip(&RotationConfig {
+            refresh_ttl: None,
+            grace: None,
+            theft_detection_action: None,
+            span_ref: None,
+        });
+    }
+
+    #[test]
+    fn rotation_config_omits_none_fields_when_serialized() {
+        let cfg = RotationConfig {
+            refresh_ttl: None,
+            grace: None,
+            theft_detection_action: None,
+            span_ref: None,
+        };
+        let v = serde_json::to_value(&cfg).unwrap();
+        // Author wrote `rotation` block with no inner slots — the JSON
+        // must be an empty object, not e.g. {"refresh_ttl": null, ...}.
+        assert_eq!(v, json!({}));
+    }
+
+    #[test]
+    fn auth_sessions_legacy_back_compat_deserializes() {
+        // Pre-this-cell fixtures lack access_ttl + rotation. Confirm they
+        // still deserialize cleanly with the new fields defaulting to None.
+        let legacy_json = json!({
+            "resource": { "feature": "account", "name": "UserSession" },
+            "ttl": "7 days",
+            "refresh": false
+        });
+        let parsed: AuthSessions =
+            serde_json::from_value(legacy_json).expect("legacy fixture must deserialize");
+        assert_eq!(parsed.ttl, "7 days");
+        assert!(!parsed.refresh);
+        assert!(parsed.access_ttl.is_none());
+        assert!(parsed.rotation.is_none());
+        assert!(!parsed.is_rotation_enabled());
+    }
+
+    #[test]
+    fn auth_sessions_resolves_legacy_ttl_when_neither_set() {
+        let s = legacy_sessions();
+        assert_eq!(s.resolved_access_ttl(), "7 days");
+        assert_eq!(s.resolved_refresh_ttl(), None);
+        assert_eq!(s.resolved_rotation_grace(), None);
+        assert_eq!(s.resolved_theft_action(), None);
+    }
+
+    #[test]
+    fn auth_sessions_resolves_framework_defaults_when_rotation_on() {
+        let s = rotation_sessions(RotationConfig {
+            refresh_ttl: None,
+            grace: None,
+            theft_detection_action: None,
+            span_ref: None,
+        });
+        assert!(s.is_rotation_enabled());
+        // access_ttl=None + rotation on => "15 minutes" framework default.
+        assert_eq!(s.resolved_access_ttl(), "15 minutes");
+        assert_eq!(s.resolved_refresh_ttl(), Some("30 days"));
+        assert_eq!(s.resolved_rotation_grace(), Some("30 seconds"));
+        assert_eq!(s.resolved_theft_action(), Some(TheftAction::RevokeSessionFamily));
+    }
+
+    #[test]
+    fn auth_sessions_resolves_explicit_values_when_set() {
+        let mut s = rotation_sessions(RotationConfig {
+            refresh_ttl: Some("14 days".to_string()),
+            grace: Some("60 seconds".to_string()),
+            theft_detection_action: Some(TheftAction::RevokeUser),
+            span_ref: None,
+        });
+        s.access_ttl = Some("10 minutes".to_string());
+
+        assert_eq!(s.resolved_access_ttl(), "10 minutes");
+        assert_eq!(s.resolved_refresh_ttl(), Some("14 days"));
+        assert_eq!(s.resolved_rotation_grace(), Some("60 seconds"));
+        assert_eq!(s.resolved_theft_action(), Some(TheftAction::RevokeUser));
+    }
+
+    #[test]
+    fn auth_sessions_resolves_access_ttl_falls_back_to_legacy_when_rotation_off() {
+        let mut s = legacy_sessions();
+        s.access_ttl = None;
+        // Rotation off, access_ttl not set → legacy ttl.
+        assert_eq!(s.resolved_access_ttl(), "7 days");
+
+        s.access_ttl = Some("3 hours".to_string());
+        // Rotation off, access_ttl explicit → explicit value wins.
+        assert_eq!(s.resolved_access_ttl(), "3 hours");
+    }
+
+    #[test]
+    fn auth_sessions_round_trips_with_nested_rotation_block() {
+        round_trip(&rotation_sessions(RotationConfig {
+            refresh_ttl: Some("30 days".to_string()),
+            grace: Some("30 seconds".to_string()),
+            theft_detection_action: Some(TheftAction::RevokeSessionFamily),
+            span_ref: None,
+        }));
     }
 }

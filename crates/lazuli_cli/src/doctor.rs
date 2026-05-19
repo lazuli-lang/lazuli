@@ -19980,6 +19980,8 @@ feature customer_outreach
                     ttl: "7 days".to_owned(),
                     refresh: false,
                     extra_columns,
+                    access_ttl: None,
+                    rotation: None,
                 }),
                 mfa: None,
                 oauth: vec![],

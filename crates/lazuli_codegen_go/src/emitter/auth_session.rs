@@ -342,6 +342,8 @@ mod tests {
             ttl: "7 days".to_owned(),
             refresh: false,
             extra_columns: vec![],
+            access_ttl: None,
+            rotation: None,
         })));
         assert!(emit_auth_session_file("examples/x.lzi", &feature).is_none());
     }
@@ -354,6 +356,8 @@ mod tests {
             ttl: "7 days".to_owned(),
             refresh: false,
             extra_columns: vec![org_extra_column()],
+            access_ttl: None,
+            rotation: None,
         })));
 
         let out = emit_auth_session_file("features/account/account.lzi", &feature)
@@ -417,6 +421,8 @@ mod tests {
             ttl: "1 hour".to_owned(),
             refresh: true,
             extra_columns: vec![org_extra_column()],
+            access_ttl: None,
+            rotation: None,
         })));
 
         let out = emit_auth_session_file("features/billing/billing.lzi", &feature)

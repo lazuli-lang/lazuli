@@ -4970,6 +4970,10 @@ fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
         refresh: sessions.refresh,
         // Populated in S3 when the orchestrator wires resource FieldSpec lookup.
         extra_columns: vec![],
+        // ir-auth-refresh-rotation Cell IR-1: new slots default to None
+        // until Cell PARSE-1 wires the .lzi grammar.
+        access_ttl: None,
+        rotation: None,
     }
 }
 

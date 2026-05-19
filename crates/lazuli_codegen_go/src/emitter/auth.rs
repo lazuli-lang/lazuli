@@ -674,6 +674,8 @@ mod tests {
             ttl: "7 days".to_owned(),
             refresh: false,
             extra_columns: vec![],
+            access_ttl: None,
+            rotation: None,
         });
         auth.mfa = Some(AuthMfa {
             method: "totp".to_owned(),
@@ -786,6 +788,8 @@ mod tests {
             ttl: "1 hour".to_owned(),
             refresh: true,
             extra_columns: vec![],
+            access_ttl: None,
+            rotation: None,
         });
         feature.auth = Some(auth);
 
@@ -820,6 +824,8 @@ mod tests {
             ttl: "soon".to_owned(),
             refresh: true,
             extra_columns: vec![],
+            access_ttl: None,
+            rotation: None,
         });
         feature.auth = Some(auth);
 

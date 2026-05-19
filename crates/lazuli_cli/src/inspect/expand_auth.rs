@@ -193,6 +193,8 @@ mod tests {
                 ttl: "7 days".to_owned(),
                 refresh: false,
                 extra_columns: vec![],
+                access_ttl: None,
+                rotation: None,
             }),
             mfa: Some(AuthMfa {
                 method: "totp".to_owned(),
