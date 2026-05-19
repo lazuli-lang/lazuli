@@ -159,8 +159,9 @@ impl LanguageServer for Backend {
         // This path runs before `rich_keyword_hover` so the resolved-text
         // surface wins when the cursor is unambiguously inside `errors`.
         let hover_markdown = if !is_design_lzi_uri(&uri) {
-            if let Some(markdown) =
-                error_vocab_code_resolved_hover(source, position, &word)
+            if let Some(markdown) = route_guard_hover(source, position, &word) {
+                Some(markdown)
+            } else if let Some(markdown) = error_vocab_code_resolved_hover(source, position, &word)
             {
                 Some(markdown)
             } else if let Some(markdown) = rich_keyword_hover(&word) {
@@ -205,6 +206,9 @@ impl LanguageServer for Backend {
         if is_lzx_uri(&uri) {
             let documents = self.documents.read().await;
             if let Some(source) = documents.get(&uri) {
+                if let Some(items) = route_guard_completions(source, position) {
+                    return Ok(Some(CompletionResponse::Array(items)));
+                }
                 return Ok(Some(CompletionResponse::Array(
                     lzx_completion::completions_for_lzx(source, position),
                 )));
@@ -323,10 +327,7 @@ impl LanguageServer for Backend {
         )]))
     }
 
-    async fn code_action(
-        &self,
-        params: CodeActionParams,
-    ) -> Result<Option<CodeActionResponse>> {
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let position = params.range.start;
         let documents = self.documents.read().await;
@@ -338,6 +339,7 @@ impl LanguageServer for Backend {
         // `trigger_kind`.
         let mut actions = error_vocab_code_actions(source, &uri, position);
         actions.extend(auth_refresh_code_actions(source, &uri, position));
+        actions.extend(route_guard_code_actions(source, &uri, position));
         if actions.is_empty() {
             return Ok(None);
         }
@@ -1598,9 +1600,9 @@ fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_feature_body_kind(first, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown feature block kind `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown feature block kind `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / workflow / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / context / non_goals / role / permission / etc."
             ),
@@ -1642,11 +1644,7 @@ fn closest_feature_body_kind(word: &str, max_distance: usize) -> Option<&'static
 /// query-statement/audience) to the same closed-catalog treatment as
 /// `feature_unknown_kind_diagnostics`. Reuse this — do NOT copy-paste the
 /// O(n*m) loop into each new diagnostic.
-fn closest_kind(
-    word: &str,
-    catalog: &[&'static str],
-    max_distance: usize,
-) -> Option<&'static str> {
+fn closest_kind(word: &str, catalog: &[&'static str], max_distance: usize) -> Option<&'static str> {
     let mut best: Option<(&'static str, usize)> = None;
     for &candidate in catalog {
         let d = levenshtein(word, candidate);
@@ -1681,9 +1679,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
         curr[0] = i;
         for j in 1..=m {
             let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (curr[j - 1] + 1)
-                .min(prev[j] + 1)
-                .min(prev[j - 1] + cost);
+            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -1856,18 +1852,8 @@ const COMMAND_STATEMENT_KINDS: &[&str] = &[
 /// them and let the parser emit the precise per-kind error).
 /// Sorted alphabetically.
 const QUERY_STATEMENT_KINDS: &[&str] = &[
-    "cache",
-    "filters",
-    "gate",
-    "modifier",
-    "order",
-    "paginate",
-    "params",
-    "policy",
-    "returns",
-    "scope",
-    "search",
-    "sql",
+    "cache", "filters", "gate", "modifier", "order", "paginate", "params", "policy", "returns",
+    "scope", "search", "sql",
 ];
 
 /// Closed catalog of children inside `audience <name>` blocks.
@@ -1912,9 +1898,9 @@ fn app_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, APP_BODY_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown app block kind `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown app block kind `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown app block kind `{first}`. Valid kinds: title / version / lazuli_version / targets / bindings / packs / environments / urls / cors / headers / cookie / proxy / limits / env / integrations / capabilities / architecture / services / communication / runtime / deploy / logging / tracing / locale / encryption / error_page / uses / default_locale / default_timezone / auth_failed_redirect / route_guard / actor_query / not_found."
             ),
@@ -1967,9 +1953,9 @@ fn registry_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, REGISTRY_BODY_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown registry block kind `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown registry block kind `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown registry block kind `{first}`. Valid kinds: env / capabilities / integrations / bindings / packs / tools / webhook_event / webhook_events / secret_rotation."
             ),
@@ -2037,9 +2023,9 @@ fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, VIEW_BODY_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown view body kind `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown view body kind `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown view body kind `{first}`. Valid kinds: source / submit / columns / fields / sections / cells / route / actions / search / filter / filters / drawer / sort / selection / bulk_actions / settings / block / slot / extends / extensible_by / anchor / audience / lazy / prerender."
             ),
@@ -2104,9 +2090,9 @@ fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, SURFACE_BODY_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown surface body kind `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown surface body kind `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown surface body kind `{first}`. Valid children: `uses experience <name>`, `audience <name>`."
             ),
@@ -2188,9 +2174,9 @@ fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, COMMAND_STATEMENT_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown command statement `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown command statement `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown command statement `{first}`. Valid statements: previously / route / input / policy / rate_limit / audit / approval / target / let / validate / creates / updates / deletes / returns / handler / emits / invalidates / calls / timeout / retry / idempotency / write_window / tests / deprecated / gate."
             ),
@@ -2256,9 +2242,9 @@ fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, QUERY_STATEMENT_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown query statement `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown query statement `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown query statement `{first}`. Valid statements: policy / params / filters / scope / modifier / search / cache / paginate / order / returns / sql / gate."
             ),
@@ -2323,9 +2309,9 @@ fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
         let suggestion = closest_kind(first, AUDIENCE_BODY_KINDS, 2);
         let message = match suggestion {
-            Some(suggested) => format!(
-                "unknown audience child `{first}`. Did you mean `{suggested}`?"
-            ),
+            Some(suggested) => {
+                format!("unknown audience child `{first}`. Did you mean `{suggested}`?")
+            }
             None => format!(
                 "unknown audience child `{first}`. Valid children: `view <name> <Component>` declarations (or `requires @scope.<name>`)."
             ),
@@ -13241,8 +13227,12 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "topology" => Some("Declares an environment deploy topology override in a profile."),
         "environment" => Some("Selects a provider environment such as sandbox or production."),
         "env" => Some("Declares typed environment variables and client/server exposure."),
-        "aggregate" | "entity" => Some("Declares a domain resource with fields and behavior. Inspect with `lazuli inspect <file> --expand=resources` to project the typed slice."),
-        "record" => Some("Declares a non-persisted typed result/DTO shape. Inspect with `lazuli inspect <file> --expand=records` to project the typed slice."),
+        "aggregate" | "entity" => Some(
+            "Declares a domain resource with fields and behavior. Inspect with `lazuli inspect <file> --expand=resources` to project the typed slice.",
+        ),
+        "record" => Some(
+            "Declares a non-persisted typed result/DTO shape. Inspect with `lazuli inspect <file> --expand=records` to project the typed slice.",
+        ),
         "agent" => Some(
             "Declares an LLM-powered capability with typed input, output, prompt template, model reference, policy, and rate limits. the runtime wires the LLM transport; Lazuli owns the contract.",
         ),
@@ -13274,9 +13264,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "every" => Some(
             "On `notification.digest`, sets the aggregation window. Closed shape: `<N> (seconds|minutes|hours|days)`. Example: `every \"15 minutes\"`.",
         ),
-        "group_by" => Some(
-            "On `notification.digest`, keys the aggregation bucket on a payload path.",
-        ),
+        "group_by" => {
+            Some("On `notification.digest`, keys the aggregation bucket on a payload path.")
+        }
         "max_size" => Some(
             "On `notification.digest`, caps items per digest window. Range: 1..=10000. Above the ceiling buffers unbounded payloads.",
         ),
@@ -13312,7 +13302,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "query.list" => Some("Declares a generated collection query."),
         "query.lookup" => Some("Declares a generated single-record lookup query."),
         "query.sql" => Some("Declares a query backed by an external SQL file."),
-        "defaults" => Some("Declares repeated feature defaults such as tenancy and timestamps. Inspect with `lazuli inspect <file> --expand=defaults` to project the IR-driven defaults block."),
+        "defaults" => Some(
+            "Declares repeated feature defaults such as tenancy and timestamps. Inspect with `lazuli inspect <file> --expand=defaults` to project the IR-driven defaults block.",
+        ),
         "domain" => Some("Groups resources, records, queries, rules, and events."),
         "policies" => Some("Declares feature-local policy categories and field policies."),
         "auth" => Some(
@@ -13469,8 +13461,31 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "inverse" => Some(
             "Declares the field on the target resource that owns the inverse foreign key for a `has_many` collection.",
         ),
-        "policy" => Some("Associates a command with an authorization policy capability."),
+        "policy" => Some(
+            "Associates a command, query, API, webhook, job, or view route guard with an authorization policy capability.",
+        ),
         "policy_for" => Some("Declares a feature default policy for specific construct families."),
+        "route_guard" => Some(
+            "App-level route guard defaults. Children: `default_policy`, `default_unauthenticated_redirect`, and `default_unauthorized_redirect`.",
+        ),
+        "actor_query" => Some(
+            "App-level query reference that resolves the active actor for route guards. Format: `<feature>.query.<name>`.",
+        ),
+        "default_policy" => Some(
+            "Inside `app.route_guard`, the fallback policy for routes without a view- or audience-level guard.",
+        ),
+        "default_unauthenticated_redirect" => {
+            Some("Inside `app.route_guard`, the fallback redirect path when no actor is signed in.")
+        }
+        "default_unauthorized_redirect" => Some(
+            "Inside `app.route_guard`, the fallback redirect path when a signed-in actor fails the guard policy.",
+        ),
+        "on_unauthenticated" => {
+            Some("Inside a view route guard, redirect target for users who are not signed in.")
+        }
+        "on_unauthorized" => Some(
+            "Inside a view route guard, redirect target for signed-in users who fail the guard policy.",
+        ),
         "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
         "calls" => Some(
             "Declares that a command or job calls an abstract integration/service operation; the runtime wires this to Go transport bindings.",
@@ -13508,8 +13523,12 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "sliding" => Some(
             "Cache sliding TTL. `sliding true` extends the TTL window on every read (access-recency cache); `sliding false` keeps a fixed expiry. Requires a typed `ttl` literal (`<int>s|m|h|d`) so the runtime can slide deterministically.",
         ),
-        "invalidates" => Some("On a `command`, declares queries that become stale after the command succeeds. Each line is `query.<name>` or `query.<name>(arg: route.<slot>)`. The runtime evicts matching cache entries after a successful commit. Doctor: `cache_invalidates_target_unresolved`."),
-        "approval" => Some("On a `command`, declares a conditional human sign-off block (Cut A.9). Required children: `required_when <predicate>`, `by @role.<name>`, `timeout \"<duration>\"`, `then deny|allow|escalate`. Doctor: `approval_contract_diagnostics`, `approval_timeout_invalid_diagnostics`. IR field: `Command.approval: Option<ApprovalSpec>`."),
+        "invalidates" => Some(
+            "On a `command`, declares queries that become stale after the command succeeds. Each line is `query.<name>` or `query.<name>(arg: route.<slot>)`. The runtime evicts matching cache entries after a successful commit. Doctor: `cache_invalidates_target_unresolved`.",
+        ),
+        "approval" => Some(
+            "On a `command`, declares a conditional human sign-off block (Cut A.9). Required children: `required_when <predicate>`, `by @role.<name>`, `timeout \"<duration>\"`, `then deny|allow|escalate`. Doctor: `approval_contract_diagnostics`, `approval_timeout_invalid_diagnostics`. IR field: `Command.approval: Option<ApprovalSpec>`.",
+        ),
         "error" => Some("Declares a named public error case with status and exposure fields."),
         "expose" => Some("Declares which error fields are visible to generated clients."),
         "write_window" => Some("Declares the temporal write window checked before a command runs."),
@@ -13527,7 +13546,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "tenant_migration" => Some(
             "Per-tenant idempotent data migration. Closed body: `target query.<name>|command.<name>`, `axis <tenant_axis>`, `idempotency <path>`, `retry`, `timeout`, and `handler \"./...\"`.",
         ),
-        "axis" => Some("Names the tenant axis for a `tenant_migration`; doctor checks it against feature `defaults.tenancy`."),
+        "axis" => Some(
+            "Names the tenant axis for a `tenant_migration`; doctor checks it against feature `defaults.tenancy`.",
+        ),
         "strategy" => Some(
             "Migration deployment strategy. Closed catalog: `rolling` (zero-downtime), `blue_green` (parallel cutover), `canary` (incremental traffic shift). Doctor: `DEPLOY-STRATEGY-001`.",
         ),
@@ -14421,7 +14442,9 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
     ),
     (
         "query.sql",
-        &["returns", "sql", "params", "scope", "policy", "cache", "audit"],
+        &[
+            "returns", "sql", "params", "scope", "policy", "cache", "audit",
+        ],
     ),
     // CL.C.3 — feature-level `cache <name>` profile children. The
     // inline (per-query) cache shape reuses these same keywords; the
@@ -14478,7 +14501,14 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
     ("error_page", &["template", "audience"]),
     (
         "tenant_migration",
-        &["target", "axis", "idempotency", "timeout", "retry", "handler"],
+        &[
+            "target",
+            "axis",
+            "idempotency",
+            "timeout",
+            "retry",
+            "handler",
+        ],
     ),
 ];
 
@@ -14526,8 +14556,7 @@ fn block_kind_at(source: &str, position: Position) -> Option<&'static str> {
         if indent < cursor_indent {
             // Try each known kind prefix. Match the longest first to
             // distinguish `query.list` from a hypothetical `query`.
-            let mut kinds: Vec<&str> =
-                KIND_CHILD_COMPLETIONS.iter().map(|(k, _)| *k).collect();
+            let mut kinds: Vec<&str> = KIND_CHILD_COMPLETIONS.iter().map(|(k, _)| *k).collect();
             kinds.sort_by_key(|k| std::cmp::Reverse(k.len()));
             for kind in kinds {
                 if trimmed == kind
@@ -14563,6 +14592,14 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
+
+    // IR Route-Guards — narrow context completions for view policies,
+    // redirect paths, `actor_query`, and `app.route_guard` defaults.
+    // Runs before generic namespace completion so `policy @policy.` inside
+    // a view can offer full `@policy.<name>` refs instead of bare names.
+    if let Some(items) = route_guard_completions(source, position) {
+        return Some(items);
+    }
 
     // 1. `@<ns>.` prefix completion.
     if let Some(items) = namespace_prefix_completions(source, before) {
@@ -14605,8 +14642,10 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
     // an unrelated context.
     let trimmed_before = before.trim_start();
     let is_blank_indented = trimmed_before.is_empty() && !before.is_empty();
-    let is_partial_word =
-        !trimmed_before.is_empty() && trimmed_before.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let is_partial_word = !trimmed_before.is_empty()
+        && trimmed_before
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_');
     if !(is_blank_indented || is_partial_word) {
         return None;
     }
@@ -15142,6 +15181,1119 @@ fn collect_namespace_names(source: &str, ns: &str) -> Vec<String> {
     names
 }
 
+// ── IR Route-Guards — LSP completion / hover / code actions ────────────────
+
+const ROUTE_GUARD_DEFAULT_CLAUSES: &[&str] = &[
+    "default_policy",
+    "default_unauthenticated_redirect",
+    "default_unauthorized_redirect",
+];
+
+#[derive(Debug, Clone)]
+struct RouteGuardBlock {
+    header_line: usize,
+    header_indent: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RouteGuardViewBlock {
+    header_line: usize,
+    header_indent: usize,
+    end_line: usize,
+    feature_hint: Option<String>,
+}
+
+/// Completion for `ir-route-guards` authoring positions. The helper is
+/// intentionally text-walk based, matching the existing LSP convention:
+/// it gives immediate editor help even before parser/analyzer cells know
+/// the new surface.
+pub fn route_guard_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let cursor = (position.character as usize).min(line.len());
+    let before = &line[..cursor];
+    let trimmed_before = before.trim_start();
+
+    if route_guard_redirect_path_trigger(trimmed_before).is_some() {
+        return Some(route_path_completion_items(
+            source,
+            redirect_trigger_has_open_quote(trimmed_before),
+        ));
+    }
+
+    if let Some(rest) = trimmed_before.strip_prefix("actor_query ") {
+        if rest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+            && at_app_child_completion_line(source, position)
+        {
+            return Some(query_ref_completion_items(source));
+        }
+    }
+
+    if let Some(rest) = trimmed_before.strip_prefix("default_policy ") {
+        if rest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '.')
+            && in_app_route_guard_block(source, position).is_some()
+        {
+            let feature = route_guard_context_feature(source, position);
+            return Some(policy_ref_completion_items(
+                source,
+                feature.as_deref(),
+                true,
+            ));
+        }
+    }
+
+    if let Some(rest) = trimmed_before.strip_prefix("policy ") {
+        if rest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '.')
+            && in_view_or_audience_guard_context(source, position)
+        {
+            let feature = route_guard_context_feature(source, position);
+            return Some(policy_ref_completion_items(
+                source,
+                feature.as_deref(),
+                true,
+            ));
+        }
+    }
+
+    let is_blank_indented = trimmed_before.is_empty() && !before.is_empty();
+    let is_partial_word = !trimmed_before.is_empty()
+        && trimmed_before
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !(is_blank_indented || is_partial_word) {
+        return None;
+    }
+
+    if in_app_route_guard_block(source, position).is_some() {
+        return Some(route_guard_default_clause_completion_items());
+    }
+
+    if in_guard_policy_child_context(source, position) {
+        return Some(vec![
+            snippet_completion(
+                "on_unauthenticated redirect",
+                "on_unauthenticated redirect \"${1:/sign-in}\"",
+                "Redirect when no actor is signed in.",
+            ),
+            snippet_completion(
+                "on_unauthorized redirect",
+                "on_unauthorized redirect \"${1:/403}\"",
+                "Redirect when a signed-in actor fails the policy.",
+            ),
+        ]);
+    }
+
+    if in_view_or_audience_guard_context(source, position) {
+        return Some(vec![snippet_completion(
+            "policy @policy.<name>",
+            "policy @policy.${1:name}\n  on_unauthenticated redirect \"${2:/sign-in}\"\n  on_unauthorized redirect \"${3:/403}\"",
+            "Declare a route guard policy and per-view redirects.",
+        )]);
+    }
+
+    if at_app_child_completion_line(source, position) {
+        return Some(vec![
+            snippet_completion(
+                "route_guard",
+                "route_guard\n  default_policy @scope.authenticated\n  default_unauthenticated_redirect \"${1:/sign-in}\"\n  default_unauthorized_redirect \"${2:/403}\"",
+                "Declare app-level route guard defaults.",
+            ),
+            snippet_completion(
+                "actor_query <feature>.query.<name>",
+                "actor_query ${1:account.query.me}",
+                "Wire the query that resolves the active actor.",
+            ),
+        ]);
+    }
+
+    None
+}
+
+fn route_guard_redirect_path_trigger(trimmed_before: &str) -> Option<&'static str> {
+    let triggers = [
+        "on_unauthenticated redirect ",
+        "on_unauthorized redirect ",
+        "default_unauthenticated_redirect ",
+        "default_unauthorized_redirect ",
+    ];
+    triggers
+        .into_iter()
+        .find(|trigger| trimmed_before.starts_with(trigger))
+}
+
+fn redirect_trigger_has_open_quote(trimmed_before: &str) -> bool {
+    route_guard_redirect_path_trigger(trimmed_before)
+        .map(|trigger| trimmed_before[trigger.len()..].starts_with('"'))
+        .unwrap_or(false)
+}
+
+fn route_path_completion_items(source: &str, open_quote: bool) -> Vec<CompletionItem> {
+    collect_route_paths(source)
+        .into_iter()
+        .map(|path| CompletionItem {
+            label: path.clone(),
+            kind: Some(CompletionItemKind::REFERENCE),
+            detail: Some("Declared route path.".to_owned()),
+            insert_text: Some(if open_quote {
+                path
+            } else {
+                format!("\"{path}\"")
+            }),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn query_ref_completion_items(source: &str) -> Vec<CompletionItem> {
+    collect_query_refs(source)
+        .into_iter()
+        .map(|query_ref| CompletionItem {
+            label: query_ref,
+            kind: Some(CompletionItemKind::REFERENCE),
+            detail: Some("Declared query usable as `actor_query`.".to_owned()),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn policy_ref_completion_items(
+    source: &str,
+    feature_hint: Option<&str>,
+    include_atom_prefixes: bool,
+) -> Vec<CompletionItem> {
+    let mut items = Vec::new();
+    if include_atom_prefixes {
+        for prefix in ["@policy.", "@scope.", "@role.", "@actor."] {
+            items.push(CompletionItem {
+                label: prefix.to_owned(),
+                kind: Some(CompletionItemKind::SNIPPET),
+                detail: Some("Route guard policy reference prefix.".to_owned()),
+                ..CompletionItem::default()
+            });
+        }
+    }
+    items.extend(
+        collect_policy_categories_for_feature(source, feature_hint)
+            .into_iter()
+            .map(|name| CompletionItem {
+                label: format!("@policy.{name}"),
+                kind: Some(CompletionItemKind::REFERENCE),
+                detail: Some("Feature-local policy category.".to_owned()),
+                ..CompletionItem::default()
+            }),
+    );
+    items
+}
+
+fn route_guard_default_clause_completion_items() -> Vec<CompletionItem> {
+    ROUTE_GUARD_DEFAULT_CLAUSES
+        .iter()
+        .map(|clause| match *clause {
+            "default_policy" => snippet_completion(
+                "default_policy",
+                "default_policy @scope.authenticated",
+                "Fallback policy for unguarded routes.",
+            ),
+            "default_unauthenticated_redirect" => snippet_completion(
+                "default_unauthenticated_redirect",
+                "default_unauthenticated_redirect \"${1:/sign-in}\"",
+                "Fallback redirect when no actor is signed in.",
+            ),
+            "default_unauthorized_redirect" => snippet_completion(
+                "default_unauthorized_redirect",
+                "default_unauthorized_redirect \"${1:/403}\"",
+                "Fallback redirect when a signed-in actor fails policy.",
+            ),
+            _ => CompletionItem::default(),
+        })
+        .collect()
+}
+
+fn snippet_completion(label: &str, body: &str, detail: &str) -> CompletionItem {
+    CompletionItem {
+        label: label.to_owned(),
+        kind: Some(CompletionItemKind::SNIPPET),
+        detail: Some(detail.to_owned()),
+        insert_text: Some(body.to_owned()),
+        insert_text_format: Some(tower_lsp::lsp_types::InsertTextFormat::SNIPPET),
+        documentation: Some(Documentation::String(detail.to_owned())),
+        ..CompletionItem::default()
+    }
+}
+
+pub fn route_guard_hover(source: &str, position: Position, word: &str) -> Option<String> {
+    if word.starts_with("policy.") {
+        if let Some(hover) = route_guard_policy_ref_hover(source, position, word) {
+            return Some(hover);
+        }
+    }
+
+    match word {
+        "policy" if in_view_or_audience_guard_context(source, position) => {
+            let layer = if enclosing_audience_block(source, position).is_some()
+                && enclosing_view_block(source, position).is_none()
+            {
+                "Per-audience default route guard inherited by views unless they declare their own `policy`."
+            } else {
+                "Per-view route guard evaluated on every navigation to this view."
+            };
+            Some(format!(
+                "`policy`\n\n{layer} Redirects use `on_unauthenticated` and `on_unauthorized`."
+            ))
+        }
+        "on_unauthenticated" => Some(
+            "`on_unauthenticated`\n\nRedirect target when the active actor is not signed in. Falls back through view, audience, then app defaults."
+                .to_owned(),
+        ),
+        "on_unauthorized" => Some(
+            "`on_unauthorized`\n\nRedirect target when the signed-in actor fails the guard policy. Falls back through view, audience, then app defaults."
+                .to_owned(),
+        ),
+        "route_guard" => Some(
+            "`route_guard`\n\nApp-level fallback route guard block carrying `default_policy`, `default_unauthenticated_redirect`, and `default_unauthorized_redirect`."
+                .to_owned(),
+        ),
+        "actor_query" => Some(
+            "`actor_query`\n\nApp-level `<feature>.query.<name>` reference used by the runtime SDK to resolve the current actor for route guards."
+                .to_owned(),
+        ),
+        "default_unauthenticated_redirect" => Some(
+            "`default_unauthenticated_redirect`\n\nInside `app.route_guard`, fallback path for unauthenticated users when a view or audience does not override it."
+                .to_owned(),
+        ),
+        "default_unauthorized_redirect" => Some(
+            "`default_unauthorized_redirect`\n\nInside `app.route_guard`, fallback path for signed-in users who fail a guard policy when no narrower layer overrides it."
+                .to_owned(),
+        ),
+        _ => None,
+    }
+}
+
+fn route_guard_policy_ref_hover(source: &str, position: Position, word: &str) -> Option<String> {
+    let line = source.lines().nth(position.line as usize).unwrap_or("");
+    let policy_ref = format!("@{word}");
+    if !line.contains(&policy_ref) || !in_view_or_audience_guard_context(source, position) {
+        return None;
+    }
+    let feature = route_guard_context_feature(source, position);
+    let (atoms, source_label) = resolve_policy_atoms(source, feature.as_deref(), &policy_ref)
+        .unwrap_or_else(|| {
+            (
+                Vec::new(),
+                "unresolved policy category in this document".to_owned(),
+            )
+        });
+    let atoms_text = if atoms.is_empty() {
+        "unresolved".to_owned()
+    } else {
+        atoms
+            .iter()
+            .map(|atom| format!("`{atom}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let alignment = route_guard_backend_alignment(source, position, &policy_ref);
+    Some(
+        [
+            format!("**`{policy_ref}`** — route guard policy reference."),
+            String::new(),
+            format!("**Resolved atoms**: {atoms_text}"),
+            String::new(),
+            format!("**Source**: {source_label}"),
+            String::new(),
+            format!("**Backend alignment**: {alignment}"),
+        ]
+        .join("\n"),
+    )
+}
+
+pub fn route_guard_code_actions(
+    source: &str,
+    uri: &Url,
+    position: Position,
+) -> Vec<CodeActionOrCommand> {
+    let mut actions = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    let line = lines.get(line_idx).copied().unwrap_or("");
+    let trimmed = line.trim_start();
+
+    if trimmed.starts_with("view ") {
+        if let Some(action) = build_scaffold_view_guard_action(source, uri, line_idx) {
+            actions.push(action.into());
+        }
+    }
+
+    if trimmed.starts_with("on_unauthenticated redirect ")
+        || trimmed.starts_with("on_unauthorized redirect ")
+    {
+        if let Some(action) = build_promote_redirect_default_action(source, uri, line_idx) {
+            actions.push(action.into());
+        }
+    }
+
+    if in_app_body_context(source, position) {
+        if has_actor_query(source) && !route_guard_has_default_redirects(source) {
+            if let Some(action) = build_scaffold_route_guard_defaults_action(source, uri) {
+                actions.push(action.into());
+            }
+        }
+        if app_route_guard_block(source).is_some() && !has_actor_query(source) {
+            if let Some(action) = build_insert_actor_query_action(source, uri) {
+                actions.push(action.into());
+            }
+        }
+    }
+
+    actions
+}
+
+fn collect_route_paths(source: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut seen = HashSet::new();
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("path ") else {
+            continue;
+        };
+        if let Some(path) = first_quoted_value(rest) {
+            if seen.insert(path.clone()) {
+                paths.push(path);
+            }
+        }
+    }
+    paths
+}
+
+pub fn collect_query_refs(source: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current_feature: Option<String> = None;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            current_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
+            continue;
+        }
+        if indent != 2 {
+            continue;
+        }
+        let Some(feature) = current_feature.as_deref() else {
+            continue;
+        };
+        for prefix in ["query.list ", "query.lookup ", "query.sql "] {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                let name = rest.split_whitespace().next().unwrap_or("");
+                if !name.is_empty() {
+                    let query_ref = format!("{feature}.query.{name}");
+                    if seen.insert(query_ref.clone()) {
+                        refs.push(query_ref);
+                    }
+                }
+            }
+        }
+    }
+    refs
+}
+
+pub fn collect_policy_categories_for_feature(
+    source: &str,
+    feature_hint: Option<&str>,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current_feature: Option<String> = None;
+    let mut in_policies = false;
+    let mut policies_indent = 0;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            current_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
+            in_policies = false;
+            continue;
+        }
+        let feature_matches = match (feature_hint, current_feature.as_deref()) {
+            (Some(expected), Some(current)) => expected == current,
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (None, None) => false,
+        };
+        if !feature_matches {
+            continue;
+        }
+        if trimmed == "policies" || trimmed.starts_with("policies ") {
+            in_policies = true;
+            policies_indent = indent;
+            continue;
+        }
+        if in_policies {
+            if indent <= policies_indent {
+                in_policies = false;
+                continue;
+            }
+            if let Some(colon) = trimmed.find(':') {
+                let name = trimmed[..colon].trim();
+                if !name.is_empty()
+                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    && seen.insert(name.to_owned())
+                {
+                    names.push(name.to_owned());
+                }
+            }
+        }
+    }
+    names
+}
+
+fn first_quoted_value(value: &str) -> Option<String> {
+    let open = value.find('"')?;
+    let rest = &value[open + 1..];
+    let close = rest.find('"')?;
+    Some(rest[..close].to_owned())
+}
+
+fn route_guard_context_feature(source: &str, position: Position) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    for idx in (0..=cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            for prefix in ["feature ", "surface ", "experience "] {
+                if let Some(rest) = trimmed.strip_prefix(prefix) {
+                    let name = rest.split_whitespace().next().unwrap_or("");
+                    if !name.is_empty() {
+                        return Some(name.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn in_app_body_context(source: &str, position: Position) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
+    let cursor_indent = leading_spaces(cursor_line);
+    for idx in (0..=cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            return trimmed.starts_with("app ");
+        }
+        if indent < cursor_indent && trimmed.starts_with("route_guard") {
+            return false;
+        }
+    }
+    false
+}
+
+fn at_app_child_completion_line(source: &str, position: Position) -> bool {
+    let line = source.lines().nth(position.line as usize).unwrap_or("");
+    leading_spaces(line) == 2 && in_app_body_context(source, position)
+}
+
+fn in_app_route_guard_block(source: &str, position: Position) -> Option<RouteGuardBlock> {
+    let block = app_route_guard_block(source)?;
+    let line_idx = position.line as usize;
+    let line = source.lines().nth(line_idx).unwrap_or("");
+    let indent = leading_spaces(line);
+    if line_idx > block.header_line && line_idx < block.end_line && indent > block.header_indent {
+        Some(block)
+    } else {
+        None
+    }
+}
+
+fn app_route_guard_block(source: &str) -> Option<RouteGuardBlock> {
+    let lines: Vec<&str> = source.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed == "route_guard" || trimmed.starts_with("route_guard ") {
+            let header_indent = leading_spaces(line);
+            let end_line = find_block_end(&lines, idx, header_indent);
+            return Some(RouteGuardBlock {
+                header_line: idx,
+                header_indent,
+                end_line,
+            });
+        }
+    }
+    None
+}
+
+fn in_view_or_audience_guard_context(source: &str, position: Position) -> bool {
+    let line = source.lines().nth(position.line as usize).unwrap_or("");
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("policy ") {
+        return enclosing_view_block(source, position).is_some()
+            || enclosing_audience_block(source, position).is_some();
+    }
+    enclosing_view_block(source, position).is_some()
+        || enclosing_audience_block(source, position).is_some()
+}
+
+fn in_guard_policy_child_context(source: &str, position: Position) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
+    let cursor_indent = leading_spaces(cursor_line);
+    for idx in (0..cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent >= cursor_indent {
+            continue;
+        }
+        if trimmed.starts_with("policy ") {
+            let pos = Position {
+                line: idx as u32,
+                character: indent as u32,
+            };
+            return in_view_or_audience_guard_context(source, pos);
+        }
+        return false;
+    }
+    false
+}
+
+fn enclosing_view_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
+    enclosing_named_block(source, position, "view")
+}
+
+fn enclosing_audience_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
+    enclosing_named_block(source, position, "audience")
+}
+
+fn enclosing_named_block(
+    source: &str,
+    position: Position,
+    keyword: &str,
+) -> Option<RouteGuardViewBlock> {
+    let lines: Vec<&str> = source.lines().collect();
+    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
+    let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
+    let cursor_indent = leading_spaces(cursor_line);
+    for idx in (0..=cursor_line_idx).rev() {
+        let line = lines.get(idx).copied().unwrap_or("");
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if idx == cursor_line_idx {
+            if !trimmed.starts_with(&format!("{keyword} ")) {
+                continue;
+            }
+        } else if indent >= cursor_indent {
+            continue;
+        }
+        if trimmed.starts_with(&format!("{keyword} ")) {
+            let end_line = find_block_end(&lines, idx, indent);
+            return Some(RouteGuardViewBlock {
+                header_line: idx,
+                header_indent: indent,
+                end_line,
+                feature_hint: route_guard_context_feature(
+                    source,
+                    Position {
+                        line: idx as u32,
+                        character: indent as u32,
+                    },
+                ),
+            });
+        }
+        if indent == 0 {
+            return None;
+        }
+    }
+    None
+}
+
+fn find_block_end(lines: &[&str], header_line: usize, header_indent: usize) -> usize {
+    for (idx, line) in lines.iter().enumerate().skip(header_line + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) <= header_indent {
+            return idx;
+        }
+    }
+    lines.len()
+}
+
+fn resolve_policy_atoms(
+    source: &str,
+    feature_hint: Option<&str>,
+    policy_ref: &str,
+) -> Option<(Vec<String>, String)> {
+    let name = policy_ref.strip_prefix("@policy.")?;
+    let (feature, category) = if let Some((feature, category)) = name.split_once('.') {
+        (Some(feature), category)
+    } else {
+        (feature_hint, name)
+    };
+    let mut current_feature: Option<String> = None;
+    let mut in_policies = false;
+    let mut policies_indent = 0;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            current_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
+            in_policies = false;
+            continue;
+        }
+        let feature_matches = match (feature, current_feature.as_deref()) {
+            (Some(expected), Some(current)) => expected == current,
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (None, None) => false,
+        };
+        if !feature_matches {
+            continue;
+        }
+        if trimmed == "policies" || trimmed.starts_with("policies ") {
+            in_policies = true;
+            policies_indent = indent;
+            continue;
+        }
+        if in_policies {
+            if indent <= policies_indent {
+                in_policies = false;
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix(&format!("{category}:")) {
+                let atoms = rest
+                    .split(',')
+                    .map(str::trim)
+                    .flat_map(|part| part.split_whitespace())
+                    .filter(|token| token.starts_with('@'))
+                    .map(|token| token.trim_end_matches(',').to_owned())
+                    .collect::<Vec<_>>();
+                let source_feature = current_feature.as_deref().unwrap_or("<unknown>");
+                return Some((
+                    atoms,
+                    format!("`feature.{source_feature}.policies.{category}`"),
+                ));
+            }
+        }
+    }
+    None
+}
+
+fn route_guard_backend_alignment(source: &str, position: Position, policy_ref: &str) -> String {
+    let Some(view) = enclosing_view_block(source, position) else {
+        return "No enclosing view found.".to_owned();
+    };
+    let hosted = hosted_backend_refs_for_view(source, &view);
+    if hosted.is_empty() {
+        return "No hosted `source` or `submit` backend found in this view.".to_owned();
+    }
+    let mut mismatches = Vec::new();
+    for backend_ref in hosted {
+        if let Some(backend_policy) = backend_policy_for_ref(source, &backend_ref) {
+            if backend_policy == policy_ref {
+                return format!(
+                    "view hosts `{backend_ref}` (policy `{backend_policy}`); guard matches backend."
+                );
+            }
+            mismatches.push(format!("`{backend_ref}` uses `{backend_policy}`"));
+        }
+    }
+    if mismatches.is_empty() {
+        "Hosted backend declarations have no local policy line in this document.".to_owned()
+    } else {
+        format!(
+            "guard differs from hosted backend policy: {}.",
+            mismatches.join(", ")
+        )
+    }
+}
+
+fn hosted_backend_refs_for_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut refs = Vec::new();
+    for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
+        let trimmed = line.trim_start();
+        for prefix in ["source ", "submit "] {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                let reference = rest.split_whitespace().next().unwrap_or("");
+                let reference = reference.split('(').next().unwrap_or(reference);
+                if reference.contains(".query.") || reference.contains(".command.") {
+                    refs.push(reference.to_owned());
+                }
+            }
+        }
+    }
+    refs
+}
+
+fn backend_policy_for_ref(source: &str, backend_ref: &str) -> Option<String> {
+    let parts: Vec<&str> = backend_ref.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let feature = parts[0];
+    let kind = parts[1];
+    let name = parts[2];
+    let lines: Vec<&str> = source.lines().collect();
+    let mut in_feature = false;
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = leading_spaces(line);
+        if indent == 0 {
+            in_feature = trimmed
+                .strip_prefix("feature ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature)
+                .unwrap_or(false);
+            continue;
+        }
+        if !in_feature || indent != 2 {
+            continue;
+        }
+        let declaration_matches = match kind {
+            "command" => trimmed
+                .strip_prefix("command ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == name)
+                .unwrap_or(false),
+            "query" => ["query.list ", "query.lookup ", "query.sql "]
+                .iter()
+                .any(|prefix| {
+                    trimmed
+                        .strip_prefix(prefix)
+                        .map(|rest| rest.split_whitespace().next().unwrap_or("") == name)
+                        .unwrap_or(false)
+                }),
+            _ => false,
+        };
+        if !declaration_matches {
+            continue;
+        }
+        let end = find_block_end(&lines, idx, indent);
+        for child in lines.iter().take(end).skip(idx + 1) {
+            let child_trimmed = child.trim_start();
+            if let Some(rest) = child_trimmed.strip_prefix("policy ") {
+                return Some(rest.split_whitespace().next().unwrap_or("").to_owned());
+            }
+        }
+    }
+    None
+}
+
+fn build_scaffold_view_guard_action(
+    source: &str,
+    uri: &Url,
+    view_line_idx: usize,
+) -> Option<CodeAction> {
+    let view = enclosing_view_block(
+        source,
+        Position {
+            line: view_line_idx as u32,
+            character: 0,
+        },
+    )?;
+    if view_has_policy(source, &view) {
+        return None;
+    }
+    let policy = hosted_backend_refs_for_view(source, &view)
+        .into_iter()
+        .find_map(|backend_ref| backend_policy_for_ref(source, &backend_ref))
+        .or_else(|| {
+            collect_policy_categories_for_feature(source, view.feature_hint.as_deref())
+                .into_iter()
+                .next()
+                .map(|name| format!("@policy.{name}"))
+        })
+        .unwrap_or_else(|| "@policy.<name>".to_owned());
+    let (unauthenticated, unauthorized) = route_guard_default_redirects(source);
+    let child_indent = " ".repeat(view.header_indent + 2);
+    let redirect_indent = " ".repeat(view.header_indent + 4);
+    let new_text = format!(
+        "{child_indent}policy {policy}\n{redirect_indent}on_unauthenticated redirect \"{}\"\n{redirect_indent}on_unauthorized redirect \"{}\"\n",
+        unauthenticated.unwrap_or_else(|| "/sign-in".to_owned()),
+        unauthorized.unwrap_or_else(|| "/403".to_owned()),
+    );
+    let insertion_line = view_guard_insertion_line(source, &view);
+    Some(simple_edit_action(
+        uri,
+        "Add route guard policy and redirects",
+        CodeActionKind::QUICKFIX,
+        vec![TextEdit {
+            range: Range {
+                start: position_at_line_start(insertion_line),
+                end: position_at_line_start(insertion_line),
+            },
+            new_text,
+        }],
+        true,
+    ))
+}
+
+fn view_has_policy(source: &str, view: &RouteGuardViewBlock) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    lines
+        .iter()
+        .take(view.end_line)
+        .skip(view.header_line + 1)
+        .any(|line| {
+            leading_spaces(line) == view.header_indent + 2
+                && line.trim_start().starts_with("policy ")
+        })
+}
+
+fn view_guard_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize {
+    let lines: Vec<&str> = source.lines().collect();
+    for (idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(view.end_line)
+        .skip(view.header_line + 1)
+    {
+        if leading_spaces(line) == view.header_indent + 2 && line.trim_start().starts_with("path ")
+        {
+            return idx + 1;
+        }
+    }
+    view.header_line + 1
+}
+
+fn build_promote_redirect_default_action(
+    source: &str,
+    uri: &Url,
+    line_idx: usize,
+) -> Option<CodeAction> {
+    let line = source.lines().nth(line_idx)?;
+    let trimmed = line.trim_start();
+    let (source_keyword, default_keyword) = if trimmed.starts_with("on_unauthenticated redirect ") {
+        ("on_unauthenticated", "default_unauthenticated_redirect")
+    } else if trimmed.starts_with("on_unauthorized redirect ") {
+        ("on_unauthorized", "default_unauthorized_redirect")
+    } else {
+        return None;
+    };
+    let path = first_quoted_value(trimmed)?;
+    if count_view_redirects(source, source_keyword, &path) < 3 {
+        return None;
+    }
+    if app_route_guard_has_default(source, default_keyword) {
+        return None;
+    }
+    let edit = insert_route_guard_default_edit(source, default_keyword, &path)?;
+    Some(simple_edit_action(
+        uri,
+        &format!("Promote `{path}` to app.route_guard default"),
+        CodeActionKind::REFACTOR_REWRITE,
+        vec![edit],
+        false,
+    ))
+}
+
+fn count_view_redirects(source: &str, keyword: &str, path: &str) -> usize {
+    source
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with(&format!("{keyword} redirect "))
+                && first_quoted_value(trimmed).as_deref() == Some(path)
+        })
+        .count()
+}
+
+fn app_route_guard_has_default(source: &str, default_keyword: &str) -> bool {
+    let Some(block) = app_route_guard_block(source) else {
+        return false;
+    };
+    source
+        .lines()
+        .take(block.end_line)
+        .skip(block.header_line + 1)
+        .any(|line| line.trim_start().starts_with(default_keyword))
+}
+
+fn insert_route_guard_default_edit(
+    source: &str,
+    default_keyword: &str,
+    path: &str,
+) -> Option<TextEdit> {
+    if let Some(block) = app_route_guard_block(source) {
+        let insertion = block.end_line;
+        let indent = " ".repeat(block.header_indent + 2);
+        return Some(TextEdit {
+            range: Range {
+                start: position_at_line_start(insertion),
+                end: position_at_line_start(insertion),
+            },
+            new_text: format!("{indent}{default_keyword} \"{path}\"\n"),
+        });
+    }
+    let app_line = app_header_line(source)?;
+    Some(TextEdit {
+        range: Range {
+            start: position_at_line_start(app_line + 1),
+            end: position_at_line_start(app_line + 1),
+        },
+        new_text: format!("  route_guard\n    {default_keyword} \"{path}\"\n"),
+    })
+}
+
+fn build_scaffold_route_guard_defaults_action(source: &str, uri: &Url) -> Option<CodeAction> {
+    let edit = if let Some(block) = app_route_guard_block(source) {
+        TextEdit {
+            range: Range {
+                start: position_at_line_start(block.end_line),
+                end: position_at_line_start(block.end_line),
+            },
+            new_text: "    default_policy @scope.authenticated\n    default_unauthenticated_redirect \"/sign-in\"\n    default_unauthorized_redirect \"/403\"\n".to_owned(),
+        }
+    } else {
+        let actor_line = source
+            .lines()
+            .position(|line| line.trim_start().starts_with("actor_query "))?;
+        TextEdit {
+            range: Range {
+                start: position_at_line_start(actor_line + 1),
+                end: position_at_line_start(actor_line + 1),
+            },
+            new_text: "  route_guard\n    default_policy @scope.authenticated\n    default_unauthenticated_redirect \"/sign-in\"\n    default_unauthorized_redirect \"/403\"\n".to_owned(),
+        }
+    };
+    Some(simple_edit_action(
+        uri,
+        "Scaffold app.route_guard defaults",
+        CodeActionKind::QUICKFIX,
+        vec![edit],
+        true,
+    ))
+}
+
+fn build_insert_actor_query_action(source: &str, uri: &Url) -> Option<CodeAction> {
+    let insertion_line = app_route_guard_block(source)
+        .map(|block| block.header_line)
+        .unwrap_or(app_header_line(source)? + 1);
+    let edit = TextEdit {
+        range: Range {
+            start: position_at_line_start(insertion_line),
+            end: position_at_line_start(insertion_line),
+        },
+        new_text: "  actor_query account.query.me\n".to_owned(),
+    };
+    Some(simple_edit_action(
+        uri,
+        "Insert `actor_query account.query.me` stub",
+        CodeActionKind::QUICKFIX,
+        vec![edit],
+        true,
+    ))
+}
+
+fn has_actor_query(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| line.trim_start().starts_with("actor_query "))
+}
+
+fn route_guard_has_default_redirects(source: &str) -> bool {
+    let (unauthenticated, unauthorized) = route_guard_default_redirects(source);
+    unauthenticated.is_some() || unauthorized.is_some()
+}
+
+fn app_header_line(source: &str) -> Option<usize> {
+    source
+        .lines()
+        .position(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("app "))
+}
+
+fn route_guard_default_redirects(source: &str) -> (Option<String>, Option<String>) {
+    let Some(block) = app_route_guard_block(source) else {
+        return (None, None);
+    };
+    let mut unauthenticated = None;
+    let mut unauthorized = None;
+    for line in source
+        .lines()
+        .take(block.end_line)
+        .skip(block.header_line + 1)
+    {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("default_unauthenticated_redirect ")
+            || trimmed.starts_with("on_unauthenticated redirect ")
+        {
+            unauthenticated = first_quoted_value(trimmed);
+        } else if trimmed.starts_with("default_unauthorized_redirect ")
+            || trimmed.starts_with("on_unauthorized redirect ")
+        {
+            unauthorized = first_quoted_value(trimmed);
+        }
+    }
+    (unauthenticated, unauthorized)
+}
+
+fn simple_edit_action(
+    uri: &Url,
+    title: &str,
+    kind: CodeActionKind,
+    edits: Vec<TextEdit>,
+    preferred: bool,
+) -> CodeAction {
+    let mut changes = HashMap::new();
+    changes.insert(uri.clone(), edits);
+    CodeAction {
+        title: title.to_owned(),
+        kind: Some(kind),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(preferred),
+        disabled: None,
+        data: None,
+    }
+}
+
 /// Inside a `rate_limit "<N> per <window> per "` value, offer the
 /// closed axis catalog. Returns `None` outside that context.
 fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
@@ -15162,7 +16314,9 @@ fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem
     // least two `per ` occurrences.
     let per_count = string_so_far.matches(" per ").count();
     let ends_with_per_space = string_so_far.ends_with(" per ")
-        || string_so_far.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').ends_with(" per ");
+        || string_so_far
+            .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_')
+            .ends_with(" per ");
     if per_count < 2 || !ends_with_per_space {
         return None;
     }
@@ -15373,12 +16527,19 @@ const KEYWORDS: &[&str] = &[
     "extends",
     "input",
     "route",
+    "route_guard",
     "previously",
     "migrated",
     "alias",
     "path",
     "params",
     "to",
+    "actor_query",
+    "default_policy",
+    "default_unauthenticated_redirect",
+    "default_unauthorized_redirect",
+    "on_unauthenticated",
+    "on_unauthorized",
     "let",
     "derived",
     "audit",
@@ -15711,8 +16872,7 @@ pub const ERROR_VOCAB_CODES: &[&str] = &[
 /// `message_key` is the new opt-in field introduced by proposal §2.G; the
 /// other three (`message`, `code`, `data`) pre-existed in the LSP-only shape
 /// check (`error_exposure_fields_valid`).
-pub const ERROR_VOCAB_EXPOSE_4XX_FIELDS: &[&str] =
-    &["message", "code", "data", "message_key"];
+pub const ERROR_VOCAB_EXPOSE_4XX_FIELDS: &[&str] = &["message", "code", "data", "message_key"];
 
 /// Closed catalog of exposable wire-envelope fields for `expose client 5xx`.
 /// `message` is **deliberately excluded** — 5xx errors are framework-internal
@@ -15731,9 +16891,7 @@ pub const ERROR_VOCAB_DEFAULT_VALUES: &[&str] = &["hide", "expose"];
 pub fn error_vocab_code_builtin_en_us(code: &str) -> Option<&'static str> {
     match code {
         "policy_denied" => Some("You need to sign in to do this."),
-        "validation_failed" => {
-            Some("Some of the information you sent is missing or incorrect.")
-        }
+        "validation_failed" => Some("Some of the information you sent is missing or incorrect."),
         "tenant_mismatch" => Some("This action does not belong to the current workspace."),
         "not_found" => Some("We couldn't find the requested item."),
         "rate_limited" => Some("Too many attempts — please wait a moment."),
@@ -15769,9 +16927,9 @@ pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
         "not_found" => Some(
             "Resource lookup failed — no row matched the requested key under the current scope.",
         ),
-        "rate_limited" => Some(
-            "Throttle tripped — the caller exceeded the declared `rate_limit` axis budget.",
-        ),
+        "rate_limited" => {
+            Some("Throttle tripped — the caller exceeded the declared `rate_limit` axis budget.")
+        }
         "bad_request" => Some(
             "Malformed request — the request envelope failed structural parsing or schema validation.",
         ),
@@ -15815,11 +16973,7 @@ pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
 /// hover surfaces the **feature-level** resolution because that's the layer
 /// authors edit most. The complete resolution table is visible via
 /// `lazuli inspect --expand=error-resolution-table`.
-pub fn error_vocab_resolved_text(
-    source: &str,
-    feature_name: &str,
-    code: &str,
-) -> Option<String> {
+pub fn error_vocab_resolved_text(source: &str, feature_name: &str, code: &str) -> Option<String> {
     if let Some(key) = lookup_feature_error_key(source, feature_name, code) {
         if let Some(text) = lookup_translation_first_variant(source, feature_name, &key) {
             return Some(text);
@@ -15832,11 +16986,7 @@ pub fn error_vocab_resolved_text(
 /// @translation.<key>` and return the key. Indent-based: looks for the
 /// matching feature header at indent 0, then the `errors` block at indent 2,
 /// then lines at indent 4 of the form `<code> message @translation.<key>`.
-fn lookup_feature_error_key(
-    source: &str,
-    feature_name: &str,
-    code: &str,
-) -> Option<String> {
+fn lookup_feature_error_key(source: &str, feature_name: &str, code: &str) -> Option<String> {
     let mut in_feature = false;
     let mut in_errors = false;
     for line in source.lines() {
@@ -15848,9 +16998,7 @@ fn lookup_feature_error_key(
         if indent == 0 {
             in_feature = trimmed
                 .strip_prefix("feature ")
-                .map(|rest| {
-                    rest.split_whitespace().next().unwrap_or("") == feature_name
-                })
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
                 .unwrap_or(false);
             in_errors = false;
             continue;
@@ -15885,11 +17033,7 @@ fn lookup_feature_error_key(
 /// `translation` block and return the **first locale variant's text** as a
 /// resolved hover string. Best-effort indent-walk parsing — matches the
 /// canonical four-space indent layout the rest of the LSP assumes.
-fn lookup_translation_first_variant(
-    source: &str,
-    feature_name: &str,
-    key: &str,
-) -> Option<String> {
+fn lookup_translation_first_variant(source: &str, feature_name: &str, key: &str) -> Option<String> {
     let mut in_feature = false;
     let mut in_translation = false;
     let mut in_key = false;
@@ -15902,9 +17046,7 @@ fn lookup_translation_first_variant(
         if indent == 0 {
             in_feature = trimmed
                 .strip_prefix("feature ")
-                .map(|rest| {
-                    rest.split_whitespace().next().unwrap_or("") == feature_name
-                })
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
                 .unwrap_or(false);
             in_translation = false;
             in_key = false;
@@ -15988,9 +17130,7 @@ pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) ->
         if indent == 0 {
             in_feature = trimmed
                 .strip_prefix("feature ")
-                .map(|rest| {
-                    rest.split_whitespace().next().unwrap_or("") == feature_name
-                })
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
                 .unwrap_or(false);
             in_translation = false;
             continue;
@@ -16031,10 +17171,7 @@ pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) ->
 /// 5. After `expose client 5xx ` — autocomplete `code`/`data` (no
 ///    `message`).
 /// 6. After `default ` inside `errors` — autocomplete `hide`/`expose`.
-pub fn error_vocab_completions(
-    source: &str,
-    position: Position,
-) -> Option<Vec<CompletionItem>> {
+pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
@@ -16391,14 +17528,8 @@ pub fn error_vocab_code_actions(
     if line_indent == 0 {
         if let Some(rest) = trimmed.strip_prefix("feature ") {
             let feature_name = rest.split_whitespace().next().unwrap_or("");
-            if !feature_name.is_empty()
-                && !feature_has_errors_block(source, feature_name)
-            {
-                if let Some(action) = build_scaffold_errors_action(
-                    source,
-                    uri,
-                    feature_name,
-                ) {
+            if !feature_name.is_empty() && !feature_has_errors_block(source, feature_name) {
+                if let Some(action) = build_scaffold_errors_action(source, uri, feature_name) {
                     actions.push(action.into());
                 }
             }
@@ -16409,8 +17540,8 @@ pub fn error_vocab_code_actions(
     // `policies.<category>:` line. Fires when the cursor sits on a line of
     // the form `<name>: <atom>[, <atom>]+` inside a `policies` block AND
     // the next line is not already a `when_denied` child.
-    if let Some(category) = policies_category_name(&line)
-        .filter(|_| in_policies_block(source, position))
+    if let Some(category) =
+        policies_category_name(&line).filter(|_| in_policies_block(source, position))
     {
         if !has_when_denied_child(source, position.line as usize, line_indent) {
             if let Some(action) = build_add_when_denied_policies_action(
@@ -16432,12 +17563,9 @@ pub fn error_vocab_code_actions(
     if trimmed.starts_with("policy @policy.")
         && !has_when_denied_child(source, position.line as usize, line_indent)
     {
-        if let Some(action) = build_add_when_denied_command_action(
-            source,
-            uri,
-            position.line as usize,
-            line_indent,
-        ) {
+        if let Some(action) =
+            build_add_when_denied_command_action(source, uri, position.line as usize, line_indent)
+        {
             actions.push(action.into());
         }
     }
@@ -16459,9 +17587,7 @@ fn feature_has_errors_block(source: &str, feature_name: &str) -> bool {
         if indent == 0 {
             in_feature = trimmed
                 .strip_prefix("feature ")
-                .map(|rest| {
-                    rest.split_whitespace().next().unwrap_or("") == feature_name
-                })
+                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
                 .unwrap_or(false);
             continue;
         }
@@ -16534,11 +17660,7 @@ fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) ->
 /// Build the "Scaffold `errors` block with all 12 codes" code action. The
 /// action inserts a complete `errors` block plus 12 stub `key` entries in
 /// the feature's `translation` block (creating that block if absent).
-fn build_scaffold_errors_action(
-    source: &str,
-    uri: &Url,
-    feature_name: &str,
-) -> Option<CodeAction> {
+fn build_scaffold_errors_action(source: &str, uri: &Url, feature_name: &str) -> Option<CodeAction> {
     let lines: Vec<&str> = source.lines().collect();
     // Locate the feature header line index so we can position the inserted
     // edits at the line after it (when the feature is empty) OR at the
@@ -16559,9 +17681,7 @@ fn build_scaffold_errors_action(
         .find(|&idx| {
             let line = lines[idx];
             let trimmed = line.trim_start();
-            !trimmed.is_empty()
-                && !trimmed.starts_with('#')
-                && leading_spaces(line) == 0
+            !trimmed.is_empty() && !trimmed.starts_with('#') && leading_spaces(line) == 0
         })
         .unwrap_or(lines.len());
 
@@ -16571,7 +17691,12 @@ fn build_scaffold_errors_action(
     let mut insertion_line = feature_header_line + 1;
     let mut inside_policies = false;
     let mut policies_end_line: Option<usize> = None;
-    for (idx, line) in lines.iter().enumerate().take(feature_end).skip(feature_header_line + 1) {
+    for (idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(feature_end)
+        .skip(feature_header_line + 1)
+    {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
@@ -16668,30 +17793,14 @@ fn build_errors_block_text(feature_name: &str) -> String {
         "    default hide".to_owned(),
         "    expose client 4xx message, code".to_owned(),
         "    expose client 5xx code".to_owned(),
-        format!(
-            "    policy_denied      message @translation.{feature_name}_policy_denied"
-        ),
-        format!(
-            "    validation_failed  message @translation.{feature_name}_validation_failed"
-        ),
-        format!(
-            "    tenant_mismatch    message @translation.{feature_name}_tenant_mismatch"
-        ),
-        format!(
-            "    not_found          message @translation.{feature_name}_not_found"
-        ),
-        format!(
-            "    rate_limited       message @translation.{feature_name}_rate_limited"
-        ),
-        format!(
-            "    bad_request        message @translation.{feature_name}_bad_request"
-        ),
-        format!(
-            "    method_not_allowed message @translation.{feature_name}_method_not_allowed"
-        ),
-        format!(
-            "    integration_error  message @translation.{feature_name}_integration_error"
-        ),
+        format!("    policy_denied      message @translation.{feature_name}_policy_denied"),
+        format!("    validation_failed  message @translation.{feature_name}_validation_failed"),
+        format!("    tenant_mismatch    message @translation.{feature_name}_tenant_mismatch"),
+        format!("    not_found          message @translation.{feature_name}_not_found"),
+        format!("    rate_limited       message @translation.{feature_name}_rate_limited"),
+        format!("    bad_request        message @translation.{feature_name}_bad_request"),
+        format!("    method_not_allowed message @translation.{feature_name}_method_not_allowed"),
+        format!("    integration_error  message @translation.{feature_name}_integration_error"),
     ]
     .join("\n")
 }
@@ -16715,8 +17824,9 @@ fn build_translation_block_with_stubs(feature_name: &str) -> String {
 /// feature already has a `translation` block and we want to append entries
 /// to it. The author moves these into the existing block manually.
 fn build_translation_stub_keys_only(feature_name: &str) -> String {
-    let mut lines: Vec<String> =
-        vec!["  # error-vocab — add the 8 stub keys into the existing `translation` block:".to_owned()];
+    let mut lines: Vec<String> = vec![
+        "  # error-vocab — add the 8 stub keys into the existing `translation` block:".to_owned(),
+    ];
     for code in ERROR_VOCAB_CODES {
         lines.push(format!("  #   key {feature_name}_{code}"));
         lines.push("  #     en-US \"TODO: customize this message.\"".to_owned());
@@ -16760,9 +17870,7 @@ fn build_add_when_denied_policies_action(
         change_annotations: None,
     };
     Some(CodeAction {
-        title: format!(
-            "Add `when_denied @translation.{stub_key}` (per-policy default)"
-        ),
+        title: format!("Add `when_denied @translation.{stub_key}` (per-policy default)"),
         kind: Some(CodeActionKind::QUICKFIX),
         diagnostics: None,
         edit: Some(workspace_edit),
@@ -16792,7 +17900,8 @@ fn build_add_when_denied_command_action(
             character: 0,
         },
     )?;
-    let command_name = enclosing_command_name(source, line_idx).unwrap_or_else(|| "command".to_owned());
+    let command_name =
+        enclosing_command_name(source, line_idx).unwrap_or_else(|| "command".to_owned());
     let stub_key = format!("{feature}_{command_name}_denied");
     let child_indent = " ".repeat(parent_indent + 2);
     let new_line = format!("{child_indent}when_denied @translation.{stub_key}\n");
@@ -16812,9 +17921,7 @@ fn build_add_when_denied_command_action(
         change_annotations: None,
     };
     Some(CodeAction {
-        title: format!(
-            "Add `when_denied @translation.{stub_key}` (per-command override)"
-        ),
+        title: format!("Add `when_denied @translation.{stub_key}` (per-command override)"),
         kind: Some(CodeActionKind::QUICKFIX),
         diagnostics: None,
         edit: Some(workspace_edit),
@@ -16923,7 +18030,8 @@ pub fn error_vocab_code_resolved_hover(
         format!("  {word} message @translation.<key>"),
         "```".to_owned(),
         String::new(),
-        "See `docs/proposals/ir-error-messages-vocab.md` §2.E (resolution chain) and §7.2 (hover).".to_owned(),
+        "See `docs/proposals/ir-error-messages-vocab.md` §2.E (resolution chain) and §7.2 (hover)."
+            .to_owned(),
     ];
     Some(lines.join("\n"))
 }
@@ -21663,16 +22771,14 @@ aggregate Customer {
     // `docs/proposals/encryption-vocab.md` §LSP hovers.
     #[test]
     fn keyword_hover_describes_encryption_block() {
-        let description =
-            keyword_description("encryption").expect("encryption hover present");
+        let description = keyword_description("encryption").expect("encryption hover present");
         assert!(description.contains("@key."));
         assert!(description.contains("@cap.Encrypted"));
     }
 
     #[test]
     fn keyword_hover_describes_rotation_strategy() {
-        let description =
-            keyword_description("rotation").expect("rotation hover present");
+        let description = keyword_description("rotation").expect("rotation hover present");
         assert!(description.contains("manual"));
     }
 
@@ -21700,7 +22806,11 @@ aggregate Customer {
         assert!(description.contains("target query."));
         assert!(description.contains("axis <tenant_axis>"));
         assert!(description.contains("idempotency <path>"));
-        assert!(keyword_description("axis").unwrap().contains("defaults.tenancy"));
+        assert!(
+            keyword_description("axis")
+                .unwrap()
+                .contains("defaults.tenancy")
+        );
     }
 
     #[test]
@@ -22123,14 +23233,9 @@ aggregate Customer {
     /// completion context isn't recognised so test failures point at
     /// the unrecognised path immediately.
     fn completions_at(source: &str, line: u32, character: u32) -> Vec<CompletionItem> {
-        context_aware_completions(
-            source,
-            Position {
-                line,
-                character,
-            },
-        )
-        .unwrap_or_else(|| panic!("expected context-aware completion at line {line}:{character}"))
+        context_aware_completions(source, Position { line, character }).unwrap_or_else(|| {
+            panic!("expected context-aware completion at line {line}:{character}")
+        })
     }
 
     fn labels(items: &[CompletionItem]) -> Vec<&str> {
@@ -22171,14 +23276,7 @@ aggregate Customer {
         let items = completions_at(source, 2, 4);
         let labels = labels(&items);
         for child in [
-            "params",
-            "filters",
-            "search",
-            "order",
-            "paginate",
-            "cache",
-            "policy",
-            "modifier",
+            "params", "filters", "search", "order", "paginate", "cache", "policy", "modifier",
             "scope",
         ] {
             assert!(
@@ -22242,7 +23340,14 @@ aggregate Customer {
         let source = "feature customer\n  tenant_migration backfill\n    \n";
         let items = completions_at(source, 2, 4);
         let labels = labels(&items);
-        for child in ["target", "axis", "idempotency", "timeout", "retry", "handler"] {
+        for child in [
+            "target",
+            "axis",
+            "idempotency",
+            "timeout",
+            "retry",
+            "handler",
+        ] {
             assert!(
                 labels.contains(&child),
                 "tenant_migration completion must offer `{child}`; got {labels:?}"
@@ -22360,7 +23465,14 @@ aggregate Customer {
     #[test]
     fn kind_child_completions_cover_seven_target_kinds() {
         let kinds: Vec<&str> = KIND_CHILD_COMPLETIONS.iter().map(|(k, _)| *k).collect();
-        for required in ["command", "query.list", "query.lookup", "query.sql", "api", "tenant_migration"] {
+        for required in [
+            "command",
+            "query.list",
+            "query.lookup",
+            "query.sql",
+            "api",
+            "tenant_migration",
+        ] {
             assert!(
                 kinds.contains(&required),
                 "kind catalog must include `{required}`; got {kinds:?}"
