@@ -3960,8 +3960,50 @@ pub struct ViewGuard {
     /// up the chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_unauthorized: Option<String>,
+    /// `requires_lifecycle <Resource> = <state>` — lifecycle predicate
+    /// attached to the same view guard axis as the actor policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires_lifecycle: Option<RequiresLifecycle>,
+    /// `on_lifecycle_pending @resume <name>` — resume router used when
+    /// the lifecycle predicate fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_lifecycle_pending: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequiresLifecycle {
+    pub resource: String,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeRouter {
+    pub name: String,
+    pub source_query: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arms: Vec<ResumeArm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeArm {
+    pub kind: ResumeArmKind,
+    pub target_view: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ResumeArmKind {
+    State(String),
+    None,
+    Wildcard,
 }
 
 /// `ir-route-guards` §3.6 — app-level defaults for the resolution
@@ -3998,6 +4040,8 @@ pub struct Experience {
     pub imports: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<ExperienceView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resume_routers: Vec<ResumeRouter>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<ViewExtension>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6643,6 +6687,8 @@ mod l0_6_ir_tests {
             policy: "@policy.host_only".to_string(),
             on_unauthenticated: Some("/sign-in".to_string()),
             on_unauthorized: Some("/explore".to_string()),
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
             span_ref: Some(SpanRef { start: 1, end: 50 }),
         });
     }
@@ -6653,6 +6699,24 @@ mod l0_6_ir_tests {
             policy: "@policy.authenticated".to_string(),
             on_unauthenticated: None,
             on_unauthorized: None,
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
+            span_ref: None,
+        });
+    }
+
+    #[test]
+    fn view_guard_round_trips_with_lifecycle_slots() {
+        round_trip(&ViewGuard {
+            policy: "@policy.host_only".to_string(),
+            on_unauthenticated: None,
+            on_unauthorized: None,
+            requires_lifecycle: Some(RequiresLifecycle {
+                resource: "Host".to_string(),
+                state: "complete".to_string(),
+                span_ref: Some(SpanRef { start: 10, end: 47 }),
+            }),
+            on_lifecycle_pending: Some("host_onboarding".to_string()),
             span_ref: None,
         });
     }
@@ -6663,6 +6727,8 @@ mod l0_6_ir_tests {
             policy: "@policy.public".to_string(),
             on_unauthenticated: None,
             on_unauthorized: None,
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
             span_ref: None,
         };
         let v = serde_json::to_value(&g).unwrap();

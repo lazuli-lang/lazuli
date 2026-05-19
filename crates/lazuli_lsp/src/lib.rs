@@ -10186,6 +10186,7 @@ fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
                 | "cache"
                 | "storage"
                 | "integration"
+                | "secret_provider"
                 | "payment_gateway"
                 | "credit_bureau"
         )
