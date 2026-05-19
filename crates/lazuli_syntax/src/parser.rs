@@ -23,9 +23,10 @@ use crate::ast::{
     JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
     JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl,
     LzxAction, LzxApp, LzxAudience, LzxDocument, LzxErrorPage, LzxExperience, LzxExperienceView,
-    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute,
-    LzxRouteGuardDefaults, LzxSurface, LzxViewExtension, LzxViewGuard, MotionAst, Notification,
-    NotificationDigest, NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst,
+    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRequiresLifecycle,
+    LzxResumeArm, LzxResumeArmKind, LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults,
+    LzxSurface, LzxViewExtension, LzxViewGuard, MotionAst, Notification, NotificationDigest,
+    NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst,
     PlanFeatureRefAst, PlanLimitRefAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst,
     PolicyCategoryDecl, PolicyExprAst, PublicContractDeclAst, Query, QueryDecl, QuerySearch,
     RecordDecl, ReportColumnAst, ReportColumnSourceAst, ReportDecl, ResourceCompositeKey,
@@ -369,7 +370,6 @@ fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usiz
                 "app manifest children are `title`, `version`, `targets`, `default_locale`, `default_timezone`, `auth_failed_redirect`, `route_guard`, `actor_query`, `not_found`, `error_page <status>`, or `uses` declarations",
             ));
         }
-
         index += 1;
     }
 
@@ -556,6 +556,8 @@ fn parse_lzx_view_guard(
             policy: policy.to_owned(),
             on_unauthenticated,
             on_unauthorized,
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
             span: Span::new(header.start, last_end),
         },
         index,
@@ -577,6 +579,99 @@ fn parse_lzx_redirect_clause(line: &SourceLine<'_>, value: &str) -> Result<Strin
         ));
     }
     Ok(unquote_lzx_value(target).to_owned())
+}
+
+fn parse_lzx_requires_lifecycle(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<LzxRequiresLifecycle, ParseError> {
+    let Some((resource, state)) = rest.split_once('=') else {
+        return Err(line_error(
+            line,
+            "`requires_lifecycle` uses `requires_lifecycle <Resource> = <state>`",
+        ));
+    };
+    let resource = resource.trim();
+    let state = state.trim();
+    if resource.is_empty()
+        || !resource
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_uppercase())
+        || !is_lzx_bare_ident(resource)
+    {
+        return Err(line_error(
+            line,
+            "`requires_lifecycle` resource must be an upper-case resource identifier",
+        ));
+    }
+    if !is_lzx_bare_ident(state) {
+        return Err(line_error(
+            line,
+            "`requires_lifecycle` state must be a bare lifecycle state identifier",
+        ));
+    }
+    Ok(LzxRequiresLifecycle {
+        resource: resource.to_owned(),
+        state: state.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn parse_lzx_on_lifecycle_pending(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<String, ParseError> {
+    let target = if let Some(target) = rest.trim().strip_prefix("@resume ") {
+        target.trim()
+    } else if let Some(target) = rest.trim().strip_prefix("@resume.") {
+        target.trim()
+    } else {
+        return Err(line_error(
+            line,
+            "`on_lifecycle_pending` uses `on_lifecycle_pending @resume <name>`",
+        ));
+    };
+    if !is_lzx_resume_ref(target) {
+        return Err(line_error(
+            line,
+            "`on_lifecycle_pending` resume reference must be `<name>` or `<feature>.<name>`",
+        ));
+    }
+    Ok(target.to_owned())
+}
+
+fn attach_lzx_requires_lifecycle(
+    line: &SourceLine<'_>,
+    guard: &mut LzxViewGuard,
+    parsed: LzxRequiresLifecycle,
+) -> Result<(), ParseError> {
+    if guard.requires_lifecycle.is_some() {
+        return Err(line_error(
+            line,
+            "view declares `requires_lifecycle` at most once",
+        ));
+    }
+    guard.span.end = guard.span.end.max(parsed.span.end);
+    guard.requires_lifecycle = Some(parsed);
+    Ok(())
+}
+
+fn attach_lzx_on_lifecycle_pending(
+    line: &SourceLine<'_>,
+    guard: &mut LzxViewGuard,
+    parsed: String,
+    span_end: usize,
+) -> Result<(), ParseError> {
+    if guard.on_lifecycle_pending.is_some() {
+        return Err(line_error(
+            line,
+            "view declares `on_lifecycle_pending` at most once",
+        ));
+    }
+    guard.span.end = guard.span.end.max(span_end);
+    guard.on_lifecycle_pending = Some(parsed);
+    Ok(())
 }
 
 fn parse_lzx_error_page(
@@ -711,7 +806,6 @@ fn parse_lzx_route(
                 "route children are `path`, `route <name>: <Type>`, `to`, `surface`, `audience`, `lazy`, `prerender`, or `policy` declarations",
             ));
         }
-
         index += 1;
     }
 
@@ -744,6 +838,7 @@ fn parse_lzx_experience(
 
     let mut imports = Vec::new();
     let mut views = Vec::new();
+    let mut resume_routers = Vec::new();
     let mut extensions = Vec::new();
     let mut index = start + 1;
 
@@ -774,6 +869,10 @@ fn parse_lzx_experience(
             let (view, next) = parse_lzx_experience_view(lines, index)?;
             views.push(view);
             index = next;
+        } else if trimmed.starts_with("resume ") {
+            let (resume, next) = parse_lzx_resume_router(lines, index)?;
+            resume_routers.push(resume);
+            index = next;
         } else if trimmed.starts_with("extends @anchor.") {
             let (extension, next) = parse_lzx_view_extension(lines, index)?;
             extensions.push(extension);
@@ -781,7 +880,7 @@ fn parse_lzx_experience(
         } else {
             return Err(line_error(
                 line,
-                "experience children are `imports`, `view`, or `extends @anchor.*` declarations",
+                "experience children are `imports`, `view`, `resume`, or `extends @anchor.*` declarations",
             ));
         }
     }
@@ -791,11 +890,150 @@ fn parse_lzx_experience(
             name: parts[1].to_owned(),
             imports,
             views,
+            resume_routers,
             extensions,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
     ))
+}
+
+fn parse_lzx_resume_router(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(LzxResumeRouter, usize), ParseError> {
+    let header = &lines[start];
+    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    if parts.len() != 2 {
+        return Err(line_error(header, "resume blocks use `resume <name>`"));
+    }
+    if !is_lzx_bare_ident(parts[1]) {
+        return Err(line_error(header, "`resume` name must be a bare identifier"));
+    }
+
+    let mut source_query = None;
+    let mut arms = Vec::new();
+    let mut index = start + 1;
+    let mut last_end = header.end;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            index += 1;
+            continue;
+        }
+
+        if line.indent <= 2 {
+            break;
+        }
+
+        if line.indent != 4 {
+            return Err(line_error(line, "resume children use four-space indentation"));
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("source query.lookup ") {
+            if source_query.is_some() {
+                return Err(line_error(
+                    line,
+                    "resume declares `source query.lookup` at most once",
+                ));
+            }
+            let query = rest.trim();
+            if !is_lzx_resume_ref(query) {
+                return Err(line_error(
+                    line,
+                    "`source query.lookup` requires `<query>` or `<feature>.<query>`",
+                ));
+            }
+            source_query = Some(query.to_owned());
+        } else {
+            arms.push(parse_lzx_resume_arm(line, trimmed)?);
+        }
+
+        last_end = line.end;
+        index += 1;
+    }
+
+    let Some(source_query) = source_query else {
+        return Err(line_error(
+            header,
+            "resume blocks require `source query.lookup <query>`",
+        ));
+    };
+    if arms.is_empty() {
+        return Err(line_error(header, "resume blocks require at least one arm"));
+    }
+
+    Ok((
+        LzxResumeRouter {
+            name: parts[1].to_owned(),
+            source_query,
+            arms,
+            span: Span::new(header.start, last_end),
+        },
+        index,
+    ))
+}
+
+fn parse_lzx_resume_arm(
+    line: &SourceLine<'_>,
+    trimmed: &str,
+) -> Result<LzxResumeArm, ParseError> {
+    let Some((left, right)) = split_lzx_arrow(trimmed) else {
+        return Err(line_error(
+            line,
+            "resume arms use `<state> -> view <name>` or `<state> → view <name>`",
+        ));
+    };
+    let arm = left.trim();
+    let kind = match arm {
+        "none" => LzxResumeArmKind::None,
+        "*" => LzxResumeArmKind::Wildcard,
+        state if is_lzx_bare_ident(state) => LzxResumeArmKind::State(state.to_owned()),
+        _ => {
+            return Err(line_error(
+                line,
+                "resume arm state must be a lifecycle state, `none`, or `*`",
+            ));
+        }
+    };
+
+    let Some(target_view) = right.trim().strip_prefix("view ") else {
+        return Err(line_error(
+            line,
+            "resume arms target views with `view <name>`",
+        ));
+    };
+    let target_view = target_view.trim();
+    if !is_lzx_bare_ident(target_view) {
+        return Err(line_error(line, "resume arm target view must be a bare identifier"));
+    }
+
+    Ok(LzxResumeArm {
+        kind,
+        target_view: target_view.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
+}
+
+fn split_lzx_arrow(text: &str) -> Option<(&str, &str)> {
+    let unicode = text.find('→').map(|idx| (idx, '→'.len_utf8()));
+    let ascii = text.find("->").map(|idx| (idx, 2));
+    let (idx, len) = match (unicode, ascii) {
+        (Some(u), Some(a)) => {
+            if u.0 <= a.0 {
+                u
+            } else {
+                a
+            }
+        }
+        (Some(u), None) => u,
+        (None, Some(a)) => a,
+        (None, None) => return None,
+    };
+    Some((&text[..idx], &text[idx + len..]))
 }
 
 fn parse_lzx_experience_view(
@@ -821,6 +1059,8 @@ fn parse_lzx_experience_view(
     let mut opens = Vec::new();
     let mut tests = Vec::new();
     let mut guard = None;
+    let mut pending_requires_lifecycle: Option<(usize, LzxRequiresLifecycle)> = None;
+    let mut pending_on_lifecycle_pending: Option<(usize, String)> = None;
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -867,10 +1107,48 @@ fn parse_lzx_experience_view(
             if guard.is_some() {
                 return Err(line_error(line, "view declares `policy` at most once"));
             }
-            let (parsed, next) = parse_lzx_view_guard(lines, index, 4)?;
+            let (mut parsed, next) = parse_lzx_view_guard(lines, index, 4)?;
+            if let Some((pending_index, pending)) = pending_requires_lifecycle.take() {
+                attach_lzx_requires_lifecycle(&lines[pending_index], &mut parsed, pending)?;
+            }
+            if let Some((pending_index, pending)) = pending_on_lifecycle_pending.take() {
+                let pending_line = &lines[pending_index];
+                attach_lzx_on_lifecycle_pending(
+                    pending_line,
+                    &mut parsed,
+                    pending,
+                    pending_line.end,
+                )?;
+            }
             guard = Some(parsed);
             index = next;
             continue;
+        } else if let Some(rest) = trimmed.strip_prefix("requires_lifecycle ") {
+            let parsed = parse_lzx_requires_lifecycle(line, rest.trim())?;
+            if let Some(guard) = guard.as_mut() {
+                attach_lzx_requires_lifecycle(line, guard, parsed)?;
+            } else {
+                if pending_requires_lifecycle.is_some() {
+                    return Err(line_error(
+                        line,
+                        "view declares `requires_lifecycle` at most once",
+                    ));
+                }
+                pending_requires_lifecycle = Some((index, parsed));
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("on_lifecycle_pending ") {
+            let parsed = parse_lzx_on_lifecycle_pending(line, rest.trim())?;
+            if let Some(guard) = guard.as_mut() {
+                attach_lzx_on_lifecycle_pending(line, guard, parsed, line.end)?;
+            } else {
+                if pending_on_lifecycle_pending.is_some() {
+                    return Err(line_error(
+                        line,
+                        "view declares `on_lifecycle_pending` at most once",
+                    ));
+                }
+                pending_on_lifecycle_pending = Some((index, parsed));
+            }
         } else if trimmed == "tests" {
             index += 1;
             while index < lines.len() {
@@ -896,11 +1174,23 @@ fn parse_lzx_experience_view(
         } else {
             return Err(line_error(
                 line,
-                "view children are `route`, `anchor`, `source`, `submit`, `extensible_by`, `block`, `action`, `opens`, `policy`, or `tests`",
+                "view children are `route`, `anchor`, `source`, `submit`, `extensible_by`, `block`, `action`, `opens`, `policy`, `requires_lifecycle`, `on_lifecycle_pending`, or `tests`",
             ));
         }
-
         index += 1;
+    }
+
+    if let Some((pending_index, _)) = pending_requires_lifecycle.as_ref() {
+        return Err(line_error(
+            &lines[*pending_index],
+            "`requires_lifecycle` currently requires a sibling `policy` guard",
+        ));
+    }
+    if let Some((pending_index, _)) = pending_on_lifecycle_pending.as_ref() {
+        return Err(line_error(
+            &lines[*pending_index],
+            "`on_lifecycle_pending` currently requires a sibling `policy` guard",
+        ));
     }
 
     Ok((
@@ -3330,6 +3620,12 @@ fn is_lzx_bare_ident(s: &str) -> bool {
         return false;
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn is_lzx_resume_ref(s: &str) -> bool {
+    let parts: Vec<_> = s.split('.').collect();
+    matches!(parts.as_slice(), [name] if is_lzx_bare_ident(name))
+        || matches!(parts.as_slice(), [feature, name] if is_lzx_bare_ident(feature) && is_lzx_bare_ident(name))
 }
 
 fn parse_app(pair: Pair<'_, Rule>) -> Result<String, ParseError> {

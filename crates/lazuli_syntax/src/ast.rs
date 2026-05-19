@@ -111,6 +111,15 @@ pub struct LzxViewGuard {
     pub policy: String,
     pub on_unauthenticated: Option<String>,
     pub on_unauthorized: Option<String>,
+    pub requires_lifecycle: Option<LzxRequiresLifecycle>,
+    pub on_lifecycle_pending: Option<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxRequiresLifecycle {
+    pub resource: String,
+    pub state: String,
     pub span: Span,
 }
 
@@ -141,8 +150,32 @@ pub struct LzxExperience {
     pub name: String,
     pub imports: Vec<String>,
     pub views: Vec<LzxExperienceView>,
+    pub resume_routers: Vec<LzxResumeRouter>,
     pub extensions: Vec<LzxViewExtension>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxResumeRouter {
+    pub name: String,
+    pub source_query: String,
+    pub arms: Vec<LzxResumeArm>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxResumeArm {
+    pub kind: LzxResumeArmKind,
+    pub target_view: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum LzxResumeArmKind {
+    State(String),
+    None,
+    Wildcard,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

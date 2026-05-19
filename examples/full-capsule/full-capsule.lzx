@@ -63,6 +63,9 @@ experience customer
   view detail
     route id: Customer.ID
     anchor @anchor.customer_detail
+    policy @policy.update
+    requires_lifecycle Customer = active
+    on_lifecycle_pending @resume customer_status
     source customer.query.by_id(id: route.id)
     block @client.activity_timeline
     extensible_by customer_tags, customer_import
@@ -83,6 +86,15 @@ experience customer
 
   view lead_capture
     submit customer.command.capture_lead
+
+  resume customer_status
+    source query.lookup by_id
+    none -> view list
+    lead -> view list
+    active → view detail
+    paused -> view list
+    archived -> view list
+    * -> view list
 
   view not_found
 

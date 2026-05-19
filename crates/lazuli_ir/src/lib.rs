@@ -4071,6 +4071,8 @@ pub struct Experience {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<ExperienceView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resume_routers: Vec<ResumeRouter>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<ViewExtension>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
@@ -6732,6 +6734,22 @@ mod l0_6_ir_tests {
             on_unauthorized: None,
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            span_ref: None,
+        });
+    }
+
+    #[test]
+    fn view_guard_round_trips_with_lifecycle_slots() {
+        round_trip(&ViewGuard {
+            policy: "@policy.host_only".to_string(),
+            on_unauthenticated: None,
+            on_unauthorized: None,
+            requires_lifecycle: Some(RequiresLifecycle {
+                resource: "Host".to_string(),
+                state: "complete".to_string(),
+                span_ref: Some(SpanRef { start: 10, end: 47 }),
+            }),
+            on_lifecycle_pending: Some("host_onboarding".to_string()),
             span_ref: None,
         });
     }

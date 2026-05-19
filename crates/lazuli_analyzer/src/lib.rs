@@ -422,12 +422,38 @@ fn lower_experience(experience: &syntax::LzxExperience) -> ir::Experience {
         name: experience.name.clone(),
         imports: experience.imports.clone(),
         views: experience.views.iter().map(lower_experience_view).collect(),
+        resume_routers: experience
+            .resume_routers
+            .iter()
+            .map(lower_resume_router)
+            .collect(),
         extensions: experience
             .extensions
             .iter()
             .map(lower_view_extension)
             .collect(),
         span_ref: Some(span_of(experience.span)),
+    }
+}
+
+fn lower_resume_router(router: &syntax::LzxResumeRouter) -> ir::ResumeRouter {
+    ir::ResumeRouter {
+        name: router.name.clone(),
+        source_query: router.source_query.clone(),
+        arms: router.arms.iter().map(lower_resume_arm).collect(),
+        span_ref: Some(span_of(router.span)),
+    }
+}
+
+fn lower_resume_arm(arm: &syntax::LzxResumeArm) -> ir::ResumeArm {
+    ir::ResumeArm {
+        kind: match &arm.kind {
+            syntax::LzxResumeArmKind::State(state) => ir::ResumeArmKind::State(state.clone()),
+            syntax::LzxResumeArmKind::None => ir::ResumeArmKind::None,
+            syntax::LzxResumeArmKind::Wildcard => ir::ResumeArmKind::Wildcard,
+        },
+        target_view: arm.target_view.clone(),
+        span_ref: Some(span_of(arm.span)),
     }
 }
 
@@ -539,8 +565,15 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
         policy: guard.policy.clone(),
         on_unauthenticated: guard.on_unauthenticated.clone(),
         on_unauthorized: guard.on_unauthorized.clone(),
-        requires_lifecycle: None,
-        on_lifecycle_pending: None,
+        requires_lifecycle: guard
+            .requires_lifecycle
+            .as_ref()
+            .map(|requires| ir::RequiresLifecycle {
+                resource: requires.resource.clone(),
+                state: requires.state.clone(),
+                span_ref: Some(span_of(requires.span)),
+            }),
+        on_lifecycle_pending: guard.on_lifecycle_pending.clone(),
         span_ref: Some(span_of(guard.span)),
     }
 }
