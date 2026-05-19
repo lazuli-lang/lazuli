@@ -156,6 +156,10 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 
 	ctx := newRequestCtx(r)
 	ctx.withResponseWriter(w)
+	if err := sessionExpiredError(ctx); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
 		// Wave 3.5 — stamp the per-command MessageKey override on the
@@ -240,6 +244,10 @@ func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistratio
 
 	ctx := newRequestCtx(r)
 	ctx.withResponseWriter(w)
+	if err := sessionExpiredError(ctx); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	out, err := api.Dispatch(ctx, body)
 	if err != nil {
 		writeError(w, r, err)
@@ -270,6 +278,10 @@ func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) 
 
 	ctx := newRequestCtx(r)
 	ctx.withResponseWriter(w)
+	if err := sessionExpiredError(ctx); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
 		stampPerCommandMessageKey(err, q.ErrorKeys)

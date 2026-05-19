@@ -52,6 +52,10 @@ type Ctx struct {
 	// + reissue). Empty when SessionID is zero.
 	SessionToken string
 
+	// SessionExpiredAt is set when a shape-valid access token maps to
+	// a refresh-capable session row whose access TTL elapsed.
+	SessionExpiredAt *time.Time
+
 	// responseWriter is the per-request `http.ResponseWriter` populated
 	// by the HTTP boundary so handlers can set cookies through
 	// `Ctx.SetSessionCookie` / `Ctx.SetCookie` / `Ctx.DeleteCookie`

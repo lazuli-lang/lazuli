@@ -49,3 +49,7 @@ func classifyDBError(stage string, err error) *Error {
 	return &Error{Status: http.StatusInternalServerError, Code: CodeInternal,
 		Message: stage + " failed: " + err.Error()}
 }
+
+// ClassifyDBError exposes the shared pgconn classifier to runtime subpackages
+// that sit outside package lazuli but still need the same wire codes.
+func ClassifyDBError(stage string, err error) *Error { return classifyDBError(stage, err) }
