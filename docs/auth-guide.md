@@ -14,6 +14,9 @@ feature account
     resource UserSession
       user: User required
       refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      parent_session_id: UserSession optional
+      theft_detected_at: DateTime optional
+      refresh_expires_at: DateTime optional
       expires_at: DateTime required
 
   auth
@@ -27,14 +30,17 @@ feature account
 
     sessions
       resource UserSession
-      ttl "7 days"
-      refresh true
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "14d"
+        grace "1m"
+        theft_detection_action revoke_session_family
 
     oauth google
       adapter @adapter.google_oauth
 ```
 
-`auth identity` points at the resource field used for login lookup. `auth password` lowers to a password contract; `argon2id` is the canonical v0 algorithm. `auth sessions` names the persisted session resource and its TTL. Each `auth oauth <provider>` lowers to one provider contract with an adapter reference resolved at boot.
+`auth identity` points at the resource field used for login lookup. `auth password` lowers to a password contract; `argon2id` is the canonical v0 algorithm. `auth sessions` names the persisted session resource and either its legacy single-token TTL or its access/refresh rotation discipline. Each `auth oauth <provider>` lowers to one provider contract with an adapter reference resolved at boot.
 
 ## What gets emitted
 
@@ -105,8 +111,8 @@ auth
 
   sessions
     resource UserSession
-    ttl "7 days"
-    refresh true
+    access_ttl "15 minutes"
+    rotation
 
   oauth google
     adapter @adapter.google_oauth
@@ -114,11 +120,62 @@ auth
 
 Wire the transport to `auth.OAuthRedirect` for the consent redirect and `auth.OAuthCallback` for the callback. The current runtime includes provider helpers for Google, GitHub, Microsoft, and Apple under `runtime/go/lazuli/auth/oauth*.go`; built-in endpoint wiring is implemented for Google, while other providers use their adapter descriptors.
 
+## Rotation discipline
+
+Enable `auth.sessions.rotation` for production applications that keep users
+signed in across browser restarts or protect sensitive operations. The legacy
+single-token `ttl` shape is useful for tests and low-risk prototypes, but a
+long-lived access token increases the blast radius of a stolen cookie.
+
+Keep `access_ttl` short. `15 minutes` is the canonical default because it limits
+the value of a stolen access token while keeping refresh traffic manageable. Set
+`refresh_ttl` to the period users reasonably expect to stay signed in; the
+framework default is `14d`, which is the web sweet spot for most applications.
+Shorten it for admin consoles and regulated workflows. Lengthen it only when
+the product explicitly prioritizes low-friction re-entry and has strong theft
+response.
+
+Use `theft_detection_action revoke_session_family` by default. It revokes the
+`parent_session_id` chain for the compromised device while leaving the user's
+other devices signed in. Switch to `revoke_user` for high-stakes applications
+such as banking, clinical systems, or privileged operator tools where reuse of a
+rotated refresh token should invalidate every session for that user.
+
+Worked fixture slice from `examples/full-capsule/full-capsule.lzi`:
+
+```lzi
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_session_family
+```
+
+That fixture authors explicit values to exercise codegen. In an app that accepts
+the framework defaults, the body can be as small as:
+
+```lzi
+    sessions
+      resource UserSession
+      access_ttl "15 minutes"
+      rotation
+```
+
+The session resource must carry the rotation columns
+`refresh_token_hash`, `parent_session_id`, `theft_detected_at`, and
+`refresh_expires_at`; migration codegen adds equivalent columns when the
+authored resource omits them. Protect `refresh_token_hash` with field policy so
+only system actors can read or write it.
+
 ## Production checklist
 
 - [ ] `LAZULI_DB` set.
 - [ ] `LAZULI_AUTH_COOKIE_DOMAIN` or equivalent boot config set when cookies must work across subdomains.
-- [ ] Session cookie uses `Secure`, `HttpOnly`, an explicit path, and an appropriate `SameSite` policy.
+- [ ] Access cookie/header and refresh cookie are separate; the refresh cookie is `HttpOnly` and scoped to the refresh endpoint.
+- [ ] Session cookies use `Secure`, `HttpOnly`, explicit paths, and appropriate `SameSite` policy.
 - [ ] Session cleanup cron deletes expired rows from the declared session resource.
 - [ ] Audit log retention policy is declared and operationally enforced.
 - [ ] OAuth redirect URLs are registered with each provider.
@@ -131,12 +188,15 @@ Wire the transport to `auth.OAuthRedirect` for the consent redirect and `auth.OA
 - `runtime/go/lazuli/auth/password.go` - `PasswordContract`, `HashPassword`, `VerifyPassword`, `AlgoArgon2id`.
 - `runtime/go/lazuli/auth/middleware.go` - session cookie middleware and `Ctx` projection.
 - `runtime/go/lazuli/auth/session.go` - `SessionsContract`, `IssueSession`, `ResolveSession`, `InvalidateSession`.
+- `runtime/go/lazuli/auth/refresh.go` - refresh-token rotation, grace window, and theft action.
+- `runtime/go/lazuli/auth/middleware_refresh.go` - expired-access-token signal for auto-refresh.
 - `runtime/go/lazuli/auth/session_cleanup.go` - expired-session cleanup helper.
 - `runtime/go/lazuli/auth/jwt.go` - JWT helpers for token-backed integrations.
 - `runtime/go/lazuli/auth/oauth.go` and `runtime/go/lazuli/auth/oauth*.go` - OAuth contracts, state, PKCE, and provider helpers.
 - `runtime/go/lazuli/authz/policy.go` - policy evaluation.
 - `runtime/go/lazuli/authz/rbac.go` and `runtime/go/lazuli/authz/role_inheritance.go` - role permissions and inheritance.
 - `crates/lazuli_codegen_go/src/emitter/auth.rs` - Go auth contract emitter.
+- `runtime/ts/lazuli/src/client.ts` - `enableAutoRefresh`, single-flight refresh, and retry-once behavior.
 
 ## Smoke tests
 

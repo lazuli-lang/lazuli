@@ -85,13 +85,13 @@ Reserved words are recognized by `IDENT_LOWER` matching the closed
 list. Any `IDENT_LOWER` not on this list is a user identifier.
 
 ```
-agent api at audience auth backoff budget by cache calls case channel
+access_ttl agent api at audience auth backoff budget by cache calls case channel
 chunk client command commands compatibility constraints context contract
 context_files cost creates default defaults delegated_to deletes deny
 denies discriminator domain emits enum env environment environments
 errors error escape_route event event_group evals expose extends
 extensible_by extensions fanout feature field fields filter filters
-flow fn forbids from group handler has hash has_many hook idempotency
+flow fn forbids from grace group handler has hash has_many hook idempotency
 identity in input integration integrations job key keys knowledge
 let lookup max_tokens method migrations migration_lock model modifier
 multi_tenant mfa non_goals notification of on on_delete oauth optional
@@ -99,11 +99,11 @@ order otherwise out_of_scope output owner packs paginate params parent
 password path pii platform policies policy policy_for prompt provides
 public publishes purpose query query.list query.lookup query.sql rate_limit
 read record recipient refs registry relation required requires resource
-restrict retention retry returns role route rule run schedule scope
+refresh_ttl restrict retention retry returns role rotation route rule run schedule scope
 search seed self service services session sessions soft_delete source
 sql step submit subscribes surface tags target template temperature
 tenancy tenant tenant_from terminate test tests then through timeouts
-timeout timestamps to tools top top_p totp trace trigger ttl type
+theft_detection_action timeout timestamps to tools top top_p totp trace trigger ttl type
 uniques unique uses using validates validator value verify view views
 webhook when when_denied window_function with workflow workspace write
 ```
@@ -712,12 +712,40 @@ mfa_block         = "mfa" NEWLINE
                       )+
                     DEDENT ;
 sessions_block    = "sessions" NEWLINE
-                    INDENT
-                      ( "ttl" DURATION NEWLINE
-                      | "refresh" DURATION NEWLINE
-                      )+
-                    DEDENT ;
+                    INDENT sessions_body+ DEDENT ;
+sessions_body     = "resource" IDENT_UPPER NEWLINE
+                  | "ttl" duration_literal NEWLINE
+                  | "refresh" ( "true" | "false" ) NEWLINE
+                  | "access_ttl" duration_literal NEWLINE
+                  | rotation_block ;
+rotation_block    = "rotation" NEWLINE
+                    INDENT rotation_body* DEDENT
+                  | "rotation" "true" NEWLINE ;
+rotation_body     = "refresh_ttl" duration_literal NEWLINE
+                  | "grace" duration_literal NEWLINE
+                  | "theft_detection_action" theft_detection_action NEWLINE ;
+theft_detection_action
+                  = "revoke_session_family" | "revoke_user" ;
+duration_literal  = STRING | DURATION ;
 ```
+
+`access_ttl` is scoped to `auth.sessions`; it is a duration with framework
+default `15m` when rotation is enabled.
+
+`rotation` is scoped to `auth.sessions`; it is a nested block and its presence
+enables refresh-token rotation. `rotation true` is the legacy shorthand and is
+auto-promoted to the empty nested block.
+
+`refresh_ttl` is scoped to `auth.sessions.rotation`; it is a duration with
+framework default `14d`.
+
+`rotation_grace` is the semantic slot represented in source by
+`grace <duration>` under `auth.sessions.rotation`; its framework default is
+`1m`.
+
+`theft_detection_action` is scoped to `auth.sessions.rotation`; it is a closed
+enum (`revoke_session_family` | `revoke_user`) with default
+`revoke_session_family`.
 
 ## 14. Agent (with Cut A AI primitives)
 

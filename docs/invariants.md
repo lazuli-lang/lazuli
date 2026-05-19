@@ -479,7 +479,16 @@ source that only fails later.
 - `escape_route` declares `policy` and `tenant` because it is outside generated
   UI ownership.
 - `auth password` declares `algorithm` and `rate_limit`; `auth sessions`
-  declares `ttl`.
+  declares the backing resource plus either a legacy `ttl` or the rotation
+  discipline.
+- **Refresh token columns**: every `auth.sessions` with a `rotation` block has
+  the four rotation columns on its session resource:
+  `refresh_token_hash`, `parent_session_id`, `theft_detected_at`, and
+  `refresh_expires_at`. The migration schema emits
+  `refresh_token_hash TEXT NOT NULL DEFAULT ''`, `refresh_expires_at
+  TIMESTAMPTZ`, `parent_session_id BIGINT REFERENCES <session_table>(id) ON
+  DELETE SET NULL`, and `theft_detected_at TIMESTAMPTZ` when the authored
+  resource omits them. Codified by AUTH-REFRESH-003.
 - `@cap.Secret` is legacy; choose an explicit tier:
   `@cap.Hashed(algorithm:<name>)`, `@cap.Encrypted(key:@key.<scope>)`,
   `@cap.E2ee(key:@key.<scope>)`, or

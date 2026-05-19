@@ -1394,7 +1394,8 @@ escape_route "/admin/customer-debug"
 ```
 
 `auth password` must declare the password hash algorithm and credential-guessing
-rate limit. `auth sessions` must declare session TTL:
+rate limit. `auth sessions` must declare the backing resource and either a
+legacy single-token TTL or the access/refresh rotation discipline:
 
 ```lazuli
 auth
@@ -2582,10 +2583,85 @@ auth
   sessions
     resource CustomerSession
     ttl "7 days"
-    refresh false
 ```
 
 Use a separate feature such as `customer_auth` when authentication is its own product capability. `auth identity` may reference one identity resource from the current feature or a directly listed `uses` feature; session and MFA storage should be owned by the auth feature. Do not model multiple identity domains, such as Customer and Staff, inside one auth block. Split them into separate auth features.
+
+### Refresh-token rotation
+
+`auth.sessions.rotation` enables the production two-token session shape. The
+surface is a nested block; presence means refresh-token rotation is enabled, and
+deleting the block disables it:
+
+```txt
+auth
+  sessions
+    resource <ResourceName>
+    [ttl "<duration>"]
+    [access_ttl "<duration>"]
+    [rotation
+      [refresh_ttl "<duration>"]
+      [grace "<duration>"]
+      [theft_detection_action revoke_session_family|revoke_user]
+    ]
+```
+
+Byte-identical fixture slice from
+`examples/full-capsule/full-capsule.lzi`:
+
+```lazuli
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_session_family
+```
+
+`rotation true` is accepted as an authoring shorthand by tools that still see
+the original boolean form; the canonical source form is the nested block above.
+The shorthand auto-promotes to an empty `rotation` block and therefore resolves
+the framework defaults.
+
+### Access vs refresh TTL
+
+The access token is short-lived and rides on every protected API request. The
+framework default under rotation is `access_ttl "15 minutes"`. The refresh token
+is long-lived and is used only by the framework-emitted refresh command; its
+framework default is `refresh_ttl "14d"` unless the feature authors a narrower
+or longer window. Legacy `ttl "<duration>"` remains the single-token
+back-compat path when `rotation` is absent, and should be removed for clarity
+once rotation is enabled.
+
+### Rotation grace window
+
+Every successful refresh issues a new access token and a new refresh token, then
+revokes the refresh token that was just used. A brief `grace` window is still
+required because two browser tabs or mobile retry paths can legitimately submit
+the old refresh token at nearly the same time. During that window, concurrent
+requests using the old refresh token may succeed; after it closes, reuse of that
+revoked refresh token is treated as a theft signal. The framework default is
+`grace "1m"`.
+
+### Theft detection
+
+When a revoked refresh token is reused after the grace window, the runtime
+records theft on the session resource and applies `theft_detection_action`.
+`revoke_session_family` revokes the token family connected by
+`parent_session_id`, which logs out the compromised device chain while leaving
+other devices alone. `revoke_user` revokes every session row for the same user
+and is appropriate when a replay implies broader account compromise.
+
+### Two-cookie discipline
+
+The access credential and refresh credential are separate. The access token may
+ride on the normal session cookie or an `Authorization: Bearer` header. The
+refresh token rides on a separate `HttpOnly` cookie with a narrower path/scope
+that is only sent to the refresh endpoint. Do not reuse the access cookie as the
+refresh credential, and do not expose the refresh token to client-side
+JavaScript.
 
 ## Extensions
 
