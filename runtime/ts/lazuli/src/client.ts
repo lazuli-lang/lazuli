@@ -24,18 +24,26 @@ export interface LazuliClientOptions {
   // Per-request headers merged with the per-call ones. Useful for
   // auth tokens or `X-Lazuli-Org-ID` in dev sessions.
   headers?: HeadersInit;
+
+  enableAutoRefresh?: boolean;
+  refreshUrl?: string;
+  onRefresh?: (newToken: string) => void;
+  onRefreshFailure?: (err: Error) => void;
 }
 
 export class LazuliClient {
   readonly baseUrl: string;
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly defaultHeaders: Headers;
+  private readonly refreshOptions: LazuliClientOptions;
   private authToken: string | null = null;
+  private refreshPromise: Promise<string> | null = null;
 
   constructor(options: LazuliClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.defaultHeaders = new Headers(options.headers ?? {});
+    this.refreshOptions = { ...options, enableAutoRefresh: options.enableAutoRefresh ?? false, refreshUrl: options.refreshUrl ?? "/api/v1/c/auth.refresh" };
   }
 
   /**
@@ -92,22 +100,67 @@ export class LazuliClient {
     // strings/numbers/arrays pass through).
     const wireBody = body === undefined ? "{}" : JSON.stringify(camelToSnakeDeep(body));
 
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+    const url = `${this.baseUrl}${path}`;
+    const request: RequestInit = {
       ...init,
       method: "POST",
       headers,
       body: wireBody,
-    });
+    };
 
+    const response = await this.fetchImpl(url, request);
     const text = await response.text();
-    if (!response.ok) {
-      throw decodeError(response.status, text);
+    const error = response.ok ? null : decodeError(response.status, text);
+    if (this.refreshOptions.enableAutoRefresh && error?.status === 401 && error.code === "token_expired") {
+      const originalError = error;
+      try { await this.refreshAuthToken(); } catch { throw originalError; }
+      const retryHeaders = new Headers(headers);
+      if (this.authToken) retryHeaders.set("Authorization", `Bearer ${this.authToken}`);
+      const retry = await this.fetchImpl(url, { ...request, headers: retryHeaders });
+      const retryText = await retry.text();
+      if (!retry.ok) throw retry.status === 401 ? originalError : decodeError(retry.status, retryText);
+      return parseOk<T>(retryText);
     }
-    if (!text) {
-      return undefined as T;
-    }
-    return snakeToCamelDeep(JSON.parse(text)) as T;
+    if (error) throw error;
+    return parseOk<T>(text);
   }
+
+  private refreshAuthToken(): Promise<string> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.runRefresh().finally(() => { this.refreshPromise = null; });
+    }
+    return this.refreshPromise;
+  }
+
+  private async runRefresh(): Promise<string> {
+    try {
+      const headers = new Headers(this.defaultHeaders);
+      if (this.authToken) headers.set("Authorization", `Bearer ${this.authToken}`);
+      headers.set("Content-Type", "application/json");
+      const response = await this.fetchImpl(`${this.baseUrl}${this.refreshOptions.refreshUrl}`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      if (!response.ok) throw new Error(`lazuli: refresh failed (status ${response.status})`);
+      const body = snakeToCamelDeep(await response.json()) as Record<string, unknown>;
+      const token = typeof body.access === "string"
+        ? body.access
+        : typeof body.accessToken === "string" ? body.accessToken : typeof body.token === "string" ? body.token : undefined;
+      if (!token) throw new Error("lazuli: refresh response did not include an access token");
+      this.setAuthToken(token);
+      this.refreshOptions.onRefresh?.(token);
+      return token;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error("lazuli: refresh failed");
+      this.refreshOptions.onRefreshFailure?.(error);
+      throw error;
+    }
+  }
+}
+
+function parseOk<T>(text: string): T {
+  return text ? (snakeToCamelDeep(JSON.parse(text)) as T) : (undefined as T);
 }
 
 function decodeError(status: number, raw: string): LazuliError {
