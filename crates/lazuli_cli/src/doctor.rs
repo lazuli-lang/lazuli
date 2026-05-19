@@ -2,6 +2,7 @@ pub mod auth;
 pub mod folder;
 pub mod lzx;
 pub mod rbac;
+pub mod route_guard;
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
 // crate on 2026-05-15 so the LSP can import them. Existing call sites inside
@@ -1271,6 +1272,11 @@ impl DoctorPackage {
         // for `SpanRef -> line` resolution so each diagnostic anchors at
         // the offending construct.
         diagnostics.extend(error_vocab_diagnostics(&self.tier3_facts, &self.files));
+        diagnostics.extend(route_guard::diagnostics(
+            &self.files,
+            self.app.as_ref(),
+            &self.tier3_facts,
+        ));
 
         diagnostics.extend(folder_layout_diagnostics(
             &self.project_root,
@@ -20736,6 +20742,22 @@ registry
         include_str!("../tests/fixtures/error-vocab/expose_5xx_message.lzi");
     const ERR_VOCAB_HAPPY_FIXTURE: &str =
         include_str!("../tests/fixtures/error-vocab/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZI: &str =
+        include_str!("../tests/fixtures/route-guard/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZX: &str =
+        include_str!("../tests/fixtures/route-guard/happy.lzx");
+    const ROUTE_GUARD_UNGUARDED_LZX: &str =
+        include_str!("../tests/fixtures/route-guard/view_unguarded_with_gated_backend.lzx");
+    const ROUTE_GUARD_LAXER_LZX: &str =
+        include_str!("../tests/fixtures/route-guard/view_laxer_than_backend.lzx");
+    const ROUTE_GUARD_REDIRECT_LZX: &str =
+        include_str!("../tests/fixtures/route-guard/redirect_unreachable.lzx");
+    const ROUTE_GUARD_MISSING_ACTOR_LZI: &str =
+        include_str!("../tests/fixtures/route-guard/missing_actor_query.lzi");
+    const ROUTE_GUARD_MISSING_ACTOR_LZX: &str =
+        include_str!("../tests/fixtures/route-guard/missing_actor_query.lzx");
+    const ROUTE_GUARD_AUDIENCE_LZX: &str =
+        include_str!("../tests/fixtures/route-guard/audience_runtime_disagreement.lzx");
 
     fn err_vocab_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics
@@ -20746,6 +20768,20 @@ registry
 
     fn count_code(diagnostics: &[DoctorDiagnostic], code: &str) -> usize {
         diagnostics.iter().filter(|d| d.code == code).count()
+    }
+
+    fn route_guard_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+        diagnostics
+            .iter()
+            .filter(|d| d.code.starts_with("ROUTE-GUARD-"))
+            .collect()
+    }
+
+    fn route_guard_fixture(lzx: &str) -> DoctorPackage {
+        package_from_sources(vec![
+            ("happy.lzi", ROUTE_GUARD_HAPPY_LZI),
+            ("case.lzx", lzx),
+        ])
     }
 
     #[test]
@@ -20930,5 +20966,85 @@ feature sales
                 .map(|d| &d.message)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn route_guard_happy_fixture_fires_no_route_guard_diagnostics() {
+        let package = package_from_sources(vec![
+            ("happy.lzi", ROUTE_GUARD_HAPPY_LZI),
+            ("happy.lzx", ROUTE_GUARD_HAPPY_LZX),
+        ]);
+        let diagnostics = package.diagnostics();
+        let route_guard = route_guard_diags(&diagnostics);
+        assert!(
+            route_guard.is_empty(),
+            "happy route guard fixtures must emit zero ROUTE-GUARD-* diagnostics; got: {:?}",
+            route_guard
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn route_guard_001_fires_for_unguarded_gated_backend_fixture() {
+        let package = route_guard_fixture(ROUTE_GUARD_UNGUARDED_LZX);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            route_guard_diags(&diagnostics)
+                .iter()
+                .map(|d| d.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ROUTE-GUARD-001"]
+        );
+    }
+
+    #[test]
+    fn route_guard_002_fires_for_laxer_view_fixture() {
+        let package = route_guard_fixture(ROUTE_GUARD_LAXER_LZX);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            route_guard_diags(&diagnostics)
+                .iter()
+                .map(|d| d.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ROUTE-GUARD-002"]
+        );
+    }
+
+    #[test]
+    fn route_guard_003_fires_for_unreachable_redirect_fixture() {
+        let package = route_guard_fixture(ROUTE_GUARD_REDIRECT_LZX);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            route_guard_diags(&diagnostics)
+                .iter()
+                .map(|d| d.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ROUTE-GUARD-003"]
+        );
+    }
+
+    #[test]
+    fn route_guard_004_fires_as_warning_for_missing_actor_query_fixture() {
+        let package = package_from_sources(vec![
+            ("missing_actor_query.lzi", ROUTE_GUARD_MISSING_ACTOR_LZI),
+            ("missing_actor_query.lzx", ROUTE_GUARD_MISSING_ACTOR_LZX),
+        ]);
+        let diagnostics = package.diagnostics();
+        let route_guard = route_guard_diags(&diagnostics);
+        assert_eq!(route_guard.len(), 1, "got {route_guard:?}");
+        assert_eq!(route_guard[0].code, "ROUTE-GUARD-004");
+        assert_eq!(route_guard[0].severity, DoctorSeverity::Warning);
+    }
+
+    #[test]
+    fn route_guard_005_fires_as_info_for_runtime_audience_disagreement_fixture() {
+        let package = route_guard_fixture(ROUTE_GUARD_AUDIENCE_LZX);
+        let diagnostics = package.diagnostics();
+        let route_guard = route_guard_diags(&diagnostics);
+        assert_eq!(route_guard.len(), 1, "got {route_guard:?}");
+        assert_eq!(route_guard[0].code, "ROUTE-GUARD-005");
+        assert_eq!(route_guard[0].severity, DoctorSeverity::Info);
     }
 }

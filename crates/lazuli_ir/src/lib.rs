@@ -4028,6 +4028,10 @@ pub struct ExperienceView {
     /// `ir-route-guards` §3.2 — per-view policy + redirects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<ViewGuard>,
+    /// LAZ-67 — analyzer-cached guard policy after walking
+    /// view/route -> audience -> app -> built-in defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_guard_policy: Option<Vec<PolicyAtom>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -4131,6 +4135,10 @@ pub struct PlatformView {
     /// `ir-route-guards` §3.3 — per-platform-view policy + redirects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<ViewGuard>,
+    /// LAZ-67 — analyzer-cached guard policy after walking
+    /// view/route -> audience -> app -> built-in defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_guard_policy: Option<Vec<PolicyAtom>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

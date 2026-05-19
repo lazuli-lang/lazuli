@@ -1,0 +1,29 @@
+app HostPoint
+  route_guard
+    default_policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+    on_unauthorized redirect "/403"
+  uses account
+
+feature account
+  domain
+    resource Account
+      id: ID required
+
+    query.lookup me by id: ID
+      policy @policy.authenticated
+
+  policies
+    authenticated: @scope.authenticated
+
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+    policy_denied message @translation.signin_required
+
+  translation
+    catalog "./i18n/account.<locale>.json"
+
+    key signin_required
+      en-US "Sign in."

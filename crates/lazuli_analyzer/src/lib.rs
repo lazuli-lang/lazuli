@@ -15,6 +15,7 @@
 
 mod lifecycle;
 pub mod rbac;
+pub mod checks;
 pub mod source_map;
 pub mod symbol_origin;
 
@@ -443,6 +444,7 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
         tests: view.tests.clone(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
         guard: view.guard.as_ref().map(lower_view_guard),
+        resolved_guard_policy: None,
         span_ref: Some(span_of(view.span)),
     }
 }
@@ -525,6 +527,7 @@ fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
         blocks: view.blocks.clone(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
         guard: view.guard.as_ref().map(lower_view_guard),
+        resolved_guard_policy: None,
         span_ref: Some(span_of(view.span)),
     }
 }
@@ -6067,7 +6070,7 @@ surface customer web
             .expect("full-capsule enable_mfa guard");
 
         assert_eq!(guard.policy, "@policy.update");
-        assert_eq!(guard.on_unauthenticated.as_deref(), Some("/sign-in"));
+        assert_eq!(guard.on_unauthenticated.as_deref(), Some("/login"));
 
         let first = serde_json::to_string_pretty(&module).unwrap();
         let decoded: ir::ExperienceModule = serde_json::from_str(&first).unwrap();

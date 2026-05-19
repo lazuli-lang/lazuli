@@ -4,6 +4,8 @@ surface customer web
   uses experience customer
 
   audience admin
+    policy @policy.update
+
     view list Table
       columns name, email, status, tier, score, owner, created_at
       search name, email
