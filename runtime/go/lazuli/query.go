@@ -88,6 +88,11 @@ type Query[A, R any] struct {
 	// advance. Empty / nil slice is the no-gate fast path.
 	Prelude []GateRef
 
+	// ErrorKeys binds per-query framework-error translation keys. Codegen
+	// emits this when a query authors `policy ... when_denied` directly or
+	// uses a named policy category with `when_denied`.
+	ErrorKeys *ErrorKeys
+
 	// untouched generic erasure marker for registry storage.
 	_ struct{}
 }
@@ -154,6 +159,7 @@ func (q *Query[A, R]) erased() *queryErased {
 		Returns:    q.Returns,
 		Cache:      q.Cache,
 		Prelude:    q.Prelude,
+		ErrorKeys:  q.ErrorKeys,
 	}
 }
 
@@ -174,4 +180,5 @@ type queryErased struct {
 	Returns    string
 	Cache      *CacheSpec
 	Prelude    []GateRef
+	ErrorKeys  *ErrorKeys
 }

@@ -124,7 +124,10 @@ pub fn emit_command_file(
     // IR Error-Vocab — per-command `ErrorKeys` literals reference the
     // typed `i18n.MessageRef` shape (proposal §5.1). Import the i18n
     // package whenever any command in this feature has an override.
-    if commands.iter().any(|c| command_has_error_keys(c)) {
+    if commands
+        .iter()
+        .any(|c| command_has_error_keys(c, Some(&feature.policies)))
+    {
         imports.add("lazuli.dev/runtime/lazuli/i18n");
     }
     // Handlers live in the same Go package as the feature (see
@@ -236,8 +239,8 @@ fn emit_command(
     // the `lazuli.Command[I, O]{ ... }` value below can reference it
     // via the `ErrorKeys` kv row. The runtime resolver consults this
     // struct as step 1 of the resolution chain (proposal §2.E).
-    if command_has_error_keys(command) {
-        emit_command_error_keys(p, command, &feature.name);
+    if command_has_error_keys(command, Some(&feature.policies)) {
+        emit_command_error_keys(p, command, &feature.name, Some(&feature.policies));
         p.blank();
     }
 
@@ -291,7 +294,7 @@ fn emit_command(
     // (`lazuli.Command[I, O].ErrorKeys` field, Cell RUNTIME-1) reads
     // this pointer at handler-construction time to short-circuit the
     // resolver chain on `policy_denied`.
-    if command_has_error_keys(command) {
+    if command_has_error_keys(command, Some(&feature.policies)) {
         let keys_var = command_error_keys_var(command);
         kv_rows.push(("ErrorKeys:".to_owned(), format!("&{keys_var},")));
     }

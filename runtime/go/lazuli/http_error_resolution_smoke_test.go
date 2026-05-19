@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -210,6 +211,64 @@ func TestWave35AuthoredCatalogSurfacesPerCommandKey(t *testing.T) {
 	payload = decodePayload(t, rec.Body.Bytes())
 	if got, want := payload["message"], "AUTHORED EN-US account.me"; got != want {
 		t.Fatalf("en-US authored: got %q want %q", got, want)
+	}
+}
+
+func TestQueryPolicyDeniedSurfacesPolicyWhenDeniedOverride(t *testing.T) {
+	installZeroAuthoringFixture(t)
+	t.Cleanup(clearRegistriesForTest())
+
+	resolver := i18n.Default().(*i18n.DefaultResolver)
+	if resolver.Catalogs == nil {
+		resolver.Catalogs = map[string]map[string]string{}
+	}
+	if resolver.Catalogs["en-US"] == nil {
+		resolver.Catalogs["en-US"] = map[string]string{}
+	}
+	resolver.Catalogs["en-US"]["account.account_signin"] = "AUTHORED EN-US account signin"
+
+	queryKeys := &i18n.ErrorKeys{
+		PolicyDenied: i18n.MessageRef{Feature: "account", Key: "account_signin"},
+	}
+	query := &Query[struct{}, struct{}]{
+		Name: "account.query.me",
+		Kind: QueryList,
+		Policy: Policy{
+			Name: "@policy.authenticated",
+			Atoms: []PolicyAtom{
+				{Namespace: "scope", Name: "authenticated"},
+			},
+		},
+		ErrorKeys: queryKeys,
+		WithSource: func(ctx context.Context) context.Context {
+			return WithSource(ctx, SourceTag{
+				Capsule: "demo",
+				Feature: "account",
+				Kind:    "query",
+				Op:      "me",
+			})
+		},
+	}
+	Register(query)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/q/account.query.me", nil)
+	req.Header.Set("Accept-Language", "en-US")
+
+	Mux().ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusForbidden; got != want {
+		t.Fatalf("status = %d, want %d; body: %s", got, want, rec.Body.String())
+	}
+	payload := decodePayload(t, rec.Body.Bytes())
+	if got, want := payload["message"], "AUTHORED EN-US account signin"; got != want {
+		t.Fatalf("query policy denial message = %q, want %q", got, want)
+	}
+	if got, want := payload["message_key"], "account.account_signin"; got != want {
+		t.Fatalf("query message_key = %q, want %q", got, want)
+	}
+	if got := payload["message"]; got == "You need to sign in to do this." {
+		t.Fatalf("query fell through to builtin floor: %v", payload)
 	}
 }
 
