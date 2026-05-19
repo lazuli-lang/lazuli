@@ -1,0 +1,6 @@
+# Doctor fixture - MISSING-POLICY-ON-QUERY-001.
+# The query has no authored policy and the feature has no default policy.
+
+feature catalog
+  domain
+    query.list list_products
