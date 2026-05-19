@@ -3,7 +3,10 @@
 // other DSL constructs. The runtime executes those declarations.
 package lazuli
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ID is the canonical identifier type used by every resource.
 type ID = int64
@@ -40,9 +43,13 @@ type (
 	// document the pair at the field site; arithmetic safety is the
 	// caller's responsibility today.
 	Money = int64
-	// JSON is a raw JSON document. Use `encoding/json` to decode into
-	// a typed shape at the consumer boundary.
-	JSON = []byte
+	// JSON is a raw JSON document. Aliased to json.RawMessage so that
+	// HTTP request/response bodies carry the document inline (object /
+	// array / scalar) rather than as a base64-encoded string — Go's
+	// stdlib treats `[]byte` as base64 by default, which would force
+	// callers to encode every JSON field twice. Use `encoding/json` to
+	// decode into a typed shape at the consumer boundary.
+	JSON = json.RawMessage
 )
 
 // Capability reference aliases. Each names the typed reference shape
