@@ -363,6 +363,8 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         cookie: None,
         proxy: None,
         limits: None,
+        route_guard: None,
+        actor_query: None,
         span_ref: None,
     };
     let mut current_child: Option<&str> = None;

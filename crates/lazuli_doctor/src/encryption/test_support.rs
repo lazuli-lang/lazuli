@@ -46,6 +46,8 @@ pub fn empty_app() -> AppManifest {
         observability: None,
         locale: None,
         encryption_bindings: Vec::new(),
+        route_guard: None,
+        actor_query: None,
         span_ref: None,
     }
 }

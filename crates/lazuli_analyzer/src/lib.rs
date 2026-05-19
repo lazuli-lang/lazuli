@@ -376,6 +376,9 @@ fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
         cookie: None,
         proxy: None,
         limits: None,
+        // ir-route-guards Cell IR-1 — slots wired by Cell PARSE-1.
+        route_guard: None,
+        actor_query: None,
         span_ref: Some(span_of(app.span)),
     }
 }
@@ -390,6 +393,8 @@ fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
         audience: route.audience.clone(),
         lazy: route.lazy,
         prerender: route.prerender.clone(),
+        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
+        guard: None,
         span_ref: Some(span_of(route.span)),
     }
 }
@@ -420,6 +425,8 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
         actions: view.actions.iter().map(lower_experience_action).collect(),
         opens: view.opens.clone(),
         tests: view.tests.clone(),
+        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
+        guard: None,
         span_ref: Some(span_of(view.span)),
     }
 }
@@ -481,6 +488,8 @@ fn lower_audience_surface(audience: &syntax::LzxAudience) -> ir::AudienceSurface
         name: audience.name.clone(),
         qualifiers: audience.qualifiers.clone(),
         views: audience.views.iter().map(lower_platform_view).collect(),
+        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
+        guard: None,
         span_ref: Some(span_of(audience.span)),
     }
 }
@@ -498,6 +507,8 @@ fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
         actions: view.actions.clone(),
         submit: view.submit.clone(),
         blocks: view.blocks.clone(),
+        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
+        guard: None,
         span_ref: Some(span_of(view.span)),
     }
 }

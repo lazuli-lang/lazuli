@@ -650,6 +650,8 @@ mod feature_emit_tests {
             observability: None,
             locale: None,
             encryption_bindings: Vec::new(),
+            route_guard: None,
+            actor_query: None,
             span_ref: None,
         }
     }

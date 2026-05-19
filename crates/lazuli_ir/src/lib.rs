@@ -3106,6 +3106,17 @@ pub struct AppManifest {
     /// Roadmap §1.10 — typed security `headers` block (CL.C.5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<AppHeaders>,
+    /// `ir-route-guards` §3.6 — app-level route-guard defaults block.
+    /// Layer 3 of the resolution chain. When `None`, runtime falls back
+    /// to built-in framework defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_guard: Option<RouteGuardDefaults>,
+    /// `ir-route-guards` §3.7 — `actor_query <feature>.query.<name>`.
+    /// Declares which query the runtime calls to resolve the current
+    /// actor. Required (doctor ROUTE-GUARD-003) when any non-public
+    /// route exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -3919,6 +3930,63 @@ pub struct AppRoute {
     pub lazy: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prerender: Option<String>,
+    /// `ir-route-guards` §3.5 — per-route policy + redirects. Layer 1 of
+    /// the resolution chain (view → audience → app → built-in). When
+    /// `None`, the runtime falls back to the audience/app defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<ViewGuard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// `ir-route-guards` §3.1 — declarative policy + redirect targets for a
+/// view (experience view, platform view, audience, or app route). The
+/// same `PolicyRef` shape already used by `command.policy`; redirects
+/// are local-path string slots.
+///
+/// See `docs/proposals/ir-route-guards.md` §3.1, §2.A.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewGuard {
+    /// `policy @policy.<name>` — reused vocabulary from backend policy
+    /// catalog. Stored as the qualified policy reference string.
+    pub policy: String,
+    /// `on_unauthenticated redirect "<path>"` — where to send a user
+    /// who is not signed in. When `None`, runtime resolves up the chain
+    /// to the audience / app default (§2.D).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_unauthenticated: Option<String>,
+    /// `on_unauthorized redirect "<path>"` — where to send a signed-in
+    /// user who fails the policy check. When `None`, runtime resolves
+    /// up the chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_unauthorized: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// `ir-route-guards` §3.6 — app-level defaults for the resolution
+/// chain's tail layer. Authored under an `app.route_guard` block; each
+/// inner slot is independently optional (when absent, the built-in
+/// framework defaults apply at runtime).
+///
+/// See `docs/proposals/ir-route-guards.md` §3.6, §2.C.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteGuardDefaults {
+    /// Catch-all policy reference applied to any route that does not
+    /// declare its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_policy: Option<String>,
+    /// Catch-all redirect for unauthenticated users.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_unauthenticated: Option<String>,
+    /// Catch-all redirect for unauthorized users.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_unauthorized: Option<String>,
+    /// `skeleton @client.<name>` — block reference rendered while the
+    /// actor query is hydrating. When `None`, runtime renders nothing
+    /// (blank background) until the verdict is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skeleton: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -3957,6 +4025,9 @@ pub struct ExperienceView {
     pub opens: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<String>,
+    /// `ir-route-guards` §3.2 — per-view policy + redirects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<ViewGuard>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -4027,6 +4098,10 @@ pub struct AudienceSurface {
     pub qualifiers: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<PlatformView>,
+    /// `ir-route-guards` §3.4 — per-audience default guard. Layer 2 of
+    /// the resolution chain (view → audience → app → built-in).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<ViewGuard>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -4053,6 +4128,9 @@ pub struct PlatformView {
     pub submit: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<String>,
+    /// `ir-route-guards` §3.3 — per-platform-view policy + redirects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<ViewGuard>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -6544,5 +6622,117 @@ mod l0_6_ir_tests {
             theft_detection_action: Some(TheftAction::RevokeSessionFamily),
             span_ref: None,
         }));
+    }
+
+    // -------------------------------------------------------------------
+    // ir-route-guards §3 — ViewGuard + RouteGuardDefaults + view.guard
+    // slots on the 4 view kinds. See docs/proposals/ir-route-guards.md.
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn view_guard_round_trips_with_all_slots() {
+        round_trip(&ViewGuard {
+            policy: "@policy.host_only".to_string(),
+            on_unauthenticated: Some("/sign-in".to_string()),
+            on_unauthorized: Some("/explore".to_string()),
+            span_ref: Some(SpanRef { start: 1, end: 50 }),
+        });
+    }
+
+    #[test]
+    fn view_guard_round_trips_with_only_policy() {
+        round_trip(&ViewGuard {
+            policy: "@policy.authenticated".to_string(),
+            on_unauthenticated: None,
+            on_unauthorized: None,
+            span_ref: None,
+        });
+    }
+
+    #[test]
+    fn view_guard_omits_none_redirects_in_serialized_form() {
+        let g = ViewGuard {
+            policy: "@policy.public".to_string(),
+            on_unauthenticated: None,
+            on_unauthorized: None,
+            span_ref: None,
+        };
+        let v = serde_json::to_value(&g).unwrap();
+        assert_eq!(v, json!({ "policy": "@policy.public" }));
+    }
+
+    #[test]
+    fn route_guard_defaults_round_trips_with_all_slots() {
+        round_trip(&RouteGuardDefaults {
+            default_policy: Some("@policy.public".to_string()),
+            on_unauthenticated: Some("/sign-in".to_string()),
+            on_unauthorized: Some("/".to_string()),
+            skeleton: Some("@client.app_skeleton".to_string()),
+            span_ref: None,
+        });
+    }
+
+    #[test]
+    fn route_guard_defaults_round_trips_empty_block() {
+        round_trip(&RouteGuardDefaults {
+            default_policy: None,
+            on_unauthenticated: None,
+            on_unauthorized: None,
+            skeleton: None,
+            span_ref: None,
+        });
+    }
+
+    #[test]
+    fn route_guard_defaults_omits_none_in_serialized_form() {
+        let d = RouteGuardDefaults {
+            default_policy: None,
+            on_unauthenticated: None,
+            on_unauthorized: None,
+            skeleton: None,
+            span_ref: None,
+        };
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v, json!({}));
+    }
+
+    #[test]
+    fn experience_view_back_compat_without_guard() {
+        // Pre-this-cell fixtures lack the `guard` field. Confirm they
+        // still deserialize cleanly with `guard: None`.
+        let legacy_json = json!({
+            "name": "host_home",
+            "anchor": "host_root"
+        });
+        let parsed: ExperienceView = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(parsed.name, "host_home");
+        assert!(parsed.guard.is_none());
+    }
+
+    #[test]
+    fn audience_surface_back_compat_without_guard() {
+        let legacy_json = json!({ "name": "host" });
+        let parsed: AudienceSurface = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(parsed.name, "host");
+        assert!(parsed.guard.is_none());
+    }
+
+    #[test]
+    fn platform_view_back_compat_without_guard() {
+        let legacy_json = json!({
+            "name": "list",
+            "view_type": "list"
+        });
+        let parsed: PlatformView = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(parsed.name, "list");
+        assert!(parsed.guard.is_none());
+    }
+
+    #[test]
+    fn app_route_back_compat_without_guard() {
+        let legacy_json = json!({ "name": "host_index" });
+        let parsed: AppRoute = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(parsed.name, "host_index");
+        assert!(parsed.guard.is_none());
     }
 }

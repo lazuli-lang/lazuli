@@ -283,6 +283,8 @@ mod tests {
             proxy: None,
             limits: None,
             headers: None,
+            route_guard: None,
+            actor_query: None,
             span_ref: None,
         }
     }

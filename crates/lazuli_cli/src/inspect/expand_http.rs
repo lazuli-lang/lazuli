@@ -117,6 +117,8 @@ mod tests {
             limits: None,
             error_pages: vec![],
             headers: None,
+            route_guard: None,
+            actor_query: None,
             span_ref: None,
         }
     }

@@ -117,6 +117,8 @@ fn minimal_app_manifest(name: &str) -> AppManifest {
         observability: None,
         locale: None,
         encryption_bindings: Vec::new(),
+        route_guard: None,
+        actor_query: None,
         span_ref: None,
     }
 }
