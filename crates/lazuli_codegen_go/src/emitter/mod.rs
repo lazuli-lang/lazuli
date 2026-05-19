@@ -14,6 +14,7 @@
 //! modules will live as sibling files inside this directory.
 
 pub mod api;
+pub mod app_integration;
 pub mod audit;
 pub mod auth;
 pub mod casing;

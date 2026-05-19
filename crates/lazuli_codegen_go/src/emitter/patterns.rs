@@ -28,6 +28,7 @@ pub const PATTERN_MCP_SERVER_REGISTER: (&str, &str) = ("mcp_server_register", "v
 pub const PATTERN_CORS_REGISTER: (&str, &str) = ("cors_register", "v1");
 pub const PATTERN_ERROR_RESOLVER: (&str, &str) = ("error_resolver", "v1");
 pub const PATTERN_TRANSLATION_CATALOG: (&str, &str) = ("translation_catalog", "v1");
+pub const PATTERN_APP_INTEGRATION_REGISTER: (&str, &str) = ("app_integration_register", "v1");
 
 pub fn emit_pattern_header(p: &mut GoPrinter, pattern: (&str, &str)) {
     p.line(&format!("//lazuli:pattern {} {}", pattern.0, pattern.1));

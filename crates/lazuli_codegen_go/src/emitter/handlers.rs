@@ -1385,13 +1385,12 @@ func {fn_name}(ctx *lazuli.Ctx, input {input_type}) ({output_type}, error) {{
 	_ = ctx
 	_ = input
 	_ = context.Background
-	return zero[{output_type}](), errors.New("{escaped_error}")
-}}
-
-//lazuli:pattern {pattern_id} {pattern_version}
-func zero[T any]() T {{
-	var z T
-	return z
+	// Inlined zero value — when two starter stubs land in the same
+	// `<feature>handlers` package, a shared `func zero[T any]()` would
+	// redeclare across files and break compile. The `var zero` /
+	// `return zero` pair stays wire-thin and self-contained per stub.
+	var zero {output_type}
+	return zero, errors.New("{escaped_error}")
 }}
 
 //lazuli:pattern {pattern_id} {pattern_version}
@@ -1782,8 +1781,9 @@ mod tests {
             hash.contents
                 .contains("//   Site: customer_auth.auth.password.hash")
         );
+        assert!(hash.contents.contains("var zero lazuli.HashedRef"));
         assert!(hash.contents.contains(
-            "return zero[lazuli.HashedRef](), errors.New(\"hash_password not yet implemented\")"
+            "return zero, errors.New(\"hash_password not yet implemented\")"
         ));
         assert!(hash.contents.contains("//lazuli:pattern extension_stub v1"));
         // Source-tag duplication cleanup (review bug #8, 2026-05-15):
@@ -1806,7 +1806,12 @@ mod tests {
             hash.contents
                 .contains("ctx.Context, endOp = observability.StartOp(ctx.Context)")
         );
-        assert_eq!(hash.contents.matches("func zero[T any]() T").count(), 1);
+        // Inlined zero value (was generic `func zero[T any]() T` helper);
+        // each stub carries its own `var zero <output>` so two stubs in
+        // the same `<feature>handlers` package no longer collide on a
+        // shared generic helper.
+        assert_eq!(hash.contents.matches("func zero[T any]() T").count(), 0);
+        assert_eq!(hash.contents.matches("var zero lazuli.HashedRef").count(), 1);
     }
 
     #[test]
@@ -2008,9 +2013,10 @@ mod tests {
             file.contents
                 .contains("func Unknown(ctx *lazuli.Ctx, input any) (any, error)")
         );
+        assert!(file.contents.contains("var zero any"));
         assert!(
             file.contents
-                .contains("return zero[any](), errors.New(\"unknown not yet implemented\")")
+                .contains("return zero, errors.New(\"unknown not yet implemented\")")
         );
     }
 

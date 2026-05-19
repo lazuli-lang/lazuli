@@ -330,6 +330,21 @@ pub fn emit_module(
         });
     }
 
+    // Cell B4-runtime-facade — `app/app_integrations.gen.go` wires
+    // each `registry.bindings.<name>: <Kind> / adapter @plugin/<x>`
+    // declaration to the runtime adapter registry via
+    // `lazuli.RegisterAppIntegration`. Skipped when no integration
+    // carries an adapter (legacy env-var-only entries do not need a
+    // facade binding). See docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
+    if let Some(contents) =
+        crate::emitter::app_integration::emit_app_integrations(&source_label, module)
+    {
+        files.push(GeneratedFile {
+            path: crate::emitter::app_integration::APP_INTEGRATIONS_PATH.to_owned(),
+            contents,
+        });
+    }
+
     // PG.C — emit `dist/go/plan/catalog.gen.go` when the analyzer
     // surfaced plan facts. The file is skipped when the package
     // declares no `plan` blocks (the runtime defaults to "no

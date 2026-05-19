@@ -123,6 +123,30 @@ pub fn emit_main_go(
         }
     }
 
+    // The codegen-emitted `app/` package (under `dist/go/app/`)
+    // currently carries two init() registrations:
+    //
+    //   - `app/error_resolution.gen.go` — `lazuli.RegisterFeatureErrors`
+    //     calls (per-feature errors block lowering).
+    //   - `app/app_integrations.gen.go` — `lazuli.RegisterAppIntegration`
+    //     calls (registry.bindings → adapter wiring for the
+    //     `lazuli.ObjectStore(...)` facade etc.).
+    //
+    // Both files live in `package app` and depend on a side-effect
+    // import from `main` to fire their init(). Emitted only when at
+    // least one of those files would land — keeps main.go free of
+    // dead imports for capsules without errors blocks or bindings.
+    let has_app_errors = module.features.iter().any(|f| f.errors.is_some());
+    let has_app_integrations = module
+        .app
+        .as_ref()
+        .is_some_and(|a| a.integrations.iter().any(|i| i.adapter.is_some()))
+        || module
+            .registry
+            .as_ref()
+            .is_some_and(|r| r.integrations.iter().any(|i| i.adapter.is_some()));
+    let emit_app_pkg_import = has_app_errors || has_app_integrations;
+
     p.banner(source_label, "main");
 
     // Side-effect imports require an `_` alias to bypass Go's
@@ -131,7 +155,14 @@ pub fn emit_main_go(
     // here to preserve the side-effect form. The visual grouping
     // (stdlib / lazuli runtime / feature pkgs) mirrors the rest of
     // the codebase.
-    emit_main_imports(&mut p, &feature_imports, &handler_imports, manifest);
+    emit_main_imports(
+        &mut p,
+        &feature_imports,
+        &handler_imports,
+        manifest,
+        emit_app_pkg_import,
+        module_name,
+    );
     p.blank();
 
     // Boot block — the Lazuli Go lib's current `Boot(ctx, dbURL)`
@@ -226,6 +257,8 @@ fn emit_main_imports(
     feature_imports: &BTreeMap<&str, String>,
     handler_imports: &BTreeMap<&str, String>,
     manifest: Option<&LazuriteManifest>,
+    emit_app_pkg_import: bool,
+    module_name: &str,
 ) {
     p.line("import (");
     p.indent();
@@ -245,6 +278,13 @@ fn emit_main_imports(
             // `_` alias triggers init() without exposing identifiers.
             p.line(&format!("_ \"{}\"", path));
         }
+    }
+    if emit_app_pkg_import {
+        p.blank();
+        p.line("// App-level wiring package — `dist/go/app/` carries the");
+        p.line("// codegen-emitted `RegisterFeatureErrors` + `RegisterAppIntegration`");
+        p.line("// calls. Side-effect import fires those init() blocks at boot.");
+        p.line(&format!("_ \"{}/app\"", module_name));
     }
     if !handler_imports.is_empty() {
         p.blank();

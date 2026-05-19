@@ -38,13 +38,12 @@ func Login(ctx *lazuli.Ctx, input LoginInput) (string, error) {
 	_ = ctx
 	_ = input
 	_ = context.Background
-	return zero[string](), errors.New("login not yet implemented")
-}
-
-//lazuli:pattern extension_stub v1
-func zero[T any]() T {
-	var z T
-	return z
+	// Inlined zero value — when two starter stubs land in the same
+	// `<feature>handlers` package, a shared `func zero[T any]()` would
+	// redeclare across files and break compile. The `var zero` /
+	// `return zero` pair stays wire-thin and self-contained per stub.
+	var zero string
+	return zero, errors.New("login not yet implemented")
 }
 
 //lazuli:pattern extension_stub v1

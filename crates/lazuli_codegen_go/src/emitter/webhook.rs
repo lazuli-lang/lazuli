@@ -13,8 +13,8 @@
 //! way as resource/command emitters.
 
 use lazuli_ir::{
-    BackoffStrategy, DlqSpec, Feature, Gate, PolicyRef, ReplayMode, RetryPolicy, TypeRef,
-    VerifyScheme, Webhook,
+    BackoffStrategy, DlqSpec, EmitPredicate, EmitPredicateKind, Feature, Gate, PolicyRef,
+    ReplayMode, RetryPolicy, TypeRef, VerifyScheme, Webhook,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -165,6 +165,20 @@ fn emit_webhook(
     if !webhook.emits.is_empty() {
         kv_rows.push(("Emits:".to_owned(), format_string_slice(&webhook.emits)));
     }
+    // B5 framework gap 2 — per-branch dispatch. Emitted whenever the
+    // DSL authored at least one `when <predicate>` clause; the flat
+    // shape (all predicates absent) leaves `EmitBindings` empty so
+    // legacy runtime behaviour is unchanged.
+    if webhook
+        .emit_predicates
+        .iter()
+        .any(|p| p.as_ref().is_some())
+    {
+        kv_rows.push((
+            "EmitBindings:".to_owned(),
+            format_emit_bindings(&webhook.emits, &webhook.emit_predicates),
+        ));
+    }
     if let Some(payload_from) = &webhook.payload_from {
         kv_rows.push(("PayloadFrom:".to_owned(), format_payload_from(payload_from)));
     }
@@ -236,6 +250,73 @@ fn format_string_slice(values: &[String]) -> String {
         .map(|value| format!("\"{}\"", escape_string(value)))
         .collect();
     format!("[]string{{{}}},", entries.join(", "))
+}
+
+/// B5 framework gap 2 — render the `EmitBindings` slice on a
+/// `WebhookContract`. One entry per `emits` line; entries without a
+/// `when` predicate are emitted with `Kind: webhooks.EmitPredicateNone`
+/// so a single receiver walk-loop handles both branches without
+/// special-casing the absent-predicate slot.
+fn format_emit_bindings(emits: &[String], predicates: &[Option<EmitPredicate>]) -> String {
+    let mut out = String::from("[]webhooks.EmitBinding{\n");
+    for (idx, event) in emits.iter().enumerate() {
+        let predicate = predicates.get(idx).and_then(|p| p.as_ref());
+        let (kind_const, path, literal, literals_lit, raw) = match predicate {
+            None => (
+                "webhooks.EmitPredicateNone",
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
+            Some(p) => match &p.kind {
+                EmitPredicateKind::Equals { path, literal } => (
+                    "webhooks.EmitPredicateEquals",
+                    path.clone(),
+                    literal.clone(),
+                    String::new(),
+                    p.raw.clone(),
+                ),
+                EmitPredicateKind::In { path, literals } => {
+                    let entries: Vec<String> = literals
+                        .iter()
+                        .map(|v| format!("\"{}\"", escape_string(v)))
+                        .collect();
+                    (
+                        "webhooks.EmitPredicateIn",
+                        path.clone(),
+                        String::new(),
+                        format!("[]string{{{}}}", entries.join(", ")),
+                        p.raw.clone(),
+                    )
+                }
+                EmitPredicateKind::Other { raw } => (
+                    "webhooks.EmitPredicateOther",
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    raw.clone(),
+                ),
+            },
+        };
+        let mut fields = vec![format!("Event: \"{}\"", escape_string(event))];
+        fields.push(format!("Kind: {}", kind_const));
+        if !path.is_empty() {
+            fields.push(format!("Path: \"{}\"", escape_string(&path)));
+        }
+        if !literal.is_empty() {
+            fields.push(format!("Literal: \"{}\"", escape_string(&literal)));
+        }
+        if !literals_lit.is_empty() {
+            fields.push(format!("Literals: {}", literals_lit));
+        }
+        if !raw.is_empty() {
+            fields.push(format!("Raw: \"{}\"", escape_string(&raw)));
+        }
+        out.push_str(&format!("\t\t{{{}}},\n", fields.join(", ")));
+    }
+    out.push_str("\t},");
+    out
 }
 
 fn format_payload_from(payload_from: &lazuli_ir::WebhookEventRef) -> String {
@@ -494,6 +575,7 @@ mod feature_emit_tests {
             handler: PathRef::authored(format!("./webhooks/{name}.go")),
             returns: None,
             emits: Vec::new(),
+            emit_predicates: Vec::new(),
             payload_from: None,
             replay: None,
             dlq: None,
@@ -786,5 +868,75 @@ mod feature_emit_tests {
             !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "no billing import when no gates"
         );
+    }
+
+    /// B5 framework gap 2 — flat `emits` list (no `when` predicates)
+    /// leaves the legacy `Emits []string{...}` shape on the contract
+    /// and does NOT emit a `EmitBindings:` slot.
+    #[test]
+    fn flat_emits_keeps_legacy_string_slice_shape() {
+        let mut feature = base_feature("payments");
+        let mut webhook = base_webhook("mp_payment");
+        webhook.structured_verify = Some(hmac_verify());
+        webhook.emits = vec![
+            "charge_confirmed".to_owned(),
+            "charge_failed".to_owned(),
+        ];
+        // emit_predicates intentionally empty — flat shape.
+        feature.webhooks.push(webhook);
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("Emits:"),
+            "flat emits must still emit the string slice"
+        );
+        assert!(!out.contains("EmitBindings:"));
+    }
+
+    /// B5 framework gap 2 — per-branch `emits ... when <predicate>`
+    /// writes an `EmitBindings` dispatch table on the contract.
+    #[test]
+    fn per_branch_emits_emits_dispatch_table_on_contract() {
+        let mut feature = base_feature("payments");
+        let mut webhook = base_webhook("mp_payment");
+        webhook.structured_verify = Some(hmac_verify());
+        webhook.emits = vec![
+            "charge_confirmed".to_owned(),
+            "charge_failed".to_owned(),
+            "mp_status_received".to_owned(),
+        ];
+        webhook.emit_predicates = vec![
+            Some(lazuli_ir::EmitPredicate {
+                raw: "payload.status = \"approved\"".to_owned(),
+                kind: lazuli_ir::EmitPredicateKind::Equals {
+                    path: "payload.status".to_owned(),
+                    literal: "approved".to_owned(),
+                },
+                span_ref: None,
+            }),
+            Some(lazuli_ir::EmitPredicate {
+                raw: "payload.status in (\"rejected\", \"cancelled\")".to_owned(),
+                kind: lazuli_ir::EmitPredicateKind::In {
+                    path: "payload.status".to_owned(),
+                    literals: vec!["rejected".to_owned(), "cancelled".to_owned()],
+                },
+                span_ref: None,
+            }),
+            None,
+        ];
+        feature.webhooks.push(webhook);
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("Emits:"));
+        assert!(
+            out.contains("EmitBindings:"),
+            "dispatch table missing:\n{}",
+            out
+        );
+        assert!(out.contains("webhooks.EmitPredicateEquals"));
+        assert!(out.contains("Path: \"payload.status\""));
+        assert!(out.contains("Literal: \"approved\""));
+        assert!(out.contains("webhooks.EmitPredicateIn"));
+        assert!(out.contains("Literals: []string{\"rejected\", \"cancelled\"}"));
+        assert!(out.contains("webhooks.EmitPredicateNone"));
+        assert!(out.contains("Event: \"mp_status_received\""));
     }
 }

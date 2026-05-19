@@ -968,6 +968,7 @@ mod tests {
             handler: ir::PathRef::authored("./webhooks/stripe_invoice_paid.go"),
             returns: None,
             emits: Vec::new(),
+            emit_predicates: Vec::new(),
             payload_from: None,
             replay: None,
             dlq: None,

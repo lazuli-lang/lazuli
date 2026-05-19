@@ -16,7 +16,7 @@ use crate::ast::{
     ContainsRhs, CustomTokenAst, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
     DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
     EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst,
-    EventGroup, FamilyTokenAst,
+    EventGroup, EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst,
     FeatureDefaults, FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureSkeleton, Field,
     FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl,
     FieldPolicyDecl, FilterCardinalityAst, FilterDeclAst, FeatureGatesAst, GateDirectiveAst,
@@ -10448,6 +10448,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
     let mut policy_expr: Option<PolicyExprAst> = None;
     let mut handler: Option<WebhookHandler> = None;
     let mut emits: Vec<String> = Vec::new();
+    let mut emits_predicates: Vec<Option<String>> = Vec::new();
     let mut payload_from: Option<String> = None;
     let mut replay: Option<WebhookReplay> = None;
     let mut dlq: Option<WebhookDlq> = None;
@@ -10559,9 +10560,49 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("emits ") {
-            emits.push(rest.trim().to_owned());
+            // B5 framework gap 2 — single-line `emits <event> [when
+            // <predicate>]` shape. Recognises the optional `when`
+            // suffix and splits it from the event name. The flat
+            // shape (no `when`) keeps the existing behaviour.
+            let (event_name, predicate) = split_emits_when(rest.trim());
+            if event_name.is_empty() {
+                return Err(line_error(line, "`emits` requires an event name"));
+            }
+            emits.push(event_name.to_owned());
+            emits_predicates.push(predicate.map(str::to_owned));
             last_end = line.end;
             i += 1;
+        } else if trimmed == "emits" {
+            // B5 framework gap 2 — block-form `emits` with one
+            // `<event> [when <predicate>]` per line. Each child line
+            // sits one indentation level deeper than the header.
+            let block_indent = line.indent + 2;
+            i += 1;
+            while i < lines.len() {
+                let child = &lines[i];
+                let child_trim = child.text.trim_start();
+                if is_trivia(child_trim) {
+                    i += 1;
+                    continue;
+                }
+                if child.indent < block_indent {
+                    break;
+                }
+                if child.indent != block_indent {
+                    return Err(line_error(
+                        child,
+                        "`emits` block children use one indentation level deeper than the header",
+                    ));
+                }
+                let (event_name, predicate) = split_emits_when(child_trim);
+                if event_name.is_empty() {
+                    return Err(line_error(child, "`emits` block entry requires an event name"));
+                }
+                emits.push(event_name.to_owned());
+                emits_predicates.push(predicate.map(str::to_owned));
+                last_end = child.end;
+                i += 1;
+            }
         } else if let Some(rest) = trimmed.strip_prefix("payload from ") {
             // `payload from webhook_events.<name>` — the `webhook_events.`
             // prefix is mandatory at the surface so the catalog is
@@ -10622,6 +10663,15 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
         )
     })?;
 
+    // B5 framework gap 2 — only keep `emits_predicates` when at least
+    // one entry carries a `when` clause; an all-None vec is the legacy
+    // shape and serialises as empty.
+    let emits_predicates = if emits_predicates.iter().any(|p| p.is_some()) {
+        emits_predicates
+    } else {
+        Vec::new()
+    };
+
     Ok((
         Webhook {
             name,
@@ -10634,6 +10684,7 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
             policy_expr,
             handler,
             emits,
+            emits_predicates,
             payload_from,
             replay,
             dlq,
@@ -10642,6 +10693,39 @@ fn parse_webhook(lines: &[SourceLine<'_>], start: usize) -> Result<(Webhook, usi
         },
         i,
     ))
+}
+
+/// B5 framework gap 2 — split an `emits <event> [when <predicate>]`
+/// payload into its event name + optional predicate. The predicate
+/// (everything after the ` when ` token) is trimmed but kept verbatim;
+/// the analyzer is responsible for the typed lift.
+fn split_emits_when(raw: &str) -> (&str, Option<&str>) {
+    let text = raw.trim();
+    // Match against ` when ` (with surrounding whitespace) so an
+    // event name that contains `when` substring is not split. Use a
+    // manual scan because `str::split_once` doesn't accept a closure
+    // for whole-word boundaries.
+    let mut search_from = 0;
+    let bytes = text.as_bytes();
+    while let Some(rel) = text[search_from..].find("when") {
+        let abs = search_from + rel;
+        let before_ok = abs > 0 && bytes[abs - 1].is_ascii_whitespace();
+        let after_pos = abs + "when".len();
+        let after_ok = after_pos < bytes.len() && bytes[after_pos].is_ascii_whitespace();
+        if before_ok && after_ok {
+            let head = text[..abs].trim_end();
+            let predicate = text[after_pos..].trim();
+            if predicate.is_empty() {
+                // `emits foo when` (no predicate) — treat as a flat
+                // emits line. The analyzer/doctor surfaces this as a
+                // diagnostic if useful; the parser stays tolerant.
+                return (head, None);
+            }
+            return (head, Some(predicate));
+        }
+        search_from = abs + "when".len();
+    }
+    (text, None)
 }
 
 /// Webhooks expanded cycle — parse `replay` in either short form
@@ -12162,6 +12246,8 @@ fn parse_event_group(
     let mut audit: Option<String> = None;
     let mut events: Vec<String> = Vec::new();
     let mut events_outbox_guaranteed: Vec<bool> = Vec::new();
+    let mut event_variants: Vec<Vec<EventVariantFieldDecl>> = Vec::new();
+    let mut event_variant_kinds: Vec<EventVariantKindAst> = Vec::new();
     let mut in_payload = false;
     // EVENT-OUTBOX §3.3 — when set, grandchild `outbox guaranteed` lines
     // toggle the most recently authored event's outbox flag.
@@ -12194,6 +12280,8 @@ fn parse_event_group(
                 if !name.is_empty() {
                     events.push(name);
                     events_outbox_guaranteed.push(false);
+                    event_variants.push(Vec::new());
+                    event_variant_kinds.push(EventVariantKindAst::Committed);
                     current_event_idx = Some(events.len() - 1);
                 }
             } else if let Some(rest) = trimmed.strip_prefix("event.trace ") {
@@ -12201,9 +12289,12 @@ fn parse_event_group(
                 if !name.is_empty() {
                     events.push(name);
                     events_outbox_guaranteed.push(false);
+                    event_variants.push(Vec::new());
+                    event_variant_kinds.push(EventVariantKindAst::Trace);
                     // Trace events cannot carry an outbox guarantee;
-                    // leave current_event_idx None so the keyword is
-                    // rejected by the closed grammar below.
+                    // grandchild `outbox` lines are rejected below, but
+                    // typed field rows are still collected.
+                    current_event_idx = Some(events.len() - 1);
                 }
             } else {
                 // Unknown child — Tier 4 may extend this; skip silently
@@ -12215,6 +12306,12 @@ fn parse_event_group(
             && let Some(idx) = current_event_idx
             && let Some(rest) = trimmed.strip_prefix("outbox ")
         {
+            if matches!(event_variant_kinds[idx], EventVariantKindAst::Trace) {
+                return Err(line_error(
+                    line,
+                    "`event.trace` cannot carry an `outbox` guarantee; trace events bypass the outbox",
+                ));
+            }
             // EVENT-OUTBOX §3.3 — accept `outbox guaranteed` under
             // `event <name>`. Closed catalog: only `guaranteed` is
             // authored; `outbox none` is implicit (the default).
@@ -12231,10 +12328,21 @@ fn parse_event_group(
                     ));
                 }
             }
+        } else if line.indent >= grandchild_indent
+            && let Some(idx) = current_event_idx
+            && trimmed.contains(':')
+            && !trimmed.starts_with('#')
+        {
+            // B5 framework gap 1 — typed payload field row under an
+            // event variant. Surface shape mirrors resource fields:
+            // `<name>: <Type> [required|optional]`. The type literal
+            // is kept verbatim; the analyzer lifts to `ir::TypeRef`.
+            let field = parse_event_variant_field(line, trimmed)?;
+            event_variants[idx].push(field);
         } else {
-            // Continuation of a non-payload child (e.g. event fields).
-            // We do not lift these here — the legacy lowering still
-            // owns event-field typing.
+            // Continuation of a non-payload child (anything else falls
+            // through here; legacy fallthrough kept for fixtures that
+            // author lines we haven't taught the parser to lift yet).
         }
 
         last_end = line.end;
@@ -12249,10 +12357,87 @@ fn parse_event_group(
             audit,
             events,
             events_outbox_guaranteed,
+            event_variants,
+            event_variant_kinds,
             span: Span::new(header.start, last_end),
         },
         i,
     ))
+}
+
+/// B5 framework gap 1 — parse a single `<name>: <Type> [required|optional]`
+/// row inside an `event_group`'s `event <name>` body. Mirrors the
+/// minimum slot count of `ResourceFieldDecl` but rejects modifiers
+/// outside the closed `required` / `optional` pair (no defaults, no
+/// constraints, no `unique`/`slug`/`@full_text` because event payloads
+/// are projection-only).
+fn parse_event_variant_field(
+    line: &SourceLine<'_>,
+    trimmed: &str,
+) -> Result<EventVariantFieldDecl, ParseError> {
+    let raw = strip_inline_comment(trimmed).trim_end();
+    let (name_part, after) = raw.split_once(':').ok_or_else(|| {
+        line_error(
+            line,
+            "event variant field must be `<name>: <Type> [required|optional]`",
+        )
+    })?;
+    let name = name_part.trim();
+    if name.is_empty() {
+        return Err(line_error(
+            line,
+            "event variant field requires a name before `:`",
+        ));
+    }
+    let after = after.trim();
+    if after.is_empty() {
+        return Err(line_error(
+            line,
+            "event variant field requires a type after `:`",
+        ));
+    }
+    // Strip trailing modifiers (`required` / `optional`) from the type
+    // literal so the analyzer's `type_ref_from_syntax` sees the bare
+    // type token. Keep the split conservative: only the last
+    // whitespace-separated token is considered a modifier candidate,
+    // matching the resource-field convention.
+    let mut required = false;
+    let mut optional = false;
+    let mut type_text = after.to_owned();
+    loop {
+        let trimmed_type = type_text.trim_end();
+        // Last whitespace-separated token without scanning forward.
+        let tail = match trimmed_type.rfind(|c: char| c.is_whitespace()) {
+            Some(idx) => &trimmed_type[idx + 1..],
+            None => trimmed_type,
+        };
+        match tail {
+            "required" => {
+                required = true;
+                let cut = trimmed_type.len() - tail.len();
+                type_text = trimmed_type[..cut].trim_end().to_owned();
+            }
+            "optional" => {
+                optional = true;
+                let cut = trimmed_type.len() - tail.len();
+                type_text = trimmed_type[..cut].trim_end().to_owned();
+            }
+            _ => break,
+        }
+    }
+    if type_text.is_empty() {
+        return Err(line_error(
+            line,
+            "event variant field requires a type literal before the modifier",
+        ));
+    }
+    Ok(EventVariantFieldDecl {
+        name: name.to_owned(),
+        type_text,
+        required,
+        optional,
+        span: Span::new(line.start, line.end),
+    })
 }
 
 fn parse_agent_expose(

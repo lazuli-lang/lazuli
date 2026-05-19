@@ -162,6 +162,7 @@ mod tests {
             raw_audit: None,
             events: names,
             events_outbox: modes,
+            variants: Vec::new(),
             span_ref: None,
         }
     }

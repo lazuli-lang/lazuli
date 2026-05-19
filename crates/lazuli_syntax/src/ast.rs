@@ -2012,8 +2012,19 @@ pub struct Webhook {
     pub policy_expr: Option<PolicyExprAst>,
     /// `handler "./..."` — required for canonical webhooks today.
     pub handler: Option<WebhookHandler>,
-    /// `emits <event>` lines.
+    /// `emits <event>` lines — flat list of event names (back-compat
+    /// shape). Populated even when per-branch predicates are authored
+    /// so the existing doctor / cross-feature pipeline stays oblivious.
     pub emits: Vec<String>,
+    /// B5 framework gap 2 — per-branch `emits ... when <predicate>`
+    /// bindings. Parallel to `emits`: `emits_predicates[i]` is the
+    /// `when` predicate authored on `emits[i]` (or `None` when no
+    /// predicate was authored). When every entry is `None` the
+    /// surface is unchanged from the flat shape; when any predicate
+    /// is present the codegen wires a dispatch table on the
+    /// generated webhook contract.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits_predicates: Vec<Option<String>>,
     /// Webhooks expanded cycle — `payload from webhook_events.<name>`
     /// (verbatim suffix after `webhook_events.`). `None` when the
     /// inbound webhook does not declare a typed envelope yet.
@@ -2328,6 +2339,53 @@ pub struct EventGroup {
     /// `outbox guaranteed`. Length always matches `events.len()`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events_outbox_guaranteed: Vec<bool>,
+    /// B5 framework gap 1 — per-event typed payload field bodies.
+    /// Parallel to `events`: `event_variants[i]` holds the typed-field
+    /// rows authored under `events[i]`. Each entry is an
+    /// `EventVariantFieldDecl` (name + type-literal + required/optional).
+    /// When an event was authored without a field body, the inner Vec
+    /// is empty (preserves back-compat with the `event foo` shorthand).
+    /// Lifted into typed `EventVariant` records by the analyzer; see
+    /// `docs/proposals/event-group-per-variant-payload.md`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_variants: Vec<Vec<EventVariantFieldDecl>>,
+    /// B5 framework gap 1 — parallel to `events`: closed catalog of
+    /// the keyword authored on the event header. Distinguishes
+    /// `event <name>` (Committed) from `event.trace <name>` (Trace) so
+    /// the analyzer can lower into the correct `EventKind`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_variant_kinds: Vec<EventVariantKindAst>,
+    pub span: Span,
+}
+
+/// B5 framework gap 1 — per-event variant kind on the AST surface.
+/// Mirrors the `ir::EventKind` catalog so the parser stays decoupled
+/// from the IR while the analyzer can lift losslessly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventVariantKindAst {
+    /// Authored as `event <name>` — committed bus variant.
+    Committed,
+    /// Authored as `event.trace <name>` — trace-only variant.
+    Trace,
+}
+
+/// B5 framework gap 1 — a single typed field row inside an
+/// `event_group`'s `event <name>` body. Mirrors the surface shape of
+/// `ResourceFieldDecl` but keeps the slot count minimal because event
+/// payloads are projection-only (no defaults, no constraints, no
+/// `unique`/`slug`/`@full_text`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventVariantFieldDecl {
+    /// Field name as authored.
+    pub name: String,
+    /// Type literal verbatim (`Text`, `@semantic.Money`, `ID`, ...).
+    /// Lifted to `ir::TypeRef` via `type_ref_from_syntax` on lowering.
+    pub type_text: String,
+    /// `required` modifier authored.
+    pub required: bool,
+    /// `optional` modifier authored.
+    pub optional: bool,
     pub span: Span,
 }
 

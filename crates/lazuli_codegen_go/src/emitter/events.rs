@@ -20,7 +20,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use lazuli_ir::{Event, EventField, EventGroup, Feature, Resource, TypeRef};
+use lazuli_ir::{Event, EventField, EventGroup, EventVariant, Feature, Resource, TypeRef};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
@@ -69,12 +69,37 @@ pub fn emit_events_file(
 
     for group in &groups {
         let group_fields = group_payload_fields(group, feature, &type_ctx, &mut imports);
+        // B5 framework gap 1 — when the event_group authored typed
+        // variants, prefer them; otherwise fall back to the legacy
+        // `Feature.events` lookup so pre-gap fixtures keep working.
+        let variants_by_short: BTreeMap<&str, &EventVariant> = group
+            .variants
+            .iter()
+            .map(|v| (v.name.as_str(), v))
+            .collect();
         for (full_name, short_name) in sorted_group_event_names(group) {
             let payload = payloads
                 .entry(full_name.clone())
                 .or_insert_with(|| PayloadStruct::new(&full_name));
             for field in &group_fields {
                 payload.push_field(field.clone());
+            }
+            if let Some(variant) = variants_by_short.get(short_name) {
+                // Typed-variant path — pull per-event fields straight
+                // from the group's variant record. Trace variants
+                // surface a `// TODO(runtime)` comment the same way
+                // the legacy `event_runtime_gap_comments` does.
+                for field in &variant.fields {
+                    let lowered = typed_payload_field(field, &type_ctx, &mut imports);
+                    payload.push_field(lowered);
+                }
+                if matches!(variant.kind, lazuli_ir::EventVariantKind::Trace) {
+                    payload.push_comment(format!(
+                        "// TODO(runtime): event.trace {} metadata is not represented by lazuli.EventDescriptor yet.",
+                        full_name
+                    ));
+                }
+                continue;
             }
             if let Some(event) = matching_event(&events_by_name, &full_name, short_name) {
                 matched_events.insert(event.name.as_str());
@@ -730,6 +755,10 @@ mod tests {
             raw_audit: None,
             events,
             events_outbox,
+            // B5 framework gap 1 — legacy fixtures author no typed
+            // variants; `variants: Vec::new()` keeps the codegen on
+            // the legacy `Feature.events` lookup path.
+            variants: Vec::new(),
             span_ref: None,
         }
     }
@@ -858,6 +887,57 @@ mod tests {
         assert!(out.contains("type CustomerLoggedInPayload struct {"));
         assert!(out.contains("CustomerID lazuli.ID `json:\"customer_id\"`"));
         assert!(out.contains("Provider   string    `json:\"provider\"`"));
+    }
+
+    /// B5 framework gap 1 — when the event_group carries typed
+    /// variants the emitter writes per-variant payload struct shapes
+    /// straight from `EventGroup.variants[i].fields`, no longer
+    /// requiring `Feature.events` to be populated. This is the
+    /// hostpoint failure mode: the legacy lookup returned the
+    /// envelope-only struct.
+    #[test]
+    fn typed_variants_under_group_drive_per_variant_payload_shapes() {
+        let mut feature = base_feature("payments");
+        feature.resources.push(simple_resource("Charge"));
+        let mut group = event_group("charge_*", vec!["confirmed", "failed"]);
+        group.variants = vec![
+            lazuli_ir::EventVariant {
+                name: "confirmed".to_owned(),
+                kind: lazuli_ir::EventVariantKind::Committed,
+                outbox: OutboxMode::Guaranteed,
+                fields: vec![
+                    event_field("amount", BuiltinType::Decimal, false),
+                    event_field("provider_payment_id", BuiltinType::Text, false),
+                ],
+                span_ref: None,
+            },
+            lazuli_ir::EventVariant {
+                name: "failed".to_owned(),
+                kind: lazuli_ir::EventVariantKind::Committed,
+                outbox: OutboxMode::Guaranteed,
+                fields: vec![
+                    event_field("reason", BuiltinType::Text, false),
+                    event_field("provider_error_code", BuiltinType::Text, true),
+                ],
+                span_ref: None,
+            },
+        ];
+        feature.event_groups.push(group);
+        let out = emit(&feature).expect("must emit");
+        // Confirmed gets typed fields.
+        assert!(
+            out.contains("type ChargeConfirmedPayload struct {"),
+            "ChargeConfirmedPayload missing:\n{}",
+            out
+        );
+        assert!(
+            out.contains("ProviderPaymentID") && out.contains("`json:\"provider_payment_id\"`"),
+            "ProviderPaymentID payload field missing:\n{out}"
+        );
+        // Failed gets its OWN typed fields (different from confirmed).
+        assert!(out.contains("type ChargeFailedPayload struct {"));
+        assert!(out.contains("Reason"));
+        assert!(out.contains("ProviderErrorCode"));
     }
 
     #[test]

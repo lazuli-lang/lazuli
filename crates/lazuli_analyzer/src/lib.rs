@@ -4111,6 +4111,23 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         .map(|sg| ir::WebhookScopeGlobalSpec {
             reason: sg.reason.clone(),
         });
+    // B5 framework gap 2 — lift per-branch emit predicates onto the
+    // typed `EmitPredicate` shape. The AST carries the raw `when`
+    // clauses; we promote `path = "literal"` and
+    // `path in ("a", "b")` to typed variants and fall back to
+    // `EmitPredicateKind::Other { raw }` for anything else. Length
+    // matches `webhook.emits` when any predicate is authored; an
+    // empty vec means "flat list, no per-branch dispatch".
+    let emit_predicates = if webhook.emits_predicates.is_empty() {
+        Vec::new()
+    } else {
+        webhook
+            .emits_predicates
+            .iter()
+            .map(|raw| raw.as_deref().map(lower_emit_predicate))
+            .collect::<Vec<_>>()
+    };
+
     Ok(ir::Webhook {
         name: webhook.name.clone(),
         route: webhook.route.clone(),
@@ -4125,6 +4142,7 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         handler,
         returns,
         emits: webhook.emits.clone(),
+        emit_predicates,
         payload_from,
         replay,
         dlq,
@@ -4132,6 +4150,100 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
         previous_names: Vec::new(),
         span_ref: Some(span_of(webhook.span)),
     })
+}
+
+/// B5 framework gap 2 — lift a raw `when <predicate>` clause into the
+/// typed `ir::EmitPredicate`. Recognised shapes:
+///
+/// * `path = "literal"` — equality.
+/// * `path in ("a", "b")` — set membership.
+/// * anything else — `EmitPredicateKind::Other { raw }`.
+///
+/// The lift is intentionally conservative: shapes that don't match
+/// the typed catalog are preserved verbatim so codegen can emit a
+/// runtime-evaluated stub without losing authoring intent.
+fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
+    let trimmed = raw.trim();
+    let kind = parse_emit_predicate_kind(trimmed)
+        .unwrap_or_else(|| ir::EmitPredicateKind::Other {
+            raw: trimmed.to_owned(),
+        });
+    ir::EmitPredicate {
+        raw: trimmed.to_owned(),
+        kind,
+        span_ref: None,
+    }
+}
+
+fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
+    // `path = "literal"` — split on the first `=` not followed by `=`
+    // (avoid `==` if a future surface accepts it). The current closed
+    // surface only authors a single `=`.
+    if let Some((lhs, rhs)) = text.split_once('=') {
+        let path = lhs.trim();
+        let literal_raw = rhs.trim();
+        if !path.is_empty() && !path.contains(' ') {
+            if let Some(literal) = strip_quotes(literal_raw) {
+                return Some(ir::EmitPredicateKind::Equals {
+                    path: path.to_owned(),
+                    literal: literal.to_owned(),
+                });
+            }
+        }
+    }
+    // `path in ("a", "b", ...)`
+    if let Some(in_pos) = find_word(text, "in") {
+        let path = text[..in_pos].trim();
+        let rhs = text[in_pos + 2..].trim();
+        if !path.is_empty()
+            && !path.contains(' ')
+            && rhs.starts_with('(')
+            && rhs.ends_with(')')
+        {
+            let inner = &rhs[1..rhs.len() - 1];
+            let literals: Vec<String> = inner
+                .split(',')
+                .filter_map(|raw| strip_quotes(raw.trim()).map(str::to_owned))
+                .collect();
+            if !literals.is_empty() {
+                return Some(ir::EmitPredicateKind::In {
+                    path: path.to_owned(),
+                    literals,
+                });
+            }
+        }
+    }
+    None
+}
+
+fn strip_quotes(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
+    {
+        Some(&trimmed[1..trimmed.len() - 1])
+    } else {
+        None
+    }
+}
+
+/// Find a whole-word token (`word`) in `text`, returning its byte
+/// offset. Returns `None` when the substring only appears as part of
+/// a longer identifier (e.g. `withdrawn`).
+fn find_word(text: &str, word: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut from = 0usize;
+    while let Some(rel) = text[from..].find(word) {
+        let abs = from + rel;
+        let before_ok = abs == 0 || bytes[abs - 1].is_ascii_whitespace();
+        let after_pos = abs + word.len();
+        let after_ok = after_pos >= bytes.len() || bytes[after_pos].is_ascii_whitespace();
+        if before_ok && after_ok {
+            return Some(abs);
+        }
+        from = abs + word.len();
+    }
+    None
 }
 
 /// Realtime bucket cycle MVP — lower a canonical-indent `channel`
@@ -4349,8 +4461,8 @@ fn lower_notification_throttle(
 
 /// Phase L Tier 3 — lower a canonical-indent `event_group` into
 /// `ir::EventGroup`. The payload bag and authored events stay as raw
-/// strings; Tier 4 will lift these into typed shapes once the shared
-/// declarative parser exists.
+/// strings; B5 framework gap 1 lifts the per-event typed payload
+/// blocks into `variants`.
 pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
     // EVENT-OUTBOX §3.3 — lower the parallel bool vec into the typed
     // `OutboxMode` catalog. Index-paired with `events`; when the AST
@@ -4371,6 +4483,61 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
             })
             .collect()
     };
+
+    // B5 framework gap 1 — lift per-event field bodies into
+    // `EventVariant` records. Each variant carries its `EventField`s
+    // lifted via `type_ref_from_syntax`, the closed kind catalog
+    // (committed vs trace), and the outbox flag mirrored from the
+    // parallel slot above. Back-compat: variants whose body was
+    // empty come through with an empty `fields` Vec; legacy fixtures
+    // that didn't author `event_variants`/`event_variant_kinds` at
+    // all leave `variants` empty.
+    let variants: Vec<ir::EventVariant> = if group.event_variants.is_empty()
+        && group.event_variant_kinds.is_empty()
+    {
+        Vec::new()
+    } else {
+        group
+            .events
+            .iter()
+            .enumerate()
+            .map(|(idx, short_name)| {
+                let kind = match group
+                    .event_variant_kinds
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(syntax::EventVariantKindAst::Committed)
+                {
+                    syntax::EventVariantKindAst::Committed => ir::EventVariantKind::Committed,
+                    syntax::EventVariantKindAst::Trace => ir::EventVariantKind::Trace,
+                };
+                let fields = group
+                    .event_variants
+                    .get(idx)
+                    .map(|rows| {
+                        rows.iter()
+                            .map(lower_event_variant_field)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let outbox = events_outbox
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(ir::OutboxMode::None);
+                ir::EventVariant {
+                    name: short_name.clone(),
+                    kind,
+                    outbox,
+                    fields,
+                    span_ref: group
+                        .event_variants
+                        .get(idx)
+                        .and_then(|rows| rows.first().map(|f| span_of(f.span))),
+                }
+            })
+            .collect()
+    };
+
     ir::EventGroup {
         pattern: group.pattern.clone(),
         on_resource: group.on_resource.clone(),
@@ -4378,7 +4545,30 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
         raw_audit: group.audit.clone(),
         events: group.events.clone(),
         events_outbox,
+        variants,
         span_ref: Some(span_of(group.span)),
+    }
+}
+
+/// B5 framework gap 1 — lift one typed event-variant field row into
+/// `ir::EventField`. Reuses `type_ref_from_syntax` so `@semantic.X`,
+/// `@cap.X`, and built-in scalars all flow through the same lifter
+/// resource fields use. `optional` falls back to `!required` when
+/// neither modifier was authored — matches the resource-field
+/// convention.
+fn lower_event_variant_field(decl: &syntax::EventVariantFieldDecl) -> ir::EventField {
+    let optional = if decl.required {
+        false
+    } else {
+        // Treat unmarked event-variant fields as required by default
+        // (events are projection contracts; missing values are a
+        // codegen-time bug). Authors opt into optionality explicitly.
+        decl.optional
+    };
+    ir::EventField {
+        name: decl.name.clone(),
+        type_ref: type_ref_from_syntax(&decl.type_text),
+        optional,
     }
 }
 
@@ -6396,6 +6586,169 @@ feature customer
                 "activated".to_owned(),
                 "archived".to_owned()
             ]
+        );
+    }
+
+    /// B5 framework gap 1 — per-event typed payload field bodies are
+    /// lifted into `EventGroup.variants`. The legacy `events: Vec<String>`
+    /// slot still holds the name list (back-compat), and each variant
+    /// carries its `EventField`s, kind, and outbox flag.
+    #[test]
+    fn lower_event_group_lifts_per_event_typed_payload_fields() {
+        let source = r#"
+feature payments
+  event_group charge_* on Charge
+    payload
+      charge_id = id
+    event requested
+      outbox guaranteed
+      amount: @semantic.Money
+      host_id: ID
+    event confirmed
+      outbox guaranteed
+      amount: @semantic.Money
+      provider_payment_id: Text
+      paid_at: DateTime
+    event.trace mp_status_received
+      provider_status: Text
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let group = &feature.event_groups[0];
+        assert_eq!(group.variants.len(), 3, "three variants under group");
+
+        // Variant 0 — requested
+        let requested = &group.variants[0];
+        assert_eq!(requested.name, "requested");
+        assert!(matches!(requested.kind, ir::EventVariantKind::Committed));
+        assert!(requested.outbox.is_guaranteed());
+        assert_eq!(requested.fields.len(), 2);
+        assert_eq!(requested.fields[0].name, "amount");
+        assert_eq!(requested.fields[1].name, "host_id");
+
+        // Variant 1 — confirmed
+        let confirmed = &group.variants[1];
+        assert_eq!(confirmed.name, "confirmed");
+        assert_eq!(confirmed.fields.len(), 3);
+        let names: Vec<&str> = confirmed.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["amount", "provider_payment_id", "paid_at"]);
+
+        // Variant 2 — trace
+        let trace = &group.variants[2];
+        assert_eq!(trace.name, "mp_status_received");
+        assert!(matches!(trace.kind, ir::EventVariantKind::Trace));
+        assert!(trace.outbox.is_none());
+        assert_eq!(trace.fields.len(), 1);
+        assert_eq!(trace.fields[0].name, "provider_status");
+    }
+
+    /// B5 framework gap 1 — `event foo` (no body) still parses and
+    /// lowers cleanly. The variant comes through with an empty
+    /// `fields` Vec so the legacy `Feature.events` lookup path stays
+    /// in charge of the typed projection.
+    #[test]
+    fn lower_event_group_back_compat_empty_event_bodies() {
+        let source = r#"
+feature customer
+  event_group customer_* on Customer
+    payload
+      customer_id = id
+    event created
+    event archived
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let group = &feature.event_groups[0];
+        assert_eq!(group.variants.len(), 2);
+        for variant in &group.variants {
+            assert!(variant.fields.is_empty());
+            assert!(matches!(variant.kind, ir::EventVariantKind::Committed));
+        }
+    }
+
+    /// B5 framework gap 2 — `webhook ... emits foo when <predicate>`
+    /// lifts the per-branch `when` clause into a typed `EmitPredicate`.
+    #[test]
+    fn lower_webhook_with_when_predicates_typed_lift() {
+        let source = r#"
+feature payments
+  webhook mp_payment_event
+    path "/webhooks/mp/payment"
+    verify hmac sha256
+      secret env.MERCADOPAGO_WEBHOOK_SECRET
+      header "x-signature"
+    idempotency by envelope.id
+    handler @fn.on_mp_payment_event
+    emits charge_confirmed when payload.status = "approved"
+    emits charge_failed when payload.status in ("rejected", "cancelled")
+    emits mp_status_received
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let webhook = &feature.webhooks[0];
+        assert_eq!(
+            webhook.emits,
+            vec![
+                "charge_confirmed".to_owned(),
+                "charge_failed".to_owned(),
+                "mp_status_received".to_owned()
+            ]
+        );
+        assert_eq!(webhook.emit_predicates.len(), 3);
+
+        // [0] equals
+        let approved = webhook.emit_predicates[0]
+            .as_ref()
+            .expect("first emit has predicate");
+        match &approved.kind {
+            ir::EmitPredicateKind::Equals { path, literal } => {
+                assert_eq!(path, "payload.status");
+                assert_eq!(literal, "approved");
+            }
+            other => panic!("expected Equals, got {:?}", other),
+        }
+
+        // [1] in
+        let failed = webhook.emit_predicates[1]
+            .as_ref()
+            .expect("second emit has predicate");
+        match &failed.kind {
+            ir::EmitPredicateKind::In { path, literals } => {
+                assert_eq!(path, "payload.status");
+                assert_eq!(literals, &vec!["rejected".to_owned(), "cancelled".to_owned()]);
+            }
+            other => panic!("expected In, got {:?}", other),
+        }
+
+        // [2] no predicate (default branch)
+        assert!(webhook.emit_predicates[2].is_none());
+    }
+
+    /// B5 framework gap 2 back-compat — the flat `emits foo` /
+    /// `emits bar` shape (no predicates) leaves `emit_predicates`
+    /// empty so the generated `WebhookContract` stays on the legacy
+    /// `Emits []string{}` shape.
+    #[test]
+    fn lower_webhook_without_when_predicates_keeps_legacy_emits_shape() {
+        let source = r#"
+feature payments
+  webhook mp_payment_event
+    path "/webhooks/mp/payment"
+    verify hmac sha256
+      secret env.MERCADOPAGO_WEBHOOK_SECRET
+      header "x-signature"
+    idempotency by envelope.id
+    handler @fn.on_mp_payment_event
+    emits charge_confirmed
+    emits charge_failed
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let webhook = &feature.webhooks[0];
+        assert_eq!(webhook.emits.len(), 2);
+        assert!(
+            webhook.emit_predicates.is_empty(),
+            "no `when` clauses means no per-branch dispatch"
         );
     }
 

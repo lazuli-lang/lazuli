@@ -4317,6 +4317,13 @@ pub struct Webhook {
     pub returns: Option<TypeRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
+    /// B5 framework gap 2 — per-branch emit predicates. Same length
+    /// as `emits` when present: `emit_predicates[i]` carries the
+    /// `when <predicate>` clause authored on `emits[i]`, or `None`
+    /// when the entry has no predicate (flat-list back-compat).
+    /// Empty vec means "no predicates anywhere" (legacy fixtures).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emit_predicates: Vec<Option<EmitPredicate>>,
     /// Webhooks expanded cycle — `payload from webhook_events.<name>`
     /// typed envelope reference resolved against
     /// `AppRegistry.webhook_events`. Carried as a structured ref so
@@ -4760,8 +4767,122 @@ pub struct EventGroup {
     /// `OutboxMode::None` when the line did not author one).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events_outbox: Vec<OutboxMode>,
+    /// B5 framework gap 1 — per-event typed payload variants. One
+    /// entry per `event <name>` authored under the group, carrying
+    /// the kind (committed/trace) and the typed payload fields lifted
+    /// from the per-event body. When `variants` is non-empty the
+    /// codegen prefers the typed projection over the legacy
+    /// `Feature.events` lookup. Back-compat: legacy fixtures that
+    /// author only `event foo` lines lower as variants with empty
+    /// `fields` and `kind = Committed`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<EventVariant>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// B5 framework gap 1 — one variant under an `EventGroup`. Carries
+/// the kind (`event <name>` vs `event.trace <name>`), the typed
+/// payload fields, and a span back to the source line for diagnostics.
+///
+/// Reuses `EventField` (the same shape standalone `Feature.events`
+/// use) so codegen and doctor can read variant fields with a single
+/// path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventVariant {
+    /// Short name as authored under the group (e.g. `confirmed` for
+    /// `event confirmed`). The full prefixed name is computed by
+    /// codegen using the group pattern (`charge_*` + `confirmed` ->
+    /// `charge_confirmed`).
+    pub name: String,
+    /// Closed catalog: committed (`event`) or trace (`event.trace`).
+    pub kind: EventVariantKind,
+    /// EVENT-OUTBOX §3.3 — `outbox guaranteed` flag authored on the
+    /// variant header. Mirrors the parallel `events_outbox` slot but
+    /// reaches the codegen directly from the variant record so it
+    /// does not need to index two vectors.
+    #[serde(default, skip_serializing_if = "OutboxMode::is_none")]
+    pub outbox: OutboxMode,
+    /// Typed payload fields lifted from the variant body. Empty when
+    /// the variant was authored without a field body (back-compat).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<EventField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// B5 framework gap 1 — closed catalog of event-variant kinds.
+/// Mirrors `EventKind` (the catalog already used by `Feature.events`)
+/// but is duplicated to keep the `EventGroup`-side surface
+/// self-contained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventVariantKind {
+    /// `event <name>` — committed domain bus variant.
+    Committed,
+    /// `event.trace <name>` — observability-only trace variant.
+    Trace,
+}
+
+impl EventVariantKind {
+    pub fn is_trace(&self) -> bool {
+        matches!(self, EventVariantKind::Trace)
+    }
+}
+
+/// B5 framework gap 2 — typed predicate attached to a webhook `emits`
+/// entry. Three closed shapes cover the surface today:
+///
+/// * `field = "literal"` — equality check (most common).
+/// * `field in ("a", "b")` — set membership.
+/// * raw — opaque expression preserved verbatim for shapes the
+///   typed lifter has not been taught yet. Codegen passes raw
+///   predicates through as runtime-evaluated Go expressions inside
+///   the dispatch table, so authors can still iterate without the
+///   typed lift catching up.
+///
+/// Lowering also captures the **path** the predicate reads (`field`)
+/// so the doctor can fail fast when the path does not resolve against
+/// the webhook payload contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmitPredicate {
+    /// Original `when <expr>` text verbatim (after the `when ` token,
+    /// trimmed). Codegen + doctor both consume the structured shape;
+    /// this slot is preserved for diagnostics and round-tripping.
+    pub raw: String,
+    /// Typed predicate kind. `Other(raw)` keeps the surface
+    /// permissive while the typed catalog grows.
+    pub kind: EmitPredicateKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// B5 framework gap 2 — closed catalog of typed emit predicate shapes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EmitPredicateKind {
+    /// `path = "literal"` — equality.
+    Equals { path: String, literal: String },
+    /// `path in ("a", "b", ...)` — set membership.
+    In { path: String, literals: Vec<String> },
+    /// Any other predicate shape; codegen treats this as an opaque
+    /// runtime expression. Carried verbatim so the dispatch table can
+    /// still emit a Go-level comment + a `/* TODO */` placeholder.
+    Other { raw: String },
+}
+
+impl EmitPredicate {
+    /// Returns the payload path the predicate reads, when the typed
+    /// catalog recognises one. Used by the doctor diagnostic
+    /// `webhook_emit_predicate_field_unresolved_001` to anchor at the
+    /// authored path.
+    pub fn payload_path(&self) -> Option<&str> {
+        match &self.kind {
+            EmitPredicateKind::Equals { path, .. } => Some(path.as_str()),
+            EmitPredicateKind::In { path, .. } => Some(path.as_str()),
+            EmitPredicateKind::Other { .. } => None,
+        }
+    }
 }
 
 // =============================================================================

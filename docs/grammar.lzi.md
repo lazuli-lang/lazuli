@@ -89,7 +89,7 @@ agent api at audience auth backoff budget by cache calls case channel
 chunk client command commands compatibility constraints context contract
 context_files cost creates default defaults delegated_to deletes deny
 denies discriminator domain emits enum env environment environments
-errors error escape_route event event_group evals exposes extends
+errors error escape_route event event_group evals expose extends
 extensible_by extensions fanout feature field fields filter filters
 flow fn forbids from group handler has hash has_many hook idempotency
 identity in input integration integrations job key keys knowledge

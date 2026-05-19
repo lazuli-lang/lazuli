@@ -264,6 +264,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         },
         returns: None,
         emits: Vec::new(),
+        emit_predicates: Vec::new(),
         payload_from: None,
         replay: None,
         dlq: None,

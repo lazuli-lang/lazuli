@@ -90,6 +90,49 @@ type DlqSpec struct {
 	Topic   string
 }
 
+// EmitPredicateKind names the typed shape of a webhook `emits ... when
+// <predicate>` clause. Empty means "no predicate" (the binding is the
+// default branch and fires on every envelope).
+//
+// B5 framework gap 2 — closed catalog matched against the canonical
+// `path = "literal"` and `path in ("a","b")` shapes. Anything outside
+// the catalog is lowered as `EmitPredicateOther` and the dispatch
+// table emits a runtime evaluator stub the handler is expected to
+// fill in.
+type EmitPredicateKind int
+
+const (
+	// EmitPredicateNone marks a binding with no `when` clause.
+	EmitPredicateNone EmitPredicateKind = iota
+	// EmitPredicateEquals fires when the payload field at `Path`
+	// equals `Literal` (case-sensitive string compare).
+	EmitPredicateEquals
+	// EmitPredicateIn fires when the payload field at `Path`
+	// matches any value in `Literals`.
+	EmitPredicateIn
+	// EmitPredicateOther is the catch-all for predicates the
+	// typed catalog has not yet learned. The dispatch table keeps
+	// the raw text so authors can attach a runtime evaluator
+	// without losing the source shape.
+	EmitPredicateOther
+)
+
+// EmitBinding ties one webhook `emits` entry to an optional `when`
+// predicate. Codegen emits a `WebhookContract.EmitBindings` slice when
+// any branch in the DSL authored a `when` clause; the receiver walks
+// it post-handler to select the variant to publish. When every entry
+// has `Kind == EmitPredicateNone` the runtime behaviour is unchanged
+// from the flat `Emits []string` shape — the receiver still defers to
+// the handler's return value.
+type EmitBinding struct {
+	Event    string
+	Kind     EmitPredicateKind
+	Path     string
+	Literal  string
+	Literals []string
+	Raw      string
+}
+
 // WebhookContract is the lowered `webhook <name>` shape. The codegen
 // emits `var <FeatureCamel>Webhook<NameCamel>Contract = webhooks.WebhookContract{...}`
 // per webhook.
@@ -105,10 +148,16 @@ type WebhookContract struct {
 	HandlerPath   string
 	ReturnsType   string
 	Emits         []string
-	PayloadFrom   *WebhookEventRef
-	Replay        *ReplaySpec
-	DLQ           *DlqSpec
-	Retry         *jobs.RetryPolicy
+	// EmitBindings is the per-branch dispatch table for webhooks
+	// that authored `emits <event> when <predicate>` clauses. Empty
+	// when the DSL used the flat `emits <event>` form — the
+	// receiver falls back to the handler's published-event return
+	// value in that case.
+	EmitBindings []EmitBinding
+	PayloadFrom  *WebhookEventRef
+	Replay       *ReplaySpec
+	DLQ          *DlqSpec
+	Retry        *jobs.RetryPolicy
 	// Prelude carries every `gate behind plan.feature` / `gate
 	// quota plan.limit` directive authored on the DSL `webhook`
 	// block. The receiver runs the prelude before invoking the user
