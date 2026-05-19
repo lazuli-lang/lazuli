@@ -1686,22 +1686,33 @@ pub(super) fn format_policy_with_expr_public(
 /// Atom decomposition mirrors hostpoint's hand-written `patchPolicy()`
 /// workaround (commit 700e95b): each `@<ns>.<name>` string in
 /// `PolicyCategory.atoms` parses into `{Namespace, Name}`; when the
-/// category carries 2+ atoms, an explicit `{predicate, and}` marker is
-/// prepended so the runtime walker treats the list as an AND
-/// conjunction (default combinator). Closes WAR-RUNTIME-POLICY-01.
+/// category carries 2+ atoms, the list is wrapped in infix form
+/// `( A and B and C )` so the runtime's recursive-descent walker
+/// (evalAnd) consumes one operand at a time. Closes WAR-RUNTIME-POLICY-01.
 fn format_local_policy(name: &str, policies: &Policies) -> Option<String> {
     let category = policies.categories.iter().find(|c| c.name == name)?;
-    let mut atom_literals: Vec<String> = Vec::new();
-    if category.atoms.len() >= 2 {
-        atom_literals
-            .push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
-    }
-    for atom in &category.atoms {
+    let render_atom = |atom: &String| -> String {
         let stripped = atom.strip_prefix('@').unwrap_or(atom);
         let mut parts = stripped.splitn(2, '.');
         let ns = parts.next().unwrap_or("");
         let nm = parts.next().unwrap_or("");
-        atom_literals.push(format!("{{Namespace: \"{ns}\", Name: \"{nm}\"}}"));
+        format!("{{Namespace: \"{ns}\", Name: \"{nm}\"}}")
+    };
+    let mut atom_literals: Vec<String> = Vec::new();
+    if category.atoms.len() >= 2 {
+        atom_literals.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
+        for (i, atom) in category.atoms.iter().enumerate() {
+            if i > 0 {
+                atom_literals
+                    .push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
+            }
+            atom_literals.push(render_atom(atom));
+        }
+        atom_literals.push("{Namespace: \"predicate\", Name: \")\"}".to_owned());
+    } else {
+        for atom in &category.atoms {
+            atom_literals.push(render_atom(atom));
+        }
     }
     let inner = atom_literals.join(", ");
     Some(format!(

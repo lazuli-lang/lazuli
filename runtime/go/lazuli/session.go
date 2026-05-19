@@ -89,6 +89,15 @@ type SessionExpiryResolver interface {
 	ResolveAccessWithExpiry(ctx context.Context, token string) (expiredAt time.Time, refreshable bool, err error)
 }
 
+// SessionRolesResolver is optionally implemented by resolvers that can
+// also bear the actor's role assignments. When present, the production
+// middleware populates `ctx.User.Roles` so policy `@role.*` atoms match
+// without an extra hop. When absent, `ctx.User.Roles` stays empty (the
+// dev-mode header path `X-Lazuli-Roles` still works).
+type SessionRolesResolver interface {
+	ResolveRoles(ctx context.Context, userID ID) (roles []string, err error)
+}
+
 var sessionResolver SessionResolver
 
 // RegisterSessionResolver installs the production session resolver.
@@ -139,6 +148,13 @@ func populateProductionSession(r *http.Request, ctx *Ctx) {
 	}
 	ctx.Actor = ActorUser
 	ctx.User = &User{ID: userID, OrgID: orgID}
+	if rolesResolver, ok := resolver.(SessionRolesResolver); ok && userID > 0 {
+		if roles, rolesErr := rolesResolver.ResolveRoles(r.Context(), userID); rolesErr == nil {
+			ctx.User.Roles = roles
+		} else {
+			slog.Warn("lazuli: session roles resolver error", "error", rolesErr)
+		}
+	}
 	if orgID > 0 {
 		ctx.Tenant = &Tenant{OrgID: orgID}
 	}

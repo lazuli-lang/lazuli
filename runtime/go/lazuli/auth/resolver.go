@@ -183,6 +183,26 @@ func selectWithoutOrg(
 	return userID, sessionID, expiresAt, revokedAt, true, nil
 }
 
+// ResolveRoles fetches the actor's role for policy `@role.*` atom
+// evaluation. Hardcodes the `"user"` table + `"role"` column for v1 —
+// matches the canonical Lazuli auth identity shape where every app
+// declares a `User` resource with a `role` field. Apps that name their
+// identity differently can override by registering a custom resolver.
+func (runtimeResolver) ResolveRoles(ctx context.Context, userID lazuli.ID) ([]string, error) {
+	var role string
+	err := sessionDBProvider().QueryRow(ctx, `SELECT COALESCE(role::text, '') FROM "user" WHERE id = $1`, int64(userID)).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if role == "" {
+		return nil, nil
+	}
+	return []string{role}, nil
+}
+
 func quoteTableIdent(table string) string { return `"` + table + `"` }
 
 func guardSessionIdent(name string) error {
