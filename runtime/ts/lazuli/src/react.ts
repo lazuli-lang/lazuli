@@ -20,9 +20,14 @@ import type {
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import type { LazuliClient, LazuliRouter } from "./client.js";
+import type {
+  LifecycleGateEvaluator,
+  LifecycleGateMetadata,
+  LifecycleVerdict,
+} from "./lifecycle-gate.js";
 import type {
   LazuliActor,
   LazuliRouteGuardPolicy,
@@ -175,6 +180,34 @@ export interface RouteGuardProps {
 }
 
 export declare function RouteGuard(props: RouteGuardProps): ReactNode;
+
+export type RouteGuardOptions = Omit<RouteGuardProps, "children">;
+
+export declare function useRouteGuardSkeleton(): ReactNode;
+
+export declare function withRouteGuard<P extends object>(
+  Component: ComponentType<P>,
+  guard: RouteGuardOptions,
+): ComponentType<P>;
+
+// --- Lifecycle route gates -----------------------------------------------
+
+export type {
+  LifecycleGateEvaluator,
+  LifecycleGateMetadata,
+  LifecycleVerdict,
+};
+
+export declare function useLifecycleGate(
+  metadata: LifecycleGateMetadata,
+  evaluator: LifecycleGateEvaluator,
+): { verdict: LifecycleVerdict | "hydrating" };
+
+export declare function withLifecycleGate<P extends object>(
+  Component: ComponentType<P>,
+  metadata: LifecycleGateMetadata,
+  evaluator: LifecycleGateEvaluator,
+): ComponentType<P>;
 
 // --- Platform-split hooks --------------------------------------------------
 
