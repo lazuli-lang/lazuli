@@ -284,6 +284,7 @@ pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, Analyze
         apis: Vec::new(),
         records: Vec::new(),
         queries,
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -445,6 +446,7 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
         guard: view.guard.as_ref().map(lower_view_guard),
         resolved_guard_policy: None,
+        resolved_lifecycle_gate: None,
         span_ref: Some(span_of(view.span)),
     }
 }
@@ -537,6 +539,8 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
         policy: guard.policy.clone(),
         on_unauthenticated: guard.on_unauthenticated.clone(),
         on_unauthorized: guard.on_unauthorized.clone(),
+        requires_lifecycle: None,
+        on_lifecycle_pending: None,
         span_ref: Some(span_of(guard.span)),
     }
 }
@@ -2285,6 +2289,7 @@ pub fn lower_feature_skeleton(
         apis,
         records,
         queries,
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs,
         webhooks,

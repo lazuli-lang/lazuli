@@ -43,6 +43,9 @@ pub struct SpanRef {
     pub end: usize,
 }
 
+/// Alias used by newer IR cells that name source anchors as `span`.
+pub type Span = SpanRef;
+
 /// SourceMap is the IR companion that resolves `SpanRef` byte
 /// offsets to (file, line, column). Sidecar to `Module` — passed
 /// alongside in codegen, serialized to `<module>.sourcemap.json`
@@ -446,6 +449,9 @@ pub struct Feature {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub records: Vec<Record>,
     pub queries: Vec<Query>,
+    /// `resume <name>` blocks for lifecycle-aware route gates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resume_routers: Vec<ResumeRouter>,
     pub workflows: Vec<Workflow>,
     pub jobs: Vec<Job>,
     pub webhooks: Vec<Webhook>,
@@ -3939,6 +3945,64 @@ pub struct AppRoute {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `requires_lifecycle <Resource> = <state>` slot on a view.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequiresLifecycle {
+    /// PascalCase resource name matching `Resource.name`.
+    pub resource: String,
+    /// snake_case state name matching `LifecycleState.name`.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<Span>,
+}
+
+/// `resume <name>` block at feature top-level.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeRouter {
+    /// snake_case identifier.
+    pub name: String,
+    /// `query.lookup` name, e.g. `my_host`.
+    pub source_query: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arms: Vec<ResumeArm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<Span>,
+}
+
+/// One match arm in a `resume` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeArm {
+    pub kind: ResumeArmKind,
+    /// View name in the same feature, or `<feature>.<view>` cross-feature.
+    pub target_view: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<Span>,
+}
+
+/// Lifecycle state name, `none` marker, or wildcard arm kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ResumeArmKind {
+    /// A lifecycle state name.
+    State(String),
+    /// 404 / no-row arm.
+    None,
+    /// Catch-all `* -> view <v>` arm.
+    Wildcard,
+}
+
+/// Cached analyzer output: per-view resolved lifecycle gate. Populated
+/// during analyzer pass; null when the view has no `requires_lifecycle`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedLifecycleGate {
+    pub resource: String,
+    pub state: String,
+    /// Name of the resume router resolved from `on_lifecycle_pending`.
+    pub resume_router: String,
+    /// Qualified source query, e.g. `host.query.my_host`.
+    pub source_query_qualified: String,
+}
+
 /// `ir-route-guards` §3.1 — declarative policy + redirect targets for a
 /// view (experience view, platform view, audience, or app route). The
 /// same `PolicyRef` shape already used by `command.policy`; redirects
@@ -3960,6 +4024,14 @@ pub struct ViewGuard {
     /// up the chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_unauthorized: Option<String>,
+    /// `requires_lifecycle <Resource> = <state>` — lifecycle state
+    /// required before the view may render.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires_lifecycle: Option<RequiresLifecycle>,
+    /// `on_lifecycle_pending @resume <name>` — resume router used when
+    /// the lifecycle gate does not match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_lifecycle_pending: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -4032,6 +4104,9 @@ pub struct ExperienceView {
     /// view/route -> audience -> app -> built-in defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_guard_policy: Option<Vec<PolicyAtom>>,
+    /// LAZ-85 — analyzer-cached lifecycle route gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_lifecycle_gate: Option<ResolvedLifecycleGate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -6643,6 +6718,8 @@ mod l0_6_ir_tests {
             policy: "@policy.host_only".to_string(),
             on_unauthenticated: Some("/sign-in".to_string()),
             on_unauthorized: Some("/explore".to_string()),
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
             span_ref: Some(SpanRef { start: 1, end: 50 }),
         });
     }
@@ -6653,6 +6730,8 @@ mod l0_6_ir_tests {
             policy: "@policy.authenticated".to_string(),
             on_unauthenticated: None,
             on_unauthorized: None,
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
             span_ref: None,
         });
     }
@@ -6663,10 +6742,147 @@ mod l0_6_ir_tests {
             policy: "@policy.public".to_string(),
             on_unauthenticated: None,
             on_unauthorized: None,
+            requires_lifecycle: None,
+            on_lifecycle_pending: None,
             span_ref: None,
         };
         let v = serde_json::to_value(&g).unwrap();
         assert_eq!(v, json!({ "policy": "@policy.public" }));
+    }
+
+    #[test]
+    fn lifecycle_route_gate_ir_round_trips_with_all_slots() {
+        let lifecycle_span = SpanRef { start: 10, end: 40 };
+        let resume_span = SpanRef { start: 50, end: 140 };
+        let requires = RequiresLifecycle {
+            resource: "Host".to_string(),
+            state: "complete".to_string(),
+            span: Some(lifecycle_span),
+        };
+        let guard = ViewGuard {
+            policy: "@policy.host_only".to_string(),
+            on_unauthenticated: Some("/sign-in".to_string()),
+            on_unauthorized: Some("/explore".to_string()),
+            requires_lifecycle: Some(requires.clone()),
+            on_lifecycle_pending: Some("host_onboarding".to_string()),
+            span_ref: Some(SpanRef { start: 1, end: 60 }),
+        };
+        let resolved = ResolvedLifecycleGate {
+            resource: "Host".to_string(),
+            state: "complete".to_string(),
+            resume_router: "host_onboarding".to_string(),
+            source_query_qualified: "host.query.my_host".to_string(),
+        };
+        let router = ResumeRouter {
+            name: "host_onboarding".to_string(),
+            source_query: "my_host".to_string(),
+            arms: vec![
+                ResumeArm {
+                    kind: ResumeArmKind::None,
+                    target_view: "host_onboarding_intermediation".to_string(),
+                    span: Some(resume_span),
+                },
+                ResumeArm {
+                    kind: ResumeArmKind::State("complete".to_string()),
+                    target_view: "host_home".to_string(),
+                    span: None,
+                },
+                ResumeArm {
+                    kind: ResumeArmKind::Wildcard,
+                    target_view: "host_onboarding_intermediation".to_string(),
+                    span: None,
+                },
+            ],
+            span: Some(resume_span),
+        };
+
+        let module = ExperienceModule {
+            app: None,
+            routes: vec![AppRoute {
+                name: "host_index".to_string(),
+                path: Some("/host".to_string()),
+                routes: Vec::new(),
+                to: Some("host_home".to_string()),
+                surface: Some("host web".to_string()),
+                audience: Some("host".to_string()),
+                lazy: None,
+                prerender: None,
+                guard: Some(guard.clone()),
+                span_ref: None,
+            }],
+            experiences: vec![Experience {
+                name: "host".to_string(),
+                imports: Vec::new(),
+                views: vec![ExperienceView {
+                    name: "host_home".to_string(),
+                    anchor: Some("host_root".to_string()),
+                    routes: vec!["host_index".to_string()],
+                    extensible_by: Vec::new(),
+                    source: Some("host.query.my_host".to_string()),
+                    submit: None,
+                    blocks: vec!["host_home_shell".to_string()],
+                    actions: Vec::new(),
+                    opens: Vec::new(),
+                    tests: Vec::new(),
+                    guard: Some(guard.clone()),
+                    resolved_guard_policy: None,
+                    resolved_lifecycle_gate: Some(resolved.clone()),
+                    span_ref: None,
+                }],
+                extensions: Vec::new(),
+                span_ref: None,
+            }],
+            surfaces: Vec::new(),
+        };
+
+        let json = serde_json::to_string(&module).expect("serialize ExperienceModule");
+        let back: ExperienceModule =
+            serde_json::from_str(&json).expect("deserialize ExperienceModule");
+        assert_eq!(module, back);
+        assert!(json.contains("\"requires_lifecycle\""));
+        assert!(json.contains("\"on_lifecycle_pending\""));
+        assert!(json.contains("\"resolved_lifecycle_gate\""));
+
+        round_trip(&router);
+        assert_eq!(
+            serde_json::to_value(ResumeArmKind::State("complete".to_string())).unwrap(),
+            json!({ "kind": "state", "value": "complete" })
+        );
+
+        let feature_json = json!({
+            "name": "host",
+            "purpose": null,
+            "defaults": {},
+            "uses": [],
+            "enums": [],
+            "resources": [],
+            "events": [],
+            "rules": [],
+            "policies": {
+                "categories": [],
+                "fields": []
+            },
+            "commands": [],
+            "queries": [],
+            "resume_routers": [router],
+            "workflows": [],
+            "jobs": [],
+            "webhooks": [],
+            "surfaces": [],
+            "extensions": [],
+            "escape_routes": []
+        });
+        let feature: Feature =
+            serde_json::from_value(feature_json.clone()).expect("deserialize feature");
+        assert_eq!(feature.resume_routers.len(), 1);
+        assert_eq!(
+            serde_json::to_value(feature)
+                .expect("serialize feature")
+                .get("resume_routers")
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(1)
+        );
     }
 
     #[test]

@@ -57,6 +57,7 @@ fn empty_feature() -> Feature {
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -487,4 +488,3 @@ fn pre_vocab_command_json_deserializes_with_none_policy_when_denied() {
     let cmd: Command = serde_json::from_str(json).expect("deserialize pre-vocab command");
     assert!(cmd.policy_when_denied.is_none());
 }
-

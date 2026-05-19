@@ -11,6 +11,30 @@ release bump.
 
 ### Added
 
+- **ir-lifecycle-route-gates Cell IR-1 / LAZ-85 (2026-05-19) —
+  lifecycle-aware route gate IR**, additive only.
+
+  New shapes:
+  - `RequiresLifecycle { resource, state, span }`
+  - `ResumeRouter { name, source_query, arms, span }`
+  - `ResumeArm { kind, target_view, span }`
+  - `ResumeArmKind::{State, None, Wildcard}`
+  - `ResolvedLifecycleGate { resource, state, resume_router,
+    source_query_qualified }`
+
+  Optional fields added to `ViewGuard`:
+  - `requires_lifecycle: Option<RequiresLifecycle>`
+  - `on_lifecycle_pending: Option<String>`
+
+  Optional field added to `ExperienceView`:
+  - `resolved_lifecycle_gate: Option<ResolvedLifecycleGate>`
+
+  Feature-level collection added:
+  - `Feature.resume_routers: Vec<ResumeRouter>`
+
+  All optional/vector fields use serde defaults and skip-empty
+  serialization so existing fixtures deserialize unchanged.
+
 - **IR Error-Vocab Cell IR-1 (2026-05-18) — typed translation key
   references + feature-level `errors` block lowering**, additive only.
   Implements
