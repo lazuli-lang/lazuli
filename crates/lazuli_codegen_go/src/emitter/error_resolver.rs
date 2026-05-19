@@ -4,9 +4,10 @@
 //! sites required by the four-layer message resolution chain
 //! (proposal §2.E):
 //!
-//! - **(a) Per-command `ErrorKeys` literal** — a `var <cmd>ErrorKeys =
-//!   lazuli.ErrorKeys{ ... }` block. Emitted only when the command
-//!   declares `policy_when_denied`. Composes inline into the existing
+//! - **(a) Per-operation `ErrorKeys` literal** — a `var <op>ErrorKeys =
+//!   lazuli.ErrorKeys{ ... }` block. Emitted when the command/query has
+//!   an effective `policy_denied` override (`policy_when_denied` or
+//!   `PolicyCategory.when_denied`). Composes inline into the existing
 //!   `command.gen.go` body so the command literal can reference
 //!   `&<cmd>ErrorKeys` via a new `ErrorKeys` kv row. Codegen emits
 //!   zero LOC when the command has no override (§4.4 LOC budget).
@@ -41,7 +42,7 @@ use std::collections::BTreeMap;
 
 use lazuli_ir::{
     Command, ErrorExposureDefault, Feature, FeatureErrorMessage, FeatureErrors, Module,
-    TranslationKeyRef,
+    Policies, PolicyRef, TranslationKeyRef,
 };
 
 use super::casing::gen_package_name;
@@ -66,11 +67,50 @@ pub fn command_error_keys_var(command: &Command) -> String {
 }
 
 /// `true` when the command should emit a per-command `ErrorKeys`
-/// literal. Today only `policy_when_denied` triggers the emit; future
-/// per-command overrides (tenant_mismatch, not_found, ...) extend this
-/// predicate without changing the call site.
-pub fn command_has_error_keys(command: &Command) -> bool {
-    command.policy_when_denied.is_some()
+/// literal. Direct per-command `policy_when_denied` wins; otherwise a
+/// named policy category's `when_denied` becomes the operation-level
+/// runtime key.
+pub fn command_has_error_keys(command: &Command, policies: Option<&Policies>) -> bool {
+    command_policy_denied_key(command, policies).is_some()
+}
+
+/// Effective `policy_denied` message key for a command.
+pub fn command_policy_denied_key<'a>(
+    command: &'a Command,
+    policies: Option<&'a Policies>,
+) -> Option<&'a TranslationKeyRef> {
+    policy_denied_key_for_policy(command.policy_when_denied.as_ref(), &command.policy, policies)
+}
+
+pub fn policy_denied_key_for_policy<'a>(
+    operation_override: Option<&'a TranslationKeyRef>,
+    policy: &'a PolicyRef,
+    policies: Option<&'a Policies>,
+) -> Option<&'a TranslationKeyRef> {
+    if operation_override.is_some() {
+        return operation_override;
+    }
+    let policy_name = local_policy_name(policy)?;
+    policies?
+        .categories
+        .iter()
+        .find(|category| category.name == policy_name)
+        .and_then(|category| category.when_denied.as_ref())
+}
+
+fn local_policy_name(policy: &PolicyRef) -> Option<&str> {
+    match policy {
+        PolicyRef::Local(name) => Some(name.as_str()),
+        PolicyRef::Atom(atom) => {
+            let stripped = atom.strip_prefix('@').unwrap_or(atom);
+            stripped.strip_prefix("policy.")
+        }
+        PolicyRef::Unresolved(raw) => {
+            let stripped = raw.strip_prefix('@').unwrap_or(raw);
+            stripped.strip_prefix("policy.")
+        }
+        PolicyRef::External { .. } | PolicyRef::None => None,
+    }
 }
 
 /// Emit the per-command `var <cmd>ErrorKeys = lazuli.ErrorKeys{ ... }`
@@ -95,10 +135,15 @@ pub fn command_has_error_keys(command: &Command) -> bool {
 /// as a `TranslationKeyRef`). Zero-valued (empty) `MessageRef` means
 /// "fall through to the per-feature / built-in catalog" — the runtime
 /// resolver handles the chain (proposal §2.E).
-pub fn emit_command_error_keys(p: &mut GoPrinter, command: &Command, feature_name: &str) {
-    if !command_has_error_keys(command) {
+pub fn emit_command_error_keys(
+    p: &mut GoPrinter,
+    command: &Command,
+    feature_name: &str,
+    policies: Option<&Policies>,
+) {
+    let Some(key_ref) = command_policy_denied_key(command, policies) else {
         return;
-    }
+    };
     let var_name = command_error_keys_var(command);
 
     p.line(&format!(
@@ -111,12 +156,31 @@ pub fn emit_command_error_keys(p: &mut GoPrinter, command: &Command, feature_nam
     emit_pattern_header(p, PATTERN_ERROR_RESOLVER);
     p.line(&format!("var {var_name} = lazuli.ErrorKeys{{"));
     p.indent();
-    if let Some(key_ref) = command.policy_when_denied.as_ref() {
-        p.line(&format!(
-            "PolicyDenied: {},",
-            message_ref_literal(feature_name, key_ref)
-        ));
-    }
+    p.line(&format!(
+        "PolicyDenied: {},",
+        message_ref_literal(feature_name, key_ref)
+    ));
+    p.dedent();
+    p.line("}");
+}
+
+pub fn emit_operation_error_keys(
+    p: &mut GoPrinter,
+    var_name: &str,
+    operation_label: &str,
+    feature_name: &str,
+    key_ref: &TranslationKeyRef,
+) {
+    p.line(&format!(
+        "// Error-key overrides for `{operation_label}`. Resolution-chain step 1."
+    ));
+    emit_pattern_header(p, PATTERN_ERROR_RESOLVER);
+    p.line(&format!("var {var_name} = lazuli.ErrorKeys{{"));
+    p.indent();
+    p.line(&format!(
+        "PolicyDenied: {},",
+        message_ref_literal(feature_name, key_ref)
+    ));
     p.dedent();
     p.line("}");
 }
@@ -350,7 +414,7 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         CommandEffect, CommandInput, CommandKind, Defaults, Feature, FeatureErrorMessage,
-        FeatureErrors, Module, Policies, PolicyRef, TranslationKeyRef,
+        FeatureErrors, Module, Policies, PolicyCategory, PolicyRef, TranslationKeyRef,
     };
 
     fn empty_feature(name: &str) -> Feature {
@@ -452,9 +516,9 @@ mod tests {
     #[test]
     fn command_without_override_emits_nothing() {
         let command = empty_command("create");
-        assert!(!command_has_error_keys(&command));
+        assert!(!command_has_error_keys(&command, None));
         let mut p = GoPrinter::new();
-        emit_command_error_keys(&mut p, &command, "account");
+        emit_command_error_keys(&mut p, &command, "account", None);
         assert_eq!(p.finish(), String::new());
     }
 
@@ -465,9 +529,9 @@ mod tests {
             key: "choose_role_signin_required".to_owned(),
             span_ref: None,
         });
-        assert!(command_has_error_keys(&command));
+        assert!(command_has_error_keys(&command, None));
         let mut p = GoPrinter::new();
-        emit_command_error_keys(&mut p, &command, "account");
+        emit_command_error_keys(&mut p, &command, "account", None);
         let out = p.finish();
         assert!(out.contains("//lazuli:pattern error_resolver v1"));
         // `command_var_name` interleaves the effect-pinned resource pascal
@@ -481,6 +545,33 @@ mod tests {
         assert!(out.contains(&format!("var {expected_var} = lazuli.ErrorKeys{{")));
         assert!(out.contains(
             "PolicyDenied: i18n.MessageRef{Feature: \"account\", Key: \"choose_role_signin_required\"},"
+        ));
+    }
+
+    #[test]
+    fn command_with_policy_category_when_denied_emits_error_keys_var() {
+        let mut command = empty_command("account_me");
+        command.policy = PolicyRef::Local("authenticated".to_owned());
+        let policies = Policies {
+            categories: vec![PolicyCategory {
+                name: "authenticated".to_owned(),
+                atoms: vec!["@scope.authenticated".to_owned()],
+                previous_names: Vec::new(),
+                when_denied: Some(TranslationKeyRef {
+                    key: "account_signin".to_owned(),
+                    span_ref: None,
+                }),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        assert!(command_has_error_keys(&command, Some(&policies)));
+        let mut p = GoPrinter::new();
+        emit_command_error_keys(&mut p, &command, "account", Some(&policies));
+        let out = p.finish();
+        assert!(out.contains(
+            "PolicyDenied: i18n.MessageRef{Feature: \"account\", Key: \"account_signin\"},"
         ));
     }
 

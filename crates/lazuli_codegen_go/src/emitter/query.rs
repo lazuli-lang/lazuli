@@ -19,6 +19,7 @@ use lazuli_ir::{
 };
 
 use super::cross_feature::CrossFeatureIndex;
+use super::error_resolver::{emit_operation_error_keys, policy_denied_key_for_policy};
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::patterns::{
@@ -72,6 +73,9 @@ pub fn emit_query_file(
         imports.add("lazuli.dev/runtime/lazuli/billing");
         imports.add(&format!("{module_name}/plan"));
     }
+    if queries.iter().any(|q| query_policy_denied_key(feature, q).is_some()) {
+        imports.add("lazuli.dev/runtime/lazuli/i18n");
+    }
 
     p.banner(source_label, &super::casing::gen_package_name(&feature.name));
     imports.emit(&mut p);
@@ -120,6 +124,7 @@ fn emit_list_query(
     let qualified_name = format!("{}.query.{}", feature.name, query.name);
     let args_struct = list_args_struct_name(&query.name, &resource_name_axis);
     let var_name = list_var_name(&query.name, &resource_name_axis);
+    let error_keys_var = query_error_keys_var(&var_name);
 
     write_section_banner(
         p,
@@ -131,6 +136,16 @@ fn emit_list_query(
 
     emit_args_struct(p, &args_struct, &query.params, ctx);
     p.blank();
+
+    if let Some(key_ref) = query_policy_denied_key_for_parts(
+        feature,
+        &query.policy,
+        query.policy_expr.as_ref(),
+        query.policy_when_denied.as_ref(),
+    ) {
+        emit_operation_error_keys(p, &error_keys_var, &qualified_name, &feature.name, key_ref);
+        p.blank();
+    }
 
     emit_pattern_header(p, PATTERN_QUERY_PGX_LIST);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
@@ -149,6 +164,8 @@ fn emit_list_query(
         query.span_ref,
         &query.policy,
         query.policy_expr.as_ref(),
+        query.policy_when_denied.as_ref(),
+        &error_keys_var,
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.list", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
@@ -185,6 +202,7 @@ fn emit_lookup_query(
     let qualified_name = format!("{}.query.{}", feature.name, query.name);
     let args_struct = lookup_args_struct_name(&query.name, &resource_name_axis);
     let var_name = lookup_var_name(&query.name, &resource_name_axis);
+    let error_keys_var = query_error_keys_var(&var_name);
     let args = lookup_args(query, resource);
 
     write_section_banner(
@@ -197,6 +215,16 @@ fn emit_lookup_query(
 
     emit_args_struct(p, &args_struct, &args, ctx);
     p.blank();
+
+    if let Some(key_ref) = query_policy_denied_key_for_parts(
+        feature,
+        &query.policy,
+        query.policy_expr.as_ref(),
+        query.policy_when_denied.as_ref(),
+    ) {
+        emit_operation_error_keys(p, &error_keys_var, &qualified_name, &feature.name, key_ref);
+        p.blank();
+    }
 
     emit_pattern_header(p, PATTERN_QUERY_PGX_LOOKUP);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
@@ -215,6 +243,8 @@ fn emit_lookup_query(
         query.span_ref,
         &query.policy,
         query.policy_expr.as_ref(),
+        query.policy_when_denied.as_ref(),
+        &error_keys_var,
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.lookup", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
@@ -237,6 +267,7 @@ fn emit_sql_query(
     let qualified_name = format!("{}.query.{}", feature.name, query.name);
     let args_struct = format!("{}Args", pascal_case(&query.name));
     let var_name = lower_camel(&query.name);
+    let error_keys_var = query_error_keys_var(&var_name);
     let (return_type, _import) = types::go_type_for(&query.returns, ctx);
     let returns_name = return_name(&query.returns, ctx);
 
@@ -250,6 +281,16 @@ fn emit_sql_query(
 
     emit_args_struct(p, &args_struct, &query.params, ctx);
     p.blank();
+
+    if let Some(key_ref) = query_policy_denied_key_for_parts(
+        feature,
+        &query.policy,
+        query.policy_expr.as_ref(),
+        query.policy_when_denied.as_ref(),
+    ) {
+        emit_operation_error_keys(p, &error_keys_var, &qualified_name, &feature.name, key_ref);
+        p.blank();
+    }
 
     emit_pattern_header(p, PATTERN_QUERY_PGX_SQL);
     let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
@@ -268,6 +309,8 @@ fn emit_sql_query(
         query.span_ref,
         &query.policy,
         query.policy_expr.as_ref(),
+        query.policy_when_denied.as_ref(),
+        &error_keys_var,
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.sql", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
@@ -295,6 +338,8 @@ fn emit_query_header(
     span: Option<lazuli_ir::SpanRef>,
     query_policy: &PolicyRef,
     query_policy_expr: Option<&lazuli_ir::PolicyExpr>,
+    query_policy_when_denied: Option<&lazuli_ir::TranslationKeyRef>,
+    error_keys_var: &str,
 ) {
     let mut kv_rows: Vec<(String, String)> = Vec::new();
     kv_rows.push(("Name:".to_owned(), format!("\"{qualified_name}\",")));
@@ -336,6 +381,16 @@ fn emit_query_header(
         }
     };
     kv_rows.push(("Policy:".to_owned(), policy));
+    if query_policy_denied_key_for_parts(
+        feature,
+        query_policy,
+        query_policy_expr,
+        query_policy_when_denied,
+    )
+    .is_some()
+    {
+        kv_rows.push(("ErrorKeys:".to_owned(), format!("&{error_keys_var},")));
+    }
 
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
@@ -343,6 +398,61 @@ fn emit_query_header(
         p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
     }
     emit_ctx.emit_with_source_field(p, "query", op, span);
+}
+
+fn query_policy_denied_key<'a>(
+    feature: &'a Feature,
+    query: &'a Query,
+) -> Option<&'a lazuli_ir::TranslationKeyRef> {
+    match query {
+        Query::List(q) => query_policy_denied_key_for_parts(
+            feature,
+            &q.policy,
+            q.policy_expr.as_ref(),
+            q.policy_when_denied.as_ref(),
+        ),
+        Query::Lookup(q) => query_policy_denied_key_for_parts(
+            feature,
+            &q.policy,
+            q.policy_expr.as_ref(),
+            q.policy_when_denied.as_ref(),
+        ),
+        Query::Sql(q) => query_policy_denied_key_for_parts(
+            feature,
+            &q.policy,
+            q.policy_expr.as_ref(),
+            q.policy_when_denied.as_ref(),
+        ),
+    }
+}
+
+fn query_policy_denied_key_for_parts<'a>(
+    feature: &'a Feature,
+    query_policy: &'a PolicyRef,
+    query_policy_expr: Option<&'a lazuli_ir::PolicyExpr>,
+    query_policy_when_denied: Option<&'a lazuli_ir::TranslationKeyRef>,
+) -> Option<&'a lazuli_ir::TranslationKeyRef> {
+    let effective_policy = effective_query_policy(feature, query_policy, query_policy_expr);
+    policy_denied_key_for_policy(
+        query_policy_when_denied,
+        effective_policy,
+        Some(&feature.policies),
+    )
+}
+
+fn effective_query_policy<'a>(
+    feature: &'a Feature,
+    query_policy: &'a PolicyRef,
+    query_policy_expr: Option<&'a lazuli_ir::PolicyExpr>,
+) -> &'a PolicyRef {
+    if !query_policy.is_none() || query_policy_expr.is_some() {
+        return query_policy;
+    }
+    feature.defaults.policy.as_ref().unwrap_or(query_policy)
+}
+
+fn query_error_keys_var(var_name: &str) -> String {
+    format!("{var_name}ErrorKeys")
 }
 
 fn emit_args_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &TypeCtx<'_>) {
@@ -1763,6 +1873,65 @@ mod tests {
         assert!(
             !out.contains("Policy:   lazuli.Policy{},"),
             "no empty-policy literal should leak through:\n{out}"
+        );
+    }
+
+    #[test]
+    fn query_with_policy_category_when_denied_emits_error_keys() {
+        let mut feature = base_feature("account");
+        feature.resources.push(resource(
+            "Account",
+            vec![field("name", TypeRef::Builtin(BuiltinType::Text), true)],
+        ));
+        feature.policies = Policies {
+            categories: vec![lazuli_ir::PolicyCategory {
+                name: "authenticated".to_owned(),
+                atoms: vec!["@scope.authenticated".to_owned()],
+                previous_names: Vec::new(),
+                when_denied: Some(lazuli_ir::TranslationKeyRef {
+                    key: "account_signin".to_owned(),
+                    span_ref: None,
+                }),
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        feature.queries.push(Query::List(ListQuery {
+            name: "me".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::Local("authenticated".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("\"lazuli.dev/runtime/lazuli/i18n\""),
+            "i18n import missing:\n{out}"
+        );
+        assert!(
+            out.contains("var meErrorKeys = lazuli.ErrorKeys{"),
+            "query ErrorKeys var missing:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "PolicyDenied: i18n.MessageRef{Feature: \"account\", Key: \"account_signin\"},"
+            ),
+            "policy-category when_denied should lower to query ErrorKeys:\n{out}"
+        );
+        assert!(
+            out.contains("ErrorKeys: &meErrorKeys,"),
+            "query should point runtime at ErrorKeys:\n{out}"
         );
     }
 

@@ -264,10 +264,15 @@ func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) 
 		return
 	}
 
+	if q.WithSource != nil {
+		r = r.WithContext(q.WithSource(r.Context()))
+	}
+
 	ctx := newRequestCtx(r)
 	ctx.withResponseWriter(w)
 	out, err := handler.dispatch(ctx, body)
 	if err != nil {
+		stampPerCommandMessageKey(err, q.ErrorKeys)
 		writeError(w, r, err)
 		return
 	}
@@ -399,8 +404,8 @@ func writeLazuliError(w http.ResponseWriter, r *http.Request, le *Error) {
 	// to the legacy behaviour (message + code + data exposed) so the
 	// pre-Error-Vocab callers don't lose information.
 	var (
-		contract       i18n.FeatureErrorContract
-		contractKnown  bool
+		contract      i18n.FeatureErrorContract
+		contractKnown bool
 	)
 	if hasCtx && feature != "" {
 		contract, contractKnown = appErrorRegistry.Features[feature]
