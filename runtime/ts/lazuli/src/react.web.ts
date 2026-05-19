@@ -53,12 +53,6 @@ export {
 } from "./route-guard.js";
 export { RouteGuard, type RouteGuardProps } from "./route-guard-component.js";
 export { useActor, useLazuliClient, type UseActorResult } from "./use-actor.js";
-export {
-  withTanStackGuard,
-  type TanStackGuardContext,
-  type TanStackGuardRedirects,
-  type TanStackRedirect,
-} from "./tanstack-adapter.js";
 
 // --- Universal client/query/command hooks --------------------------------
 

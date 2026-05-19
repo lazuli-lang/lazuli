@@ -29,10 +29,6 @@ import type {
   RouteGuardVerdict,
 } from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
-import type {
-  TanStackGuardContext,
-  TanStackGuardRedirects,
-} from "./tanstack-adapter.js";
 import type { DrawerConfig, DrawerSubView } from "./view-helpers.js";
 
 // Universal view-helper types and functions are re-exported as-is from
@@ -108,9 +104,34 @@ export type {
   LazuliActor,
   LazuliRouteGuardPolicy,
   RouteGuardVerdict,
-  TanStackGuardContext,
-  TanStackGuardRedirects,
 };
+
+export type RouteGuardSpec<Component = unknown> = {
+  readonly path?: string;
+  readonly component?: Component;
+  readonly policy: LazuliRouteGuardPolicy;
+  readonly onUnauthenticated?: string | null;
+  readonly onUnauthorized?: string | null;
+};
+
+export type RouteGuard = RouteGuardSpec<unknown>;
+export type ActorQueryRef = string;
+export type RouteGuardRegistry = {
+  readonly defaults: {
+    readonly policy: LazuliRouteGuardPolicy | null;
+    readonly unauthenticated: string | null;
+    readonly unauthorized: string | null;
+    readonly skeleton: string | null;
+  };
+  readonly actorQuery: ActorQueryRef | null;
+  readonly routes: Readonly<Record<string, RouteGuard>>;
+};
+
+/**
+ * TanStack Router beforeLoad support is intentionally split out at
+ * `@lazuli/runtime/react/tanstack` so plain React imports do not load
+ * `@tanstack/react-router`.
+ */
 
 export type UseActorResult = {
   readonly data: LazuliActor | null;
@@ -135,12 +156,6 @@ export interface RouteGuardProps {
 }
 
 export declare function RouteGuard(props: RouteGuardProps): ReactNode;
-
-export declare function withTanStackGuard(
-  routeOpts: { readonly beforeLoad?: (ctx: TanStackGuardContext) => unknown },
-  policy: LazuliRouteGuardPolicy,
-  redirects: TanStackGuardRedirects,
-): (ctx: TanStackGuardContext) => Promise<void>;
 
 // --- Platform-split hooks --------------------------------------------------
 

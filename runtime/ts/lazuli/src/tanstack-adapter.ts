@@ -1,31 +1,25 @@
+import { redirect } from "@tanstack/react-router";
+
 import type { LazuliClient } from "./client.js";
 import { evaluatePolicy, type LazuliRouteGuardPolicy } from "./route-guard.js";
 
-export type TanStackRedirect = (opts: { to: string }) => unknown;
-
-export type TanStackGuardRedirects = {
+export type RouteGuardSpec<Component = unknown> = {
+  readonly path?: string;
+  readonly component?: Component;
+  readonly policy: LazuliRouteGuardPolicy;
   readonly onUnauthenticated?: string | null;
   readonly onUnauthorized?: string | null;
-  readonly redirect: TanStackRedirect;
 };
 
-export type TanStackGuardContext = { readonly context: { readonly client: LazuliClient } };
-
-export function withTanStackGuard(
-  routeOpts: { readonly beforeLoad?: (ctx: TanStackGuardContext) => unknown },
-  policy: LazuliRouteGuardPolicy,
-  redirects: TanStackGuardRedirects,
-) {
-  return async (ctx: TanStackGuardContext): Promise<void> => {
-    await routeOpts.beforeLoad?.(ctx);
-    const actor = await ctx.context.client.resolveActor();
-    const verdict = evaluatePolicy(actor, policy);
-    const to =
-      verdict === "unauthenticated"
-        ? redirects.onUnauthenticated
-        : verdict === "unauthorized"
-          ? redirects.onUnauthorized
-          : null;
-    if (to) throw redirects.redirect({ to });
+export function tanstackBeforeLoadGuard(client: LazuliClient, spec: RouteGuardSpec) {
+  return async (): Promise<void> => {
+    const actor = await client.resolveActor();
+    const verdict = evaluatePolicy(actor, spec.policy);
+    if (verdict === "unauthenticated") {
+      throw redirect({ to: spec.onUnauthenticated ?? "/sign-in" });
+    }
+    if (verdict === "unauthorized") {
+      throw redirect({ to: spec.onUnauthorized ?? "/forbidden" });
+    }
   };
 }

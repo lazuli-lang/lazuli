@@ -15,9 +15,15 @@
       "types": "./src/react.ts",
       "react-native": "./src/react.native.ts",
       "default": "./src/react.web.ts"
+    },
+    "./react/tanstack": {
+      "types": "./src/tanstack-adapter.ts",
+      "import": "./src/tanstack-adapter.ts",
+      "default": "./src/tanstack-adapter.ts"
     }
   },
   "scripts": {
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -27,12 +33,14 @@
   "peerDependencies": {
     "@react-native-async-storage/async-storage": ">=1.23.0",
     "@tanstack/react-query": ">=5.0.0",
+    "@tanstack/react-router": ">=1.0.0",
     "react": ">=18.0.0",
     "react-native": ">=0.74.0"
   },
   "peerDependenciesMeta": {
     "@react-native-async-storage/async-storage": { "optional": true },
     "@tanstack/react-query": { "optional": true },
+    "@tanstack/react-router": { "optional": true },
     "react": { "optional": true },
     "react-native": { "optional": true }
   },
