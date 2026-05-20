@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
@@ -39,6 +40,32 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	// 1. policy
 	if err := EvalPolicy(ctx, c.Policy); err != nil {
 		return zero, err
+	}
+
+	// SECURITY (SEC-H3): enforce Command.RateLimit if declared. The IR
+	// stores the literal e.g. "30 per 10 minutes per ip"; parse + check
+	// against the active rate-limit Store. Failing the check returns 429
+	// to the client.
+	if strings.TrimSpace(string(c.RateLimit)) != "" {
+		spec, err := parseRateLimitSpec(string(c.RateLimit))
+		if err != nil {
+			slog.Error("lazuli: malformed rate_limit literal", "command", c.Name, "spec", c.RateLimit, "err", err)
+			// Continue without enforcement — fail-open on parse error because
+			// malformed specs are config bugs, not attacks.
+		} else {
+			key := buildRateLimitKey(ctx, c.Name, spec)
+			storeCtx := context.Background()
+			if ctx != nil && ctx.Context != nil {
+				storeCtx = ctx
+			}
+			count, err := activeStore.Inc(storeCtx, key, spec.Window)
+			if err != nil {
+				slog.Error("lazuli: rate_limit store error", "err", err)
+				// Fail-open on store error — don't lock out users on infra blip.
+			} else if count > spec.Limit {
+				return zero, ErrRateLimited
+			}
+		}
 	}
 
 	// 2. validators — run in declaration order, abort on first failure.

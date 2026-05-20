@@ -171,6 +171,34 @@ const (
 // cross-org rows (SEC-H2 / STRIDE T7.T3-T4).
 var ErrTenantRequired = errors.New("lazuli: tenant required for this resource")
 
+// ErrRateLimited is returned when a command-level rate_limit bucket is
+// exhausted. HTTP-wire: 429.
+var ErrRateLimited = rateLimitedError{}
+
+type rateLimitedError struct{}
+
+func (rateLimitedError) Error() string { return CodeRateLimited }
+
+func (rateLimitedError) As(target any) bool {
+	le, ok := target.(**Error)
+	if !ok {
+		return false
+	}
+	*le = &Error{
+		Status:     429,
+		Code:       CodeRateLimited,
+		Message:    "rate limit exceeded",
+		MessageKey: CodeRateLimited,
+		Base: ErrorBase{
+			Status:  429,
+			Code:    CodeRateLimited,
+			Message: "rate limit exceeded",
+			Cause:   ErrRateLimited,
+		},
+	}
+	return true
+}
+
 func tenantRequiredError() error {
 	return &Error{
 		Status:  500,
