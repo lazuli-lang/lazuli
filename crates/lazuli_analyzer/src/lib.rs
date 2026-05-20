@@ -6069,7 +6069,7 @@ surface customer web
         assert!(defaults.span_ref.is_some());
 
         let route_guard = module.routes[0].guard.as_ref().unwrap();
-        assert_eq!(route_guard.policy, "@policy.admin_only");
+        assert_eq!(&route_guard.policy[..], vec!["@policy.admin_only".to_owned()].as_slice());
         assert_eq!(
             route_guard.on_unauthenticated.as_deref(),
             Some("/sign-in")
@@ -6077,7 +6077,7 @@ surface customer web
         assert!(route_guard.span_ref.is_some());
 
         let view_guard = module.experiences[0].views[0].guard.as_ref().unwrap();
-        assert_eq!(view_guard.policy, "@policy.admin_only");
+        assert_eq!(&view_guard.policy[..], vec!["@policy.admin_only".to_owned()].as_slice());
         assert_eq!(view_guard.on_unauthorized.as_deref(), Some("/"));
         assert!(view_guard.span_ref.is_some());
 
@@ -6109,7 +6109,7 @@ surface customer web
             .and_then(|view| view.guard.as_ref())
             .expect("full-capsule enable_mfa guard");
 
-        assert_eq!(guard.policy, "@policy.update");
+        assert_eq!(&guard.policy[..], vec!["@policy.update".to_owned()].as_slice());
         assert_eq!(guard.on_unauthenticated.as_deref(), Some("/login"));
 
         let first = serde_json::to_string_pretty(&module).unwrap();

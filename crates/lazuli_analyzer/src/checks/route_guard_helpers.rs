@@ -253,8 +253,16 @@ fn resolve_guard(
     features: &[Feature],
 ) -> ResolvedGuard {
     for guard in [route, platform, view, audience].into_iter().flatten() {
+        // OR-semantics over the policy list: any matching policy admits.
+        // Concatenating per-policy atom sets keeps the existing
+        // OR-on-atoms runtime contract.
+        let atoms = guard
+            .policy
+            .iter()
+            .flat_map(|p| policy_text_atoms(p, feature, features))
+            .collect();
         return ResolvedGuard {
-            atoms: policy_text_atoms(&guard.policy, feature, features),
+            atoms,
             source: GuardSource::Authored,
             span: guard.span_ref,
         };

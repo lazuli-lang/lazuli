@@ -6725,7 +6725,7 @@ mod l0_6_ir_tests {
     #[test]
     fn view_guard_round_trips_with_all_slots() {
         round_trip(&ViewGuard {
-            policy: "@policy.host_only".to_string(),
+            policy: vec!["@policy.host_only".to_string()],
             on_unauthenticated: Some("/sign-in".to_string()),
             on_unauthorized: Some("/explore".to_string()),
             requires_lifecycle: None,
@@ -6737,7 +6737,7 @@ mod l0_6_ir_tests {
     #[test]
     fn view_guard_round_trips_with_only_policy() {
         round_trip(&ViewGuard {
-            policy: "@policy.authenticated".to_string(),
+            policy: vec!["@policy.authenticated".to_string()],
             on_unauthenticated: None,
             on_unauthorized: None,
             requires_lifecycle: None,
@@ -6749,7 +6749,7 @@ mod l0_6_ir_tests {
     #[test]
     fn view_guard_round_trips_with_lifecycle_slots() {
         round_trip(&ViewGuard {
-            policy: "@policy.host_only".to_string(),
+            policy: vec!["@policy.host_only".to_string()],
             on_unauthenticated: None,
             on_unauthorized: None,
             requires_lifecycle: Some(RequiresLifecycle {
@@ -6765,7 +6765,7 @@ mod l0_6_ir_tests {
     #[test]
     fn view_guard_omits_none_redirects_in_serialized_form() {
         let g = ViewGuard {
-            policy: "@policy.public".to_string(),
+            policy: vec!["@policy.public".to_string()],
             on_unauthenticated: None,
             on_unauthorized: None,
             requires_lifecycle: None,
@@ -6773,7 +6773,7 @@ mod l0_6_ir_tests {
             span_ref: None,
         };
         let v = serde_json::to_value(&g).unwrap();
-        assert_eq!(v, json!({ "policy": "@policy.public" }));
+        assert_eq!(v, json!({ "policy": ["@policy.public"] }));
     }
 
     #[test]
@@ -6786,7 +6786,7 @@ mod l0_6_ir_tests {
             span_ref: Some(lifecycle_span),
         };
         let guard = ViewGuard {
-            policy: "@policy.host_only".to_string(),
+            policy: vec!["@policy.host_only".to_string()],
             on_unauthenticated: Some("/sign-in".to_string()),
             on_unauthorized: Some("/explore".to_string()),
             requires_lifecycle: Some(requires.clone()),

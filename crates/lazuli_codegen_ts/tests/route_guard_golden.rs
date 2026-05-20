@@ -62,7 +62,7 @@ fn fixture_surfaces() -> Vec<PlatformSurface> {
                 {
                     "name": "host",
                     "guard": {
-                        "policy": "@policy.host_only",
+                        "policy": ["@policy.host_only"],
                         "on_unauthenticated": "/host/sign-in",
                         "on_unauthorized": "/host"
                     },
@@ -72,7 +72,7 @@ fn fixture_surfaces() -> Vec<PlatformSurface> {
                             "name": "property_create",
                             "view_type": "Form",
                             "guard": {
-                                "policy": "@policy.host_only"
+                                "policy": ["@policy.host_only"]
                             }
                         }
                     ]
