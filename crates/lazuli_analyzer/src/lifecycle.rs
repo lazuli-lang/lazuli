@@ -203,6 +203,7 @@ fn lower_transition_command(
         deprecated: None,
         handler: None,
         tests: lower_tests(&transition.tests, transition.span),
+        triggers: Vec::new(),
         previous_names: transition.previously.clone(),
         span_ref: Some(span_of(transition.span)),
     }

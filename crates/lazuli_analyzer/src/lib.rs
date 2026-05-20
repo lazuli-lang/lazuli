@@ -1260,6 +1260,7 @@ fn lower_command(
         deprecated: None,
         handler: None,
         tests: None,
+        triggers: Vec::new(),
         previous_names: Vec::new(),
         span_ref: Some(span_of(command.span)),
     })
@@ -3505,6 +3506,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         deprecated,
         handler,
         tests: None,
+        triggers: c.triggers.clone(),
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
     })

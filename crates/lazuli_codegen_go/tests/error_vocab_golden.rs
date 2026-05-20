@@ -115,6 +115,7 @@ fn empty_command(name: &str) -> Command {
         deprecated: None,
         handler: None,
         tests: None,
+        triggers: vec![],
         previous_names: Vec::new(),
         span_ref: None,
     }

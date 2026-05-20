@@ -308,6 +308,7 @@ mod tests {
             deprecated: None,
             handler: None,
             tests: None,
+            triggers: vec![],
             previous_names: Vec::new(),
             span_ref: None,
         }

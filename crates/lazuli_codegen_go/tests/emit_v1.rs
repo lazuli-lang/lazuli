@@ -163,6 +163,7 @@ fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
         deprecated: None,
         handler: None,
         tests: None,
+        triggers: vec![],
         previous_names: Vec::new(),
         span_ref,
     }
@@ -815,6 +816,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         deprecated: None,
         handler: None,
         tests: None,
+        triggers: Vec::new(),
         previous_names: Vec::new(),
         span_ref: None,
     });

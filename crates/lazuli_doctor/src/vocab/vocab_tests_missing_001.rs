@@ -134,6 +134,7 @@ mod tests {
             deprecated: None,
             handler: None,
             tests,
+            triggers: vec![],
             previous_names: vec![],
             span_ref: None,
         }

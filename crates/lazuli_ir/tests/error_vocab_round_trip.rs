@@ -221,6 +221,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         deprecated: None,
         handler: None,
         tests: None,
+        triggers: Vec::new(),
         previous_names: Vec::new(),
         span_ref: None,
     });

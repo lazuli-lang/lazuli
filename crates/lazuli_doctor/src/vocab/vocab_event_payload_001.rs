@@ -170,6 +170,7 @@ mod tests {
             deprecated: None,
             handler: None,
             tests: None,
+            triggers: vec![],
             previous_names: vec![],
             span_ref: None,
         }
@@ -384,6 +385,7 @@ mod tests {
             deprecated: None,
             handler: None,
             tests: None,
+            triggers: vec![],
             previous_names: vec![],
             span_ref: None,
         };
