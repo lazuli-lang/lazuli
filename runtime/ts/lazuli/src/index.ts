@@ -28,5 +28,6 @@ export {
   type QuerySpec,
   type RateLimitSpec,
 } from "./spec.js";
+export type { ScalarFixtureProvider, ScalarFixtures } from "./scalars.js";
 export { toID, tryID, formatMoney } from "./types.js";
 export type { ID, Json, Money, Time } from "./types.js";
