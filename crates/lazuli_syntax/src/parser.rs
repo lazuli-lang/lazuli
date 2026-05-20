@@ -3221,8 +3221,9 @@ fn parse_setting_persistence(
     }
 }
 
-/// Parse a `@<namespace>.<name>` policy atom (currently `@scope.<x>` is
-/// the only authored form; the grammar reserves `@role.*` / `@actor.*`).
+/// Parse a `@<namespace>.<name>` policy atom, with an optional raw
+/// parenthesized argument suffix for step-up atoms such as
+/// `@mfa.required(within:15m)`.
 fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst, ParseError> {
     let atom = value.trim();
     let body = atom.strip_prefix('@').ok_or_else(|| {
@@ -3231,17 +3232,32 @@ fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst
             "policy atoms start with `@` (e.g. `@scope.workspace_admin`)",
         )
     })?;
+    let (body, args) = if let Some((head, tail)) = body.split_once('(') {
+        if !tail.ends_with(')') {
+            return Err(line_error(
+                line,
+                "policy atom arguments must be closed with `)`",
+            ));
+        }
+        let args = tail[..tail.len() - 1].trim();
+        if args.is_empty() {
+            return Err(line_error(line, "policy atom arguments cannot be empty"));
+        }
+        (head.trim(), Some(args.to_owned()))
+    } else {
+        (body.trim(), None)
+    };
     let (namespace, name) = body.split_once('.').ok_or_else(|| {
         line_error(
             line,
             "policy atom must include a namespace and name (`@<ns>.<name>`)",
         )
     })?;
-    if !matches!(namespace, "scope" | "role" | "actor") {
+    if !matches!(namespace, "scope" | "role" | "actor" | "mfa") {
         return Err(line_error_owned(
             line,
             format!(
-                "policy atom namespace `{}` is not in the closed catalog (`scope` | `role` | `actor`)",
+                "policy atom namespace `{}` is not in the closed catalog (`scope` | `role` | `actor` | `mfa`)",
                 namespace
             ),
         ));
@@ -3255,6 +3271,7 @@ fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst
     Ok(PolicyAtomAst {
         namespace: namespace.to_owned(),
         name: name.to_owned(),
+        args,
         span: Span::new(line.start, line.end),
     })
 }
@@ -3448,7 +3465,8 @@ impl<'a, 'src> PolicyExprParser<'a, 'src> {
         }
     }
 
-    /// Read a `@<ns>.<name>` atom token.
+    /// Read a `@<ns>.<name>` atom token, including one optional
+    /// parenthesized argument suffix.
     fn read_atom_token(&mut self) -> Option<&str> {
         self.skip_ws();
         let bytes = self.input.as_bytes();
@@ -3469,6 +3487,15 @@ impl<'a, 'src> PolicyExprParser<'a, 'src> {
             // Just `@` with nothing after.
             self.pos = start;
             return None;
+        }
+        if self.pos < bytes.len() && bytes[self.pos] == b'(' {
+            self.pos += 1;
+            while self.pos < bytes.len() && bytes[self.pos] != b')' {
+                self.pos += 1;
+            }
+            if self.pos < bytes.len() && bytes[self.pos] == b')' {
+                self.pos += 1;
+            }
         }
         Some(&self.input[start..self.pos])
     }
@@ -5327,6 +5354,29 @@ fn parse_command_decl(
             rate_limit = Some(unquote_lzx_value(rest.trim()).to_owned());
             last_end = line.end;
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("audit data_subject ") {
+            let subject_field = rest.trim();
+            if subject_field.is_empty() || !is_kebab_or_snake_ident(subject_field) {
+                return Err(line_error(
+                    line,
+                    "`audit data_subject` requires a field identifier",
+                ));
+            }
+            let Some(audit_spec) = audit.as_mut() else {
+                return Err(line_error(
+                    line,
+                    "`audit data_subject <field>` must follow an `audit <subjects>` line",
+                ));
+            };
+            if audit_spec.data_subject.is_some() {
+                return Err(line_error(
+                    line,
+                    "`audit data_subject` may be declared at most once",
+                ));
+            }
+            audit_spec.data_subject = Some(subject_field.to_owned());
+            last_end = line.end;
+            i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("audit ") {
             let (parsed, next) = parse_command_audit(lines, i, rest)?;
             audit = Some(parsed);
@@ -5825,6 +5875,7 @@ fn parse_command_audit(
         ));
     }
     let mut emit_to: Option<String> = None;
+    let mut data_subject: Option<String> = None;
     let mut i = start + 1;
     while i < lines.len() {
         let line = &lines[i];
@@ -5852,10 +5903,26 @@ fn parse_command_audit(
             }
             emit_to = Some(rest.trim().to_owned());
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("data_subject ") {
+            let subject_field = rest.trim();
+            if subject_field.is_empty() || !is_kebab_or_snake_ident(subject_field) {
+                return Err(line_error(
+                    line,
+                    "`audit data_subject` requires a field identifier",
+                ));
+            }
+            if data_subject.is_some() {
+                return Err(line_error(
+                    line,
+                    "`audit data_subject` may be declared at most once",
+                ));
+            }
+            data_subject = Some(subject_field.to_owned());
+            i += 1;
         } else {
             return Err(line_error(
                 line,
-                "`audit` children are `emit_to <event_group>` only",
+                "`audit` children are `emit_to <event_group>` or `data_subject <field>` only",
             ));
         }
     }
@@ -5863,6 +5930,7 @@ fn parse_command_audit(
         CommandAudit {
             subjects,
             emit_to,
+            data_subject,
             span: Span::new(header.start, header.end),
         },
         i,
@@ -8846,7 +8914,7 @@ fn split_resource_field_after(
         (head, None)
     };
 
-    // Pull out inline constraints (closed catalog of 6 keywords).
+    // Pull out inline constraints (closed catalog).
     let (head, constraints) = extract_field_constraints(line, &head)?;
 
     // Now split type (paren-aware) from trailing modifier tokens.
@@ -8867,7 +8935,8 @@ fn split_resource_field_after(
 /// the remaining text walks cleanly through `split_type_and_modifiers`.
 ///
 /// Catalog: `min N`, `max N`, `pattern "STRING"`, `between A and B`,
-/// `length N`, `in [a, b, c]`. Combination rule enforcement happens
+/// `length N`, `in [a, b, c]`, `validate sanitize_html(profile)`.
+/// Combination rule enforcement happens
 /// in the analyzer; the parser only captures presence + values and
 /// reports basic shape errors (unparsable integer, missing bracket).
 fn extract_field_constraints(
@@ -8945,6 +9014,18 @@ fn extract_field_constraints(
                     head = format!("{}{}", before, tail);
                     head = head.trim_end().to_owned();
                 }
+                ConstraintKw::Validate => {
+                    let (profile, tail) = parse_constraint_sanitize_html(line, rest)?;
+                    if constraints.sanitize_html.is_some() {
+                        return Err(line_error(
+                            line,
+                            "duplicate `validate sanitize_html` constraint on field",
+                        ));
+                    }
+                    constraints.sanitize_html = Some(profile);
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
             }
         } else {
             break;
@@ -8961,6 +9042,7 @@ enum ConstraintKw {
     Between,
     Length,
     In,
+    Validate,
 }
 
 /// Find the first constraint keyword in `text` (at depth 0). Returns
@@ -8977,6 +9059,7 @@ fn find_constraint_keyword(text: &str) -> Option<(&str, &str)> {
         (" between ", ConstraintKw::Between),
         (" length ", ConstraintKw::Length),
         (" in ", ConstraintKw::In),
+        (" validate ", ConstraintKw::Validate),
     ];
     let mut best: Option<usize> = None;
     for (needle, _) in needles {
@@ -9007,6 +9090,8 @@ fn before_keyword_after(_full: &str, after_keyword_text: &str) -> ConstraintKw {
         ConstraintKw::Length
     } else if after_keyword_text.starts_with("in ") {
         ConstraintKw::In
+    } else if after_keyword_text.starts_with("validate ") {
+        ConstraintKw::Validate
     } else {
         // Should be unreachable because find_constraint_keyword
         // matched one of these; defensive default.
@@ -9151,6 +9236,35 @@ fn parse_constraint_in_list(
         .filter(|s| !s.is_empty())
         .collect();
     Ok((values, tail))
+}
+
+fn parse_constraint_sanitize_html(
+    line: &SourceLine<'_>,
+    text: &str,
+) -> Result<(String, String), ParseError> {
+    let rest = text
+        .trim_start()
+        .strip_prefix("validate ")
+        .ok_or_else(|| line_error(line, "expected `validate sanitize_html(<profile>)`"))?
+        .trim_start();
+    let inside = rest
+        .strip_prefix("sanitize_html(")
+        .ok_or_else(|| line_error(line, "`validate` only supports `sanitize_html(<profile>)`"))?;
+    let end = inside.find(')').ok_or_else(|| {
+        line_error(
+            line,
+            "`validate sanitize_html` profile is missing a closing `)`",
+        )
+    })?;
+    let profile = inside[..end].trim();
+    if profile.is_empty() {
+        return Err(line_error(
+            line,
+            "`validate sanitize_html` requires a profile",
+        ));
+    }
+    let tail = inside[end + 1..].to_owned();
+    Ok((profile.to_owned(), tail))
 }
 
 fn split_type_and_modifiers(text: &str) -> (String, String) {
