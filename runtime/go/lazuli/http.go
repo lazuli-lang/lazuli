@@ -7,11 +7,17 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"lazuli.dev/runtime/lazuli/i18n"
 	"lazuli.dev/runtime/lazuli/report"
 	"lazuli.dev/runtime/lazuli/webhooks"
+)
+
+const (
+	defaultMaxBodyBytes = 1 << 20 // 1 MiB
+	defaultMuxRateLimit = RateLimit("600 per minute per ip")
 )
 
 // init wires the eventbus publisher into the webhooks package so the
@@ -106,12 +112,17 @@ func Mux() http.Handler {
 	// "Auto-mount HTTP endpoints".
 	report.Mount(mux)
 
-	// Middleware order (outermost first):
-	//   CORS  → handles OPTIONS preflight + sets headers BEFORE downstream
-	//           middleware sees the request
-	//   logging → records timing/status of every dispatched request
-	//   mux   → typed command/query/api/webhook/healthz routing
-	return CorsMiddleware(loggingMiddleware(mux))
+	// SECURITY (SEC-D2): every route flows through the standard stack.
+	// Order (outermost first): recover catches all inner panics; CORS handles
+	// OPTIONS before downstream checks; logging observes rate/CSRF denials;
+	// rate-limit cheaply rejects before CSRF; CSRF is closest to the mux.
+	handler := http.Handler(mux)
+	handler = CSRFMiddleware(NewCSRFGuard(activeCSRFAllowedOrigins()))(handler)
+	handler = RateLimitMiddleware(defaultMuxRateLimit, handler)
+	handler = loggingMiddleware(handler)
+	handler = CorsMiddleware(handler)
+	handler = RecoverMiddleware(handler)
+	return handler
 }
 
 // webhookRouterAdapter bridges `*http.ServeMux` to the
@@ -136,7 +147,7 @@ func handleCommandRequest(w http.ResponseWriter, r *http.Request, cmd *commandEr
 		return
 	}
 
-	body, err := readRequestBody(r)
+	body, err := readRequestBody(w, r)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -236,7 +247,7 @@ func stampPerCommandMessageKey(err error, keys *i18n.ErrorKeys) {
 // Ctx, reads the body, dispatches via the registration's typed
 // closure, and writes JSON.
 func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistration) {
-	body, err := readRequestBody(r)
+	body, err := readRequestBody(w, r)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -266,7 +277,7 @@ func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) 
 		return
 	}
 
-	body, err := readRequestBody(r)
+	body, err := readRequestBody(w, r)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -293,13 +304,23 @@ func handleQueryRequest(w http.ResponseWriter, r *http.Request, q *queryErased) 
 
 // readRequestBody returns the raw JSON body, or an empty raw message if the
 // request has no body (GET / DELETE / etc.).
-func readRequestBody(r *http.Request) (json.RawMessage, error) {
+//
+// It accepts the ResponseWriter so http.MaxBytesReader can enforce the cap at
+// the shared request-decoding boundary; only command/query/api entry handlers
+// call this helper, so this keeps call-site churn small.
+func readRequestBody(w http.ResponseWriter, r *http.Request) (json.RawMessage, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, defaultMaxBodyBytes)
 	defer r.Body.Close()
 	buf, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return nil, &Error{Status: http.StatusRequestEntityTooLarge, Code: CodeBadRequest,
+				Message: "request body too large", MessageKey: CodeBadRequest}
+		}
 		return nil, &Error{Status: 400, Code: CodeBadRequest,
 			Message: "failed to read body: " + err.Error()}
 	}
@@ -366,10 +387,31 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeLazuliError(w, r, le)
 		return
 	}
-	writeJSON(w, http.StatusInternalServerError, map[string]any{
-		"code":    CodeInternal,
-		"message": err.Error(),
-	})
+	reqID := ""
+	if r != nil {
+		reqID = r.Header.Get("X-Request-ID")
+	}
+	errText := "<nil>"
+	if err != nil {
+		errText = err.Error()
+	}
+	// SECURITY: do not serialize err.Error(); it may include stack strings,
+	// paths, SQL wrappers, or provider details. Log detail server-side only.
+	slog.Error("lazuli: unmapped runtime error", "err", errText, "request_id", reqID)
+	writeLazuliError(w, r, &Error{Status: http.StatusInternalServerError, Code: CodeInternal,
+		Message: "internal server error", MessageKey: CodeInternal})
+}
+
+func activeCSRFAllowedOrigins() []string {
+	contract := currentCors.Load()
+	if contract == nil || len(contract.AllowOrigins) == 0 {
+		return nil
+	}
+	env := os.Getenv("LAZULI_ENV")
+	if env == "" {
+		env = "local"
+	}
+	return contract.AllowOrigins[env]
 }
 
 // writeLazuliError handles the typed `*Error` path: resolver +
