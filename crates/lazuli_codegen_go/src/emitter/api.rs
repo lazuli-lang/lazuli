@@ -588,6 +588,7 @@ mod tests {
                 .collect(),
             visibility,
             signed_ttl: signed_ttl.map(str::to_owned),
+            auto_photo_policy: None,
         }
     }
 

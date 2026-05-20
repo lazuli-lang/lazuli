@@ -988,6 +988,7 @@ mod tests {
         command.audit = Some(ir::AuditSpec {
             subjects: vec!["actor".to_owned(), "target.id".to_owned()],
             emit_to: Some("audit_log".to_owned()),
+            data_subject: None,
         });
         command.approval = Some(ir::ApprovalSpec {
             required_when: Some("target.tier = enterprise".to_owned()),

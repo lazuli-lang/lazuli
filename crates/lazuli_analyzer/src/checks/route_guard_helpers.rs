@@ -458,6 +458,7 @@ fn atom(namespace: &str, name: &str) -> PolicyAtom {
     PolicyAtom {
         namespace: namespace.to_owned(),
         name: name.to_owned(),
+        args: None,
     }
 }
 

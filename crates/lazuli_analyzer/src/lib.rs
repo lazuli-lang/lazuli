@@ -220,6 +220,11 @@ pub enum AnalyzeError {
         pattern: String,
         reason: String,
     },
+
+    #[error(
+        "INLINE-VALIDATOR-UNKNOWN-SANITIZE-HTML: field `{field}` uses unknown sanitize_html profile `{profile}` (allowed: strict, basic, markdown_safe)"
+    )]
+    UnknownSanitizeHtmlProfile { field: String, profile: String },
 }
 
 pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
@@ -541,6 +546,7 @@ fn lower_audience_ast(
         .map(|atom| ir::PolicyAtom {
             namespace: atom.namespace.clone(),
             name: atom.name.clone(),
+            args: atom.args.clone(),
         })
         .collect();
 
@@ -1181,6 +1187,7 @@ fn parse_cap_token_type(ty: &str) -> Option<ir::TokenCapability> {
 /// the caller falls through to the legacy `UserDefined` fallback — the LSP
 /// already surfaces shape errors for the same patterns.
 fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
+    let ty = first_paren_balanced_token(ty);
     let inner = ty.strip_prefix("@cap.File(")?.strip_suffix(')')?;
     let args = parse_capability_args(inner);
 
@@ -1194,12 +1201,14 @@ fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
         .map(|s| s.as_str())
         .and_then(parse_file_visibility);
     let signed_ttl = args.get("signed_ttl").map(|s| s.clone());
+    let auto_photo_policy = args.get("auto_photo_policy").cloned();
 
     Some(ir::FileCapability {
         max_size,
         accept,
         visibility,
         signed_ttl,
+        auto_photo_policy,
     })
 }
 
@@ -2079,6 +2088,7 @@ fn build_auto_photo_command(
         audit: Some(AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
+            data_subject: None,
         }),
         approval: None,
         invalidates: Vec::new(),
@@ -2241,7 +2251,7 @@ pub fn lower_feature_skeleton(
         .queries
         .iter()
         .map(|q| lower_query_decl(q, &skeleton.caches))
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     let records = skeleton
         .records
         .iter()
@@ -2391,16 +2401,19 @@ fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
 /// `caches`. When the profile is unknown, lowering preserves the
 /// reference (so doctor can fire `cache-profile-unknown`) without
 /// inventing a body.
-fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) -> ir::Query {
+fn lower_query_decl(
+    q: &syntax::QueryDecl,
+    caches: &[syntax::CacheProfileDecl],
+) -> Result<ir::Query, AnalyzeError> {
     match q {
-        syntax::QueryDecl::List(list) => ir::Query::List(ir::ListQuery {
+        syntax::QueryDecl::List(list) => Ok(ir::Query::List(ir::ListQuery {
             name: list.name.clone(),
             public_contract: lower_public_contract(&list.public_contract),
             params: list
                 .params
                 .iter()
                 .map(lower_command_input_to_typed)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             scope: Vec::new(),
             scope_override: list.scope_override,
             filters: lower_query_filter_lines(&list.filters),
@@ -2424,8 +2437,8 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(list.span)),
-        }),
-        syntax::QueryDecl::Lookup(lookup) => ir::Query::Lookup(ir::LookupQuery {
+        })),
+        syntax::QueryDecl::Lookup(lookup) => Ok(ir::Query::Lookup(ir::LookupQuery {
             name: lookup.name.clone(),
             public_contract: lower_public_contract(&lookup.public_contract),
             params: Vec::new(),
@@ -2450,15 +2463,15 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(lookup.span)),
-        }),
-        syntax::QueryDecl::Sql(sql) => ir::Query::Sql(ir::SqlQuery {
+        })),
+        syntax::QueryDecl::Sql(sql) => Ok(ir::Query::Sql(ir::SqlQuery {
             name: sql.name.clone(),
             public_contract: lower_public_contract(&sql.public_contract),
             params: sql
                 .params
                 .iter()
                 .map(lower_command_input_to_typed)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             scope: Vec::new(),
             scope_override: false,
             returns: type_ref_from_text(&sql.returns),
@@ -2474,7 +2487,7 @@ fn lower_query_decl(q: &syntax::QueryDecl, caches: &[syntax::CacheProfileDecl]) 
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(sql.span)),
-        }),
+        })),
     }
 }
 
@@ -2707,13 +2720,15 @@ fn parse_cache_ttl(value: &str) -> ir::CacheTtl {
     ir::CacheTtl::Quoted(value.to_owned())
 }
 
-fn lower_command_input_to_typed(slot: &syntax::CommandInputSlot) -> ir::TypedSlot {
-    ir::TypedSlot {
+fn lower_command_input_to_typed(
+    slot: &syntax::CommandInputSlot,
+) -> Result<ir::TypedSlot, AnalyzeError> {
+    Ok(ir::TypedSlot {
         name: slot.name.clone(),
         type_ref: type_ref_from_text(&slot.type_text),
         required: slot.required,
-        constraints: lift_field_constraints(&slot.constraints),
-    }
+        constraints: lift_field_constraints(&slot.name, &slot.constraints)?,
+    })
 }
 
 /// Phase L Tier 4d — lower a canonical-indent `record` block into
@@ -2901,7 +2916,7 @@ fn strip_previously_mode(raw: &str) -> String {
 
 fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
     let default = f.default.as_deref().map(|raw| parse_default(raw.trim()));
-    let constraints = lift_field_constraints(&f.constraints);
+    let constraints = lift_field_constraints(&f.name, &f.constraints)?;
     // L0 #3 §10.2 + §10.3 — combination rules + default compatibility.
     validate_constraint_combinations(&f.name, &f.constraints)?;
     // Wave-B-CL4 — three follow-up diagnostics for the inline-validator
@@ -2945,16 +2960,38 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
 }
 
 /// Project `syntax::FieldConstraintsDecl` onto the IR's
-/// `ir::FieldConstraints`. Pure copy; combination + default checks
-/// happen separately so this stays infallible.
-fn lift_field_constraints(decl: &syntax::FieldConstraintsDecl) -> ir::FieldConstraints {
-    ir::FieldConstraints {
+/// `ir::FieldConstraints`. Combination + default checks happen
+/// separately; closed-catalog validate profiles are checked here.
+fn lift_field_constraints(
+    field: &str,
+    decl: &syntax::FieldConstraintsDecl,
+) -> Result<ir::FieldConstraints, AnalyzeError> {
+    Ok(ir::FieldConstraints {
         min: decl.min,
         max: decl.max,
         pattern: decl.pattern.clone(),
         between: decl.between,
         length: decl.length,
         r#in: decl.r#in.clone(),
+        sanitize_html: match decl.sanitize_html.as_deref() {
+            Some(profile) => Some(lower_sanitize_html_profile(field, profile)?),
+            None => None,
+        },
+    })
+}
+
+fn lower_sanitize_html_profile(
+    field: &str,
+    profile: &str,
+) -> Result<ir::SanitizeHtmlProfile, AnalyzeError> {
+    match profile {
+        "strict" => Ok(ir::SanitizeHtmlProfile::Strict),
+        "basic" => Ok(ir::SanitizeHtmlProfile::Basic),
+        "markdown_safe" => Ok(ir::SanitizeHtmlProfile::MarkdownSafe),
+        other => Err(AnalyzeError::UnknownSanitizeHtmlProfile {
+            field: field.to_owned(),
+            profile: other.to_owned(),
+        }),
     }
 }
 
@@ -3371,7 +3408,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
                     name: s.name.clone(),
                     type_ref: type_ref_from_text(&s.type_text),
                     required: s.required,
-                    constraints: lift_field_constraints(&s.constraints),
+                    constraints: lift_field_constraints(&s.name, &s.constraints)?,
                 });
             }
             ir::CommandInput::Typed(lifted)
@@ -3397,6 +3434,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
     let audit = c.audit.as_ref().map(|a| ir::AuditSpec {
         subjects: a.subjects.clone(),
         emit_to: a.emit_to.clone(),
+        data_subject: a.data_subject.clone(),
     });
     let approval = c.approval.as_ref().map(|a| ir::ApprovalSpec {
         required_when: a.required_when.clone(),
@@ -3649,6 +3687,7 @@ fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Repor
         // any author-supplied value. The lowering preserves what was
         // written so the doctor lint sees the offending edge.
         emit_to: a.emit_to.clone(),
+        data_subject: a.data_subject.clone(),
     });
 
     let policy_expr = r.policy_expr.as_ref().map(lower_policy_expr);
@@ -4063,11 +4102,13 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
             ir::AuditSpec {
                 subjects: vec!["actor".to_owned(), "target.id".to_owned()],
                 emit_to: None,
+                data_subject: None,
             }
         } else if let Some(reason) = rest.strip_prefix("none ") {
             ir::AuditSpec {
                 subjects: vec![format!("none {}", reason)],
                 emit_to: None,
+                data_subject: None,
             }
         } else {
             ir::AuditSpec {
@@ -4078,6 +4119,7 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
                     .map(str::to_owned)
                     .collect(),
                 emit_to: None,
+                data_subject: None,
             }
         }
     });
@@ -5434,6 +5476,66 @@ fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
     }
 }
 
+#[cfg(test)]
+fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
+    let raw = text.trim().strip_prefix('@').unwrap_or(text.trim());
+    let (ns_name, args) = match raw.split_once('(') {
+        Some((head, tail)) => (head.trim(), Some(tail.trim_end_matches(')').to_owned())),
+        None => (raw.trim(), None),
+    };
+    let (namespace, name) = ns_name
+        .split_once('.')
+        .map(|(namespace, name)| (namespace.to_owned(), name.to_owned()))
+        .unwrap_or_else(|| ("".to_owned(), ns_name.to_owned()));
+    ir::PolicyAtom {
+        namespace,
+        name,
+        args,
+    }
+}
+
+#[cfg(test)]
+fn lower_audit_block(src: &str) -> ir::AuditSpec {
+    let mut spec = ir::AuditSpec {
+        subjects: Vec::new(),
+        emit_to: None,
+        data_subject: None,
+    };
+    for line in src.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if let Some(rest) = line.strip_prefix("audit data_subject ") {
+            spec.data_subject = Some(rest.trim().to_owned());
+        } else if let Some(rest) = line.strip_prefix("data_subject ") {
+            spec.data_subject = Some(rest.trim().to_owned());
+        } else if let Some(rest) = line.strip_prefix("audit ") {
+            spec.subjects = rest
+                .split(',')
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        } else if let Some(rest) = line.strip_prefix("emit_to ") {
+            spec.emit_to = Some(rest.trim().to_owned());
+        }
+    }
+    spec
+}
+
+#[cfg(test)]
+fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError> {
+    let trimmed = line.trim();
+    let Some(rest) = trimmed.strip_prefix("validate sanitize_html(") else {
+        return Ok(ir::FieldConstraints::default());
+    };
+    let profile = rest.trim_end_matches(')').trim();
+    lift_field_constraints(
+        "validate",
+        &syntax::FieldConstraintsDecl {
+            sanitize_html: Some(profile.to_owned()),
+            ..Default::default()
+        },
+    )
+}
+
 /// RB.S6 — lower the structured AST policy expression (parser
 /// already validated permission-ref shape + closed keyword catalog).
 /// The lowering is purely structural; catalog cross-checks (role/perm
@@ -5447,6 +5549,7 @@ fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
         syntax::PolicyExprAst::Atom(atom) => ir::PolicyExpr::Atom(ir::PolicyAtom {
             namespace: atom.namespace.clone(),
             name: atom.name.clone(),
+            args: atom.args.clone(),
         }),
         syntax::PolicyExprAst::And(terms) => {
             ir::PolicyExpr::And(terms.iter().map(lower_policy_expr).collect())
@@ -5762,8 +5865,9 @@ mod tests {
     use lazuli_syntax::parse_lzx_document;
 
     use super::{
-        AnalyzeError, lower_auth_identity, lower_lzx_document, parse_query_filter_line,
-        type_ref_from_syntax,
+        AnalyzeError, lower_audit_block, lower_auth_identity, lower_lzx_document,
+        lower_policy_atom_with_args, lower_validate_line, parse_cap_file_type,
+        parse_query_filter_line, type_ref_from_syntax,
     };
 
     #[test]
@@ -7035,6 +7139,49 @@ feature payments
     // -------------------------------------------------------------------------
     // Phase L Tier 2 — `@cap.File(...)` typing
     // -------------------------------------------------------------------------
+
+    #[test]
+    fn mfa_atom_with_args_lowers() {
+        let atom = lower_policy_atom_with_args("@mfa.required(within:15m)");
+        assert_eq!(atom.namespace, "mfa");
+        assert_eq!(atom.name, "required");
+        assert_eq!(atom.args.as_deref(), Some("within:15m"));
+    }
+
+    #[test]
+    fn audit_data_subject_lowers() {
+        let spec = lower_audit_block("audit default\naudit data_subject user_id\n");
+        assert_eq!(spec.subjects, vec!["default".to_owned()]);
+        assert_eq!(spec.data_subject.as_deref(), Some("user_id"));
+    }
+
+    #[test]
+    fn validate_sanitize_html_lowers() {
+        let constraints =
+            lower_validate_line("validate sanitize_html(basic)").expect("valid profile");
+        assert_eq!(
+            constraints.sanitize_html,
+            Some(ir::SanitizeHtmlProfile::Basic)
+        );
+    }
+
+    #[test]
+    fn validate_sanitize_html_rejects_unknown_profile() {
+        let result = lower_validate_line("validate sanitize_html(unsafe)");
+        assert!(matches!(
+            result,
+            Err(AnalyzeError::UnknownSanitizeHtmlProfile { .. })
+        ));
+    }
+
+    #[test]
+    fn cap_file_auto_photo_policy_lowers() {
+        let cap = parse_cap_file_type(
+            "@cap.File(max_size:5mb,accept:image/jpeg,auto_photo_policy:@policy.host_only) optional",
+        )
+        .expect("cap file parses");
+        assert_eq!(cap.auto_photo_policy.as_deref(), Some("@policy.host_only"));
+    }
 
     #[test]
     fn type_ref_from_syntax_lowers_full_cap_file() {

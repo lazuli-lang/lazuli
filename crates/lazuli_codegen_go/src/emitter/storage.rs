@@ -480,6 +480,7 @@ mod tests {
                 .collect(),
             visibility,
             signed_ttl: signed_ttl.map(str::to_owned),
+            auto_photo_policy: None,
         }
     }
 
@@ -770,6 +771,7 @@ mod feature_emit_tests {
                     }],
                     visibility: Some(FileVisibility::Signed),
                     signed_ttl: Some("30m".to_owned()),
+                    auto_photo_policy: None,
                 })),
                 required: true,
                 unique: false,

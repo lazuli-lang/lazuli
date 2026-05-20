@@ -544,6 +544,8 @@ pub enum SettingPersistenceAst {
 pub struct PolicyAtomAst {
     pub namespace: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
     pub span: Span,
 }
 
@@ -1184,6 +1186,10 @@ pub struct CommandAudit {
     pub subjects: Vec<String>,
     /// `emit_to <event_group>` — optional child.
     pub emit_to: Option<String>,
+    /// `data_subject <field>` — optional child naming the affected
+    /// resource field that identifies the data subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_subject: Option<String>,
     pub span: Span,
 }
 
@@ -1456,6 +1462,8 @@ pub struct FieldConstraintsDecl {
     pub length: Option<usize>,
     #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
     pub r#in: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sanitize_html: Option<String>,
 }
 
 impl FieldConstraintsDecl {
@@ -1466,6 +1474,7 @@ impl FieldConstraintsDecl {
             && self.between.is_none()
             && self.length.is_none()
             && self.r#in.is_none()
+            && self.sanitize_html.is_none()
     }
 }
 

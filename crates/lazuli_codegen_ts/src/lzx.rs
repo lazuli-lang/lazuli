@@ -455,6 +455,7 @@ pub(crate) mod test_fixtures {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
+                args: None,
             }],
             views: vec![
                 View::List(slug_list_view()),
@@ -471,6 +472,7 @@ pub(crate) mod test_fixtures {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_member".to_owned(),
+                args: None,
             }],
             views: vec![View::List(public_slug_list_view())],
             span_ref: None,

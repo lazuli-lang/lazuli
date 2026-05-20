@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 pub mod encryption;
 pub mod security_duration;
 pub use encryption::{
-    E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope,
-    EncryptionRotation, EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
+    E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope, EncryptionRotation,
+    EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
 
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.15.0 by
@@ -783,6 +783,27 @@ pub struct FieldConstraints {
     pub length: Option<usize>,
     #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
     pub r#in: Option<Vec<String>>,
+    /// `validate sanitize_html(<profile>)` — runtime strips dangerous
+    /// HTML before persist. `profile` is a closed catalog of named
+    /// rule sets (`strict`, `basic`, `markdown_safe`). None means no
+    /// sanitization is applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sanitize_html: Option<SanitizeHtmlProfile>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SanitizeHtmlProfile {
+    /// Strip ALL tags + decode entities. Use for plain-text fields
+    /// that briefly accept rich input from rich-text editors.
+    Strict,
+    /// Allow `<b>`, `<i>`, `<em>`, `<strong>`, `<a href>`, `<br>`,
+    /// `<p>`. Strip script/style/iframe/object/embed.
+    Basic,
+    /// Add markdown-friendly: `<code>`, `<pre>`, `<blockquote>`,
+    /// `<ul>`, `<ol>`, `<li>`, `<h1..h6>`. Still strips all
+    /// script-bearing tags + on* attributes.
+    MarkdownSafe,
 }
 
 impl FieldConstraints {
@@ -796,6 +817,7 @@ impl FieldConstraints {
             && self.between.is_none()
             && self.length.is_none()
             && self.r#in.is_none()
+            && self.sanitize_html.is_none()
     }
 
     /// Convenience constructor used by tests and call sites that build
@@ -845,7 +867,9 @@ pub enum BuiltinType {
     /// authoring shorthand `Money` lowers to `SemanticMoney { currency:
     /// BRL }` (Hostpoint-pilot reality); explicit
     /// `@semantic.Money(currency: <ISO>)` overrides.
-    SemanticMoney { currency: CurrencyCode },
+    SemanticMoney {
+        currency: CurrencyCode,
+    },
     /// Phase L Tier 4 follow-up — `@semantic.Phone`. Closed catalog
     /// addition so auth-identity diagnostics can read the shape
     /// without text-walking.
@@ -1035,6 +1059,12 @@ pub struct FileCapability {
     /// records what the author wrote.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_ttl: Option<String>,
+    /// `auto_photo_policy: @policy.<name>` — explicit policy attached
+    /// to the 4 commands synthesized from this `@cap.File` site
+    /// (FR-3a). `None` defers to the analyzer's heuristic
+    /// (resource_singular + "_only").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_photo_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1270,6 +1300,12 @@ pub struct AuditSpec {
     /// `None` when the command writes audit without emitting to a group.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emit_to: Option<String>,
+    /// LGPD/GDPR shape — names the field on the affected resource
+    /// that identifies the data subject for right-of-access /
+    /// right-to-erasure queries. `None` for non-personal-data
+    /// commands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_subject: Option<String>,
 }
 
 /// Phase L Tier 4b — Cut A.9 `approval` block lifted into IR.
@@ -1426,7 +1462,10 @@ pub struct Assignment {
 pub enum PolicyRef {
     Local(String),
     Atom(String),
-    External { feature: String, name: String },
+    External {
+        feature: String,
+        name: String,
+    },
     Unresolved(String),
     #[default]
     None,
@@ -2453,10 +2492,7 @@ pub enum LifecycleInvariant {
     TerminalImmutable,
     /// `invariant single <state> per <scope_field>`
     #[serde(rename = "single_state_per_scope")]
-    SingleStatePerScope {
-        state: String,
-        scope_field: String,
-    },
+    SingleStatePerScope { state: String, scope_field: String },
     /// `invariant no_jump_more_than_one`
     #[serde(rename = "no_jump_more_than_one")]
     NoJumpMoreThanOne,
@@ -2851,6 +2887,11 @@ pub enum SettingPersistence {
 pub struct PolicyAtom {
     pub namespace: String,
     pub name: String,
+    /// Optional argument literal. Currently only
+    /// `@mfa.required(within:<dur>)` populates this —
+    /// `args == Some("within:15m")`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
 }
 
 /// RB.S6 — structured `policy <expr>` form used by command / query /
@@ -5071,8 +5112,14 @@ pub struct TenantMigrationTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TenantMigrationTargetOperation {
-    Query { feature: Option<String>, name: String },
-    Command { feature: Option<String>, name: String },
+    Query {
+        feature: Option<String>,
+        name: String,
+    },
+    Command {
+        feature: Option<String>,
+        name: String,
+    },
 }
 
 // =============================================================================
@@ -6507,7 +6554,10 @@ mod l0_6_ir_tests {
             refresh_ttl: Some("30 days".to_string()),
             grace: Some("30 seconds".to_string()),
             theft_detection_action: Some(TheftAction::RevokeSessionFamily),
-            span_ref: Some(SpanRef { start: 100, end: 200 }),
+            span_ref: Some(SpanRef {
+                start: 100,
+                end: 200,
+            }),
         });
     }
 
@@ -6576,7 +6626,10 @@ mod l0_6_ir_tests {
         assert_eq!(s.resolved_access_ttl(), "15 minutes");
         assert_eq!(s.resolved_refresh_ttl(), Some("30 days"));
         assert_eq!(s.resolved_rotation_grace(), Some("30 seconds"));
-        assert_eq!(s.resolved_theft_action(), Some(TheftAction::RevokeSessionFamily));
+        assert_eq!(
+            s.resolved_theft_action(),
+            Some(TheftAction::RevokeSessionFamily)
+        );
     }
 
     #[test]
@@ -6679,7 +6732,10 @@ mod l0_6_ir_tests {
     #[test]
     fn lifecycle_route_gate_ir_round_trips_with_all_slots() {
         let lifecycle_span = SpanRef { start: 10, end: 40 };
-        let resume_span = SpanRef { start: 50, end: 140 };
+        let resume_span = SpanRef {
+            start: 50,
+            end: 140,
+        };
         let requires = RequiresLifecycle {
             resource: "Host".to_string(),
             state: "complete".to_string(),

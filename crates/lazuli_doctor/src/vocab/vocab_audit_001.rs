@@ -211,6 +211,7 @@ mod tests {
         Some(AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
+            data_subject: None,
         })
     }
 
@@ -219,6 +220,7 @@ mod tests {
         Some(AuditSpec {
             subjects: vec!["actor".to_owned(), "input.status".to_owned()],
             emit_to: None,
+            data_subject: None,
         })
     }
 
@@ -227,6 +229,7 @@ mod tests {
         Some(AuditSpec {
             subjects: vec!["none".to_owned()],
             emit_to: None,
+            data_subject: None,
         })
     }
 
