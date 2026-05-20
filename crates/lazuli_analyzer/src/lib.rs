@@ -1225,11 +1225,13 @@ fn parse_cap_pii_type(ty: &str) -> Option<ir::PiiCapability> {
     let ty = first_paren_balanced_token(ty);
     let inner = ty.strip_prefix("@cap.PII(")?.strip_suffix(')')?;
     let args = parse_capability_args(inner);
-    let class = args.get("class")?.clone();
+    let class = unquote_capability_arg(args.get("class")?).to_owned();
     if class.is_empty() {
         return None;
     }
-    let retention = args.get("retention").cloned();
+    let retention = args
+        .get("retention")
+        .map(|value| unquote_capability_arg(value).to_owned());
     let log_redact = match args.get("log_redact").map(String::as_str) {
         Some("true") => Some(true),
         Some("false") => Some(false),
@@ -1241,6 +1243,13 @@ fn parse_cap_pii_type(ty: &str) -> Option<ir::PiiCapability> {
         retention,
         log_redact,
     })
+}
+
+fn unquote_capability_arg(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .unwrap_or(value)
 }
 
 /// MONEY-1 §3.2 — `@semantic.Money(currency:<ISO>)`. Reuses the
@@ -2165,6 +2174,7 @@ fn simple_field(name: &str, type_ref: ir::TypeRef, required: bool) -> ir::Field 
         constraints: ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
+        pii: None,
         span_ref: None,
     }
 }
@@ -2949,7 +2959,20 @@ fn strip_previously_mode(raw: &str) -> String {
 }
 
 fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
-    let default = f.default.as_deref().map(|raw| parse_default(raw.trim()));
+    let (type_text_with_recovered_modifiers, type_pii) =
+        extract_field_level_pii_decorator(&f.type_text);
+    let recovered = peel_trailing_field_modifiers(&type_text_with_recovered_modifiers);
+    let (default_text, default_pii) = match f.default.as_deref() {
+        Some(raw) => {
+            let (cleaned, pii) = extract_field_level_pii_decorator(raw);
+            (Some(cleaned), pii)
+        }
+        None => (None, None),
+    };
+    let pii = type_pii.or(default_pii);
+    let default = default_text
+        .as_deref()
+        .map(|raw| parse_default(raw.trim()));
     let constraints = lift_field_constraints(&f.name, &f.constraints)?;
     // L0 #3 §10.2 + §10.3 — combination rules + default compatibility.
     validate_constraint_combinations(&f.name, &f.constraints)?;
@@ -2959,9 +2982,9 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
     // conflicts run first so `length+min` etc. take precedence over
     // the per-constraint type / range checks.
     validate_constraint_range_invariant(&f.name, &f.constraints)?;
-    validate_constraint_type_compatibility(&f.name, &f.type_text, &f.constraints)?;
+    validate_constraint_type_compatibility(&f.name, &recovered.type_text, &f.constraints)?;
     validate_constraint_pattern_compile(&f.name, &f.constraints)?;
-    if let Some(default_text) = f.default.as_deref() {
+    if let Some(default_text) = default_text.as_deref() {
         validate_default_against_constraints(&f.name, default_text.trim(), &f.constraints)?;
     }
     Ok(ir::Field {
@@ -2971,9 +2994,9 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
         // `@cap.Token(…)`, and `@semantic.*` lift into typed variants.
         // The legacy `type_ref_from_text` path is preserved for
         // call sites that pass cleaned-up identifiers only.
-        type_ref: type_ref_from_syntax(&f.type_text),
-        required: f.required,
-        unique: f.unique,
+        type_ref: type_ref_from_syntax(&recovered.type_text),
+        required: f.required || recovered.required,
+        unique: f.unique || recovered.unique,
         // CL.C.4 — lift `@slug` decorator presence into the typed IR.
         slug: f.slug,
         default,
@@ -2989,8 +3012,140 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
             .iter()
             .map(|p| strip_previously_mode(p))
             .collect(),
+        pii,
         span_ref: Some(span_of(f.span)),
     })
+}
+
+struct RecoveredFieldType {
+    type_text: String,
+    required: bool,
+    unique: bool,
+}
+
+/// FR-PII-STACK — when `@cap.PII(...)` is authored after field modifiers,
+/// the syntax parser leaves `required|optional|unique` inside `type_text`
+/// because it only peels final bare tokens. Recover those modifiers after
+/// removing the field-level decorator so the existing parser remains stable.
+fn peel_trailing_field_modifiers(text: &str) -> RecoveredFieldType {
+    let mut head = text.trim().to_owned();
+    let mut required = false;
+    let mut unique = false;
+    loop {
+        let trimmed = head.trim_end();
+        if trimmed.ends_with(" required") {
+            required = true;
+            head = trimmed[..trimmed.len() - " required".len()].to_owned();
+        } else if trimmed.ends_with(" optional") {
+            head = trimmed[..trimmed.len() - " optional".len()].to_owned();
+        } else if trimmed.ends_with(" unique") {
+            unique = true;
+            head = trimmed[..trimmed.len() - " unique".len()].to_owned();
+        } else {
+            head = trimmed.to_owned();
+            break;
+        }
+    }
+    RecoveredFieldType {
+        type_text: head,
+        required,
+        unique,
+    }
+}
+
+/// FR-PII-STACK — peel a non-leading `@cap.PII(...)` marker out of a
+/// resource/record field's type tail and lower it into `Field.pii`. Leading
+/// `@cap.PII(...)` remains a normal capability `TypeRef` for fields whose
+/// only carrier is PII.
+fn extract_field_level_pii_decorator(type_text: &str) -> (String, Option<ir::PiiCapability>) {
+    let original = type_text.trim().to_owned();
+    let Some((start, end)) = find_field_level_cap_pii_span(type_text) else {
+        return (original, None);
+    };
+    let before = type_text[..start].trim_end();
+    if before.is_empty() {
+        return (original, None);
+    }
+    let token = &type_text[start..end];
+    let Some(pii) = parse_cap_pii_type(token) else {
+        return (original, None);
+    };
+    let after = type_text[end..].trim_start();
+    let mut cleaned = before.to_owned();
+    if !cleaned.is_empty() && !after.is_empty() {
+        cleaned.push(' ');
+    }
+    cleaned.push_str(after);
+    (cleaned.trim().to_owned(), Some(pii))
+}
+
+fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
+    const PREFIX: &[u8] = b"@cap.PII(";
+    let bytes = text.as_bytes();
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0usize;
+    while i + PREFIX.len() <= bytes.len() {
+        let ch = bytes[i] as char;
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if depth == 0 && &bytes[i..i + PREFIX.len()] == PREFIX {
+            let before_ok = i == 0 || (bytes[i - 1] as char).is_whitespace();
+            if before_ok {
+                if let Some(end) = find_balanced_decorator_end(text, i) {
+                    return Some((i, end));
+                }
+            }
+        }
+        match ch {
+            '"' => in_string = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_balanced_decorator_end(text: &str, start: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, ch) in text[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(start + offset + ch.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Project `syntax::FieldConstraintsDecl` onto the IR's
@@ -7253,6 +7408,62 @@ feature payments
             }
             other => panic!("expected Capability::PII, got {other:?}"),
         }
+    }
+
+    fn lower_field_line(line: &str) -> ir::Field {
+        let source = format!(
+            "feature account\n  domain\n    resource Customer\n      {}\n",
+            line
+        );
+        let features = lazuli_syntax::parse_feature_skeletons(&source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        feature
+            .resources
+            .into_iter()
+            .next()
+            .expect("resource")
+            .fields
+            .into_iter()
+            .next()
+            .expect("field")
+    }
+
+    #[test]
+    fn field_with_pii_decorator_stacks_with_semantic() {
+        let line = "cpf: @semantic.BrazilianCPF optional unique @cap.PII(class:\"identity\")";
+        let field = lower_field_line(line);
+        assert!(matches!(
+            field.type_ref,
+            ir::TypeRef::UserDefined(ref q) if q.name == "@semantic.BrazilianCPF"
+        ));
+        assert!(!field.required);
+        assert!(field.unique);
+        assert!(field.pii.is_some());
+        assert_eq!(field.pii.as_ref().unwrap().class, "identity");
+    }
+
+    #[test]
+    fn field_without_pii_decorator_has_none() {
+        let field = lower_field_line("name: Text required");
+        assert!(matches!(
+            field.type_ref,
+            ir::TypeRef::Builtin(ir::BuiltinType::Text)
+        ));
+        assert!(field.required);
+        assert!(field.pii.is_none());
+    }
+
+    #[test]
+    fn field_with_pii_decorator_after_default_cleans_default() {
+        let field = lower_field_line("name: Text required = anon @cap.PII(class:\"contact\")");
+        assert_eq!(
+            field.default,
+            Some(ir::DefaultValue::EnumLiteral(ir::EnumLiteral {
+                type_name: None,
+                variant: "anon".to_owned(),
+            }))
+        );
+        assert_eq!(field.pii.as_ref().unwrap().class, "contact");
     }
 
     #[test]

@@ -756,6 +756,14 @@ pub struct Field {
     pub full_text: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
+    /// FR-PII-STACK — orthogonal PII annotation. When set, the
+    /// observability redactor masks this field's values in log
+    /// output AND audit data_subject inference may consume it.
+    /// Distinct from `type_ref` being CapabilityRef::PII — that
+    /// path is for fields that are ONLY PII (no semantic carrier).
+    /// This slot lets `@semantic.BrazilianCPF` + `@cap.PII` stack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pii: Option<PiiCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
