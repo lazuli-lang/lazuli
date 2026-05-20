@@ -11,7 +11,10 @@
 package storage
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -128,6 +131,53 @@ type FileRef struct {
 	Key         Key
 	ContentType string
 	Size        int64
+}
+
+// FileRefJSON is the on-disk JSON shape FileRef serialises to. Field
+// names use snake_case so the JSONB column stays readable in psql.
+type fileRefJSON struct {
+	Key         Key    `json:"key"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+}
+
+// Scan implements sql.Scanner so pgx can deserialise a JSONB column
+// into FileRef. Accepts []byte (pgx default) and string (sqlite/test
+// drivers). nil source zeroes the value -- caller checks Key=="" to
+// detect the empty case.
+func (f *FileRef) Scan(src any) error {
+	if src == nil {
+		*f = FileRef{}
+		return nil
+	}
+	var raw []byte
+	switch v := src.(type) {
+	case []byte:
+		raw = v
+	case string:
+		raw = []byte(v)
+	default:
+		return fmt.Errorf("storage: FileRef.Scan: unsupported type %T", src)
+	}
+	if len(raw) == 0 {
+		*f = FileRef{}
+		return nil
+	}
+	var jsn fileRefJSON
+	if err := json.Unmarshal(raw, &jsn); err != nil {
+		return fmt.Errorf("storage: FileRef.Scan: %w", err)
+	}
+	*f = FileRef{Key: jsn.Key, ContentType: jsn.ContentType, Size: jsn.Size}
+	return nil
+}
+
+// Value implements driver.Valuer. A FileRef with empty Key marshals
+// to SQL NULL so optional fields stay clean.
+func (f FileRef) Value() (driver.Value, error) {
+	if f.Key == "" {
+		return nil, nil
+	}
+	return json.Marshal(fileRefJSON{Key: f.Key, ContentType: f.ContentType, Size: f.Size})
 }
 
 // Metadata carries the uploader-supplied side information that
