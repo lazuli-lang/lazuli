@@ -248,7 +248,7 @@ fn generate_schema_ts(module: &Module, display_name: &str) -> String {
     let json = serde_json::to_string_pretty(module).expect("IR must serialize");
 
     format!(
-        r#"// Generated from the Lazuli IR. Read-only — regenerate via `lazuli compile`.
+        r#"// Generated from the Lazuli IR. Read-only — regenerate via `lazuli generate ts`.
 // The IR shape is the public contract; see docs/ir-abi.md.
 
 export type LazuliModule = {{

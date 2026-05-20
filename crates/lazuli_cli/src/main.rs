@@ -115,11 +115,6 @@ enum Commands {
         #[arg(long)]
         check_release: bool,
     },
-    Compile {
-        input: PathBuf,
-        #[arg(long, short)]
-        out: PathBuf,
-    },
     Inspect {
         input: PathBuf,
         #[arg(long, default_value = "none")]
@@ -804,7 +799,6 @@ fn main() -> Result<()> {
             check_release,
             cli.allow_version_mismatch,
         ),
-        Commands::Compile { input, out } => compile_command(&input, &out),
         Commands::Inspect {
             input,
             expand,
@@ -4178,25 +4172,6 @@ fn print_diagnostic(input: &Path, diagnostic: &Diagnostic) {
 fn parse_command(input: &Path) -> Result<()> {
     let app = compile_to_ir(input)?;
     println!("{}", serde_json::to_string_pretty(&app)?);
-    Ok(())
-}
-
-fn compile_command(input: &Path, out: &Path) -> Result<()> {
-    let app = compile_to_ir(input)?;
-    let plan = lazuli_planner::plan_initial_generation(&app);
-
-    fs::create_dir_all(out)
-        .with_context(|| format!("failed to create output directory {}", out.display()))?;
-
-    for file in lazuli_codegen_go::generate_legacy_demo(&app) {
-        write_generated_file(out, &file.path, &file.contents)?;
-    }
-
-    for file in lazuli_codegen_ts::generate(&app) {
-        write_generated_file(out, &file.path, &file.contents)?;
-    }
-
-    println!("{}", serde_json::to_string_pretty(&plan)?);
     Ok(())
 }
 
