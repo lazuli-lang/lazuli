@@ -681,6 +681,13 @@ fn collect_command_handler_stub(
     stubs: &mut BTreeMap<StubKey, HandlerStub>,
 ) {
     use lazuli_ir::CommandEffect;
+    // Synthesized auto-photo commands (FR-3a) are wired by the
+    // codegen-emitted `auto_photo.gen.go` directly against the
+    // runtime `lazuli.AutoPhoto*` helper. Scaffolding a user handler
+    // here would conflict with the runtime registration — skip.
+    if command.synthesized_from_cap_file.is_some() {
+        return;
+    }
     // Skip declarative effects — the runtime executes the SQL,
     // there's no user fn to scaffold.
     if matches!(
