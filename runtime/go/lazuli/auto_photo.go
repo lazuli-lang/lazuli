@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"lazuli.dev/runtime/lazuli/storage"
@@ -86,6 +87,21 @@ func AutoPhotoRequest(
 	if args.SizeBytes > spec.Contract.MaxSize {
 		return AutoPhotoUploadIntent{}, errors.New("auto_photo: file_size_exceeded")
 	}
+	// SECURITY (SEC-H7): the presigned PUT URL alone does not enforce
+	// max_size at the bucket. Clients can lie about Content-Length or
+	// upload via multipart. Defense-in-depth options:
+	//   1. Sign the URL with explicit Content-Length-Range constraints
+	//      (S3 supports POST policy with content-length-range; PUT does not).
+	//   2. Post-PUT HEAD-probe in the Confirm path and reject + delete
+	//      objects exceeding contract.MaxSize.
+	//   3. Bucket lifecycle policy with object-size limit.
+	// Provider has no HeadObject/StatObject hook today, so v0 keeps the
+	// pre-PUT declaration check and logs the residual follow-up.
+	slog.Info("auto_photo: SEC-H7: relying on pre-PUT size declaration; HEAD-probe is followup work",
+		"store_binding", spec.StoreBinding,
+		"bucket_slot", spec.BucketSlot,
+		"max_size", spec.Contract.MaxSize,
+	)
 	// MIME guard against the contract's Accept list (any wildcard
 	// entry passes -- see storage.MimeType.Matches).
 	if !contractAcceptsMime(spec.Contract, args.ContentType) {

@@ -52,6 +52,14 @@ func Upload(
 	if metadata.Size > 0 && contract.MaxSize > 0 && metadata.Size > contract.MaxSize {
 		return "", ErrFileSizeExceeded
 	}
+	var limited *uploadSizeLimitReader
+	if contract.MaxSize > 0 {
+		// SECURITY (SEC-H7): metadata.Size is client-declared. Cap
+		// the actual stream at the write boundary so a client cannot
+		// claim a small payload and stream past FileContract.MaxSize.
+		limited = newUploadSizeLimitReader(body, contract.MaxSize)
+		body = limited
+	}
 	if metadata.ContentType != "" && len(contract.Accept) > 0 {
 		got := parseMime(metadata.ContentType)
 		matched := false
@@ -70,7 +78,34 @@ func Upload(
 	if err := store.Put(ctx, key, body, metadata.ContentType); err != nil {
 		return "", err
 	}
+	if limited != nil && limited.BytesRead() > contract.MaxSize {
+		_ = store.Delete(ctx, key)
+		return "", ErrFileSizeExceeded
+	}
 	return key, nil
+}
+
+type uploadSizeLimitReader struct {
+	r    io.Reader
+	max  int64
+	read int64
+}
+
+func newUploadSizeLimitReader(r io.Reader, max int64) *uploadSizeLimitReader {
+	return &uploadSizeLimitReader{r: io.LimitReader(r, max+1), max: max}
+}
+
+func (r *uploadSizeLimitReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	r.read += int64(n)
+	if r.read > r.max {
+		return n, ErrFileSizeExceeded
+	}
+	return n, err
+}
+
+func (r *uploadSizeLimitReader) BytesRead() int64 {
+	return r.read
 }
 
 // LocalStore implements `ObjectStore` against the local filesystem.
@@ -435,4 +470,3 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	r.pos += n
 	return n, nil
 }
-
