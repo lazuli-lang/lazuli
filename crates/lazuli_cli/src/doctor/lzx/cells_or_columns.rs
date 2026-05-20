@@ -94,6 +94,7 @@ mod tests {
             sort: None,
             selection: None,
             settings: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         })
     }
@@ -127,7 +128,7 @@ mod tests {
                 apis: vec![],
                 records: vec![],
                 queries: vec![],
-            resume_routers: vec![],
+                resume_routers: vec![],
                 workflows: vec![],
                 jobs: vec![],
                 webhooks: vec![],
@@ -153,9 +154,9 @@ mod tests {
                 agents: vec![],
                 reports: vec![],
                 channels: vec![],
-            caches: vec![],
+                caches: vec![],
                 aggregates: vec![],
-            mcp_servers: vec![],
+                mcp_servers: vec![],
                 previous_names: vec![],
                 span_ref: None,
             }],

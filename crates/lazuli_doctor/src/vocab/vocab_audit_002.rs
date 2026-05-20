@@ -125,6 +125,7 @@ fn is_sensitive_tier(capability: &CapabilityRef) -> bool {
         CapabilityRef::E2ee(_) => "E2ee",
         CapabilityRef::Token(_) => "Token",
         CapabilityRef::Hashed(_) => "Hashed",
+        CapabilityRef::PII(_) => "PII",
         CapabilityRef::File(_) => "File",
     };
 
@@ -335,6 +336,9 @@ mod tests {
             subjects: vec!["default".to_owned()],
             emit_to: None,
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         })
     }
 

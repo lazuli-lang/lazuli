@@ -335,6 +335,7 @@ fn go_type_for_capability(cap: &CapabilityRef) -> (String, Option<&'static str>)
             "lazuli.TokenRef".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
+        CapabilityRef::PII(_) => ("string".to_owned(), None),
     }
 }
 

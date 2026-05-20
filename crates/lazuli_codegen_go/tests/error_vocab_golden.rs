@@ -201,6 +201,8 @@ fn feature_errors_block_lowers_to_errors_gen_go_and_app_registry() {
             },
         ],
         field_messages: Vec::new(),
+        audience_exposure: Vec::new(),
+        redact_patterns: Vec::new(),
         span_ref: None,
     });
     let module = module_with(vec![account]);
@@ -378,6 +380,8 @@ fn mixed_module_emits_only_features_that_declare_errors() {
         exposure_5xx: Vec::new(),
         messages: Vec::new(),
         field_messages: Vec::new(),
+        audience_exposure: Vec::new(),
+        redact_patterns: Vec::new(),
         span_ref: None,
     });
     let mut billing = empty_feature("billing");

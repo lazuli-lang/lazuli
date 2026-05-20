@@ -538,6 +538,10 @@ fn emit_schema_inline(out: &mut YamlEmitter, ty: &ir::TypeRef) {
                 out.line("format: binary");
                 out.line("x-lazuli-capability: File");
             }
+            ir::CapabilityRef::PII(_) => {
+                out.line("type: string");
+                out.line("x-lazuli-capability: PII");
+            }
             ir::CapabilityRef::Hashed(_) => {
                 out.line("type: string");
                 out.line("x-lazuli-capability: Hashed");
@@ -989,6 +993,9 @@ mod tests {
             subjects: vec!["actor".to_owned(), "target.id".to_owned()],
             emit_to: Some("audit_log".to_owned()),
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         });
         command.approval = Some(ir::ApprovalSpec {
             required_when: Some("target.tier = enterprise".to_owned()),

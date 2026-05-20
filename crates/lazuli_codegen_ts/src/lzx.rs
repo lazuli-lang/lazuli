@@ -362,6 +362,7 @@ pub(crate) mod test_fixtures {
             sort: None,
             selection: None,
             settings: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }
@@ -395,6 +396,7 @@ pub(crate) mod test_fixtures {
                     name: "delete".to_owned(),
                 },
             ],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }
@@ -414,6 +416,7 @@ pub(crate) mod test_fixtures {
                 "tags".to_owned(),
             ],
             cells: vec![type_badge_cell()],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }
@@ -445,6 +448,7 @@ pub(crate) mod test_fixtures {
             sort: None,
             selection: None,
             settings: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }

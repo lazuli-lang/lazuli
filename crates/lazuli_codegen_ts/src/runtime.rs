@@ -658,6 +658,7 @@ mod tests {
                 name: "id".to_owned(),
                 type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
                 from: None,
+                kind: ir::RouteSlotKind::Plain,
             }],
             input,
             target: None,
