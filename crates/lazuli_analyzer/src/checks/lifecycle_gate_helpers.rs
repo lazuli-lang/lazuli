@@ -131,18 +131,27 @@ impl<'a> Index<'a> {
 
     fn query_resource(&self, feature: &str, query: &'a Query) -> Option<&'a Resource> {
         let q_start = query_span(query).map(|s| s.start)?;
-        self.features
-            .get(feature)?
-            .resources
+        let resources = &self.features.get(feature)?.resources;
+        // Candidates: resources declared before the query. We prefer the
+        // resource WITH a `lifecycle` block when present, because a feature
+        // with one stateful entity + N supporting sub-resources (notes,
+        // assignments, history) reads `query.lookup by_id` as the lookup
+        // of the principal entity — the one whose lifecycle gate views
+        // would target. Falling back to span-locality picks the wrong
+        // resource (the last one declared, often a sub-entity) in those
+        // shapes. Single-resource features keep the original behavior
+        // through the final fallback.
+        let candidates: Vec<&'a Resource> = resources
             .iter()
-            .filter_map(|r| r.span_ref.map(|s| (s.start, r)))
-            .filter(|(start, _)| *start <= q_start)
-            .max_by_key(|(start, _)| *start)
-            .map(|(_, r)| r)
-            .or_else(|| {
-                let resources = &self.features.get(feature)?.resources;
-                (resources.len() == 1).then_some(&resources[0])
-            })
+            .filter(|r| r.span_ref.is_some_and(|s| s.start <= q_start))
+            .collect();
+        if let Some(with_lifecycle) = candidates.iter().rev().find(|r| r.lifecycle.is_some()) {
+            return Some(*with_lifecycle);
+        }
+        candidates
+            .into_iter()
+            .max_by_key(|r| r.span_ref.map(|s| s.start).unwrap_or(0))
+            .or_else(|| (resources.len() == 1).then_some(&resources[0]))
     }
 }
 
