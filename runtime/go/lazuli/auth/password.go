@@ -7,11 +7,13 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -41,6 +43,20 @@ const (
 	argon2idKeyLen    = 32
 	argon2idSaltLen   = 16
 )
+
+const defaultArgon2Concurrency = 4
+
+var argon2Semaphore = make(chan struct{}, defaultArgon2Concurrency)
+
+// Argon2Params carries the PHC parameters used for one argon2id
+// computation.
+type Argon2Params struct {
+	Salt    []byte
+	Time    uint32
+	Memory  uint32
+	Threads uint8
+	KeyLen  uint32
+}
 
 // FieldRef names a typed `resource.field` reference. Stub mirroring
 // what the language IR `FieldRef` will eventually expose to runtime
@@ -78,25 +94,92 @@ type PasswordContract struct {
 //	ErrPasswordMismatch    → 401 auth.password_mismatch
 //	ErrPasswordRateLimited → 429 auth.rate_limited
 var (
-	ErrPasswordMismatch     = errors.New("auth: password mismatch")
-	ErrPasswordRateLimited  = errors.New("auth: password rate limited")
-	ErrPasswordHashMalformed = errors.New("auth: password hash malformed")
+	ErrPasswordMismatch        = errors.New("auth: password mismatch")
+	ErrPasswordRateLimited     = errors.New("auth: password rate limited")
+	ErrPasswordHashMalformed   = errors.New("auth: password hash malformed")
 	ErrPasswordAlgoUnsupported = errors.New("auth: password algorithm unsupported")
+	// ErrArgon2Saturated is returned when the argon2 semaphore is full
+	// and the request couldn't acquire a slot before the context deadline.
+	// Maps to HTTP 503 at the transport layer so legitimate clients can
+	// retry instead of the server OOMing.
+	ErrArgon2Saturated = errors.New("lazuli/auth: argon2 saturated; retry later")
 )
+
+// HashWithArgon2 acquires a semaphore slot before calling argon2.IDKey
+// to cap total RAM. SECURITY (SEC-H10): without this cap, 100 concurrent
+// /login requests at 64 MiB × 4 threads exhaust 25.6 GiB RAM. Slot
+// count = 4 by default; tune via SetArgon2Concurrency for hardware
+// with more memory.
+func HashWithArgon2(ctx context.Context, password []byte, params Argon2Params) ([]byte, error) {
+	release, err := acquireArgon2Slot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return argon2.IDKey(password, params.Salt, params.Time, params.Memory, params.Threads, params.KeyLen), nil
+}
+
+func acquireArgon2Slot(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sem := argon2Semaphore
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, newArgon2SaturatedError()
+	}
+}
+
+func newArgon2SaturatedError() error {
+	const code = "auth.argon2_saturated"
+	return &lazuli.Error{
+		Status:  http.StatusServiceUnavailable,
+		Code:    code,
+		Message: "argon2 saturated; retry later",
+		Base: lazuli.ErrorBase{
+			Code:    code,
+			Surface: lazuli.SurfaceLibInternal,
+			Status:  http.StatusServiceUnavailable,
+			Message: "argon2 saturated; retry later",
+			Cause:   ErrArgon2Saturated,
+		},
+	}
+}
+
+// SetArgon2Concurrency replaces the semaphore size. Call from init
+// or at config-load time; safe-after-boot only when no inflight
+// hashing is in progress.
+func SetArgon2Concurrency(n int) {
+	if n < 1 {
+		n = 1
+	}
+	argon2Semaphore = make(chan struct{}, n)
+}
 
 // HashPassword hashes a plaintext password per the contract's
 // algorithm. Argon2id emits a PHC string format
 // `$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>`; bcrypt emits the
 // native bcrypt string format.
 func HashPassword(ctx *lazuli.Ctx, contract PasswordContract, plaintext string) (string, error) {
-	_ = ctx
 	switch contract.Algorithm {
 	case AlgoArgon2id, "":
 		salt := make([]byte, argon2idSaltLen)
 		if _, err := rand.Read(salt); err != nil {
 			return "", err
 		}
-		hash := argon2.IDKey([]byte(plaintext), salt, argon2idTime, argon2idMemoryKiB, argon2idThreads, argon2idKeyLen)
+		params := Argon2Params{
+			Salt:    salt,
+			Time:    argon2idTime,
+			Memory:  argon2idMemoryKiB,
+			Threads: argon2idThreads,
+			KeyLen:  argon2idKeyLen,
+		}
+		hash, err := HashWithArgon2(ctxOrBackground(ctx), []byte(plaintext), params)
+		if err != nil {
+			return "", err
+		}
 		return encodeArgon2idPHC(salt, hash), nil
 	case AlgoBcrypt:
 		hash, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
@@ -114,14 +197,23 @@ func HashPassword(ctx *lazuli.Ctx, contract PasswordContract, plaintext string) 
 // ErrPasswordMismatch on miss, ErrPasswordRateLimited when the
 // declarative rate limit has been exceeded.
 func VerifyPassword(ctx *lazuli.Ctx, contract PasswordContract, plaintext, storedHash string) error {
-	_ = ctx
 	switch contract.Algorithm {
 	case AlgoArgon2id, "":
 		salt, want, err := decodeArgon2idPHC(storedHash)
 		if err != nil {
 			return err
 		}
-		got := argon2.IDKey([]byte(plaintext), salt, argon2idTime, argon2idMemoryKiB, argon2idThreads, uint32(len(want)))
+		params := Argon2Params{
+			Salt:    salt,
+			Time:    argon2idTime,
+			Memory:  argon2idMemoryKiB,
+			Threads: argon2idThreads,
+			KeyLen:  uint32(len(want)),
+		}
+		got, err := HashWithArgon2(ctxOrBackground(ctx), []byte(plaintext), params)
+		if err != nil {
+			return err
+		}
 		if subtle.ConstantTimeCompare(got, want) != 1 {
 			return ErrPasswordMismatch
 		}

@@ -67,6 +67,7 @@ func TestErrorSentinels(t *testing.T) {
 	sentinels := []error{
 		ErrPasswordMismatch,
 		ErrPasswordRateLimited,
+		ErrArgon2Saturated,
 		ErrSessionExpired,
 		ErrSessionNotFound,
 		ErrTokenInvalid,
