@@ -110,7 +110,8 @@ pub struct LzxRouteGuardDefaults {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LzxViewGuard {
-    pub policy: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policy: Vec<String>,
     pub on_unauthenticated: Option<String>,
     pub on_unauthorized: Option<String>,
     pub requires_lifecycle: Option<LzxRequiresLifecycle>,
