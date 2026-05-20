@@ -166,6 +166,26 @@ const (
 	CodeLifecycleStateMismatch = "lifecycle_state_mismatch"
 )
 
+// ErrTenantRequired is returned when a TenancyOrg resource is accessed
+// without an attached *Tenant context. Previously this silently returned
+// cross-org rows (SEC-H2 / STRIDE T7.T3-T4).
+var ErrTenantRequired = errors.New("lazuli: tenant required for this resource")
+
+func tenantRequiredError() error {
+	return &Error{
+		Status:  500,
+		Code:    CodeInternal,
+		Message: "internal server error",
+		Base: ErrorBase{
+			Status:  500,
+			Code:    CodeInternal,
+			Message: "internal server error",
+			Surface: SurfaceLibInternal,
+			Cause:   ErrTenantRequired,
+		},
+	}
+}
+
 // ErrLifecycleStateMismatch is returned when a Command with Transitions
 // is dispatched but the resource's current lifecycle_state doesn't equal
 // the chain's pre-condition (Transitions[0].From). HTTP-wire: 409.
