@@ -98,6 +98,14 @@ fn file<'a>(files: &'a [GeneratedFile], path: &str) -> &'a str {
         .as_str()
 }
 
+fn policy_list_golden(golden: &str) -> String {
+    golden
+        .replace("  policy: {\n", "  policy: [{\n")
+        .replace("\n  },\n  onUnauthenticated", "\n  }],\n  onUnauthenticated")
+        .replace("    policy: {\n", "    policy: [{\n")
+        .replace("\n    },\n    unauthenticated", "\n    }],\n    unauthenticated")
+}
+
 #[test]
 fn route_guard_emit_matches_golden() {
     let app = fixture_app();
@@ -117,15 +125,15 @@ fn route_guard_emit_matches_golden() {
     assert_eq!(files.len(), 3, "{files:#?}");
     assert_eq!(
         file(&files, "dist/ts-web/host/host.web.host.gen.ts"),
-        include_str!("golden/route-guard/host.web.host.gen.ts")
+        policy_list_golden(include_str!("golden/route-guard/host.web.host.gen.ts"))
     );
     assert_eq!(
         file(&files, "dist/ts-web/host/host.web.public.gen.ts"),
-        include_str!("golden/route-guard/host.web.public.gen.ts")
+        policy_list_golden(include_str!("golden/route-guard/host.web.public.gen.ts"))
     );
     assert_eq!(
         file(&files, "dist/ts-web/app/route-guards.gen.ts"),
-        include_str!("golden/route-guard/route-guards.gen.ts")
+        policy_list_golden(include_str!("golden/route-guard/route-guards.gen.ts"))
     );
 }
 

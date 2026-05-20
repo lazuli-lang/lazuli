@@ -5,20 +5,38 @@ export type LazuliActor = {
   readonly kind?: string; readonly actor?: string;
   readonly orgId?: string | null; readonly tenantId?: string | null;
 } & Record<string, unknown>;
-export type LazuliRouteGuardPolicy = {
+export type LazuliRouteGuardPolicyAtomSet = {
   readonly atoms: readonly PolicyAtom[];
   readonly name?: string | null;
 };
+export type LazuliRouteGuardPolicyInput =
+  | LazuliRouteGuardPolicyAtomSet
+  | ReadonlyArray<LazuliRouteGuardPolicyAtomSet>;
+export type LazuliRouteGuardPolicy = LazuliRouteGuardPolicyInput;
 export type RouteGuardVerdict = "authorized" | "unauthenticated" | "unauthorized";
 export function evaluatePolicy(
   actor: LazuliActor | null,
-  policy: LazuliRouteGuardPolicy,
+  policy: LazuliRouteGuardPolicyInput,
 ): RouteGuardVerdict {
+  if (isPolicyList(policy)) return evaluatePolicyList(actor, policy);
   if (policy.atoms.length === 0) return "authorized";
   for (const atom of policy.atoms) {
     if (matches(actor, atom)) return "authorized";
   }
   return actor === null ? "unauthenticated" : "unauthorized";
+}
+export function evaluatePolicyList(
+  actor: LazuliActor | null,
+  policies: ReadonlyArray<LazuliRouteGuardPolicyAtomSet>,
+): RouteGuardVerdict {
+  if (policies.length === 0) return "authorized";
+  let sawUnauthorized = false;
+  for (const policy of policies) {
+    const verdict = evaluatePolicy(actor, policy);
+    if (verdict === "authorized") return "authorized";
+    if (verdict === "unauthorized") sawUnauthorized = true;
+  }
+  return sawUnauthorized ? "unauthorized" : "unauthenticated";
 }
 // TanStack Router beforeLoad adapter — caller passes `redirect` from
 // `@tanstack/react-router` so this module stays free of that dependency
@@ -34,7 +52,7 @@ export type WithTanStackGuardOptions = {
 };
 export function withTanStackGuard<TContext extends { client: LazuliClient }>(
   _phantomContext: Partial<TContext>,
-  policy: LazuliRouteGuardPolicy,
+  policy: LazuliRouteGuardPolicyInput,
   options: WithTanStackGuardOptions,
 ): (params: { context: TContext }) => Promise<void> {
   return async ({ context }) => {
@@ -47,6 +65,11 @@ export function withTanStackGuard<TContext extends { client: LazuliClient }>(
       throw options.redirect({ to: options.onUnauthorized ?? "/forbidden" });
     }
   };
+}
+function isPolicyList(
+  policy: LazuliRouteGuardPolicyInput,
+): policy is ReadonlyArray<LazuliRouteGuardPolicyAtomSet> {
+  return Array.isArray(policy);
 }
 function matches(actor: LazuliActor | null, atom: PolicyAtom): boolean {
   if (atom.namespace === "scope") {
