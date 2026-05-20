@@ -14,6 +14,12 @@ command at `.claude/commands/lazuli-grade.md` reference this file.
 
 ## Changelog
 
+- **2026-05-20** — Criterion 4 (Escape hatches) hardened with the
+  Prisma-trap runbook (4 probes P-A..P-D); added §Vocab Governance
+  Rules (RULE-VOCAB-01..04); added 3 new boundary-violation lines.
+  Purely additive — no weight redistribution, no past PASS retroactive
+  BLOCK. Triggered by hostpoint vocab-saturation analysis. Source
+  proposal: `grader-vocab-governance.md`.
 - **2026-05-18** — Added Criterion 11 (framework error message
   contract, 6%) per proposal `grader-error-message-criterion.md`;
   weights redistributed (C1 −1, C2 −1, C3 −1, C7 −1, C10 −2). Sum
@@ -131,6 +137,20 @@ boundary violation is any of:
   principle is symmetric to the line above: the language must not leak
   transport mechanics into the runtime, *and* the runtime must not
   leak prose into the wire.
+- Vocab additions that introduce control flow (`if/else`,
+  `when/otherwise`, `for/each`, `let` bindings beyond field
+  references, retry policies, error-handling primitives) into the
+  IR. Multi-step orchestration belongs in `handler @fn.X`. The IR's
+  job is data shape + policy + lifecycle + single-step effects.
+- Codegen emissions that produce opaque runtime engines, interpreters,
+  or non-source artifacts (wasm, compiled binaries) in place of
+  readable per-feature source files. The Prisma engine is the
+  negative pattern. The author MUST be able to read the emitted Go
+  (or target language) for any command in `dist/<target>/<feature>/`.
+- `@deprecated`, `@warning`, or `@legacy` annotations on commands
+  using `handler @fn.X` when an equivalent vocab path also exists.
+  The escape hatch is first-class; positioning vocab as "preferred"
+  and handler as "legacy" inverts the relationship.
 
 A boundary violation is a *deletion*, not a *deferral*. Reject in
 line; do not log as a tracked cut.
@@ -362,6 +382,137 @@ Triggered by the hostpoint PWA framework-string leak (2026-05-18). See
 proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
 for the full provenance, audit table, and fixture-list expectations.
 
+### Criterion 4 — Escape hatches (Prisma-trap runbook)
+
+Applies whenever a proposal introduces, extends, or generalises *vocab* —
+defined as any new top-level construct, new sub-block keyword, or new
+`@<namespace>.<name>` identifier that would *replace* hand-written code
+paths.
+
+The grader runs four probes. Failure on any single probe caps Criterion
+4 at the indicated score regardless of other evidence on the criterion.
+
+**Probe P-A — Pattern provenance test.** Is the vocab a formalisation of
+code that already exists, repeated in ≥3 handlers across ≥2 pilots? The
+proposal MUST cite path:line evidence. Grader runs:
+
+```bash
+rg --no-heading -F '<pattern token>' \
+   <pilot 1 handler tree> <pilot 2 handler tree>
+```
+
+- ≥3 hits across ≥2 pilots → P-A passes.
+- 1-2 hits OR all hits in single pilot → cap C4 ≤ 5.
+- 0 hits AND no `## Preview vocab — no pilot precedent` disclosure →
+  cap C4 ≤ 3.
+
+**Probe P-B — Escape hatch parity test.** After landing this vocab, is
+`handler @fn.X` still first-class for the same command, query, or job?
+Grader runs:
+
+```bash
+rg -n -i 'deprecat|legacy|prefer.*vocab|should.*declarative|escape.*hatch.*last' \
+   docs/proposals/<proposal>.md
+rg -n 'handler.*should|fn.*deprecated|imperative.*warning' \
+   crates/lazuli_cli/src/doctor.rs crates/lazuli_doctor/src/
+```
+
+- Zero hits + proposal explicitly affirms parity → P-B passes.
+- Vocab framed as "preferred" / handler as "legacy" → cap C4 ≤ 5.
+- Doctor flags handler-based commands as "should be declarative" →
+  cap C4 ≤ 3.
+- `@deprecated` / `@warning` on `handler @fn.X` → boundary violation,
+  BLOCK.
+
+**Probe P-C — Emitted-code legibility test.** Can an author open
+`dist/<target>/<feature>/*.gen.<ext>` and read the code for this vocab?
+
+```bash
+rg -n 'engine\.|interpreter\.|VocabExecutor|Runner.Run\(.*Definition' \
+   <cited codegen target or template>
+```
+
+- Per-feature inline emission → P-C passes.
+- Runtime engine / interpreter taking vocab as data → cap C4 ≤ 4.
+- Non-source artifact (wasm/binary) → boundary violation, BLOCK.
+
+**Probe P-D — Cognitive surface test.** Does the vocab introduce
+branching, loops, variable bindings beyond field references, retry
+policies declarative, or error-handling primitives?
+
+- Zero rejected constructs → P-D passes.
+- Any rejected construct → STOP. Reject the proposal at acceptance
+  time per RULE-VOCAB-03. Grading does not proceed.
+
+Triggered by the hostpoint vocab-saturation analysis (2026-05-20). See
+proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`
+for full probe details, worked examples, and the four Vocab Governance
+Rules that gate acceptance.
+
+## Vocab Governance Rules
+
+These rules gate proposal **acceptance** (before grading). A proposal
+that fails any rule is returned to the author for revision; it does not
+enter the grading DAG.
+
+The four rules are orthogonal to the criterion scoring above:
+P-A through P-D produce graded measurements (Criterion 4 caps);
+RULE-VOCAB-01 through 04 produce binary gates (proposal accepted or
+returned).
+
+### RULE-VOCAB-01 — Pattern Provenance Mandatory
+
+New vocab additions MUST cite ≥3 existing handlers across ≥2 pilots
+that the addition formalises. Vocab inventing a new abstraction layer
+without precedent in pilot code is REJECTED at proposal acceptance,
+not at grade time.
+
+Evidence format: `path:line` citations of the 3+ handlers, with the
+boilerplate pattern that the new vocab replaces shown inline. The
+grader runs the cited greps to verify pattern existence and density.
+
+Exception: vocab explicitly marked `## Preview vocab — no pilot
+precedent` MAY be proposed but is capped at `language-light` in the
+capability-layering lifecycle until provenance evidence accumulates.
+
+### RULE-VOCAB-02 — Escape Hatch First-Class Forever
+
+Every command, query, or job that can be expressed in vocab MUST ALSO
+accept `handler @fn.X` as the implementation path. The IR cannot emit
+`@deprecated`, `@warning`, or `@legacy` annotations on commands using
+`handler @fn.X`. Doctor cannot flag handler-based commands as "should
+be declarative" or otherwise discourage handler-shaped implementations.
+
+Authoring docs MAY explain when vocab is more concise, but MAY NOT
+position handler as a degenerate option. The two paths are siblings,
+not parent/child.
+
+### RULE-VOCAB-03 — No Workflow DSL Inside IR
+
+Vocab additions that introduce branching (`if/else`,
+`when/otherwise`), loops (`for/each`), variable bindings beyond field
+references, retry policies declarative, or error-handling primitives
+MUST be REJECTED at proposal acceptance.
+
+Multi-step orchestration belongs in `handler @fn.X`. Multi-tx
+side-effect chains belong in `handler @fn.X`. The IR's job is data
+shape + policy + lifecycle + single-step effects. The line: a vocab
+item that compiles to a single SQL statement, single HTTP call, single
+emit, or single function dispatch is in scope. A vocab item that
+compiles to a step sequencer is out of scope.
+
+### RULE-VOCAB-04 — Emitted Code Must Be Read-Through
+
+For every new vocab, the codegen emission MUST produce human-readable
+source in `dist/<target>/<feature>/*.gen.<ext>` that an author can
+read, vendor, or copy out of the framework. No opaque runtime engines,
+no interpreters reading vocab as data at request time. The Prisma
+engine is the negative pattern to avoid.
+
+Allowed: a runtime helper called *inline* from the per-command .gen
+file with explicit arguments. Forbidden: a runtime `VocabRunner.Run(decl
+VocabDeclaration)` shape.
+
 ## Versioning
 
 The rubric is part of the language contract. Changes to the
@@ -379,6 +530,16 @@ History of changes lives in `git log -- docs/grading-rubric.md`.
 
 Notable changes:
 
+- **2026-05-20 — Criterion 4 (Escape hatches) Prisma-trap runbook
+  added; Vocab Governance Rules section added; three new
+  boundary-violation lines.** No weight redistribution — purely
+  additive enforcement layer for vocab proposals. Forward-only: past
+  PASS verdicts unaffected; one past APPROVE (`ai-primitives-v0`
+  second pass) annotated retroactively as "deferred Cut B would have
+  failed RULE-VOCAB-03; the deferral was correct." Triggered by
+  hostpoint vocab-saturation analysis (72 handlers, ~50% absorbable
+  by safe vocab; line drawn at `flow`). Source proposal:
+  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`.
 - **2026-05-18 — Criterion 11 inserted (Framework error message
   contract, 6%); weights redistributed (C1 −1, C2 −1, C3 −1, C7 −1,
   C10 −2).** Sum stays at 100%. Triggered by the hostpoint PWA
