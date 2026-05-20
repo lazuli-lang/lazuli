@@ -113,14 +113,16 @@ func Mux() http.Handler {
 	report.Mount(mux)
 
 	// SECURITY (SEC-D2): every route flows through the standard stack.
-	// Order (outermost first): recover catches all inner panics; CORS handles
-	// OPTIONS before downstream checks; logging observes rate/CSRF denials;
-	// rate-limit cheaply rejects before CSRF; CSRF is closest to the mux.
+	// Order (outermost first): recover catches all inner panics; CSP is set
+	// before any body bytes flush; CORS handles OPTIONS before downstream
+	// checks; logging observes rate/CSRF denials; rate-limit cheaply rejects
+	// before CSRF; CSRF is closest to the mux.
 	handler := http.Handler(mux)
 	handler = CSRFMiddleware(NewCSRFGuard(activeCSRFAllowedOrigins()))(handler)
 	handler = RateLimitMiddleware(defaultMuxRateLimit, handler)
 	handler = loggingMiddleware(handler)
 	handler = CorsMiddleware(handler)
+	handler = cspMiddleware(handler)
 	handler = RecoverMiddleware(handler)
 	return handler
 }
