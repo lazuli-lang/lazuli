@@ -164,6 +164,7 @@ fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
         handler: None,
         tests: None,
         triggers: vec![],
+        synthesized_from_cap_file: None,
         previous_names: Vec::new(),
         span_ref,
     }
@@ -817,6 +818,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         handler: None,
         tests: None,
         triggers: Vec::new(),
+        synthesized_from_cap_file: None,
         previous_names: Vec::new(),
         span_ref: None,
     });
