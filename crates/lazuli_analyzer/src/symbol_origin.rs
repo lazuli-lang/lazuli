@@ -273,8 +273,8 @@ fn resolve_or_unresolved(
 mod tests {
     use super::*;
     use lazuli_ir::{
-        Defaults, EnumDecl, Feature, Module, Policies, Resource, SourceFile, Command,
-        CommandEffect, CommandInput, CommandKind, PolicyRef,
+        Command, CommandEffect, CommandInput, CommandKind, Defaults, EnumDecl, Feature, Module,
+        Policies, PolicyRef, Resource,
     };
 
     fn empty_feature(name: &str) -> Feature {
@@ -298,6 +298,7 @@ mod tests {
             apis: vec![],
             records: vec![],
             queries: vec![],
+            resume_routers: vec![],
             workflows: vec![],
             jobs: vec![],
             webhooks: vec![],

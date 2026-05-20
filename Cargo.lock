@@ -644,8 +644,11 @@ dependencies = [
  "insta",
  "lazuli_ir",
  "lazuli_syntax",
+ "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
