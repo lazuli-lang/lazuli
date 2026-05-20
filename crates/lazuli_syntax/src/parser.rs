@@ -553,7 +553,7 @@ fn parse_lzx_view_guard(
 
     Ok((
         LzxViewGuard {
-            policy: policy.to_owned(),
+            policy: vec![policy.to_owned()],
             on_unauthenticated,
             on_unauthorized,
             requires_lifecycle: None,

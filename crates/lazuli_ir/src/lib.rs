@@ -4017,9 +4017,11 @@ pub struct ResolvedLifecycleGate {
 /// See `docs/proposals/ir-route-guards.md` §3.1, §2.A.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewGuard {
-    /// `policy @policy.<name>` — reused vocabulary from backend policy
-    /// catalog. Stored as the qualified policy reference string.
-    pub policy: String,
+    /// Audience policies admitted — OR-semantics. Single-policy form
+    /// `policy @policy.X` parses to `vec!["@policy.X"]`; list form
+    /// `policy [@policy.A, @policy.B]` parses to vec with both atoms.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policy: Vec<String>,
     /// `on_unauthenticated redirect "<path>"` — where to send a user
     /// who is not signed in. When `None`, runtime resolves up the chain
     /// to the audience / app default (§2.D).
