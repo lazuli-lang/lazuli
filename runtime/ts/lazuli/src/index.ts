@@ -5,7 +5,9 @@
 
 export { LazuliClient, type LazuliClientOptions, type LazuliRouter } from "./client.js";
 export {
+  LifecycleStateMismatchError,
   LazuliError,
+  isLifecycleStateMismatchError,
   isLazuliError,
   type LazuliErrorCode,
   type LazuliErrorEnvelope,

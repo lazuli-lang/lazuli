@@ -11,7 +11,7 @@
 //   POST /api/v1/q/<query-name>     body: args     -> result
 
 import { camelToSnakeDeep, snakeToCamelDeep } from "./case-mapper.js";
-import { LazuliError, type LazuliErrorEnvelope } from "./error.js";
+import { LazuliError, LifecycleStateMismatchError, type LazuliErrorEnvelope } from "./error.js";
 import type { LazuliActor } from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 
@@ -195,6 +195,17 @@ function decodeError(status: number, raw: string): LazuliError {
   }
   try {
     const parsed = JSON.parse(raw) as Partial<LazuliErrorEnvelope>;
+    if (parsed.code === "lifecycle_state_mismatch") {
+      const data = asRecord(parsed.data);
+      return new LifecycleStateMismatchError({
+        expectedState: typeof data.expected_state === "string" ? data.expected_state : "",
+        actualState: typeof data.actual_state === "string" ? data.actual_state : "",
+        transitions: Array.isArray(data.transitions)
+          ? data.transitions.filter((item): item is string => typeof item === "string")
+          : [],
+        ...(typeof parsed.message === "string" ? { message: parsed.message } : {}),
+      });
+    }
     return new LazuliError(status, {
       code: parsed.code ?? "internal",
       message: parsed.message ?? raw,
@@ -206,4 +217,10 @@ function decodeError(status: number, raw: string): LazuliError {
       message: raw,
     });
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }

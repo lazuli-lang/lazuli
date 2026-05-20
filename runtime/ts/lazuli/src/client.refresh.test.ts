@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { LazuliClient } from "./client.js";
-import { defineQuery } from "./spec.js";
+import { LazuliClient, LifecycleStateMismatchError, isLifecycleStateMismatchError } from "./index.js";
+import { defineCommand, defineQuery } from "./spec.js";
 
 const me = defineQuery<Record<string, never>, { ok: boolean }>("me");
+const publish = defineCommand<Record<string, never>, { ok: boolean }>("publish");
 
 interface FetchCall {
   url: string;
@@ -45,6 +46,38 @@ async function waitUntil(done: () => boolean): Promise<void> {
   }
   throw new Error("timed out waiting for concurrent refresh setup");
 }
+
+describe("LazuliClient error decoding", () => {
+  it("decodes lifecycle_state_mismatch envelopes as LifecycleStateMismatchError", async () => {
+    const fetcher = mockFetch(() => json({
+      code: "lifecycle_state_mismatch",
+      message: "cannot publish from archived",
+      data: {
+        expected_state: "draft",
+        actual_state: "archived",
+        transitions: ["submit", "publish"],
+      },
+    }, 409));
+    const client = new LazuliClient({ baseUrl: "https://api.example.test", fetch: fetcher });
+
+    let caught: unknown;
+    try {
+      await client.runCommand(publish, {});
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(LifecycleStateMismatchError);
+    expect(isLifecycleStateMismatchError(caught)).toBe(true);
+    if (!isLifecycleStateMismatchError(caught)) throw new Error("expected lifecycle mismatch error");
+    expect(caught.status).toBe(409);
+    expect(caught.code).toBe("lifecycle_state_mismatch");
+    expect(caught.message).toBe("cannot publish from archived");
+    expect(caught.expectedState).toBe("draft");
+    expect(caught.actualState).toBe("archived");
+    expect(caught.transitions).toEqual(["submit", "publish"]);
+  });
+});
 
 describe("LazuliClient auto refresh", () => {
   it("refreshes on token_expired, stores the new access token, and retries once", async () => {

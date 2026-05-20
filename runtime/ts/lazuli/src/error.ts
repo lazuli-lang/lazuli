@@ -20,6 +20,7 @@ export type LazuliErrorCode =
   | "validation_failed"
   | "not_found"
   | "tenant_mismatch"
+  | "lifecycle_state_mismatch"
   | "conflict"
   | "internal";
 
@@ -45,4 +46,41 @@ export class LazuliError extends Error {
 
 export function isLazuliError(err: unknown): err is LazuliError {
   return err instanceof LazuliError;
+}
+
+/**
+ * Server rejected a command because the resource's lifecycle state
+ * doesn't match what the bound transition chain requires. Frontend
+ * should refetch the resource and either retry or surface a UX message.
+ *
+ * Emitted by commands with `triggers transition <...>` declared.
+ */
+export class LifecycleStateMismatchError extends LazuliError {
+  readonly expectedState: string;
+  readonly actualState: string;
+  readonly transitions: ReadonlyArray<string>;
+
+  constructor(opts: {
+    expectedState: string;
+    actualState: string;
+    transitions: ReadonlyArray<string>;
+    message?: string;
+  }) {
+    super(409, {
+      code: "lifecycle_state_mismatch",
+      message: opts.message ?? `expected state '${opts.expectedState}', got '${opts.actualState}'`,
+      data: {
+        expected_state: opts.expectedState,
+        actual_state: opts.actualState,
+        transitions: [...opts.transitions],
+      },
+    });
+    this.expectedState = opts.expectedState;
+    this.actualState = opts.actualState;
+    this.transitions = opts.transitions;
+  }
+}
+
+export function isLifecycleStateMismatchError(err: unknown): err is LifecycleStateMismatchError {
+  return err instanceof LifecycleStateMismatchError;
 }
