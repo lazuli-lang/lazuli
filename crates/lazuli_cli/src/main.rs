@@ -15,6 +15,7 @@ mod app_manifest;
 mod cmd_design;
 mod cmd_generate_feature;
 mod cmd_generate_handler;
+mod cmd_generate_playwright;
 mod cmd_mcp;
 mod cmd_new_frontends;
 mod debug;
@@ -257,6 +258,10 @@ enum Commands {
         /// Emit source-map sidecar data and Go //line directives.
         #[arg(long)]
         with_source: bool,
+        /// Playwright emit target (only used when kind == Playwright).
+        /// Closed catalog: api-policy, lifecycle-gate, scalar-fixtures-barrel, all.
+        #[arg(long, value_enum)]
+        playwright_target: Option<PlaywrightTarget>,
     },
     /// Watch Lazuli source files, regenerate Go output, and optionally run it.
     Dev {
@@ -440,12 +445,21 @@ enum DesignCommand {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+enum PlaywrightTarget {
+    ApiPolicy,
+    LifecycleGate,
+    ScalarFixturesBarrel,
+    All,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 enum GenerateKind {
     Openapi,
     Go,
     Feature,
     Handler,
     Ts,
+    Playwright,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -852,6 +866,7 @@ fn main() -> Result<()> {
             lazuli_go_version,
             check,
             with_source,
+            playwright_target,
         } => generate_command(
             kind,
             &input,
@@ -862,6 +877,7 @@ fn main() -> Result<()> {
             check,
             with_source,
             cli.allow_version_mismatch,
+            playwright_target,
         ),
         Commands::Dev {
             path,
@@ -964,6 +980,7 @@ fn generate_command(
     check: bool,
     with_source: bool,
     allow_version_mismatch: bool,
+    playwright_target: Option<PlaywrightTarget>,
 ) -> Result<()> {
     if !allow_version_mismatch {
         let project_root = project_root_for_input(input);
@@ -1002,6 +1019,11 @@ fn generate_command(
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
             cmd_generate_handler::run(ident, &project_root)
+        }
+        GenerateKind::Playwright => {
+            let target =
+                playwright_target.context("--playwright-target is required when kind=playwright")?;
+            cmd_generate_playwright::run(input, target)
         }
         GenerateKind::Ts => generate_ts(input, output, check),
     }
