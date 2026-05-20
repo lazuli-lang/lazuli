@@ -18,6 +18,7 @@ pub mod app_integration;
 pub mod audit;
 pub mod auth;
 pub mod auth_refresh;
+pub mod auto_photo;
 pub mod casing;
 pub mod check;
 pub mod command;
