@@ -3753,6 +3753,7 @@ fn parse_command(pair: Pair<'_, Rule>) -> Result<Command, ParseError> {
         input,
         policy,
         emits,
+        triggers: Vec::new(),
         span,
     })
 }
@@ -5418,6 +5419,7 @@ fn parse_command_decl(
     let mut returns: Option<String> = None;
     let mut handler: Option<JobHandler> = None;
     let mut emits: Vec<CommandEmit> = Vec::new();
+    let mut triggers: Vec<String> = Vec::new();
     let mut invalidates: Vec<InvalidatesDecl> = Vec::new();
     let mut external_calls: Vec<JobExternalCall> = Vec::new();
     let mut tests: Vec<String> = Vec::new();
@@ -5574,6 +5576,16 @@ fn parse_command_decl(
             emits.push(parsed);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("triggers ") {
+            if !triggers.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`triggers transition` may be declared at most once",
+                ));
+            }
+            triggers = parse_command_triggers(line, rest)?;
+            last_end = line.end;
+            i += 1;
         } else if trimmed == "invalidates" {
             let (parsed, next) = parse_invalidates_block(lines, i)?;
             invalidates.extend(parsed);
@@ -5632,7 +5644,7 @@ fn parse_command_decl(
         } else {
             return Err(line_error(
                 line,
-                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, `write_window`, or `tests`",
+                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `triggers transition`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, `write_window`, or `tests`",
             ));
         }
     }
@@ -5657,6 +5669,7 @@ fn parse_command_decl(
             returns,
             handler,
             emits,
+            triggers,
             invalidates,
             external_calls,
             timeout,
@@ -5669,6 +5682,45 @@ fn parse_command_decl(
         },
         i,
     ))
+}
+
+fn parse_command_triggers(line: &SourceLine<'_>, rest: &str) -> Result<Vec<String>, ParseError> {
+    let rest = rest.trim();
+    let names = if rest == "transition" {
+        ""
+    } else if let Some(names) = rest.strip_prefix("transition ") {
+        names.trim()
+    } else {
+        return Err(line_error(
+            line,
+            "`triggers` children use `triggers transition <name>[, <name>]`",
+        ));
+    };
+    if names.is_empty() {
+        return Err(line_error(
+            line,
+            "`triggers transition` requires at least one transition name",
+        ));
+    }
+
+    let mut triggers = Vec::new();
+    for name in names.split(',') {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(line_error(
+                line,
+                "`triggers transition` list has an empty entry; check for trailing/duplicate commas",
+            ));
+        }
+        if name.chars().any(char::is_whitespace) {
+            return Err(line_error(
+                line,
+                "transition names in `triggers transition` cannot contain whitespace; separate with commas",
+            ));
+        }
+        triggers.push(name.to_owned());
+    }
+    Ok(triggers)
 }
 
 fn parse_command_write_window(
@@ -18694,6 +18746,35 @@ feature billing
 "#;
         let err = parse_feature_skeletons(source).unwrap_err();
         assert!(err.to_string().contains("within"));
+    }
+
+    #[test]
+    fn command_triggers_transition_parses_single_and_list_rejects_trailing_comma() {
+        let source = r#"
+feature order
+  command submit
+    triggers transition approve
+  command fulfill
+    triggers transition approve, capture_payment, ship
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        assert_eq!(features[0].commands[0].triggers, vec!["approve".to_owned()]);
+        assert_eq!(
+            features[0].commands[1].triggers,
+            vec![
+                "approve".to_owned(),
+                "capture_payment".to_owned(),
+                "ship".to_owned()
+            ]
+        );
+
+        let trailing = r#"
+feature order
+  command broken
+    triggers transition approve,
+"#;
+        let err = parse_feature_skeletons(trailing).unwrap_err();
+        assert!(err.to_string().contains("empty entry"));
     }
 }
 

@@ -51,6 +51,8 @@ pub struct Command {
     pub input: Vec<String>,
     pub policy: Option<String>,
     pub emits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<String>,
     pub span: Span,
 }
 
@@ -1087,6 +1089,9 @@ pub struct CommandDecl {
     /// `emits <event>` lines with optional `from creates`/`from updates`
     /// suffix or assignment child block.
     pub emits: Vec<CommandEmit>,
+    /// `triggers transition <name>[, <name>]` transition names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<String>,
     /// `invalidates query.<name>(args?)` references.
     pub invalidates: Vec<InvalidatesDecl>,
     /// `calls <slot>.<op>` references inside the command body.
