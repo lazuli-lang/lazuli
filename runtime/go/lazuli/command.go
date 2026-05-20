@@ -42,6 +42,16 @@ type Deprecation struct {
 	Sunset      string
 }
 
+// TransitionAdvance is one edge in a lifecycle transition chain.
+// Set on Command[I, O].Transitions when the .lzi declares
+// `triggers transition <...>`. Runtime validates the first From
+// matches the current state (FOR UPDATE), runs the mutation, then
+// updates lifecycle_state to the last To.
+type TransitionAdvance struct {
+	From string
+	To   string
+}
+
 // Command is a write operation declared by the DSL. Type parameter I is the
 // input shape (the `input` block); O is the output shape (the resource the
 // command creates/updates, or a custom record).
@@ -85,6 +95,11 @@ type Command[I, O any] struct {
 	// Effect is the side-effect applied transactionally after policy and
 	// validators pass. Exactly one effect per command in v0.
 	Effect Effect
+
+	// Transitions chain. Empty = no lifecycle gate; non-empty = pre-guard
+	// on Transitions[0].From + post-update to Transitions[last].To, both
+	// in the same tx as Effect.
+	Transitions []TransitionAdvance
 
 	// Emits lists the events published after the surrounding transaction
 	// commits.
@@ -141,6 +156,7 @@ func (c *Command[I, O]) erased() *commandErased {
 		Approval:      c.Approval,
 		Validators:    c.Validators,
 		Effect:        c.Effect,
+		Transitions:   c.Transitions,
 		Emits:         c.Emits,
 		EmitsTrace:    c.EmitsTrace,
 		Invalidates:   c.Invalidates,
@@ -164,6 +180,7 @@ type commandErased struct {
 	Approval      *ApprovalSpec
 	Validators    []ValidatorRef
 	Effect        Effect
+	Transitions   []TransitionAdvance
 	Emits         []EventEmit
 	EmitsTrace    []EventTraceEmit
 	Invalidates   []string

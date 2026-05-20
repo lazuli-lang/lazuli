@@ -2,6 +2,7 @@ package lazuli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -145,21 +146,65 @@ func (e *Error) Unwrap() error { return e.Base.Cause }
 // constraint violation. They replace the legacy `code:"internal"` + raw
 // SQLSTATE wire string with a stable, localizable envelope.
 const (
-	CodePolicyDenied        = "policy_denied"
-	CodeRateLimited         = "rate_limited"
-	CodeValidationFailed    = "validation_failed"
-	CodeNotFound            = "not_found"
-	CodeTenantMismatch      = "tenant_mismatch"
-	CodeInternal            = "internal"
-	CodeBadRequest          = "bad_request"
-	CodeMethodNotAllowed    = "method_not_allowed"
-	CodeIntegrationError    = "integration_error"
-	CodeTokenExpired        = "token_expired"
-	CodeRefreshInvalid      = "refresh_invalid"
-	CodeRefreshRevoked      = "refresh_revoked"
-	CodeTheftDetected       = "theft_detected"
-	CodeUniqueViolation     = "unique_violation"
-	CodeForeignKeyViolation = "foreign_key_violation"
-	CodeNotNullViolation    = "not_null_violation"
-	CodeCheckViolation      = "check_violation"
+	CodePolicyDenied           = "policy_denied"
+	CodeRateLimited            = "rate_limited"
+	CodeValidationFailed       = "validation_failed"
+	CodeNotFound               = "not_found"
+	CodeTenantMismatch         = "tenant_mismatch"
+	CodeInternal               = "internal"
+	CodeBadRequest             = "bad_request"
+	CodeMethodNotAllowed       = "method_not_allowed"
+	CodeIntegrationError       = "integration_error"
+	CodeTokenExpired           = "token_expired"
+	CodeRefreshInvalid         = "refresh_invalid"
+	CodeRefreshRevoked         = "refresh_revoked"
+	CodeTheftDetected          = "theft_detected"
+	CodeUniqueViolation        = "unique_violation"
+	CodeForeignKeyViolation    = "foreign_key_violation"
+	CodeNotNullViolation       = "not_null_violation"
+	CodeCheckViolation         = "check_violation"
+	CodeLifecycleStateMismatch = "lifecycle_state_mismatch"
 )
+
+// ErrLifecycleStateMismatch is returned when a Command with Transitions
+// is dispatched but the resource's current lifecycle_state doesn't equal
+// the chain's pre-condition (Transitions[0].From). HTTP-wire: 409.
+var ErrLifecycleStateMismatch = errors.New("lifecycle_state_mismatch")
+
+type LifecycleStateMismatchError struct {
+	Expected    string
+	Actual      string
+	Transitions []string // names of the chain (for the JSON envelope)
+}
+
+func (e *LifecycleStateMismatchError) Error() string {
+	return fmt.Sprintf("lifecycle_state mismatch: expected %q, got %q", e.Expected, e.Actual)
+}
+
+func (e *LifecycleStateMismatchError) Is(target error) bool {
+	return target == ErrLifecycleStateMismatch
+}
+
+func (e *LifecycleStateMismatchError) As(target any) bool {
+	le, ok := target.(**Error)
+	if !ok {
+		return false
+	}
+	*le = &Error{
+		Status:  409,
+		Code:    CodeLifecycleStateMismatch,
+		Message: e.Error(),
+		Data: map[string]any{
+			"expected_state": e.Expected,
+			"actual_state":   e.Actual,
+			"transitions":    e.Transitions,
+		},
+		Base: ErrorBase{
+			Status:  409,
+			Code:    CodeLifecycleStateMismatch,
+			Message: e.Error(),
+			Cause:   ErrLifecycleStateMismatch,
+		},
+	}
+	return true
+}
