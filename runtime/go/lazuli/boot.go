@@ -113,5 +113,6 @@ func connectDB(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, err
 	}
+	LockAdapterRegistry()
 	return pool, nil
 }
