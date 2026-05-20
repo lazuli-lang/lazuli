@@ -40,7 +40,10 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		return nil, err
 	}
 
-	conds, values := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, f := range q.Filters {
 		val, err := resolveSource(ctx, f.When, args)
@@ -141,7 +144,10 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 			Message: "lookup query has no LookupBy keys: " + q.Name}
 	}
 
-	conds, values := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res)
+	if err != nil {
+		return zero, err
+	}
 
 	for _, k := range q.LookupBy {
 		val, err := resolveSource(ctx, k.Source, args)
@@ -273,7 +279,7 @@ func (q *Query[A, R]) resourceErased() (*resourceErased, error) {
 // baseScopeConditions returns the WHERE-clause fragments every query gets:
 // soft-delete filter and tenant scoping. Generated queries can extend these
 // with their own filters / lookup keys.
-func baseScopeConditions(ctx *Ctx, res *resourceErased) ([]string, []any) {
+func baseScopeConditions(ctx *Ctx, res *resourceErased) ([]string, []any, error) {
 	var conds []string
 	var values []any
 
@@ -281,12 +287,21 @@ func baseScopeConditions(ctx *Ctx, res *resourceErased) ([]string, []any) {
 		conds = append(conds, "deleted_at IS NULL")
 	}
 
-	if res.Tenancy == TenancyOrg && ctx.Tenant != nil {
+	if res.Tenancy == TenancyOrg {
+		// SECURITY (SEC-H2): TenancyOrg resources MUST have a tenant
+		// attached to the request context. Nil-Tenant + TenancyOrg is
+		// a programming/config error that previously caused silent
+		// cross-org reads by dropping the org_id predicate. Fail closed.
+		if ctx == nil || ctx.Tenant == nil {
+			return nil, nil, tenantRequiredError()
+		}
 		conds = append(conds, fmt.Sprintf("org_id = $%d", len(values)+1))
 		values = append(values, ctx.Tenant.OrgID)
 	}
 
-	return conds, values
+	// TenancyNone is the explicit global opt-in: no scoping predicate.
+	// Callers must declare global scope in .lzi.
+	return conds, values, nil
 }
 
 // buildOrder produces the ORDER BY clause. Empty Order falls back to the

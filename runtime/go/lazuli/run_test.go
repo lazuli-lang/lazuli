@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -16,15 +17,17 @@ import (
 //   { Tenancy=Org | None } × { SoftDelete=true | false }
 //
 // plus the corner case of `Tenancy=Org` with a nil ctx.Tenant (e.g.
-// admin / system actor calling a tenant-scoped query — the runtime
-// degrades to "no tenant filter" rather than crashing; doctor catches
-// the case at the DSL level via `scope override`).
+// admin / system actor calling a tenant-scoped query). The runtime must
+// fail closed instead of silently dropping the tenant filter.
 
 func TestBaseScopeConditions_org_tenancy_with_tenant_emits_org_id_filter(t *testing.T) {
 	res := &resourceErased{Name: "customer", Tenancy: TenancyOrg, SoftDelete: false}
 	ctx := &Ctx{Tenant: &Tenant{OrgID: 42}}
 
-	conds, values := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 
 	joined := strings.Join(conds, " AND ")
 	if !strings.Contains(joined, "org_id = $1") {
@@ -35,17 +38,13 @@ func TestBaseScopeConditions_org_tenancy_with_tenant_emits_org_id_filter(t *test
 	}
 }
 
-func TestBaseScopeConditions_org_tenancy_without_tenant_skips_filter(t *testing.T) {
+func TestBaseScopeConditions_org_tenancy_without_tenant_fails_closed(t *testing.T) {
 	res := &resourceErased{Name: "customer", Tenancy: TenancyOrg, SoftDelete: false}
 	ctx := &Ctx{Tenant: nil}
 
-	conds, values := baseScopeConditions(ctx, res)
-
-	if len(conds) != 0 {
-		t.Fatalf("nil tenant on Org resource must skip filter; got: %v", conds)
-	}
-	if len(values) != 0 {
-		t.Fatalf("nil tenant must produce no values; got: %v", values)
+	_, _, err := baseScopeConditions(ctx, res)
+	if !errors.Is(err, ErrTenantRequired) {
+		t.Fatalf("expected ErrTenantRequired; got %v", err)
 	}
 }
 
@@ -53,7 +52,10 @@ func TestBaseScopeConditions_none_tenancy_skips_org_filter(t *testing.T) {
 	res := &resourceErased{Name: "settings", Tenancy: TenancyNone, SoftDelete: false}
 	ctx := &Ctx{Tenant: &Tenant{OrgID: 42}}
 
-	conds, values := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 
 	if len(conds) != 0 {
 		t.Fatalf("TenancyNone must skip filter even with tenant set; got: %v", conds)
@@ -67,7 +69,10 @@ func TestBaseScopeConditions_soft_delete_emits_deleted_at_filter(t *testing.T) {
 	res := &resourceErased{Name: "customer", Tenancy: TenancyNone, SoftDelete: true}
 	ctx := &Ctx{}
 
-	conds, _ := baseScopeConditions(ctx, res)
+	conds, _, err := baseScopeConditions(ctx, res)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 
 	joined := strings.Join(conds, " AND ")
 	if !strings.Contains(joined, "deleted_at IS NULL") {
@@ -79,7 +84,10 @@ func TestBaseScopeConditions_soft_delete_and_org_tenancy_compose(t *testing.T) {
 	res := &resourceErased{Name: "customer", Tenancy: TenancyOrg, SoftDelete: true}
 	ctx := &Ctx{Tenant: &Tenant{OrgID: 7}}
 
-	conds, values := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 	joined := strings.Join(conds, " AND ")
 
 	if !strings.Contains(joined, "deleted_at IS NULL") {
