@@ -678,7 +678,8 @@ fn pg_type_for_builtin(builtin: &BuiltinType) -> PgType {
         // §Manifest mechanism — non-string carriers need a separate
         // proposal because they affect DDL + wire shape).
         BuiltinType::SemanticPluginType { carrier, .. } => return pg_type_for_builtin(carrier),
-        BuiltinType::CapSecret | BuiltinType::CapFile => "TEXT",
+        BuiltinType::CapSecret => "TEXT",
+        BuiltinType::CapFile => "JSONB",
     };
 
     PgType {
@@ -692,10 +693,14 @@ fn pg_type_for_capability(capability: &CapabilityRef) -> PgType {
     // ciphertext envelope (`nonce || ciphertext || tag`) — BYTEA. The
     // `EncryptCustomer`/`DecryptCustomer` helpers in `resource.gen.go`
     // thread these bytes through `encryption.ForCtx` at the SQL
-    // boundary. Other capabilities (Hashed, Token, File) stay TEXT
-    // until a pilot demands richer column types.
+    // boundary. `@cap.File(...)` columns store the JSONB FileRef
+    // shape `{key, content_type, size}` populated by the storage
+    // runtime's `confirm_*_upload` lowering — see
+    // docs/proposals/fileref-jsonb-roundtrip.md. Hashed + Token
+    // capabilities stay TEXT until a pilot demands a richer shape.
     let sql = match capability {
         CapabilityRef::Encrypted(_) | CapabilityRef::E2ee(_) => "BYTEA",
+        CapabilityRef::File(_) => "JSONB",
         _ => "TEXT",
     };
     PgType {
@@ -1089,8 +1094,9 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         Auth, AuthIdentity, AuthSessions, CapabilityRef, Defaults, EncryptedCapability, Feature,
-        Field, FieldRef, HashAlgorithm, HashedCapability, Module, Policies, QualifiedName,
-        Resource, RotationConfig, Tenancy, TokenCapability, TokenStore, TypeRef, UniqueConstraint,
+        Field, FieldRef, FileCapability, FileSize, FileSizeLiteral, FileVisibility, HashAlgorithm,
+        HashedCapability, MimeType, Module, Policies, QualifiedName, Resource, RotationConfig,
+        Tenancy, TokenCapability, TokenStore, TypeRef, UniqueConstraint,
     };
 
     fn base_module(features: Vec<Feature>) -> Module {
@@ -2007,6 +2013,30 @@ DROP TABLE IF EXISTS \"customer\";
         );
         assert!(sql.contains("api_token TEXT NOT NULL,"));
         assert!(sql.contains("tags TEXT[]"));
+    }
+
+    #[test]
+    fn cap_file_field_emits_jsonb_column() {
+        // Verify @cap.File resource fields lower to JSONB DDL columns
+        // (FR-2 of fileref-jsonb-roundtrip.md). The Go FileRef struct's
+        // Scanner/Valuer (FR-1) reads/writes the JSONB shape.
+        let capability_ref = CapabilityRef::File(FileCapability {
+            max_size: FileSize {
+                bytes: 5 * 1024 * 1024,
+                literal: FileSizeLiteral::Mb(5),
+            },
+            accept: vec![MimeType {
+                family: "image".to_owned(),
+                subtype: "jpeg".to_owned(),
+            }],
+            visibility: Some(FileVisibility::Private),
+            signed_ttl: None,
+        });
+        let pg = pg_type_for_capability(&capability_ref);
+        assert_eq!(
+            pg.sql, "JSONB",
+            "@cap.File capability ref must lower to JSONB"
+        );
     }
 
     #[test]
