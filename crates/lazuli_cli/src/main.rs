@@ -11293,6 +11293,7 @@ mod tests {
             audit: Some(lazuli_ir::AuditSpec {
                 subjects: vec![],
                 emit_to: None,
+                data_subject: None,
             }),
             approval: None,
             invalidates: vec![],

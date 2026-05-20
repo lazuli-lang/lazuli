@@ -265,6 +265,7 @@ mod tests {
         Some(AuditSpec {
             subjects: vec!["none".to_owned()],
             emit_to: None,
+            data_subject: None,
         })
     }
 

@@ -288,6 +288,7 @@ mod tests {
         AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
+            data_subject: None,
         }
     }
 
@@ -352,6 +353,7 @@ mod tests {
         reassign.audit = Some(AuditSpec {
             subjects: vec!["actor".to_owned(), "target.id".to_owned()],
             emit_to: None,
+            data_subject: None,
         });
         feature.commands.push(reassign);
 
@@ -399,6 +401,7 @@ mod tests {
         command.audit = Some(AuditSpec {
             subjects: vec!["actor".to_owned()],
             emit_to: None,
+            data_subject: None,
         });
         feature.commands.push(command);
 

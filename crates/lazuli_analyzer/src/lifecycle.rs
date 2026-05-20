@@ -315,6 +315,7 @@ fn lower_audit_spec(raw: &str) -> ir::AuditSpec {
             .map(ToOwned::to_owned)
             .collect(),
         emit_to: None,
+        data_subject: None,
     }
 }
 

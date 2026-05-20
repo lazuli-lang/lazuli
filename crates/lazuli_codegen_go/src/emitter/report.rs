@@ -383,6 +383,7 @@ fn report_policy_atom_expr(atom: &str) -> Option<PolicyExpr> {
     Some(PolicyExpr::Atom(PolicyAtom {
         namespace: namespace.to_owned(),
         name: name.to_owned(),
+        args: None,
     }))
 }
 

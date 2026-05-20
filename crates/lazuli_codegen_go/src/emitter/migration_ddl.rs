@@ -2031,6 +2031,7 @@ DROP TABLE IF EXISTS \"customer\";
             }],
             visibility: Some(FileVisibility::Private),
             signed_ttl: None,
+            auto_photo_policy: None,
         });
         let pg = pg_type_for_capability(&capability_ref);
         assert_eq!(

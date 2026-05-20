@@ -568,6 +568,7 @@ mod tests {
             requires: vec![PolicyAtom {
                 namespace: "scope".to_owned(),
                 name: "workspace_admin".to_owned(),
+                args: None,
             }],
             views,
             span_ref: None,
