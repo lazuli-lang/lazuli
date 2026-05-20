@@ -14,6 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type commandTxRunner func(context.Context, func(pgx.Tx) error) error
+
+var runCommandTx commandTxRunner = withTx
+
 // Handle executes the command transactionally. The runtime calls this from
 // the HTTP dispatcher (and later from job triggers and webhook callbacks).
 //
@@ -56,6 +60,10 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 
 	var output O
 	if eff, ok := c.Effect.(ReturnsEffect); ok {
+		if len(c.Transitions) > 0 {
+			return zero, &Error{Status: 500, Code: CodeInternal,
+				Message: "lifecycle transitions require an updates effect"}
+		}
 		out, err := applyReturns[I, O](ctx, eff, input)
 		if err != nil {
 			return zero, err
@@ -63,12 +71,29 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		output = out
 	} else {
 		// 3-4. SQL effects run inside a transaction.
-		err := withTx(ctx, func(tx pgx.Tx) error {
+		err := runCommandTx(ctx, func(tx pgx.Tx) error {
+			var lifecycleTarget *lifecycleTransitionTarget
+			if len(c.Transitions) > 0 {
+				target, err := resolveLifecycleTransitionTarget(ctx, c.Effect, input)
+				if err != nil {
+					return err
+				}
+				if err := lockLifecycleTransition(ctx, tx, target, c.Transitions); err != nil {
+					return err
+				}
+				lifecycleTarget = &target
+			}
+
 			out, err := applyEffect[I, O](ctx, tx, c.Effect, input)
 			if err != nil {
 				return err
 			}
 			output = out
+			if lifecycleTarget != nil {
+				if err := advanceLifecycleTransition(ctx, tx, *lifecycleTarget, c.Transitions); err != nil {
+					return err
+				}
+			}
 			// EVENT-OUTBOX §3.3 — write outbox rows for guaranteed
 			// emits in the same tx as the resource mutation. Failure
 			// here rolls back the resource write, preserving the
@@ -96,6 +121,107 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	}
 
 	return output, nil
+}
+
+type lifecycleTransitionTarget struct {
+	Resource *resourceErased
+	IDColumn string
+	IDValue  any
+}
+
+func resolveLifecycleTransitionTarget[I any](ctx *Ctx, effect Effect, input I) (lifecycleTransitionTarget, error) {
+	eff, ok := effect.(UpdatesEffect)
+	if !ok {
+		return lifecycleTransitionTarget{}, &Error{Status: 500, Code: CodeInternal,
+			Message: "lifecycle transitions require an updates effect"}
+	}
+	if eff.Resource == nil {
+		return lifecycleTransitionTarget{}, &Error{Status: 500, Code: CodeInternal,
+			Message: "lifecycle transition updates effect has no resource"}
+	}
+	col, src, ok := lifecycleIDBinding(eff.Where)
+	if !ok {
+		return lifecycleTransitionTarget{}, &Error{Status: 500, Code: CodeInternal,
+			Message: "lifecycle transition updates effect requires an id where binding"}
+	}
+	id, err := resolveSource(ctx, src, input)
+	if err != nil {
+		return lifecycleTransitionTarget{}, err
+	}
+	return lifecycleTransitionTarget{
+		Resource: eff.Resource,
+		IDColumn: col,
+		IDValue:  id,
+	}, nil
+}
+
+func lifecycleIDBinding(where Bindings) (string, Source, bool) {
+	if src, ok := where["id"]; ok {
+		return "id", src, true
+	}
+	if len(where) != 1 {
+		return "", Source{}, false
+	}
+	for col, src := range where {
+		return col, src, true
+	}
+	return "", Source{}, false
+}
+
+func lockLifecycleTransition(
+	ctx *Ctx,
+	tx pgx.Tx,
+	target lifecycleTransitionTarget,
+	transitions []TransitionAdvance,
+) error {
+	sql := fmt.Sprintf(
+		`SELECT lifecycle_state FROM %s WHERE %s = $1 FOR UPDATE`,
+		quoteResourceTable(target.Resource.Name),
+		quoteIdent(target.IDColumn),
+	)
+	var actual string
+	if err := tx.QueryRow(ctx, sql, target.IDValue).Scan(&actual); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &Error{Status: 404, Code: CodeNotFound,
+				Message: "no row matches lifecycle transition guard"}
+		}
+		return classifyDBError("lifecycle transition guard", err)
+	}
+	expected := transitions[0].From
+	if actual != expected {
+		return &LifecycleStateMismatchError{
+			Expected:    expected,
+			Actual:      actual,
+			Transitions: transitionChainNames(transitions),
+		}
+	}
+	return nil
+}
+
+func advanceLifecycleTransition(
+	ctx *Ctx,
+	tx pgx.Tx,
+	target lifecycleTransitionTarget,
+	transitions []TransitionAdvance,
+) error {
+	next := transitions[len(transitions)-1].To
+	sql := fmt.Sprintf(
+		`UPDATE %s SET "lifecycle_state" = $1 WHERE %s = $2`,
+		quoteResourceTable(target.Resource.Name),
+		quoteIdent(target.IDColumn),
+	)
+	if _, err := tx.Exec(ctx, sql, next, target.IDValue); err != nil {
+		return classifyDBError("lifecycle transition advance", err)
+	}
+	return nil
+}
+
+func transitionChainNames(transitions []TransitionAdvance) []string {
+	names := make([]string, 0, len(transitions))
+	for _, t := range transitions {
+		names = append(names, t.From+"->"+t.To)
+	}
+	return names
 }
 
 // publishEmits derives event payloads from the producing command's effect
