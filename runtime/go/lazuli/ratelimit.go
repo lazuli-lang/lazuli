@@ -1,6 +1,7 @@
 package lazuli
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -8,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/time/rate"
 )
 
 // ErrRateLimitMalformed is returned when a DSL rate-limit string cannot be
@@ -36,14 +35,26 @@ const (
 const (
 	rateLimitGCInterval     = time.Minute
 	rateLimitMinIdleTTL     = time.Minute
-	rateLimitRetryAfterMin  = time.Second
 	rateLimitMalformedState = "rate limit middleware misconfigured"
 )
 
 var (
-	defaultRateLimitStore = newRateLimitStore()
-	rateLimitParseCache   sync.Map
+	activeStore         Store = newInMemoryStore()
+	rateLimitParseCache sync.Map
 )
+
+// Store is the backing store for per-bucket rate-limit counters. The default is
+// in-process; @plugin/ratelimit-redis replaces it with Redis across replicas.
+type Store interface {
+	// Inc increments the counter for key by 1 and returns the new count.
+	// If the key was just created, the store sets its TTL to window.
+	Inc(ctx context.Context, key string, window time.Duration) (int, error)
+}
+
+// SetStore replaces the active store. Plugin backends call this from init.
+func SetStore(s Store) {
+	activeStore = s
+}
 
 // RateLimitMiddleware returns an http.Handler that gates next by the declared
 // rate-limit string. When the bucket is empty, it returns 429 Too Many
@@ -74,17 +85,18 @@ func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
 			return
 		}
 
-		bucketKey := rateLimitBucketKey(spec, rateLimitRequestKey(spec.Key, r))
-		limiter := defaultRateLimitStore.limiter(bucketKey, spec, time.Now())
-		reservation := limiter.Reserve()
-		if !reservation.OK() {
-			w.Header().Set("Retry-After", "1")
-			writeRateLimited(w)
+		key := rateLimitBucketKey(spec, rateLimitRequestKey(spec.Key, r))
+		count, err := activeStore.Inc(r.Context(), key, rateLimitWindow(spec))
+		if err != nil {
+			writeError(w, r, &Error{
+				Status:  http.StatusInternalServerError,
+				Code:    CodeInternal,
+				Message: rateLimitMalformedState,
+			})
 			return
 		}
-		if delay := reservation.Delay(); delay > 0 {
-			reservation.Cancel()
-			w.Header().Set("Retry-After", retryAfterSeconds(delay))
+		if count > spec.Burst {
+			w.Header().Set("Retry-After", "1")
 			writeRateLimited(w)
 			return
 		}
@@ -120,60 +132,60 @@ type rateLimitParseResult struct {
 	err  error
 }
 
-// rateLimitStore owns limiter buckets keyed by parsed spec and request key.
-// Buckets are removed once they have been idle long enough to refill fully.
-type rateLimitStore struct {
-	mu       sync.RWMutex
-	buckets  map[string]*rate.Limiter
-	lastSeen map[string]time.Time
-	idleTTL  map[string]time.Duration
+// inMemoryStore owns counters keyed by parsed spec and request key.
+// Buckets are removed once their fixed window expires.
+type inMemoryStore struct {
+	state *inMemoryRateLimitState
+}
+
+type inMemoryRateLimitState struct {
+	mu       sync.Mutex
+	counters map[string]rateLimitCounter
 	lastGC   time.Time
 }
 
-func newRateLimitStore() *rateLimitStore {
-	return &rateLimitStore{
-		buckets:  make(map[string]*rate.Limiter),
-		lastSeen: make(map[string]time.Time),
-		idleTTL:  make(map[string]time.Duration),
-	}
+type rateLimitCounter struct {
+	count   int
+	expires time.Time
 }
 
-func (s *rateLimitStore) limiter(key string, spec RateLimitSpec, now time.Time) *rate.Limiter {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.buckets == nil {
-		s.buckets = make(map[string]*rate.Limiter)
-		s.lastSeen = make(map[string]time.Time)
-		s.idleTTL = make(map[string]time.Duration)
-	}
-
-	limiter := s.buckets[key]
-	if limiter == nil {
-		limiter = rate.NewLimiter(rate.Limit(spec.PerSecond), spec.Burst)
-		s.buckets[key] = limiter
-		s.idleTTL[key] = rateLimitIdleTTL(spec)
-	}
-	s.lastSeen[key] = now
-
-	if s.lastGC.IsZero() || now.Sub(s.lastGC) >= rateLimitGCInterval {
-		s.gcLocked(now)
-	}
-
-	return limiter
+func newInMemoryStore() inMemoryStore {
+	return inMemoryStore{state: &inMemoryRateLimitState{counters: make(map[string]rateLimitCounter)}}
 }
 
-func (s *rateLimitStore) gcLocked(now time.Time) {
+func (s inMemoryStore) Inc(ctx context.Context, key string, window time.Duration) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	state := s.state
+	if state == nil {
+		state = newInMemoryStore().state
+	}
+
+	now := time.Now()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	counter := state.counters[key]
+	if !counter.expires.After(now) {
+		counter = rateLimitCounter{expires: now.Add(window)}
+	}
+	counter.count++
+	state.counters[key] = counter
+
+	if state.lastGC.IsZero() || now.Sub(state.lastGC) >= rateLimitGCInterval {
+		state.gcLocked(now)
+	}
+
+	return counter.count, nil
+}
+
+func (s *inMemoryRateLimitState) gcLocked(now time.Time) {
 	s.lastGC = now
-	for key, seen := range s.lastSeen {
-		ttl := s.idleTTL[key]
-		if ttl <= 0 {
-			ttl = rateLimitMinIdleTTL
-		}
-		if now.Sub(seen) > ttl {
-			delete(s.buckets, key)
-			delete(s.lastSeen, key)
-			delete(s.idleTTL, key)
+	for key, counter := range s.counters {
+		if !counter.expires.After(now) {
+			delete(s.counters, key)
 		}
 	}
 }
@@ -311,23 +323,15 @@ func rateLimitBucketKey(spec RateLimitSpec, key string) string {
 		"|" + key
 }
 
-func rateLimitIdleTTL(spec RateLimitSpec) time.Duration {
+func rateLimitWindow(spec RateLimitSpec) time.Duration {
 	if spec.PerSecond <= 0 || spec.Burst <= 0 {
 		return rateLimitMinIdleTTL
 	}
-	ttl := time.Duration(float64(spec.Burst)/spec.PerSecond*float64(time.Second)) + time.Second
-	if ttl < rateLimitMinIdleTTL {
+	window := time.Duration(float64(spec.Burst) / spec.PerSecond * float64(time.Second))
+	if window <= 0 {
 		return rateLimitMinIdleTTL
 	}
-	return ttl
-}
-
-func retryAfterSeconds(delay time.Duration) string {
-	if delay < rateLimitRetryAfterMin {
-		delay = rateLimitRetryAfterMin
-	}
-	seconds := int64((delay + time.Second - 1) / time.Second)
-	return strconv.FormatInt(seconds, 10)
+	return window
 }
 
 func writeRateLimited(w http.ResponseWriter) {

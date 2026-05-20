@@ -72,8 +72,15 @@ func TestParseRateLimitMalformed(t *testing.T) {
 	}
 }
 
+func TestRateLimitDefaultStoreInMemory(t *testing.T) {
+	s := activeStore
+	if _, ok := s.(inMemoryStore); !ok {
+		t.Fatalf("default store should be inMemoryStore; got %T", s)
+	}
+}
+
 func TestRateLimitMiddlewareAllowsBurst(t *testing.T) {
-	defaultRateLimitStore = newRateLimitStore()
+	activeStore = newInMemoryStore()
 
 	calls := 0
 	handler := RateLimitMiddleware("2 per hour per ip", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -97,7 +104,7 @@ func TestRateLimitMiddlewareAllowsBurst(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareOverflowReturns429(t *testing.T) {
-	defaultRateLimitStore = newRateLimitStore()
+	activeStore = newInMemoryStore()
 
 	handler := RateLimitMiddleware("1 per hour per ip", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
