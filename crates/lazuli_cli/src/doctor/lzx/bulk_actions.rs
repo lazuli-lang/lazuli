@@ -242,6 +242,7 @@ mod tests {
             actions: vec![],
             drawer: None,
             line: 20,
+            redacted_fields: Vec::new(),
         })
     }
 

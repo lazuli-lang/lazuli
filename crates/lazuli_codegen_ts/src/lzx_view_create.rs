@@ -197,6 +197,7 @@ mod tests {
             },
             fields: vec!["id".to_owned()],
             cells: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }

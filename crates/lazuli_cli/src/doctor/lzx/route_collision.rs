@@ -119,7 +119,10 @@ fn walk_audience(
     // declaration, pointing back at the prior entry).
     let mut buckets: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, entry) in entries.iter().enumerate() {
-        buckets.entry(entry.translated.clone()).or_default().push(idx);
+        buckets
+            .entry(entry.translated.clone())
+            .or_default()
+            .push(idx);
     }
 
     for (translated, indices) in buckets {
@@ -170,9 +173,7 @@ fn translate_for_target(target: &str, route: &str) -> String {
         if bytes[i] == b':' {
             let start = i + 1;
             let mut j = start;
-            while j < bytes.len()
-                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
-            {
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
                 j += 1;
             }
             if j > start {
@@ -221,6 +222,7 @@ mod tests {
             cells: vec![],
             actions: vec![],
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -244,6 +246,7 @@ mod tests {
             actions: vec![],
             drawer: None,
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -343,6 +346,7 @@ mod tests {
                     cells: vec![],
                     actions: vec![],
                     line: 14,
+                    redacted_fields: Vec::new(),
                 }),
             ],
         ));

@@ -150,6 +150,7 @@ mod tests {
             actions: vec![],
             drawer: None,
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -166,6 +167,7 @@ mod tests {
             cells,
             actions: vec![],
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -181,6 +183,7 @@ mod tests {
             fields: fields.iter().map(|s| (*s).to_owned()).collect(),
             cells,
             line,
+            redacted_fields: Vec::new(),
         })
     }
 

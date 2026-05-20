@@ -289,6 +289,9 @@ mod tests {
             subjects: vec!["default".to_owned()],
             emit_to: None,
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         }
     }
 
@@ -354,6 +357,9 @@ mod tests {
             subjects: vec!["actor".to_owned(), "target.id".to_owned()],
             emit_to: None,
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         });
         feature.commands.push(reassign);
 
@@ -402,6 +408,9 @@ mod tests {
             subjects: vec!["actor".to_owned()],
             emit_to: None,
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         });
         feature.commands.push(command);
 

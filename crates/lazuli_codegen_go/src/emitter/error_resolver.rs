@@ -610,6 +610,8 @@ mod tests {
                 },
             ],
             field_messages: Vec::new(),
+            audience_exposure: Vec::new(),
+            redact_patterns: Vec::new(),
             span_ref: None,
         });
         let out = emit_feature_errors_file("lazuli/test-app", &feature)
@@ -659,6 +661,8 @@ mod tests {
             exposure_5xx: Vec::new(),
             messages: Vec::new(),
             field_messages: Vec::new(),
+            audience_exposure: Vec::new(),
+            redact_patterns: Vec::new(),
             span_ref: None,
         });
         let mut billing = empty_feature("billing");
@@ -731,6 +735,8 @@ mod tests {
                 },
             ],
             field_messages: Vec::new(),
+            audience_exposure: Vec::new(),
+            redact_patterns: Vec::new(),
             span_ref: None,
         });
         let a = emit_feature_errors_file("lazuli/test-app", &feature).unwrap();

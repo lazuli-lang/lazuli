@@ -789,6 +789,23 @@ pub struct FieldConstraints {
     /// sanitization is applied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sanitize_html: Option<SanitizeHtmlProfile>,
+    /// `validate utf8_safe` — reject control chars + invalid UTF-8
+    /// sequences. Cheap guard against subtle injection vectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utf8_safe: Option<bool>,
+    /// `validate max_recursion:<n>` — for JSON/JSONB fields, cap
+    /// nesting depth. Mitigates OOM via crafted deeply-nested input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_recursion: Option<u32>,
+    /// `validate max_size:<n>` — cap field byte-length at persist
+    /// time (distinct from upload-stream cap on `@cap.File`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_size: Option<u64>,
+    /// `validator covers_pii` — declares the validator function
+    /// covers a known PII shape. References the validator catalog
+    /// entry by snake_case name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covers_pii: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -818,6 +835,10 @@ impl FieldConstraints {
             && self.length.is_none()
             && self.r#in.is_none()
             && self.sanitize_html.is_none()
+            && self.utf8_safe.is_none()
+            && self.max_recursion.is_none()
+            && self.max_size.is_none()
+            && self.covers_pii.is_none()
     }
 
     /// Convenience constructor used by tests and call sites that build
@@ -982,6 +1003,10 @@ impl CurrencyCode {
 #[serde(tag = "kind", content = "value")]
 pub enum CapabilityRef {
     File(FileCapability),
+    /// `@cap.PII(class:<X>, retention:<dur>, log_redact:<bool>)` —
+    /// marks fields as regulated personal data. Drives audit
+    /// data_subject inference + auto-redaction at log emission.
+    PII(PiiCapability),
     /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`.
     /// Closed catalog: `argon2id` canonical, `bcrypt` for legacy
     /// migration only.
@@ -995,6 +1020,23 @@ pub enum CapabilityRef {
     /// Phase L Tier 4 follow-up — `@cap.Token(ttl:<duration>,
     /// single_use:<bool>,store:<storage>)`. `store` is `hashed` in v0.
     Token(TokenCapability),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PiiCapability {
+    /// Free-form class name (`identity`, `contact`, `financial`,
+    /// `medical`, `biometric`). Adapters/doctor cross-check against a
+    /// registry-level catalog if declared.
+    pub class: String,
+    /// Optional retention period (duration literal, e.g. `"90d"`,
+    /// `"7y"`). When set, doctor flags resources without a
+    /// retention-cleanup job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention: Option<String>,
+    /// When true, observability redaction must mask this field's
+    /// values in log output. Default true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_redact: Option<bool>,
 }
 
 /// Phase L Tier 4 follow-up — typed `@cap.Hashed(algorithm:<X>)`.
@@ -1306,6 +1348,16 @@ pub struct AuditSpec {
     /// commands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_subject: Option<String>,
+    /// `audit before` — capture pre-mutation field values.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record_before: bool,
+    /// `audit after` — capture post-mutation field values.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record_after: bool,
+    /// `audit retain <duration>` — retention horizon for audit rows.
+    /// `None` = use feature/registry default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retain_for: Option<String>,
 }
 
 /// Phase L Tier 4b — Cut A.9 `approval` block lifted into IR.
@@ -1366,6 +1418,29 @@ pub struct RouteSlot {
     /// to suppress missing-argument diagnostics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+    /// `route opaque token: Text` -> `OpaqueToken`.
+    /// `route signed_token`       -> `SignedToken`.
+    /// Plain `route id: ID`       -> `Plain` (default).
+    #[serde(default, skip_serializing_if = "is_plain_route_slot_kind")]
+    pub kind: RouteSlotKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteSlotKind {
+    Plain,
+    OpaqueToken,
+    SignedToken,
+}
+
+impl Default for RouteSlotKind {
+    fn default() -> Self {
+        RouteSlotKind::Plain
+    }
+}
+
+fn is_plain_route_slot_kind(kind: &RouteSlotKind) -> bool {
+    matches!(kind, RouteSlotKind::Plain)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2621,6 +2696,10 @@ pub struct ViewList {
     pub selection: Option<SelectionDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub settings: Vec<SettingDecl>,
+    /// `view ... fields <X> redacted` — field names that this view
+    /// must mask before emission. Codegen emits a redaction wrapper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -2640,6 +2719,10 @@ pub struct ViewDetail {
     pub cells: Vec<CellBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<CommandRef>,
+    /// `view ... fields <X> redacted` — field names that this view
+    /// must mask before emission. Codegen emits a redaction wrapper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -2655,6 +2738,10 @@ pub struct ViewCreate {
     pub fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cells: Vec<CellBinding>,
+    /// `view ... fields <X> redacted` — field names that this view
+    /// must mask before emission. Codegen emits a redaction wrapper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -3338,6 +3425,14 @@ pub struct FeatureErrors {
     /// (`message` deliberately not allowed for 5xx — see proposal §2.C.)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exposure_5xx: Vec<String>,
+    /// Audience-scoped exposure rules from `expose to @audience <name>
+    /// <fields>`. Runtime/codegen enforcement lands in a follow-up.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audience_exposure: Vec<ErrorExposeRule>,
+    /// `error_redact <pattern>` lines — regex patterns to mask from
+    /// emitted error bodies before client-side delivery.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redact_patterns: Vec<String>,
     /// Per-code message overrides; one entry per `<code> message
     /// @translation.<key>` line. Resolution-chain step 3.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3348,6 +3443,20 @@ pub struct FeatureErrors {
     /// IR so v2 promotion is purely additive.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub field_messages: Vec<FeatureFieldError>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorExposeRule {
+    /// Optional audience target. `None` is the legacy client-wide
+    /// exposure shape; `Some("operator")` comes from
+    /// `expose to @audience operator ...`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    /// Envelope fields exposed by this rule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

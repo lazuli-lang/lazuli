@@ -132,6 +132,7 @@ mod tests {
             fields: fields.iter().map(|s| (*s).to_owned()).collect(),
             cells: vec![],
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -206,6 +207,7 @@ mod tests {
             actions: vec![],
             drawer: None,
             line: 30,
+            redacted_fields: Vec::new(),
         });
         let c = mk_command("create", &["key"]);
         let module = mk_module(v, c);

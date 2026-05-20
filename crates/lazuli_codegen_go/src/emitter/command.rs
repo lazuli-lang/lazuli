@@ -2752,6 +2752,7 @@ mod tests {
             name: "id".to_owned(),
             type_ref: TypeRef::Builtin(BuiltinType::Id),
             from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
         }];
         cmd.input = CommandInput::Typed(vec![typed_slot("tier", BuiltinType::Text, true)]);
         cmd.policy = PolicyRef::Local("update".to_owned());
@@ -3732,6 +3733,7 @@ mod tests {
             name: "id".to_owned(),
             type_ref: TypeRef::Builtin(BuiltinType::Id),
             from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
         }];
         cmd.input = CommandInput::Typed(vec![typed_slot("reason", BuiltinType::Text, true)]);
         cmd.effect = CommandEffect::Updates(UpdateEffect {
@@ -3856,11 +3858,13 @@ mod tests {
                 name: "customer_id".to_owned(),
                 type_ref: TypeRef::Builtin(BuiltinType::Id),
                 from: None,
+                kind: lazuli_ir::RouteSlotKind::Plain,
             },
             lazuli_ir::RouteSlot {
                 name: "tag_id".to_owned(),
                 type_ref: TypeRef::Builtin(BuiltinType::Id),
                 from: None,
+                kind: lazuli_ir::RouteSlotKind::Plain,
             },
         ];
         cmd.input = CommandInput::Empty;

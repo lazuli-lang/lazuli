@@ -2326,7 +2326,8 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
             lazuli_ir::CapabilityRef::Hashed(_)
             | lazuli_ir::CapabilityRef::Encrypted(_)
             | lazuli_ir::CapabilityRef::E2ee(_)
-            | lazuli_ir::CapabilityRef::Token(_) => "string".to_owned(),
+            | lazuli_ir::CapabilityRef::Token(_)
+            | lazuli_ir::CapabilityRef::PII(_) => "string".to_owned(),
             lazuli_ir::CapabilityRef::File(_) => "unknown".to_owned(),
         },
         lazuli_ir::TypeRef::Many(inner) => format!("{}[]", ts_type_for_type_ref(inner, module)),
@@ -8896,7 +8897,19 @@ fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
         TypeRef::Capability(CapabilityRef::Encrypted(e)) => format_encrypted_capability(e),
         TypeRef::Capability(CapabilityRef::E2ee(e)) => format_e2ee_capability(e),
         TypeRef::Capability(CapabilityRef::Token(t)) => format_token_capability(t),
+        TypeRef::Capability(CapabilityRef::PII(pii)) => format_pii_capability(pii),
     }
+}
+
+fn format_pii_capability(pii: &lazuli_ir::PiiCapability) -> String {
+    let mut args = vec![format!("class:{}", pii.class)];
+    if let Some(retention) = pii.retention.as_ref() {
+        args.push(format!("retention:{}", retention));
+    }
+    if let Some(log_redact) = pii.log_redact {
+        args.push(format!("log_redact:{}", log_redact));
+    }
+    format!("@cap.PII({})", args.join(","))
 }
 
 /// Encryption bucket cycle — render `E2eeCapability` back to source form.
@@ -11294,6 +11307,9 @@ mod tests {
                 subjects: vec![],
                 emit_to: None,
                 data_subject: None,
+                record_before: false,
+                record_after: false,
+                retain_for: None,
             }),
             approval: None,
             invalidates: vec![],

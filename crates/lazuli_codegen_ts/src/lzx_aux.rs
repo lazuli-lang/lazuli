@@ -384,6 +384,7 @@ mod tests {
             sort: None,
             selection: None,
             settings: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }

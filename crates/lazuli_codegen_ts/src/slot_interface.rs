@@ -524,6 +524,7 @@ mod tests {
             sort: None,
             selection: None,
             settings: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         })
     }
@@ -544,6 +545,7 @@ mod tests {
             sections,
             cells,
             actions: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         })
     }
@@ -558,6 +560,7 @@ mod tests {
             },
             fields: vec!["key".to_owned(), "tags".to_owned()],
             cells,
+            redacted_fields: Vec::new(),
             span_ref: None,
         })
     }
@@ -746,6 +749,7 @@ mod tests {
                     sort: None,
                     selection: None,
                     settings: vec![],
+                    redacted_fields: Vec::new(),
                     span_ref: None,
                 })],
                 span_ref: None,

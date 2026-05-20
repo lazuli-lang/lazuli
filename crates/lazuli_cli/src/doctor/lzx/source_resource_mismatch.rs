@@ -155,6 +155,7 @@ mod tests {
             actions: vec![],
             drawer: None,
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -278,6 +279,7 @@ mod tests {
             cells: vec![],
             actions: vec![],
             line: 20,
+            redacted_fields: Vec::new(),
         });
         let module = mk_module(vec![v]);
         assert!(check(&module).is_empty());

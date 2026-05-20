@@ -75,7 +75,14 @@ pub fn check(module: &Module, project_root: Option<&Path>) -> Vec<Finding> {
         for surface in &feature.surfaces {
             for audience in &surface.audiences {
                 for view in &audience.views {
-                    check_view(project_root, &feature.name, surface, audience, view, &mut out);
+                    check_view(
+                        project_root,
+                        &feature.name,
+                        surface,
+                        audience,
+                        view,
+                        &mut out,
+                    );
                 }
             }
         }
@@ -189,6 +196,7 @@ mod tests {
             actions: vec![],
             drawer: None,
             line,
+            redacted_fields: Vec::new(),
         })
     }
 
@@ -242,7 +250,10 @@ mod tests {
         assert_eq!(f.feature, "catalog");
         assert_eq!(f.target, "mobile");
         assert_eq!(f.slot, "price_badge");
-        assert_eq!(f.expected_path, "features/catalog/mobile/cells/price_badge.tsx");
+        assert_eq!(
+            f.expected_path,
+            "features/catalog/mobile/cells/price_badge.tsx"
+        );
         assert_eq!(
             f.sibling_target_path.as_deref(),
             Some("features/catalog/web/cells/price_badge.tsx")

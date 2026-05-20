@@ -260,6 +260,7 @@ mod tests {
             sections: vec![],
             cells: vec![],
             actions: vec![],
+            redacted_fields: Vec::new(),
             span_ref: None,
         }
     }

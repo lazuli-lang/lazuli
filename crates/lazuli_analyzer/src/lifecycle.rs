@@ -162,6 +162,7 @@ fn lower_transition_command(
             name: "id".to_owned(),
             type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
             from: None,
+            kind: ir::RouteSlotKind::Plain,
         }],
         input: ir::CommandInput::Empty,
         target: Some(ir::TargetExpr {
@@ -316,6 +317,9 @@ fn lower_audit_spec(raw: &str) -> ir::AuditSpec {
             .collect(),
         emit_to: None,
         data_subject: None,
+        record_before: false,
+        record_after: false,
+        retain_for: None,
     }
 }
 

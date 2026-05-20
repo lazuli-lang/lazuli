@@ -266,6 +266,9 @@ mod tests {
             subjects: vec!["none".to_owned()],
             emit_to: None,
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         })
     }
 

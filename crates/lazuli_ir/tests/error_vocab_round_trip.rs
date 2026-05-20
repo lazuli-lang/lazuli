@@ -150,6 +150,8 @@ fn feature_errors_round_trips_with_all_subshapes() {
                 end: 240,
             }),
         }],
+        audience_exposure: Vec::new(),
+        redact_patterns: Vec::new(),
         span_ref: Some(SpanRef { start: 80, end: 260 }),
     };
     let json = serde_json::to_string(&errors).expect("serialize FeatureErrors");
@@ -184,6 +186,8 @@ fn feature_with_all_error_vocab_fields_round_trips() {
             span_ref: None,
         }],
         field_messages: Vec::new(),
+        audience_exposure: Vec::new(),
+        redact_patterns: Vec::new(),
         span_ref: Some(SpanRef { start: 80, end: 200 }),
     });
 

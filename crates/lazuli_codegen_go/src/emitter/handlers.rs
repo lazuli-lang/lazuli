@@ -1387,6 +1387,7 @@ fn go_type_for_capability(capability: &CapabilityRef) -> &'static str {
         // `@cap.E2ee` and `@cap.Encrypted` share the byte envelope.
         CapabilityRef::E2ee(_) => "lazuli.EncryptedRef",
         CapabilityRef::Token(_) => "lazuli.TokenRef",
+        CapabilityRef::PII(_) => "string",
         CapabilityRef::File(_) => "any",
     }
 }
