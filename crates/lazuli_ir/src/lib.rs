@@ -1197,6 +1197,12 @@ pub struct Command {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+    /// Lifecycle transitions this command fires, in order. Empty = no
+    /// lifecycle binding. Multi-element = chain that runs in one tx
+    /// (pre-guard = transitions[0].from, post-update = last.to).
+    /// See docs/proposals/ir-command-transition-binding.md.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
