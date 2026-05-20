@@ -2,6 +2,9 @@
 
 pub mod lifecycle_gate;
 pub mod route_guard;
+pub mod scalar_fixtures;
+
+use std::path::Path;
 
 pub fn run_checks(
     module: &mut lazuli_ir::ExperienceModule,
@@ -17,4 +20,8 @@ pub fn run_lifecycle_gate_checks(
     features: &[lazuli_ir::Feature],
 ) -> Vec<lifecycle_gate::LifecycleGateDiagnostic> {
     lifecycle_gate::check(module, app, features)
+}
+
+pub fn run_scalar_fixtures_checks(project_root: &Path) -> Vec<scalar_fixtures::Diagnostic> {
+    scalar_fixtures::check(project_root)
 }
