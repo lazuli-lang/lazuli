@@ -609,6 +609,7 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                     .map(|selection| lower_selection_decl(selection, owning_feature))
                     .transpose()?,
                 settings: v.settings.iter().map(lower_setting_decl).collect(),
+                redacted_fields: v.redacted_fields.clone(),
                 span_ref: Some(span_of(v.span)),
             }))
         }
@@ -670,6 +671,7 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                     })
                     .collect(),
                 actions,
+                redacted_fields: v.redacted_fields.clone(),
                 span_ref: Some(span_of(v.span)),
             }))
         }
@@ -689,6 +691,7 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                         slot: c.slot.clone(),
                     })
                     .collect(),
+                redacted_fields: v.redacted_fields.clone(),
                 span_ref: Some(span_of(v.span)),
             }))
         }
@@ -1030,6 +1033,9 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     if let Some(file) = parse_cap_file_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::File(file));
     }
+    if let Some(pii) = parse_cap_pii_type(ty) {
+        return ir::TypeRef::Capability(ir::CapabilityRef::PII(pii));
+    }
     // Phase L Tier 4 follow-up — typed `@cap.Hashed/Encrypted/Token`.
     if let Some(hashed) = parse_cap_hashed_type(ty) {
         return ir::TypeRef::Capability(ir::CapabilityRef::Hashed(hashed));
@@ -1209,6 +1215,31 @@ fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
         visibility,
         signed_ttl,
         auto_photo_policy,
+    })
+}
+
+/// IR-VOCAB-REST — `@cap.PII(class:<X>,retention:<dur>,
+/// log_redact:<bool>)`. `class` is required; retention and log_redact
+/// are optional passive slots for follow-up doctor/runtime cells.
+fn parse_cap_pii_type(ty: &str) -> Option<ir::PiiCapability> {
+    let ty = first_paren_balanced_token(ty);
+    let inner = ty.strip_prefix("@cap.PII(")?.strip_suffix(')')?;
+    let args = parse_capability_args(inner);
+    let class = args.get("class")?.clone();
+    if class.is_empty() {
+        return None;
+    }
+    let retention = args.get("retention").cloned();
+    let log_redact = match args.get("log_redact").map(String::as_str) {
+        Some("true") => Some(true),
+        Some("false") => Some(false),
+        Some(_) => return None,
+        None => None,
+    };
+    Some(ir::PiiCapability {
+        class,
+        retention,
+        log_redact,
     })
 }
 
@@ -2089,6 +2120,9 @@ fn build_auto_photo_command(
             subjects: vec!["default".to_owned()],
             emit_to: None,
             data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
         }),
         approval: None,
         invalidates: Vec::new(),
@@ -2977,6 +3011,10 @@ fn lift_field_constraints(
             Some(profile) => Some(lower_sanitize_html_profile(field, profile)?),
             None => None,
         },
+        utf8_safe: decl.utf8_safe,
+        max_recursion: decl.max_recursion,
+        max_size: decl.max_size,
+        covers_pii: decl.covers_pii.clone(),
     })
 }
 
@@ -3387,6 +3425,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
             name: r.name.clone(),
             type_ref: type_ref_from_text(&r.type_text),
             from: r.from.clone(),
+            kind: lower_route_slot_kind(r.kind),
         })
         .collect();
     let input = match &c.input {
@@ -3435,6 +3474,9 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         subjects: a.subjects.clone(),
         emit_to: a.emit_to.clone(),
         data_subject: a.data_subject.clone(),
+        record_before: a.record_before,
+        record_after: a.record_after,
+        retain_for: a.retain_for.clone(),
     });
     let approval = c.approval.as_ref().map(|a| ir::ApprovalSpec {
         required_when: a.required_when.clone(),
@@ -3589,6 +3631,14 @@ fn lower_deprecated(
     }
 }
 
+fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKind {
+    match kind {
+        syntax::CommandRouteSlotKind::Plain => ir::RouteSlotKind::Plain,
+        syntax::CommandRouteSlotKind::OpaqueToken => ir::RouteSlotKind::OpaqueToken,
+        syntax::CommandRouteSlotKind::SignedToken => ir::RouteSlotKind::SignedToken,
+    }
+}
+
 /// Phase L Tier 4b — lower a canonical-indent `api` block into `ir::Api`.
 fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
     let method = match a.method {
@@ -3688,6 +3738,9 @@ fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Repor
         // written so the doctor lint sees the offending edge.
         emit_to: a.emit_to.clone(),
         data_subject: a.data_subject.clone(),
+        record_before: a.record_before,
+        record_after: a.record_after,
+        retain_for: a.retain_for.clone(),
     });
 
     let policy_expr = r.policy_expr.as_ref().map(lower_policy_expr);
@@ -3823,6 +3876,16 @@ fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErr
         }),
         exposure_4xx: decl.exposure_4xx.clone(),
         exposure_5xx: decl.exposure_5xx.clone(),
+        audience_exposure: decl
+            .audience_exposure
+            .iter()
+            .map(|r| ir::ErrorExposeRule {
+                audience: r.audience.clone(),
+                fields: r.fields.clone(),
+                span_ref: Some(span_of(r.span)),
+            })
+            .collect(),
+        redact_patterns: decl.redact_patterns.clone(),
         messages: decl
             .messages
             .iter()
@@ -4103,12 +4166,18 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
                 subjects: vec!["actor".to_owned(), "target.id".to_owned()],
                 emit_to: None,
                 data_subject: None,
+                record_before: false,
+                record_after: false,
+                retain_for: None,
             }
         } else if let Some(reason) = rest.strip_prefix("none ") {
             ir::AuditSpec {
                 subjects: vec![format!("none {}", reason)],
                 emit_to: None,
                 data_subject: None,
+                record_before: false,
+                record_after: false,
+                retain_for: None,
             }
         } else {
             ir::AuditSpec {
@@ -4120,6 +4189,9 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
                     .collect(),
                 emit_to: None,
                 data_subject: None,
+                record_before: false,
+                record_after: false,
+                retain_for: None,
             }
         }
     });
@@ -5500,19 +5572,36 @@ fn lower_audit_block(src: &str) -> ir::AuditSpec {
         subjects: Vec::new(),
         emit_to: None,
         data_subject: None,
+        record_before: false,
+        record_after: false,
+        retain_for: None,
     };
     for line in src.lines().map(str::trim).filter(|line| !line.is_empty()) {
         if let Some(rest) = line.strip_prefix("audit data_subject ") {
             spec.data_subject = Some(rest.trim().to_owned());
         } else if let Some(rest) = line.strip_prefix("data_subject ") {
             spec.data_subject = Some(rest.trim().to_owned());
+        } else if line == "audit before" || line == "before" {
+            spec.record_before = true;
+        } else if line == "audit after" || line == "after" {
+            spec.record_after = true;
+        } else if let Some(rest) = line
+            .strip_prefix("audit retain ")
+            .or_else(|| line.strip_prefix("retain "))
+        {
+            spec.retain_for = Some(rest.trim().to_owned());
         } else if let Some(rest) = line.strip_prefix("audit ") {
-            spec.subjects = rest
+            for part in rest
                 .split(',')
                 .map(str::trim)
                 .filter(|part| !part.is_empty())
-                .map(ToOwned::to_owned)
-                .collect();
+            {
+                match part {
+                    "before" => spec.record_before = true,
+                    "after" => spec.record_after = true,
+                    _ => spec.subjects.push(part.to_owned()),
+                }
+            }
         } else if let Some(rest) = line.strip_prefix("emit_to ") {
             spec.emit_to = Some(rest.trim().to_owned());
         }
@@ -5523,17 +5612,22 @@ fn lower_audit_block(src: &str) -> ir::AuditSpec {
 #[cfg(test)]
 fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError> {
     let trimmed = line.trim();
-    let Some(rest) = trimmed.strip_prefix("validate sanitize_html(") else {
+    let mut decl = syntax::FieldConstraintsDecl::default();
+    if let Some(rest) = trimmed.strip_prefix("validate sanitize_html(") {
+        let profile = rest.trim_end_matches(')').trim();
+        decl.sanitize_html = Some(profile.to_owned());
+    } else if trimmed == "validate utf8_safe" {
+        decl.utf8_safe = Some(true);
+    } else if let Some(rest) = trimmed.strip_prefix("validate max_recursion:") {
+        decl.max_recursion = rest.trim().parse::<u32>().ok();
+    } else if let Some(rest) = trimmed.strip_prefix("validate max_size:") {
+        decl.max_size = rest.trim().parse::<u64>().ok();
+    } else if trimmed == "validator covers_pii" {
+        decl.covers_pii = Some("covers_pii".to_owned());
+    } else {
         return Ok(ir::FieldConstraints::default());
     };
-    let profile = rest.trim_end_matches(')').trim();
-    lift_field_constraints(
-        "validate",
-        &syntax::FieldConstraintsDecl {
-            sanitize_html: Some(profile.to_owned()),
-            ..Default::default()
-        },
-    )
+    lift_field_constraints("validate", &decl)
 }
 
 /// RB.S6 — lower the structured AST policy expression (parser
@@ -7149,10 +7243,36 @@ feature payments
     }
 
     #[test]
+    fn cap_pii_lowers() {
+        let ty = type_ref_from_syntax("@cap.PII(class:contact,retention:90d,log_redact:true)");
+        match ty {
+            ir::TypeRef::Capability(ir::CapabilityRef::PII(pii)) => {
+                assert_eq!(pii.class, "contact");
+                assert_eq!(pii.retention.as_deref(), Some("90d"));
+                assert_eq!(pii.log_redact, Some(true));
+            }
+            other => panic!("expected Capability::PII, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn audit_data_subject_lowers() {
         let spec = lower_audit_block("audit default\naudit data_subject user_id\n");
         assert_eq!(spec.subjects, vec!["default".to_owned()]);
         assert_eq!(spec.data_subject.as_deref(), Some("user_id"));
+    }
+
+    #[test]
+    fn audit_before_after_lowers() {
+        let spec = lower_audit_block("audit before, after\n");
+        assert!(spec.record_before);
+        assert!(spec.record_after);
+    }
+
+    #[test]
+    fn audit_retain_lowers() {
+        let spec = lower_audit_block("audit retain 90d\n");
+        assert_eq!(spec.retain_for.as_deref(), Some("90d"));
     }
 
     #[test]
@@ -7172,6 +7292,54 @@ feature payments
             result,
             Err(AnalyzeError::UnknownSanitizeHtmlProfile { .. })
         ));
+    }
+
+    #[test]
+    fn validate_limits_lower() {
+        let source = r#"
+feature account
+  domain
+    resource Payload
+      body: Json validate utf8_safe validate max_recursion:8 validate max_size:4096
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let field = &feature.resources[0].fields[0];
+        assert_eq!(field.constraints.utf8_safe, Some(true));
+        assert_eq!(field.constraints.max_recursion, Some(8));
+        assert_eq!(field.constraints.max_size, Some(4096));
+    }
+
+    #[test]
+    fn validator_covers_pii_lowers() {
+        let source = r#"
+feature account
+  domain
+    resource Customer
+      email: Text validator covers_pii
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let field = &feature.resources[0].fields[0];
+        assert_eq!(field.constraints.covers_pii.as_deref(), Some("covers_pii"));
+    }
+
+    #[test]
+    fn command_route_token_kinds_lower() {
+        let source = r#"
+feature account
+  command consume
+    route opaque token: Text
+    route signed_token
+    returns Text
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let command = &feature.commands[0];
+        assert_eq!(command.route[0].name, "token");
+        assert_eq!(command.route[0].kind, ir::RouteSlotKind::OpaqueToken);
+        assert_eq!(command.route[1].name, "signed_token");
+        assert_eq!(command.route[1].kind, ir::RouteSlotKind::SignedToken);
     }
 
     #[test]
@@ -7859,6 +8027,34 @@ feature account
         assert!(errors.exposure_5xx.is_empty());
         assert!(errors.messages.is_empty());
     }
+
+    #[test]
+    fn lower_feature_errors_redact_patterns_lowers() {
+        let source = r#"
+feature account
+  errors
+    error_redact "[0-9]{11}"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let errors = feature.errors.as_ref().expect("errors block lowered");
+        assert_eq!(errors.redact_patterns, vec!["[0-9]{11}".to_owned()]);
+    }
+
+    #[test]
+    fn lower_feature_errors_audience_exposure_lowers() {
+        let source = r#"
+feature account
+  errors
+    expose to @audience operator message, code
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let errors = feature.errors.as_ref().expect("errors block lowered");
+        let rule = errors.audience_exposure.first().expect("audience exposure");
+        assert_eq!(rule.audience.as_deref(), Some("operator"));
+        assert_eq!(rule.fields, vec!["message".to_owned(), "code".to_owned()]);
+    }
 }
 
 // =============================================================================
@@ -7875,6 +8071,12 @@ mod surface_lowering_tests {
         lower_surface(&ast).expect("lowers")
     }
 
+    fn parse_requires(atom: &str) -> ir::PolicyAtom {
+        let source = format!("surface slug web\n  audience admin\n    requires {atom}\n");
+        let surface = parse(&source);
+        surface.audiences[0].requires[0].clone()
+    }
+
     #[test]
     fn lowers_minimal_surface() {
         let surface = parse(
@@ -7884,6 +8086,42 @@ mod surface_lowering_tests {
         assert_eq!(surface.target, ir::SurfaceTarget::Web);
         assert_eq!(surface.audiences.len(), 1);
         assert_eq!(surface.audiences[0].views.len(), 1);
+    }
+
+    #[test]
+    fn session_fresh_policy_atom_lowers() {
+        let atom = parse_requires("@session.fresh(15m)");
+        assert_eq!(atom.namespace, "session");
+        assert_eq!(atom.name, "fresh");
+        assert_eq!(atom.args.as_deref(), Some("15m"));
+    }
+
+    #[test]
+    fn rate_budget_policy_atom_lowers() {
+        let atom = parse_requires("@rate_budget.password_reset");
+        assert_eq!(atom.namespace, "rate_budget");
+        assert_eq!(atom.name, "password_reset");
+        assert!(atom.args.is_none());
+    }
+
+    #[test]
+    fn time_policy_atom_lowers() {
+        let atom = parse_requires("@time.business_hours_brasilia(tz:America/Sao_Paulo)");
+        assert_eq!(atom.namespace, "time");
+        assert_eq!(atom.name, "business_hours_brasilia");
+        assert_eq!(atom.args.as_deref(), Some("tz:America/Sao_Paulo"));
+    }
+
+    #[test]
+    fn view_redacted_fields_lower() {
+        let surface = parse(
+            "surface customer web\n  audience admin\n    view create invite\n      submit customer.command.invite\n      fields email redacted\n",
+        );
+        let ir::View::Create(view) = &surface.audiences[0].views[0] else {
+            panic!("expected create view");
+        };
+        assert_eq!(view.fields, vec!["email".to_owned()]);
+        assert_eq!(view.redacted_fields, vec!["email".to_owned()]);
     }
 
     #[test]

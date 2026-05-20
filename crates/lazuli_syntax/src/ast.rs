@@ -356,6 +356,9 @@ pub struct ViewListAst {
     /// `actions <cmd>, <cmd>` — comma-separated short names or qualified
     /// `<feature>.command.<name>` references. Analyzer normalizes.
     pub actions: Vec<String>,
+    /// `fields <name> redacted` rows declared inside the view.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
     pub span: Span,
 }
 
@@ -398,6 +401,9 @@ pub struct ViewDetailAst {
     pub sections: Vec<String>,
     pub cells: Vec<CellBindingAst>,
     pub actions: Vec<String>,
+    /// `fields <name> redacted` rows declared inside the view.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
     pub span: Span,
 }
 
@@ -409,6 +415,9 @@ pub struct ViewCreateAst {
     pub submit: String,
     pub fields: Vec<String>,
     pub cells: Vec<CellBindingAst>,
+    /// `fields <name> redacted` rows declared inside the view.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redacted_fields: Vec<String>,
     pub span: Span,
 }
 
@@ -852,8 +861,20 @@ pub struct FeatureErrorsDecl {
     /// Closed catalog (`code`, `data`) — `message` is intentionally
     /// excluded so 5xx stays framework-internal. At most one line.
     pub exposure_5xx: Vec<String>,
+    /// `expose to @audience <name> <comma-list>` rows.
+    pub audience_exposure: Vec<FeatureErrorExposeRuleDecl>,
+    /// `error_redact <pattern>` rows. Pattern text is preserved
+    /// verbatim except for surrounding quotes.
+    pub redact_patterns: Vec<String>,
     /// `<code> message @translation.<key>` rows in source order.
     pub messages: Vec<FeatureErrorMessageDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeatureErrorExposeRuleDecl {
+    pub audience: Option<String>,
+    pub fields: Vec<String>,
     pub span: Span,
 }
 
@@ -1142,7 +1163,27 @@ pub struct CommandRouteSlot {
     pub type_text: String,
     /// `from ctx.customer.id` default expression — verbatim text.
     pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "is_plain_command_route_slot_kind")]
+    pub kind: CommandRouteSlotKind,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandRouteSlotKind {
+    Plain,
+    OpaqueToken,
+    SignedToken,
+}
+
+impl Default for CommandRouteSlotKind {
+    fn default() -> Self {
+        CommandRouteSlotKind::Plain
+    }
+}
+
+fn is_plain_command_route_slot_kind(kind: &CommandRouteSlotKind) -> bool {
+    matches!(kind, CommandRouteSlotKind::Plain)
 }
 
 /// `input` block: empty, short reference, or typed slot list.
@@ -1190,6 +1231,12 @@ pub struct CommandAudit {
     /// resource field that identifies the data subject.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_subject: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record_before: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record_after: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retain_for: Option<String>,
     pub span: Span,
 }
 
@@ -1464,6 +1511,14 @@ pub struct FieldConstraintsDecl {
     pub r#in: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sanitize_html: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utf8_safe: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_recursion: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covers_pii: Option<String>,
 }
 
 impl FieldConstraintsDecl {
@@ -1475,6 +1530,10 @@ impl FieldConstraintsDecl {
             && self.length.is_none()
             && self.r#in.is_none()
             && self.sanitize_html.is_none()
+            && self.utf8_safe.is_none()
+            && self.max_recursion.is_none()
+            && self.max_size.is_none()
+            && self.covers_pii.is_none()
     }
 }
 

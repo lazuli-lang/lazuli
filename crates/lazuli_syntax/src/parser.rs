@@ -8,33 +8,34 @@ use crate::ast::{
     AuthTheftDetectionAction, AuthTheftDetectionActionClause, BindingRefAst, CacheProfileDecl,
     CellBindingAst, Channel, ColorStateAst, ColorTokenAst, CommandApproval, CommandAudit,
     CommandDecl, CommandDeprecatedDecl, CommandEffectDecl, CommandEffectKindDecl, CommandEmit,
-    CommandInputDecl, CommandInputSlot, CommandRouteSlot, CommandWriteWindow, ContainsRhs,
-    CustomTokenAst, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, DrawerBindingSourceAst,
-    DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst, EasingTokenAst, EnumDeclAst,
-    EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst, EventGroup,
-    EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
-    FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst, FeatureSkeleton,
-    FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl, FilterCardinalityAst, FilterDeclAst,
-    GateDirectiveAst, HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody,
-    JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
-    JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl,
-    LzxAction, LzxApp, LzxAudience, LzxDocument, LzxErrorPage, LzxExperience, LzxExperienceView,
-    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRequiresLifecycle,
-    LzxResumeArm, LzxResumeArmKind, LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults, LzxSurface,
-    LzxViewExtension, LzxViewGuard, MotionAst, Notification, NotificationDigest,
-    NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst,
-    PlanLimitRefAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, PolicyExprAst,
-    PublicContractDeclAst, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
-    ReportColumnSourceAst, ReportDecl, ResourceCompositeKey, ResourceDecl, ResourceFieldDecl,
-    ResourceHasMany, ResourceLock, ResourceRetention, ResourceRetentionAction, RoleDeclAst,
-    RoleGrantsAst, RouteParamAst, ScaleTokenAst, SearchDeclAst, SearchFieldAst, SearchModeAst,
-    SelectionDeclAst, SelectionModeAst, SettingDeclAst, SettingPersistenceAst,
-    SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span, SqlQueryDecl, SurfaceAst,
-    SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst,
-    ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst,
-    TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, UsesClauseAst, ViewAst,
-    ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
-    WebhookVerify, WeightTokenAst, ZTokenAst,
+    CommandInputDecl, CommandInputSlot, CommandRouteSlot, CommandRouteSlotKind, CommandWriteWindow,
+    ContainsRhs, CustomTokenAst, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst,
+    DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
+    EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst,
+    EventGroup, EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
+    FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst,
+    FeatureSkeleton, FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl,
+    FilterCardinalityAst, FilterDeclAst, GateDirectiveAst, HttpMethod, InvalidatesDecl,
+    InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall, JobExternalCallArg,
+    JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl,
+    LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience, LzxDocument,
+    LzxErrorPage, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
+    LzxPlatform, LzxPlatformView, LzxRequiresLifecycle, LzxResumeArm, LzxResumeArmKind,
+    LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults, LzxSurface, LzxViewExtension, LzxViewGuard,
+    MotionAst, Notification, NotificationDigest, NotificationThrottle, PackageSkeleton,
+    PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst, PlanTrialAst,
+    PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, PolicyExprAst, PublicContractDeclAst,
+    QueryDecl, QuerySearch, RecordDecl, ReportColumnAst, ReportColumnSourceAst, ReportDecl,
+    ResourceCompositeKey, ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceLock,
+    ResourceRetention, ResourceRetentionAction, RoleDeclAst, RoleGrantsAst, RouteParamAst,
+    ScaleTokenAst, SearchDeclAst, SearchFieldAst, SearchModeAst, SelectionDeclAst,
+    SelectionModeAst, SettingDeclAst, SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst,
+    SortDeclAst, SortDirAst, Span, SqlQueryDecl, SurfaceAst, SurfaceTargetAst, TargetArgDecl,
+    TargetExprDecl, TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst,
+    TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst, TranslationPluralArmDecl,
+    TranslationVariantDecl, TypographyAst, UsesClauseAst, ViewAst, ViewCreateAst, ViewDetailAst,
+    ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst,
+    ZTokenAst,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -2016,6 +2017,7 @@ fn parse_view_block(
                 selection,
                 settings: state.settings,
                 actions: state.actions,
+                redacted_fields: state.redacted_fields,
                 span,
             })
         }
@@ -2034,6 +2036,7 @@ fn parse_view_block(
                 sections: state.sections,
                 cells: state.cells,
                 actions: state.actions,
+                redacted_fields: state.redacted_fields,
                 span,
             })
         }
@@ -2050,6 +2053,7 @@ fn parse_view_block(
                 })?,
                 fields: state.fields,
                 cells: state.cells,
+                redacted_fields: state.redacted_fields,
                 span,
             })
         }
@@ -2079,6 +2083,7 @@ struct ViewBodyState {
     bulk_actions: Vec<String>,
     bulk_actions_seen: bool,
     settings: Vec<SettingDeclAst>,
+    redacted_fields: Vec<String>,
 }
 
 type ViewBodyLineHandler =
@@ -2138,7 +2143,13 @@ fn parse_view_fields_line(
     rest: &str,
     state: &mut ViewBodyState,
 ) -> Result<(), ParseError> {
-    state.fields.extend(split_lzx_list(rest));
+    if let Some(fields) = rest.strip_suffix(" redacted") {
+        let fields = split_lzx_list(fields);
+        state.redacted_fields.extend(fields.iter().cloned());
+        state.fields.extend(fields);
+    } else {
+        state.fields.extend(split_lzx_list(rest));
+    }
     Ok(())
 }
 
@@ -3253,11 +3264,14 @@ fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst
             "policy atom must include a namespace and name (`@<ns>.<name>`)",
         )
     })?;
-    if !matches!(namespace, "scope" | "role" | "actor" | "mfa") {
+    if !matches!(
+        namespace,
+        "scope" | "role" | "actor" | "mfa" | "session" | "rate_budget" | "time"
+    ) {
         return Err(line_error_owned(
             line,
             format!(
-                "policy atom namespace `{}` is not in the closed catalog (`scope` | `role` | `actor` | `mfa`)",
+                "policy atom namespace `{}` is not in the closed catalog (`scope` | `role` | `actor` | `mfa` | `session` | `rate_budget` | `time`)",
                 namespace
             ),
         ));
@@ -4701,6 +4715,8 @@ fn parse_feature_errors_decl(
     let mut default: Option<ErrorExposureDefaultAst> = None;
     let mut exposure_4xx: Option<Vec<String>> = None;
     let mut exposure_5xx: Option<Vec<String>> = None;
+    let mut audience_exposure: Vec<FeatureErrorExposeRuleDecl> = Vec::new();
+    let mut redact_patterns: Vec<String> = Vec::new();
     let mut messages: Vec<FeatureErrorMessageDecl> = Vec::new();
     let mut last_end = header.end;
     let mut i = start + 1;
@@ -4798,6 +4814,52 @@ fn parse_feature_errors_decl(
             continue;
         }
 
+        if let Some(rest) = trimmed.strip_prefix("error_redact ") {
+            let pattern = unquote_lzx_value(rest.trim()).trim().to_owned();
+            if pattern.is_empty() {
+                return Err(line_error(line, "`error_redact` requires a pattern"));
+            }
+            redact_patterns.push(pattern);
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("expose to @audience ") {
+            let (audience, fields_text) = rest.trim().split_once(' ').ok_or_else(|| {
+                line_error(
+                    line,
+                    "`expose to @audience <name> <comma-list>` requires an audience and field list",
+                )
+            })?;
+            if !is_kebab_or_snake_ident(audience) {
+                return Err(line_error_owned(
+                    line,
+                    format!("audience `{}` must be kebab/snake case", audience),
+                ));
+            }
+            let fields: Vec<String> = fields_text
+                .split(',')
+                .map(str::trim)
+                .filter(|field| !field.is_empty())
+                .map(str::to_owned)
+                .collect();
+            if fields.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`expose to @audience` requires at least one field",
+                ));
+            }
+            audience_exposure.push(FeatureErrorExposeRuleDecl {
+                audience: Some(audience.to_owned()),
+                fields,
+                span: Span::new(line.start, line.end),
+            });
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
         // `<code> message @translation.<key>` — closed-catalog enforced
         // analyzer-side. The parser only checks structural shape (split
         // on `message ` keyword).
@@ -4831,6 +4893,8 @@ fn parse_feature_errors_decl(
             default,
             exposure_4xx: exposure_4xx.unwrap_or_default(),
             exposure_5xx: exposure_5xx.unwrap_or_default(),
+            audience_exposure,
+            redact_patterns,
             messages,
             span: Span::new(header.start, last_end),
         },
@@ -5735,6 +5799,28 @@ fn parse_command_route_slot(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<CommandRouteSlot, ParseError> {
+    let rest = rest.trim();
+    if rest == "signed_token" {
+        return Ok(CommandRouteSlot {
+            name: "signed_token".to_owned(),
+            type_text: "Text".to_owned(),
+            from: None,
+            kind: CommandRouteSlotKind::SignedToken,
+            span: Span::new(line.start, line.end),
+        });
+    }
+    let signed_token_rest;
+    let (kind, rest) = if let Some(after) = rest.strip_prefix("opaque ") {
+        (CommandRouteSlotKind::OpaqueToken, after.trim())
+    } else if let Some(after) = rest.strip_prefix("signed_token:") {
+        signed_token_rest = format!("signed_token:{}", after);
+        (
+            CommandRouteSlotKind::SignedToken,
+            signed_token_rest.as_str(),
+        )
+    } else {
+        (CommandRouteSlotKind::Plain, rest)
+    };
     let (name, after) = rest.split_once(':').ok_or_else(|| {
         line_error(
             line,
@@ -5762,6 +5848,7 @@ fn parse_command_route_slot(
         name: name.to_owned(),
         type_text,
         from,
+        kind,
         span: Span::new(line.start, line.end),
     })
 }
@@ -5863,12 +5950,26 @@ fn parse_command_audit(
     rest: &str,
 ) -> Result<(CommandAudit, usize), ParseError> {
     let header = &lines[start];
-    let subjects: Vec<String> = rest
-        .split(',')
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .collect();
-    if subjects.is_empty() {
+    let mut subjects: Vec<String> = Vec::new();
+    let mut record_before = false;
+    let mut record_after = false;
+    let mut retain_for: Option<String> = None;
+    for part in rest.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if part == "before" {
+            record_before = true;
+        } else if part == "after" {
+            record_after = true;
+        } else if let Some(duration) = part.strip_prefix("retain ") {
+            let duration = duration.trim();
+            if duration.is_empty() {
+                return Err(line_error(header, "`audit retain` requires a duration"));
+            }
+            retain_for = Some(duration.to_owned());
+        } else {
+            subjects.push(part.to_owned());
+        }
+    }
+    if subjects.is_empty() && !record_before && !record_after && retain_for.is_none() {
         return Err(line_error(
             header,
             "`audit` requires at least one subject (e.g. `audit actor, target.id`)",
@@ -5919,10 +6020,29 @@ fn parse_command_audit(
             }
             data_subject = Some(subject_field.to_owned());
             i += 1;
+        } else if trimmed == "before" {
+            record_before = true;
+            i += 1;
+        } else if trimmed == "after" {
+            record_after = true;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("retain ") {
+            if retain_for.is_some() {
+                return Err(line_error(
+                    line,
+                    "`audit retain` may be declared at most once",
+                ));
+            }
+            let duration = rest.trim();
+            if duration.is_empty() {
+                return Err(line_error(line, "`audit retain` requires a duration"));
+            }
+            retain_for = Some(duration.to_owned());
+            i += 1;
         } else {
             return Err(line_error(
                 line,
-                "`audit` children are `emit_to <event_group>` or `data_subject <field>` only",
+                "`audit` children are `emit_to <event_group>`, `data_subject <field>`, `before`, `after`, or `retain <duration>` only",
             ));
         }
     }
@@ -5931,6 +6051,9 @@ fn parse_command_audit(
             subjects,
             emit_to,
             data_subject,
+            record_before,
+            record_after,
+            retain_for,
             span: Span::new(header.start, header.end),
         },
         i,
@@ -9015,14 +9138,57 @@ fn extract_field_constraints(
                     head = head.trim_end().to_owned();
                 }
                 ConstraintKw::Validate => {
-                    let (profile, tail) = parse_constraint_sanitize_html(line, rest)?;
-                    if constraints.sanitize_html.is_some() {
+                    let (validated, tail) = parse_constraint_validate(line, rest)?;
+                    match validated {
+                        ParsedValidateConstraint::SanitizeHtml(profile) => {
+                            if constraints.sanitize_html.is_some() {
+                                return Err(line_error(
+                                    line,
+                                    "duplicate `validate sanitize_html` constraint on field",
+                                ));
+                            }
+                            constraints.sanitize_html = Some(profile);
+                        }
+                        ParsedValidateConstraint::Utf8Safe => {
+                            if constraints.utf8_safe.is_some() {
+                                return Err(line_error(
+                                    line,
+                                    "duplicate `validate utf8_safe` constraint on field",
+                                ));
+                            }
+                            constraints.utf8_safe = Some(true);
+                        }
+                        ParsedValidateConstraint::MaxRecursion(n) => {
+                            if constraints.max_recursion.is_some() {
+                                return Err(line_error(
+                                    line,
+                                    "duplicate `validate max_recursion` constraint on field",
+                                ));
+                            }
+                            constraints.max_recursion = Some(n);
+                        }
+                        ParsedValidateConstraint::MaxSize(n) => {
+                            if constraints.max_size.is_some() {
+                                return Err(line_error(
+                                    line,
+                                    "duplicate `validate max_size` constraint on field",
+                                ));
+                            }
+                            constraints.max_size = Some(n);
+                        }
+                    }
+                    head = format!("{}{}", before, tail);
+                    head = head.trim_end().to_owned();
+                }
+                ConstraintKw::Validator => {
+                    let (validator, tail) = parse_constraint_validator(line, rest)?;
+                    if constraints.covers_pii.is_some() {
                         return Err(line_error(
                             line,
-                            "duplicate `validate sanitize_html` constraint on field",
+                            "duplicate `validator covers_pii` constraint on field",
                         ));
                     }
-                    constraints.sanitize_html = Some(profile);
+                    constraints.covers_pii = Some(validator);
                     head = format!("{}{}", before, tail);
                     head = head.trim_end().to_owned();
                 }
@@ -9043,6 +9209,7 @@ enum ConstraintKw {
     Length,
     In,
     Validate,
+    Validator,
 }
 
 /// Find the first constraint keyword in `text` (at depth 0). Returns
@@ -9060,6 +9227,7 @@ fn find_constraint_keyword(text: &str) -> Option<(&str, &str)> {
         (" length ", ConstraintKw::Length),
         (" in ", ConstraintKw::In),
         (" validate ", ConstraintKw::Validate),
+        (" validator ", ConstraintKw::Validator),
     ];
     let mut best: Option<usize> = None;
     for (needle, _) in needles {
@@ -9092,6 +9260,8 @@ fn before_keyword_after(_full: &str, after_keyword_text: &str) -> ConstraintKw {
         ConstraintKw::In
     } else if after_keyword_text.starts_with("validate ") {
         ConstraintKw::Validate
+    } else if after_keyword_text.starts_with("validator ") {
+        ConstraintKw::Validator
     } else {
         // Should be unreachable because find_constraint_keyword
         // matched one of these; defensive default.
@@ -9238,33 +9408,97 @@ fn parse_constraint_in_list(
     Ok((values, tail))
 }
 
-fn parse_constraint_sanitize_html(
+enum ParsedValidateConstraint {
+    SanitizeHtml(String),
+    Utf8Safe,
+    MaxRecursion(u32),
+    MaxSize(u64),
+}
+
+fn parse_constraint_validate(
+    line: &SourceLine<'_>,
+    text: &str,
+) -> Result<(ParsedValidateConstraint, String), ParseError> {
+    let rest = text
+        .trim_start()
+        .strip_prefix("validate ")
+        .ok_or_else(|| line_error(line, "expected `validate <constraint>`"))?
+        .trim_start();
+    if let Some(inside) = rest.strip_prefix("sanitize_html(") {
+        let end = inside.find(')').ok_or_else(|| {
+            line_error(
+                line,
+                "`validate sanitize_html` profile is missing a closing `)`",
+            )
+        })?;
+        let profile = inside[..end].trim();
+        if profile.is_empty() {
+            return Err(line_error(
+                line,
+                "`validate sanitize_html` requires a profile",
+            ));
+        }
+        let tail = inside[end + 1..].to_owned();
+        return Ok((
+            ParsedValidateConstraint::SanitizeHtml(profile.to_owned()),
+            tail,
+        ));
+    }
+    if let Some(tail) = rest.strip_prefix("utf8_safe") {
+        return Ok((ParsedValidateConstraint::Utf8Safe, tail.to_owned()));
+    }
+    if let Some(after) = rest.strip_prefix("max_recursion:") {
+        let (raw, tail) = take_constraint_value(after);
+        let value = raw.parse::<u32>().map_err(|_| {
+            line_error_owned(
+                line,
+                format!("`validate max_recursion` expects u32, got `{}`", raw),
+            )
+        })?;
+        return Ok((ParsedValidateConstraint::MaxRecursion(value), tail));
+    }
+    if let Some(after) = rest.strip_prefix("max_size:") {
+        let (raw, tail) = take_constraint_value(after);
+        let value = raw.parse::<u64>().map_err(|_| {
+            line_error_owned(
+                line,
+                format!("`validate max_size` expects bytes as u64, got `{}`", raw),
+            )
+        })?;
+        return Ok((ParsedValidateConstraint::MaxSize(value), tail));
+    }
+    Err(line_error(
+        line,
+        "`validate` supports `sanitize_html(<profile>)`, `utf8_safe`, `max_recursion:<n>`, or `max_size:<bytes>`",
+    ))
+}
+
+fn parse_constraint_validator(
     line: &SourceLine<'_>,
     text: &str,
 ) -> Result<(String, String), ParseError> {
     let rest = text
         .trim_start()
-        .strip_prefix("validate ")
-        .ok_or_else(|| line_error(line, "expected `validate sanitize_html(<profile>)`"))?
+        .strip_prefix("validator ")
+        .ok_or_else(|| line_error(line, "expected `validator covers_pii`"))?
         .trim_start();
-    let inside = rest
-        .strip_prefix("sanitize_html(")
-        .ok_or_else(|| line_error(line, "`validate` only supports `sanitize_html(<profile>)`"))?;
-    let end = inside.find(')').ok_or_else(|| {
-        line_error(
-            line,
-            "`validate sanitize_html` profile is missing a closing `)`",
-        )
-    })?;
-    let profile = inside[..end].trim();
-    if profile.is_empty() {
+    let (raw, tail) = take_constraint_value(rest);
+    let value = raw.strip_prefix("covers_pii:").unwrap_or(raw);
+    if value != "covers_pii" && !value.starts_with("covers_pii_") {
         return Err(line_error(
             line,
-            "`validate sanitize_html` requires a profile",
+            "`validator` currently supports `covers_pii` entries only",
         ));
     }
-    let tail = inside[end + 1..].to_owned();
-    Ok((profile.to_owned(), tail))
+    Ok((value.to_owned(), tail))
+}
+
+fn take_constraint_value(text: &str) -> (&str, String) {
+    let trimmed = text.trim_start();
+    let end = trimmed
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(trimmed.len());
+    (&trimmed[..end], trimmed[end..].to_owned())
 }
 
 fn split_type_and_modifiers(text: &str) -> (String, String) {
