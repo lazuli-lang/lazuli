@@ -34,6 +34,9 @@ func FetchPrivate(
 	if contract.Visibility != VisibilityPrivate {
 		return nil, ErrVisibilityMismatch
 	}
+	if contract.Visibility == VisibilityPrivate && check == nil {
+		return nil, ErrVisibilityMismatch
+	}
 	if check != nil {
 		if err := check(ctx, contract, key); err != nil {
 			return nil, err

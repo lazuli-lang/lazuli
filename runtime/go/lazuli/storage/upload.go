@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,7 +75,10 @@ func Upload(
 		}
 	}
 
-	key := mintKey(contract, metadata)
+	key, err := mintKey(contract, metadata)
+	if err != nil {
+		return "", err
+	}
 	if err := store.Put(ctx, key, body, metadata.ContentType); err != nil {
 		return "", err
 	}
@@ -153,11 +157,21 @@ func (s *LocalStore) Put(_ context.Context, key Key, body io.Reader, _ string) e
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.contents[key] = bytes
-	s.mu.Unlock()
+	var path string
 	if s.Root != "" {
-		path := filepath.Join(s.Root, string(key))
+		var err error
+		abs, err := filepath.Abs(filepath.Join(s.Root, string(key)))
+		if err != nil {
+			return err
+		}
+		rootAbs, err := filepath.Abs(s.Root)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(abs, rootAbs+string(filepath.Separator)) && abs != rootAbs {
+			return errors.New("storage: resolved path escaped Root")
+		}
+		path = abs
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
@@ -165,6 +179,9 @@ func (s *LocalStore) Put(_ context.Context, key Key, body io.Reader, _ string) e
 			return err
 		}
 	}
+	s.mu.Lock()
+	s.contents[key] = bytes
+	s.mu.Unlock()
 	return nil
 }
 
@@ -432,15 +449,44 @@ func parseMime(raw string) MimeType {
 	return MimeType{Family: raw, Subtype: ""}
 }
 
-func mintKey(contract FileContract, metadata Metadata) Key {
+func mintKey(contract FileContract, metadata Metadata) (Key, error) {
 	stem := contract.Resource + "/" + contract.Field
 	if stem == "/" {
 		stem = "api/" + contract.API
 	}
 	if metadata.Filename != "" {
-		return Key(stem + "/" + metadata.Filename)
+		name, err := sanitizeFilename(metadata.Filename)
+		if err != nil {
+			return "", err
+		}
+		return Key(stem + "/" + name), nil
 	}
-	return Key(stem)
+	return Key(stem), nil
+}
+
+// sanitizeFilename rejects path-traversal, leading slash, control chars,
+// non-ASCII, and any character that's unsafe as a filename segment.
+// SECURITY (SEC-M-2): LocalStore.Put resolves keys through filepath.Join
+// which collapses `..` -- unsanitized filenames write outside Root.
+func sanitizeFilename(name string) (string, error) {
+	if name == "" {
+		return "default", nil
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return "", errors.New("storage: filename contains path separator")
+	}
+	if strings.ContainsAny(name, `<>:"|?*`) {
+		return "", errors.New("storage: filename contains unsafe char")
+	}
+	if strings.Contains(name, "..") {
+		return "", errors.New("storage: filename contains parent traversal")
+	}
+	for _, r := range name {
+		if r < 32 || r == 127 || r > 127 {
+			return "", errors.New("storage: filename contains control or non-ASCII char")
+		}
+	}
+	return name, nil
 }
 
 func mintToken(key Key, now time.Time, ttl time.Duration) string {

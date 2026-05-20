@@ -73,7 +73,8 @@ const (
 
 // AutoPhotoRequest mints a presigned PUT URL for the active user's
 // stored file under the spec'd field. The deterministic key shape is
-// `<table>/<field>/<user_id>` -- see docs/proposals/fileref-jsonb-fr3-design.md §D2.
+// `<table>/<field>/org-<org_id>/user-<user_id>` -- see
+// docs/proposals/fileref-jsonb-fr3-design.md §D2.
 func AutoPhotoRequest(
 	ctx *Ctx,
 	spec AutoPhotoSpec,
@@ -81,6 +82,10 @@ func AutoPhotoRequest(
 ) (AutoPhotoUploadIntent, error) {
 	if ctx == nil || ctx.User == nil {
 		return AutoPhotoUploadIntent{}, errors.New("auto_photo: not_authenticated")
+	}
+	orgID, err := autoPhotoOrgID(ctx)
+	if err != nil {
+		return AutoPhotoUploadIntent{}, err
 	}
 
 	// Size guard -- short-circuit before we touch the object store.
@@ -108,7 +113,7 @@ func AutoPhotoRequest(
 		return AutoPhotoUploadIntent{}, errors.New("auto_photo: file_mime_rejected")
 	}
 
-	key := autoPhotoKey(spec, ctx.User.ID)
+	key := autoPhotoKey(spec, orgID, ctx.User.ID)
 	ttl := spec.PutTTL
 	if ttl == 0 {
 		ttl = defaultAutoPhotoPutTTL
@@ -139,7 +144,11 @@ func AutoPhotoConfirm(ctx *Ctx, spec AutoPhotoSpec, args AutoPhotoConfirmArgs) e
 	if ctx == nil || ctx.User == nil {
 		return errors.New("auto_photo: not_authenticated")
 	}
-	expected := autoPhotoKey(spec, ctx.User.ID)
+	orgID, err := autoPhotoOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	expected := autoPhotoKey(spec, orgID, ctx.User.ID)
 	if args.Key != expected {
 		return errors.New("auto_photo: file_key_mismatch")
 	}
@@ -162,7 +171,7 @@ func AutoPhotoConfirm(ctx *Ctx, spec AutoPhotoSpec, args AutoPhotoConfirmArgs) e
 	res, err := DB().Exec(autoPhotoContext(ctx),
 		fmt.Sprintf(`UPDATE %s SET %s = $1 WHERE "user" = $2 AND org_id = $3`,
 			quoteIdent(spec.Table), quoteIdent(spec.Field)),
-		payload, ctx.User.ID, ctx.User.OrgID,
+		payload, ctx.User.ID, orgID,
 	)
 	if err != nil {
 		return fmt.Errorf("auto_photo: %w", err)
@@ -180,10 +189,14 @@ func AutoPhotoClear(ctx *Ctx, spec AutoPhotoSpec) error {
 	if ctx == nil || ctx.User == nil {
 		return errors.New("auto_photo: not_authenticated")
 	}
-	_, err := DB().Exec(autoPhotoContext(ctx),
+	orgID, err := autoPhotoOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = DB().Exec(autoPhotoContext(ctx),
 		fmt.Sprintf(`UPDATE %s SET %s = NULL WHERE "user" = $1 AND org_id = $2`,
 			quoteIdent(spec.Table), quoteIdent(spec.Field)),
-		ctx.User.ID, ctx.User.OrgID,
+		ctx.User.ID, orgID,
 	)
 	if err != nil {
 		return fmt.Errorf("auto_photo: %w", err)
@@ -196,7 +209,7 @@ func AutoPhotoClear(ctx *Ctx, spec AutoPhotoSpec) error {
 	if err != nil {
 		return nil
 	}
-	_ = store.DeleteObject(autoPhotoContext(ctx), spec.BucketSlot, autoPhotoKey(spec, ctx.User.ID))
+	_ = store.DeleteObject(autoPhotoContext(ctx), spec.BucketSlot, autoPhotoKey(spec, orgID, ctx.User.ID))
 	return nil
 }
 
@@ -206,14 +219,18 @@ func AutoPhotoGetURL(ctx *Ctx, spec AutoPhotoSpec) (AutoPhotoDisplayURL, error) 
 	if ctx == nil || ctx.User == nil {
 		return AutoPhotoDisplayURL{}, errors.New("auto_photo: not_authenticated")
 	}
+	orgID, err := autoPhotoOrgID(ctx)
+	if err != nil {
+		return AutoPhotoDisplayURL{}, err
+	}
 
 	// Read the JSONB column. Scan via storage.FileRef.Scan (FR-1)
 	// handles the JSONB -> struct deserialisation.
 	var ref storage.FileRef
-	err := DB().QueryRow(autoPhotoContext(ctx),
+	err = DB().QueryRow(autoPhotoContext(ctx),
 		fmt.Sprintf(`SELECT %s FROM %s WHERE "user" = $1 AND org_id = $2`,
 			quoteIdent(spec.Field), quoteIdent(spec.Table)),
-		ctx.User.ID, ctx.User.OrgID,
+		ctx.User.ID, orgID,
 	).Scan(&ref)
 	if err != nil {
 		// Row missing (e.g., onboarding pendente) -- empty result.
@@ -246,8 +263,15 @@ func AutoPhotoGetURL(ctx *Ctx, spec AutoPhotoSpec) (AutoPhotoDisplayURL, error) 
 
 // autoPhotoKey returns the deterministic storage key for the active
 // user under the spec'd resource field.
-func autoPhotoKey(spec AutoPhotoSpec, userID ID) string {
-	return fmt.Sprintf("%s/%s/%d", spec.Table, spec.Field, userID)
+func autoPhotoKey(spec AutoPhotoSpec, orgID, userID ID) string {
+	return fmt.Sprintf("%s/%s/org-%d/user-%d", spec.Table, spec.Field, orgID, userID)
+}
+
+func autoPhotoOrgID(ctx *Ctx) (ID, error) {
+	if ctx == nil || ctx.Tenant == nil {
+		return 0, tenantRequiredError()
+	}
+	return ctx.Tenant.OrgID, nil
 }
 
 // contractAcceptsMime reports whether the request's content_type
