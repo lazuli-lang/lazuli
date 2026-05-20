@@ -105,7 +105,7 @@ func (c *Ctx) DeleteCookie(name string) {
 }
 
 // SetSessionCookie issues the canonical `lazuli_session` cookie with
-// the runtime defaults (HttpOnly + SameSite=Lax + Secure when TLS).
+// the runtime defaults (HttpOnly + SameSite=Lax + Secure by default).
 // Used by login handlers after `auth.IssueSession` returns the opaque
 // token. Pass `ttl=0` to use `SessionCookieTTL` (7 days).
 func (c *Ctx) SetSessionCookie(token string, ttl time.Duration) {
@@ -129,7 +129,7 @@ func (c *Ctx) ClearSessionCookie() {
 
 // SetRefreshCookie issues the canonical `lazuli_refresh` cookie carrying
 // the long-lived refresh token. Cookie is HttpOnly + SameSite=Lax +
-// Secure-when-TLS, same as the session cookie. Used by the refresh
+// Secure by default, same as the session cookie. Used by the refresh
 // handler after `auth.RotateSession` returns a new refresh token.
 func (c *Ctx) SetRefreshCookie(token string, ttl time.Duration) {
 	if ttl <= 0 {
@@ -155,7 +155,12 @@ func (c *Ctx) ClearRefreshCookie() {
 // production deployments stay safe; tests and local dev flip it to
 // `false` via `SetSessionCookieSecure(false)` if the dev server isn't
 // behind HTTPS.
-var sessionCookieSecureFlag = false
+//
+// SECURITY (SEC-H1): session cookies are HTTPS-only by default.
+// Tests and local dev flip via SetSessionCookieSecure(false) before
+// the test/server runs. Closes HIGH-1 from
+// lazuli-cyber-owasp-2026-05-20.md.
+var sessionCookieSecureFlag = true
 
 func sessionCookieSecureDefault() bool { return sessionCookieSecureFlag }
 
