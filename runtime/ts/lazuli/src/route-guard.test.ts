@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluatePolicy, type LazuliActor, type LazuliRouteGuardPolicy } from "./route-guard.js";
+import {
+  evaluatePolicy,
+  evaluatePolicyList,
+  type LazuliActor,
+  type LazuliRouteGuardPolicyAtomSet,
+} from "./route-guard.js";
 import type { PolicyAtom } from "./spec.js";
 
-const policy = (atoms: readonly PolicyAtom[]): LazuliRouteGuardPolicy => ({ atoms });
+const policy = (atoms: readonly PolicyAtom[]): LazuliRouteGuardPolicyAtomSet => ({ atoms });
 const host: LazuliActor = { id: "usr_1", roles: ["host"] };
 const traveler: LazuliActor = { id: "usr_2", role: "traveler" };
 
@@ -30,5 +35,14 @@ describe("evaluatePolicy", () => {
     expect(evaluatePolicy(traveler, policy([{ namespace: "role", name: "host" }]))).toBe(
       "unauthorized",
     );
+  });
+
+  it("authorizes when any policy in a policy list matches", () => {
+    expect(
+      evaluatePolicyList(traveler, [
+        policy([{ namespace: "role", name: "host" }]),
+        policy([{ namespace: "role", name: "traveler" }]),
+      ]),
+    ).toBe("authorized");
   });
 });

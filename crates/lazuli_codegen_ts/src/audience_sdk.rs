@@ -298,7 +298,7 @@ struct ResolvedPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedGuard {
-    policy: ResolvedPolicy,
+    policies: Vec<ResolvedPolicy>,
     on_unauthenticated: Option<String>,
     on_unauthorized: Option<String>,
 }
@@ -307,6 +307,22 @@ struct ResolvedGuard {
 struct RoutePolicyAtom {
     namespace: String,
     name: String,
+}
+
+trait PolicyRefList {
+    fn policy_refs(&self) -> Vec<&str>;
+}
+
+impl PolicyRefList for String {
+    fn policy_refs(&self) -> Vec<&str> {
+        vec![self.as_str()]
+    }
+}
+
+impl PolicyRefList for Vec<String> {
+    fn policy_refs(&self) -> Vec<&str> {
+        self.iter().map(String::as_str).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,11 +540,18 @@ fn resolve_route_guard(
     default_feature: &str,
 ) -> Option<ResolvedGuard> {
     let guard_chain = [route_guard, view_guard, experience_guard, audience_guard];
-    let policy_text = guard_chain
+    let policy_texts = guard_chain
         .iter()
-        .find_map(|guard| guard.map(|guard| guard.policy.as_str()))
-        .or_else(|| app_defaults.and_then(|defaults| defaults.default_policy.as_deref()))?;
-    let policy = resolve_policy(policy_text, policies, default_feature);
+        .find_map(|guard| guard.map(|guard| guard.policy.policy_refs()))
+        .or_else(|| {
+            app_defaults
+                .and_then(|defaults| defaults.default_policy.as_deref())
+                .map(|policy| vec![policy])
+        })?;
+    let resolved_policies = policy_texts
+        .into_iter()
+        .map(|policy| resolve_policy(policy, policies, default_feature))
+        .collect();
     let on_unauthenticated = guard_chain
         .iter()
         .find_map(|guard| guard.and_then(|guard| guard.on_unauthenticated.clone()))
@@ -539,7 +562,7 @@ fn resolve_route_guard(
         .or_else(|| app_defaults.and_then(|defaults| defaults.on_unauthorized.clone()));
 
     Some(ResolvedGuard {
-        policy,
+        policies: resolved_policies,
         on_unauthenticated,
         on_unauthorized,
     })
@@ -667,7 +690,7 @@ fn emit_audience_route_guard_sdk(routes: &[RouteObject]) -> String {
         writeln!(s, "export const {} = {{", route.const_name).ok();
         writeln!(s, "  path: {},", ts_string(&route.path)).ok();
         writeln!(s, "  component: {},", route.component).ok();
-        write_policy_property(&mut s, "policy", &route.guard.policy, 2);
+        write_policy_list_property(&mut s, "policy", &route.guard.policies, 2);
         if let Some(path) = &route.guard.on_unauthenticated {
             writeln!(s, "  onUnauthenticated: {},", ts_string(path)).ok();
         }
@@ -732,7 +755,7 @@ fn emit_route_guard_registry(
     if let Some(default_policy) = app_defaults.and_then(|defaults| defaults.default_policy.as_ref())
     {
         let policy = resolve_policy(default_policy, policies, "");
-        write_policy_property(&mut s, "policy", &policy, 4);
+        write_policy_list_property(&mut s, "policy", std::slice::from_ref(&policy), 4);
     } else {
         writeln!(s, "    policy: null,").ok();
     }
@@ -774,9 +797,35 @@ fn emit_route_guard_registry(
     s
 }
 
-fn write_policy_property(s: &mut String, property: &str, policy: &ResolvedPolicy, indent: usize) {
+fn write_policy_list_property(
+    s: &mut String,
+    property: &str,
+    policies: &[ResolvedPolicy],
+    indent: usize,
+) {
     let pad = " ".repeat(indent);
-    writeln!(s, "{}{}: {{", pad, property).ok();
+    if let [policy] = policies {
+        writeln!(s, "{}{}: [{{", pad, property).ok();
+        write_policy_object_body(s, policy, indent);
+        writeln!(s, "{}}}],", pad).ok();
+        return;
+    }
+    writeln!(s, "{}{}: [", pad, property).ok();
+    for policy in policies {
+        write_policy_object(s, policy, indent + 2);
+    }
+    writeln!(s, "{}],", pad).ok();
+}
+
+fn write_policy_object(s: &mut String, policy: &ResolvedPolicy, indent: usize) {
+    let pad = " ".repeat(indent);
+    writeln!(s, "{}{{", pad).ok();
+    write_policy_object_body(s, policy, indent);
+    writeln!(s, "{}}},", pad).ok();
+}
+
+fn write_policy_object_body(s: &mut String, policy: &ResolvedPolicy, indent: usize) {
+    let pad = " ".repeat(indent);
     if let Some(name) = &policy.name {
         writeln!(s, "{}  name: {},", pad, ts_string(name)).ok();
     }
@@ -792,7 +841,6 @@ fn write_policy_property(s: &mut String, property: &str, policy: &ResolvedPolicy
         .ok();
     }
     writeln!(s, "{}  ],", pad).ok();
-    writeln!(s, "{}}},", pad).ok();
 }
 
 fn write_nullable_string_property(
