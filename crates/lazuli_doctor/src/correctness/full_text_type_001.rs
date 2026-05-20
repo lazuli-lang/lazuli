@@ -190,6 +190,7 @@ mod tests {
             constraints: FieldConstraints::default(),
             full_text,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         }
     }

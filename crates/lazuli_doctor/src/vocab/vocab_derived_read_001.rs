@@ -278,6 +278,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         }
     }
@@ -294,6 +295,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         }
     }
@@ -433,6 +435,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         };
         let resource = mk_resource("User", vec![cap_field]);
@@ -460,6 +463,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         };
         let resource = mk_resource("Account", vec![default_field]);
@@ -503,6 +507,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         };
         let resource = mk_resource("Post", vec![derived_field]);
