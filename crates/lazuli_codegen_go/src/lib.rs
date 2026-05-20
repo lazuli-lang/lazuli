@@ -432,44 +432,7 @@ fn split_words(value: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use lazuli_analyzer::lower_document;
-    use lazuli_syntax::parse_document;
-
-    use super::{GoEmitOptions, LAZULI_GO_VERSION, generate_legacy_demo, generate_v1};
-
-    #[test]
-    fn legacy_demo_emits_backend_files() {
-        let document = parse_document(include_str!(
-            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
-        ))
-        .unwrap();
-        let module = lower_document(&document).unwrap();
-        let files = generate_legacy_demo(&module);
-
-        assert!(files.iter().any(|file| file.path == "backend/main.go"));
-        assert!(
-            files
-                .iter()
-                .any(|file| file.contents.contains("handleCustomerList"))
-        );
-    }
-
-    #[test]
-    fn generate_v1_emits_go_mod_plus_feature_stubs() {
-        // E1 lands the scaffold: root `go.mod` plus one `.gen.go`
-        // stub per feature. Per-kind content is empty until E2-E4.
-        let document = parse_document(include_str!(
-            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
-        ))
-        .unwrap();
-        let module = lower_document(&document).unwrap();
-        let files = generate_v1(&module, &GoEmitOptions::default());
-        assert!(files.iter().any(|f| f.path == "go.mod"));
-        assert!(
-            !files.is_empty(),
-            "expected at least the root go.mod plus per-feature stubs"
-        );
-    }
+    use super::LAZULI_GO_VERSION;
 
     #[test]
     fn lazuli_go_version_is_pinned() {

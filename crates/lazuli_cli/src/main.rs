@@ -5434,10 +5434,7 @@ fn lsp_command() -> Result<()> {
 }
 
 fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Module> {
-    let source =
-        fs::read_to_string(input).with_context(|| format!("failed to read {}", input.display()))?;
-    let document = lazuli_syntax::parse_document(&source).context("failed to parse .lzi file")?;
-    lazuli_analyzer::lower_document(&document).context("failed to analyze .lzi file")
+    build_module_from_path(input).context("failed to compile .lzi file")
 }
 
 fn write_generated_file(root: &Path, relative: &str, contents: &str) -> Result<()> {

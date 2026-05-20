@@ -6,8 +6,5 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-pest.workspace = true
-pest_derive.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-

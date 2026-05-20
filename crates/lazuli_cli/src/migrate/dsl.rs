@@ -34,7 +34,7 @@
 //! 3. For each file, apply each recipe sequentially. Each recipe
 //!    rewrites lines where the pattern matches.
 //! 4. After all recipes apply, re-parse the rewritten file with
-//!    `lazuli_syntax::parse_document` (`.lzi`) or
+//!    `lazuli_syntax::parse_feature_skeletons` (`.lzi`) or
 //!    `parse_lzx_document` (`.lzx`). On parse failure: revert the
 //!    file's bytes to the pre-transform snapshot and surface the
 //!    parse error in the report.
@@ -697,10 +697,7 @@ fn render_replace(template: &[ReplaceToken], captures: &[(String, String)]) -> S
 /// can fix recipes that break downstream syntax.
 ///
 /// For `.lzi` files the canonical authoring shape is parsed by
-/// `parse_feature_skeletons` (indentation-based, rich). The strict
-/// pest `parse_document` grammar is a narrower spine covering the
-/// `app ~ aggregate*` shape; we use it as a secondary check so the
-/// rewrite cannot regress *either* grammar that was valid before.
+/// `parse_feature_skeletons` (indentation-based, rich).
 fn parse_check(ext: &str, source: &str) -> Result<(), String> {
     match ext {
         "lzi" => lazuli_syntax::parse_feature_skeletons(source)

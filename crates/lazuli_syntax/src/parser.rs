@@ -1,45 +1,40 @@
-use pest::Parser;
-use pest::error::InputLocation;
-use pest::iterators::Pair;
-use pest_derive::Parser;
 use thiserror::Error;
 
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
-    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, Aggregate,
-    AggregateDecl, ApiDecl, ApprovalThenDecl, AssignmentDecl, AudienceAst, Auth, AuthDurationClause,
-    AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessionRotation, AuthSessions,
+    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, AggregateDecl,
+    ApiDecl, ApprovalThenDecl, AssignmentDecl, AudienceAst, Auth, AuthDurationClause, AuthIdentity,
+    AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessionRotation, AuthSessions,
     AuthTheftDetectionAction, AuthTheftDetectionActionClause, BindingRefAst, CacheProfileDecl,
-    CellBindingAst, Channel, ColorStateAst, ColorTokenAst, Command, CommandApproval, CommandAudit,
+    CellBindingAst, Channel, ColorStateAst, ColorTokenAst, CommandApproval, CommandAudit,
     CommandDecl, CommandDeprecatedDecl, CommandEffectDecl, CommandEffectKindDecl, CommandEmit,
     CommandInputDecl, CommandInputSlot, CommandRouteSlot, CommandWriteWindow, ContainsRhs,
-    CustomTokenAst, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document,
-    DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst,
-    EasingTokenAst, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst,
-    EventGroup, EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
-    FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst, FeatureSkeleton, Field,
-    FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl, FieldPolicyDecl, FilterCardinalityAst,
-    FilterDeclAst, GateDirectiveAst, HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody,
+    CustomTokenAst, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, DrawerBindingSourceAst,
+    DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst, EasingTokenAst, EnumDeclAst,
+    EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst, EventGroup,
+    EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
+    FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst, FeatureSkeleton,
+    FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl, FilterCardinalityAst, FilterDeclAst,
+    GateDirectiveAst, HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody,
     JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
     JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl,
     LzxAction, LzxApp, LzxAudience, LzxDocument, LzxErrorPage, LzxExperience, LzxExperienceView,
     LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRequiresLifecycle,
-    LzxResumeArm, LzxResumeArmKind, LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults,
-    LzxSurface, LzxViewExtension, LzxViewGuard, MotionAst, Notification, NotificationDigest,
-    NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst,
-    PlanFeatureRefAst, PlanLimitRefAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst,
-    PolicyCategoryDecl, PolicyExprAst, PublicContractDeclAst, Query, QueryDecl, QuerySearch,
-    RecordDecl, ReportColumnAst, ReportColumnSourceAst, ReportDecl, ResourceCompositeKey,
-    ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceLock, ResourceRetention,
-    ResourceRetentionAction, RoleDeclAst, RoleGrantsAst, RouteParamAst, ScaleTokenAst,
-    SearchDeclAst, SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst,
-    SettingDeclAst, SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst,
-    SortDirAst, Span, SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl,
-    TargetExprDecl, TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst,
-    TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst, TranslationPluralArmDecl,
-    TranslationVariantDecl, TypographyAst, UsesClauseAst, ViewAst, ViewCreateAst, ViewDetailAst,
-    ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst,
-    ZTokenAst,
+    LzxResumeArm, LzxResumeArmKind, LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults, LzxSurface,
+    LzxViewExtension, LzxViewGuard, MotionAst, Notification, NotificationDigest,
+    NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst,
+    PlanLimitRefAst, PlanTrialAst, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, PolicyExprAst,
+    PublicContractDeclAst, QueryDecl, QuerySearch, RecordDecl, ReportColumnAst,
+    ReportColumnSourceAst, ReportDecl, ResourceCompositeKey, ResourceDecl, ResourceFieldDecl,
+    ResourceHasMany, ResourceLock, ResourceRetention, ResourceRetentionAction, RoleDeclAst,
+    RoleGrantsAst, RouteParamAst, ScaleTokenAst, SearchDeclAst, SearchFieldAst, SearchModeAst,
+    SelectionDeclAst, SelectionModeAst, SettingDeclAst, SettingPersistenceAst,
+    SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span, SqlQueryDecl, SurfaceAst,
+    SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst,
+    ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst,
+    TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, UsesClauseAst, ViewAst,
+    ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
+    WebhookVerify, WeightTokenAst, ZTokenAst,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -153,10 +148,6 @@ pub struct PollerRetryQuirkAst {
     pub span: Span,
 }
 
-#[derive(Parser)]
-#[grammar = "grammar.pest"]
-struct LazuliParser;
-
 #[derive(Debug, Error)]
 pub enum ParseError {
     #[error("{message}")]
@@ -173,36 +164,6 @@ impl ParseError {
             Self::Expected { .. } => Span::new(0, 1),
         }
     }
-}
-
-pub fn parse_document(source: &str) -> Result<Document, ParseError> {
-    let mut pairs =
-        LazuliParser::parse(Rule::program, source).map_err(|error| ParseError::Pest {
-            message: error.to_string(),
-            span: pest_error_span(&error),
-        })?;
-    let program = pairs.next().ok_or(ParseError::Expected {
-        expected: "program",
-    })?;
-
-    let span = pair_span(&program);
-    let mut app = None;
-    let mut aggregates = Vec::new();
-
-    for pair in program.into_inner() {
-        match pair.as_rule() {
-            Rule::app_decl => app = Some(parse_app(pair)?),
-            Rule::aggregate => aggregates.push(parse_aggregate(pair)?),
-            Rule::EOI => {}
-            _ => {}
-        }
-    }
-
-    Ok(Document {
-        app,
-        aggregates,
-        span,
-    })
 }
 
 pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
@@ -657,10 +618,7 @@ fn parse_lzx_requires_lifecycle(
     })
 }
 
-fn parse_lzx_on_lifecycle_pending(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<String, ParseError> {
+fn parse_lzx_on_lifecycle_pending(line: &SourceLine<'_>, rest: &str) -> Result<String, ParseError> {
     let target = if let Some(target) = rest.trim().strip_prefix("@resume ") {
         target.trim()
     } else if let Some(target) = rest.trim().strip_prefix("@resume.") {
@@ -947,7 +905,10 @@ fn parse_lzx_resume_router(
         return Err(line_error(header, "resume blocks use `resume <name>`"));
     }
     if !is_lzx_bare_ident(parts[1]) {
-        return Err(line_error(header, "`resume` name must be a bare identifier"));
+        return Err(line_error(
+            header,
+            "`resume` name must be a bare identifier",
+        ));
     }
 
     let mut source_query = None;
@@ -969,7 +930,10 @@ fn parse_lzx_resume_router(
         }
 
         if line.indent != 4 {
-            return Err(line_error(line, "resume children use four-space indentation"));
+            return Err(line_error(
+                line,
+                "resume children use four-space indentation",
+            ));
         }
 
         if let Some(rest) = trimmed.strip_prefix("source query.lookup ") {
@@ -1016,10 +980,7 @@ fn parse_lzx_resume_router(
     ))
 }
 
-fn parse_lzx_resume_arm(
-    line: &SourceLine<'_>,
-    trimmed: &str,
-) -> Result<LzxResumeArm, ParseError> {
+fn parse_lzx_resume_arm(line: &SourceLine<'_>, trimmed: &str) -> Result<LzxResumeArm, ParseError> {
     let Some((left, right)) = split_lzx_arrow(trimmed) else {
         return Err(line_error(
             line,
@@ -1047,7 +1008,10 @@ fn parse_lzx_resume_arm(
     };
     let target_view = target_view.trim();
     if !is_lzx_bare_ident(target_view) {
-        return Err(line_error(line, "resume arm target view must be a bare identifier"));
+        return Err(line_error(
+            line,
+            "resume arm target view must be a bare identifier",
+        ));
     }
 
     Ok(LzxResumeArm {
@@ -3667,204 +3631,6 @@ fn is_lzx_resume_ref(s: &str) -> bool {
         || matches!(parts.as_slice(), [feature, name] if is_lzx_bare_ident(feature) && is_lzx_bare_ident(name))
 }
 
-fn parse_app(pair: Pair<'_, Rule>) -> Result<String, ParseError> {
-    pair.into_inner()
-        .find(|inner| inner.as_rule() == Rule::ident)
-        .map(|inner| inner.as_str().to_owned())
-        .ok_or(ParseError::Expected {
-            expected: "app name",
-        })
-}
-
-fn parse_aggregate(pair: Pair<'_, Rule>) -> Result<Aggregate, ParseError> {
-    let span = pair_span(&pair);
-    let mut inner = pair.into_inner();
-    let name = expect_rule(&mut inner, Rule::ident, "aggregate name")?
-        .as_str()
-        .to_owned();
-    let mut fields = Vec::new();
-    let mut commands = Vec::new();
-    let mut queries = Vec::new();
-    let mut surfaces = Vec::new();
-
-    for item in inner {
-        match item.as_rule() {
-            Rule::field => fields.push(parse_field(item)?),
-            Rule::command => commands.push(parse_command(item)?),
-            Rule::query => queries.push(parse_query(item)?),
-            Rule::surface => surfaces.push(parse_surface(item)?),
-            _ => {}
-        }
-    }
-
-    Ok(Aggregate {
-        name,
-        fields,
-        commands,
-        queries,
-        surfaces,
-        span,
-    })
-}
-
-fn parse_field(pair: Pair<'_, Rule>) -> Result<Field, ParseError> {
-    let span = pair_span(&pair);
-    let mut inner = pair.into_inner();
-    let name = expect_rule(&mut inner, Rule::ident, "field name")?
-        .as_str()
-        .to_owned();
-    let ty = expect_rule(&mut inner, Rule::ident, "field type")?
-        .as_str()
-        .to_owned();
-    let mut modifiers = Vec::new();
-
-    for modifier in inner {
-        if modifier.as_rule() != Rule::field_modifier {
-            continue;
-        }
-
-        let mut parts = modifier.into_inner();
-        let part = parts.next().ok_or(ParseError::Expected {
-            expected: "field modifier",
-        })?;
-
-        match part.as_rule() {
-            Rule::required_modifier => modifiers.push(FieldModifier::Required),
-            Rule::unique_modifier => modifiers.push(FieldModifier::Unique),
-            Rule::default_modifier => {
-                let value = part
-                    .into_inner()
-                    .next()
-                    .ok_or(ParseError::Expected {
-                        expected: "default value",
-                    })?
-                    .as_str()
-                    .trim_matches('"')
-                    .to_owned();
-                modifiers.push(FieldModifier::Default(value));
-            }
-            _ => {}
-        }
-    }
-
-    Ok(Field {
-        name,
-        ty,
-        modifiers,
-        span,
-    })
-}
-
-fn parse_command(pair: Pair<'_, Rule>) -> Result<Command, ParseError> {
-    let span = pair_span(&pair);
-    let mut inner = pair.into_inner();
-    let name = expect_rule(&mut inner, Rule::ident, "command name")?
-        .as_str()
-        .to_owned();
-    let mut input = Vec::new();
-    let mut policy = None;
-    let mut emits = Vec::new();
-
-    for item in inner {
-        match item.as_rule() {
-            Rule::input_stmt => input.extend(parse_ident_list_statement(item)?),
-            Rule::policy_stmt => {
-                policy = item
-                    .into_inner()
-                    .find(|inner| inner.as_rule() == Rule::dotted_ident)
-                    .map(|inner| inner.as_str().to_owned());
-            }
-            Rule::emits_stmt => {
-                let event = item
-                    .into_inner()
-                    .find(|inner| inner.as_rule() == Rule::ident)
-                    .ok_or(ParseError::Expected {
-                        expected: "event name",
-                    })?;
-                emits.push(event.as_str().to_owned());
-            }
-            _ => {}
-        }
-    }
-
-    Ok(Command {
-        name,
-        input,
-        policy,
-        emits,
-        triggers: Vec::new(),
-        span,
-    })
-}
-
-fn parse_query(pair: Pair<'_, Rule>) -> Result<Query, ParseError> {
-    let span = pair_span(&pair);
-    let mut inner = pair.into_inner();
-    let name = expect_rule(&mut inner, Rule::ident, "query name")?
-        .as_str()
-        .to_owned();
-    let mut search = Vec::new();
-    let mut filters = Vec::new();
-
-    for item in inner {
-        match item.as_rule() {
-            Rule::search_stmt => search.extend(parse_ident_list_statement(item)?),
-            Rule::filter_stmt => filters.extend(parse_ident_list_statement(item)?),
-            _ => {}
-        }
-    }
-
-    Ok(Query {
-        name,
-        search,
-        filters,
-        span,
-    })
-}
-
-fn parse_surface(pair: Pair<'_, Rule>) -> Result<Surface, ParseError> {
-    let span = pair_span(&pair);
-    let mut inner = pair.into_inner();
-    let name = expect_rule(&mut inner, Rule::ident, "surface name")?
-        .as_str()
-        .to_owned();
-    let mut list_columns = Vec::new();
-    let mut form_fields = Vec::new();
-    let mut detail_fields = Vec::new();
-
-    for item in inner {
-        match item.as_rule() {
-            Rule::list_stmt => list_columns.extend(parse_ident_list_statement(item)?),
-            Rule::form_stmt => form_fields.extend(parse_ident_list_statement(item)?),
-            Rule::detail_stmt => detail_fields.extend(parse_ident_list_statement(item)?),
-            _ => {}
-        }
-    }
-
-    Ok(Surface {
-        name,
-        list_columns,
-        form_fields,
-        detail_fields,
-        span,
-    })
-}
-
-fn parse_ident_list_statement(pair: Pair<'_, Rule>) -> Result<Vec<String>, ParseError> {
-    let list = pair
-        .into_inner()
-        .find(|inner| inner.as_rule() == Rule::ident_list)
-        .ok_or(ParseError::Expected {
-            expected: "identifier list",
-        })?;
-
-    Ok(list
-        .into_inner()
-        .filter(|inner| inner.as_rule() == Rule::ident)
-        .map(|inner| inner.as_str().to_owned())
-        .collect())
-}
-
 // =============================================================================
 // Cut A — feature skeleton + agent slice
 //
@@ -3877,7 +3643,7 @@ fn parse_ident_list_statement(pair: Pair<'_, Rule>) -> Result<Vec<String>, Parse
 // The slice assumes two-space indentation (the canonical fixture convention
 // and what `parse_lzx_document` already enforces). When the broader
 // canonical-indent migration ships an INDENT/DEDENT preprocessor, this
-// walker collapses into the pest grammar.
+// walker collapses into a shared indentation parser.
 //
 // See docs/proposals/ai-primitives-v0-implementation.md §3.3.
 // =============================================================================
@@ -14745,28 +14511,6 @@ fn line_error_owned(line: &SourceLine<'_>, message: String) -> ParseError {
     }
 }
 
-fn expect_rule<'a>(
-    pairs: &mut impl Iterator<Item = Pair<'a, Rule>>,
-    rule: Rule,
-    expected: &'static str,
-) -> Result<Pair<'a, Rule>, ParseError> {
-    pairs
-        .find(|pair| pair.as_rule() == rule)
-        .ok_or(ParseError::Expected { expected })
-}
-
-fn pair_span(pair: &Pair<'_, Rule>) -> Span {
-    let span = pair.as_span();
-    Span::new(span.start(), span.end())
-}
-
-fn pest_error_span(error: &pest::error::Error<Rule>) -> Span {
-    match error.location {
-        InputLocation::Pos(pos) => Span::new(pos, pos.saturating_add(1)),
-        InputLocation::Span((start, end)) => Span::new(start, end),
-    }
-}
-
 // =============================================================================
 // PG.A — top-level plan-catalog parser + side-channel gate scanner.
 // -----------------------------------------------------------------------------
@@ -15499,10 +15243,8 @@ fn is_rbac_segment_ident(s: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        InvariantForm, SourceLine, parse_document, parse_invariant_form, parse_lzx_document,
-    };
-    use crate::{FieldModifier, LzxPlatform};
+    use super::{InvariantForm, SourceLine, parse_invariant_form, parse_lzx_document};
+    use crate::LzxPlatform;
 
     fn make_invariant_line() -> SourceLine<'static> {
         SourceLine {
@@ -15575,31 +15317,6 @@ mod tests {
         let err = parse_invariant_form(&line, "single gold where item_id = parent.id").unwrap_err();
         let msg = format!("{:?}", err);
         assert!(msg.contains("closed catalog"));
-    }
-
-    #[test]
-    fn parses_aggregate_fields_commands_queries_and_surfaces() {
-        let source = include_str!("../../../examples/anti-patterns/crm-aggregate-dialect.lzi");
-        let document = parse_document(source).expect("valid document");
-
-        assert_eq!(document.app.as_deref(), Some("CRM"));
-        assert_eq!(document.aggregates.len(), 2);
-
-        let customer = &document.aggregates[0];
-        assert_eq!(customer.name, "Customer");
-        assert_eq!(customer.fields[0].name, "name");
-        assert_eq!(customer.fields[0].ty, "Text");
-        assert!(
-            customer.fields[0]
-                .modifiers
-                .contains(&FieldModifier::Required)
-        );
-        assert_eq!(customer.commands[0].input, vec!["name", "email"]);
-        assert_eq!(customer.queries[0].filters, vec!["status"]);
-        assert_eq!(
-            customer.surfaces[0].list_columns,
-            vec!["name", "email", "status"]
-        );
     }
 
     #[test]
