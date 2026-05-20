@@ -38,7 +38,9 @@ func TestLocalStoreRoundTripUploadAndPrivateFetch(t *testing.T) {
 		t.Fatal("Upload returned an empty key")
 	}
 
-	reader, err := storage.FetchPrivate(context.Background(), contract, store, key, nil)
+	reader, err := storage.FetchPrivate(context.Background(), contract, store, key,
+		func(context.Context, storage.FileContract, storage.Key) error { return nil },
+	)
 	if err != nil {
 		t.Fatalf("FetchPrivate failed: %v", err)
 	}
@@ -94,6 +96,19 @@ func TestFetchPrivateRejectsWrongVisibility(t *testing.T) {
 	}
 	store := storage.NewLocalStore("")
 	_, err := storage.FetchPrivate(context.Background(), contract, store, storage.Key("nope"), nil)
+	if !errors.Is(err, storage.ErrVisibilityMismatch) {
+		t.Fatalf("expected ErrVisibilityMismatch, got %v", err)
+	}
+}
+
+func TestFetchPrivateRejectsNilAuthCheck(t *testing.T) {
+	t.Parallel()
+
+	contract := storage.FileContract{
+		Visibility: storage.VisibilityPrivate,
+	}
+	store := storage.NewLocalStore("")
+	_, err := storage.FetchPrivate(context.Background(), contract, store, storage.Key("private/file"), nil)
 	if !errors.Is(err, storage.ErrVisibilityMismatch) {
 		t.Fatalf("expected ErrVisibilityMismatch, got %v", err)
 	}

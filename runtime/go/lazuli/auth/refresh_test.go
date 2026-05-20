@@ -165,6 +165,23 @@ func TestRotateSessionHappy(t *testing.T) {
 	}
 }
 
+func TestRefreshHandlerClearsRefreshToken(t *testing.T) {
+	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	_, ctx, refresh := newRefreshDB(t, now)
+	ctx.RefreshToken = refresh
+
+	out, err := RefreshHandler(ctx, RefreshInput{})
+	if err != nil {
+		t.Fatalf("RefreshHandler: %v", err)
+	}
+	if out.Access == "" {
+		t.Fatal("RefreshHandler returned empty access token")
+	}
+	if ctx.RefreshToken != "" {
+		t.Fatalf("RefreshToken was not cleared: %q", ctx.RefreshToken)
+	}
+}
+
 func TestRotateSessionRevokedWithinGrace(t *testing.T) {
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
 	db, ctx, refresh := newRefreshDB(t, now)

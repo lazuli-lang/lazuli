@@ -9,10 +9,53 @@ import (
 
 func TestAutoPhotoKey(t *testing.T) {
 	spec := AutoPhotoSpec{Table: "host", Field: "profile_photo"}
-	got := autoPhotoKey(spec, ID(42))
-	want := "host/profile_photo/42"
+	got := autoPhotoKey(spec, ID(7), ID(42))
+	want := "host/profile_photo/org-7/user-42"
 	if got != want {
 		t.Errorf("autoPhotoKey = %q, want %q", got, want)
+	}
+}
+
+func TestAutoPhotoKeySeparatesOrgs(t *testing.T) {
+	spec := AutoPhotoSpec{Table: "host", Field: "profile_photo"}
+	userID := ID(42)
+
+	orgOne := autoPhotoKey(spec, ID(1), userID)
+	orgTwo := autoPhotoKey(spec, ID(2), userID)
+	if orgOne == orgTwo {
+		t.Fatalf("same user across orgs produced colliding key %q", orgOne)
+	}
+}
+
+func TestCacheKeyIncludesActorAndUser(t *testing.T) {
+	args := map[string]string{"status": "open"}
+	anonymous := &Ctx{Actor: ActorAnonymous, Tenant: &Tenant{OrgID: 7}}
+	system := &Ctx{Actor: ActorSystem, Tenant: &Tenant{OrgID: 7}}
+	userOne := &Ctx{Actor: ActorUser, Tenant: &Tenant{OrgID: 7}, User: &User{ID: 1}}
+	userTwo := &Ctx{Actor: ActorUser, Tenant: &Tenant{OrgID: 7}, User: &User{ID: 2}}
+
+	anonymousKey, err := cacheKeyFor(anonymous, "ticket.list", args)
+	if err != nil {
+		t.Fatalf("anonymous cache key: %v", err)
+	}
+	systemKey, err := cacheKeyFor(system, "ticket.list", args)
+	if err != nil {
+		t.Fatalf("system cache key: %v", err)
+	}
+	userOneKey, err := cacheKeyFor(userOne, "ticket.list", args)
+	if err != nil {
+		t.Fatalf("user one cache key: %v", err)
+	}
+	userTwoKey, err := cacheKeyFor(userTwo, "ticket.list", args)
+	if err != nil {
+		t.Fatalf("user two cache key: %v", err)
+	}
+
+	if anonymousKey == systemKey {
+		t.Fatal("cache key must separate anonymous and system actors")
+	}
+	if userOneKey == userTwoKey {
+		t.Fatal("cache key must separate user identities")
 	}
 }
 

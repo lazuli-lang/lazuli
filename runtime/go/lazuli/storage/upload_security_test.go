@@ -3,6 +3,8 @@ package storage
 import (
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,6 +43,45 @@ func TestUploadRejectsOverdeclaredSize(t *testing.T) {
 	}
 	if !errors.Is(err, ErrFileNotFound) {
 		t.Fatalf("expected no stored object after rejection, got %v", err)
+	}
+}
+
+func TestUploadRejectsPathTraversalFilename(t *testing.T) {
+	t.Parallel()
+
+	contract := FileContract{
+		Resource: "Profile",
+		Field:    "photo",
+		MaxSize:  100,
+	}
+	store := NewLocalStore(t.TempDir())
+
+	for _, name := range []string{"../../etc/passwd", "avatar:1.jpg"} {
+		_, err := Upload(t.Context(), contract, store, strings.NewReader("x"), Metadata{
+			Filename: name,
+			Size:     1,
+		})
+		if err == nil {
+			t.Fatalf("expected unsafe filename %q to be rejected", name)
+		}
+	}
+}
+
+func TestLocalStorePutRejectsEscapedRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	escapeName := filepath.Base(root) + "-escape.txt"
+	outside := filepath.Join(filepath.Dir(root), escapeName)
+	_ = os.Remove(outside)
+
+	store := NewLocalStore(root)
+	err := store.Put(t.Context(), Key("../"+escapeName), strings.NewReader("secret"), "text/plain")
+	if err == nil {
+		t.Fatal("expected escaped key to be rejected")
+	}
+	if _, statErr := os.Stat(outside); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("escaped write created %s: %v", outside, statErr)
 	}
 }
 

@@ -126,6 +126,18 @@ func RegisterSessionResolver(r SessionResolver) {
 	sessionResolver = r
 }
 
+// ClearRefreshToken zeros the refresh token in ctx so subsequent
+// handlers (logging, audit, non-refresh paths) cannot leak it.
+// SECURITY (M-4): the refresh handler MUST call this immediately
+// after reading the token. Defense: even if a logger somehow
+// grabs ctx, the field is empty.
+func (c *Ctx) ClearRefreshToken() {
+	if c == nil {
+		return
+	}
+	c.RefreshToken = ""
+}
+
 // populateProductionSession reads `lazuli_session` cookie (preferred)
 // or `Authorization: Bearer <token>` header and populates Ctx via the
 // registered SessionResolver. When no resolver is registered or no

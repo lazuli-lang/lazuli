@@ -55,7 +55,9 @@ func RefreshHandler(ctx *lazuli.Ctx, _ RefreshInput) (RefreshOutput, error) {
 	if ctx == nil || ctx.RefreshToken == "" {
 		return RefreshOutput{}, refreshError(lazuli.CodeRefreshInvalid, ErrRefreshInvalid)
 	}
-	access, refresh, err := RotateSession(ctx, ctx.RefreshToken)
+	refreshToken := ctx.RefreshToken
+	ctx.ClearRefreshToken()
+	access, refresh, err := RotateSession(ctx, refreshToken)
 	if err != nil {
 		// Theft detection forces session-family logout — clear the
 		// caller's refresh cookie so the next request lands anonymous.
