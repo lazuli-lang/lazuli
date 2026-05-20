@@ -91,10 +91,8 @@ fn has_any_test_block(feature: &Feature) -> bool {
             })
         })
     // Note: modern `Surface`/`Audience`/`View` (lzx grammar) carry no
-    // `tests` field — view kinds (List/Detail/Create) deliberately leave
-    // tests to commands. Legacy `LegacySurface`/`LegacyView` carry tests
-    // but are no longer reachable from `Feature` (Feature.surfaces is the
-    // modern path only). No surface-walk branch needed here.
+    // `tests` field; view kinds (List/Detail/Create) deliberately leave
+    // tests to commands. No surface-walk branch needed here.
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

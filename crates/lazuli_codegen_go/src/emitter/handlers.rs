@@ -28,8 +28,8 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{
     BuiltinType, CapabilityRef, Command, CommandEffect, CommandInput, EvalContainsRhs,
-    EvalPredicate, Expr, ExtensionContract, Feature, JobBody, LegacyView, Module, PolicyRef,
-    Predicate, Query, TestAssertion, TestBlock, TypeRef,
+    EvalPredicate, Expr, ExtensionContract, Feature, JobBody, Module, PolicyRef, Predicate, Query,
+    TestAssertion, TestBlock, TypeRef,
 };
 
 use crate::GeneratedFile;
@@ -570,12 +570,6 @@ fn collect_feature_handler_refs(
         }
     }
 
-    // Legacy `.lzi` surface views are no longer carried on
-    // `Feature.surfaces`; the new lzx ViewModel pipeline (L0 #3) emits
-    // typed view spec consts directly via the codegen_ts crate. The
-    // helper is preserved for the legacy fixture path.
-    let _ = collect_view_refs;
-
     // Feature extension declarations are implementation obligations even when
     // the current IR has no concrete call site yet. Collect them after usage
     // sites so a real reference (for example `auth.password.hash`) keeps the
@@ -984,77 +978,6 @@ fn collect_cache_refs(
         signatures,
         stubs,
     );
-}
-
-fn collect_view_refs(
-    view: &LegacyView,
-    feature: &str,
-    signatures: &SignatureMap,
-    stubs: &mut BTreeMap<StubKey, HandlerStub>,
-) {
-    match view {
-        LegacyView::Table(view) => {
-            for cell in &view.cells {
-                collect_text_handler_refs(
-                    &cell.renderer,
-                    feature,
-                    &format!("view.{}.{}", view.name, cell.field),
-                    signatures,
-                    stubs,
-                );
-            }
-            collect_test_block_refs(
-                &view.tests,
-                feature,
-                &format!("view.{}.tests", view.name),
-                signatures,
-                stubs,
-            );
-        }
-        LegacyView::SidePanel(view) => {
-            for block in &view.blocks {
-                collect_text_handler_refs(
-                    &block.renderer,
-                    feature,
-                    &format!("view.{}.block", view.name),
-                    signatures,
-                    stubs,
-                );
-            }
-            collect_test_block_refs(
-                &view.tests,
-                feature,
-                &format!("view.{}.tests", view.name),
-                signatures,
-                stubs,
-            );
-        }
-        LegacyView::Form(view) => {
-            collect_test_block_refs(
-                &view.tests,
-                feature,
-                &format!("view.{}.tests", view.name),
-                signatures,
-                stubs,
-            );
-        }
-        LegacyView::Custom(view) => {
-            collect_optional_text_handler_ref(
-                &view.source.as_ref().map(|source| source.query.name.clone()),
-                feature,
-                &format!("view.{}.source", view.name),
-                signatures,
-                stubs,
-            );
-            collect_test_block_refs(
-                &view.tests,
-                feature,
-                &format!("view.{}.tests", view.name),
-                signatures,
-                stubs,
-            );
-        }
-    }
 }
 
 fn collect_type_ref(
