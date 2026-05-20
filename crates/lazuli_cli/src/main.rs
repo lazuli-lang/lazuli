@@ -11305,6 +11305,7 @@ mod tests {
             handler: None,
             tests: None,
             triggers: vec![],
+            synthesized_from_cap_file: None,
             previous_names: vec![],
             span_ref: None,
         });
@@ -11366,6 +11367,7 @@ mod tests {
             handler: None,
             tests: None,
             triggers: vec![],
+            synthesized_from_cap_file: None,
             previous_names: vec![],
             span_ref: None,
         });

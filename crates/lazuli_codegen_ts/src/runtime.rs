@@ -680,6 +680,7 @@ mod tests {
             handler: None,
             tests: None,
             triggers: Vec::new(),
+            synthesized_from_cap_file: None,
             previous_names: Vec::new(),
             span_ref: None,
         }

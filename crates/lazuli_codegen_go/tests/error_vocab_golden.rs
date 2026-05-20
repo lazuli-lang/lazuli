@@ -116,6 +116,7 @@ fn empty_command(name: &str) -> Command {
         handler: None,
         tests: None,
         triggers: vec![],
+        synthesized_from_cap_file: None,
         previous_names: Vec::new(),
         span_ref: None,
     }

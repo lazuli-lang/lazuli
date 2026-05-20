@@ -1843,6 +1843,349 @@ fn find_keyword_line_offset(body: &str, keyword: &str) -> Option<usize> {
     None
 }
 
+/// FR-3a — for each resource with a `user: User required unique`
+/// field carrying an optional `@cap.File(...)` typed field, append
+/// the 4 auto-photo commands + 2 records to the feature.
+///
+/// Trigger conditions (all must hold):
+///   1. Resource has a field named `user` of type `User` required unique.
+///   2. The `@cap.File(...)` field is declared `optional`.
+///   3. No author-written command in `feature.commands` shares the
+///      synthesized name for that field's command role (request,
+///      confirm, clear, get_url) — name collision skips THAT one
+///      role and emits the other 3.
+fn synthesize_auto_photo(feature: &mut ir::Feature) {
+    let mut to_add_commands: Vec<ir::Command> = Vec::new();
+    let mut to_add_records: Vec<ir::Record> = Vec::new();
+
+    let existing_command_names: std::collections::HashSet<String> =
+        feature.commands.iter().map(|c| c.name.clone()).collect();
+    let existing_record_names: std::collections::HashSet<String> =
+        feature.records.iter().map(|r| r.name.clone()).collect();
+
+    // Resolve the policy to attach. Heuristic per D5: pick the
+    // feature-level policy whose name matches `<resource_singular>_only`
+    // for the *current* resource; fall back to `authenticated`.
+    let policy_name_for = |resource: &str| -> Option<String> {
+        let snake = pascal_to_snake(resource);
+        let target = format!("{}_only", snake);
+        if feature.policies.categories.iter().any(|p| p.name == target) {
+            return Some(target);
+        }
+        let compact_target = format!("{}_only", resource.to_ascii_lowercase());
+        if feature
+            .policies
+            .categories
+            .iter()
+            .any(|p| p.name == compact_target)
+        {
+            return Some(compact_target);
+        }
+        if feature
+            .policies
+            .categories
+            .iter()
+            .any(|p| p.name == "authenticated")
+        {
+            return Some("authenticated".to_owned());
+        }
+        None
+    };
+
+    for resource in &feature.resources {
+        let has_user_unique = resource.fields.iter().any(|f| {
+            f.name == "user"
+                && f.required
+                && f.unique
+                && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "User")
+        });
+        if !has_user_unique {
+            continue;
+        }
+
+        for field in &resource.fields {
+            if field.required {
+                continue;
+            }
+            let cap_file = match &field.type_ref {
+                ir::TypeRef::Capability(ir::CapabilityRef::File(spec)) => spec.clone(),
+                _ => continue,
+            };
+
+            let pascal_field = snake_to_pascal(&field.name);
+            let intent_name = format!("{}UploadIntent", pascal_field);
+            let display_name = format!("{}DisplayUrl", pascal_field);
+
+            let policy_name = match policy_name_for(&resource.name) {
+                Some(n) => n,
+                None => continue, // no policy => skip whole resource silently
+            };
+
+            // 2 records first (idempotent: skip if author already declared).
+            if !existing_record_names.contains(&intent_name) {
+                to_add_records.push(auto_photo_intent_record(&intent_name));
+            }
+            if !existing_record_names.contains(&display_name) {
+                to_add_records.push(auto_photo_display_record(&display_name));
+            }
+
+            // 4 commands. Each role checks for name collision.
+            for role in [
+                ir::AutoPhotoCommandRole::Request,
+                ir::AutoPhotoCommandRole::Confirm,
+                ir::AutoPhotoCommandRole::Clear,
+                ir::AutoPhotoCommandRole::GetUrl,
+            ] {
+                let cmd_name = auto_photo_command_name(&field.name, role);
+                if existing_command_names.contains(&cmd_name) {
+                    continue;
+                }
+                to_add_commands.push(build_auto_photo_command(
+                    cmd_name,
+                    &resource.name,
+                    &field.name,
+                    role,
+                    &intent_name,
+                    &display_name,
+                    &policy_name,
+                ));
+            }
+
+            // Suppress unused warning on cap_file — adapters read it
+            // via the field's TypeRef anyway. Reserved here for
+            // future per-site validations (max_size, accept).
+            let _ = cap_file;
+        }
+    }
+
+    feature.commands.extend(to_add_commands);
+    feature.records.extend(to_add_records);
+}
+
+fn auto_photo_command_name(field: &str, role: ir::AutoPhotoCommandRole) -> String {
+    match role {
+        ir::AutoPhotoCommandRole::Request => format!("request_{}_upload", field),
+        ir::AutoPhotoCommandRole::Confirm => format!("confirm_{}_upload", field),
+        ir::AutoPhotoCommandRole::Clear => format!("clear_{}", field),
+        ir::AutoPhotoCommandRole::GetUrl => format!("get_{}_url", field),
+    }
+}
+
+fn auto_photo_intent_record(name: &str) -> ir::Record {
+    ir::Record {
+        name: name.to_owned(),
+        public_contract: None,
+        fields: vec![
+            simple_required_field("url", builtin_text()),
+            simple_required_field("method", builtin_text()),
+            simple_required_field("headers_content_type", builtin_text()),
+            simple_required_field("key", builtin_text()),
+            simple_required_field("expires_at", builtin_datetime()),
+        ],
+        discriminator_field: None,
+        span_ref: None,
+    }
+}
+
+fn auto_photo_display_record(name: &str) -> ir::Record {
+    ir::Record {
+        name: name.to_owned(),
+        public_contract: None,
+        fields: vec![
+            simple_optional_field("url", builtin_text()),
+            simple_optional_field("expires_at", builtin_datetime()),
+        ],
+        discriminator_field: None,
+        span_ref: None,
+    }
+}
+
+fn build_auto_photo_command(
+    name: String,
+    resource: &str,
+    field: &str,
+    role: ir::AutoPhotoCommandRole,
+    intent_name: &str,
+    display_name: &str,
+    policy_name: &str,
+) -> ir::Command {
+    use ir::*;
+    let (input, effect, rate_limit) = match role {
+        AutoPhotoCommandRole::Request => (
+            CommandInput::Typed(vec![
+                TypedSlot {
+                    name: "content_type".to_owned(),
+                    type_ref: builtin_text(),
+                    required: true,
+                    constraints: FieldConstraints::default(),
+                },
+                TypedSlot {
+                    name: "size_bytes".to_owned(),
+                    type_ref: builtin_integer(),
+                    required: true,
+                    constraints: FieldConstraints::default(),
+                },
+            ]),
+            CommandEffect::Returns(ReturnsEffect {
+                return_type: TypeRef::UserDefined(QualifiedName {
+                    feature: None,
+                    name: intent_name.to_owned(),
+                }),
+            }),
+            "30 per 10 minutes per ip",
+        ),
+        AutoPhotoCommandRole::Confirm => (
+            CommandInput::Typed(vec![TypedSlot {
+                name: "key".to_owned(),
+                type_ref: builtin_text(),
+                required: true,
+                constraints: FieldConstraints::default(),
+            }]),
+            CommandEffect::None,
+            "30 per 10 minutes per ip",
+        ),
+        AutoPhotoCommandRole::Clear => (
+            CommandInput::Empty,
+            CommandEffect::None,
+            "10 per 10 minutes per ip",
+        ),
+        AutoPhotoCommandRole::GetUrl => (
+            CommandInput::Empty,
+            CommandEffect::Returns(ReturnsEffect {
+                return_type: TypeRef::UserDefined(QualifiedName {
+                    feature: None,
+                    name: display_name.to_owned(),
+                }),
+            }),
+            "60 per 10 minutes per ip",
+        ),
+    };
+
+    let _ = (resource, field); // currently only used via marker
+    Command {
+        name,
+        public_contract: None,
+        kind: CommandKind::Returns,
+        route: Vec::new(),
+        input,
+        target: None,
+        lets: Vec::new(),
+        effect,
+        policy: PolicyRef::Local(policy_name.to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        emits: Vec::new(),
+        rate_limit: Some(rate_limit.to_owned()),
+        audit: Some(AuditSpec {
+            subjects: vec!["default".to_owned()],
+            emit_to: None,
+        }),
+        approval: None,
+        invalidates: Vec::new(),
+        external_calls: Vec::new(),
+        timeout: None,
+        retry: None,
+        idempotency: None,
+        write_window: None,
+        deprecated: None,
+        handler: None,
+        tests: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+        triggers: Vec::new(),
+        synthesized_from_cap_file: Some(SynthesizedFromCapFile {
+            resource: resource.to_owned(),
+            field: field.to_owned(),
+            role,
+        }),
+    }
+}
+
+fn simple_required_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+    simple_field(name, type_ref, true)
+}
+
+fn simple_optional_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+    simple_field(name, type_ref, false)
+}
+
+fn simple_field(name: &str, type_ref: ir::TypeRef, required: bool) -> ir::Field {
+    ir::Field {
+        name: name.to_owned(),
+        type_ref,
+        required,
+        unique: false,
+        slug: false,
+        default: None,
+        derived_from: None,
+        constraints: ir::FieldConstraints::default(),
+        full_text: false,
+        previous_names: Vec::new(),
+        span_ref: None,
+    }
+}
+
+fn builtin_text() -> ir::TypeRef {
+    ir::TypeRef::Builtin(ir::BuiltinType::Text)
+}
+
+fn builtin_integer() -> ir::TypeRef {
+    ir::TypeRef::Builtin(ir::BuiltinType::Integer)
+}
+
+fn builtin_datetime() -> ir::TypeRef {
+    ir::TypeRef::Builtin(ir::BuiltinType::DateTime)
+}
+
+fn pascal_to_snake(s: &str) -> String {
+    let mut out = String::new();
+    let mut prev: Option<char> = None;
+    let mut iter = s.chars().peekable();
+
+    while let Some(ch) = iter.next() {
+        if ch.is_ascii_uppercase() {
+            let next_is_lower = iter
+                .peek()
+                .copied()
+                .is_some_and(|next| next.is_ascii_lowercase());
+            let prev_needs_sep = prev.is_some_and(|p| {
+                p.is_ascii_lowercase()
+                    || p.is_ascii_digit()
+                    || (p.is_ascii_uppercase() && next_is_lower)
+            });
+            if !out.is_empty() && prev_needs_sep {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+        prev = Some(ch);
+    }
+
+    out
+}
+
+fn snake_to_pascal(s: &str) -> String {
+    let mut out = String::new();
+    let mut capitalize_next = true;
+
+    for ch in s.chars() {
+        if ch == '_' {
+            capitalize_next = true;
+            continue;
+        }
+        if capitalize_next {
+            out.push(ch.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            out.push(ch);
+        }
+    }
+
+    out
+}
+
 /// Lower a canonical-indent feature skeleton into an `ir::Feature`.
 pub fn lower_feature_skeleton(
     skeleton: &syntax::FeatureSkeleton,
@@ -1996,6 +2339,7 @@ pub fn lower_feature_skeleton(
         span_ref: Some(span_of(skeleton.span)),
     };
     lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
+    synthesize_auto_photo(&mut feature);
     Ok(feature)
 }
 
@@ -3144,6 +3488,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         handler,
         tests: None,
         triggers: c.triggers.clone(),
+        synthesized_from_cap_file: None,
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
     })
@@ -8146,5 +8491,57 @@ feature billing
         assert_ne!(feature.uses_spans[1], feature.uses_spans[2]);
         // Comma-list entries share the source line, hence the span.
         assert_eq!(feature.uses_spans[2], feature.uses_spans[3]);
+    }
+
+    #[test]
+    fn auto_photo_synthesizes_4_commands_and_2_records() {
+        // Inline a minimal feature skeleton with a per-user resource
+        // carrying an optional @cap.File field. Expect synthesis to
+        // populate feature.commands with 4 names ending in
+        // _upload/_upload/_/url and feature.records with the 2
+        // intent + display records.
+        let source = r#"
+feature photoshare
+  defaults
+    tenancy org
+
+  uses org
+  uses account
+
+  policies
+    photoshare_only: @scope.authenticated, @role.host
+      when_denied @translation.x
+
+  domain
+    resource PhotoShare
+      org: Org required
+      user: User required unique
+      avatar: @cap.File(max_size:5mb,accept:image/jpeg,visibility:signed,signed_ttl:1h) optional
+      created_at: DateTime required
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let feature = super::lower_feature_skeleton(&features[0]).expect("lowering succeeds");
+
+        let cmd_names: Vec<&str> = feature.commands.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            cmd_names.contains(&"request_avatar_upload"),
+            "request_avatar_upload missing; got {:?}",
+            cmd_names
+        );
+        assert!(cmd_names.contains(&"confirm_avatar_upload"));
+        assert!(cmd_names.contains(&"clear_avatar"));
+        assert!(cmd_names.contains(&"get_avatar_url"));
+
+        let record_names: Vec<&str> = feature.records.iter().map(|r| r.name.as_str()).collect();
+        assert!(record_names.contains(&"AvatarUploadIntent"));
+        assert!(record_names.contains(&"AvatarDisplayUrl"));
+
+        // Marker must be set on synthesized commands.
+        let req = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "request_avatar_upload")
+            .unwrap();
+        assert!(req.synthesized_from_cap_file.is_some());
     }
 }
