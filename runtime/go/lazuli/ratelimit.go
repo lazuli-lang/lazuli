@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +42,8 @@ const (
 var (
 	activeStore         Store = newInMemoryStore()
 	rateLimitParseCache sync.Map
+	trustedProxiesMu    sync.RWMutex
+	trustedProxies      []netip.Prefix
 )
 
 // Store is the backing store for per-bucket rate-limit counters. The default is
@@ -54,6 +57,14 @@ type Store interface {
 // SetStore replaces the active store. Plugin backends call this from init.
 func SetStore(s Store) {
 	activeStore = s
+}
+
+// SetTrustedProxies configures the CIDRs allowed to set X-Forwarded-For.
+// Pass nil/empty to disable XFF (most secure default).
+func SetTrustedProxies(cidrs []netip.Prefix) {
+	trustedProxiesMu.Lock()
+	defer trustedProxiesMu.Unlock()
+	trustedProxies = append([]netip.Prefix(nil), cidrs...)
 }
 
 // RateLimitMiddleware returns an http.Handler that gates next by the declared
@@ -130,6 +141,14 @@ func ParseRateLimit(s RateLimit) (RateLimitSpec, error) {
 type rateLimitParseResult struct {
 	spec RateLimitSpec
 	err  error
+}
+
+// "30 per 10 minutes per ip"
+// "5 per minute per user"
+type rateLimitSpec struct {
+	Limit  int
+	Window time.Duration
+	Scope  string // "ip" | "user" | "actor"
 }
 
 // inMemoryStore owns counters keyed by parsed spec and request key.
@@ -239,6 +258,53 @@ func parseRateLimit(s string) (RateLimitSpec, error) {
 	}, nil
 }
 
+func parseRateLimitSpec(literal string) (rateLimitSpec, error) {
+	fields := strings.Fields(strings.ToLower(literal))
+	if len(fields) < 5 {
+		return rateLimitSpec{}, errors.New("rate_limit: too few fields")
+	}
+	if fields[1] != "per" {
+		return rateLimitSpec{}, ErrRateLimitMalformed
+	}
+
+	limit, err := strconv.Atoi(fields[0])
+	if err != nil || limit <= 0 {
+		return rateLimitSpec{}, ErrRateLimitMalformed
+	}
+
+	windowSize := 1
+	unitIndex := 2
+	if n, err := strconv.Atoi(fields[2]); err == nil {
+		if n <= 0 || len(fields) < 6 {
+			return rateLimitSpec{}, ErrRateLimitMalformed
+		}
+		windowSize = n
+		unitIndex = 3
+	}
+
+	unit, ok := rateLimitWindowUnit(fields[unitIndex])
+	if !ok {
+		return rateLimitSpec{}, ErrRateLimitMalformed
+	}
+	next := unitIndex + 1
+	if len(fields)-next != 2 || fields[next] != "per" {
+		return rateLimitSpec{}, ErrRateLimitMalformed
+	}
+
+	scope := fields[next+1]
+	switch scope {
+	case "ip", "user", "actor":
+	default:
+		return rateLimitSpec{}, ErrRateLimitMalformed
+	}
+
+	window := time.Duration(windowSize) * unit
+	if window <= 0 {
+		return rateLimitSpec{}, ErrRateLimitMalformed
+	}
+	return rateLimitSpec{Limit: limit, Window: window, Scope: scope}, nil
+}
+
 func rateLimitWindowUnit(s string) (time.Duration, bool) {
 	switch strings.TrimSuffix(s, "s") {
 	case "second":
@@ -294,26 +360,90 @@ func rateLimitRequestKey(key RateLimitKey, r *http.Request) string {
 }
 
 func rateLimitIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		for i := len(parts) - 1; i >= 0; i-- {
-			if ip := hostOnly(parts[i]); ip != "" {
-				return ip
-			}
-		}
-	}
-	return hostOnly(r.RemoteAddr)
+	return clientIPFromRequest(r)
 }
 
-func hostOnly(addr string) string {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
+// clientIPFromRequest extracts the client IP, honoring X-Forwarded-For ONLY
+// when the immediate remote IP is in the trusted-proxy list.
+//
+// SECURITY (SEC-S9): without this gate, attackers can forge XFF to bypass
+// per-IP rate limits or attribute their requests to victim IPs.
+func clientIPFromRequest(r *http.Request) string {
+	if r == nil {
 		return ""
 	}
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return host
+
+	remoteIP, err := remoteAddrToIP(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
-	return strings.Trim(addr, "[]")
+
+	trustedProxiesMu.RLock()
+	trusted := append([]netip.Prefix(nil), trustedProxies...)
+	trustedProxiesMu.RUnlock()
+
+	if !isInPrefixes(remoteIP, trusted) {
+		return remoteIP.String()
+	}
+
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return remoteIP.String()
+	}
+	parts := strings.Split(xff, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(parts[i])
+		ip, err := netip.ParseAddr(candidate)
+		if err != nil {
+			continue
+		}
+		if isInPrefixes(ip, trusted) {
+			continue
+		}
+		return candidate
+	}
+	return remoteIP.String()
+}
+
+func remoteAddrToIP(addr string) (netip.Addr, error) {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		host = strings.Trim(strings.TrimSpace(addr), "[]")
+	}
+	return netip.ParseAddr(host)
+}
+
+func isInPrefixes(ip netip.Addr, prefixes []netip.Prefix) bool {
+	for _, p := range prefixes {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildRateLimitKey(ctx *Ctx, cmd string, spec rateLimitSpec) string {
+	scopeValue := "-"
+	switch spec.Scope {
+	case "ip":
+		if ctx != nil {
+			if r := requestFromContext(ctx.Context); r != nil {
+				scopeValue = clientIPFromRequest(r)
+			}
+		}
+	case "user":
+		if ctx != nil && ctx.User != nil {
+			scopeValue = strconv.FormatInt(int64(ctx.User.ID), 10)
+		}
+	case "actor":
+		if ctx != nil && ctx.Actor != "" {
+			scopeValue = string(ctx.Actor)
+		}
+	}
+	if scopeValue == "" {
+		scopeValue = "-"
+	}
+	return cmd + ":" + scopeValue
 }
 
 func rateLimitBucketKey(spec RateLimitSpec, key string) string {
@@ -339,4 +469,21 @@ func writeRateLimited(w http.ResponseWriter) {
 		"code":    CodeRateLimited,
 		"message": "rate limit exceeded",
 	})
+}
+
+type rateLimitRequestContextKey struct{}
+
+func contextWithRequest(ctx context.Context, r *http.Request) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, rateLimitRequestContextKey{}, r)
+}
+
+func requestFromContext(ctx context.Context) *http.Request {
+	if ctx == nil {
+		return nil
+	}
+	r, _ := ctx.Value(rateLimitRequestContextKey{}).(*http.Request)
+	return r
 }

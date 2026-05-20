@@ -344,7 +344,7 @@ func readRequestBody(w http.ResponseWriter, r *http.Request) (json.RawMessage, e
 // whether to deny.
 func newRequestCtx(r *http.Request) *Ctx {
 	ctx := &Ctx{
-		Context:   r.Context(),
+		Context:   contextWithRequest(r.Context(), r),
 		Actor:     ActorAnonymous,
 		User:      nil,
 		Tenant:    nil,
