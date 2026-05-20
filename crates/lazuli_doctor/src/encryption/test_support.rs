@@ -122,6 +122,7 @@ pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: vec![],
+        pii: None,
         span_ref: None,
     }
 }
@@ -140,6 +141,7 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: vec![],
+        pii: None,
         span_ref: None,
     }
 }

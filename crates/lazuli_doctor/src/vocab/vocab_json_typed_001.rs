@@ -206,6 +206,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
+            pii: None,
             span_ref: None,
         }
     }

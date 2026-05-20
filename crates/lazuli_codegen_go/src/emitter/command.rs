@@ -3434,6 +3434,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         }
     }
@@ -3606,6 +3607,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         });
         feature.resources.push(property);

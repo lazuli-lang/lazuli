@@ -1085,6 +1085,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         }
     }
@@ -1174,6 +1175,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         };
         feature.resources.push(simple_resource("Host", vec![plugin_field]));
@@ -1233,6 +1235,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1384,6 +1387,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1410,6 +1414,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1462,6 +1467,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1494,6 +1500,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1567,6 +1574,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1687,6 +1695,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         }
     }
@@ -1705,6 +1714,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         }
     }
@@ -1726,6 +1736,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         }
     }
@@ -1745,6 +1756,7 @@ mod tests {
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
+            pii: None,
             span_ref: None,
         }
     }
@@ -1849,6 +1861,7 @@ mod tests {
                 constraints: lazuli_ir::FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
+                pii: None,
                 span_ref: None,
             }],
         );
@@ -1897,6 +1910,7 @@ mod feature_emit_tests {
                     constraints: lazuli_ir::FieldConstraints::default(),
                     full_text: false,
                     previous_names: Vec::new(),
+                    pii: None,
                     span_ref: None,
                 }],
                 constraints: Vec::new(),
