@@ -15,6 +15,7 @@ use super::api::emit_api_file;
 use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
 use super::auth::emit_auth_file;
 use super::auth_refresh::emit_auth_refresh_file;
+use super::auto_photo::emit_auto_photo_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
@@ -648,6 +649,17 @@ pub fn emit_module(
             let storage_path = format!("{name}/storage.gen.go", name = feature.name);
             files.push(GeneratedFile {
                 path: storage_path,
+                contents,
+            });
+        }
+        // FR-3b.2 — auto-photo init() registration emission. One per
+        // feature with at least one synthesized @cap.File command group.
+        if let Some(contents) =
+            emit_auto_photo_file(&source_label, feature, &module_name, &cross_index)
+        {
+            let auto_photo_path = format!("{name}/auto_photo.gen.go", name = feature.name);
+            files.push(GeneratedFile {
+                path: auto_photo_path,
                 contents,
             });
         }
