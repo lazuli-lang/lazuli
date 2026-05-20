@@ -14,5 +14,4 @@ thiserror.workspace = true
 toml = "0.8"
 
 [dev-dependencies]
-insta.workspace = true
 tempfile = "3"

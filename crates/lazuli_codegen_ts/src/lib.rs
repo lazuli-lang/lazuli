@@ -643,30 +643,11 @@ fn to_kebab_case(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use lazuli_analyzer::lower_document;
     use lazuli_ir::{
         ColorState, ColorStateKind, ColorToken, Design, Module, Motion, ScaleToken, Typography,
     };
-    use lazuli_syntax::parse_document;
 
     use super::generate;
-
-    #[test]
-    fn generates_react_frontend_files() {
-        let document = parse_document(include_str!(
-            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
-        ))
-        .unwrap();
-        let module = lower_document(&document).unwrap();
-        let files = generate(&module);
-
-        assert!(files.iter().any(|file| file.path == "frontend/src/App.tsx"));
-        assert!(
-            files
-                .iter()
-                .any(|file| file.contents.contains("lazuliModule"))
-        );
-    }
 
     fn minimal_design() -> Design {
         Design {

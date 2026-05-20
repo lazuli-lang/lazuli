@@ -1,7 +1,6 @@
 # Canonical CRM fixture.
 # Exercises customer lifecycle, ownership, project relationship, audit, PII, and tenancy.
 # Uses indentation-based form per docs/invariants.md.
-# For the retired `aggregate { ... }` dialect, see examples/anti-patterns/crm-aggregate-dialect.lzi.
 
 feature crm
   purpose "Minimal CRM — customers with lead-to-won lifecycle, owning projects."

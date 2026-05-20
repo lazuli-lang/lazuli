@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use lazuli_syntax::{Span, parse_document};
+use lazuli_syntax::{Span, parse_feature_skeletons};
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
@@ -259,59 +259,79 @@ impl LanguageServer for Backend {
         let Some(source) = documents.get(&params.text_document.uri) else {
             return Ok(None);
         };
-        let Ok(document) = parse_document(source) else {
+        let Ok(features) = parse_feature_skeletons(source) else {
             return Ok(None);
         };
 
-        let symbols = document
-            .aggregates
+        let symbols = features
             .iter()
-            .map(|aggregate| {
+            .map(|feature| {
+                let resource_symbols = feature.resources.iter().map(|resource| {
+                    make_symbol(
+                        resource.name.clone(),
+                        Some("resource".to_owned()),
+                        SymbolKind::STRUCT,
+                        range_from_span(source, resource.span),
+                        Some(
+                            resource
+                                .fields
+                                .iter()
+                                .map(|field| {
+                                    make_symbol(
+                                        field.name.clone(),
+                                        Some(field.type_text.clone()),
+                                        SymbolKind::PROPERTY,
+                                        range_from_span(source, field.span),
+                                        None,
+                                    )
+                                })
+                                .collect(),
+                        ),
+                    )
+                });
+                let command_symbols = feature.commands.iter().map(|command| {
+                    make_symbol(
+                        command.name.clone(),
+                        Some("command".to_owned()),
+                        SymbolKind::METHOD,
+                        range_from_span(source, command.span),
+                        None,
+                    )
+                });
+                let query_symbols = feature.queries.iter().map(|query| {
+                    let (name, span) = match query {
+                        lazuli_syntax::QueryDecl::List(query) => (&query.name, query.span),
+                        lazuli_syntax::QueryDecl::Lookup(query) => (&query.name, query.span),
+                        lazuli_syntax::QueryDecl::Sql(query) => (&query.name, query.span),
+                    };
+                    make_symbol(
+                        name.clone(),
+                        Some("query".to_owned()),
+                        SymbolKind::FUNCTION,
+                        range_from_span(source, span),
+                        None,
+                    )
+                });
+                let aggregate_symbols = feature.aggregates.iter().map(|aggregate| {
+                    make_symbol(
+                        aggregate.name.clone(),
+                        Some("aggregate".to_owned()),
+                        SymbolKind::STRUCT,
+                        range_from_span(source, aggregate.span),
+                        None,
+                    )
+                });
+
                 make_symbol(
-                    aggregate.name.clone(),
-                    Some("aggregate".to_owned()),
-                    SymbolKind::STRUCT,
-                    range_from_span(source, aggregate.span),
+                    feature.name.clone(),
+                    Some("feature".to_owned()),
+                    SymbolKind::MODULE,
+                    range_from_span(source, feature.span),
                     Some(
-                        aggregate
-                            .fields
-                            .iter()
-                            .map(|field| {
-                                make_symbol(
-                                    field.name.clone(),
-                                    Some(field.ty.clone()),
-                                    SymbolKind::PROPERTY,
-                                    range_from_span(source, field.span),
-                                    None,
-                                )
-                            })
-                            .chain(aggregate.commands.iter().map(|command| {
-                                make_symbol(
-                                    command.name.clone(),
-                                    Some("command".to_owned()),
-                                    SymbolKind::METHOD,
-                                    range_from_span(source, command.span),
-                                    None,
-                                )
-                            }))
-                            .chain(aggregate.queries.iter().map(|query| {
-                                make_symbol(
-                                    query.name.clone(),
-                                    Some("query".to_owned()),
-                                    SymbolKind::FUNCTION,
-                                    range_from_span(source, query.span),
-                                    None,
-                                )
-                            }))
-                            .chain(aggregate.surfaces.iter().map(|surface| {
-                                make_symbol(
-                                    surface.name.clone(),
-                                    Some("surface".to_owned()),
-                                    SymbolKind::INTERFACE,
-                                    range_from_span(source, surface.span),
-                                    None,
-                                )
-                            }))
+                        resource_symbols
+                            .chain(command_symbols)
+                            .chain(query_symbols)
+                            .chain(aggregate_symbols)
                             .collect(),
                     ),
                 )
@@ -607,8 +627,8 @@ fn diagnostics_for_with_profile_inner(
         return diagnostics;
     }
 
-    let document = match parse_document(source) {
-        Ok(document) => document,
+    let features = match parse_feature_skeletons(source) {
+        Ok(features) => features,
         Err(error) => {
             return vec![Diagnostic {
                 range: range_from_span(source, error.span()),
@@ -624,20 +644,23 @@ fn diagnostics_for_with_profile_inner(
         }
     };
 
-    match lazuli_analyzer::lower_document(&document) {
-        Ok(_) => Vec::new(),
-        Err(error) => vec![Diagnostic {
-            range: first_line_range(source),
-            severity: Some(DiagnosticSeverity::ERROR),
-            code: None,
-            code_description: None,
-            source: Some("lazuli-analyzer".to_owned()),
-            message: error.to_string(),
-            related_information: None,
-            tags: None,
-            data: None,
-        }],
+    for feature in &features {
+        if let Err(error) = lazuli_analyzer::lower_feature_skeleton(feature) {
+            return vec![Diagnostic {
+                range: first_line_range(source),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: None,
+                code_description: None,
+                source: Some("lazuli-analyzer".to_owned()),
+                message: error.to_string(),
+                related_information: None,
+                tags: None,
+                data: None,
+            }];
+        }
     }
+
+    Vec::new()
 }
 
 fn is_canonical_source(source: &str) -> bool {
@@ -703,8 +726,7 @@ fn has_canonical_contract_block(source: &str) -> bool {
 
 /// `design.lzi` is a separate sub-grammar (parsed by
 /// `parse_design_document`); marking it canonical short-circuits the
-/// LSP's pest fallback so `design <name>` doesn't trip
-/// `expected program`.
+/// generic feature parser path.
 fn has_canonical_design_block(source: &str) -> bool {
     source
         .lines()
@@ -19630,11 +19652,9 @@ fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
         });
     }
 
-    // Everything else needs lowered IR. The canonical pipeline is
-    // `parse_feature_skeletons` + `lower_feature_skeleton` (NOT
-    // `parse_document` / `lower_document`, which are the legacy
-    // aggregate-only path). Bail silently if either step fails — shape
-    // diagnostics already surface parse/lower errors via other paths.
+    // Everything else needs lowered IR. Bail silently if parsing or
+    // lowering fails — shape diagnostics already surface those errors
+    // via other paths.
     let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(source) else {
         return diagnostics;
     };
@@ -24098,24 +24118,6 @@ feature customer
             diagnostics_for(&formatted).is_empty(),
             "formatter should produce canonical order"
         );
-    }
-
-    #[test]
-    fn legacy_aggregate_still_uses_parser_diagnostics() {
-        let source = r#"
-aggregate Customer {
-  name: Text
-
-  command Create {
-    input email
-  }
-}
-"#;
-
-        let diagnostics = diagnostics_for(source);
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].source.as_deref(), Some("lazuli-analyzer"));
     }
 
     // ----------------------------------------------------------------

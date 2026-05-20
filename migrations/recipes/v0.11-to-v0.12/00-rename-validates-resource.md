@@ -39,5 +39,5 @@ The dry-run prints a diff per affected file. After review:
 lazuli migrate dsl --from v0.11 --to v0.12 --path .
 ```
 
-Each file is re-parsed via `lazuli_syntax::parse_document` after the
+Each file is re-parsed via `lazuli_syntax::parse_feature_skeletons` after the
 rewrite; a parse failure rolls the file back and surfaces the error.

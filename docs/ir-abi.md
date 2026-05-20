@@ -262,7 +262,7 @@ but neither IR writes back into the other.
 
 IR producers are owned by the compiler/tooling pipeline:
 
-- `lazuli_analyzer::lower_document(&Document) -> Result<Module, AnalyzeError>`
+- `lazuli_analyzer::lower_feature_skeleton(&FeatureSkeleton) -> Result<Feature, AnalyzeError>`
 - `lazuli_analyzer::lower_lzx_document(&LzxDocument) -> ExperienceModule`
 - `lazuli_cli` app-manifest lowering for `app.lzi` until the canonical `.lzi`
   parser owns the manifest AST

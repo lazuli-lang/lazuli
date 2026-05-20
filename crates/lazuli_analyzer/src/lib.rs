@@ -1,27 +1,12 @@
-//! Lowering from `lazuli_syntax::Document` (the legacy `aggregate { ... }`
-//! parser AST) into the canonical `lazuli_ir::Module`.
-//!
-//! The legacy parser predates canonical syntax. We bridge it by synthesising
-//! one feature per parsed `Document`. Each `aggregate Foo` becomes a
-//! `Resource Foo` inside that synthetic feature. Commands, queries, and
-//! surfaces from the legacy AST are lowered into their nearest canonical IR
-//! shape with conservative defaults; richer constructs (workflows, rules,
-//! events, raw queries, `route`, `let`, typed inputs) only land when the
-//! canonical parser arrives in a later phase.
-//!
-//! Phase 1a goal: every `examples/crm.lzi` shape lowers cleanly. Anything
-//! requiring canonical-only constructs will surface as `TypeRef::Unresolved`
-//! or `PolicyRef::Unresolved` rather than fabricated facts.
+//! Lowering from `lazuli_syntax` canonical AST slices into `lazuli_ir`.
 
+pub mod checks;
 mod lifecycle;
 pub mod rbac;
-pub mod checks;
 pub mod source_map;
 pub mod symbol_origin;
 
 pub use symbol_origin::build_symbol_origin_index;
-
-use std::collections::BTreeSet;
 
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
@@ -29,22 +14,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeError {
-    #[error("duplicate aggregate `{name}`")]
-    DuplicateAggregate { name: String },
-
-    #[error("duplicate field `{field}` in aggregate `{aggregate}`")]
-    DuplicateField { aggregate: String, field: String },
-
-    #[error("unknown field `{field}` referenced by `{context}` in aggregate `{aggregate}`")]
-    UnknownField {
-        aggregate: String,
-        context: String,
-        field: String,
-    },
-
-    #[error("command `{command}` in aggregate `{aggregate}` is missing an explicit policy")]
-    MissingCommandPolicy { aggregate: String, command: String },
-
     #[error("invalid tool reference `{reference}`")]
     InvalidToolRef { reference: String },
 
@@ -74,7 +43,9 @@ pub enum AnalyzeError {
 
     /// L0 #8 — `poller retry backoff <strategy>` outside the closed
     /// catalog (`fixed` | `linear` | `exponential`).
-    #[error("POLLER-UNKNOWN-ENUM: `{kind}` carries unknown value `{value}` outside the closed catalog")]
+    #[error(
+        "POLLER-UNKNOWN-ENUM: `{kind}` carries unknown value `{value}` outside the closed catalog"
+    )]
     UnknownEnum { kind: String, value: String },
 
     /// L0 #2 — `design <X>` declared `extends <Y>`. Cut B (post-pilot).
@@ -88,38 +59,50 @@ pub enum AnalyzeError {
     /// L0 #3 — view source did not parse as
     /// `<feature>.query.<short>` or
     /// `<feature>.query.{list|lookup|sql}.<short>`.
-    #[error("LZX-BAD-QUERY-REF: view `{view}` source `{value}` must be `<feature>.query.<name>` (or `.query.{{list|lookup|sql}}.<name>`)")]
+    #[error(
+        "LZX-BAD-QUERY-REF: view `{view}` source `{value}` must be `<feature>.query.<name>` (or `.query.{{list|lookup|sql}}.<name>`)"
+    )]
     LzxBadQueryRef { view: String, value: String },
 
     /// L0 #3 — `submit` or `actions` entry did not parse as a command
     /// reference. Accepts `<feature>.command.<name>` (qualified) or a
     /// bare local short name (`create`).
-    #[error("LZX-BAD-COMMAND-REF: command reference `{value}` must be `<feature>.command.<name>` or a bare local short name")]
+    #[error(
+        "LZX-BAD-COMMAND-REF: command reference `{value}` must be `<feature>.command.<name>` or a bare local short name"
+    )]
     LzxBadCommandRef { value: String },
 
     /// L0 #3 §11 `lzx-cell-slot-orphan` — a `cells <field> @client.<slot>`
     /// binding references a field that isn't in the view's column /
     /// section / fields list. v0 surfaces this at lowering; doctor may
     /// downgrade to a warning.
-    #[error("LZX-CELL-SLOT-ORPHAN: view `{view}` cell binding for field `{field}` is not in its columns / sections / fields list")]
+    #[error(
+        "LZX-CELL-SLOT-ORPHAN: view `{view}` cell binding for field `{field}` is not in its columns / sections / fields list"
+    )]
     LzxCellSlotOrphan { view: String, field: String },
 
     /// L0 #3 — the cell slot identifier itself is malformed (empty or
     /// non-kebab/snake characters). Parser-time check; this guards
     /// against direct AST construction.
-    #[error("LZX-CELL-SLOT-INVALID: view `{view}` cell slot `{slot}` must be a kebab/snake identifier")]
+    #[error(
+        "LZX-CELL-SLOT-INVALID: view `{view}` cell slot `{slot}` must be a kebab/snake identifier"
+    )]
     LzxCellSlotInvalid { view: String, slot: String },
 
     /// L0 #3 §11 `lzx-route-param-missing-binding` — a `:name`
     /// placeholder in the `at "<path>"` string has no matching
     /// `route <name>: <Type> from path` declaration.
-    #[error("LZX-ROUTE-PARAM-MISSING-BINDING: view `{view}` path placeholder `:{placeholder}` has no `route {placeholder}: <Type> from path` declaration")]
+    #[error(
+        "LZX-ROUTE-PARAM-MISSING-BINDING: view `{view}` path placeholder `:{placeholder}` has no `route {placeholder}: <Type> from path` declaration"
+    )]
     LzxRouteParamMissingBinding { view: String, placeholder: String },
 
     /// L0 #3 §11 `lzx-route-param-orphan` — a `route <name>: Type from
     /// path` declaration has no matching `:name` placeholder in the
     /// view's `at "<path>"`.
-    #[error("LZX-ROUTE-PARAM-ORPHAN: view `{view}` declared route param `{param}` but the `at` path has no `:{param}` placeholder")]
+    #[error(
+        "LZX-ROUTE-PARAM-ORPHAN: view `{view}` declared route param `{param}` but the `at` path has no `:{param}` placeholder"
+    )]
     LzxRouteParamOrphan { view: String, param: String },
 
     /// L0 #2 — a `shadow <name> "<value>"` entry carried a top-level
@@ -237,89 +220,6 @@ pub enum AnalyzeError {
         pattern: String,
         reason: String,
     },
-}
-
-pub fn lower_document(document: &syntax::Document) -> Result<ir::Module, AnalyzeError> {
-    let mut aggregate_names = BTreeSet::new();
-    let mut resources = Vec::new();
-    let mut commands = Vec::new();
-    let mut queries = Vec::new();
-
-    for aggregate in &document.aggregates {
-        if !aggregate_names.insert(aggregate.name.clone()) {
-            return Err(AnalyzeError::DuplicateAggregate {
-                name: aggregate.name.clone(),
-            });
-        }
-
-        let lowered = lower_aggregate(aggregate)?;
-        resources.push(lowered.resource);
-        commands.extend(lowered.commands);
-        queries.extend(lowered.queries);
-    }
-
-    let feature_name = document
-        .app
-        .clone()
-        .map(|name| name.to_ascii_lowercase())
-        .unwrap_or_else(|| "lazuli_app".to_owned());
-
-    let feature = ir::Feature {
-        name: feature_name,
-        purpose: None,
-        non_goals: Vec::new(),
-        context_path: None,
-        defaults: ir::Defaults::default(),
-        uses: Vec::new(),
-        uses_spans: Vec::new(),
-        uses_versions: Vec::new(),
-        requirements: Vec::new(),
-        enums: Vec::new(),
-        resources,
-        events: Vec::new(),
-        rules: Vec::new(),
-        policies: ir::Policies::default(),
-        errors: None,
-        commands,
-        apis: Vec::new(),
-        records: Vec::new(),
-        queries,
-        resume_routers: Vec::new(),
-        workflows: Vec::new(),
-        jobs: Vec::new(),
-        webhooks: Vec::new(),
-        notifications: Vec::new(),
-        event_groups: Vec::new(),
-        tenant_migrations: Vec::new(),
-        translation: None,
-        pollers: Vec::new(),
-        auth: None,
-        surfaces: Vec::new(),
-        extensions: Vec::new(),
-        escape_routes: Vec::new(),
-        agents: Vec::new(),
-        reports: Vec::new(),
-        channels: Vec::new(),
-        caches: Vec::new(),
-        aggregates: Vec::new(),
-        mcp_servers: Vec::new(),
-        previous_names: Vec::new(),
-        span_ref: Some(ir::SpanRef {
-            start: document.span.start,
-            end: document.span.end,
-        }),
-    };
-
-    Ok(ir::Module {
-        workspace: None,
-        contracts: Vec::new(),
-        app: None,
-        registry: None,
-        profiles: Vec::new(),
-        design: None,
-        rbac: None,
-        features: vec![feature],
-    })
 }
 
 pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
@@ -565,14 +465,13 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
         policy: guard.policy.clone(),
         on_unauthenticated: guard.on_unauthenticated.clone(),
         on_unauthorized: guard.on_unauthorized.clone(),
-        requires_lifecycle: guard
-            .requires_lifecycle
-            .as_ref()
-            .map(|requires| ir::RequiresLifecycle {
+        requires_lifecycle: guard.requires_lifecycle.as_ref().map(|requires| {
+            ir::RequiresLifecycle {
                 resource: requires.resource.clone(),
                 state: requires.state.clone(),
                 span_ref: Some(span_of(requires.span)),
-            }),
+            }
+        }),
         on_lifecycle_pending: guard.on_lifecycle_pending.clone(),
         span_ref: Some(span_of(guard.span)),
     }
@@ -614,7 +513,10 @@ pub fn lower_surface(ast: &syntax::SurfaceAst) -> Result<ir::Surface, AnalyzeErr
         syntax::SurfaceTargetAst::Web => ir::SurfaceTarget::Web,
         syntax::SurfaceTargetAst::Mobile => ir::SurfaceTarget::Mobile,
     };
-    let owning_feature = ast.uses_feature.clone().unwrap_or_else(|| ast.feature.clone());
+    let owning_feature = ast
+        .uses_feature
+        .clone()
+        .unwrap_or_else(|| ast.feature.clone());
 
     let mut audiences = Vec::with_capacity(ast.audiences.len());
     for audience in &ast.audiences {
@@ -654,16 +556,14 @@ fn lower_audience_ast(
     })
 }
 
-fn lower_view_ast(
-    ast: &syntax::ViewAst,
-    owning_feature: &str,
-) -> Result<ir::View, AnalyzeError> {
+fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::View, AnalyzeError> {
     match ast {
         syntax::ViewAst::List(v) => {
-            let source = parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-                view: v.name.clone(),
-                value: v.source.clone(),
-            })?;
+            let source =
+                parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+                    view: v.name.clone(),
+                    value: v.source.clone(),
+                })?;
             let render = lower_list_render(v);
             let render_columns = match &render {
                 ir::ListRender::Table { columns } => columns.as_slice(),
@@ -707,10 +607,11 @@ fn lower_view_ast(
             }))
         }
         syntax::ViewAst::Detail(v) => {
-            let source = parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-                view: v.name.clone(),
-                value: v.source.clone(),
-            })?;
+            let source =
+                parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+                    view: v.name.clone(),
+                    value: v.source.clone(),
+                })?;
             // Detail views bind cells against fields on the source resource,
             // not against the `sections` enumeration. The source-resource
             // cross-check happens at doctor time (`lzx-source-resource-mismatch`).
@@ -993,9 +894,9 @@ fn validate_cells_slot_only(
 
 fn validate_cell_slot_shape(slot: &str, view_name: &str) -> Result<(), AnalyzeError> {
     if slot.is_empty()
-        || !slot.chars().all(|c| {
-            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
-        })
+        || !slot
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
     {
         return Err(AnalyzeError::LzxCellSlotInvalid {
             view: view_name.to_owned(),
@@ -1076,250 +977,6 @@ fn parse_command_ref(text: &str, owning_feature: &str) -> Result<ir::CommandRef,
             value: trimmed.to_owned(),
         }),
     }
-}
-
-struct LoweredAggregate {
-    resource: ir::Resource,
-    commands: Vec<ir::Command>,
-    queries: Vec<ir::Query>,
-}
-
-fn lower_aggregate(aggregate: &syntax::Aggregate) -> Result<LoweredAggregate, AnalyzeError> {
-    let mut field_names = BTreeSet::new();
-    let mut fields = Vec::new();
-
-    for field in &aggregate.fields {
-        if !field_names.insert(field.name.clone()) {
-            return Err(AnalyzeError::DuplicateField {
-                aggregate: aggregate.name.clone(),
-                field: field.name.clone(),
-            });
-        }
-
-        fields.push(lower_field(field));
-    }
-
-    for command in &aggregate.commands {
-        validate_known_fields(
-            aggregate,
-            &field_names,
-            format!("command {}", command.name),
-            &command.input,
-        )?;
-    }
-
-    for query in &aggregate.queries {
-        validate_known_fields(
-            aggregate,
-            &field_names,
-            format!("query {} search", query.name),
-            &query.search,
-        )?;
-        validate_known_fields(
-            aggregate,
-            &field_names,
-            format!("query {} filters", query.name),
-            &query.filters,
-        )?;
-    }
-
-    for surface in &aggregate.surfaces {
-        validate_known_fields(
-            aggregate,
-            &field_names,
-            format!("surface {} list", surface.name),
-            &surface.list_columns,
-        )?;
-        validate_known_fields(
-            aggregate,
-            &field_names,
-            format!("surface {} form", surface.name),
-            &surface.form_fields,
-        )?;
-        validate_known_fields(
-            aggregate,
-            &field_names,
-            format!("surface {} detail", surface.name),
-            &surface.detail_fields,
-        )?;
-    }
-
-    let resource_name = aggregate.name.clone();
-    let resource = ir::Resource {
-        name: resource_name.clone(),
-        public_contract: None,
-        tenancy: None,
-        soft_delete: false,
-        timestamps: None,
-        fields,
-        constraints: Vec::new(),
-        validate: None,
-        validates: Vec::new(),
-        retention: None,
-        previous_names: Vec::new(),
-        span_ref: Some(span_of(aggregate.span)),
-        lifecycle: None,
-        invariants: Vec::new(),
-        lock: None,
-        composite_key: None,
-    };
-
-    let commands = aggregate
-        .commands
-        .iter()
-        .map(|c| lower_command(c, &resource_name))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let queries = aggregate.queries.iter().map(lower_query).collect();
-
-    Ok(LoweredAggregate {
-        resource,
-        commands,
-        queries,
-    })
-}
-
-fn lower_field(field: &syntax::Field) -> ir::Field {
-    let mut required = false;
-    let mut unique = false;
-    let mut default: Option<ir::DefaultValue> = None;
-
-    for modifier in &field.modifiers {
-        match modifier {
-            syntax::FieldModifier::Required => required = true,
-            syntax::FieldModifier::Unique => unique = true,
-            syntax::FieldModifier::Default(value) => {
-                default = Some(parse_default(value));
-            }
-        }
-    }
-
-    ir::Field {
-        name: field.name.clone(),
-        type_ref: type_ref_from_syntax(&field.ty),
-        required,
-        unique,
-        slug: false,
-        default,
-        derived_from: None,
-        constraints: ir::FieldConstraints::default(),
-        full_text: false,
-        previous_names: Vec::new(),
-        span_ref: Some(span_of(field.span)),
-    }
-}
-
-fn lower_command(
-    command: &syntax::Command,
-    resource_name: &str,
-) -> Result<ir::Command, AnalyzeError> {
-    let policy = command
-        .policy
-        .as_ref()
-        .map(|raw| ir::PolicyRef::Unresolved(raw.clone()))
-        .ok_or_else(|| AnalyzeError::MissingCommandPolicy {
-            aggregate: resource_name.to_owned(),
-            command: command.name.clone(),
-        })?;
-
-    // Legacy `command Create { input ... emits ... }` is treated as a create
-    // effect over the parent aggregate with `from_input` semantics. The
-    // canonical parser will replace this heuristic with explicit
-    // `creates`/`updates`/`deletes` keywords.
-    let effect = ir::CommandEffect::Creates(ir::CreateEffect {
-        resource: ir::QualifiedName {
-            feature: None,
-            name: resource_name.to_owned(),
-        },
-        from_input: true,
-        assignments: Vec::new(),
-    });
-
-    Ok(ir::Command {
-        name: command.name.clone(),
-        public_contract: None,
-        kind: ir::CommandKind::Create,
-        route: Vec::new(),
-        input: ir::CommandInput::Short(command.input.clone()),
-        target: None,
-        lets: Vec::new(),
-        effect,
-        policy,
-        policy_expr: None,
-        policy_when_denied: None,
-        emits: command.emits.clone(),
-        rate_limit: None,
-        audit: None,
-        approval: None,
-        invalidates: Vec::new(),
-        external_calls: Vec::new(),
-        timeout: None,
-        retry: None,
-        idempotency: None,
-        write_window: None,
-        deprecated: None,
-        handler: None,
-        tests: None,
-        triggers: Vec::new(),
-        previous_names: Vec::new(),
-        span_ref: Some(span_of(command.span)),
-    })
-}
-
-fn lower_query(query: &syntax::Query) -> ir::Query {
-    // Legacy `query List { search ... filter ... }` lowers into a list query
-    // with field filters. Search currently has no canonical home and is
-    // dropped on the floor; it will return as a typed query construct in a
-    // later phase.
-    let filters = query
-        .filters
-        .iter()
-        .map(|name| ir::Filter {
-            predicate: ir::Predicate::Comparison {
-                left: ir::Expr::Path(ir::Path::from_segments([name.clone()])),
-                op: ir::CompareOp::Eq,
-                right: ir::Expr::Path(ir::Path::from_segments(["params".to_owned(), name.clone()])),
-            },
-            when: Some(name.clone()),
-        })
-        .collect();
-
-    ir::Query::List(ir::ListQuery {
-        name: query.name.clone(),
-        public_contract: None,
-        params: Vec::new(),
-        scope: Vec::new(),
-        scope_override: false,
-        filters,
-        order: Vec::new(),
-        paginate: None,
-        modifier: None,
-        cache: None,
-        policy: ir::PolicyRef::None,
-        policy_expr: None,
-        policy_when_denied: None,
-        previous_names: Vec::new(),
-        span_ref: Some(span_of(query.span)),
-    })
-}
-
-fn validate_known_fields(
-    aggregate: &syntax::Aggregate,
-    known: &BTreeSet<String>,
-    context: String,
-    fields: &[String],
-) -> Result<(), AnalyzeError> {
-    for field in fields {
-        if !known.contains(field) {
-            return Err(AnalyzeError::UnknownField {
-                aggregate: aggregate.name.clone(),
-                context,
-                field: field.clone(),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 /// Public wrapper around `type_ref_from_syntax` so the inspect CLI can
@@ -2016,8 +1673,7 @@ pub fn diagnose_plan_gate_facts(
     if let Some(catalog) = &facts.catalog {
         let feature_set: BTreeSet<&str> =
             catalog.feature_catalog.iter().map(String::as_str).collect();
-        let limit_set: BTreeSet<&str> =
-            catalog.limit_catalog.iter().map(String::as_str).collect();
+        let limit_set: BTreeSet<&str> = catalog.limit_catalog.iter().map(String::as_str).collect();
 
         // Build per-limit set of plans that declare it (for QUOTA-MISSING).
         let mut limit_to_plans: std::collections::BTreeMap<&str, BTreeSet<&str>> =
@@ -2030,8 +1686,7 @@ pub fn diagnose_plan_gate_facts(
                     .insert(plan.name.as_str());
             }
         }
-        let all_plans: BTreeSet<&str> =
-            catalog.plans.iter().map(|p| p.name.as_str()).collect();
+        let all_plans: BTreeSet<&str> = catalog.plans.iter().map(|p| p.name.as_str()).collect();
 
         // PLAN-FEATURE-UNDECLARED-001 + PLAN-QUOTA-MISSING-001.
         for (callable_key, gates) in &facts.gates {
@@ -2061,10 +1716,8 @@ pub fn diagnose_plan_gate_facts(
                             });
                         } else if let Some(declaring) = limit_to_plans.get(limit.as_str()) {
                             if declaring != &all_plans {
-                                let missing: Vec<&str> = all_plans
-                                    .difference(declaring)
-                                    .copied()
-                                    .collect::<Vec<_>>();
+                                let missing: Vec<&str> =
+                                    all_plans.difference(declaring).copied().collect::<Vec<_>>();
                                 out.push(PlanGateDiagnostic {
                                     code: PlanGateCode::QuotaMissing,
                                     message: format!(
@@ -2190,10 +1843,7 @@ fn find_keyword_line_offset(body: &str, keyword: &str) -> Option<usize> {
     None
 }
 
-/// Lower a canonical-indent feature skeleton into an `ir::Feature` whose
-/// only populated child slot is `agents`. Every other vector / option
-/// uses zero defaults; callers that consume both pipelines fold this
-/// result into the legacy `Feature` produced by `lower_document`.
+/// Lower a canonical-indent feature skeleton into an `ir::Feature`.
 pub fn lower_feature_skeleton(
     skeleton: &syntax::FeatureSkeleton,
 ) -> Result<ir::Feature, AnalyzeError> {
@@ -2293,11 +1943,7 @@ pub fn lower_feature_skeleton(
         .iter()
         .map(|c| span_of(c.span))
         .collect();
-    let uses_versions: Vec<Option<u16>> = skeleton
-        .uses_clauses
-        .iter()
-        .map(|c| c.version)
-        .collect();
+    let uses_versions: Vec<Option<u16>> = skeleton.uses_clauses.iter().map(|c| c.version).collect();
 
     let mut feature = ir::Feature {
         name: skeleton.name.clone(),
@@ -2372,11 +2018,7 @@ fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
                 name: m.clone(),
             })
             .collect(),
-        invariants: decl
-            .invariants
-            .iter()
-            .map(lower_invariant_decl)
-            .collect(),
+        invariants: decl.invariants.iter().map(lower_invariant_decl).collect(),
         span_ref: Some(span_of(decl.span)),
     }
 }
@@ -3246,14 +2888,12 @@ fn validate_default_against_constraints(
 ) -> Result<(), AnalyzeError> {
     let default_raw = default_raw.trim();
     // Strip surrounding double quotes for string-typed defaults.
-    let unquoted = if default_raw.len() >= 2
-        && default_raw.starts_with('"')
-        && default_raw.ends_with('"')
-    {
-        &default_raw[1..default_raw.len() - 1]
-    } else {
-        default_raw
-    };
+    let unquoted =
+        if default_raw.len() >= 2 && default_raw.starts_with('"') && default_raw.ends_with('"') {
+            &default_raw[1..default_raw.len() - 1]
+        } else {
+            default_raw
+        };
     // Numeric path: try parsing the (unquoted) literal as an integer.
     let as_int = unquoted.parse::<i64>().ok();
     // length check (string only — applies to char count of the
@@ -3477,10 +3117,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
     // IR Error-Vocab (Cell PARSE-1) — lift the optional `when_denied
     // @translation.<key>` child captured by the parser under `policy`.
     // Resolution-chain step 1 (proposal §2.A).
-    let policy_when_denied = c
-        .policy_when_denied
-        .as_ref()
-        .map(lower_translation_key_ref);
+    let policy_when_denied = c.policy_when_denied.as_ref().map(lower_translation_key_ref);
     Ok(ir::Command {
         name: c.name.clone(),
         public_contract: lower_public_contract(&c.public_contract),
@@ -3622,10 +3259,7 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
 /// `FilenameToken::CtxNowStrftime("")` placeholders only if a parsing
 /// helper rejects them — but we instead keep the literal verbatim and
 /// surface unknown tokens via doctor.
-fn lower_report_decl(
-    _feature: &str,
-    r: &syntax::ReportDecl,
-) -> Result<ir::Report, AnalyzeError> {
+fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Report, AnalyzeError> {
     let source = lower_report_source(&r.source);
 
     let columns: Vec<ir::ReportColumn> = r
@@ -3962,16 +3596,22 @@ const POLLER_DEFAULT_TICK_EVERY: &str = "30s";
 const POLLER_DEFAULT_TICK_BATCH: u32 = 100;
 
 pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, AnalyzeError> {
-    let cursor_ast = poller.cursor.as_ref().ok_or_else(|| AnalyzeError::MissingField {
-        kind: "poller".to_owned(),
-        name: poller.name.clone(),
-        field: "cursor".to_owned(),
-    })?;
-    let retry_ast = poller.retry.as_ref().ok_or_else(|| AnalyzeError::MissingField {
-        kind: "poller".to_owned(),
-        name: poller.name.clone(),
-        field: "retry".to_owned(),
-    })?;
+    let cursor_ast = poller
+        .cursor
+        .as_ref()
+        .ok_or_else(|| AnalyzeError::MissingField {
+            kind: "poller".to_owned(),
+            name: poller.name.clone(),
+            field: "cursor".to_owned(),
+        })?;
+    let retry_ast = poller
+        .retry
+        .as_ref()
+        .ok_or_else(|| AnalyzeError::MissingField {
+            kind: "poller".to_owned(),
+            name: poller.name.clone(),
+            field: "retry".to_owned(),
+        })?;
     let resolve_name =
         poller
             .resolve_handler
@@ -4008,11 +3648,17 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
             base: retry_ast.backoff_base.clone(),
         },
         "linear" => ir::PollerBackoff::Linear {
-            base: retry_ast.backoff_base.clone().unwrap_or_else(|| "30s".to_owned()),
+            base: retry_ast
+                .backoff_base
+                .clone()
+                .unwrap_or_else(|| "30s".to_owned()),
             cap: retry_ast.backoff_cap.clone(),
         },
         "exponential" => ir::PollerBackoff::Exponential {
-            base: retry_ast.backoff_base.clone().unwrap_or_else(|| "30s".to_owned()),
+            base: retry_ast
+                .backoff_base
+                .clone()
+                .unwrap_or_else(|| "30s".to_owned()),
             cap: retry_ast.backoff_cap.clone(),
         },
         other => {
@@ -4278,10 +3924,9 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
 /// runtime-evaluated stub without losing authoring intent.
 fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
     let trimmed = raw.trim();
-    let kind = parse_emit_predicate_kind(trimmed)
-        .unwrap_or_else(|| ir::EmitPredicateKind::Other {
-            raw: trimmed.to_owned(),
-        });
+    let kind = parse_emit_predicate_kind(trimmed).unwrap_or_else(|| ir::EmitPredicateKind::Other {
+        raw: trimmed.to_owned(),
+    });
     ir::EmitPredicate {
         raw: trimmed.to_owned(),
         kind,
@@ -4309,11 +3954,7 @@ fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
     if let Some(in_pos) = find_word(text, "in") {
         let path = text[..in_pos].trim();
         let rhs = text[in_pos + 2..].trim();
-        if !path.is_empty()
-            && !path.contains(' ')
-            && rhs.starts_with('(')
-            && rhs.ends_with(')')
-        {
+        if !path.is_empty() && !path.contains(' ') && rhs.starts_with('(') && rhs.ends_with(')') {
             let inner = &rhs[1..rhs.len() - 1];
             let literals: Vec<String> = inner
                 .split(',')
@@ -4450,11 +4091,7 @@ pub fn lower_mcp_server(server: &syntax::McpServer) -> Result<ir::MCPServerSpec,
         description: server.metadata.description.clone(),
         version: server.metadata.version.clone(),
     };
-    let tools = server
-        .tools
-        .iter()
-        .map(lower_mcp_tool)
-        .collect::<Vec<_>>();
+    let tools = server.tools.iter().map(lower_mcp_tool).collect::<Vec<_>>();
     let resources = server
         .resources
         .iter()
@@ -4542,13 +4179,12 @@ fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
 /// in `invalid_template_strategy` so doctor can report
 /// `NOTIF-DIGEST-003` without widening the enum.
 fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
-    let (template_strategy, invalid_template_strategy) =
-        match digest.template_strategy.as_deref() {
-            Some("merge") => (Some(ir::DigestStrategy::Merge), None),
-            Some("append") => (Some(ir::DigestStrategy::Append), None),
-            Some(raw) => (None, Some(raw.to_owned())),
-            None => (None, None),
-        };
+    let (template_strategy, invalid_template_strategy) = match digest.template_strategy.as_deref() {
+        Some("merge") => (Some(ir::DigestStrategy::Merge), None),
+        Some("append") => (Some(ir::DigestStrategy::Append), None),
+        Some(raw) => (None, Some(raw.to_owned())),
+        None => (None, None),
+    };
     ir::NotificationDigest {
         every: digest.every.clone(),
         group_by: digest.group_by.clone(),
@@ -4606,51 +4242,50 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
     // empty come through with an empty `fields` Vec; legacy fixtures
     // that didn't author `event_variants`/`event_variant_kinds` at
     // all leave `variants` empty.
-    let variants: Vec<ir::EventVariant> = if group.event_variants.is_empty()
-        && group.event_variant_kinds.is_empty()
-    {
-        Vec::new()
-    } else {
-        group
-            .events
-            .iter()
-            .enumerate()
-            .map(|(idx, short_name)| {
-                let kind = match group
-                    .event_variant_kinds
-                    .get(idx)
-                    .copied()
-                    .unwrap_or(syntax::EventVariantKindAst::Committed)
-                {
-                    syntax::EventVariantKindAst::Committed => ir::EventVariantKind::Committed,
-                    syntax::EventVariantKindAst::Trace => ir::EventVariantKind::Trace,
-                };
-                let fields = group
-                    .event_variants
-                    .get(idx)
-                    .map(|rows| {
-                        rows.iter()
-                            .map(lower_event_variant_field)
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let outbox = events_outbox
-                    .get(idx)
-                    .copied()
-                    .unwrap_or(ir::OutboxMode::None);
-                ir::EventVariant {
-                    name: short_name.clone(),
-                    kind,
-                    outbox,
-                    fields,
-                    span_ref: group
+    let variants: Vec<ir::EventVariant> =
+        if group.event_variants.is_empty() && group.event_variant_kinds.is_empty() {
+            Vec::new()
+        } else {
+            group
+                .events
+                .iter()
+                .enumerate()
+                .map(|(idx, short_name)| {
+                    let kind = match group
+                        .event_variant_kinds
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(syntax::EventVariantKindAst::Committed)
+                    {
+                        syntax::EventVariantKindAst::Committed => ir::EventVariantKind::Committed,
+                        syntax::EventVariantKindAst::Trace => ir::EventVariantKind::Trace,
+                    };
+                    let fields = group
                         .event_variants
                         .get(idx)
-                        .and_then(|rows| rows.first().map(|f| span_of(f.span))),
-                }
-            })
-            .collect()
-    };
+                        .map(|rows| {
+                            rows.iter()
+                                .map(lower_event_variant_field)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let outbox = events_outbox
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(ir::OutboxMode::None);
+                    ir::EventVariant {
+                        name: short_name.clone(),
+                        kind,
+                        outbox,
+                        fields,
+                        span_ref: group
+                            .event_variants
+                            .get(idx)
+                            .and_then(|rows| rows.first().map(|f| span_of(f.span))),
+                    }
+                })
+                .collect()
+        };
 
     ir::EventGroup {
         pattern: group.pattern.clone(),
@@ -5463,9 +5098,7 @@ fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
     match expr {
         syntax::PolicyExprAst::Authenticated => ir::PolicyExpr::Authenticated,
         syntax::PolicyExprAst::HasRole(name) => ir::PolicyExpr::HasRole(name.clone()),
-        syntax::PolicyExprAst::HasPermission(perm) => {
-            ir::PolicyExpr::HasPermission(perm.clone())
-        }
+        syntax::PolicyExprAst::HasPermission(perm) => ir::PolicyExpr::HasPermission(perm.clone()),
         syntax::PolicyExprAst::Atom(atom) => ir::PolicyExpr::Atom(ir::PolicyAtom {
             namespace: atom.namespace.clone(),
             name: atom.name.clone(),
@@ -5698,14 +5331,15 @@ fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorTo
 }
 
 fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
-    let parsed = weight
-        .value
-        .trim()
-        .parse::<u16>()
-        .map_err(|_| AnalyzeError::DesignWeightInvalid {
-            name: weight.name.clone(),
-            value: weight.value.clone(),
-        })?;
+    let parsed =
+        weight
+            .value
+            .trim()
+            .parse::<u16>()
+            .map_err(|_| AnalyzeError::DesignWeightInvalid {
+                name: weight.name.clone(),
+                value: weight.value.clone(),
+            })?;
     Ok(ir::WeightToken {
         name: weight.name.clone(),
         value: parsed,
@@ -5780,11 +5414,11 @@ fn has_top_level_comma(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use lazuli_syntax::{parse_document, parse_lzx_document};
+    use lazuli_syntax::parse_lzx_document;
 
     use super::{
-        AnalyzeError, lower_auth_identity, lower_document, lower_lzx_document,
-        parse_query_filter_line, type_ref_from_syntax,
+        AnalyzeError, lower_auth_identity, lower_lzx_document, parse_query_filter_line,
+        type_ref_from_syntax,
     };
 
     #[test]
@@ -5888,62 +5522,6 @@ mod tests {
         } else {
             panic!("expected Comparison");
         }
-    }
-
-    #[test]
-    fn lowers_valid_document_to_ir() {
-        let document = parse_document(include_str!(
-            "../../../examples/anti-patterns/crm-aggregate-dialect.lzi"
-        ))
-        .unwrap();
-        let module = lower_document(&document).unwrap();
-
-        assert_eq!(module.features.len(), 1);
-        let feature = &module.features[0];
-        assert_eq!(feature.name, "crm");
-        assert_eq!(feature.resources.len(), 2);
-
-        let customer = &feature.resources[0];
-        assert_eq!(customer.name, "Customer");
-        assert_eq!(customer.fields[1].name, "email");
-        assert!(customer.fields[1].unique);
-    }
-
-    #[test]
-    fn rejects_unknown_field_references() {
-        let source = r#"
-            aggregate Customer {
-              name: Text
-
-              command Create {
-                input email
-                policy customer.create
-              }
-            }
-        "#;
-
-        let document = parse_document(source).unwrap();
-        let error = lower_document(&document).unwrap_err();
-
-        assert!(matches!(error, AnalyzeError::UnknownField { .. }));
-    }
-
-    #[test]
-    fn rejects_commands_without_policy() {
-        let source = r#"
-            aggregate Customer {
-              name: Text
-
-              command Create {
-                input name
-              }
-            }
-        "#;
-
-        let document = parse_document(source).unwrap();
-        let error = lower_document(&document).unwrap_err();
-
-        assert!(matches!(error, AnalyzeError::MissingCommandPolicy { .. }));
     }
 
     #[test]
@@ -6069,15 +5647,18 @@ surface customer web
         assert!(defaults.span_ref.is_some());
 
         let route_guard = module.routes[0].guard.as_ref().unwrap();
-        assert_eq!(&route_guard.policy[..], vec!["@policy.admin_only".to_owned()].as_slice());
         assert_eq!(
-            route_guard.on_unauthenticated.as_deref(),
-            Some("/sign-in")
+            &route_guard.policy[..],
+            vec!["@policy.admin_only".to_owned()].as_slice()
         );
+        assert_eq!(route_guard.on_unauthenticated.as_deref(), Some("/sign-in"));
         assert!(route_guard.span_ref.is_some());
 
         let view_guard = module.experiences[0].views[0].guard.as_ref().unwrap();
-        assert_eq!(&view_guard.policy[..], vec!["@policy.admin_only".to_owned()].as_slice());
+        assert_eq!(
+            &view_guard.policy[..],
+            vec!["@policy.admin_only".to_owned()].as_slice()
+        );
         assert_eq!(view_guard.on_unauthorized.as_deref(), Some("/"));
         assert!(view_guard.span_ref.is_some());
 
@@ -6105,11 +5686,19 @@ surface customer web
             .experiences
             .iter()
             .find(|experience| experience.name == "customer_auth")
-            .and_then(|experience| experience.views.iter().find(|view| view.name == "enable_mfa"))
+            .and_then(|experience| {
+                experience
+                    .views
+                    .iter()
+                    .find(|view| view.name == "enable_mfa")
+            })
             .and_then(|view| view.guard.as_ref())
             .expect("full-capsule enable_mfa guard");
 
-        assert_eq!(&guard.policy[..], vec!["@policy.update".to_owned()].as_slice());
+        assert_eq!(
+            &guard.policy[..],
+            vec!["@policy.update".to_owned()].as_slice()
+        );
         assert_eq!(guard.on_unauthenticated.as_deref(), Some("/login"));
 
         let first = serde_json::to_string_pretty(&module).unwrap();
@@ -7058,7 +6647,10 @@ feature payments
         match &failed.kind {
             ir::EmitPredicateKind::In { path, literals } => {
                 assert_eq!(path, "payload.status");
-                assert_eq!(literals, &vec!["rejected".to_owned(), "cancelled".to_owned()]);
+                assert_eq!(
+                    literals,
+                    &vec!["rejected".to_owned(), "cancelled".to_owned()]
+                );
             }
             other => panic!("expected In, got {:?}", other),
         }
@@ -7470,7 +7062,10 @@ design example
 ";
         let design = lower_design_source(source);
         assert_eq!(design.typography.families[0].name, "sans");
-        assert_eq!(design.typography.families[0].value, "Inter, system-ui, sans-serif");
+        assert_eq!(
+            design.typography.families[0].value,
+            "Inter, system-ui, sans-serif"
+        );
         assert_eq!(design.typography.scale[0].size, "1rem");
         assert_eq!(design.typography.scale[0].line_height, "1.5rem");
         // u16 parse.
@@ -7505,10 +7100,10 @@ design example
 ";
         let ast = parse_design_document(source).unwrap();
         let err = lower_design(&ast).unwrap_err();
-        assert!(matches!(
-            err,
-            AnalyzeError::DesignColorHexInvalid { .. }
-        ), "got {err:?}");
+        assert!(
+            matches!(err, AnalyzeError::DesignColorHexInvalid { .. }),
+            "got {err:?}"
+        );
     }
 
     #[test]
@@ -7881,7 +7476,10 @@ mod surface_lowering_tests {
                 name: "search".into()
             }
         );
-        assert_eq!(search.free_text_target, Some(ir::BindingRef::SelectionScalar));
+        assert_eq!(
+            search.free_text_target,
+            Some(ir::BindingRef::SelectionScalar)
+        );
     }
 
     #[test]
@@ -8219,10 +7817,7 @@ feature account
                 assert_eq!(field, "handle");
                 assert!(rule.starts_with("min="), "expected min rule, got {}", rule);
             }
-            other => panic!(
-                "expected DefaultViolatesConstraint, got: {:?}",
-                other.err()
-            ),
+            other => panic!("expected DefaultViolatesConstraint, got: {:?}", other.err()),
         }
     }
 
@@ -8259,7 +7854,10 @@ feature post
         let result = super::lower_feature_skeleton(&features[0]);
         match result {
             Err(AnalyzeError::InlineValidatorRangeInvariant {
-                field, rule, low, high,
+                field,
+                rule,
+                low,
+                high,
             }) => {
                 assert_eq!(field, "score");
                 assert_eq!(rule, "min>max");
@@ -8286,7 +7884,10 @@ feature score
         let result = super::lower_feature_skeleton(&features[0]);
         match result {
             Err(AnalyzeError::InlineValidatorRangeInvariant {
-                field, rule, low, high,
+                field,
+                rule,
+                low,
+                high,
             }) => {
                 assert_eq!(field, "points");
                 assert_eq!(rule, "between");
@@ -8452,7 +8053,9 @@ feature account
         let result = super::lower_feature_skeleton(&features[0]);
         match result {
             Err(AnalyzeError::InlineValidatorPatternCompile {
-                field, pattern, reason,
+                field,
+                pattern,
+                reason,
             }) => {
                 assert_eq!(field, "handle");
                 assert_eq!(pattern, "^a(");
@@ -8478,7 +8081,9 @@ feature account
         let result = super::lower_feature_skeleton(&features[0]);
         match result {
             Err(AnalyzeError::InlineValidatorPatternCompile {
-                field, pattern, reason,
+                field,
+                pattern,
+                reason,
             }) => {
                 assert_eq!(field, "handle");
                 assert_eq!(pattern, "^a)");
@@ -8534,10 +8139,7 @@ feature billing
                 "user".to_owned(),
             ]
         );
-        assert_eq!(
-            feature.uses_versions,
-            vec![Some(2), None, Some(1), Some(1)]
-        );
+        assert_eq!(feature.uses_versions, vec![Some(2), None, Some(1), Some(1)]);
         assert_eq!(feature.uses_spans.len(), 4);
         // First two lines and last line have distinct spans.
         assert_ne!(feature.uses_spans[0], feature.uses_spans[1]);
