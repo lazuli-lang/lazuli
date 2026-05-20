@@ -221,6 +221,18 @@ func redactingReplaceAttr(redactKeys []string) func([]string, slog.Attr) slog.At
 		_ = groups
 		if _, ok := redact[strings.ToLower(a.Key)]; ok {
 			a.Value = slog.StringValue("[REDACTED]")
+			return a
+		}
+		// TODO(@plugin/pii-scan): once the root lazuli -> observability import
+		// cycle is split, wrap direct hot sites too: http.go writeError,
+		// handle_db_errors.go classifyDBError, and eventbus.go subscriber errors.
+		switch a.Value.Kind() {
+		case slog.KindString:
+			a.Value = slog.StringValue(Active().Redact(a.Value.String()))
+		case slog.KindAny:
+			if err, ok := a.Value.Any().(error); ok {
+				a.Value = slog.StringValue(Active().Redact(err.Error()))
+			}
 		}
 		return a
 	}
