@@ -15,8 +15,9 @@ type AdapterRef = string
 type Adapter interface{}
 
 var (
-	adapterMu       sync.RWMutex
-	adapterRegistry = map[AdapterRef]Adapter{}
+	adapterMu         sync.RWMutex
+	adapterRegistry   = map[AdapterRef]Adapter{}
+	adapterBootLocked bool
 )
 
 // ErrAdapterMissing signals that generated code referenced an adapter that was
@@ -27,10 +28,30 @@ var ErrAdapterMissing = errors.New("lazuli: adapter not registered")
 // Plugin packages call this from init():
 //
 //	func init() { lazuli.RegisterAdapter("@plugin/mercadopago", &MercadoPagoAdapter{}) }
+//
+// SECURITY (FR SEC-C3): duplicate registrations panic to prevent
+// supply-chain init()-shadowing hijack. After Boot() locks the
+// registry, further RegisterAdapter calls also panic — the only
+// valid registration window is the init() phase before main().
 func RegisterAdapter(ref AdapterRef, impl Adapter) {
 	adapterMu.Lock()
 	defer adapterMu.Unlock()
+	if adapterBootLocked {
+		panic("lazuli: RegisterAdapter called after Boot() — supply-chain attempt blocked: " + ref)
+	}
+	if _, exists := adapterRegistry[ref]; exists {
+		panic("lazuli: duplicate adapter registration for " + ref + " — likely supply-chain hijack")
+	}
 	adapterRegistry[ref] = impl
+}
+
+// LockAdapterRegistry seals the registry against further
+// RegisterAdapter calls. Call from lazuli.Boot() after all
+// init() blocks have run.
+func LockAdapterRegistry() {
+	adapterMu.Lock()
+	defer adapterMu.Unlock()
+	adapterBootLocked = true
 }
 
 // ResolveAdapter returns the adapter for a ref, or an error when unregistered.
