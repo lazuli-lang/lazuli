@@ -110,7 +110,8 @@ pub struct LzxRouteGuardDefaults {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LzxViewGuard {
-    pub policy: String,
+    // FIXME: AP-IR-1 sibling lifts view guard policy from one atom to a list.
+    pub policy: Vec<String>,
     pub on_unauthenticated: Option<String>,
     pub on_unauthorized: Option<String>,
     pub requires_lifecycle: Option<LzxRequiresLifecycle>,
