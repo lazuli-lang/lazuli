@@ -333,6 +333,9 @@ fn emit_command(
         lifecycle_transition.as_ref(),
         &scope_bindings,
     );
+    let transition_advances =
+        transition_advances_for_triggers(feature, &command.effect, command_trigger_names(command));
+    emit_transition_advances(p, &transition_advances);
 
     // Emits block.
     if !command.emits.is_empty() {
@@ -775,6 +778,16 @@ struct LifecycleCommand<'a> {
     transition: &'a LifecycleTransition,
 }
 
+struct TransitionAdvanceLiteral<'a> {
+    from: &'a str,
+    to: &'a str,
+}
+
+fn command_trigger_names(_command: &Command) -> &[String] {
+    // FIXME: drop after CTB-IR-1 merge; use command.triggers directly.
+    &[]
+}
+
 fn lifecycle_transition_for<'a>(
     feature: &'a Feature,
     command: &Command,
@@ -798,6 +811,61 @@ fn lifecycle_transition_for<'a>(
                 transition,
             })
         })
+}
+
+fn transition_advances_for_triggers<'a>(
+    feature: &'a Feature,
+    effect: &CommandEffect,
+    triggers: &'a [String],
+) -> Vec<TransitionAdvanceLiteral<'a>> {
+    if triggers.is_empty() {
+        return Vec::new();
+    }
+
+    let resource_name = match effect {
+        CommandEffect::Updates(update) => update.resource.name.as_str(),
+        _ => return Vec::new(),
+    };
+    let Some(lifecycle) = feature
+        .resources
+        .iter()
+        .find(|resource| resource.name == resource_name)
+        .and_then(|resource| resource.lifecycle.as_ref())
+    else {
+        return Vec::new();
+    };
+
+    triggers
+        .iter()
+        .filter_map(|trigger| {
+            let transition = lifecycle
+                .transitions
+                .iter()
+                .find(|transition| transition.name == *trigger)?;
+            Some(TransitionAdvanceLiteral {
+                from: transition.from.first().map(String::as_str).unwrap_or(""),
+                to: transition.to.as_str(),
+            })
+        })
+        .collect()
+}
+
+fn emit_transition_advances(p: &mut GoPrinter, transitions: &[TransitionAdvanceLiteral<'_>]) {
+    if transitions.is_empty() {
+        return;
+    }
+
+    p.line("Transitions: []lazuli.TransitionAdvance{");
+    p.indent();
+    for transition in transitions {
+        p.line(&format!(
+            "{{From: \"{}\", To: \"{}\"}},",
+            escape_string(transition.from),
+            escape_string(transition.to)
+        ));
+    }
+    p.dedent();
+    p.line("},");
 }
 
 fn emit_lifecycle_machines(p: &mut GoPrinter, feature: &Feature) -> bool {
@@ -2727,6 +2795,89 @@ mod tests {
         assert!(out.contains(
             "// lifecycle: newState, err := publicationLifecycle.Apply(ctx, current.Status, \"begin_publishing\")"
         ));
+    }
+
+    #[test]
+    fn command_triggers_emit_transition_advances_in_order() {
+        let mut feature = base_feature("publication");
+        let mut resource = simple_resource("Publication");
+        resource.lifecycle = Some(Lifecycle {
+            discriminator_field: "lifecycle_state".to_owned(),
+            generated_enum: "PublicationState".to_owned(),
+            states: vec![
+                LifecycleState {
+                    name: "basic_details_pending".to_owned(),
+                    kind: LifecycleStateKind::Initial,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "address_pending".to_owned(),
+                    kind: LifecycleStateKind::Intermediate,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "review_pending".to_owned(),
+                    kind: LifecycleStateKind::Intermediate,
+                    span_ref: None,
+                },
+            ],
+            transitions: vec![
+                LifecycleTransition {
+                    name: "T1".to_owned(),
+                    from: vec!["basic_details_pending".to_owned()],
+                    to: "address_pending".to_owned(),
+                    policy: None,
+                    audit: None,
+                    timestamps: None,
+                    emits: Vec::new(),
+                    requires: None,
+                    tests: None,
+                    previous_names: Vec::new(),
+                    span_ref: None,
+                },
+                LifecycleTransition {
+                    name: "T2".to_owned(),
+                    from: vec!["address_pending".to_owned()],
+                    to: "review_pending".to_owned(),
+                    policy: None,
+                    audit: None,
+                    timestamps: None,
+                    emits: Vec::new(),
+                    requires: None,
+                    tests: None,
+                    previous_names: Vec::new(),
+                    span_ref: None,
+                },
+            ],
+            invariants: Vec::new(),
+            invariant_handlers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        });
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("advance_publication");
+        cmd.kind = CommandKind::Update;
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Publication"),
+            assignments: Vec::new(),
+        });
+        let triggers = vec!["T1".to_owned(), "T2".to_owned()];
+
+        let transitions = transition_advances_for_triggers(&feature, &cmd.effect, &triggers);
+        let mut p = GoPrinter::new();
+        emit_transition_advances(&mut p, &transitions);
+        let out = p.finish();
+
+        assert!(out.contains("Transitions: []lazuli.TransitionAdvance{"));
+        let first = "{From: \"basic_details_pending\", To: \"address_pending\"},";
+        let second = "{From: \"address_pending\", To: \"review_pending\"},";
+        assert!(out.contains(first), "first trigger pair missing:\n{out}");
+        assert!(out.contains(second), "second trigger pair missing:\n{out}");
+        assert!(
+            out.find(first) < out.find(second),
+            "trigger order should be preserved:\n{out}"
+        );
     }
 
     #[test]
