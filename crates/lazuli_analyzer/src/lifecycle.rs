@@ -204,6 +204,7 @@ fn lower_transition_command(
         handler: None,
         tests: lower_tests(&transition.tests, transition.span),
         triggers: Vec::new(),
+        synthesized_from_cap_file: None,
         previous_names: transition.previously.clone(),
         span_ref: Some(span_of(transition.span)),
     }

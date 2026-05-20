@@ -1203,6 +1203,13 @@ pub struct Command {
     /// See docs/proposals/ir-command-transition-binding.md.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggers: Vec<String>,
+    /// FR-3a — marker set on commands that the analyzer synthesized
+    /// from a `@cap.File(...)` field on a per-user resource. `None`
+    /// for author-written commands. Codegen reads this to wire the
+    /// auto-photo runtime helper instead of expecting a hand-rolled
+    /// handler. See docs/proposals/fileref-jsonb-fr3-design.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthesized_from_cap_file: Option<SynthesizedFromCapFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -6109,6 +6116,29 @@ pub enum Gate {
     Behind { feature: String },
     /// `gate quota plan.limit: <name>` — counter check.
     Quota { limit: String },
+}
+
+/// FR-3a — marker carried on commands the analyzer auto-derived from
+/// a `@cap.File(...)` resource field. Records the source field's
+/// coordinates so codegen can wire the runtime auto-photo helper
+/// without re-walking the IR.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SynthesizedFromCapFile {
+    /// Resource name (PascalCase) carrying the `@cap.File` field.
+    pub resource: String,
+    /// Field name (snake_case) on the resource.
+    pub field: String,
+    /// Which of the 4 canonical command roles this is.
+    pub role: AutoPhotoCommandRole,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoPhotoCommandRole {
+    Request,
+    Confirm,
+    Clear,
+    GetUrl,
 }
 
 #[cfg(test)]
