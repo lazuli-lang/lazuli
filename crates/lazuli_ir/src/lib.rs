@@ -6775,7 +6775,7 @@ mod l0_6_ir_tests {
         let requires = RequiresLifecycle {
             resource: "Host".to_string(),
             state: "complete".to_string(),
-            span: Some(lifecycle_span),
+            span_ref: Some(lifecycle_span),
         };
         let guard = ViewGuard {
             policy: "@policy.host_only".to_string(),
@@ -6798,20 +6798,20 @@ mod l0_6_ir_tests {
                 ResumeArm {
                     kind: ResumeArmKind::None,
                     target_view: "host_onboarding_intermediation".to_string(),
-                    span: Some(resume_span),
+                    span_ref: Some(resume_span),
                 },
                 ResumeArm {
                     kind: ResumeArmKind::State("complete".to_string()),
                     target_view: "host_home".to_string(),
-                    span: None,
+                    span_ref: None,
                 },
                 ResumeArm {
                     kind: ResumeArmKind::Wildcard,
                     target_view: "host_onboarding_intermediation".to_string(),
-                    span: None,
+                    span_ref: None,
                 },
             ],
-            span: Some(resume_span),
+            span_ref: Some(resume_span),
         };
 
         let module = ExperienceModule {
@@ -6848,6 +6848,7 @@ mod l0_6_ir_tests {
                     span_ref: None,
                 }],
                 extensions: Vec::new(),
+                resume_routers: vec![router.clone()],
                 span_ref: None,
             }],
             surfaces: Vec::new(),

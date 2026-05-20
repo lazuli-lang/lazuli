@@ -12674,7 +12674,7 @@ fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
-        resume_routers: Vec::new(),
+            resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),

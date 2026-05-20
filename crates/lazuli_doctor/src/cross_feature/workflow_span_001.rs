@@ -208,6 +208,7 @@ mod tests {
             apis: vec![],
             records: vec![],
             queries: vec![],
+            resume_routers: vec![],
             workflows,
             jobs: vec![],
             webhooks: vec![],

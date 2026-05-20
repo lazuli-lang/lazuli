@@ -125,6 +125,7 @@ mod tests {
             apis: Vec::new(),
             records: Vec::new(),
             queries: Vec::new(),
+            resume_routers: Vec::new(),
             workflows: Vec::new(),
             jobs: Vec::new(),
             webhooks: Vec::new(),
