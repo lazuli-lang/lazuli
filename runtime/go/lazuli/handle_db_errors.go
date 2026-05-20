@@ -2,6 +2,7 @@ package lazuli
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -31,23 +32,38 @@ import (
 func classifyDBError(stage string, err error) *Error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
+		// SECURITY: pgErr.Message must never reach the client envelope; it can
+		// expose constraint, table, and column names. Keep details in logs.
 		switch pgErr.Code {
 		case "23505":
 			return &Error{Status: http.StatusConflict, Code: CodeUniqueViolation,
-				Message: stage + " failed: " + pgErr.Message, MessageKey: CodeUniqueViolation}
+				Message: stage + " failed", MessageKey: CodeUniqueViolation}
 		case "23503":
 			return &Error{Status: http.StatusBadRequest, Code: CodeForeignKeyViolation,
-				Message: stage + " failed: " + pgErr.Message, MessageKey: CodeForeignKeyViolation}
+				Message: stage + " failed", MessageKey: CodeForeignKeyViolation}
 		case "23502":
 			return &Error{Status: http.StatusBadRequest, Code: CodeNotNullViolation,
-				Message: stage + " failed: " + pgErr.Message, MessageKey: CodeNotNullViolation}
+				Message: stage + " failed", MessageKey: CodeNotNullViolation}
 		case "23514":
 			return &Error{Status: http.StatusBadRequest, Code: CodeCheckViolation,
-				Message: stage + " failed: " + pgErr.Message, MessageKey: CodeCheckViolation}
+				Message: stage + " failed", MessageKey: CodeCheckViolation}
+		default:
+			slog.Error("lazuli: unmapped pg error",
+				"stage", stage,
+				"code", pgErr.Code,
+				"message", pgErr.Message,
+				"constraint", pgErr.ConstraintName,
+				"column", pgErr.ColumnName,
+			)
+			return &Error{Status: http.StatusInternalServerError, Code: CodeInternal,
+				Message: stage + " failed"}
 		}
 	}
+	if err != nil {
+		slog.Error("lazuli: unmapped db error", "stage", stage, "err", err.Error())
+	}
 	return &Error{Status: http.StatusInternalServerError, Code: CodeInternal,
-		Message: stage + " failed: " + err.Error()}
+		Message: stage + " failed"}
 }
 
 // ClassifyDBError exposes the shared pgconn classifier to runtime subpackages

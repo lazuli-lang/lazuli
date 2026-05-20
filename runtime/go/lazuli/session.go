@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,17 @@ import (
 // the request runs as the system actor (no user). Without any header the
 // request is anonymous.
 func populateDevSession(r *http.Request, ctx *Ctx) {
+	if os.Getenv("LAZULI_ENV") == "production" {
+		if r.Header.Get("X-Lazuli-Actor") != "" ||
+			r.Header.Get("X-Lazuli-User-ID") != "" ||
+			r.Header.Get("X-Lazuli-Org-ID") != "" ||
+			r.Header.Get("X-Lazuli-Roles") != "" {
+			slog.Warn("lazuli: rejecting dev-session header in production",
+				"remote_addr", r.RemoteAddr)
+		}
+		return
+	}
+
 	if actor := r.Header.Get("X-Lazuli-Actor"); actor == "system" {
 		ctx.Actor = ActorSystem
 		return
