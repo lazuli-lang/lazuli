@@ -88,7 +88,6 @@ lazuli init <path>
 lazuli parse <input>
 lazuli check <input>
 lazuli doctor <input>
-lazuli compile <input> --out <dir>
 lazuli generate go <input> --out <dist> [--module <module>] [--check]
 lazuli generate openapi <input> [--out <file>] [--api-version <version>]
 lazuli inspect <input> --expand=auth,jobs,webhooks
