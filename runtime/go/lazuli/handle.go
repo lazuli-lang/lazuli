@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +27,8 @@ var runCommandTx commandTxRunner = withTx
 //  2. run validators (placeholder; Phase F)
 //  3. open transaction for SQL effects
 //  4. apply effect (insert / update / delete / return)
-//  5. publish events (post-commit, best-effort)
-//  6. write audit (placeholder; later phase)
+//  5. write guaranteed outbox and audit rows
+//  6. publish events (post-commit, best-effort)
 //  7. invalidate caches (placeholder; Phase H)
 //
 // The placeholders exist so the type signatures stay stable; later cuts
@@ -101,6 +102,11 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 			if err := writeGuaranteedOutboxRows(ctx, tx, c.Emits, c.Effect, input, out); err != nil {
 				return err
 			}
+			if c.Audit != nil {
+				if err := writeAuditRow(ctx, tx, c.Name, "allowed"); err != nil {
+					return err
+				}
+			}
 			return nil
 		})
 		if err != nil {
@@ -112,8 +118,6 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	// dispatched by the outbox pump (see runtime/lazuli/events), so
 	// publishEmits skips them.
 	publishEmits(ctx, c.Emits, c.EmitsTrace, c.Effect, input, output)
-
-	// 6. audit (TODO: record according to c.Audit).
 
 	// 7. invalidate caches whose results are now stale.
 	if len(c.Invalidates) > 0 {
@@ -289,6 +293,22 @@ func writeGuaranteedOutboxRows[I, O any](
 		}
 	}
 	return nil
+}
+
+// writeAuditRow inserts a row into lazuli_audit inside the supplied
+// tx so audit emission is transactional with the command effect.
+// Best-effort serialization of tenant id; failures bubble so the
+// command rolls back rather than committing without trail.
+func writeAuditRow(ctx *Ctx, tx pgx.Tx, command, decision string) error {
+	actor := string(ctx.Actor)
+	var tenant *string
+	if ctx.Tenant != nil {
+		s := strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
+		tenant = &s
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO lazuli_audit (command, actor, tenant, decision) VALUES ($1, $2, $3, $4)`,
+		command, actor, tenant, decision)
+	return err
 }
 
 // newEnvelopeID returns a fresh 128-bit hex identifier for the outbox
