@@ -496,10 +496,7 @@ fn parse_lzx_view_guard(
             "view guard blocks use `policy <policy>`",
         ));
     };
-    let policy = rest.trim();
-    if policy.is_empty() {
-        return Err(line_error(header, "`policy` requires a policy reference"));
-    }
+    let policy = parse_lzx_view_guard_policy(header, rest.trim())?;
 
     let child_indent = policy_indent + 2;
     let mut on_unauthenticated = None;
@@ -553,7 +550,7 @@ fn parse_lzx_view_guard(
 
     Ok((
         LzxViewGuard {
-            policy: vec![policy.to_owned()],
+            policy,
             on_unauthenticated,
             on_unauthorized,
             requires_lifecycle: None,
@@ -562,6 +559,48 @@ fn parse_lzx_view_guard(
         },
         index,
     ))
+}
+
+fn parse_lzx_view_guard_policy(
+    line: &SourceLine<'_>,
+    value: &str,
+) -> Result<Vec<String>, ParseError> {
+    if value.is_empty() {
+        return Err(line_error(line, "`policy` requires a policy reference"));
+    }
+
+    if !value.starts_with('[') {
+        return Ok(vec![value.to_owned()]);
+    }
+
+    let Some(inner) = value
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return Err(line_error(
+            line,
+            "`policy` list form is `policy [@policy.a, @policy.b]`",
+        ));
+    };
+    if inner.trim().is_empty() {
+        return Err(line_error(
+            line,
+            "`policy` list requires at least one policy reference",
+        ));
+    }
+
+    let mut policies = Vec::new();
+    for atom in inner.split(',') {
+        let atom = atom.trim();
+        if atom.is_empty() {
+            return Err(line_error(
+                line,
+                "`policy` list has an empty entry; check for trailing/duplicate commas",
+            ));
+        }
+        policies.push(atom.to_owned());
+    }
+    Ok(policies)
 }
 
 fn parse_lzx_redirect_clause(line: &SourceLine<'_>, value: &str) -> Result<String, ParseError> {
@@ -15708,11 +15747,11 @@ surface customer web
         );
 
         let route_guard = document.routes[0].guard.as_ref().unwrap();
-        assert_eq!(route_guard.policy, "@policy.admin_only");
+        assert_eq!(route_guard.policy, vec!["@policy.admin_only"]);
         assert_eq!(route_guard.on_unauthenticated.as_deref(), Some("/sign-in"));
 
         let experience_guard = document.experiences[0].views[0].guard.as_ref().unwrap();
-        assert_eq!(experience_guard.policy, "@policy.admin_only");
+        assert_eq!(experience_guard.policy, vec!["@policy.admin_only"]);
         assert_eq!(experience_guard.on_unauthorized.as_deref(), Some("/"));
 
         let audience = &document.surfaces[0].audiences[0];
@@ -15730,6 +15769,43 @@ surface customer web
                 .and_then(|guard| guard.on_unauthorized.as_deref()),
             Some("/")
         );
+    }
+
+    #[test]
+    fn parses_lzx_audience_policy_single_and_list_rejects_trailing_comma() {
+        let source = r#"
+surface booking web
+  audience host
+    policy @policy.role.host
+  audience signed_in
+    policy [@policy.role.host, @policy.role.traveler]
+"#;
+        let document = parse_lzx_document(source).expect("parses");
+
+        assert_eq!(
+            document.surfaces[0].audiences[0]
+                .guard
+                .as_ref()
+                .unwrap()
+                .policy,
+            vec!["@policy.role.host"]
+        );
+        assert_eq!(
+            document.surfaces[0].audiences[1]
+                .guard
+                .as_ref()
+                .unwrap()
+                .policy,
+            vec!["@policy.role.host", "@policy.role.traveler"]
+        );
+
+        let trailing = r#"
+surface booking web
+  audience signed_in
+    policy [@policy.role.host,]
+"#;
+        let err = parse_lzx_document(trailing).unwrap_err();
+        assert!(err.to_string().contains("empty entry"));
     }
 
     #[test]
