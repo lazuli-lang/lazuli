@@ -124,7 +124,10 @@ mod tests {
             filename: None,
             policy,
             policy_expr: None,
-            rate_limit: rate_limit.map(str::to_owned),
+            // `ir-rate-limit-env-aware` cell 1 — lift the legacy string
+            // fixture parameter through `RateLimitSpec::from_default`.
+            rate_limit: rate_limit
+                .map(|literal| lazuli_ir::RateLimitSpec::from_default(literal.to_owned())),
             audit: None,
             span_ref: None,
         }

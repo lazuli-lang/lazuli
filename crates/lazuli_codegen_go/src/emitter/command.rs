@@ -272,9 +272,14 @@ fn emit_command(
         ),
     ));
     if let Some(rate) = &command.rate_limit {
+        // `ir-rate-limit-env-aware` cell 1 — codegen shim: read only the
+        // default literal; Cell 2 owns the env-qualified emission.
         kv_rows.push((
             "RateLimit:".to_owned(),
-            format!("lazuli.RateLimit(\"{}\"),", escape_string(rate)),
+            format!(
+                "lazuli.RateLimit(\"{}\"),",
+                escape_string(&rate.default)
+            ),
         ));
     }
     if command.audit.is_some() {
@@ -2474,8 +2479,8 @@ mod tests {
         AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
         DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, HandlerRef, IdempotencyKey,
         LetBinding, Lifecycle, LifecycleState, LifecycleStateKind, LifecycleTransition, Module,
-        NamedArg, Path, Policies, QualifiedName, Record, Resource, ReturnsEffect, RetryPolicy,
-        RouteSlot, Tenancy, TypeRef, UpdateEffect,
+        NamedArg, Path, Policies, QualifiedName, RateLimitSpec, Record, Resource, ReturnsEffect,
+        RetryPolicy, RouteSlot, Tenancy, TypeRef, UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -2764,7 +2769,7 @@ mod tests {
             typed_slot("email", BuiltinType::SemanticEmail, true),
         ]);
         cmd.policy = PolicyRef::Atom("@role.admin".to_owned());
-        cmd.rate_limit = Some("30 per hour per ip".to_owned());
+        cmd.rate_limit = Some(RateLimitSpec::from_default("30 per hour per ip".to_owned()));
         cmd.effect = CommandEffect::Creates(CreateEffect {
             resource: local_qname("Customer"),
             from_input: false,

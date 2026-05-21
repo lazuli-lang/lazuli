@@ -139,9 +139,11 @@ fn emit_api(
         ),
     ];
     if let Some(rate_limit) = &api.rate_limit {
+        // `ir-rate-limit-env-aware` cell 1 — codegen shim: read only the
+        // default literal; Cell 2 owns the env-qualified emission.
         kv_rows.push((
             "RateLimit:".to_owned(),
-            format!("\"{}\",", escape_string(rate_limit)),
+            format!("\"{}\",", escape_string(&rate_limit.default)),
         ));
     }
     if let Some(deprecation) = &api.deprecated {
@@ -391,7 +393,7 @@ mod tests {
     use lazuli_ir::{
         AppManifest, BuiltinType, CapabilityRef, Defaults, FileCapability, FileSize,
         FileSizeLiteral, FileVisibility, MimeType, Module, PathRef, Policies, PolicyRef,
-        QualifiedName, Record, Resource,
+        QualifiedName, RateLimitSpec, Record, Resource,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -610,7 +612,7 @@ mod tests {
             TypeRef::Builtin(BuiltinType::CapFile),
         );
         api.policy = PolicyRef::Local("global_read".to_owned());
-        api.rate_limit = Some("10 per hour per user".to_owned());
+        api.rate_limit = Some(RateLimitSpec::from_default("10 per hour per user".to_owned()));
         api.handler = PathRef::authored("./api/export_customers.go");
         feature.apis.push(api);
 
@@ -704,7 +706,7 @@ mod tests {
                 name: "CustomerSummary".to_owned(),
             }),
         );
-        api.rate_limit = Some("60 per minute per user".to_owned());
+        api.rate_limit = Some(RateLimitSpec::from_default("60 per minute per user".to_owned()));
         feature.apis.push(api);
 
         let out = emit(&feature).expect("must emit");
@@ -921,7 +923,9 @@ func init() { lazuli.RegisterApi(&customerSummaryApi) }
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
-    use lazuli_ir::{Api, BuiltinType, Defaults, Module, PathRef, Policies, PolicyRef, TypeRef};
+    use lazuli_ir::{
+        Api, BuiltinType, Defaults, Module, PathRef, Policies, PolicyRef, RateLimitSpec, TypeRef,
+    };
 
     fn feature_with_api() -> Feature {
         Feature {
@@ -956,7 +960,9 @@ mod feature_emit_tests {
                 policy: PolicyRef::Local("read".to_owned()),
                 policy_expr: None,
                 policy_when_denied: None,
-                rate_limit: Some("30 per minute per user".to_owned()),
+                rate_limit: Some(RateLimitSpec::from_default(
+                    "30 per minute per user".to_owned(),
+                )),
                 output: TypeRef::Many(Box::new(TypeRef::Builtin(BuiltinType::Text))),
                 handler: PathRef::authored("./api/list_products.go"),
                 locale_negotiate: None,

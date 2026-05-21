@@ -23,8 +23,8 @@ use lazuli_codegen_go::{
 use lazuli_ir::{
     AppLocale, AppLogging, AppManifest, AppTracing, Assignment, BuiltinType, Command,
     CommandEffect, CommandInput, CommandKind, CreateEffect, Defaults, EnumDecl, EnumVariant, Expr,
-    Feature, Field, FieldConstraints, Module, Path, Policies, PolicyRef, QualifiedName, Resource,
-    SourceMap, SpanRef, StorageValue, TypeRef, TypedSlot,
+    Feature, Field, FieldConstraints, Module, Path, Policies, PolicyRef, QualifiedName,
+    RateLimitSpec, Resource, SourceMap, SpanRef, StorageValue, TypeRef, TypedSlot,
 };
 
 fn empty_feature(name: &str) -> Feature {
@@ -821,7 +821,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         policy_expr: None,
         policy_when_denied: None,
         emits: vec!["customer_created".to_owned()],
-        rate_limit: Some("30 per hour per ip".to_owned()),
+        rate_limit: Some(RateLimitSpec::from_default("30 per hour per ip".to_owned())),
         audit: None,
         approval: None,
         invalidates: Vec::new(),
