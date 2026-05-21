@@ -13,7 +13,7 @@ type Middleware func(http.Handler) http.Handler
 //	handler := lazuli.Chain(
 //		lazuli.RequestIDMiddleware,
 //		lazuli.RecoverMiddleware,
-//		lazuli.RateLimitMiddleware("60 per minute per ip"),
+//		lazuli.RateLimitMiddleware(lazuli.RateLimitFromDefault("60 per minute per ip")),
 //	)(routerHandler)
 func Chain(mws ...Middleware) Middleware {
 	return func(next http.Handler) http.Handler {

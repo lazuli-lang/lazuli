@@ -17,21 +17,21 @@ func TestParseRateLimit(t *testing.T) {
 	}{
 		{
 			name:      "hour per ip",
-			input:     "30 per hour per ip",
+			input:     RateLimit{Default: "30 per hour per ip"},
 			wantRate:  30.0 / 3600.0,
 			wantBurst: 30,
 			wantKey:   RateLimitKeyIP,
 		},
 		{
 			name:      "multi minute global",
-			input:     "5 per 10 minutes",
+			input:     RateLimit{Default: "5 per 10 minutes"},
 			wantRate:  5.0 / 600.0,
 			wantBurst: 5,
 			wantKey:   RateLimitKeyGlobal,
 		},
 		{
 			name:      "day per org",
-			input:     "1 per day per org",
+			input:     RateLimit{Default: "1 per day per org"},
 			wantRate:  1.0 / 86400.0,
 			wantBurst: 1,
 			wantKey:   RateLimitKeyOrg,
@@ -59,15 +59,15 @@ func TestParseRateLimit(t *testing.T) {
 
 func TestParseRateLimitMalformed(t *testing.T) {
 	for _, input := range []RateLimit{
-		"",
-		"per hour",
-		"0 per minute",
-		"5 every minute",
-		"5 per fortnight",
-		"5 per minute per team",
+		{Default: ""},
+		{Default: "per hour"},
+		{Default: "0 per minute"},
+		{Default: "5 every minute"},
+		{Default: "5 per fortnight"},
+		{Default: "5 per minute per team"},
 	} {
 		if _, err := ParseRateLimit(input); !errors.Is(err, ErrRateLimitMalformed) {
-			t.Fatalf("ParseRateLimit(%q) error = %v, want ErrRateLimitMalformed", input, err)
+			t.Fatalf("ParseRateLimit(%v) error = %v, want ErrRateLimitMalformed", input, err)
 		}
 	}
 }
@@ -83,7 +83,7 @@ func TestRateLimitMiddlewareAllowsBurst(t *testing.T) {
 	activeStore = newInMemoryStore()
 
 	calls := 0
-	handler := RateLimitMiddleware("2 per hour per ip", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := RateLimitMiddleware(RateLimitFromDefault("2 per hour per ip"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -106,7 +106,7 @@ func TestRateLimitMiddlewareAllowsBurst(t *testing.T) {
 func TestRateLimitMiddlewareOverflowReturns429(t *testing.T) {
 	activeStore = newInMemoryStore()
 
-	handler := RateLimitMiddleware("1 per hour per ip", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := RateLimitMiddleware(RateLimitFromDefault("1 per hour per ip"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 

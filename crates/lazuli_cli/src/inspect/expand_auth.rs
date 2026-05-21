@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Defaults, FieldRef,
-        Policies, QualifiedName,
+        Policies, QualifiedName, RateLimitSpec,
     };
 
     fn module_with_features(features: Vec<Feature>) -> Module {
@@ -184,7 +184,7 @@ mod tests {
                 algorithm: "argon2id".to_owned(),
                 hash: "@fn.hash_customer_password".to_owned(),
                 verify: "@fn.verify_customer_password".to_owned(),
-                rate_limit: Some("5 per 10 minutes".to_owned()),
+                rate_limit: Some(RateLimitSpec::from_default("5 per 10 minutes")),
             }),
             sessions: Some(AuthSessions {
                 resource: QualifiedName {

@@ -98,9 +98,9 @@ const (
 	TenancyCustom
 )
 
-// RateLimit is a rate-limit policy declared at command/api/agent level.
-// Format mirrors the DSL string ("30 per hour per ip", "20 per hour per user").
-type RateLimit string
+// `RateLimit` is declared in `rate_limit.go` per the
+// `ir-rate-limit-env-aware` proposal — it carries `Default` + env
+// overrides, with `Resolve()` picking the active limit per request.
 
 // Duration is a Lazuli duration literal: "30s", "10m", "1h", "7d", "7y".
 type Duration string

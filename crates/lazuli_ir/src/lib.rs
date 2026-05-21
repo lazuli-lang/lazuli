@@ -21,17 +21,24 @@ pub use encryption::{
     EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
 
-/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.15.0 by
-/// Phase L Tier 4b — additive `Command.rate_limit`, `Command.audit`,
-/// `Command.approval`, `Command.invalidates`, `Command.external_calls`,
-/// plus the new `Api`, `AuditSpec`, `ApprovalSpec`, `ApprovalThen`,
-/// `InvalidatesSpec`, and `Feature.apis` types. The `JobDeclarative`
-/// spine moves from `raw_target`/`raw_lets`/`raw_effect` strings to
-/// typed `target: Option<TargetExpr>`, `lets: Vec<LetBinding>`,
-/// `effect: CommandEffect` (the canonical Phase 1a shape). All field
-/// additions carry `#[serde(default, skip_serializing_if = "…")]` so
-/// 0.14.0 fixtures deserialize unchanged.
-pub const LZIR_SCHEMA: &str = "0.15.0";
+/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.16.0 by
+/// `ir-rate-limit-env-aware`: the `rate_limit` slot on Command,
+/// AuthSessions.PasswordConfig, Agent, Api, and Report changes from
+/// `Option<String>` to `Option<RateLimitSpec>` (carrying default +
+/// env-qualified overrides). Backward-compat: the legacy single-line
+/// shape lowers to `RateLimitSpec { default: "X", by_env: [] }`. JSON
+/// shape additive minor — pre-0.16.0 fixtures need re-lowering, but
+/// generated callers reading `default` see the same string.
+///
+/// Previous: 0.15.0 — Phase L Tier 4b additive `Command.rate_limit`,
+/// `Command.audit`, `Command.approval`, `Command.invalidates`,
+/// `Command.external_calls`, plus the new `Api`, `AuditSpec`,
+/// `ApprovalSpec`, `ApprovalThen`, `InvalidatesSpec`, and
+/// `Feature.apis` types. The `JobDeclarative` spine moves from
+/// `raw_target`/`raw_lets`/`raw_effect` strings to typed
+/// `target: Option<TargetExpr>`, `lets: Vec<LetBinding>`, `effect:
+/// CommandEffect` (the canonical Phase 1a shape).
+pub const LZIR_SCHEMA: &str = "0.16.0";
 
 pub type FileId = u16;
 
@@ -153,6 +160,77 @@ pub struct PublicContract {
     pub version: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// `ir-rate-limit-env-aware` — environment-qualified rate-limit spec.
+///
+/// The `rate_limit` slot on Command / Query / Api / Agent / Report /
+/// AuthSessions.PasswordConfig holds an optional `RateLimitSpec`. A
+/// single source line `rate_limit "5 per 10 minutes per ip"` lowers
+/// to `RateLimitSpec { default: "5 per 10 minutes per ip", by_env: [] }`;
+/// additional `rate_limit "X" in dev, staging, test` lines accumulate
+/// into `by_env`. See `docs/proposals/ir-rate-limit-env-aware.md` §4.1.
+///
+/// `default` is the unqualified throttle (Empty string is a sentinel
+/// for "no throttle" — lowered from `"unlimited"` per §4.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimitSpec {
+    pub default: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub by_env: Vec<RateLimitByEnv>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+impl RateLimitSpec {
+    /// Backward-compat lowering: produce a `RateLimitSpec` from a
+    /// legacy single-line `rate_limit "X"` (no env qualification).
+    pub fn from_default(default: impl Into<String>) -> Self {
+        Self {
+            default: default.into(),
+            by_env: Vec::new(),
+            span_ref: None,
+        }
+    }
+}
+
+/// One env-qualified override entry — `rate_limit "X" in dev, staging`
+/// lowers to a single `RateLimitByEnv` with `envs = [Dev, Staging]` and
+/// `limit = "X"`. The `"unlimited"` keyword lowers `limit` to the empty
+/// string (sentinel: no throttle for that env).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimitByEnv {
+    pub envs: Vec<EnvName>,
+    pub limit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of env identifiers (proposal §4.3). `Dev` and `Local`
+/// are equivalent aliases; the runtime treats both `LAZULI_ENV=dev` and
+/// `LAZULI_ENV=local` symmetrically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnvName {
+    Production,
+    Staging,
+    Test,
+    Dev,
+    Local,
+}
+
+impl EnvName {
+    /// Lowercase string form matching `LAZULI_ENV` values; what codegen
+    /// emits into the `Envs` slice of the generated Go literal.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EnvName::Production => "production",
+            EnvName::Staging => "staging",
+            EnvName::Test => "test",
+            EnvName::Dev => "dev",
+            EnvName::Local => "local",
+        }
+    }
 }
 
 /// A module is the IR root. It groups the optional app operational manifest
@@ -1352,10 +1430,12 @@ pub struct Command {
     pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub emits: Vec<String>,
-    /// Phase L Tier 4b — `rate_limit "<N per period per scope>"` literal.
-    /// Captured verbatim and parsed by adapters.
+    /// Phase L Tier 4b + `ir-rate-limit-env-aware` — `rate_limit "<N per
+    /// period per scope>"` literal plus optional env-qualified overrides.
+    /// A single source line lowers to `RateLimitSpec { default, by_env: [] }`;
+    /// `rate_limit "X" in dev, test` adds a `RateLimitByEnv` entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<String>,
+    pub rate_limit: Option<RateLimitSpec>,
     /// Phase L Tier 4b — `audit <subject>, <subject>, ...` with optional
     /// `emit_to <event_group>` child.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5438,10 +5518,11 @@ pub struct AuthPassword {
     /// `hash @fn.hash_customer_password` — extension fn reference.
     pub hash: String,
     pub verify: String,
-    /// `rate_limit "5 per 10 minutes"` — declarative throttle string parsed by
-    /// the auth adapter.
+    /// `rate_limit "5 per 10 minutes"` — declarative throttle parsed by
+    /// the auth adapter. Carries an env-qualified spec per
+    /// `ir-rate-limit-env-aware`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<String>,
+    pub rate_limit: Option<RateLimitSpec>,
 }
 
 /// `theft_detection_action <verb>` — what the runtime does when a revoked
@@ -5653,7 +5734,7 @@ pub struct Agent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<String>,
+    pub rate_limit: Option<RateLimitSpec>,
     pub output_kind: AgentOutputKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_type: Option<TypeRef>,
@@ -5742,7 +5823,7 @@ pub struct Api {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_when_denied: Option<TranslationKeyRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<String>,
+    pub rate_limit: Option<RateLimitSpec>,
     /// `output <TypeRef>` — required for canonical APIs today. Captured
     /// as a `TypeRef` so `@cap.File(...)` outputs project the same way
     /// as command outputs.
@@ -5791,7 +5872,7 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExpr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<String>,
+    pub rate_limit: Option<RateLimitSpec>,
     /// Canonical audit block reused from commands/queries/jobs/webhooks.
     /// v0.2 forbids `emit_to` on reports; the doctor layer rejects.
     #[serde(default, skip_serializing_if = "Option::is_none")]

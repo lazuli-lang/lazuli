@@ -272,9 +272,14 @@ fn emit_command(
         ),
     ));
     if let Some(rate) = &command.rate_limit {
+        // `ir-rate-limit-env-aware` Cell 2 — emit the env-qualified
+        // `lazuli.RateLimit` struct shape. The runtime's `Resolve()`
+        // picks the active limit per request against `LAZULI_ENV`.
+        // Printer is at indent_level=1 inside the Command literal, so
+        // continuation lines get one absolute tab prefix.
         kv_rows.push((
             "RateLimit:".to_owned(),
-            format!("lazuli.RateLimit(\"{}\"),", escape_string(rate)),
+            format!("{},", format_rate_limit_struct(rate, "\t")),
         ));
     }
     if command.audit.is_some() {
@@ -2235,6 +2240,82 @@ fn escape_string(raw: &str) -> String {
 #[allow(dead_code)]
 fn _returns_effect_compiles(_: ReturnsEffect) {}
 
+/// `ir-rate-limit-env-aware` Cell 2 — emit the env-qualified
+/// `lazuli.RateLimit` struct literal for Command / Api / Agent /
+/// Report consumers. The string fragment slots in after `RateLimit:`
+/// on an aligned kv row (no trailing comma so the caller appends one);
+/// when `by_env` is non-empty, the fragment carries embedded newlines
+/// where each continuation line is prefixed by `continuation_indent`
+/// so it lines up under the container's struct fields.
+///
+/// `continuation_indent` is the absolute tab prefix for lines AFTER
+/// the first (the printer adds its own `indent_level` to the first
+/// line via `p.line(...)`). For the Command emitter at
+/// `indent_level == 1`, callers pass `"\t"` so child lines like
+/// `\t\tDefault: "..."` line up one tab deeper than `RateLimit:`.
+///
+/// Shapes (proposal §7.2 + cell 2 spec):
+///  * default only, non-empty             → `lazuli.RateLimit{Default: "X"}`
+///  * default + by_env entries            → multi-line struct literal
+///  * default empty AND by_env empty      → `lazuli.RateLimit{}`
+///
+/// The runtime's `Resolve()` resolves the active limit at request time
+/// against `LAZULI_ENV`; empty Default + empty ByEnv == no throttle.
+pub(super) fn format_rate_limit_struct(
+    rate_limit: &lazuli_ir::RateLimitSpec,
+    continuation_indent: &str,
+) -> String {
+    if rate_limit.by_env.is_empty() {
+        // Compact one-liner — matches the legacy single-`rate_limit "X"`
+        // path so backward-compat fixtures emit a stable single line.
+        if rate_limit.default.is_empty() {
+            return "lazuli.RateLimit{}".to_owned();
+        }
+        return format!(
+            "lazuli.RateLimit{{Default: \"{}\"}}",
+            escape_string(&rate_limit.default)
+        );
+    }
+    // Multi-line struct literal: the IR carries env-qualified entries.
+    // Per RULE-VOCAB-04 the emission is read-through: each by_env entry
+    // appears verbatim so authors reading `*.gen.go` see the full
+    // resolution table.
+    //
+    // Layout (with continuation_indent = "\t"):
+    //   RateLimit: lazuli.RateLimit{
+    //   \t\tDefault: "X",
+    //   \t\tByEnv: []lazuli.RateLimitByEnv{
+    //   \t\t\t{Envs: []string{"dev"}, Limit: "..."},
+    //   \t\t},
+    //   \t},
+    let mut out = String::new();
+    out.push_str("lazuli.RateLimit{\n");
+    out.push_str(continuation_indent);
+    out.push_str("\tDefault: \"");
+    out.push_str(&escape_string(&rate_limit.default));
+    out.push_str("\",\n");
+    out.push_str(continuation_indent);
+    out.push_str("\tByEnv: []lazuli.RateLimitByEnv{\n");
+    for entry in &rate_limit.by_env {
+        out.push_str(continuation_indent);
+        out.push_str("\t\t{Envs: []string{");
+        let envs: Vec<String> = entry
+            .envs
+            .iter()
+            .map(|e| format!("\"{}\"", e.as_str()))
+            .collect();
+        out.push_str(&envs.join(", "));
+        out.push_str("}, Limit: \"");
+        out.push_str(&escape_string(&entry.limit));
+        out.push_str("\"},\n");
+    }
+    out.push_str(continuation_indent);
+    out.push_str("\t},\n");
+    out.push_str(continuation_indent);
+    out.push('}');
+    out
+}
+
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
@@ -2472,10 +2553,11 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
-        DeleteEffect, DeprecationReplacement, EnumLiteral, Feature, HandlerRef, IdempotencyKey,
-        LetBinding, Lifecycle, LifecycleState, LifecycleStateKind, LifecycleTransition, Module,
-        NamedArg, Path, Policies, QualifiedName, Record, Resource, ReturnsEffect, RetryPolicy,
-        RouteSlot, Tenancy, TypeRef, UpdateEffect,
+        DeleteEffect, DeprecationReplacement, EnumLiteral, EnvName, Feature, HandlerRef,
+        IdempotencyKey, LetBinding, Lifecycle, LifecycleState, LifecycleStateKind,
+        LifecycleTransition, Module, NamedArg, Path, Policies, QualifiedName, RateLimitByEnv,
+        RateLimitSpec, Record, Resource, ReturnsEffect, RetryPolicy, RouteSlot, Tenancy, TypeRef,
+        UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -2764,7 +2846,7 @@ mod tests {
             typed_slot("email", BuiltinType::SemanticEmail, true),
         ]);
         cmd.policy = PolicyRef::Atom("@role.admin".to_owned());
-        cmd.rate_limit = Some("30 per hour per ip".to_owned());
+        cmd.rate_limit = Some(lazuli_ir::RateLimitSpec::from_default("30 per hour per ip"));
         cmd.effect = CommandEffect::Creates(CreateEffect {
             resource: local_qname("Customer"),
             from_input: false,
@@ -2796,7 +2878,7 @@ mod tests {
         assert!(out.contains("Name:      \"customer.create\","));
         assert!(out.contains("Resource:  &customerResource,"));
         assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
-        assert!(out.contains("RateLimit: lazuli.RateLimit(\"30 per hour per ip\"),"));
+        assert!(out.contains("RateLimit: lazuli.RateLimit{Default: \"30 per hour per ip\"},"));
         // Effect block — Creates with two FromInput bindings.
         assert!(out.contains("Effect: lazuli.Creates(&customerResource, lazuli.Bindings{"));
         assert!(out.contains("\"name\": lazuli.FromInput(\"name\"),"));
@@ -4388,6 +4470,125 @@ mod tests {
         assert!(
             out.contains("// Wire Logout as `func(ctx *lazuli.Ctx, input struct{}) (struct{}, error)`"),
             "handler signature comment should match the (struct{{}}, error) shape, got:\n{out}"
+        );
+    }
+
+    // `ir-rate-limit-env-aware` Cell 2 — codegen emission tests.
+
+    #[test]
+    fn rate_limit_default_only_emits_compact_struct_literal() {
+        // Backward-compat: legacy single-line `rate_limit "X"` source
+        // lowers to `RateLimitSpec { default: "X", by_env: [] }` and
+        // emits the compact one-liner struct literal so existing
+        // fixtures are byte-stable.
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "name".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "name"])),
+            }],
+        });
+        cmd.rate_limit = Some(RateLimitSpec::from_default("5 per 10 minutes per ip"));
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("RateLimit: lazuli.RateLimit{Default: \"5 per 10 minutes per ip\"},"),
+            "compact single-line shape expected for default-only spec, got:\n{out}"
+        );
+        // No multi-line `ByEnv` block in the compact shape.
+        assert!(
+            !out.contains("ByEnv: []lazuli.RateLimitByEnv"),
+            "unexpected ByEnv block in default-only emission:\n{out}"
+        );
+    }
+
+    #[test]
+    fn rate_limit_with_by_env_emits_multi_line_struct_literal() {
+        // The 22+ playwright trigger case: production strict + dev /
+        // staging / test loose. Emission must list every env-qualified
+        // entry verbatim (RULE-VOCAB-04 read-through).
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("register");
+        cmd.input = CommandInput::Typed(vec![typed_slot("email", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "email".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "email"])),
+            }],
+        });
+        cmd.rate_limit = Some(RateLimitSpec {
+            default: "5 per 10 minutes per ip".to_owned(),
+            by_env: vec![RateLimitByEnv {
+                envs: vec![EnvName::Dev, EnvName::Staging, EnvName::Test],
+                limit: "1000 per 10 minutes per ip".to_owned(),
+                span_ref: None,
+            }],
+            span_ref: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        // The opening of the struct literal sits on the kv-aligned line.
+        assert!(
+            out.contains("RateLimit: lazuli.RateLimit{"),
+            "multi-line struct opening missing, got:\n{out}"
+        );
+        // Default + ByEnv block emitted with absolute indentation so
+        // gofmt accepts the file without rewriting.
+        assert!(
+            out.contains("\t\tDefault: \"5 per 10 minutes per ip\","),
+            "Default row not at expected indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\t\tByEnv: []lazuli.RateLimitByEnv{"),
+            "ByEnv slice declaration missing, got:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "{Envs: []string{\"dev\", \"staging\", \"test\"}, Limit: \"1000 per 10 minutes per ip\"},"
+            ),
+            "by-env entry not emitted verbatim, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn rate_limit_with_unlimited_keyword_emits_empty_string_limit() {
+        // The `"unlimited"` keyword lowers to an empty `limit` string
+        // (proposal §4.4). Codegen pastes the empty string verbatim;
+        // the runtime's `IsUnlimited()` reads the empty as "no throttle".
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("register");
+        cmd.input = CommandInput::Typed(vec![typed_slot("email", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "email".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "email"])),
+            }],
+        });
+        cmd.rate_limit = Some(RateLimitSpec {
+            default: "5 per 10 minutes per ip".to_owned(),
+            by_env: vec![RateLimitByEnv {
+                envs: vec![EnvName::Test],
+                limit: String::new(), // "unlimited" lowered.
+                span_ref: None,
+            }],
+            span_ref: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("{Envs: []string{\"test\"}, Limit: \"\"},"),
+            "unlimited (empty string) by-env entry missing, got:\n{out}"
         );
     }
 }

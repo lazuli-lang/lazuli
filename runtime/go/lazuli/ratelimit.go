@@ -68,12 +68,22 @@ func SetTrustedProxies(cidrs []netip.Prefix) {
 }
 
 // RateLimitMiddleware returns an http.Handler that gates next by the declared
-// rate-limit string. When the bucket is empty, it returns 429 Too Many
-// Requests with a Retry-After header.
+// rate-limit policy. When the resolved bucket is empty (no throttle for
+// the active env), the middleware short-circuits to `next`. When the
+// bucket is exhausted, it returns 429 Too Many Requests with a
+// Retry-After header.
 //
-//	handler = lazuli.RateLimitMiddleware("5 per 10 minutes per ip", next)
+// `ir-rate-limit-env-aware` Cell 2: `limit.Resolve()` runs ONCE per
+// middleware instance via `sync.Once`. If the host process rotates
+// `LAZULI_ENV` (uncommon), the middleware needs to be re-installed.
+// Per-request resolution lives on the Command pipeline
+// (`handle.go:Handle`) where it matches the runtime's existing
+// `LAZULI_ENV` read patterns (CORS, session injection).
+//
+//	handler = lazuli.RateLimitMiddleware(lazuli.RateLimitFromDefault("5 per 10 minutes per ip"), next)
 func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
-	if strings.TrimSpace(string(limit)) == "" {
+	resolved := limit.Resolve()
+	if strings.TrimSpace(resolved) == "" {
 		return next
 	}
 
@@ -85,7 +95,7 @@ func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		once.Do(func() {
-			spec, err = ParseRateLimit(limit)
+			spec, err = parseRateLimitString(resolved)
 		})
 		if err != nil {
 			writeError(w, r, &Error{
@@ -117,11 +127,20 @@ func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
 }
 
 // ParseRateLimit exposes the parser for callers that want to inspect a
-// RateLimit declaration without wiring an HTTP handler. Supported forms are
-// "<N> per <window> [per <key>]" and "<N> per <M> <window> [per <key>]".
-// Window units are second/minute/hour/day, with plural forms accepted.
+// RateLimit declaration without wiring an HTTP handler. Resolves the
+// active env first (Cell 2) and parses the resulting string. Supported
+// forms are "<N> per <window> [per <key>]" and
+// "<N> per <M> <window> [per <key>]". Window units are
+// second/minute/hour/day, with plural forms accepted.
 func ParseRateLimit(s RateLimit) (RateLimitSpec, error) {
-	normalized := strings.Join(strings.Fields(strings.ToLower(string(s))), " ")
+	return parseRateLimitString(s.Resolve())
+}
+
+// parseRateLimitString runs the underlying spec parser on a pre-resolved
+// rate-limit literal. Exposed internally so the middleware can resolve
+// once and pass the resulting string verbatim.
+func parseRateLimitString(s string) (RateLimitSpec, error) {
+	normalized := strings.Join(strings.Fields(strings.ToLower(s)), " ")
 	if normalized == "" {
 		return RateLimitSpec{}, ErrRateLimitMalformed
 	}

@@ -2240,7 +2240,7 @@ fn build_auto_photo_command(
         policy_expr: None,
         policy_when_denied: None,
         emits: Vec::new(),
-        rate_limit: Some(rate_limit.to_owned()),
+        rate_limit: Some(ir::RateLimitSpec::from_default(rate_limit)),
         audit: Some(AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
@@ -3693,7 +3693,7 @@ fn default_synth_command(rate_limit: &str) -> ir::Command {
         policy_expr: None,
         policy_when_denied: None,
         emits: Vec::new(),
-        rate_limit: Some(rate_limit.to_owned()),
+        rate_limit: Some(ir::RateLimitSpec::from_default(rate_limit)),
         audit: Some(ir::AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
@@ -5295,7 +5295,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         policy_expr,
         policy_when_denied,
         emits,
-        rate_limit: c.rate_limit.clone(),
+        rate_limit: c.rate_limit.as_deref().map(ir::RateLimitSpec::from_default),
         audit,
         approval,
         invalidates,
@@ -5415,7 +5415,7 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         policy,
         policy_expr,
         policy_when_denied: None,
-        rate_limit: a.rate_limit.clone(),
+        rate_limit: a.rate_limit.as_deref().map(ir::RateLimitSpec::from_default),
         output: type_ref_from_text(&a.output),
         handler,
         locale_negotiate: a.locale_negotiate.as_ref().map(lower_locale_negotiate_decl),
@@ -5500,7 +5500,7 @@ fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Repor
         filename,
         policy,
         policy_expr,
-        rate_limit: r.rate_limit.clone(),
+        rate_limit: r.rate_limit.as_deref().map(ir::RateLimitSpec::from_default),
         audit,
         span_ref: Some(span_of(r.span)),
     })
@@ -6887,7 +6887,7 @@ fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
         algorithm: password.algorithm.clone(),
         hash: password.hash.clone(),
         verify: password.verify.clone(),
-        rate_limit: password.rate_limit.clone(),
+        rate_limit: password.rate_limit.as_deref().map(ir::RateLimitSpec::from_default),
     }
 }
 
@@ -7017,7 +7017,7 @@ pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, An
         context: None, // Phase 1 parser does not yet structure context expressions.
         policy,
         policy_when_denied: None,
-        rate_limit: agent.rate_limit.clone(),
+        rate_limit: agent.rate_limit.as_deref().map(ir::RateLimitSpec::from_default),
         output_kind,
         output_type,
         output_discriminator,
@@ -8489,7 +8489,10 @@ feature customer_auth
         assert_eq!(password.algorithm, "argon2id");
         assert_eq!(password.hash, "@fn.hash_customer_password");
         assert_eq!(password.verify, "@fn.verify_customer_password");
-        assert_eq!(password.rate_limit.as_deref(), Some("5 per 10 minutes"));
+        assert_eq!(
+            password.rate_limit.as_ref().map(|r| r.default.as_str()),
+            Some("5 per 10 minutes")
+        );
 
         let mfa = auth.mfa.as_ref().expect("mfa");
         assert_eq!(mfa.method, "totp");
@@ -11069,7 +11072,7 @@ mod conventions_crud_synth_tests {
             other => panic!("expected Creates effect, got {:?}", other),
         }
         assert_eq!(
-            create.rate_limit.as_deref(),
+            create.rate_limit.as_ref().map(|r| r.default.as_str()),
             Some("100 per 10 minutes per ip")
         );
         assert!(matches!(&create.policy, ir::PolicyRef::Local(p) if p == "authenticated"));

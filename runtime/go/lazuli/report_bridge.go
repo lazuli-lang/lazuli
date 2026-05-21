@@ -23,7 +23,12 @@ func init() {
 		return EvalPolicy(newRequestCtx(r), Policy{Atoms: liftReportAtoms(atoms)})
 	})
 	report.SetRateLimiter(func(limit string, next http.Handler) http.Handler {
-		return RateLimitMiddleware(RateLimit(limit), next)
+		// `report.Contract.RateLimit` is a plain string in the report
+		// subpackage; wrap it as a `RateLimit{Default: limit}` so the
+		// middleware's `Resolve()` returns the same literal for every
+		// env. Env-aware report limits would extend `report.Contract`
+		// in a follow-up.
+		return RateLimitMiddleware(RateLimit{Default: limit}, next)
 	})
 }
 

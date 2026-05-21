@@ -124,7 +124,7 @@ mod tests {
             filename: None,
             policy,
             policy_expr: None,
-            rate_limit: rate_limit.map(str::to_owned),
+            rate_limit: rate_limit.map(lazuli_ir::RateLimitSpec::from_default),
             audit: None,
             span_ref: None,
         }

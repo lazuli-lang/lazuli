@@ -44,7 +44,7 @@ func TestRateLimitEnforcedInHandle(t *testing.T) {
 	cmd := Command[struct{}, struct{}]{
 		Name:      "account.login",
 		Policy:    Policy{Atoms: []PolicyAtom{{Namespace: "scope", Name: "public"}}},
-		RateLimit: "1 per hour per actor",
+		RateLimit: RateLimit{Default: "1 per hour per actor"},
 		Effect: Returns(func(ctx *Ctx, input struct{}) (struct{}, error) {
 			calls++
 			return struct{}{}, nil

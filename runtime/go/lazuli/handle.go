@@ -43,13 +43,18 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	}
 
 	// SECURITY (SEC-H3): enforce Command.RateLimit if declared. The IR
-	// stores the literal e.g. "30 per 10 minutes per ip"; parse + check
-	// against the active rate-limit Store. Failing the check returns 429
-	// to the client.
-	if strings.TrimSpace(string(c.RateLimit)) != "" {
-		spec, err := parseRateLimitSpec(string(c.RateLimit))
+	// stores the env-qualified spec (default + by_env entries); resolve
+	// once per request against `LAZULI_ENV` and apply the active limit.
+	// Failing the check returns 429 to the client.
+	//
+	// `ir-rate-limit-env-aware` Cell 2: `c.RateLimit.Resolve()` is a
+	// linear scan over `ByEnv` (at most 5 entries). Empty resolved
+	// limit == no throttle — short-circuit before parsing.
+	resolvedLimit := c.RateLimit.Resolve()
+	if strings.TrimSpace(resolvedLimit) != "" {
+		spec, err := parseRateLimitSpec(resolvedLimit)
 		if err != nil {
-			slog.Error("lazuli: malformed rate_limit literal", "command", c.Name, "spec", c.RateLimit, "err", err)
+			slog.Error("lazuli: malformed rate_limit literal", "command", c.Name, "spec", resolvedLimit, "err", err)
 			// Continue without enforcement — fail-open on parse error because
 			// malformed specs are config bugs, not attacks.
 		} else {
