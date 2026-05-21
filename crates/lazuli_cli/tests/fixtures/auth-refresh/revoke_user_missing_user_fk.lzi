@@ -1,5 +1,5 @@
 app AuthRefreshFixture
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   targets
     web react
   environments

@@ -1064,6 +1064,7 @@ impl DoctorPackage {
             self.registry.as_ref().map(|reg| &reg.manifest),
             &self.project_root,
             self.security_profile,
+            self.single_file_input,
         ));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
@@ -3905,6 +3906,7 @@ fn correctness_diagnostics(
     registry: Option<&lazuli_ir::AppRegistry>,
     project_root: &Path,
     security_profile: SecurityProfile,
+    skip_project_migration_check: bool,
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -4064,18 +4066,22 @@ fn correctness_diagnostics(
         }
 
         // @correctness.migration_out_of_sync — warning. Needs the
-        // project root to locate `dist/go/migrations/`.
-        for finding in
-            correctness::schema_migration_present::check(&feature, &fact.path, project_root)
-        {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: correctness::schema_migration_present::Finding::CODE.to_owned(),
-            });
+        // project root to locate `dist/go/migrations/`; single-file
+        // doctor invocations and synthetic test packages have no
+        // project migration tree to compare against.
+        if !skip_project_migration_check {
+            for finding in
+                correctness::schema_migration_present::check(&feature, &fact.path, project_root)
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    message: finding.message(),
+                    path: finding.path,
+                    line: fact.feature_line,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: correctness::schema_migration_present::Finding::CODE.to_owned(),
+                });
+            }
         }
     }
 
@@ -14915,7 +14921,7 @@ mod tests {
         DoctorPackage {
             project_root: PathBuf::from("."),
             security_profile: SecurityProfile::Strict,
-            single_file_input: false,
+            single_file_input: true,
             lazurite_manifest: None,
             files,
             workspace,
@@ -15602,7 +15608,7 @@ surface customer_auth web
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     customer
   targets
@@ -15673,7 +15679,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     customer
   targets
@@ -15774,7 +15780,7 @@ route customer_list
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     customer
   targets
@@ -15838,7 +15844,7 @@ feature customer
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   auth_failed_redirect public_login
   not_found public_not_found
   uses
@@ -15961,7 +15967,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     payments
   bindings
@@ -16008,7 +16014,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     payments
   packs
@@ -16057,7 +16063,7 @@ registry
             "app.lzi",
             r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     payments
   packs
@@ -16092,7 +16098,7 @@ app AcmeCRM
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     customer
   targets
@@ -16148,7 +16154,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     payments
   targets
@@ -16184,7 +16190,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     payments
   bindings
@@ -16234,7 +16240,7 @@ feature payments
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     imports
   bindings
@@ -16290,7 +16296,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     imports
   targets
@@ -16337,7 +16343,7 @@ feature imports
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     imports
   bindings
@@ -16403,7 +16409,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     imports
   targets
@@ -16468,7 +16474,7 @@ profile local
                 "app.lzi",
                 r#"
 app AcmeCRM
-  lazuli_version "0.15"
+  lazuli_version "0.16"
   uses
     customer
     billing
