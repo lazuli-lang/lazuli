@@ -110,7 +110,8 @@ pub struct GoEmitOptions {
     /// §1.1; the CLI usually resolves this before calling.
     pub module_name: Option<String>,
     /// Version constraint emitted in `require lazuli.dev/runtime
-    /// <version>`. Defaults to `LAZULI_GO_VERSION`.
+    /// <version>` for non-workspace generation. Defaults to
+    /// `LAZULI_GO_VERSION`.
     pub lazuli_go_version: String,
     /// Smoke-run flag. Today the emitter ignores this (both modes
     /// build the same `Vec<GeneratedFile>`); the CLI handles the

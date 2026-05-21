@@ -1137,6 +1137,18 @@ pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
 }
 
 fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
+    let raw = ty.trim();
+    // Canonical authoring also allows `list of <Type>` in output and
+    // field positions. This must run before `first_paren_balanced_token`
+    // because that helper intentionally stops at the first whitespace
+    // boundary and would otherwise lower the whole construct as `List`.
+    if let Some(inner) = raw
+        .strip_prefix("list of ")
+        .or_else(|| raw.strip_prefix("List of "))
+    {
+        let inner = type_ref_from_syntax(inner.trim());
+        return ir::TypeRef::Many(Box::new(inner));
+    }
     // Phase L Tier 4 follow-up — the canonical-indent parser captures
     // the whole post-`:` head as `type_text`, including trailing
     // decorator markers like `@pii.contact` that follow the type but
@@ -1144,7 +1156,7 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     // "modifiers"; here we take the first paren-balanced token as the
     // actual type and drop the rest. This matches the behaviour of
     // `parse_resource_field` in the retired doctor walker.
-    let ty = first_paren_balanced_token(ty);
+    let ty = first_paren_balanced_token(raw);
     // Codegen follow-up (2026-05-12) — `Type[]` array form lifts to
     // `TypeRef::Many(<inner>)` so emitters can render `[]<inner>` in
     // their target language. Before this peel, `returns CustomerLtv[]`
@@ -9546,6 +9558,29 @@ feature account
                 assert_eq!(file.signed_ttl.as_deref(), Some("1h"));
             }
             other => panic!("expected Capability::File, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_lowers_list_of_builtin() {
+        let ty = type_ref_from_syntax("list of Text");
+        match ty {
+            ir::TypeRef::Many(inner) => {
+                assert!(matches!(*inner, ir::TypeRef::Builtin(ir::BuiltinType::Text)));
+            }
+            other => panic!("expected Many(Text), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_lowers_list_of_user_defined_with_trailing_decorator() {
+        let ty = type_ref_from_syntax("list of Post @client.visible");
+        match ty {
+            ir::TypeRef::Many(inner) => match *inner {
+                ir::TypeRef::UserDefined(qname) => assert_eq!(qname.name, "Post"),
+                other => panic!("expected Many(Post), got Many({other:?})"),
+            },
+            other => panic!("expected Many(Post), got {other:?}"),
         }
     }
 

@@ -47,8 +47,8 @@ use lazuli_ir::{
 
 use super::imports::ImportSet;
 use super::patterns::{
-    PATTERN_CORS_REGISTER, PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT,
-    emit_pattern_header,
+    emit_pattern_header, PATTERN_CORS_REGISTER, PATTERN_ENCRYPTION_REGISTER,
+    PATTERN_MAIN_ENTRYPOINT,
 };
 use super::printer::GoPrinter;
 use crate::LazuriteManifest;
@@ -97,22 +97,17 @@ pub fn emit_main_go(
     // `<project>/app/features/<feature>/handlers` — different modules
     // resolved through the workspace `go.work use` directive.
     //
-    // Emitted unconditionally per feature: Go's `go build` accepts
-    // anonymous imports of empty packages, and missing handler
-    // packages surface as build errors that point straight at the
-    // gap (vs. silent runtime failures from absent RegisterFn calls).
     let mut handler_imports: BTreeMap<&str, String> = BTreeMap::new();
     let project_module = manifest
         .map(|m| m.project_module.trim())
         .filter(|m| !m.is_empty());
     if let Some(root) = project_module {
-        // Only emit imports for features that actually declare
-        // handlers (commands going through ReturnsFromRegistry,
-        // @fn.X/@hook.X refs, etc.) — features without handlers
-        // don't have an `app/features/<f>/handlers/` directory on
-        // disk and importing them would fail `go build`. The set
-        // is computed by walking the same IR sites
-        // `emit_handler_stubs` uses (single source of truth).
+        // Only emit imports for features that actually declare handler
+        // obligations (commands going through ReturnsFromRegistry,
+        // @fn.X/@hook.X refs, etc.). Features without handlers do not
+        // have an `app/features/<f>/handlers/` directory on disk, and
+        // importing them would fail `go build`. The set is computed by
+        // walking the same IR sites `emit_handler_stubs` uses.
         let features_with_handlers = super::handlers::features_with_handlers(module);
         for feature in &module.features {
             if !features_with_handlers.contains(&feature.name) {
@@ -353,11 +348,11 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     let emit_name = !manifest.name.trim().is_empty();
     let emit_cors_todo = manifest.cors.is_some();
     let emit_routes_todo = false; // `Module.app.routes` is on `ExperienceModule`, not `AppManifest`.
-    // Encryption bucket cycle — emit `var EncryptionBindings = ...`
-    // when the capsule declares one or more `encryption.key @key.<scope>`
-    // bindings. Each binding wires to the runtime registry via an
-    // `init()` block calling `encryption.Register(...)`. See
-    // `docs/proposals/encryption-vocab.md` §Codegen.
+                                  // Encryption bucket cycle — emit `var EncryptionBindings = ...`
+                                  // when the capsule declares one or more `encryption.key @key.<scope>`
+                                  // bindings. Each binding wires to the runtime registry via an
+                                  // `init()` block calling `encryption.Register(...)`. See
+                                  // `docs/proposals/encryption-vocab.md` §Codegen.
     let emit_encryption = !manifest.encryption_bindings.is_empty();
 
     if !emit_locale
@@ -930,6 +925,15 @@ mod tests {
         }
     }
 
+    fn lazurite_manifest(project_module: &str) -> LazuriteManifest {
+        LazuriteManifest {
+            project_module: project_module.to_owned(),
+            plugins: BTreeMap::new(),
+            generate_go: None,
+            dev: None,
+        }
+    }
+
     #[test]
     fn main_go_empty_module_emits_boot_skeleton() {
         let module = module_with(Vec::new(), Some(manifest("test_app")));
@@ -980,6 +984,42 @@ mod tests {
             alpha < zebra,
             "expected alpha import before zebra:\n{}",
             out
+        );
+    }
+
+    #[test]
+    fn main_go_skips_handler_import_for_feature_without_handler_obligation() {
+        let module = module_with(vec![empty_feature("customer")], Some(manifest("test_app")));
+        let manifest = lazurite_manifest("github.com/acme/test-app");
+        let out = emit_main_go(
+            &module,
+            "github.com/acme/test-app/generated",
+            "test_app",
+            Some(&manifest),
+        );
+
+        assert!(
+            !out.contains("github.com/acme/test-app/app/features/customer/handlers"),
+            "feature without @fn/@hook/Returns handler obligation must not import handlers:\n{out}"
+        );
+    }
+
+    #[test]
+    fn main_go_imports_handler_package_for_fn_reference() {
+        let mut customer = empty_feature("customer");
+        customer.uses.push("@fn.risk_score".to_owned());
+        let module = module_with(vec![customer], Some(manifest("test_app")));
+        let manifest = lazurite_manifest("github.com/acme/test-app");
+        let out = emit_main_go(
+            &module,
+            "github.com/acme/test-app/generated",
+            "test_app",
+            Some(&manifest),
+        );
+
+        assert!(
+            out.contains("_ \"github.com/acme/test-app/app/features/customer/handlers\""),
+            "feature with @fn reference must import handler package:\n{out}"
         );
     }
 
