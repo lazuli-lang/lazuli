@@ -256,6 +256,30 @@ pub enum AnalyzeError {
         "OWNER-AXIS-ON-NON-FK: field `{field}: {type_text}` cannot carry `@owner_axis(...)` — annotation is only valid on FK fields (typed as another resource)"
     )]
     OwnerAxisOnNonFk { field: String, type_text: String },
+
+    /// `@correctness.unknown_invalidate_target` — a command invalidates
+    /// a query that is not declared in the resolved target feature.
+    /// Emitted during analyzer resolution so codegen never sees a cache
+    /// invalidation edge it cannot wire.
+    #[error(
+        "command '{cmd}' invalidates '{target}', but no such query is declared in feature '{target_feature}'."
+    )]
+    UnknownInvalidateTarget {
+        cmd: String,
+        target: String,
+        target_feature: String,
+    },
+}
+
+impl AnalyzeError {
+    pub fn diagnostic_code(&self) -> Option<&'static str> {
+        match self {
+            AnalyzeError::UnknownInvalidateTarget { .. } => {
+                Some("@correctness.unknown_invalidate_target")
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Format helper for `AnalyzeError::ConventionsUnknown`. Kept out of
@@ -3821,7 +3845,7 @@ pub fn lower_feature_skeleton(
     let commands = skeleton
         .commands
         .iter()
-        .map(lower_command_decl)
+        .map(|command| lower_command_decl(&skeleton.name, command))
         .collect::<Result<Vec<_>, _>>()?;
     let apis = skeleton.apis.iter().map(lower_api_decl).collect();
     let resources = skeleton
@@ -5213,7 +5237,7 @@ fn lower_rate_limit_literal(literal: &str) -> String {
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
 /// `handler`-only → Returns (the escape hatch case).
-fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
+fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
     let kind = match c.effect.as_ref().map(|e| e.kind) {
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
@@ -5294,7 +5318,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         .invalidates
         .iter()
         .map(|inv| ir::InvalidatesSpec {
-            query: lower_qualified_name(&inv.query),
+            query: lower_invalidates_query_ref(feature, &inv.query),
             args: inv.args.iter().map(lower_named_arg).collect(),
         })
         .collect();
@@ -6791,6 +6815,117 @@ fn lower_qualified_name(text: &str) -> ir::QualifiedName {
     }
 }
 
+/// Lower `invalidates` query refs into the cache-invalidation IR shape.
+/// The authored namespace marker (`query.`) is syntax only:
+///
+/// - `query.foo` -> `<current_feature>.foo`
+/// - `bar.query.baz` -> `bar.baz`
+fn lower_invalidates_query_ref(current_feature: &str, text: &str) -> ir::QualifiedName {
+    let trimmed = text.trim();
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    match parts.as_slice() {
+        ["query", name] if !name.is_empty() => ir::QualifiedName {
+            feature: Some(current_feature.to_owned()),
+            name: (*name).to_owned(),
+        },
+        [feature, "query", name] if !feature.is_empty() && !name.is_empty() => {
+            ir::QualifiedName {
+                feature: Some((*feature).to_owned()),
+                name: (*name).to_owned(),
+            }
+        }
+        [name] if !name.is_empty() => ir::QualifiedName {
+            feature: Some(current_feature.to_owned()),
+            name: (*name).to_owned(),
+        },
+        _ => lower_qualified_name(trimmed),
+    }
+}
+
+/// Analyzer-level resolution for `Command.invalidates`. This pass is
+/// intentionally module-scoped: same-feature refs were normalized during
+/// per-feature lowering, but cross-feature refs can only be validated once
+/// all feature IR is present.
+pub fn resolve_invalidates_targets(module: &mut ir::Module) -> Result<(), AnalyzeError> {
+    normalize_legacy_invalidates_targets(&mut module.features);
+    validate_invalidates_targets(&module.features)
+}
+
+pub fn validate_invalidates_targets(features: &[ir::Feature]) -> Result<(), AnalyzeError> {
+    let index = InvalidatesQueryIndex::from_features(features);
+    for feature in features {
+        for command in &feature.commands {
+            for invalidates in &command.invalidates {
+                let target_feature = invalidates
+                    .query
+                    .feature
+                    .as_deref()
+                    .unwrap_or(feature.name.as_str());
+                if !index.has_query(target_feature, &invalidates.query.name) {
+                    return Err(AnalyzeError::UnknownInvalidateTarget {
+                        cmd: command.name.clone(),
+                        target: invalidates_target_display(&feature.name, &invalidates.query),
+                        target_feature: target_feature.to_owned(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn normalize_legacy_invalidates_targets(features: &mut [ir::Feature]) {
+    for feature in features {
+        for command in &mut feature.commands {
+            for invalidates in &mut command.invalidates {
+                match invalidates.query.feature.as_deref() {
+                    Some("query") | None => {
+                        invalidates.query.feature = Some(feature.name.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn invalidates_target_display(current_feature: &str, query: &ir::QualifiedName) -> String {
+    match query.feature.as_deref() {
+        Some(feature) if feature == current_feature => format!("query.{}", query.name),
+        Some(feature) => format!("{feature}.query.{}", query.name),
+        None => format!("query.{}", query.name),
+    }
+}
+
+struct InvalidatesQueryIndex {
+    queries_by_feature: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+}
+
+impl InvalidatesQueryIndex {
+    fn from_features(features: &[ir::Feature]) -> Self {
+        let queries_by_feature = features
+            .iter()
+            .map(|feature| {
+                (
+                    feature.name.clone(),
+                    feature
+                        .queries
+                        .iter()
+                        .map(|query| query.name().to_owned())
+                        .collect(),
+                )
+            })
+            .collect();
+        Self { queries_by_feature }
+    }
+
+    fn has_query(&self, feature: &str, query: &str) -> bool {
+        self.queries_by_feature
+            .get(feature)
+            .is_some_and(|queries| queries.contains(query))
+    }
+}
+
 /// Capture a freeform expression as a typed `ir::Expr`. Today this
 /// handles five literal shapes (string / integer / bool / nil / enum
 /// or path) plus the v1 `@fn.<name>(<arg>...)` invocation form (closes
@@ -7763,12 +7898,13 @@ fn has_top_level_comma(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use lazuli_syntax::parse_lzx_document;
+    use lazuli_syntax::{parse_feature_skeletons, parse_lzx_document};
 
     use super::{
-        AnalyzeError, lower_audit_block, lower_auth_identity, lower_lzx_document,
-        lower_policy_atom_with_args, lower_validate_line, parse_cap_file_type,
-        parse_query_filter_line, type_ref_from_syntax,
+        AnalyzeError, lower_audit_block, lower_auth_identity, lower_feature_skeleton,
+        lower_lzx_document, lower_policy_atom_with_args, lower_validate_line,
+        parse_cap_file_type, parse_query_filter_line, resolve_invalidates_targets,
+        type_ref_from_syntax,
     };
 
     #[test]
@@ -7871,6 +8007,104 @@ mod tests {
             assert_eq!(right, ir::Expr::Nil);
         } else {
             panic!("expected Comparison");
+        }
+    }
+
+    fn lower_module_for_test(source: &str) -> lazuli_ir::Module {
+        let skeletons = parse_feature_skeletons(source).expect("parses");
+        let features = skeletons
+            .iter()
+            .map(lower_feature_skeleton)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("lowers");
+        lazuli_ir::Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: None,
+            registry: None,
+            profiles: Vec::new(),
+            design: None,
+            rbac: None,
+            features,
+        }
+    }
+
+    #[test]
+    fn invalidates_same_feature_query_ref_lowers_to_current_feature() {
+        let source = r#"
+feature customer
+  domain
+    query.list list
+
+  command save
+    policy @policy.update
+    updates Customer
+    invalidates
+      query.list
+"#;
+        let mut module = lower_module_for_test(source);
+        resolve_invalidates_targets(&mut module).expect("invalidates target resolves");
+
+        let query = &module.features[0].commands[0].invalidates[0].query;
+        assert_eq!(query.feature.as_deref(), Some("customer"));
+        assert_eq!(query.name, "list");
+    }
+
+    #[test]
+    fn invalidates_cross_feature_query_ref_strips_query_marker() {
+        let source = r#"
+feature bar
+  domain
+    query.list baz
+
+feature customer
+  command save
+    policy @policy.update
+    updates Customer
+    invalidates
+      bar.query.baz
+"#;
+        let mut module = lower_module_for_test(source);
+        resolve_invalidates_targets(&mut module).expect("invalidates target resolves");
+
+        let customer = module
+            .features
+            .iter()
+            .find(|feature| feature.name == "customer")
+            .expect("customer feature");
+        let query = &customer.commands[0].invalidates[0].query;
+        assert_eq!(query.feature.as_deref(), Some("bar"));
+        assert_eq!(query.name, "baz");
+    }
+
+    #[test]
+    fn invalidates_unknown_target_reports_correctness_error() {
+        let source = r#"
+feature customer
+  command save
+    policy @policy.update
+    updates Customer
+    invalidates
+      nope.query.x
+"#;
+        let mut module = lower_module_for_test(source);
+        let err = resolve_invalidates_targets(&mut module).unwrap_err();
+
+        assert_eq!(
+            err.diagnostic_code(),
+            Some("@correctness.unknown_invalidate_target")
+        );
+        match err {
+            AnalyzeError::UnknownInvalidateTarget {
+                cmd,
+                target,
+                target_feature,
+            } => {
+                assert_eq!(cmd, "save");
+                assert_eq!(target, "nope.query.x");
+                assert_eq!(target_feature, "nope");
+            }
+            other => panic!("expected UnknownInvalidateTarget, got {other:?}"),
         }
     }
 
@@ -8096,9 +8330,7 @@ route customer_detail
     // Cut A — agent lowering (§4.4 snapshot tests)
     // -------------------------------------------------------------------------
 
-    use super::lower_feature_skeleton;
     use lazuli_ir as ir;
-    use lazuli_syntax::parse_feature_skeletons;
 
     fn lower_first_agent(source: &str) -> ir::Agent {
         let features = parse_feature_skeletons(source).expect("parses");
