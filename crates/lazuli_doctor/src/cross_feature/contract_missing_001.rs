@@ -514,6 +514,7 @@ mod tests {
             invariants: vec![],
             lock: None,
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 

@@ -181,6 +181,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -304,6 +305,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         };
         let feature = mk_feature("bcrypt", resource);
         let findings = check(&feature, Path::new("x.lzi"));

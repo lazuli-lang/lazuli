@@ -166,6 +166,7 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
         lock: None,
 
         composite_key: None,
+        conventions: Vec::new(),
     }
 }
 

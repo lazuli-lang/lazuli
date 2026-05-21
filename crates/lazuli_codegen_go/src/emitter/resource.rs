@@ -1110,6 +1110,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -1608,6 +1609,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         });
 
         let module = Module {
@@ -1923,6 +1925,7 @@ mod feature_emit_tests {
                 invariants: vec![],
                 lock: None,
                 composite_key: None,
+                conventions: Vec::new(),
             }],
             events: Vec::new(),
             rules: Vec::new(),

@@ -440,6 +440,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -795,6 +796,7 @@ mod feature_emit_tests {
             invariants: vec![],
             lock: None,
             composite_key: None,
+            conventions: Vec::new(),
         });
 
         let out = emit_entry_point(&feature).expect("typed file field must emit storage.gen.go");

@@ -475,6 +475,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
         invariants: vec![],
         lock: None,
         composite_key: None,
+        conventions: Vec::new(),
     };
     module.features[0].resources.push(resource);
 
@@ -641,6 +642,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         invariants: vec![],
         lock: None,
         composite_key: None,
+        conventions: Vec::new(),
     });
 
     // Add User on `org` feature.
@@ -674,6 +676,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         invariants: vec![],
         lock: None,
         composite_key: None,
+        conventions: Vec::new(),
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());
@@ -765,6 +768,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         invariants: vec![],
         lock: None,
         composite_key: None,
+        conventions: Vec::new(),
     });
 
     // Command — `customer.create` with typed input + Creates effect.
@@ -1170,6 +1174,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         invariants: vec![],
         lock: None,
         composite_key: None,
+        conventions: Vec::new(),
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());

@@ -2295,6 +2295,600 @@ fn builtin_datetime() -> ir::TypeRef {
     ir::TypeRef::Builtin(ir::BuiltinType::DateTime)
 }
 
+// =============================================================================
+// `conventions [crud]` auto-synthesis pass
+// =============================================================================
+//
+// Spec: `docs/proposals/ir-resource-conventions-crud.md` §5.
+//
+// For each `Resource` with `ConventionRef::Crud` in `conventions`, the
+// pass appends 5 entries to the feature (3 commands + 2 queries) using
+// the shapes from §5.2 through §5.6. Override semantics (§6): any name
+// already authored in the feature is left alone — no warning, no
+// `@deprecated`, no doctor flag. The other 4 still synthesize.
+//
+// RULE-VOCAB-03 (§7) — zero workflow: each synth maps to exactly one
+// of the existing declarative IR shapes (`CommandEffect::Creates` /
+// `Updates` / `Deletes`, `Query::Lookup`, `Query::List`). No new
+// lowering path is introduced; the pass just produces IR nodes the
+// existing emitters already know how to lower to one SQL each.
+//
+// Diagnostics (§11) returned via the `Vec<CrudSynthDiagnostic>` return
+// value — Cell C4 wires them to the user-facing doctor surface.
+
+/// §11 diagnostic codes emitted by `synthesize_conventions`. Cell C4
+/// formats these into user-facing strings; Cell C3 just records them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CrudSynthDiagnostic {
+    /// `crud_synth_policy_not_found` — feature has no `authenticated`
+    /// policy. Carries the resource name for the suggestion.
+    PolicyNotFound { resource: String },
+    /// `crud_synth_no_required_fields` — every required field is in the
+    /// Tenant or Auto group, so `create_<resource>.input` would be
+    /// empty. Likely an authoring mistake.
+    NoRequiredFields { resource: String },
+    /// `crud_synth_signature_mismatch` — author wrote a same-named
+    /// command/query but its input field list or return type diverges
+    /// from the canonical convention shape. Carries the resource +
+    /// synth name + a short reason for Cell C4 to format.
+    SignatureMismatch {
+        resource: String,
+        synth_name: String,
+        reason: String,
+    },
+}
+
+/// Run the `conventions [crud]` auto-synthesis pass on a feature.
+/// Returns the diagnostics from §11; Cell C4 wires the user-facing
+/// rendering. Public so doctor / tests can call it directly.
+pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnostic> {
+    let mut diagnostics: Vec<CrudSynthDiagnostic> = Vec::new();
+    let mut to_add_commands: Vec<ir::Command> = Vec::new();
+    let mut to_add_queries: Vec<ir::Query> = Vec::new();
+
+    let existing_command_names: std::collections::HashSet<String> =
+        feature.commands.iter().map(|c| c.name.clone()).collect();
+    let existing_query_names: std::collections::HashSet<String> = feature
+        .queries
+        .iter()
+        .map(|q| q.name().to_owned())
+        .collect();
+
+    // §5.8 — default policy is the feature's `authenticated` policy.
+    let has_authenticated = feature
+        .policies
+        .categories
+        .iter()
+        .any(|p| p.name == "authenticated");
+
+    for resource in &feature.resources {
+        if !resource.conventions.contains(&ir::ConventionRef::Crud) {
+            continue;
+        }
+
+        // §5.8 — guard: policy `authenticated` must exist.
+        if !has_authenticated {
+            diagnostics.push(CrudSynthDiagnostic::PolicyNotFound {
+                resource: resource.name.clone(),
+            });
+            // We still synthesize with `PolicyRef::Local("authenticated")`
+            // even though it's unresolved — Cell C4 will surface the
+            // diagnostic; the IR shape stays uniform. This mirrors the
+            // FR-3a auto-photo precedent (which returns silently when
+            // no policy is found; here we surface a typed diagnostic
+            // instead).
+        }
+
+        let categorised = categorize_fields(resource);
+
+        // §11 `crud_synth_no_required_fields` — `create.input` would be
+        // empty if every required-on-resource field is Tenant or Auto.
+        // Detect by looking at the create-input list.
+        let create_input_fields = categorised.create_input_fields();
+        if create_input_fields.is_empty() {
+            diagnostics.push(CrudSynthDiagnostic::NoRequiredFields {
+                resource: resource.name.clone(),
+            });
+        }
+
+        let resource_snake = pascal_to_snake(&resource.name);
+
+        // §5.1 — the 5 synth names, in canonical order.
+        let create_name = format!("create_{}", resource_snake);
+        let update_name = format!("update_{}", resource_snake);
+        let delete_name = format!("delete_{}", resource_snake);
+        let lookup_name = format!("lookup_{}", resource_snake);
+        let list_name = format!("list_{}s", resource_snake);
+
+        // §6 — per-name override. If the author wrote the same name we
+        // skip *just that name* with no warning, unless the author's
+        // signature diverges from the canonical shape — that lands the
+        // `crud_synth_signature_mismatch` diagnostic (§11 / §9).
+        //
+        // The `if existing_*.contains(...)` checks below are
+        // authoring-time controls (which synth to add), NOT lowering
+        // control flow over the emitted IR — RULE-VOCAB-03 (§7) is
+        // preserved.
+
+        // 1) create_<resource>
+        if existing_command_names.contains(&create_name) {
+            if let Some(reason) = check_command_signature_mismatch(
+                feature,
+                &create_name,
+                &create_input_fields,
+                CanonicalReturn::CreatesResource(&resource.name),
+            ) {
+                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                    resource: resource.name.clone(),
+                    synth_name: create_name.clone(),
+                    reason,
+                });
+            }
+        } else {
+            to_add_commands.push(build_create_command(
+                &create_name,
+                &resource.name,
+                &create_input_fields,
+            ));
+        }
+
+        // 2) update_<resource>
+        if existing_command_names.contains(&update_name) {
+            let canonical_update_inputs = categorised.update_input_fields();
+            if let Some(reason) = check_command_signature_mismatch(
+                feature,
+                &update_name,
+                &canonical_update_inputs,
+                CanonicalReturn::UpdatesResource(&resource.name),
+            ) {
+                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                    resource: resource.name.clone(),
+                    synth_name: update_name.clone(),
+                    reason,
+                });
+            }
+        } else {
+            to_add_commands.push(build_update_command(
+                &update_name,
+                &resource.name,
+                &categorised.update_input_fields(),
+            ));
+        }
+
+        // 3) delete_<resource>
+        if existing_command_names.contains(&delete_name) {
+            if let Some(reason) = check_command_signature_mismatch(
+                feature,
+                &delete_name,
+                &[],
+                CanonicalReturn::DeletesResource(&resource.name),
+            ) {
+                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                    resource: resource.name.clone(),
+                    synth_name: delete_name.clone(),
+                    reason,
+                });
+            }
+        } else {
+            to_add_commands.push(build_delete_command(&delete_name, &resource.name));
+        }
+
+        // 4) lookup_<resource>
+        if existing_query_names.contains(&lookup_name) {
+            if let Some(reason) = check_query_signature_mismatch(
+                feature,
+                &lookup_name,
+                CanonicalReturn::ReturnsResource(&resource.name),
+            ) {
+                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                    resource: resource.name.clone(),
+                    synth_name: lookup_name.clone(),
+                    reason,
+                });
+            }
+        } else {
+            to_add_queries.push(build_lookup_query(&lookup_name, &resource.name));
+        }
+
+        // 5) list_<resource>s
+        if existing_query_names.contains(&list_name) {
+            if let Some(reason) = check_query_signature_mismatch(
+                feature,
+                &list_name,
+                CanonicalReturn::ReturnsResourceMany(&resource.name),
+            ) {
+                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                    resource: resource.name.clone(),
+                    synth_name: list_name.clone(),
+                    reason,
+                });
+            }
+        } else {
+            to_add_queries.push(build_list_query(&list_name, &resource.name));
+        }
+    }
+
+    feature.commands.extend(to_add_commands);
+    feature.queries.extend(to_add_queries);
+    diagnostics
+}
+
+/// §5.7 field categorisation result. Each field on a resource lands in
+/// exactly one group; `create_input_fields` and `update_input_fields`
+/// project the Required + Optional groups into the canonical input lists
+/// per §5.2 / §5.3.
+struct CategorisedFields<'a> {
+    required: Vec<&'a ir::Field>,
+    optional: Vec<&'a ir::Field>,
+}
+
+impl<'a> CategorisedFields<'a> {
+    /// §5.2 — `create.input` shape: required fields stay required,
+    /// optional fields stay optional. Order matches resource field order.
+    fn create_input_fields(&self) -> Vec<(&'a ir::Field, bool)> {
+        let mut out: Vec<(&'a ir::Field, bool)> = Vec::new();
+        for field in &self.required {
+            out.push((field, true));
+        }
+        for field in &self.optional {
+            out.push((field, false));
+        }
+        out
+    }
+
+    /// §5.3 — `update.input` shape: every non-immutable field becomes
+    /// optional regardless of its required-on-resource flag. Field-by-
+    /// field optional update — fields omitted from input are not touched.
+    fn update_input_fields(&self) -> Vec<(&'a ir::Field, bool)> {
+        let mut out: Vec<(&'a ir::Field, bool)> = Vec::new();
+        for field in &self.required {
+            out.push((field, false));
+        }
+        for field in &self.optional {
+            out.push((field, false));
+        }
+        out
+    }
+}
+
+/// §5.7 — split a resource's fields into Tenant / Auto / Required /
+/// Optional groups. Only Required + Optional are returned (Tenant and
+/// Auto have no presence in the synth input lists).
+fn categorize_fields(resource: &ir::Resource) -> CategorisedFields<'_> {
+    // Detect the `user: User required unique` shape per §5.7.
+    let has_user_unique = resource.fields.iter().any(|f| {
+        f.name == "user"
+            && f.required
+            && f.unique
+            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "User")
+    });
+
+    // Discriminator field is in the Auto group when lifecycle is set.
+    let lifecycle_discriminator: Option<&str> = resource
+        .lifecycle
+        .as_ref()
+        .map(|lc| lc.discriminator_field.as_str());
+
+    let mut required: Vec<&ir::Field> = Vec::new();
+    let mut optional: Vec<&ir::Field> = Vec::new();
+
+    for field in &resource.fields {
+        // Tenant group.
+        let is_tenant = field.name == "org" || (has_user_unique && field.name == "user");
+        // Auto group.
+        let is_auto = matches!(field.name.as_str(), "id" | "created_at" | "updated_at")
+            || lifecycle_discriminator.is_some_and(|d| d == field.name);
+
+        if is_tenant || is_auto {
+            continue;
+        }
+
+        if field.required {
+            required.push(field);
+        } else {
+            optional.push(field);
+        }
+    }
+
+    CategorisedFields { required, optional }
+}
+
+/// Canonical return shape for `crud_synth_signature_mismatch` (§9 / §11).
+/// The carried resource name is read by `check_command_signature_mismatch`
+/// to compare against the author's effect target; the query variants
+/// are matched only on kind today and reserve the name for Cell C4 if
+/// it needs a richer diff message.
+#[allow(dead_code)]
+enum CanonicalReturn<'a> {
+    CreatesResource(&'a str),
+    UpdatesResource(&'a str),
+    DeletesResource(&'a str),
+    ReturnsResource(&'a str),
+    ReturnsResourceMany(&'a str),
+}
+
+/// §11 `crud_synth_signature_mismatch` trigger — compare an authored
+/// command to its canonical convention shape and return a reason string
+/// when the input field list OR the effect/return type diverges.
+/// Returns `None` when the signatures match (no diagnostic). Cell C4
+/// formats `reason` into the user-facing message.
+fn check_command_signature_mismatch(
+    feature: &ir::Feature,
+    name: &str,
+    canonical_inputs: &[(&ir::Field, bool)],
+    canonical_return: CanonicalReturn<'_>,
+) -> Option<String> {
+    let cmd = feature.commands.iter().find(|c| c.name == name)?;
+
+    // Compare effect kind.
+    let effect_matches = match (&cmd.effect, &canonical_return) {
+        (ir::CommandEffect::Creates(e), CanonicalReturn::CreatesResource(name)) => {
+            e.resource.name == *name
+        }
+        (ir::CommandEffect::Updates(e), CanonicalReturn::UpdatesResource(name)) => {
+            e.resource.name == *name
+        }
+        (ir::CommandEffect::Deletes(e), CanonicalReturn::DeletesResource(name)) => {
+            e.resource.name == *name
+        }
+        _ => false,
+    };
+    if !effect_matches {
+        return Some(format!(
+            "effect / target resource diverges from canonical shape for `{}`",
+            name
+        ));
+    }
+
+    // Compare input field names. Order-insensitive set check is enough
+    // here — Cell C4 may surface a richer diff.
+    let canonical_names: std::collections::BTreeSet<String> = canonical_inputs
+        .iter()
+        .map(|(f, _)| f.name.clone())
+        .collect();
+    let author_names: std::collections::BTreeSet<String> = match &cmd.input {
+        ir::CommandInput::Short(names) => names.iter().cloned().collect(),
+        ir::CommandInput::Typed(slots) => slots.iter().map(|s| s.name.clone()).collect(),
+        ir::CommandInput::Empty => std::collections::BTreeSet::new(),
+    };
+    if author_names != canonical_names {
+        return Some(format!(
+            "input field list diverges from canonical shape for `{}`",
+            name
+        ));
+    }
+
+    None
+}
+
+/// §11 `crud_synth_signature_mismatch` trigger for queries. Returns a
+/// reason string when the query's return type diverges from canonical.
+fn check_query_signature_mismatch(
+    feature: &ir::Feature,
+    name: &str,
+    canonical_return: CanonicalReturn<'_>,
+) -> Option<String> {
+    let query = feature.queries.iter().find(|q| q.name() == name)?;
+
+    let ok = match (query, &canonical_return) {
+        (ir::Query::Lookup(_), CanonicalReturn::ReturnsResource(_)) => true,
+        (ir::Query::List(_), CanonicalReturn::ReturnsResourceMany(_)) => true,
+        _ => false,
+    };
+    if ok {
+        None
+    } else {
+        Some(format!(
+            "query kind / return shape diverges from canonical for `{}`",
+            name
+        ))
+    }
+}
+
+/// §5.2 — build `create_<resource>` command IR.
+fn build_create_command(
+    name: &str,
+    resource: &str,
+    input_fields: &[(&ir::Field, bool)],
+) -> ir::Command {
+    ir::Command {
+        name: name.to_owned(),
+        public_contract: None,
+        kind: ir::CommandKind::Create,
+        route: Vec::new(),
+        input: input_to_command_input(input_fields),
+        target: None,
+        lets: Vec::new(),
+        effect: ir::CommandEffect::Creates(ir::CreateEffect {
+            resource: ir::QualifiedName {
+                feature: None,
+                name: resource.to_owned(),
+            },
+            from_input: true,
+            assignments: Vec::new(),
+        }),
+        ..default_synth_command(crud_write_rate_limit())
+    }
+}
+
+/// §5.3 — build `update_<resource>` command IR.
+fn build_update_command(
+    name: &str,
+    resource: &str,
+    input_fields: &[(&ir::Field, bool)],
+) -> ir::Command {
+    ir::Command {
+        name: name.to_owned(),
+        public_contract: None,
+        kind: ir::CommandKind::Update,
+        route: vec![ir::RouteSlot {
+            name: "id".to_owned(),
+            type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
+            from: None,
+            kind: ir::RouteSlotKind::Plain,
+        }],
+        input: input_to_command_input(input_fields),
+        target: None,
+        lets: Vec::new(),
+        effect: ir::CommandEffect::Updates(ir::UpdateEffect {
+            resource: ir::QualifiedName {
+                feature: None,
+                name: resource.to_owned(),
+            },
+            assignments: Vec::new(),
+        }),
+        ..default_synth_command(crud_write_rate_limit())
+    }
+}
+
+/// §5.4 — build `delete_<resource>` command IR.
+fn build_delete_command(name: &str, resource: &str) -> ir::Command {
+    ir::Command {
+        name: name.to_owned(),
+        public_contract: None,
+        kind: ir::CommandKind::Delete,
+        route: vec![ir::RouteSlot {
+            name: "id".to_owned(),
+            type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
+            from: None,
+            kind: ir::RouteSlotKind::Plain,
+        }],
+        input: ir::CommandInput::Empty,
+        target: None,
+        lets: Vec::new(),
+        effect: ir::CommandEffect::Deletes(ir::DeleteEffect {
+            resource: ir::QualifiedName {
+                feature: None,
+                name: resource.to_owned(),
+            },
+        }),
+        ..default_synth_command(crud_write_rate_limit())
+    }
+}
+
+/// §5.5 — build `lookup_<resource>` query IR.
+fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
+    let _ = resource;
+    ir::Query::Lookup(ir::LookupQuery {
+        name: name.to_owned(),
+        public_contract: None,
+        params: Vec::new(),
+        keys: vec![ir::KeyClause {
+            path: ir::Path::from_segments(["id".to_owned()]),
+            equals: ir::Expr::Path(ir::Path::from_segments(["id".to_owned()])),
+        }],
+        scope: Vec::new(),
+        scope_override: false,
+        filters: Vec::new(),
+        policy: ir::PolicyRef::Local("authenticated".to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    })
+}
+
+/// §5.6 — build `list_<resource>s` query IR.
+fn build_list_query(name: &str, resource: &str) -> ir::Query {
+    let _ = resource;
+    ir::Query::List(ir::ListQuery {
+        name: name.to_owned(),
+        public_contract: None,
+        params: vec![
+            ir::TypedSlot {
+                name: "limit".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Integer),
+                required: false,
+                constraints: ir::FieldConstraints::default(),
+            },
+            ir::TypedSlot {
+                name: "offset".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Integer),
+                required: false,
+                constraints: ir::FieldConstraints::default(),
+            },
+        ],
+        scope: Vec::new(),
+        scope_override: false,
+        filters: Vec::new(),
+        order: Vec::new(),
+        // §5.6 default limit 50.
+        paginate: Some(50),
+        modifier: None,
+        cache: None,
+        policy: ir::PolicyRef::Local("authenticated".to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    })
+}
+
+/// Project a `(field, required)` list into a typed `CommandInput`.
+fn input_to_command_input(fields: &[(&ir::Field, bool)]) -> ir::CommandInput {
+    if fields.is_empty() {
+        return ir::CommandInput::Empty;
+    }
+    let slots: Vec<ir::TypedSlot> = fields
+        .iter()
+        .map(|(f, required)| ir::TypedSlot {
+            name: f.name.clone(),
+            type_ref: f.type_ref.clone(),
+            required: *required,
+            constraints: f.constraints.clone(),
+        })
+        .collect();
+    ir::CommandInput::Typed(slots)
+}
+
+/// Common command-shape defaults applied to every synthesized CRUD
+/// command. `policy authenticated`, `audit default`, `rate_limit` set
+/// by the caller (write vs read uses different limits per §5.9).
+fn default_synth_command(rate_limit: &str) -> ir::Command {
+    ir::Command {
+        name: String::new(),
+        public_contract: None,
+        kind: ir::CommandKind::Returns,
+        route: Vec::new(),
+        input: ir::CommandInput::Empty,
+        target: None,
+        lets: Vec::new(),
+        effect: ir::CommandEffect::None,
+        policy: ir::PolicyRef::Local("authenticated".to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        emits: Vec::new(),
+        rate_limit: Some(rate_limit.to_owned()),
+        audit: Some(ir::AuditSpec {
+            subjects: vec!["default".to_owned()],
+            emit_to: None,
+            data_subject: None,
+            record_before: false,
+            record_after: false,
+            retain_for: None,
+        }),
+        approval: None,
+        invalidates: Vec::new(),
+        external_calls: Vec::new(),
+        timeout: None,
+        retry: None,
+        idempotency: None,
+        write_window: None,
+        deprecated: None,
+        handler: None,
+        tests: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+        triggers: Vec::new(),
+        synthesized_from_cap_file: None,
+    }
+}
+
+/// §5.9 — create / update / delete share `rate_limit "100 per 10 minutes per ip"`.
+fn crud_write_rate_limit() -> &'static str {
+    "100 per 10 minutes per ip"
+}
+
 fn pascal_to_snake(s: &str) -> String {
     let mut out = String::new();
     let mut prev: Option<char> = None;
@@ -2498,6 +3092,11 @@ pub fn lower_feature_skeleton(
     };
     lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
     synthesize_auto_photo(&mut feature);
+    // ir-resource-conventions-crud §5: synthesize 5 commands/queries
+    // per resource that opts into `conventions [crud]`. Diagnostics
+    // returned by `synthesize_conventions` are dropped here; Cell C4
+    // will wire them to doctor / inspect surfaces per §11.
+    let _ = synthesize_conventions(&mut feature);
     Ok(feature)
 }
 
@@ -9342,5 +9941,600 @@ mod conventions_unknown_diagnostic_tests {
             !msg.contains("did you mean"),
             "should not invent a suggestion when none was found: {msg}"
         );
+    }
+}
+
+// =============================================================================
+// `conventions [crud]` synthesis pass — Cell C3 tests
+//
+// Spec: `docs/proposals/ir-resource-conventions-crud.md` §5–§11.
+//
+// Tests build `ir::Feature` values programmatically because Cell C2's
+// parser shim for `conventions [crud]` lands in parallel. The synth
+// pass operates on the post-parse IR so direct construction is the
+// canonical surface to exercise here.
+// =============================================================================
+#[cfg(test)]
+mod conventions_crud_synth_tests {
+    use super::{CrudSynthDiagnostic, synthesize_conventions};
+    use lazuli_ir as ir;
+
+    /// Minimal `Feature` for testing — empty defaults, a single
+    /// `authenticated` policy unless the test overrides.
+    fn empty_feature(name: &str, with_authenticated: bool) -> ir::Feature {
+        let policies = if with_authenticated {
+            ir::Policies {
+                categories: vec![ir::PolicyCategory {
+                    name: "authenticated".to_owned(),
+                    atoms: vec!["@scope.authenticated".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                }],
+                fields: Vec::new(),
+                span_ref: None,
+            }
+        } else {
+            ir::Policies::default()
+        };
+        ir::Feature {
+            name: name.to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: ir::Defaults {
+                tenancy: None,
+                timestamps: false,
+                policy: None,
+            },
+            uses: Vec::new(),
+            uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies,
+            errors: None,
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            resume_routers: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            pollers: Vec::new(),
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            reports: Vec::new(),
+            channels: Vec::new(),
+            caches: Vec::new(),
+            aggregates: Vec::new(),
+            mcp_servers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        }
+    }
+
+    fn req_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+        ir::Field {
+            name: name.to_owned(),
+            type_ref,
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            span_ref: None,
+        }
+    }
+
+    fn req_unique_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+        ir::Field {
+            unique: true,
+            ..req_field(name, type_ref)
+        }
+    }
+
+    fn user_qn(name: &str) -> ir::TypeRef {
+        ir::TypeRef::UserDefined(ir::QualifiedName {
+            feature: None,
+            name: name.to_owned(),
+        })
+    }
+
+    fn customer_resource() -> ir::Resource {
+        // §8 worked example: feature customer, resource Customer.
+        ir::Resource {
+            name: "Customer".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field(
+                    "email",
+                    ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail),
+                ),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+                req_field("status", user_qn("CustomerStatus")),
+                req_field("created_at", ir::TypeRef::Builtin(ir::BuiltinType::DateTime)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Crud],
+        }
+    }
+
+    /// §8 worked example — synth produces exactly the 5 entries
+    /// (3 commands + 2 queries) with the exact shapes per §5.2–§5.6.
+    #[test]
+    fn synth_produces_five_entries_for_customer_resource() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.is_empty(),
+            "expected no diagnostics for clean Customer, got {:?}",
+            diags
+        );
+
+        // 3 commands appended: create / update / delete.
+        let cmd_names: Vec<&str> = feature.commands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            cmd_names,
+            vec!["create_customer", "update_customer", "delete_customer"]
+        );
+
+        // 2 queries appended: lookup / list.
+        let q_names: Vec<&str> = feature.queries.iter().map(|q| q.name()).collect();
+        assert_eq!(q_names, vec!["lookup_customer", "list_customers"]);
+
+        // create_customer §5.2 shape — input has [email, name, status]
+        // (org + created_at are Tenant/Auto, dropped).
+        let create = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "create_customer")
+            .unwrap();
+        assert!(matches!(create.kind, ir::CommandKind::Create));
+        match &create.input {
+            ir::CommandInput::Typed(slots) => {
+                let names: Vec<&str> = slots.iter().map(|s| s.name.as_str()).collect();
+                assert_eq!(names, vec!["email", "name", "status"]);
+                // Required-on-resource fields stay required.
+                assert!(slots.iter().all(|s| s.required));
+            }
+            other => panic!("expected Typed input, got {:?}", other),
+        }
+        match &create.effect {
+            ir::CommandEffect::Creates(e) => assert_eq!(e.resource.name, "Customer"),
+            other => panic!("expected Creates effect, got {:?}", other),
+        }
+        assert_eq!(
+            create.rate_limit.as_deref(),
+            Some("100 per 10 minutes per ip")
+        );
+        assert!(matches!(&create.policy, ir::PolicyRef::Local(p) if p == "authenticated"));
+        assert!(create.audit.is_some());
+
+        // update_customer §5.3 — every field becomes optional in input,
+        // route id: ID present, effect Updates Customer.
+        let update = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "update_customer")
+            .unwrap();
+        assert!(matches!(update.kind, ir::CommandKind::Update));
+        assert_eq!(update.route.len(), 1);
+        assert_eq!(update.route[0].name, "id");
+        assert!(matches!(
+            update.route[0].type_ref,
+            ir::TypeRef::Builtin(ir::BuiltinType::Id)
+        ));
+        match &update.input {
+            ir::CommandInput::Typed(slots) => {
+                let names: Vec<&str> = slots.iter().map(|s| s.name.as_str()).collect();
+                assert_eq!(names, vec!["email", "name", "status"]);
+                // All slots optional per §5.3.
+                assert!(slots.iter().all(|s| !s.required));
+            }
+            other => panic!("expected Typed input, got {:?}", other),
+        }
+        match &update.effect {
+            ir::CommandEffect::Updates(e) => assert_eq!(e.resource.name, "Customer"),
+            other => panic!("expected Updates effect, got {:?}", other),
+        }
+
+        // delete_customer §5.4 — no input, route id, Deletes effect.
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_customer")
+            .unwrap();
+        assert!(matches!(delete.kind, ir::CommandKind::Delete));
+        assert_eq!(delete.route.len(), 1);
+        assert_eq!(delete.route[0].name, "id");
+        assert!(matches!(delete.input, ir::CommandInput::Empty));
+        match &delete.effect {
+            ir::CommandEffect::Deletes(e) => assert_eq!(e.resource.name, "Customer"),
+            other => panic!("expected Deletes effect, got {:?}", other),
+        }
+
+        // lookup_customer §5.5 — Lookup with key id, policy authenticated.
+        let lookup = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_customer")
+            .unwrap();
+        match lookup {
+            ir::Query::Lookup(lq) => {
+                assert_eq!(lq.keys.len(), 1);
+                assert_eq!(lq.keys[0].path.segments, vec!["id".to_owned()]);
+                assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "authenticated"));
+            }
+            other => panic!("expected Lookup query, got {:?}", other),
+        }
+
+        // list_customers §5.6 — List with limit+offset params, paginate 50.
+        let list = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "list_customers")
+            .unwrap();
+        match list {
+            ir::Query::List(lq) => {
+                let pnames: Vec<&str> = lq.params.iter().map(|p| p.name.as_str()).collect();
+                assert_eq!(pnames, vec!["limit", "offset"]);
+                assert!(lq.params.iter().all(|p| !p.required));
+                assert_eq!(lq.paginate, Some(50));
+                assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "authenticated"));
+            }
+            other => panic!("expected List query, got {:?}", other),
+        }
+    }
+
+    /// §9 worked override — author wrote `update_customer`; other 4
+    /// still synthesize; no warning emitted.
+    #[test]
+    fn author_override_skips_just_that_name() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+
+        // Author's update_customer: matches canonical input + Updates
+        // Customer (so no signature_mismatch diagnostic should fire).
+        let author_update = ir::Command {
+            name: "update_customer".to_owned(),
+            public_contract: None,
+            kind: ir::CommandKind::Update,
+            route: vec![ir::RouteSlot {
+                name: "id".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
+                from: None,
+                kind: ir::RouteSlotKind::Plain,
+            }],
+            input: ir::CommandInput::Typed(vec![
+                ir::TypedSlot {
+                    name: "email".to_owned(),
+                    type_ref: ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail),
+                    required: false,
+                    constraints: ir::FieldConstraints::default(),
+                },
+                ir::TypedSlot {
+                    name: "name".to_owned(),
+                    type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
+                    required: false,
+                    constraints: ir::FieldConstraints::default(),
+                },
+                ir::TypedSlot {
+                    name: "status".to_owned(),
+                    type_ref: ir::TypeRef::UserDefined(ir::QualifiedName {
+                        feature: None,
+                        name: "CustomerStatus".to_owned(),
+                    }),
+                    required: false,
+                    constraints: ir::FieldConstraints::default(),
+                },
+            ]),
+            target: None,
+            lets: Vec::new(),
+            effect: ir::CommandEffect::Updates(ir::UpdateEffect {
+                resource: ir::QualifiedName {
+                    feature: None,
+                    name: "Customer".to_owned(),
+                },
+                assignments: Vec::new(),
+            }),
+            policy: ir::PolicyRef::Local("customer_admin".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            emits: Vec::new(),
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: Vec::new(),
+            external_calls: Vec::new(),
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            handler: None,
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            triggers: Vec::new(),
+            synthesized_from_cap_file: None,
+        };
+        feature.commands.push(author_update);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.is_empty(),
+            "matching-signature author override should not emit a diagnostic, got {:?}",
+            diags
+        );
+
+        let cmd_names: Vec<&str> = feature.commands.iter().map(|c| c.name.as_str()).collect();
+        assert!(cmd_names.contains(&"create_customer"));
+        assert!(cmd_names.contains(&"delete_customer"));
+        // update_customer present, but appears exactly once (the author's).
+        let update_count = cmd_names.iter().filter(|n| **n == "update_customer").count();
+        assert_eq!(update_count, 1, "update_customer must not be duplicated");
+
+        // The remaining update_customer is the author's — its policy is
+        // `customer_admin`, not `authenticated`.
+        let update = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "update_customer")
+            .unwrap();
+        assert!(matches!(&update.policy, ir::PolicyRef::Local(p) if p == "customer_admin"));
+
+        let q_names: Vec<&str> = feature.queries.iter().map(|q| q.name()).collect();
+        assert!(q_names.contains(&"lookup_customer"));
+        assert!(q_names.contains(&"list_customers"));
+    }
+
+    /// §5.7 edge — resource with `user: User required unique` places
+    /// both `org` and `user` in the Tenant group (neither lands in
+    /// input).
+    #[test]
+    fn user_unique_resource_drops_user_from_inputs() {
+        let mut feature = empty_feature("photoshare", true);
+        feature.resources.push(ir::Resource {
+            name: "PhotoShare".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+                req_field("caption", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Crud],
+        });
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "no diagnostics expected, got {:?}", diags);
+
+        let create = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "create_photo_share")
+            .unwrap();
+        match &create.input {
+            ir::CommandInput::Typed(slots) => {
+                let names: Vec<&str> = slots.iter().map(|s| s.name.as_str()).collect();
+                // org + user are Tenant; only caption remains.
+                assert_eq!(names, vec!["caption"]);
+            }
+            other => panic!("expected Typed input, got {:?}", other),
+        }
+    }
+
+    /// §5.7 edge — resource without a lifecycle block has no discriminator
+    /// to drop. A field named like a discriminator on another resource
+    /// stays in input. Verifies the discriminator-skip is gated on
+    /// `resource.lifecycle` being `Some`.
+    #[test]
+    fn resource_without_lifecycle_keeps_status_field() {
+        let mut feature = empty_feature("customer", true);
+        // Customer above has `status` field; it has NO lifecycle block,
+        // so `status` should land in create / update input.
+        feature.resources.push(customer_resource());
+        let _ = synthesize_conventions(&mut feature);
+
+        let create = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "create_customer")
+            .unwrap();
+        let names: Vec<&str> = match &create.input {
+            ir::CommandInput::Typed(slots) => slots.iter().map(|s| s.name.as_str()).collect(),
+            other => panic!("expected Typed input, got {:?}", other),
+        };
+        assert!(names.contains(&"status"));
+    }
+
+    /// §11 — `crud_synth_no_required_fields` fires when every required
+    /// field is Tenant or Auto. Build a resource with only `org`,
+    /// `id`, `created_at` (all Tenant/Auto).
+    #[test]
+    fn empty_required_emits_no_required_fields_diagnostic() {
+        let mut feature = empty_feature("ledger", true);
+        feature.resources.push(ir::Resource {
+            name: "Ledger".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("id", ir::TypeRef::Builtin(ir::BuiltinType::Id)),
+                req_field("org", user_qn("Org")),
+                req_field("created_at", ir::TypeRef::Builtin(ir::BuiltinType::DateTime)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Crud],
+        });
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags
+                .iter()
+                .any(|d| matches!(d, CrudSynthDiagnostic::NoRequiredFields { resource } if resource == "Ledger")),
+            "expected NoRequiredFields for Ledger, got {:?}",
+            diags
+        );
+    }
+
+    /// §11 — `crud_synth_policy_not_found` fires when the feature has
+    /// no `authenticated` policy. Synth still produces entries with the
+    /// canonical PolicyRef; Cell C4 surfaces the diagnostic to the
+    /// author.
+    #[test]
+    fn missing_authenticated_policy_emits_diagnostic() {
+        let mut feature = empty_feature("customer", false); // no authenticated
+        feature.resources.push(customer_resource());
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags
+                .iter()
+                .any(|d| matches!(d, CrudSynthDiagnostic::PolicyNotFound { resource } if resource == "Customer")),
+            "expected PolicyNotFound for Customer, got {:?}",
+            diags
+        );
+    }
+
+    /// §11 — `crud_synth_signature_mismatch` fires when author wrote
+    /// `update_customer` with a non-canonical input list (e.g., extra
+    /// field).
+    #[test]
+    fn diverging_author_signature_emits_mismatch_diagnostic() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+        // Author wrote update_customer with extra `notes` field — diverges.
+        feature.commands.push(ir::Command {
+            name: "update_customer".to_owned(),
+            public_contract: None,
+            kind: ir::CommandKind::Update,
+            route: vec![ir::RouteSlot {
+                name: "id".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
+                from: None,
+                kind: ir::RouteSlotKind::Plain,
+            }],
+            input: ir::CommandInput::Typed(vec![
+                ir::TypedSlot {
+                    name: "name".to_owned(),
+                    type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
+                    required: false,
+                    constraints: ir::FieldConstraints::default(),
+                },
+                ir::TypedSlot {
+                    name: "notes".to_owned(),
+                    type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
+                    required: false,
+                    constraints: ir::FieldConstraints::default(),
+                },
+            ]),
+            target: None,
+            lets: Vec::new(),
+            effect: ir::CommandEffect::Updates(ir::UpdateEffect {
+                resource: ir::QualifiedName {
+                    feature: None,
+                    name: "Customer".to_owned(),
+                },
+                assignments: Vec::new(),
+            }),
+            policy: ir::PolicyRef::Local("customer_admin".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            emits: Vec::new(),
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: Vec::new(),
+            external_calls: Vec::new(),
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            handler: None,
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            triggers: Vec::new(),
+            synthesized_from_cap_file: None,
+        });
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                CrudSynthDiagnostic::SignatureMismatch { resource, synth_name, .. }
+                    if resource == "Customer" && synth_name == "update_customer"
+            )),
+            "expected SignatureMismatch for update_customer, got {:?}",
+            diags
+        );
+    }
+
+    /// Resource without `conventions [crud]` is a no-op for the synth.
+    #[test]
+    fn resource_without_conventions_is_no_op() {
+        let mut feature = empty_feature("customer", true);
+        let mut r = customer_resource();
+        r.conventions = Vec::new();
+        feature.resources.push(r);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty());
+        assert!(feature.commands.is_empty());
+        assert!(feature.queries.is_empty());
     }
 }
