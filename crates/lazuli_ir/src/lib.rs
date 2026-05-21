@@ -842,8 +842,31 @@ pub struct Field {
     /// This slot lets `@semantic.BrazilianCPF` + `@cap.PII` stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pii: Option<PiiCapability>,
+    /// `ir-resource-conventions-owner-scope` §7.2 — `@owner_axis(through: <col>)`
+    /// field-level annotation. When `Some`, the synth pass (crud / me /
+    /// future bundles) appends an ownership-chain WHERE-clause predicate
+    /// (`<field> IN (SELECT id FROM <fk_target> WHERE <through> = ctx.User.ID)`)
+    /// to every synthesized command/query. Absent = tenant-only scope
+    /// (today's default). Inlined here for O3 inspect/doctor/LSP wiring;
+    /// O1 owns the parser + diagnostic firing, O2 owns the synth-pass
+    /// dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_axis: Option<OwnerAxis>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// `ir-resource-conventions-owner-scope` §7.2 — payload for
+/// `Field.owner_axis`. The annotation has no parameters beyond
+/// `through_column` in this proposal (multi-hop chains are
+/// deferred per §13). Inlined here for O3; O1 owns the parser
+/// wiring + `owner_axis_on_non_fk` diagnostic at parse time.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct OwnerAxis {
+    /// Column on the FK target resource that holds the actor key.
+    /// For Hostpoint's `Property -> Host`, this is `"user"` (the
+    /// column on `host` that holds the `User` ID).
+    pub through_column: String,
 }
 
 /// L0 #3 §10 — inline field constraints. Each slot is `Option` so an

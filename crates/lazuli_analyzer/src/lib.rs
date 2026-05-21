@@ -2278,6 +2278,7 @@ fn simple_field(name: &str, type_ref: ir::TypeRef, required: bool) -> ir::Field 
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
+        owner_axis: None,
         span_ref: None,
     }
 }
@@ -4115,6 +4116,7 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
             .map(|p| strip_previously_mode(p))
             .collect(),
         pii,
+        owner_axis: None,
         span_ref: Some(span_of(f.span)),
     })
 }
@@ -10442,6 +10444,7 @@ mod conventions_crud_synth_tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -11040,6 +11043,7 @@ mod conventions_me_synth_tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
