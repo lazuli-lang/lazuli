@@ -40,7 +40,7 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		return nil, err
 	}
 
-	conds, values, err := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 			Message: "lookup query has no LookupBy keys: " + q.Name}
 	}
 
-	conds, values, err := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res, 1)
 	if err != nil {
 		return zero, err
 	}
@@ -279,10 +279,13 @@ func (q *Query[A, R]) resourceErased() (*resourceErased, error) {
 
 // baseScopeConditions returns the WHERE-clause fragments every query gets:
 // soft-delete filter and tenant scoping. Generated queries can extend these
-// with their own filters / lookup keys.
-func baseScopeConditions(ctx *Ctx, res *resourceErased) ([]string, []any, error) {
+// with their own filters / lookup keys. placeholderStart is the 1-based
+// index for the first bound value this helper appends, so callers that already
+// populated values can keep all $N references unique in a single statement.
+func baseScopeConditions(ctx *Ctx, res *resourceErased, placeholderStart int) ([]string, []any, error) {
 	var conds []string
 	var values []any
+	nextPlaceholder := placeholderStart
 
 	if res.SoftDelete {
 		conds = append(conds, "deleted_at IS NULL")
@@ -296,8 +299,9 @@ func baseScopeConditions(ctx *Ctx, res *resourceErased) ([]string, []any, error)
 		if ctx == nil || ctx.Tenant == nil {
 			return nil, nil, tenantRequiredError()
 		}
-		conds = append(conds, fmt.Sprintf("org_id = $%d", len(values)+1))
+		conds = append(conds, fmt.Sprintf("org_id = $%d", nextPlaceholder))
 		values = append(values, ctx.Tenant.OrgID)
+		nextPlaceholder++
 	}
 
 	// TenancyNone is the explicit global opt-in: no scoping predicate.

@@ -9,7 +9,7 @@ func TestBaseScopeConditionsFailsOnNilTenantTenancyOrg(t *testing.T) {
 	ctx := &Ctx{Actor: ActorUser, Tenant: nil}
 	resource := &resourceErased{Name: "Test", Tenancy: TenancyOrg}
 
-	_, _, err := baseScopeConditions(ctx, resource)
+	_, _, err := baseScopeConditions(ctx, resource, 1)
 	if err == nil {
 		t.Fatal("expected ErrTenantRequired for nil-Tenant on TenancyOrg")
 	}
@@ -22,7 +22,7 @@ func TestBaseScopeConditionsAllowsTenancyNoneNilTenant(t *testing.T) {
 	ctx := &Ctx{Actor: ActorAnonymous, Tenant: nil}
 	resource := &resourceErased{Name: "Public", Tenancy: TenancyNone}
 
-	preds, values, err := baseScopeConditions(ctx, resource)
+	preds, values, err := baseScopeConditions(ctx, resource, 1)
 	if err != nil {
 		t.Fatalf("TenancyNone+nil-Tenant should succeed; got %v", err)
 	}
@@ -39,7 +39,7 @@ func TestBaseScopeConditionsAddsOrgPredicate(t *testing.T) {
 	ctx := &Ctx{Actor: ActorUser, Tenant: tenant}
 	resource := &resourceErased{Name: "Customer", Tenancy: TenancyOrg}
 
-	preds, values, err := baseScopeConditions(ctx, resource)
+	preds, values, err := baseScopeConditions(ctx, resource, 1)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
