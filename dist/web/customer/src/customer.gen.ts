@@ -37,12 +37,12 @@ export interface CreateCustomerInput {
   email: string;
 }
 
-export const createCustomer = defineCommand<CreateCustomerInput, Customer>(
-  "customer.create",
-  {
-    invalidates: ["customer.list", "customer.global_search"],
-  },
-);
+export const createCustomer = defineCommand<
+  CreateCustomerInput,
+  Customer
+>("customer.create", {
+  invalidates: ["customer.list", "customer.global_search", "customer.by_id"],
+});
 
 // ----------------------------------------------------------------------------
 // Command: customer.update_email
