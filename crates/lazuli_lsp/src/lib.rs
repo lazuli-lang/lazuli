@@ -20081,7 +20081,7 @@ fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
         .collect();
 
     for feature in &features {
-        // correctness (6)
+        // correctness (7)
         wire_feature_check!(
             source,
             diagnostics,
@@ -20123,6 +20123,13 @@ fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
             feature,
             synthetic_path,
             lazuli_doctor::correctness::resource_lock_contract_001
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
+            lazuli_doctor::correctness::route_id_effect_consistency
         );
 
         // domain (4) — SLUG-UNIQUENESS-IMPLICIT is warning per the audit.
