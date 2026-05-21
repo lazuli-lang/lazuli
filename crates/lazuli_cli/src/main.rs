@@ -3828,6 +3828,9 @@ fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         }
     }
 
+    lazuli_analyzer::resolve_invalidates_targets(&mut module)
+        .context("failed to resolve command invalidates targets")?;
+
     // L0 #3 — walk `features/<feat>/<feat>.{web,mobile}.lzx` and attach
     // the lowered `Surface` to the matching `Feature`. Skipped in
     // single-file input mode (no surrounding `features/` tree to walk).
@@ -4023,6 +4026,9 @@ fn build_module_with_source_from_path(
             }
         }
     }
+
+    lazuli_analyzer::resolve_invalidates_targets(&mut module)
+        .context("failed to resolve command invalidates targets")?;
 
     // L0 #3 — attach lowered `.lzx` surfaces alongside the source-map
     // build path (mirrors `build_module_from_path`).
