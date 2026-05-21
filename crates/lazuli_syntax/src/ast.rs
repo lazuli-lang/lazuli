@@ -1495,9 +1495,26 @@ pub struct ResourceFieldDecl {
     /// rejects `@full_text` on non-text-like types.
     #[serde(default, skip_serializing_if = "is_false_bool")]
     pub full_text: bool,
+    /// `ir-resource-conventions-owner-scope` §7.1 — `@owner_axis(through:
+    /// <ident>)` field annotation. Parser peels the decorator out of
+    /// `type_text` and lifts it here so the analyzer projects directly
+    /// into `ir::Field.owner_axis`. Absent = field carries no ownership
+    /// chain, synth pass uses tenant-scope (today's default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_axis: Option<OwnerAxisAst>,
     /// Child `previously migrated <old>` lines beneath the field.
     pub previously: Vec<String>,
     pub span: Span,
+}
+
+/// `ir-resource-conventions-owner-scope` §7.1 — AST-level mirror of
+/// `ir::OwnerAxis`. `through_column` carries the bare identifier the
+/// author wrote between the parens (e.g. `user` for Hostpoint's
+/// `Property → Host → User` chain). String-literal arguments are a
+/// parse error (per §7.1, the value is a syntactic identifier).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerAxisAst {
+    pub through_column: String,
 }
 
 fn is_false_bool(value: &bool) -> bool {

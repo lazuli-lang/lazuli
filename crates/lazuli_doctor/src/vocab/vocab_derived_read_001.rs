@@ -281,6 +281,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -298,6 +299,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -438,6 +440,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         };
         let resource = mk_resource("User", vec![cap_field]);
@@ -466,6 +469,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         };
         let resource = mk_resource("Account", vec![default_field]);
@@ -510,6 +514,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         };
         let resource = mk_resource("Post", vec![derived_field]);

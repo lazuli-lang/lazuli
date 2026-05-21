@@ -134,6 +134,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }

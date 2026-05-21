@@ -88,6 +88,7 @@ fn emit_discriminator_field(
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
+        owner_axis: None,
         span_ref: Some(span_of(lifecycle_ast.span)),
     });
 }
@@ -112,6 +113,7 @@ fn emit_timestamp_fields(resource: &mut ir::Resource, lifecycle_ast: &syntax::Li
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: Some(span_of(transition.span)),
         });
     }

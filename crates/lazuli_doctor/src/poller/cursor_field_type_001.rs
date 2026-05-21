@@ -159,6 +159,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }

@@ -38,6 +38,7 @@ use crate::ast::{
     ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst,
     ZTokenAst,
 };
+use crate::ast::OwnerAxisAst;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LifecycleBlockAst {
@@ -8784,6 +8785,13 @@ fn parse_resource_field_decl(
     // (e.g. `@cap.Encrypted(key:@key.tenant)`).
     let (type_text, full_text) = extract_full_text_marker(header, &type_text)?;
 
+    // `ir-resource-conventions-owner-scope` §7.1 — peel
+    // `@owner_axis(through: <ident>)` out of the type text into a
+    // typed `ResourceFieldDecl.owner_axis` slot. The analyzer
+    // projects this onto `ir::Field.owner_axis`; the synth pass (O2)
+    // builds the ownership-chain WHERE-clause predicate from it.
+    let (type_text, owner_axis) = extract_owner_axis_decorator(header, &type_text)?;
+
     // Consume optional `previously migrated <old>` grandchild lines.
     let mut previously: Vec<String> = Vec::new();
     let mut i = start + 1;
@@ -8817,11 +8825,171 @@ fn parse_resource_field_decl(
             derived_from,
             constraints,
             full_text,
+            owner_axis,
             previously,
             span: Span::new(header.start, header.end),
         },
         i,
     ))
+}
+
+/// `ir-resource-conventions-owner-scope` §7.1 — peel
+/// `@owner_axis(through: <ident>)` off a resource-field type text.
+/// Returns the cleaned type text plus the optional axis payload.
+///
+/// Grammar:
+/// - `@owner_axis(through: <ident>)` — keyword, open paren,
+///   `through:`, bare identifier, close paren. Whitespace flexible.
+/// - `<ident>` is a snake_case identifier; string literals (`"user"`)
+///   are rejected with a parse error so authors don't accidentally
+///   quote a column name into a heterogeneous shape.
+/// - `@owner_axis` standalone (no parens) is a parse error.
+/// - `@owner_axis()` with empty body is a parse error.
+/// - Duplicate `@owner_axis(...)` on the same field is a parse error.
+///
+/// Detection is depth-aware (must sit at paren depth 0) so the marker
+/// does not collide with paren-nested decorator args like
+/// `@cap.Encrypted(key:@key.tenant)`.
+fn extract_owner_axis_decorator(
+    line: &SourceLine<'_>,
+    type_text: &str,
+) -> Result<(String, Option<OwnerAxisAst>), ParseError> {
+    let bytes = type_text.as_bytes();
+    const NEEDLE: &[u8] = b"@owner_axis";
+    let mut depth = 0i32;
+    let mut hit: Option<(usize, usize, String)> = None;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        if depth == 0
+            && i + NEEDLE.len() <= bytes.len()
+            && &bytes[i..i + NEEDLE.len()] == NEEDLE
+        {
+            let before_ok = i == 0 || (bytes[i - 1] as char).is_whitespace();
+            let after_idx = i + NEEDLE.len();
+            // The keyword must be followed (after optional whitespace)
+            // by `(` — bare `@owner_axis` is rejected so authors don't
+            // accidentally ship the annotation without an axis column.
+            let mut j = after_idx;
+            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+                j += 1;
+            }
+            if before_ok {
+                if j >= bytes.len() || bytes[j] as char != '(' {
+                    return Err(line_error(
+                        line,
+                        "`@owner_axis` requires `(through: <ident>)` — bare keyword is not allowed",
+                    ));
+                }
+                // Find the balanced closing paren.
+                let mut d = 0i32;
+                let mut k = j;
+                let mut closed: Option<usize> = None;
+                while k < bytes.len() {
+                    match bytes[k] as char {
+                        '(' => d += 1,
+                        ')' => {
+                            d -= 1;
+                            if d == 0 {
+                                closed = Some(k);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    k += 1;
+                }
+                let Some(close) = closed else {
+                    return Err(line_error(
+                        line,
+                        "`@owner_axis(...)` is missing a closing `)`",
+                    ));
+                };
+                let body = type_text[j + 1..close].trim();
+                let through = parse_owner_axis_body(line, body)?;
+                if hit.is_some() {
+                    return Err(line_error(
+                        line,
+                        "duplicate `@owner_axis(...)` decorator on field",
+                    ));
+                }
+                hit = Some((i, close + 1, through));
+                i = close + 1;
+                continue;
+            }
+        }
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    let Some((start, end, through_column)) = hit else {
+        return Ok((type_text.to_owned(), None));
+    };
+    let before = type_text[..start].trim_end();
+    let after = type_text[end..].trim_start();
+    let mut cleaned = String::with_capacity(type_text.len());
+    cleaned.push_str(before);
+    if !before.is_empty() && !after.is_empty() {
+        cleaned.push(' ');
+    }
+    cleaned.push_str(after);
+    Ok((
+        cleaned.trim().to_owned(),
+        Some(OwnerAxisAst { through_column }),
+    ))
+}
+
+/// Parse the body of `@owner_axis(<body>)`. Body must be exactly
+/// `through: <ident>` per §7.1. String literals are rejected so the
+/// authored shape stays homogenous with other identifier-valued slots
+/// (`@slug`, `derived from`).
+fn parse_owner_axis_body(line: &SourceLine<'_>, body: &str) -> Result<String, ParseError> {
+    if body.is_empty() {
+        return Err(line_error(
+            line,
+            "`@owner_axis()` requires `through: <ident>` — empty body is not allowed",
+        ));
+    }
+    let (key, value) = body
+        .split_once(':')
+        .ok_or_else(|| line_error(line, "`@owner_axis(...)` body must be `through: <ident>`"))?;
+    if key.trim() != "through" {
+        return Err(line_error(
+            line,
+            "`@owner_axis(...)` only accepts the `through:` keyword argument",
+        ));
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(line_error(
+            line,
+            "`@owner_axis(through:)` is missing the column identifier",
+        ));
+    }
+    if value.starts_with('"') || value.starts_with('\'') {
+        return Err(line_error(
+            line,
+            "`@owner_axis(through: <ident>)` requires a bare identifier, not a string literal",
+        ));
+    }
+    if !value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || value
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(true)
+    {
+        return Err(line_error(
+            line,
+            "`@owner_axis(through: <ident>)` identifier must match `[A-Za-z_][A-Za-z0-9_]*`",
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 /// Roadmap §1.5 (CL.C.2) — peel the `@full_text` decorator off the
@@ -17585,6 +17753,71 @@ feature blog
         assert!(f.slug);
         assert!(f.unique);
         assert!(f.required);
+    }
+
+    // -------------------------------------------------------------------
+    // `ir-resource-conventions-owner-scope` Cell O1 — `@owner_axis(through: <ident>)`
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn parses_owner_axis_decorator_with_through_ident() {
+        let source = "
+feature catalog
+  resource Property
+    org: Org required
+    host: Host required @owner_axis(through: user)
+    name: Text required
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let property = &features[0].resources[0];
+        let host_field = &property.fields[1];
+        assert_eq!(host_field.name, "host");
+        let axis = host_field
+            .owner_axis
+            .as_ref()
+            .expect("`@owner_axis(through: user)` should peel into ResourceFieldDecl.owner_axis");
+        assert_eq!(axis.through_column, "user");
+        assert!(
+            !host_field.type_text.contains("@owner_axis"),
+            "@owner_axis should be stripped from type_text; got: {}",
+            host_field.type_text,
+        );
+        // The neighbouring fields stay axis-free.
+        assert!(property.fields[0].owner_axis.is_none());
+        assert!(property.fields[2].owner_axis.is_none());
+    }
+
+    #[test]
+    fn owner_axis_rejects_string_literal_argument() {
+        let source = "
+feature catalog
+  resource Property
+    host: Host required @owner_axis(through: \"user\")
+";
+        let err = parse_feature_skeletons(source).expect_err(
+            "string literal in @owner_axis(through: ...) must be a parse error per §7.1",
+        );
+        let message = format!("{err}");
+        assert!(
+            message.contains("requires a bare identifier"),
+            "got: {message}",
+        );
+    }
+
+    #[test]
+    fn owner_axis_without_arguments_is_a_parse_error() {
+        let source = "
+feature catalog
+  resource Property
+    host: Host required @owner_axis
+";
+        let err = parse_feature_skeletons(source)
+            .expect_err("bare @owner_axis must be rejected — annotation requires (through: ...)");
+        let message = format!("{err}");
+        assert!(
+            message.contains("`@owner_axis` requires `(through: <ident>)`"),
+            "got: {message}",
+        );
     }
 
     #[test]

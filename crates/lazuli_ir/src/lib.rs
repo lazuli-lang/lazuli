@@ -842,8 +842,27 @@ pub struct Field {
     /// This slot lets `@semantic.BrazilianCPF` + `@cap.PII` stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pii: Option<PiiCapability>,
+    /// `ir-resource-conventions-owner-scope` §7.2 — `@owner_axis(through:
+    /// <column>)` field annotation. Marks this FK field as the
+    /// ownership-chain hop: the `conventions [crud]` / `[me]` synth
+    /// passes (O2) restrict every emitted command to rows where
+    /// `<field>.<through_column>` equals `ctx.User.ID`. Absent =
+    /// tenant-only scope (today's default). Additive; pre-O1 IR
+    /// snapshots deserialize with `owner_axis == None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_axis: Option<OwnerAxis>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// `ir-resource-conventions-owner-scope` §7.2 — typed payload for the
+/// `@owner_axis(through: <column>)` field annotation. `through_column`
+/// is the column on the FK target resource that holds the actor key
+/// (`user` for Hostpoint's Property → Host chain). Multi-hop chains
+/// are deferred per §13; v0 captures one hop.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct OwnerAxis {
+    pub through_column: String,
 }
 
 /// L0 #3 §10 — inline field constraints. Each slot is `Option` so an
@@ -7214,5 +7233,56 @@ mod l0_6_ir_tests {
         let parsed: AppRoute = serde_json::from_value(legacy_json).unwrap();
         assert_eq!(parsed.name, "host_index");
         assert!(parsed.guard.is_none());
+    }
+}
+
+#[cfg(test)]
+mod owner_axis_tests {
+    //! `ir-resource-conventions-owner-scope` Cell O1 — round-trip the
+    //! `Field.owner_axis` slot through serde so the wire shape stays
+    //! stable across analyzer / codegen consumers.
+    use super::*;
+
+    #[test]
+    fn owner_axis_round_trips_through_serde() {
+        let axis = OwnerAxis {
+            through_column: "user".to_owned(),
+        };
+        let json = serde_json::to_string(&axis).expect("serialize OwnerAxis");
+        assert!(
+            json.contains("\"through_column\":\"user\""),
+            "serialized payload must carry the through_column verbatim: {json}",
+        );
+        let back: OwnerAxis = serde_json::from_str(&json).expect("deserialize OwnerAxis");
+        assert_eq!(axis, back);
+    }
+
+    #[test]
+    fn field_owner_axis_omitted_when_none() {
+        // §7.2 — `skip_serializing_if = "Option::is_none"` keeps pre-O1
+        // IR snapshots byte-for-byte stable. A field with no axis must
+        // not surface the slot in the JSON shape.
+        let field = Field {
+            name: "name".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Text),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            owner_axis: None,
+            span_ref: None,
+        };
+        let json = serde_json::to_string(&field).expect("serialize Field");
+        assert!(
+            !json.contains("owner_axis"),
+            "absent owner_axis must skip serialization: {json}",
+        );
+        let back: Field = serde_json::from_str(&json).expect("deserialize Field");
+        assert_eq!(field, back);
     }
 }

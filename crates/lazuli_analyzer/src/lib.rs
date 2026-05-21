@@ -243,6 +243,19 @@ pub enum AnalyzeError {
         identifier: String,
         suggestion: Option<String>,
     },
+
+    /// `owner_axis_on_non_fk` — `ir-resource-conventions-owner-scope`
+    /// §11.1. The `@owner_axis(through: <ident>)` annotation was applied
+    /// to a field whose lowered `TypeRef` is not `UserDefined` (i.e. not
+    /// a foreign-key reference to another resource). Primitives, builtins,
+    /// tenant-scope columns, and capability-typed fields can't carry an
+    /// ownership chain; the synth pass (O2) has no FK target to walk to.
+    /// `type_text` echoes the raw decorator-chain text the parser saw so
+    /// the author understands what the analyzer rejected.
+    #[error(
+        "OWNER-AXIS-ON-NON-FK: field `{field}: {type_text}` cannot carry `@owner_axis(...)` — annotation is only valid on FK fields (typed as another resource)"
+    )]
+    OwnerAxisOnNonFk { field: String, type_text: String },
 }
 
 /// Format helper for `AnalyzeError::ConventionsUnknown`. Kept out of
@@ -2278,6 +2291,7 @@ fn simple_field(name: &str, type_ref: ir::TypeRef, required: bool) -> ir::Field 
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
+        owner_axis: None,
         span_ref: None,
     }
 }
@@ -4089,6 +4103,26 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
     if let Some(default_text) = default_text.as_deref() {
         validate_default_against_constraints(&f.name, default_text.trim(), &f.constraints)?;
     }
+    let type_ref = type_ref_from_syntax(&recovered.type_text);
+    // `ir-resource-conventions-owner-scope` §11.1 — `owner_axis_on_non_fk`.
+    // The annotation is only meaningful on FK fields (`UserDefined`
+    // resources). Primitives, builtins, and capability-typed fields
+    // can't carry an ownership chain; reject at lowering so the synth
+    // pass (O2) doesn't have to guard against malformed IR.
+    let owner_axis = match f.owner_axis.as_ref() {
+        Some(axis) => {
+            if !matches!(type_ref, ir::TypeRef::UserDefined(_)) {
+                return Err(AnalyzeError::OwnerAxisOnNonFk {
+                    field: f.name.clone(),
+                    type_text: recovered.type_text.clone(),
+                });
+            }
+            Some(ir::OwnerAxis {
+                through_column: axis.through_column.clone(),
+            })
+        }
+        None => None,
+    };
     Ok(ir::Field {
         name: f.name.clone(),
         // Phase L Tier 4 follow-up — use `type_ref_from_syntax` so
@@ -4096,7 +4130,7 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
         // `@cap.Token(…)`, and `@semantic.*` lift into typed variants.
         // The legacy `type_ref_from_text` path is preserved for
         // call sites that pass cleaned-up identifiers only.
-        type_ref: type_ref_from_syntax(&recovered.type_text),
+        type_ref,
         required: f.required || recovered.required,
         unique: f.unique || recovered.unique,
         // CL.C.4 — lift `@slug` decorator presence into the typed IR.
@@ -4115,6 +4149,7 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
             .map(|p| strip_previously_mode(p))
             .collect(),
         pii,
+        owner_axis,
         span_ref: Some(span_of(f.span)),
     })
 }
@@ -8556,6 +8591,47 @@ feature payments
     }
 
     #[test]
+    fn owner_axis_on_fk_field_lowers_into_ir() {
+        // `ir-resource-conventions-owner-scope` §7 — happy path: a
+        // user-defined FK field (here `host: Host required`) is the
+        // only legal carrier for `@owner_axis(through: <ident>)`.
+        let field = lower_field_line("host: Host required @owner_axis(through: user)");
+        assert!(matches!(
+            field.type_ref,
+            ir::TypeRef::UserDefined(ref q) if q.name == "Host"
+        ));
+        let axis = field
+            .owner_axis
+            .as_ref()
+            .expect("`@owner_axis(through: user)` must lower into ir::Field.owner_axis");
+        assert_eq!(axis.through_column, "user");
+    }
+
+    #[test]
+    fn owner_axis_on_primitive_field_emits_owner_axis_on_non_fk() {
+        // `ir-resource-conventions-owner-scope` §11.1 —
+        // `owner_axis_on_non_fk`. The annotation on a primitive field
+        // (here `slug: Text`) is rejected at lowering: primitives carry
+        // no ownership chain for the synth pass to walk.
+        let source = "
+feature catalog
+  domain
+    resource Property
+      slug: Text @owner_axis(through: user)
+";
+        let features = lazuli_syntax::parse_feature_skeletons(source)
+            .expect("parses (annotation is syntactic)");
+        let err = lower_feature_skeleton(&features[0])
+            .expect_err("lowering must reject @owner_axis on a non-FK field");
+        match err {
+            AnalyzeError::OwnerAxisOnNonFk { field, .. } => {
+                assert_eq!(field, "slug");
+            }
+            other => panic!("expected OwnerAxisOnNonFk, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn field_with_pii_decorator_after_default_cleans_default() {
         let field = lower_field_line("name: Text required = anon @cap.PII(class:\"contact\")");
         assert_eq!(
@@ -10442,6 +10518,7 @@ mod conventions_crud_synth_tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -11040,6 +11117,7 @@ mod conventions_me_synth_tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
