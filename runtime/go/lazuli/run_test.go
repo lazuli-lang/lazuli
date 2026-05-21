@@ -24,7 +24,7 @@ func TestBaseScopeConditions_org_tenancy_with_tenant_emits_org_id_filter(t *test
 	res := &resourceErased{Name: "customer", Tenancy: TenancyOrg, SoftDelete: false}
 	ctx := &Ctx{Tenant: &Tenant{OrgID: 42}}
 
-	conds, values, err := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res, 1)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestBaseScopeConditions_org_tenancy_without_tenant_fails_closed(t *testing.
 	res := &resourceErased{Name: "customer", Tenancy: TenancyOrg, SoftDelete: false}
 	ctx := &Ctx{Tenant: nil}
 
-	_, _, err := baseScopeConditions(ctx, res)
+	_, _, err := baseScopeConditions(ctx, res, 1)
 	if !errors.Is(err, ErrTenantRequired) {
 		t.Fatalf("expected ErrTenantRequired; got %v", err)
 	}
@@ -52,7 +52,7 @@ func TestBaseScopeConditions_none_tenancy_skips_org_filter(t *testing.T) {
 	res := &resourceErased{Name: "settings", Tenancy: TenancyNone, SoftDelete: false}
 	ctx := &Ctx{Tenant: &Tenant{OrgID: 42}}
 
-	conds, values, err := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res, 1)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestBaseScopeConditions_soft_delete_emits_deleted_at_filter(t *testing.T) {
 	res := &resourceErased{Name: "customer", Tenancy: TenancyNone, SoftDelete: true}
 	ctx := &Ctx{}
 
-	conds, _, err := baseScopeConditions(ctx, res)
+	conds, _, err := baseScopeConditions(ctx, res, 1)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestBaseScopeConditions_soft_delete_and_org_tenancy_compose(t *testing.T) {
 	res := &resourceErased{Name: "customer", Tenancy: TenancyOrg, SoftDelete: true}
 	ctx := &Ctx{Tenant: &Tenant{OrgID: 7}}
 
-	conds, values, err := baseScopeConditions(ctx, res)
+	conds, values, err := baseScopeConditions(ctx, res, 1)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

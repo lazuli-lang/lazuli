@@ -770,7 +770,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 		sets = append(sets, `"updated_at" = now()`)
 	}
 
-	conds, condValues, err := baseScopeConditions(ctx, eff.Resource)
+	conds, condValues, err := baseScopeConditions(ctx, eff.Resource, len(values)+1)
 	if err != nil {
 		return zero, err
 	}
@@ -821,7 +821,7 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 			Message: "deletes effect requires Where bindings"}
 	}
 
-	conds, values, err := baseScopeConditions(ctx, eff.Resource)
+	conds, values, err := baseScopeConditions(ctx, eff.Resource, 1)
 	if err != nil {
 		return zero, err
 	}
