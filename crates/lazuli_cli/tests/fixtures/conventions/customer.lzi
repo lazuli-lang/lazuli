@@ -1,0 +1,5 @@
+feature customer
+  resource Customer
+    org: Org required
+    name: Text required
+    conventions [crud]
