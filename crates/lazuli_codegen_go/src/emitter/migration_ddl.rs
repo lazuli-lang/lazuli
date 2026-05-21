@@ -10,7 +10,7 @@ use lazuli_ir::{
     Resource, Tenancy, TypeRef,
 };
 
-use super::cross_feature::CrossFeatureIndex;
+use super::cross_feature::{CrossFeatureIndex, DeclKind};
 use crate::GeneratedFile;
 
 /// Emit SQL migrations in deterministic, cross-feature lexical order.
@@ -639,6 +639,29 @@ fn pg_type_for_field<'a>(
                 sql: "BIGINT".to_owned(),
                 uses_postgis: false,
             };
+        }
+        // A8: `record X` columns lower to JSONB (the runtime serializes
+        // the struct with `json.Marshal` and the synth lookup query's
+        // `pgx.RowToStructByName` then scans JSONB→struct cleanly).
+        if cross_index.kind(qname.name.as_str()) == Some(DeclKind::Record) {
+            return PgType {
+                sql: "JSONB".to_owned(),
+                uses_postgis: false,
+            };
+        }
+    }
+
+    // A8: `many <Record>` collapses to a SINGLE `JSONB` document rather
+    // than `JSONB[]` — the Postgres array of jsonb breaks pgx's struct
+    // scan path for `[]X` whereas a JSONB array document round-trips.
+    if let TypeRef::Many(inner) = &field.type_ref {
+        if let TypeRef::UserDefined(inner_q) = inner.as_ref() {
+            if cross_index.kind(inner_q.name.as_str()) == Some(DeclKind::Record) {
+                return PgType {
+                    sql: "JSONB".to_owned(),
+                    uses_postgis: false,
+                };
+            }
         }
     }
 
