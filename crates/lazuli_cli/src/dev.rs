@@ -91,7 +91,18 @@ pub fn run_dev(opts: DevOptions) -> Result<()> {
 pub(crate) fn regen(opts: &DevOptions) -> Result<()> {
     validate_source(&opts.source_root)?;
     let out_dir = effective_out_dir(opts);
-    crate::generate_go(&opts.source_root, Some(&out_dir), None, None, false, false)
+    // `dev` regenerates on every save — `--allow-drops` is opt-in on
+    // the explicit `lazuli generate go` invocation, so the watch loop
+    // never escalates to destructive ALTERs implicitly.
+    crate::generate_go(
+        &opts.source_root,
+        Some(&out_dir),
+        None,
+        None,
+        false,
+        false,
+        false,
+    )
 }
 
 fn spawn_go(opts: &DevOptions) -> Result<Option<Child>> {

@@ -254,6 +254,17 @@ enum Commands {
         /// Emit source-map sidecar data and Go //line directives.
         #[arg(long)]
         with_source: bool,
+        /// Allow the ALTER migration emitter (cell A11) to emit live
+        /// `DROP COLUMN` SQL when the diff drops a column. Without this
+        /// flag, `lazuli generate go` emits the DROPs as commented-out
+        /// lines under a WARNING header so authors review them before
+        /// pushing — adding a destructive ALTER to production by accident
+        /// is otherwise too easy. `--allow-drops` is a NO-OP for the
+        /// initial `CREATE TABLE` emission; it gates the per-resource
+        /// `<NNN+1>_<feature>_<resource>_alter.sql` follow-ups only.
+        /// (go only)
+        #[arg(long)]
+        allow_drops: bool,
         /// Playwright emit target (only used when kind == Playwright).
         /// Closed catalog: api-policy, lifecycle-gate, scalar-fixtures-barrel, all.
         #[arg(long, value_enum)]
@@ -861,6 +872,7 @@ fn main() -> Result<()> {
             lazuli_go_version,
             check,
             with_source,
+            allow_drops,
             playwright_target,
         } => generate_command(
             kind,
@@ -871,6 +883,7 @@ fn main() -> Result<()> {
             lazuli_go_version.as_deref(),
             check,
             with_source,
+            allow_drops,
             cli.allow_version_mismatch,
             playwright_target,
         ),
@@ -974,6 +987,7 @@ fn generate_command(
     lazuli_go_version: Option<&str>,
     check: bool,
     with_source: bool,
+    allow_drops: bool,
     allow_version_mismatch: bool,
     playwright_target: Option<PlaywrightTarget>,
 ) -> Result<()> {
@@ -990,9 +1004,15 @@ fn generate_command(
 
     match kind {
         GenerateKind::Openapi => generate_openapi(input, output, api_version),
-        GenerateKind::Go => {
-            generate_go(input, output, module, lazuli_go_version, check, with_source)
-        }
+        GenerateKind::Go => generate_go(
+            input,
+            output,
+            module,
+            lazuli_go_version,
+            check,
+            with_source,
+            allow_drops,
+        ),
         GenerateKind::Feature => {
             reject_generate_feature_options(
                 output,
@@ -2913,7 +2933,28 @@ pub(crate) fn generate_go(
     lazuli_go_version: Option<&str>,
     check: bool,
     with_source: bool,
+    allow_drops: bool,
 ) -> Result<()> {
+    // Cell A11 — `--allow-drops` gates the ALTER migration emitter's
+    // treatment of `SchemaDiff.drops`. Without the flag, drops are
+    // emitted as commented-out lines under a WARNING header so authors
+    // explicitly opt in to destructive ALTERs. With the flag, the drops
+    // become live `DROP COLUMN IF EXISTS` statements.
+    //
+    // The diff-vs-baseline orchestration that produces a non-empty
+    // `SchemaDiff` lives in cell A10 (`schema_diff.rs`). Once A10 lands,
+    // wire it here: read `migrations/` from `out_dir`, parse the latest
+    // CREATE TABLE per resource, compare to the IR, hand the diff +
+    // `AlterEmitOptions { allow_drops }` to
+    // `lazuli_codegen_go::emitter::migration_ddl::emit_alter_migration_file`,
+    // and append the returned (up, down) pair to `files`. Until A10 is
+    // in tree, `--allow-drops` is accepted on the CLI but has no
+    // observable effect because no diff is computed.
+    let alter_options =
+        lazuli_codegen_go::emitter::migration_ddl::AlterEmitOptions { allow_drops };
+    // `_ = alter_options;` suppresses dead_code while A10 is in flight;
+    // delete this discard when A10's caller wires `emit_alter_migration_file`.
+    let _ = alter_options;
     let project_root = project_root_for_input(input);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(

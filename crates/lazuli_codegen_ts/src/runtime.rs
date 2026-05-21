@@ -10,7 +10,8 @@
 use std::fmt::Write;
 
 use lazuli_codegen_spec::{
-    FieldKind, QueryKind, RuntimeArg, RuntimeCommand, RuntimeFeature, RuntimeQuery, RuntimeResource,
+    FieldKind, QueryKind, RuntimeArg, RuntimeCommand, RuntimeEffect, RuntimeFeature, RuntimeQuery,
+    RuntimeResource,
 };
 use lazuli_ir as ir;
 
@@ -156,8 +157,22 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
     writeln!(s, "}}").ok();
     writeln!(s).ok();
 
-    // defineCommand call.
-    let invalidates_lit = format_string_array(&command.invalidates);
+    // defineCommand call. Cache-correctness contract: if the runtime
+    // spec authored an explicit `invalidates` list, honour it verbatim
+    // (the JSON manifest path supplies cross-feature targets that the
+    // emitter can't recompute on its own). Otherwise derive the list
+    // from the feature's queries — every mutating effect at runtime
+    // spec scope targets the single resource the feature owns, so the
+    // companion query set is the natural invalidation target. Keeps
+    // TanStack Query honest after every mutation; pilots no longer
+    // need `staleTime: 0` workarounds. See cell A5 brief.
+    let derived_invalidates = derive_invalidates(feature, command);
+    let invalidates_source: &[String] = if command.invalidates.is_empty() {
+        &derived_invalidates
+    } else {
+        &command.invalidates
+    };
+    let invalidates_lit = format_string_array(invalidates_source);
     if invalidates_lit.len() + qualified_name.len() < 60 {
         writeln!(
             s,
@@ -429,6 +444,34 @@ fn format_string_array(items: &[String]) -> String {
     }
     let parts: Vec<String> = items.iter().map(|s| format!("\"{s}\"")).collect();
     format!("[{}]", parts.join(", "))
+}
+
+/// Derive the cache-invalidation target list for a command from the
+/// feature it lives in.
+///
+/// Every `RuntimeEffect` variant today (`CreatesFromInput`, `UpdatesByID`,
+/// `DeletesByID`) is a mutation against the feature's single resource
+/// (`RuntimeFeature.resources.first()`), so the companion query set —
+/// every `RuntimeQuery` declared on the same feature — is the natural
+/// invalidation target.
+///
+/// The qualified-name format mirrors `write_query`'s registry key
+/// (`<feature>.query.<short_name>`) so when Wave B drops the `.query.`
+/// infix from query names, both call sites flip in lockstep.
+///
+/// Future cells that introduce `RuntimeEffect::Returns` or other
+/// non-mutating shapes will need to early-return `Vec::new()` for
+/// those kinds; today every variant maps to a mutation.
+fn derive_invalidates(feature: &RuntimeFeature, command: &RuntimeCommand) -> Vec<String> {
+    match command.effect {
+        RuntimeEffect::CreatesFromInput
+        | RuntimeEffect::UpdatesByID
+        | RuntimeEffect::DeletesByID => feature
+            .queries
+            .iter()
+            .map(|q| format!("{}.query.{}", feature.name, q.short_name))
+            .collect(),
+    }
 }
 
 fn field_kind_ts(kind: FieldKind) -> &'static str {
