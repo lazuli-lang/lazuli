@@ -104,22 +104,54 @@ pub fn check_commands(feature_name: &str, commands: &[Command], path: &Path) -> 
                 continue;
             }
 
-            if input_consumes_slot(&command.input, &slot.name) {
-                continue;
+            // Post-cell-A1: codegen-go now emits every `command.route`
+            // slot as a struct field on the input type (PascalCase name,
+            // `validate:"required"`), so the Effect's `FromInput(...)`
+            // binding resolves against a real field. The legacy check
+            // — input block must redeclare the route slot — would now
+            // fire on every well-formed `command X route id: ID input
+            // foo: Bar` because authors don't repeat the route slot in
+            // the typed input block. Keep the check only when the input
+            // block declares a slot with the SAME name as a route slot
+            // but a different type — that's a real shadow bug. Plain
+            // "input doesn't redeclare the route slot" is now silent.
+            if let Some(input_type_repr) = input_slot_named(&command.input, &slot.name) {
+                let route_type_repr = format!("{:?}", slot.type_ref);
+                // Empty repr (CommandInput::Short) carries no type — can't
+                // compare, so silent.
+                if !input_type_repr.is_empty() && input_type_repr != route_type_repr {
+                    out.push(Finding {
+                        path: path.to_path_buf(),
+                        feature: feature_name.to_owned(),
+                        command: command.name.clone(),
+                        param_name: slot.name.clone(),
+                        pascal_field: pascal_case(&slot.name),
+                        effect_kind,
+                    });
+                }
             }
-
-            out.push(Finding {
-                path: path.to_path_buf(),
-                feature: feature_name.to_owned(),
-                command: command.name.clone(),
-                param_name: slot.name.clone(),
-                pascal_field: pascal_case(&slot.name),
-                effect_kind,
-            });
         }
     }
 
     out
+}
+
+fn input_slot_named(input: &CommandInput, slot_name: &str) -> Option<String> {
+    match input {
+        CommandInput::Typed(slots) => slots
+            .iter()
+            .find(|s| s.name == slot_name)
+            .map(|s| format!("{:?}", s.type_ref)),
+        // Short form names don't carry types, so we can't compare.
+        CommandInput::Short(names) => {
+            if names.iter().any(|n| n == slot_name) {
+                Some(String::new())
+            } else {
+                None
+            }
+        }
+        CommandInput::Empty => None,
+    }
 }
 
 // internals
@@ -353,13 +385,13 @@ mod tests {
     }
 
     #[test]
-    fn positive_updates_with_route_id_but_input_omits_id_fires() {
-        // Mirrors the LAZ-route-id-codegen-go regression shape: the
-        // author declared `route id: ID` on an updates command but the
-        // typed input only lists `tier`. The Go input struct emitted
-        // for this command would have no `ID` field, so the WHERE
-        // binding `FromInput("ID")` reads zero and the wrong row is
-        // updated (or none is).
+    fn silent_when_input_omits_route_slot_because_codegen_a1_emits_field() {
+        // Post-cell-A1: codegen-go emits every `command.route` slot as
+        // an input-struct field directly. Authors don't need to repeat
+        // the route slot inside the typed input block. The diagnostic
+        // stays silent — A1 owns the codegen guarantee; A3 only catches
+        // SHADOWING (route slot + same-name input slot with different
+        // type), tested below.
         let cmd = mk_cmd(
             "update_tier",
             vec![mk_route("id", BuiltinType::Id, None)],
@@ -370,22 +402,15 @@ mod tests {
 
         let findings = check(&feature, Path::new("features/customer/customer.lzi"));
 
-        assert_eq!(findings.len(), 1);
-        assert_eq!(Finding::CODE, "ROUTE-ID-UNUSED-IN-EFFECT-001");
-        assert_eq!(findings[0].feature, "customer");
-        assert_eq!(findings[0].command, "update_tier");
-        assert_eq!(findings[0].param_name, "id");
-        assert_eq!(findings[0].pascal_field, "ID");
-        assert_eq!(findings[0].effect_kind, "updates");
-        let msg = findings[0].message();
-        assert!(msg.contains("update_tier"));
-        assert!(msg.contains("route id"));
-        assert!(msg.contains("input.ID"));
-        assert!(msg.contains("silently dropped"));
+        assert!(findings.is_empty(), "expected no findings, got {findings:?}");
     }
 
     #[test]
-    fn positive_deletes_with_route_id_and_empty_input_fires() {
+    fn silent_when_route_id_with_empty_input_post_a1() {
+        // `delete_X route id: ID` lowers to `CommandInput::Empty` (no
+        // body fields). Codegen A1 still emits a synthetic input struct
+        // carrying the route slot, so the runtime UPDATE/DELETE Effect's
+        // `FromInput("ID")` binding resolves. Diagnostic stays silent.
         let cmd = mk_cmd(
             "delete_customer",
             vec![mk_route("id", BuiltinType::Id, None)],
@@ -396,15 +421,14 @@ mod tests {
 
         let findings = check(&feature, Path::new("f.lzi"));
 
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].effect_kind, "deletes");
-        assert_eq!(findings[0].pascal_field, "ID");
+        assert!(findings.is_empty(), "expected no findings, got {findings:?}");
     }
 
     #[test]
-    fn positive_composite_route_only_partially_covered_fires_for_missing() {
-        // `route customer_id: ID` + `route tag_id: ID` but input only
-        // covers `customer_id`. Expect exactly one finding for `tag_id`.
+    fn silent_when_composite_route_input_partially_redeclares_post_a1() {
+        // `route customer_id: ID + tag_id: ID` with input redeclaring
+        // only `customer_id` (same type). A1 emits both struct fields.
+        // Same-name same-type partial redeclare is a no-op shadow.
         let cmd = mk_cmd(
             "untag_customer",
             vec![
@@ -418,9 +442,29 @@ mod tests {
 
         let findings = check(&feature, Path::new("f.lzi"));
 
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].param_name, "tag_id");
-        assert_eq!(findings[0].pascal_field, "TagID");
+        assert!(findings.is_empty(), "expected no findings, got {findings:?}");
+    }
+
+    #[test]
+    fn positive_shadow_route_id_with_different_typed_input_slot_fires() {
+        // True shadow bug: `route id: ID` but the typed input ALSO has
+        // an `id` slot with a different type (e.g. Text). Codegen would
+        // emit two fields with the same name — illegal Go — OR silently
+        // pick one and drop the other. Either way it's a bug worth
+        // surfacing.
+        let cmd = mk_cmd(
+            "shadow_update",
+            vec![mk_route("id", BuiltinType::Id, None)],
+            CommandInput::Typed(vec![mk_typed_slot("id", BuiltinType::Text)]),
+            updates_effect(),
+        );
+        let feature = mk_feature(cmd);
+
+        let findings = check(&feature, Path::new("f.lzi"));
+
+        assert_eq!(findings.len(), 1, "expected shadow finding, got {findings:?}");
+        assert_eq!(findings[0].param_name, "id");
+        assert_eq!(Finding::CODE, "ROUTE-ID-UNUSED-IN-EFFECT-001");
     }
 
     #[test]
