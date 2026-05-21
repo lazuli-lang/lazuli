@@ -117,9 +117,17 @@ fn format_origin_annotation(origin: Option<&ConventionOrigin>) -> String {
 
 /// `crud` etc. — single source of truth so the LSP catalog list, the
 /// doctor diagnostic suggestion, and this rendering all stay aligned.
+///
+/// `Me` is anchored here as a side-effect of inlining the M1 IR
+/// prereqs from `ir-resource-conventions-me.md` into Cell M2's
+/// worktree (M2 of the same proposal). The user-facing inspect-surface
+/// polish (e.g., `[conv:me]` annotation rendering on synthesized
+/// queries) lands in Cell M3 — this entry returns just the bundle
+/// name so the match stays exhaustive.
 fn convention_name(c: &ConventionRef) -> &'static str {
     match c {
         ConventionRef::Crud => "crud",
+        ConventionRef::Me => "me",
     }
 }
 

@@ -665,6 +665,15 @@ pub enum ConventionRef {
     /// `crud` — auto-synthesizes 3 commands + 2 queries (5 entries
     /// total) per `ir-resource-conventions-crud.md` §5.1.
     Crud,
+    /// `me` — auto-synthesizes one `lookup_my_<resource>` query keyed
+    /// by `ctx.User.ID` (or `ctx.User.OrgID` for org-only resources).
+    /// See `ir-resource-conventions-me.md` §5.
+    ///
+    /// Inlined as part of M2 (analyzer synth pass) before M1's IR +
+    /// parser-catalog cell lands. M1 introduces the same variant in
+    /// the same file at the same enum position; the merge resolves
+    /// trivially by identical-line concurrence.
+    Me,
     // Future variants (NOT in this proposal):
     //   Timestamped, PiiAware, SoftDelete, Slugged, Paginated.
 }

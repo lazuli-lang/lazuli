@@ -267,12 +267,14 @@ fn format_conventions_unknown(
 /// ir-resource-conventions-crud Cell C1 — closed catalog of resource
 /// convention identifiers accepted by the parser. Grows additively per
 /// future proposals (`timestamped`, `pii_aware`, `soft_delete`,
-/// `slugged`, `paginated`). Today only `crud` is defined; Cell C3
-/// implements the synthesis pass that consumes it. See §4.2 of the
-/// proposal.
+/// `slugged`, `paginated`).
+///
+/// `me` (M1 of `ir-resource-conventions-me`) is inlined here as part
+/// of M2 (analyzer synth) before M1's catalog cell lands. M1 extends
+/// to the exact same `&["crud", "me"]` shape; merge is trivial.
 ///
 /// Sorted alphabetically for diff hygiene; keep new entries in order.
-pub const CONVENTION_CATALOG: &[&str] = &["crud"];
+pub const CONVENTION_CATALOG: &[&str] = &["crud", "me"];
 
 /// Resolve the closest catalog entry to a misspelled `conventions`
 /// identifier using plain Levenshtein distance. Returns the catalog
@@ -2318,38 +2320,81 @@ fn builtin_datetime() -> ir::TypeRef {
 
 /// §11 diagnostic codes emitted by `synthesize_conventions`. Cell C4
 /// formats these into user-facing strings; Cell C3 just records them.
+///
+/// Originally `CrudSynthDiagnostic`; extended to cover both `crud` and
+/// `me` bundles when M2 of `ir-resource-conventions-me` landed
+/// (variants prefixed `Me*`). A type alias preserves the legacy name
+/// for any callers; the canonical name going forward is
+/// `ConventionSynthDiagnostic`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CrudSynthDiagnostic {
+pub enum ConventionSynthDiagnostic {
     /// `crud_synth_policy_not_found` — feature has no `authenticated`
-    /// policy. Carries the resource name for the suggestion.
+    /// policy. Carries the resource name for the suggestion. Also fires
+    /// for `me_synth_policy_not_found` (the `me` bundle reuses
+    /// `authenticated` per `ir-resource-conventions-me.md` §5.4); Cell
+    /// M3 selects the user-visible code by reading
+    /// `resource.conventions`.
     PolicyNotFound { resource: String },
     /// `crud_synth_no_required_fields` — every required field is in the
     /// Tenant or Auto group, so `create_<resource>.input` would be
-    /// empty. Likely an authoring mistake.
+    /// empty. Likely an authoring mistake. Crud-only.
     NoRequiredFields { resource: String },
     /// `crud_synth_signature_mismatch` — author wrote a same-named
     /// command/query but its input field list or return type diverges
     /// from the canonical convention shape. Carries the resource +
-    /// synth name + a short reason for Cell C4 to format.
+    /// synth name + a short reason for Cell C4 to format. Crud-only.
     SignatureMismatch {
+        resource: String,
+        synth_name: String,
+        reason: String,
+    },
+    /// `me_synth_no_actor_resolution` — resource declared
+    /// `conventions [me]` but has neither `user: User required` nor
+    /// `org: Org required` AND is not itself named `User`. The synth
+    /// has no key to filter on. See
+    /// `ir-resource-conventions-me.md` §11.1 (named
+    /// `me_synth_no_owner_axis` in the proposal; M2's diagnostic key
+    /// is `me_synth_no_actor_resolution` per the cell brief — same
+    /// condition, more explicit wording).
+    MeNoActorResolution { resource: String },
+    /// `me_synth_signature_mismatch` — author wrote
+    /// `query lookup_my_<resource>` (or the declarative
+    /// `query.lookup my_<resource>`) whose return shape diverges
+    /// from the canonical `me` synth (route-less Lookup query
+    /// returning the resource row).
+    MeSignatureMismatch {
         resource: String,
         synth_name: String,
         reason: String,
     },
 }
 
-/// Run the `conventions [crud]` auto-synthesis pass on a feature.
-/// Returns the diagnostics from §11; Cell C4 wires the user-facing
-/// rendering. Public so doctor / tests can call it directly.
+/// Legacy alias preserved during the M2 rename. Downstream code should
+/// migrate to `ConventionSynthDiagnostic` over time; M3 carries the
+/// final downstream migration into doctor / inspect.
+pub type CrudSynthDiagnostic = ConventionSynthDiagnostic;
+
+/// Run the `conventions [...]` auto-synthesis pass on a feature.
+/// Today covers two bundles in catalog order: `crud` (5 entries) and
+/// `me` (1 entry — `lookup_my_<resource>`). Returns diagnostics from
+/// crud §11 + me §11; Cell C4 / M3 wires the user-facing rendering.
+/// Public so doctor / tests can call it directly.
+///
+/// **RULE-VOCAB-03 (crud §7 + me §7) — zero workflow:** every `if`/
+/// `match` in this function is **authoring-time** dispatch — it
+/// selects which IR node shape to emit. The emitted IR nodes contain
+/// zero control flow; downstream codegen lowers each to one fixed
+/// SQL per crud §7 / me §7.
 pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnostic> {
     let mut diagnostics: Vec<CrudSynthDiagnostic> = Vec::new();
     let mut to_add_commands: Vec<ir::Command> = Vec::new();
     let mut to_add_queries: Vec<ir::Query> = Vec::new();
-    // §11 inspect surface (Cell C4) — Feature.synth_origins records
-    // every name in a convention's set: `Synthesized(Crud)` for names
-    // the pass appended; `AuthorOverride(Crud)` for names the author
-    // wrote (synth skipped per §6). Inspect uses these markers to
-    // render `[conv:crud]` / `[author override; convention skipped]`.
+    // §11 inspect surface (Cell C4 / M3) — Feature.synth_origins
+    // records every name in a convention's set: `Synthesized(<bundle>)`
+    // for names the pass appended; `AuthorOverride(<bundle>)` for names
+    // the author wrote (synth skipped per crud §6 / me §6). Inspect
+    // uses these markers to render `[conv:<bundle>]` /
+    // `[author override; convention skipped]`.
     let mut synth_origins_inserts: Vec<(String, ir::ConventionOrigin)> = Vec::new();
 
     let existing_command_names: std::collections::HashSet<String> =
@@ -2368,9 +2413,20 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         .any(|p| p.name == "authenticated");
 
     for resource in &feature.resources {
-        if !resource.conventions.contains(&ir::ConventionRef::Crud) {
+        // Per-bundle dispatch — each resource may declare zero, one,
+        // or both bundles in `conventions [...]`. Bundle blocks are
+        // independent; the override-collision logic (`existing_*`
+        // sets) is shared. crud §6.1 / me §6.1: zero name collisions
+        // by construction because `crud` owns `lookup_<r>` while `me`
+        // owns `lookup_my_<r>`.
+        let has_crud = resource.conventions.contains(&ir::ConventionRef::Crud);
+        let has_me = resource.conventions.contains(&ir::ConventionRef::Me);
+        if !has_crud && !has_me {
             continue;
         }
+
+        // ===== `crud` bundle (§5) — gated; runs only when declared. =====
+        if has_crud {
 
         // §5.8 — guard: policy `authenticated` must exist.
         if !has_authenticated {
@@ -2552,12 +2608,298 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
             ));
         }
+        } // ===== end `crud` bundle =====
+
+        // ===== `me` bundle (me §5) — singleton-per-actor lookup. =====
+        //
+        // Authoring-time mode classification (me §5.3). The synth picks
+        // ONE of four shapes from the resource's static structure; the
+        // emitted IR node contains zero branches (me §7 / RULE-VOCAB-03).
+        if has_me {
+            // me §5.4 — default policy is `authenticated`. Reuses the
+            // crud policy probe; a missing policy emits the diagnostic
+            // (no _Me suffix on the variant — `PolicyNotFound` covers
+            // both bundles since the policy slot has the same name).
+            if !has_authenticated {
+                // Only emit once per resource even if both bundles
+                // declared `me` and `crud`; the crud block above will
+                // have already pushed `PolicyNotFound` if it ran.
+                // Dedupe by inspecting `diagnostics` for an existing
+                // entry on this resource.
+                let already_emitted = diagnostics.iter().any(|d| {
+                    matches!(
+                        d,
+                        ConventionSynthDiagnostic::PolicyNotFound { resource: r }
+                            if r == &resource.name
+                    )
+                });
+                if !already_emitted {
+                    diagnostics.push(ConventionSynthDiagnostic::PolicyNotFound {
+                        resource: resource.name.clone(),
+                    });
+                }
+            }
+
+            let resource_snake = pascal_to_snake(&resource.name);
+            let lookup_my_name = format!("lookup_my_{}", resource_snake);
+
+            // me §5.3 — classify the resource's actor axis. Four-mode
+            // closed table; `None` triggers `me_synth_no_actor_resolution`.
+            // The classification is a STATIC truth table over resource
+            // shape; no runtime branching is introduced into the
+            // emitted IR.
+            let mode = classify_me_mode(resource);
+
+            match mode {
+                Some(m) => {
+                    // me §6 — per-name override. Author wrote
+                    // `lookup_my_<resource>` (or the `query.lookup
+                    // my_<resource>` declarative form, which lowers to
+                    // the same IR `Query::Lookup` name).
+                    if existing_query_names.contains(&lookup_my_name) {
+                        if let Some(reason) = check_me_lookup_signature_mismatch(
+                            feature,
+                            &lookup_my_name,
+                            &resource.name,
+                        ) {
+                            diagnostics.push(
+                                ConventionSynthDiagnostic::MeSignatureMismatch {
+                                    resource: resource.name.clone(),
+                                    synth_name: lookup_my_name.clone(),
+                                    reason,
+                                },
+                            );
+                        }
+                        synth_origins_inserts.push((
+                            lookup_my_name.clone(),
+                            ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Me),
+                        ));
+                    } else {
+                        to_add_queries
+                            .push(build_lookup_my_query(&lookup_my_name, &resource.name, m));
+                        synth_origins_inserts.push((
+                            lookup_my_name.clone(),
+                            ir::ConventionOrigin::Synthesized(ir::ConventionRef::Me),
+                        ));
+                    }
+                }
+                None => {
+                    // me §11.1 — no actor axis. Resource has no `user`
+                    // field, no `org` field, and is not itself the
+                    // `User` resource. The synth has no key to filter
+                    // on; emit diagnostic, skip synth.
+                    diagnostics.push(ConventionSynthDiagnostic::MeNoActorResolution {
+                        resource: resource.name.clone(),
+                    });
+                }
+            }
+        } // ===== end `me` bundle =====
     }
 
     feature.commands.extend(to_add_commands);
     feature.queries.extend(to_add_queries);
     feature.synth_origins.extend(synth_origins_inserts);
     diagnostics
+}
+
+// =============================================================================
+// `conventions [me]` synthesis helpers — Cell M2
+//
+// Spec: `docs/proposals/ir-resource-conventions-me.md` §§5.3, 5.5, 5.6.
+//
+// `classify_me_mode` is the entire decision surface — a 4-row truth
+// table over resource shape, evaluated once at synth time. Once a mode
+// is picked, `build_lookup_my_query` emits ONE fixed `Query::Lookup`
+// shape with a mode-specific `keys` vector (the WHERE-clause builder).
+// **The emitted IR contains zero branches** — RULE-VOCAB-03 (me §7).
+// =============================================================================
+
+/// me §5.3 — the four key-resolution modes. Classification is static;
+/// each variant carries no runtime state. The selected variant uniquely
+/// determines the `KeyClause` vector emitted into the synthesized
+/// `Query::Lookup` (me §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MeMode {
+    /// Resource has `user: User required` (with or without `unique`)
+    /// AND an `org`-bearing field. `WHERE org_id = ctx.User.OrgID AND
+    /// "user" = ctx.User.ID`.
+    UserKeyed,
+    /// Resource has `user: User required` AND no `org` field.
+    /// `WHERE "user" = ctx.User.ID`.
+    UserKeyedNoOrg,
+    /// Resource has `org: Org required` AND no `user: User required`.
+    /// `WHERE org_id = ctx.User.OrgID`.
+    OrgKeyed,
+    /// Resource IS the User table (name == "User"). `WHERE id = ctx.User.ID`.
+    SelfKeyed,
+}
+
+/// me §5.3 — classify the resource's actor axis. Pure inspection of the
+/// resource's field list + name. Returns `None` only when the resource
+/// has neither `user` nor `org` and is not named `User`, triggering
+/// `me_synth_no_actor_resolution`.
+///
+/// **RULE-VOCAB-03 affirmation**: this function is the entire
+/// authoring-time decision surface for the `me` bundle. Its `if`/`match`
+/// statements pick which IR shape the *synth pass* emits; the emitted
+/// IR contains exactly one fixed `Query::Lookup` per call site, with
+/// no branches in the runtime lowering path.
+fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
+    // me §5.3 row 4 — `self_keyed`: the resource IS the User table.
+    // Checked first because a resource literally named `User` could in
+    // principle declare its own `user` self-reference field; the
+    // self-keyed shape (`WHERE id = ctx.User.ID`) is the correct one.
+    if resource.name == "User" {
+        return Some(MeMode::SelfKeyed);
+    }
+
+    let has_user_required = resource.fields.iter().any(|f| {
+        f.name == "user"
+            && f.required
+            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "User")
+    });
+    let has_org_field = resource.fields.iter().any(|f| {
+        f.name == "org"
+            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "Org")
+    });
+
+    // me §5.3 rows 1 and 2 — `user_keyed` variants.
+    if has_user_required {
+        if has_org_field {
+            return Some(MeMode::UserKeyed);
+        }
+        return Some(MeMode::UserKeyedNoOrg);
+    }
+
+    // me §5.3 row 3 — `org_keyed` (org-singleton resource).
+    let has_org_required = resource.fields.iter().any(|f| {
+        f.name == "org"
+            && f.required
+            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "Org")
+    });
+    if has_org_required {
+        return Some(MeMode::OrgKeyed);
+    }
+
+    // me §5.3 row 5 — no key. Diagnostic.
+    None
+}
+
+/// me §5.2 — build the `lookup_my_<resource>` `Query::Lookup` IR. The
+/// `keys` vector is the WHERE-clause builder; its shape is fixed by
+/// `mode` at synth time (me §7 / RULE-VOCAB-03). The emitted IR carries
+/// no `params` (route-less per me §5.2) and no `filters`.
+///
+/// Path-on-the-right-hand-side uses `ctx.User.*` paths, mirroring the
+/// already-proven IR shape used by hand-authored
+/// `query.lookup ... filters` blocks (e.g.,
+/// `traveler.lzi:79-83` references `ctx.actor.user_id`; the IR-level
+/// `KeyClause.equals` carries an `Expr::Path` per `Path::from_segments`).
+fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query {
+    let _ = resource; // reserved for future signature-mismatch detail
+    let keys: Vec<ir::KeyClause> = match mode {
+        // §5.3 user_keyed: WHERE org_id = ctx.User.OrgID AND "user" = ctx.User.ID
+        MeMode::UserKeyed => vec![
+            ir::KeyClause {
+                path: ir::Path::from_segments(["org".to_owned()]),
+                equals: ir::Expr::Path(ir::Path::from_segments([
+                    "ctx".to_owned(),
+                    "User".to_owned(),
+                    "OrgID".to_owned(),
+                ])),
+            },
+            ir::KeyClause {
+                path: ir::Path::from_segments(["user".to_owned()]),
+                equals: ir::Expr::Path(ir::Path::from_segments([
+                    "ctx".to_owned(),
+                    "User".to_owned(),
+                    "ID".to_owned(),
+                ])),
+            },
+        ],
+        // §5.3 user_keyed_no_org: WHERE "user" = ctx.User.ID
+        MeMode::UserKeyedNoOrg => vec![ir::KeyClause {
+            path: ir::Path::from_segments(["user".to_owned()]),
+            equals: ir::Expr::Path(ir::Path::from_segments([
+                "ctx".to_owned(),
+                "User".to_owned(),
+                "ID".to_owned(),
+            ])),
+        }],
+        // §5.3 org_keyed: WHERE org_id = ctx.User.OrgID
+        MeMode::OrgKeyed => vec![ir::KeyClause {
+            path: ir::Path::from_segments(["org".to_owned()]),
+            equals: ir::Expr::Path(ir::Path::from_segments([
+                "ctx".to_owned(),
+                "User".to_owned(),
+                "OrgID".to_owned(),
+            ])),
+        }],
+        // §5.3 self_keyed: WHERE id = ctx.User.ID
+        MeMode::SelfKeyed => vec![ir::KeyClause {
+            path: ir::Path::from_segments(["id".to_owned()]),
+            equals: ir::Expr::Path(ir::Path::from_segments([
+                "ctx".to_owned(),
+                "User".to_owned(),
+                "ID".to_owned(),
+            ])),
+        }],
+    };
+
+    ir::Query::Lookup(ir::LookupQuery {
+        name: name.to_owned(),
+        public_contract: None,
+        // me §5.2 — NO route, NO params. The actor IS the input.
+        params: Vec::new(),
+        keys,
+        scope: Vec::new(),
+        scope_override: false,
+        filters: Vec::new(),
+        // me §5.4 — default policy is `authenticated`.
+        policy: ir::PolicyRef::Local("authenticated".to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    })
+}
+
+/// me §11.1 — `me_synth_signature_mismatch` trigger. Compares an
+/// author-written `lookup_my_<resource>` query to the canonical shape.
+/// Returns `None` when the signatures match.
+///
+/// The canonical `me` synth produces a `Query::Lookup` (route-less,
+/// returning the resource row). Mismatches the author can introduce:
+/// - Wrong query kind (`Query::List` or `Query::Sql` under the same
+///   name). The `me` bundle owns the `lookup_my_*` name prefix.
+/// - Author-supplied `params` (the canonical shape is parameter-less).
+fn check_me_lookup_signature_mismatch(
+    feature: &ir::Feature,
+    name: &str,
+    resource: &str,
+) -> Option<String> {
+    let _ = resource; // reserved for future richer diff messages.
+    let query = feature.queries.iter().find(|q| q.name() == name)?;
+
+    match query {
+        ir::Query::Lookup(lq) => {
+            // me §5.2 — canonical shape is parameter-less. An author
+            // who introduces `params` diverges from the canonical
+            // route-less actor-keyed shape.
+            if !lq.params.is_empty() {
+                return Some(format!(
+                    "author-written `{}` declares params; canonical `me` shape is route-less + parameter-less",
+                    name
+                ));
+            }
+            None
+        }
+        // §11.1 mismatch — `lookup_my_<r>` should be a Lookup query.
+        _ => Some(format!(
+            "author-written `{}` is not a `query.lookup`; canonical `me` shape is route-less Lookup",
+            name
+        )),
+    }
 }
 
 /// §5.7 field categorisation result. Each field on a resource lands in
@@ -9915,11 +10257,11 @@ mod conventions_unknown_diagnostic_tests {
     use super::{AnalyzeError, CONVENTION_CATALOG, conventions_unknown_suggestion};
 
     #[test]
-    fn catalog_contains_crud_today() {
-        // §4.2: today the closed catalog is `{ crud }`. Any addition
-        // is an IR change requiring a proposal — this test fails on
-        // accidental growth.
-        assert_eq!(CONVENTION_CATALOG, &["crud"]);
+    fn catalog_contains_crud_and_me_today() {
+        // crud §4.2 + me §4.2 — closed catalog is `{ crud, me }`.
+        // Any further addition is an IR change requiring a proposal;
+        // this test fails on accidental growth.
+        assert_eq!(CONVENTION_CATALOG, &["crud", "me"]);
     }
 
     #[test]
@@ -10590,5 +10932,565 @@ mod conventions_crud_synth_tests {
         assert!(diags.is_empty());
         assert!(feature.commands.is_empty());
         assert!(feature.queries.is_empty());
+    }
+}
+
+// =============================================================================
+// `conventions [me]` synthesis pass — Cell M2 tests
+//
+// Spec: `docs/proposals/ir-resource-conventions-me.md` §§5–§11.
+//
+// Tests build `ir::Feature` values programmatically because M1's parser
+// shim for `conventions [me]` lands in parallel. The synth pass operates
+// on the post-parse IR so direct construction is the canonical surface
+// to exercise here.
+//
+// Coverage:
+// - 4 mode tests: user_keyed, user_keyed_no_org, org_keyed, self_keyed.
+// - Override test: author wrote `lookup_my_customer` → synth skipped,
+//   `synth_origins` records `AuthorOverride(Me)`.
+// - Composition test: `conventions [crud, me]` → 6 entries, no collisions.
+// - Diagnostic: `MeNoActorResolution` when resource has neither axis.
+// - Diagnostic: `MeSignatureMismatch` for divergent author signature.
+// =============================================================================
+#[cfg(test)]
+mod conventions_me_synth_tests {
+    use super::{ConventionSynthDiagnostic, synthesize_conventions};
+    use lazuli_ir as ir;
+
+    /// Minimal `Feature` with a single `authenticated` policy.
+    fn empty_feature(name: &str) -> ir::Feature {
+        ir::Feature {
+            name: name.to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: ir::Defaults {
+                tenancy: None,
+                timestamps: false,
+                policy: None,
+            },
+            uses: Vec::new(),
+            uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies: ir::Policies {
+                categories: vec![ir::PolicyCategory {
+                    name: "authenticated".to_owned(),
+                    atoms: vec!["@scope.authenticated".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                }],
+                fields: Vec::new(),
+                span_ref: None,
+            },
+            errors: None,
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            resume_routers: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            pollers: Vec::new(),
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            reports: Vec::new(),
+            channels: Vec::new(),
+            caches: Vec::new(),
+            aggregates: Vec::new(),
+            mcp_servers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn req_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+        ir::Field {
+            name: name.to_owned(),
+            type_ref,
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            span_ref: None,
+        }
+    }
+
+    fn req_unique_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+        ir::Field {
+            unique: true,
+            ..req_field(name, type_ref)
+        }
+    }
+
+    fn user_qn(name: &str) -> ir::TypeRef {
+        ir::TypeRef::UserDefined(ir::QualifiedName {
+            feature: None,
+            name: name.to_owned(),
+        })
+    }
+
+    /// Build a minimal Resource with `conventions [me]`.
+    fn me_resource(name: &str, fields: Vec<ir::Field>) -> ir::Resource {
+        ir::Resource {
+            name: name.to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields,
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Me],
+        }
+    }
+
+    /// me §5.3 row 1 — `user_keyed`: resource has `user: User required
+    /// unique` + `org: Org required`. Emits SELECT with
+    /// `WHERE org = ctx.User.OrgID AND "user" = ctx.User.ID`.
+    #[test]
+    fn user_keyed_mode_emits_org_and_user_key_clauses() {
+        let mut feature = empty_feature("host");
+        feature.resources.push(me_resource(
+            "Host",
+            vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+        ));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+
+        let q_names: Vec<&str> = feature.queries.iter().map(|q| q.name()).collect();
+        assert_eq!(q_names, vec!["lookup_my_host"]);
+
+        let lookup = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_my_host")
+            .unwrap();
+        match lookup {
+            ir::Query::Lookup(lq) => {
+                // Route-less + param-less per §5.2.
+                assert!(lq.params.is_empty(), "expected no params, got {:?}", lq.params);
+                // Two key clauses: org + user.
+                assert_eq!(lq.keys.len(), 2);
+                assert_eq!(lq.keys[0].path.segments, vec!["org".to_owned()]);
+                match &lq.keys[0].equals {
+                    ir::Expr::Path(p) => assert_eq!(
+                        p.segments,
+                        vec!["ctx".to_owned(), "User".to_owned(), "OrgID".to_owned()]
+                    ),
+                    other => panic!("expected Expr::Path for org, got {:?}", other),
+                }
+                assert_eq!(lq.keys[1].path.segments, vec!["user".to_owned()]);
+                match &lq.keys[1].equals {
+                    ir::Expr::Path(p) => assert_eq!(
+                        p.segments,
+                        vec!["ctx".to_owned(), "User".to_owned(), "ID".to_owned()]
+                    ),
+                    other => panic!("expected Expr::Path for user, got {:?}", other),
+                }
+                assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "authenticated"));
+            }
+            other => panic!("expected Lookup query, got {:?}", other),
+        }
+
+        // §11 inspect surface — synth_origins records Synthesized(Me).
+        assert_eq!(
+            feature.synth_origins.get("lookup_my_host"),
+            Some(&ir::ConventionOrigin::Synthesized(ir::ConventionRef::Me))
+        );
+    }
+
+    /// me §5.3 row 2 — `user_keyed_no_org`: `user: User required` and
+    /// no `org` field. Emits SELECT with `WHERE "user" = ctx.User.ID`.
+    #[test]
+    fn user_keyed_no_org_mode_emits_user_only_key_clause() {
+        let mut feature = empty_feature("profile");
+        feature.resources.push(me_resource(
+            "Profile",
+            vec![
+                req_unique_field("user", user_qn("User")),
+                req_field("bio", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+        ));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "got diagnostics: {:?}", diags);
+
+        let lookup = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_my_profile")
+            .unwrap();
+        match lookup {
+            ir::Query::Lookup(lq) => {
+                assert!(lq.params.is_empty());
+                // Single key clause on `user`.
+                assert_eq!(lq.keys.len(), 1);
+                assert_eq!(lq.keys[0].path.segments, vec!["user".to_owned()]);
+                match &lq.keys[0].equals {
+                    ir::Expr::Path(p) => assert_eq!(
+                        p.segments,
+                        vec!["ctx".to_owned(), "User".to_owned(), "ID".to_owned()]
+                    ),
+                    other => panic!("expected Expr::Path, got {:?}", other),
+                }
+            }
+            other => panic!("expected Lookup query, got {:?}", other),
+        }
+    }
+
+    /// me §5.3 row 3 — `org_keyed`: resource has `org: Org required`
+    /// AND no `user: User required` field. Emits SELECT with
+    /// `WHERE org_id = ctx.User.OrgID`.
+    #[test]
+    fn org_keyed_mode_emits_org_only_key_clause() {
+        let mut feature = empty_feature("settings");
+        feature.resources.push(me_resource(
+            "OrgSettings",
+            vec![
+                req_field("org", user_qn("Org")),
+                req_field(
+                    "theme",
+                    ir::TypeRef::Builtin(ir::BuiltinType::Text),
+                ),
+            ],
+        ));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "got diagnostics: {:?}", diags);
+
+        let lookup = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_my_org_settings")
+            .unwrap();
+        match lookup {
+            ir::Query::Lookup(lq) => {
+                assert!(lq.params.is_empty());
+                assert_eq!(lq.keys.len(), 1);
+                assert_eq!(lq.keys[0].path.segments, vec!["org".to_owned()]);
+                match &lq.keys[0].equals {
+                    ir::Expr::Path(p) => assert_eq!(
+                        p.segments,
+                        vec!["ctx".to_owned(), "User".to_owned(), "OrgID".to_owned()]
+                    ),
+                    other => panic!("expected Expr::Path, got {:?}", other),
+                }
+            }
+            other => panic!("expected Lookup query, got {:?}", other),
+        }
+    }
+
+    /// me §5.3 row 4 — `self_keyed`: the resource IS the User table.
+    /// Emits SELECT with `WHERE id = ctx.User.ID`.
+    #[test]
+    fn self_keyed_mode_emits_id_key_clause_for_user_resource() {
+        let mut feature = empty_feature("account");
+        // resource User — no `user` field needed; the row IS the actor.
+        feature.resources.push(me_resource(
+            "User",
+            vec![
+                req_unique_field(
+                    "email",
+                    ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail),
+                ),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+        ));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "got diagnostics: {:?}", diags);
+
+        let lookup = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_my_user")
+            .unwrap();
+        match lookup {
+            ir::Query::Lookup(lq) => {
+                assert!(lq.params.is_empty());
+                assert_eq!(lq.keys.len(), 1);
+                assert_eq!(lq.keys[0].path.segments, vec!["id".to_owned()]);
+                match &lq.keys[0].equals {
+                    ir::Expr::Path(p) => assert_eq!(
+                        p.segments,
+                        vec!["ctx".to_owned(), "User".to_owned(), "ID".to_owned()]
+                    ),
+                    other => panic!("expected Expr::Path, got {:?}", other),
+                }
+            }
+            other => panic!("expected Lookup query, got {:?}", other),
+        }
+    }
+
+    /// me §6 — author wrote `query lookup_my_customer`; synth skips
+    /// that name, records `AuthorOverride(Me)` in `synth_origins`. No
+    /// duplicate query, no diagnostic when the signature matches.
+    #[test]
+    fn author_override_skips_synth_and_records_origin() {
+        let mut feature = empty_feature("customer");
+        feature.resources.push(me_resource(
+            "Customer",
+            vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+        ));
+
+        // Author wrote their own `lookup_my_customer` query (e.g.,
+        // with a role-gated policy) — canonical-matching shape (no
+        // params, Lookup variant).
+        feature.queries.push(ir::Query::Lookup(ir::LookupQuery {
+            name: "lookup_my_customer".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: ir::PolicyRef::Local("customer_admin".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.is_empty(),
+            "expected no diagnostics for matching override, got {:?}",
+            diags
+        );
+
+        // Exactly one `lookup_my_customer` — the author's.
+        let count = feature
+            .queries
+            .iter()
+            .filter(|q| q.name() == "lookup_my_customer")
+            .count();
+        assert_eq!(count, 1);
+
+        // Author's policy preserved (not overwritten by synth).
+        let q = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_my_customer")
+            .unwrap();
+        match q {
+            ir::Query::Lookup(lq) => {
+                assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "customer_admin"));
+            }
+            other => panic!("expected Lookup, got {:?}", other),
+        }
+
+        // §11 — synth_origins records `AuthorOverride(Me)`.
+        assert_eq!(
+            feature.synth_origins.get("lookup_my_customer"),
+            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Me))
+        );
+    }
+
+    /// me §6.1 — `conventions [crud, me]` composes cleanly: 5 from
+    /// crud + 1 from me = 6 entries, no naming collisions. All 6
+    /// names appear in `synth_origins`.
+    #[test]
+    fn conventions_crud_and_me_compose_to_six_entries() {
+        let mut feature = empty_feature("customer");
+        let mut r = me_resource(
+            "Customer",
+            vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+        );
+        // Declare both bundles.
+        r.conventions = vec![ir::ConventionRef::Crud, ir::ConventionRef::Me];
+        feature.resources.push(r);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "got diagnostics: {:?}", diags);
+
+        // 3 crud commands + 0 me commands.
+        let cmd_names: std::collections::BTreeSet<String> =
+            feature.commands.iter().map(|c| c.name.clone()).collect();
+        assert!(cmd_names.contains("create_customer"));
+        assert!(cmd_names.contains("update_customer"));
+        assert!(cmd_names.contains("delete_customer"));
+        assert_eq!(cmd_names.len(), 3, "got commands: {:?}", cmd_names);
+
+        // 2 crud queries + 1 me query.
+        let q_names: std::collections::BTreeSet<String> =
+            feature.queries.iter().map(|q| q.name().to_owned()).collect();
+        assert!(q_names.contains("lookup_customer"));
+        assert!(q_names.contains("list_customers"));
+        assert!(q_names.contains("lookup_my_customer"));
+        assert_eq!(q_names.len(), 3, "got queries: {:?}", q_names);
+
+        // §11 inspect — synth_origins has 6 entries: 5 crud + 1 me.
+        assert_eq!(
+            feature.synth_origins.len(),
+            6,
+            "expected 6 synth_origins entries, got {:?}",
+            feature.synth_origins
+        );
+        // Spot-check the 5 crud entries.
+        for name in ["create_customer", "update_customer", "delete_customer", "lookup_customer", "list_customers"] {
+            assert_eq!(
+                feature.synth_origins.get(name),
+                Some(&ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud)),
+                "expected Synthesized(Crud) for `{}`",
+                name
+            );
+        }
+        // And the 1 me entry.
+        assert_eq!(
+            feature.synth_origins.get("lookup_my_customer"),
+            Some(&ir::ConventionOrigin::Synthesized(ir::ConventionRef::Me))
+        );
+    }
+
+    /// me §11.1 — `me_synth_no_actor_resolution` fires when the
+    /// resource has neither `user` nor `org` and is not named `User`.
+    /// No synth emitted for that resource.
+    #[test]
+    fn no_actor_resolution_diagnostic_when_no_user_no_org_not_user() {
+        let mut feature = empty_feature("audit");
+        feature.resources.push(me_resource(
+            "AuditNote",
+            vec![req_field("note", ir::TypeRef::Builtin(ir::BuiltinType::Text))],
+        ));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                ConventionSynthDiagnostic::MeNoActorResolution { resource }
+                    if resource == "AuditNote"
+            )),
+            "expected MeNoActorResolution for AuditNote, got {:?}",
+            diags
+        );
+
+        // No `lookup_my_audit_note` synthesized.
+        assert!(
+            feature
+                .queries
+                .iter()
+                .all(|q| q.name() != "lookup_my_audit_note"),
+            "synth should skip the resource entirely on no actor axis"
+        );
+        // No entry in synth_origins.
+        assert!(!feature.synth_origins.contains_key("lookup_my_audit_note"));
+    }
+
+    /// me §11.1 — `me_synth_signature_mismatch` fires when the author
+    /// wrote a divergent shape (e.g., a `Query::List` named
+    /// `lookup_my_<r>`; or a Lookup with non-empty params).
+    #[test]
+    fn divergent_author_signature_emits_mismatch_diagnostic() {
+        let mut feature = empty_feature("traveler");
+        feature.resources.push(me_resource(
+            "Traveler",
+            vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+            ],
+        ));
+
+        // Author wrote a Lookup with non-empty params — diverges from
+        // the canonical route-less + param-less shape.
+        feature.queries.push(ir::Query::Lookup(ir::LookupQuery {
+            name: "lookup_my_traveler".to_owned(),
+            public_contract: None,
+            params: vec![ir::TypedSlot {
+                name: "extra".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
+                required: false,
+                constraints: ir::FieldConstraints::default(),
+            }],
+            keys: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: ir::PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                ConventionSynthDiagnostic::MeSignatureMismatch { resource, synth_name, .. }
+                    if resource == "Traveler" && synth_name == "lookup_my_traveler"
+            )),
+            "expected MeSignatureMismatch for lookup_my_traveler, got {:?}",
+            diags
+        );
+
+        // §6 — synth still records AuthorOverride(Me) so inspect can
+        // render the override annotation.
+        assert_eq!(
+            feature.synth_origins.get("lookup_my_traveler"),
+            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Me))
+        );
+    }
+
+    /// Sanity — resource without `conventions [me]` is a no-op for the
+    /// `me` half of the synth (existing crud-no-op test covers the
+    /// joint path; this one anchors the bundle-isolation property).
+    #[test]
+    fn resource_without_me_convention_is_no_op() {
+        let mut feature = empty_feature("customer");
+        let mut r = me_resource(
+            "Customer",
+            vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+            ],
+        );
+        r.conventions = Vec::new();
+        feature.resources.push(r);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty());
+        assert!(feature.queries.is_empty());
+        assert!(feature.synth_origins.is_empty());
     }
 }
