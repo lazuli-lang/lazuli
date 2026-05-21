@@ -12,6 +12,41 @@ impl Span {
     }
 }
 
+/// `ir-rate-limit-env-aware` cell 1 — AST analog of `ir::RateLimitSpec`.
+///
+/// Aggregates one optional unqualified default + any number of
+/// env-qualified override entries. The parser builds this from
+/// consecutive `rate_limit "..."` / `rate_limit "..." in <envs>` lines
+/// (proposal §4.2). The single-line source shape produces a spec with
+/// `default = Some("X")` and `by_env = []`; multi-line shapes populate
+/// `by_env` in source order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimitSpecAst {
+    /// Unqualified `rate_limit "X"` line — at most one per declaration.
+    /// `None` when the source authored only env-qualified lines (Cell 3
+    /// doctor emits `rate_limit_no_default_with_qualifications`).
+    pub default: Option<String>,
+    /// `rate_limit "X" in <env_list>` entries in source order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub by_env: Vec<RateLimitByEnvAst>,
+    pub span: Span,
+}
+
+/// AST analog of `ir::RateLimitByEnv`. Envs are kept as raw identifiers
+/// here; the analyzer normalises them into the closed `EnvName` catalog
+/// at lowering time (`crates/lazuli_analyzer/src/lib.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimitByEnvAst {
+    /// Limit string verbatim (quotes stripped). The proposal-defined
+    /// keyword `"unlimited"` (§4.4) is preserved as-is; the analyzer
+    /// lowers it to the empty-string sentinel in `RateLimitByEnv.limit`.
+    pub limit: String,
+    /// Raw env identifiers as written. Non-empty by construction — the
+    /// parser rejects `rate_limit "X" in` (empty tail).
+    pub envs: Vec<String>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     pub app: Option<String>,
@@ -1087,8 +1122,13 @@ pub struct CommandDecl {
     /// into `ir::Command.policy_when_denied`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_when_denied: Option<TranslationKeyRefAst>,
-    /// `rate_limit "<N per period per scope>"` literal (quotes stripped).
-    pub rate_limit: Option<String>,
+    /// `rate_limit "<N per period per scope>"` declarations on the
+    /// command. Per `ir-rate-limit-env-aware` (cell 1) the parser
+    /// accepts one default line + any number of `in <env_list>`
+    /// qualified lines and folds them into a single
+    /// `RateLimitSpecAst`. The single-line source shape stays
+    /// 100% backward-compatible.
+    pub rate_limit: Option<RateLimitSpecAst>,
     /// `audit <subject>, <subject>, ...` line + optional `emit_to <group>` child.
     pub audit: Option<CommandAudit>,
     /// Cut A.9 `approval` block.
@@ -1762,8 +1802,9 @@ pub struct ApiDecl {
     /// RB.S6 — structured policy expression form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExprAst>,
-    /// `rate_limit "<N per period per scope>"`.
-    pub rate_limit: Option<String>,
+    /// `rate_limit "<N per period per scope>"` declarations on the
+    /// api block. See `ir-rate-limit-env-aware` cell 1.
+    pub rate_limit: Option<RateLimitSpecAst>,
     /// `handler "./api/<name>.go"`.
     pub handler: Option<String>,
     /// i18n bucket cycle — per-api `locale_negotiate` block override.
@@ -1824,7 +1865,8 @@ pub struct AuthPassword {
     /// `verify @fn.<name>` — extension fn reference.
     pub verify: String,
     /// `rate_limit "5 per 10 minutes"` — optional declarative throttle.
-    pub rate_limit: Option<String>,
+    /// Env-aware per `ir-rate-limit-env-aware` cell 1.
+    pub rate_limit: Option<RateLimitSpecAst>,
     pub span: Span,
 }
 
@@ -1909,7 +1951,9 @@ pub struct Agent {
     pub input: Vec<AgentInputSlot>,
     pub context: Option<String>,
     pub policy: Option<Vec<String>>,
-    pub rate_limit: Option<String>,
+    /// `rate_limit "<N per period per scope>"` declarations on the
+    /// agent. Env-aware per `ir-rate-limit-env-aware` cell 1.
+    pub rate_limit: Option<RateLimitSpecAst>,
     pub output: Option<AgentOutput>,
     pub model: Option<String>,
     pub temperature: Option<f64>,
@@ -2879,7 +2923,8 @@ pub struct ReportDecl {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_expr: Option<PolicyExprAst>,
     /// `rate_limit "..."` — required when policy includes `@scope.public`.
-    pub rate_limit: Option<String>,
+    /// Env-aware per `ir-rate-limit-env-aware` cell 1.
+    pub rate_limit: Option<RateLimitSpecAst>,
     /// `audit <subjects>` canonical block (see `CommandAudit`).
     pub audit: Option<CommandAudit>,
     pub span: Span,

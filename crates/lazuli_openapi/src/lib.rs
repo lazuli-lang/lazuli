@@ -137,7 +137,10 @@ fn emit_command(out: &mut YamlEmitter, feature: &str, cmd: &ir::Command) {
     out.kv("x-lazuli-feature", feature);
     out.kv("x-lazuli-kind", "command");
     if let Some(rl) = &cmd.rate_limit {
-        out.kv_quoted("x-lazuli-rate-limit", rl);
+        // `ir-rate-limit-env-aware` cell 1 — openapi shim: emit only the
+        // default literal. Cell 3 (inspect) extends the projection to
+        // surface the env-qualified shape.
+        out.kv_quoted("x-lazuli-rate-limit", &rl.default);
     }
     if !cmd.emits.is_empty() {
         out.kv(
@@ -314,7 +317,10 @@ fn emit_api(out: &mut YamlEmitter, feature: &str, api: &ir::Api, strict: bool) {
     out.kv("x-lazuli-feature", feature);
     out.kv("x-lazuli-kind", "api");
     if let Some(rl) = &api.rate_limit {
-        out.kv_quoted("x-lazuli-rate-limit", rl);
+        // `ir-rate-limit-env-aware` cell 1 — openapi shim: emit only the
+        // default literal. Cell 3 (inspect) extends the projection to
+        // surface the env-qualified shape.
+        out.kv_quoted("x-lazuli-rate-limit", &rl.default);
     }
     if let Some(dep) = &api.deprecated {
         out.line("deprecated: true");
@@ -990,7 +996,9 @@ mod tests {
     #[test]
     fn command_tier4_fields_emit_as_openapi_extensions() {
         let mut command = base_command();
-        command.rate_limit = Some("10 per minute per user".to_owned());
+        command.rate_limit = Some(ir::RateLimitSpec::from_default(
+            "10 per minute per user".to_owned(),
+        ));
         command.audit = Some(ir::AuditSpec {
             subjects: vec!["actor".to_owned(), "target.id".to_owned()],
             emit_to: Some("audit_log".to_owned()),

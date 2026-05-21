@@ -196,9 +196,11 @@ fn emit_password(
         ),
     ];
     if let Some(rate_limit) = &password.rate_limit {
+        // `ir-rate-limit-env-aware` cell 1 — codegen shim: read only the
+        // default literal; Cell 2 owns the env-qualified emission.
         rows.push((
             "RateLimit:".to_owned(),
-            format!("\"{}\",", escape_string(rate_limit)),
+            format!("\"{}\",", escape_string(&rate_limit.default)),
         ));
     }
     write_aligned_kv_rows(p, &rows);
@@ -590,7 +592,9 @@ fn escape_string(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{AppManifest, AuthIdentity, Defaults, FieldRef, Module, Policies};
+    use lazuli_ir::{
+        AppManifest, AuthIdentity, Defaults, FieldRef, Module, Policies, RateLimitSpec,
+    };
 
     fn emit(feature: &Feature) -> Option<String> {
         let module = Module {
@@ -745,7 +749,7 @@ mod tests {
             algorithm: "argon2id".to_owned(),
             hash: "@fn.hash_customer_password".to_owned(),
             verify: "@fn.verify_customer_password".to_owned(),
-            rate_limit: Some("5 per 10 minutes".to_owned()),
+            rate_limit: Some(RateLimitSpec::from_default("5 per 10 minutes".to_owned())),
         });
         auth.sessions = Some(AuthSessions {
             resource: qname("CustomerSession"),

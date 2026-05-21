@@ -163,7 +163,9 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
     }
 
     if let Some(rate_limit) = &report.rate_limit {
-        p.line(&format!("RateLimit: {:?},", rate_limit));
+        // `ir-rate-limit-env-aware` cell 1 — codegen shim: read only the
+        // default literal; Cell 2 owns the env-qualified emission.
+        p.line(&format!("RateLimit: {:?},", rate_limit.default));
     }
 
     p.dedent();

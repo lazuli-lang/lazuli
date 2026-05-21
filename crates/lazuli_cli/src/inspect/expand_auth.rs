@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, Defaults, FieldRef,
-        Policies, QualifiedName,
+        Policies, QualifiedName, RateLimitSpec,
     };
 
     fn module_with_features(features: Vec<Feature>) -> Module {
@@ -184,7 +184,7 @@ mod tests {
                 algorithm: "argon2id".to_owned(),
                 hash: "@fn.hash_customer_password".to_owned(),
                 verify: "@fn.verify_customer_password".to_owned(),
-                rate_limit: Some("5 per 10 minutes".to_owned()),
+                rate_limit: Some(RateLimitSpec::from_default("5 per 10 minutes".to_owned())),
             }),
             sessions: Some(AuthSessions {
                 resource: QualifiedName {
@@ -231,7 +231,10 @@ mod tests {
         assert_eq!(auth["identity"]["field"]["field"], "email");
         assert_eq!(auth["identity"]["origin"]["feature"], "customer_auth");
         assert_eq!(auth["password"]["algorithm"], "argon2id");
-        assert_eq!(auth["password"]["rate_limit"], "5 per 10 minutes");
+        // `ir-rate-limit-env-aware` cell 1 — the wire shape of
+        // `AuthPassword.rate_limit` is `{ "default": "X" }` for a
+        // default-only spec (proposal §8 IR JSON shape).
+        assert_eq!(auth["password"]["rate_limit"]["default"], "5 per 10 minutes");
         assert_eq!(auth["sessions"]["resource"]["name"], "CustomerSession");
         assert_eq!(auth["sessions"]["refresh"], false);
         assert_eq!(auth["mfa"]["method"], "totp");

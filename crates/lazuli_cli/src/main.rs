@@ -1816,8 +1816,16 @@ fn write_command_sdk(
     if let Some(policy_literal) = format_policy_ts(&command.policy, feature) {
         writeln!(s, "  policy: {policy_literal},").ok();
     }
-    if let Some(rate_limit) = command.rate_limit.as_deref() {
-        writeln!(s, "  rateLimit: \"{}\",", escape_js_string(rate_limit)).ok();
+    if let Some(rate_limit) = command.rate_limit.as_ref() {
+        // `ir-rate-limit-env-aware` cell 1 — SDK shim: surface the
+        // default literal. Cell 2 extends the wire shape to carry the
+        // env-qualified slice for client-side affordance.
+        writeln!(
+            s,
+            "  rateLimit: \"{}\",",
+            escape_js_string(&rate_limit.default)
+        )
+        .ok();
     }
     if let Some(audit_literal) = format_audit_ts(command.audit.as_ref()) {
         writeln!(s, "  audit: {audit_literal},").ok();
@@ -7613,7 +7621,10 @@ fn project_auth(feature_name: &str, auth: &lazuli_ir::Auth) -> InspectAuth {
             algorithm: p.algorithm.clone(),
             hash: p.hash.clone(),
             verify: p.verify.clone(),
-            rate_limit: p.rate_limit.clone(),
+            // `ir-rate-limit-env-aware` cell 1 — inspect shim: surface
+            // the default literal. Cell 3 extends the projection with
+            // the env-qualified shape.
+            rate_limit: p.rate_limit.as_ref().map(|spec| spec.default.clone()),
             origin: origin.clone(),
         }),
         sessions: auth.sessions.as_ref().map(|s| InspectAuthSessions {
@@ -11379,7 +11390,9 @@ mod tests {
             policy_expr: None,
             policy_when_denied: None,
             emits: vec![],
-            rate_limit: Some("30 per hour per user".to_owned()),
+            rate_limit: Some(lazuli_ir::RateLimitSpec::from_default(
+                "30 per hour per user".to_owned(),
+            )),
             audit: Some(lazuli_ir::AuditSpec {
                 subjects: vec![],
                 emit_to: None,

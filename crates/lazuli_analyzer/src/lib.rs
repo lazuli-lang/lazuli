@@ -2240,7 +2240,7 @@ fn build_auto_photo_command(
         policy_expr: None,
         policy_when_denied: None,
         emits: Vec::new(),
-        rate_limit: Some(rate_limit.to_owned()),
+        rate_limit: Some(RateLimitSpec::from_default(rate_limit.to_owned())),
         audit: Some(AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
@@ -3693,7 +3693,7 @@ fn default_synth_command(rate_limit: &str) -> ir::Command {
         policy_expr: None,
         policy_when_denied: None,
         emits: Vec::new(),
-        rate_limit: Some(rate_limit.to_owned()),
+        rate_limit: Some(ir::RateLimitSpec::from_default(rate_limit.to_owned())),
         audit: Some(ir::AuditSpec {
             subjects: vec!["default".to_owned()],
             emit_to: None,
@@ -5147,6 +5147,63 @@ fn validate_default_against_constraints(
     Ok(())
 }
 
+/// `ir-rate-limit-env-aware` cell 1 — lower a parser `RateLimitSpecAst`
+/// into the IR `RateLimitSpec`.
+///
+/// The single-line back-compat case (`rate_limit "X"`) lands here with
+/// `default = Some("X")` and `by_env = []`. The new env-qualified case
+/// folds each `RateLimitByEnvAst` into a `RateLimitByEnv` with closed-
+/// catalog `EnvName`s separated from unknown identifiers; the unknown
+/// bucket is what Cell 3 doctor will surface as `rate_limit_unknown_env`.
+/// The proposal-defined `"unlimited"` keyword (§4.4) lowers to the
+/// empty-string sentinel for both the default and per-env slots.
+///
+/// When the source authored only env-qualified lines (no unqualified
+/// default), the IR default becomes the empty string — same sentinel
+/// as `"unlimited"`. Cell 3 doctor surfaces
+/// `rate_limit_no_default_with_qualifications` so the silent default
+/// is visible at lint time, per proposal §9.2.
+fn lower_rate_limit_spec(spec: &syntax::RateLimitSpecAst) -> ir::RateLimitSpec {
+    let default = match spec.default.as_deref() {
+        Some(literal) => lower_rate_limit_literal(literal),
+        None => String::new(),
+    };
+    let by_env = spec
+        .by_env
+        .iter()
+        .map(|entry| {
+            let mut known = Vec::with_capacity(entry.envs.len());
+            let mut unknown = Vec::new();
+            for raw in &entry.envs {
+                if let Some(env) = ir::EnvName::from_ident(raw) {
+                    known.push(env);
+                } else {
+                    unknown.push(raw.clone());
+                }
+            }
+            ir::RateLimitByEnv {
+                envs: known,
+                unknown_envs: unknown,
+                limit: lower_rate_limit_literal(&entry.limit),
+            }
+        })
+        .collect();
+    ir::RateLimitSpec { default, by_env }
+}
+
+/// `ir-rate-limit-env-aware` cell 1 — lower a single literal into the
+/// canonical IR form, applying the `"unlimited"` keyword carve-out
+/// (proposal §4.4). The keyword is recognised verbatim (case-sensitive)
+/// and lowers to the empty string; everything else passes through
+/// unchanged.
+fn lower_rate_limit_literal(literal: &str) -> String {
+    if literal == "unlimited" {
+        String::new()
+    } else {
+        literal.to_owned()
+    }
+}
+
 /// Phase L Tier 4b — lower a canonical-indent `command` block into
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
@@ -5295,7 +5352,7 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         policy_expr,
         policy_when_denied,
         emits,
-        rate_limit: c.rate_limit.clone(),
+        rate_limit: c.rate_limit.as_ref().map(lower_rate_limit_spec),
         audit,
         approval,
         invalidates,
@@ -5415,7 +5472,7 @@ fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
         policy,
         policy_expr,
         policy_when_denied: None,
-        rate_limit: a.rate_limit.clone(),
+        rate_limit: a.rate_limit.as_ref().map(lower_rate_limit_spec),
         output: type_ref_from_text(&a.output),
         handler,
         locale_negotiate: a.locale_negotiate.as_ref().map(lower_locale_negotiate_decl),
@@ -5500,7 +5557,7 @@ fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Repor
         filename,
         policy,
         policy_expr,
-        rate_limit: r.rate_limit.clone(),
+        rate_limit: r.rate_limit.as_ref().map(lower_rate_limit_spec),
         audit,
         span_ref: Some(span_of(r.span)),
     })
@@ -6887,7 +6944,7 @@ fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
         algorithm: password.algorithm.clone(),
         hash: password.hash.clone(),
         verify: password.verify.clone(),
-        rate_limit: password.rate_limit.clone(),
+        rate_limit: password.rate_limit.as_ref().map(lower_rate_limit_spec),
     }
 }
 
@@ -7017,7 +7074,7 @@ pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, An
         context: None, // Phase 1 parser does not yet structure context expressions.
         policy,
         policy_when_denied: None,
-        rate_limit: agent.rate_limit.clone(),
+        rate_limit: agent.rate_limit.as_ref().map(lower_rate_limit_spec),
         output_kind,
         output_type,
         output_discriminator,
@@ -8489,7 +8546,9 @@ feature customer_auth
         assert_eq!(password.algorithm, "argon2id");
         assert_eq!(password.hash, "@fn.hash_customer_password");
         assert_eq!(password.verify, "@fn.verify_customer_password");
-        assert_eq!(password.rate_limit.as_deref(), Some("5 per 10 minutes"));
+        let rate_limit = password.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(rate_limit.default, "5 per 10 minutes");
+        assert!(rate_limit.by_env.is_empty());
 
         let mfa = auth.mfa.as_ref().expect("mfa");
         assert_eq!(mfa.method, "totp");
@@ -11068,10 +11127,9 @@ mod conventions_crud_synth_tests {
             ir::CommandEffect::Creates(e) => assert_eq!(e.resource.name, "Customer"),
             other => panic!("expected Creates effect, got {:?}", other),
         }
-        assert_eq!(
-            create.rate_limit.as_deref(),
-            Some("100 per 10 minutes per ip")
-        );
+        let create_rate_limit = create.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(create_rate_limit.default, "100 per 10 minutes per ip");
+        assert!(create_rate_limit.by_env.is_empty());
         assert!(matches!(&create.policy, ir::PolicyRef::Local(p) if p == "authenticated"));
         assert!(create.audit.is_some());
 

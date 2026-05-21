@@ -1,14 +1,15 @@
 use lazuli_ir::LZIR_SCHEMA;
 
 #[test]
-fn lzir_schema_constant_is_0_15_0() {
-    // Phase L Tier 4b — bumped from 0.14.0 by the additive
-    // `Command.rate_limit`/`audit`/`approval`/`invalidates`/
-    // `external_calls`, plus the new `Api`, `AuditSpec`,
-    // `ApprovalSpec`, `ApprovalThen`, `InvalidatesSpec` types and
-    // `Feature.apis`. `JobDeclarative` swap from `raw_*` strings to
-    // typed `target`/`lets`/`effect` is the JSON ABI risk; covered
-    // by `#[serde(default, skip_serializing_if = "…")]` on every
-    // additive slot. See `crates/lazuli_ir/src/lib.rs`.
-    assert_eq!(LZIR_SCHEMA, "0.15.0");
+fn lzir_schema_constant_is_0_16_0() {
+    // `ir-rate-limit-env-aware` cell 1 — bumped from 0.15.0 by the
+    // shape change on the `rate_limit` slot of `Command`, `Api`,
+    // `Agent`, `Report`, and `AuthPassword`. The slot's JSON
+    // representation moves from a bare string (`"5 per 10 minutes
+    // per ip"`) to an object (`{"default": "5 per 10 minutes per ip",
+    // "by_env": []}`). The source-level shape `rate_limit "X"` keeps
+    // 100% back-compat — the parser lowers it to `RateLimitSpec {
+    // default: "X", by_env: [] }` (see proposal §4.1 + §8). Consumers
+    // of the IR JSON must read the object form.
+    assert_eq!(LZIR_SCHEMA, "0.16.0");
 }
