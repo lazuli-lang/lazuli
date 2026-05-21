@@ -183,6 +183,8 @@ fn emit_list_query(
     p.dedent();
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
+    p.blank();
+    emit_list_query_wrapper(p, &query.name, &var_name, &args_struct, &resource_type);
 }
 
 fn emit_lookup_query(
@@ -252,6 +254,137 @@ fn emit_lookup_query(
     p.dedent();
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
+    p.blank();
+    let actor_keyed = is_actor_keyed_lookup(query);
+    emit_lookup_query_wrapper(
+        p,
+        &query.name,
+        &var_name,
+        &args_struct,
+        &resource_type,
+        actor_keyed,
+    );
+}
+
+/// Emit an exported Go wrapper that lets Go-internal callers invoke a
+/// `query.lookup` value directly instead of going through the HTTP
+/// router. Mirrors `command.rs`'s `Handle<Name>` wrapper convention —
+/// the wrapper is byte-equivalent to manually writing
+/// `lookupMyHost.RunLookup(ctx, LookupMyHostArgs{...})`, just discoverable
+/// at the package level.
+///
+/// Two shapes:
+/// - `lookup_my_*` queries with no `params` (singleton-per-actor)
+///   compile to `func <Pascal>(ctx *lazuli.Ctx) (R, error)`. The args
+///   value is constructed inline as the zero literal; runtime resolves
+///   every `LookupBy` source from ctx.
+/// - Every other lookup query keeps the `(ctx, args)` signature so
+///   route params / typed inputs reach `RunLookup` verbatim.
+fn emit_lookup_query_wrapper(
+    p: &mut GoPrinter,
+    query_name: &str,
+    var_name: &str,
+    args_struct: &str,
+    resource_type: &str,
+    actor_keyed: bool,
+) {
+    let func_name = query_wrapper_func_name(query_name);
+    emit_pattern_header(p, PATTERN_QUERY_PGX_LOOKUP);
+    if actor_keyed {
+        p.line(&format!(
+            "// {func_name} is the exported Go wrapper around the package-private"
+        ));
+        p.line(&format!(
+            "// `{var_name}` value. Callers invoke {func_name}(ctx) without"
+        ));
+        p.line("// passing an args struct — the actor identity drives the LookupBy");
+        p.line("// keys via ctx-sourced bindings.");
+        p.line(&format!(
+            "func {func_name}(ctx *lazuli.Ctx) ({resource_type}, error) {{"
+        ));
+        p.indent();
+        p.line(&format!(
+            "return {var_name}.RunLookup(ctx, {args_struct}{{}})"
+        ));
+        p.dedent();
+        p.line("}");
+    } else {
+        p.line(&format!(
+            "// {func_name} is the exported Go wrapper around the package-private"
+        ));
+        p.line(&format!(
+            "// `{var_name}` value. Mirrors the command-side Handle<Name> shape"
+        ));
+        p.line("// so Go-internal callers (other handlers, helpers, tests) can");
+        p.line("// invoke the lookup without going through the HTTP router.");
+        p.line(&format!(
+            "func {func_name}(ctx *lazuli.Ctx, args {args_struct}) ({resource_type}, error) {{"
+        ));
+        p.indent();
+        p.line(&format!("return {var_name}.RunLookup(ctx, args)"));
+        p.dedent();
+        p.line("}");
+    }
+}
+
+/// Emit an exported Go wrapper for a `query.list` value. Mirrors the
+/// command-side `Handle<Name>` convention so Go-internal callers can
+/// invoke the list without going through the HTTP router.
+fn emit_list_query_wrapper(
+    p: &mut GoPrinter,
+    query_name: &str,
+    var_name: &str,
+    args_struct: &str,
+    resource_type: &str,
+) {
+    let func_name = query_wrapper_func_name(query_name);
+    emit_pattern_header(p, PATTERN_QUERY_PGX_LIST);
+    p.line(&format!(
+        "// {func_name} is the exported Go wrapper around the package-private"
+    ));
+    p.line(&format!(
+        "// `{var_name}` value. Mirrors the command-side Handle<Name> shape"
+    ));
+    p.line("// so Go-internal callers (other handlers, helpers, tests) can");
+    p.line("// invoke the list without going through the HTTP router.");
+    p.line(&format!(
+        "func {func_name}(ctx *lazuli.Ctx, args {args_struct}) ([]{resource_type}, error) {{"
+    ));
+    p.indent();
+    p.line(&format!("return {var_name}.RunList(ctx, args)"));
+    p.dedent();
+    p.line("}");
+}
+
+/// PascalCase of the query name. Mirrors the command-side
+/// `command_handler_func_name` convention but uses the bare query name
+/// (no `Handle` prefix) — the spec's `lookup_my_host` -> `LookupMyHost`
+/// reads naturally because the query name already encodes the verb.
+fn query_wrapper_func_name(query_name: &str) -> String {
+    pascal_case(query_name)
+}
+
+/// A `query.lookup` is actor-keyed when every `LookupBy` source resolves
+/// from ctx (no route params or typed inputs needed). This is the shape
+/// the `conventions [me]` synth produces and the only case where the
+/// emitted wrapper can drop the `args` parameter — for every other
+/// lookup, the caller MUST pass an args struct so route / input keys
+/// reach the runtime.
+fn is_actor_keyed_lookup(query: &LookupQuery) -> bool {
+    if !query.params.is_empty() {
+        return false;
+    }
+    if query.keys.is_empty() {
+        return false;
+    }
+    query.keys.iter().all(|key| match &key.equals {
+        Expr::Path(path) => path
+            .segments
+            .first()
+            .map(|s| s.as_str() == "ctx")
+            .unwrap_or(false),
+        _ => false,
+    })
 }
 
 fn emit_sql_query(
@@ -836,6 +969,16 @@ fn column_from_segments(segments: &[String]) -> String {
 /// columns back to the actual resource column when the resource has
 /// a matching FK field, but preserve real columns such as `id` and
 /// tenant `org_id`.
+///
+/// The conventions `[me]` synth lowers its `WHERE` keys using bare
+/// field-style segments (`path: ["org"]`, `path: ["user"]`). When
+/// the resource has only `tenancy org` (no authored `org` field),
+/// the actual DDL column is the implicit `org_id`. Translate
+/// `<X>` -> `<X>_id` whenever the resource lacks a field `<X>` but
+/// the suffixed `<X>_id` is a known column (e.g. the implicit
+/// tenancy column). This is the inverse of the `<X>_id` -> `<X>`
+/// translation above and reuses the same `resource_has_column`
+/// oracle, so both directions stay consistent.
 fn normalize_resource_column(
     feature: &Feature,
     resource: Option<&Resource>,
@@ -847,15 +990,26 @@ fn normalize_resource_column(
     if resource_has_column(feature, resource, column) {
         return column.to_owned();
     }
-    let Some(stem) = column.strip_suffix("_id") else {
-        return column.to_owned();
-    };
-    if resource
-        .fields
-        .iter()
-        .any(|field| field.name == stem && is_fk_field(field))
-    {
-        return stem.to_owned();
+    if let Some(stem) = column.strip_suffix("_id") {
+        if resource
+            .fields
+            .iter()
+            .any(|field| field.name == stem && is_fk_field(field))
+        {
+            return stem.to_owned();
+        }
+    } else {
+        // Inverse direction: bare path -> suffixed column when the
+        // resource carries the suffixed column implicitly (e.g.
+        // `tenancy org` -> `org_id`). Only translate when the field
+        // form does not exist; explicit `org: Org required` fields
+        // keep their literal `org` column per DDL convention.
+        let suffixed = format!("{column}_id");
+        if !resource.fields.iter().any(|field| field.name == column)
+            && resource_has_column(feature, resource, &suffixed)
+        {
+            return suffixed;
+        }
     }
     column.to_owned()
 }
@@ -1717,6 +1871,272 @@ mod tests {
         assert!(
             !out.contains("{Column: \"user_id\""),
             "user_id must not leak as a physical lookup column for `user: User`:\n{out}"
+        );
+    }
+
+    /// Gap A — every emitted `query.lookup` value carries an exported
+    /// Go wrapper so Go-internal callers (other handlers, helpers,
+    /// tests) can invoke the lookup without going through the HTTP
+    /// router. Wrapper shape mirrors commands' `Handle<Name>` (here:
+    /// PascalCase of the query name).
+    #[test]
+    fn lookup_query_emits_exported_go_wrapper() {
+        let mut feature = base_feature("customer");
+        feature.resources.push(resource(
+            "Customer",
+            vec![field(
+                "email",
+                TypeRef::Builtin(BuiltinType::SemanticEmail),
+                true,
+            )],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "by_email".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![KeyClause {
+                path: lazuli_ir::Path::from_segments(["email"]),
+                equals: Expr::Path(lazuli_ir::Path::from_segments(["email"])),
+            }],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        // The args struct still carries the route-shaped Email key; the
+        // wrapper just delegates to `RunLookup` with the same args.
+        assert!(
+            out.contains(
+                "func ByEmail(ctx *lazuli.Ctx, args CustomerByEmailArgs) (Customer, error) {"
+            ),
+            "exported lookup wrapper missing:\n{out}"
+        );
+        assert!(
+            out.contains("return customerByEmail.RunLookup(ctx, args)"),
+            "wrapper must delegate to RunLookup:\n{out}"
+        );
+    }
+
+    /// Gap A — `lookup_my_*` queries authored by the `conventions [me]`
+    /// synth carry no params and resolve every LookupBy from ctx. The
+    /// wrapper drops the `args` parameter so callers write
+    /// `LookupMyHost(ctx)`; the args literal is zero-constructed inline.
+    #[test]
+    fn actor_keyed_lookup_query_emits_args_less_go_wrapper() {
+        let mut feature = base_feature("host");
+        feature.defaults.tenancy = Some(Tenancy::Org);
+        feature.resources.push(resource("Org", Vec::new()));
+        feature.resources.push(resource("User", Vec::new()));
+        feature.resources.push(resource(
+            "Host",
+            vec![field("user", TypeRef::UserDefined(qname("User")), true)],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "lookup_my_host".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![
+                KeyClause {
+                    path: lazuli_ir::Path::from_segments(["org"]),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments([
+                        "ctx", "actor", "org_id",
+                    ])),
+                },
+                KeyClause {
+                    path: lazuli_ir::Path::from_segments(["user"]),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments([
+                        "ctx", "actor", "user_id",
+                    ])),
+                },
+            ],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("func LookupMyHost(ctx *lazuli.Ctx) (Host, error) {"),
+            "actor-keyed wrapper signature must drop args:\n{out}"
+        );
+        assert!(
+            out.contains("return lookupMyHost.RunLookup(ctx, LookupMyHostArgs{})"),
+            "actor-keyed wrapper must zero-construct args inline:\n{out}"
+        );
+    }
+
+    /// Gap A — `query.list` values also carry an exported wrapper so
+    /// Go-internal callers can drive the list through the runtime.
+    #[test]
+    fn list_query_emits_exported_go_wrapper() {
+        let mut feature = base_feature("customer");
+        feature.resources.push(resource(
+            "Customer",
+            vec![field("name", TypeRef::Builtin(BuiltinType::Text), true)],
+        ));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "func List(ctx *lazuli.Ctx, args ListCustomersArgs) ([]Customer, error) {"
+            ),
+            "exported list wrapper missing:\n{out}"
+        );
+        assert!(
+            out.contains("return listCustomers.RunList(ctx, args)"),
+            "wrapper must delegate to RunList:\n{out}"
+        );
+    }
+
+    /// Gap B — when a `conventions [me]` synth emits a `LookupKey` with
+    /// bare path `org` and the resource has `tenancy: Org` (no
+    /// authored `org` field), the emitted Go column MUST be the
+    /// implicit `org_id` tenancy column. Without this translation the
+    /// runtime SELECT would target a non-existent `org` column and
+    /// every `lookup_my_<r>` call would 500.
+    #[test]
+    fn lookup_my_query_translates_org_path_to_org_id_under_tenancy_org() {
+        let mut feature = base_feature("host");
+        feature.defaults.tenancy = Some(Tenancy::Org);
+        feature.resources.push(resource("Org", Vec::new()));
+        feature.resources.push(resource("User", Vec::new()));
+        feature.resources.push(resource(
+            "Host",
+            vec![field("user", TypeRef::UserDefined(qname("User")), true)],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "lookup_my_host".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![
+                KeyClause {
+                    path: lazuli_ir::Path::from_segments(["org"]),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments([
+                        "ctx", "actor", "org_id",
+                    ])),
+                },
+                KeyClause {
+                    path: lazuli_ir::Path::from_segments(["user"]),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments([
+                        "ctx", "actor", "user_id",
+                    ])),
+                },
+            ],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("{Column: \"org_id\", Source: lazuli.FromCtx(\"actor.org_id\")},"),
+            "bare `org` path on a tenancy-Org resource must lower to `org_id`:\n{out}"
+        );
+        // The `user` field exists literally — no `_id` suffix expected.
+        assert!(
+            out.contains("{Column: \"user\", Source: lazuli.FromCtx(\"actor.user_id\")},"),
+            "authored `user: User` FK keeps its literal column name:\n{out}"
+        );
+        assert!(
+            !out.contains("{Column: \"org\","),
+            "bare `org` must not leak as a physical column when tenancy adds org_id:\n{out}"
+        );
+    }
+
+    /// Gap B inverse — when the resource has an authored `org: Org`
+    /// FK field (no `tenancy: Org`), the DDL keeps the literal `org`
+    /// column. The codegen translation MUST NOT add a spurious `_id`
+    /// suffix in that case; the field-form wins.
+    #[test]
+    fn lookup_query_preserves_literal_fk_field_column_without_tenancy() {
+        let mut feature = base_feature("memberships");
+        feature.resources.push(resource("Org", Vec::new()));
+        feature.resources.push(resource("User", Vec::new()));
+        feature.resources.push(resource(
+            "Membership",
+            vec![
+                field("org", TypeRef::UserDefined(qname("Org")), true),
+                field("user", TypeRef::UserDefined(qname("User")), true),
+            ],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "lookup_my_membership".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![
+                KeyClause {
+                    path: lazuli_ir::Path::from_segments(["org"]),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments([
+                        "ctx", "actor", "org_id",
+                    ])),
+                },
+                KeyClause {
+                    path: lazuli_ir::Path::from_segments(["user"]),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments([
+                        "ctx", "actor", "user_id",
+                    ])),
+                },
+            ],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("{Column: \"org\", Source: lazuli.FromCtx(\"actor.org_id\")},"),
+            "authored `org: Org` FK column keeps its literal name:\n{out}"
+        );
+        assert!(
+            out.contains("{Column: \"user\", Source: lazuli.FromCtx(\"actor.user_id\")},"),
+            "authored `user: User` FK column keeps its literal name:\n{out}"
+        );
+        assert!(
+            !out.contains("{Column: \"org_id\","),
+            "no spurious _id suffix when the FK field is literal:\n{out}"
         );
     }
 
