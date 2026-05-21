@@ -21,6 +21,46 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Added
 
+- **Codegen-correctness cycle 3
+  (`codegen-correctness-cycle-3-2026-05-21`) — 4 LAZ items closed.**
+  Hostpoint stayed at **95/95 pass, 0 skip**, but now with **0
+  retained workarounds**: cycle 3 removed every workaround cycle 2 had
+  to keep. Atelier moved from "generated Go does not build" to
+  **compiles + binary builds** (`atelier-api.exe`, 34.5 MB) with
+  generated Go tests green. New gap inherited by cycle 4:
+  `LAZ-ATELIER-DUPLICATE-API-LIST`, where `./atelier-api.exe --help`
+  panics during init on duplicate API registration for `list`, likely
+  from synth-generated `list` colliding with an authored query.
+  Closures:
+  - **WAR-LAZ-RU-TENANT-UPDATE-OFFSET-01** (RT1/RT2/RT3): runtime SQL
+    builders now pass explicit placeholder start indexes into
+    `baseScopeConditions`, preventing placeholder collisions between
+    `SET`, tenant/policy scope, and explicit `WHERE` loops. Regression
+    coverage now locks apply-delete soft delete, list, lookup,
+    multi-SET + multi-WHERE, and no-tenant idempotency paths. Hostpoint
+    reverted the cycle-2 traveler sub-step `@fn` handler workaround and
+    returned to generated `updates Traveler { ... }` plus authored
+    `invalidates query.lookup_my_traveler`. (`84fa169` + `b9b0c2e`;
+    hostpoint `b4a47f9`)
+  - **LAZ-ATELIER-COMPILE** (AE1/AE2/AE3): audit reduced 12 build
+    failures to two root causes: missing generated handler-import gates
+    and a generated `go.mod` that replaced but did not require
+    `lazuli.dev/runtime`. Codegen-go now gates handler imports on
+    `feature.has_any_fn_reference()`, emits the runtime requirement,
+    fixes `list of T` lowering, and emits implicit `Empty` outputs.
+    Atelier's generated server now builds end-to-end. (`e01221e`;
+    lazuli-ops `30e1427`, `3ea16d2`; atelier `7510967`, `2387458`)
+  - **LAZ-DOCTOR-DOCS-THIN** (DOC1/DOC2): five flagged doctor modules
+    now have full module headers with severity and fires/warns
+    coverage, and `tests/module_headers.rs` self-enforces the header
+    contract across 38 modules. (`1ae45c6` + `e56f066`)
+  - **LAZ-HOSTPOINT-WORKAROUNDS-LINGER** (WO1/WO2/WO3): hostpoint's
+    `bumpLifecycle` SQL fallback is gone, `progressTravelerTo` uses the
+    traveler API end-to-end, the stale-time audit found 0 retained
+    `staleTime: 0` workaround sites, and parser support now accepts
+    canonical `triggers transition a, b`, legacy `triggers a, b`, and
+    block-form triggers. (hostpoint `5ef022b`; `8f87d7f`)
+
 - **Codegen-correctness cycle 2
   (`codegen-correctness-cycle-2-2026-05-21`) — 5 LAZ items plus
   doctor/docs polish closed.** Hostpoint moved from 94/95 with 1 skip
