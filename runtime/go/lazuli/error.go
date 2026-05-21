@@ -4,7 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 )
+
+// internalServerError returns a safe 500 envelope and logs the underlying
+// `err` server-side via slog. Use this for any infrastructure failure (DB
+// connection refused, encrypt/decrypt fault, JSON marshal failure, etc.) so
+// the wire payload never carries internal detail like SQL strings, pgx
+// connection URIs, or stack fragments. The `what` string is the stable
+// user-facing message the wire emits ("lookup query failed"); the detailed
+// `err` goes only to slog so ops can correlate via the request ID. Matches
+// the unmapped-error branch in `writeError` (http.go) so both code paths
+// converge on the same hide-internal contract.
+func internalServerError(err error, what string) *Error {
+	slog.Error("lazuli runtime: "+what, "err", err)
+	return &Error{Status: 500, Code: CodeInternal, Message: what}
+}
 
 // Error is the canonical error envelope returned to clients. It mirrors the
 // DSL error contract (`errors` block + `error <Name> status <code>`).

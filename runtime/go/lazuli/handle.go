@@ -582,10 +582,7 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	if eff.Resource.Tenancy == TenancyOrg && ctx.Tenant == nil {
 		resolved, err := resolveDefaultTenant(ctx)
 		if err != nil {
-			return zero, &Error{
-				Status: 500, Code: CodeInternal,
-				Message: "default tenant resolver failed: " + err.Error(),
-			}
+			return zero, internalServerError(err, "default tenant resolver failed")
 		}
 		if resolved != nil {
 			ctx.Tenant = resolved
@@ -617,8 +614,7 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	// AES-256-GCM ciphertext via `encryption.ForCtx`. No-op when the
 	// resource has no encrypted fields.
 	if err := encryptColumnValues(ctx, eff.Resource, cols, values); err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "insert encrypt failed: " + err.Error()}
+		return zero, internalServerError(err, "insert encrypt failed")
 	}
 
 	// `ir-resource-conventions-owner-scope.md` §8.5.A —
@@ -695,8 +691,7 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	// Decrypt server-readable encrypted fields on the returned row so
 	// downstream code (events, response bodies, audit) sees plaintext.
 	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "insert decrypt failed: " + err.Error()}
+		return zero, internalServerError(err, "insert decrypt failed")
 	}
 	return out, nil
 }
@@ -759,8 +754,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 	// WHERE values are appended. Only the SET-side bindings are
 	// candidates.
 	if err := encryptColumnValues(ctx, eff.Resource, bindCols, values[:len(bindCols)]); err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "update encrypt failed: " + err.Error()}
+		return zero, internalServerError(err, "update encrypt failed")
 	}
 	// Always bump updated_at if the table has it.
 	sets = append(sets, `"updated_at" = now()`)
@@ -801,8 +795,7 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 		return zero, classifyDBError("update scan", err)
 	}
 	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "update decrypt failed: " + err.Error()}
+		return zero, internalServerError(err, "update decrypt failed")
 	}
 	return out, nil
 }
@@ -860,8 +853,7 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 		return zero, classifyDBError("delete scan", err)
 	}
 	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "delete decrypt failed: " + err.Error()}
+		return zero, internalServerError(err, "delete decrypt failed")
 	}
 	return out, nil
 }

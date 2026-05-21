@@ -88,23 +88,20 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 
 	rows, err := DB().Query(ctx, sql, values...)
 	if err != nil {
-		return nil, &Error{Status: 500, Code: CodeInternal,
-			Message: "list query failed: " + err.Error()}
+		return nil, internalServerError(err, "list query failed")
 	}
 	defer rows.Close()
 
 	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[R])
 	if err != nil {
-		return nil, &Error{Status: 500, Code: CodeInternal,
-			Message: "list scan failed: " + err.Error()}
+		return nil, internalServerError(err, "list scan failed")
 	}
 	// Decrypt every row's server-readable encrypted fields before
 	// returning. Resources without `@cap.Encrypted` skip the callback
 	// (nil-guarded inside `decryptScannedRow`).
 	for i := range out {
 		if err := decryptScannedRow(ctx, res, &out[i]); err != nil {
-			return nil, &Error{Status: 500, Code: CodeInternal,
-				Message: "list decrypt failed: " + err.Error()}
+			return nil, internalServerError(err, "list decrypt failed")
 		}
 	}
 	if q.Cache != nil {
@@ -181,8 +178,7 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 
 	rows, err := DB().Query(ctx, sql, values...)
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "lookup query failed: " + err.Error()}
+		return zero, internalServerError(err, "lookup query failed")
 	}
 	defer rows.Close()
 
@@ -192,12 +188,10 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 			Message: "no row matches lookup keys"}
 	}
 	if err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "lookup scan failed: " + err.Error()}
+		return zero, internalServerError(err, "lookup scan failed")
 	}
 	if err := decryptScannedRow(ctx, res, &out); err != nil {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "lookup decrypt failed: " + err.Error()}
+		return zero, internalServerError(err, "lookup decrypt failed")
 	}
 	if q.Cache != nil {
 		storeQueryCache(ctx, q.Name, args, out, q.Cache.TTL)
