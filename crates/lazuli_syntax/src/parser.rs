@@ -8958,17 +8958,16 @@ fn parse_resource_conventions_list(
 fn resource_convention_ident(ident: &str) -> Option<ResourceConventionAst> {
     match ident {
         "crud" => Some(ResourceConventionAst::Crud),
+        "me" => Some(ResourceConventionAst::Me),
         _ => None,
     }
 }
 
 /// Suggest the nearest closed-catalog convention identifier for an
-/// unknown token. Single-character Levenshtein per §4.3 — returns
-/// `Some("crud")` when the candidate is within edit-distance 1
-/// (covers the brief's examples `crd`, `curd`, `cur`, `crus`, etc.)
-/// or shares the same first letter and is short.
+/// unknown token. Single-character Levenshtein per crud §4.3 / me
+/// §4.3 — returns the closest match within edit-distance 1.
 fn nearest_resource_convention(ident: &str) -> Option<&'static str> {
-    const CATALOG: &[&str] = &["crud"];
+    const CATALOG: &[&str] = &["crud", "me"];
     let mut best: Option<(&'static str, usize)> = None;
     for candidate in CATALOG {
         let d = levenshtein_distance(ident, candidate);

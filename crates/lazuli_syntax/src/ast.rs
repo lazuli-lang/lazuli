@@ -1406,6 +1406,7 @@ pub struct ResourceDecl {
 #[serde(rename_all = "snake_case")]
 pub enum ResourceConventionAst {
     Crud,
+    Me,
 }
 
 /// Roadmap §1.5 (CL.C.2) — `lock` decorator closed catalog. Variant

@@ -4019,6 +4019,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         .iter()
         .map(|c| match c {
             syntax::ResourceConventionAst::Crud => ir::ConventionRef::Crud,
+            syntax::ResourceConventionAst::Me => ir::ConventionRef::Me,
         })
         .collect();
     Ok(ir::Resource {
