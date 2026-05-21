@@ -347,6 +347,11 @@ struct Tier3FeatureFacts {
     /// `ERR-VOCAB-002` cross-feature key resolver can walk imported
     /// features without re-deriving the import set from `feature_uses`.
     uses: Vec<String>,
+    /// Realtime bucket cycle — lifted `channel <name>` declarations per
+    /// feature. Used by `CHANNEL-PAYLOAD-001` to resolve each channel's
+    /// `payload <Type>` against the feature's `records` / `resources`.
+    /// Empty when the feature declares no realtime channels.
+    channels: Vec<lazuli_ir::Channel>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -775,6 +780,7 @@ impl DoctorPackage {
                                             aggregate_lines,
                                             errors: feature.errors.clone(),
                                             uses: feature.uses.clone(),
+                                            channels: feature.channels.clone(),
                                         });
                                     }
                                     // Phase L Tier 4 follow-up — populate the
@@ -1049,6 +1055,16 @@ impl DoctorPackage {
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
         diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));
+        // Cycle-2 cell DC1 — sweep the rest of `lazuli_doctor::correctness`
+        // into the doctor dispatch so `lazuli doctor` reaches every
+        // diagnostic the crate carries (the 11 sibling rules that until
+        // now only fired in their `#[cfg(test)] mod tests`).
+        diagnostics.extend(correctness_diagnostics(
+            &self.tier3_facts,
+            self.registry.as_ref().map(|reg| &reg.manifest),
+            &self.project_root,
+            self.security_profile,
+        ));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
             self.registry.as_ref(),
@@ -3817,6 +3833,248 @@ fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Doc
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::mutation_without_readback::Finding::CODE.to_owned(),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+/// Build a synthetic `Feature` from a `Tier3FeatureFacts` row populated
+/// with every slot the `correctness/*` rules read. Distinct from
+/// `make_synthetic_feature_for_reports` (which intentionally zeroes the
+/// report-irrelevant slots) so adding a new correctness rule does not
+/// silently lose data from the reports path.
+fn make_synthetic_feature_for_correctness(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+    lazuli_ir::Feature {
+        name: fact.feature.clone(),
+        purpose: None,
+        non_goals: Vec::new(),
+        context_path: None,
+        defaults: lazuli_ir::Defaults::default(),
+        uses: Vec::new(),
+        uses_spans: Vec::new(),
+        uses_versions: Vec::new(),
+        requirements: Vec::new(),
+        enums: fact.enums.clone(),
+        resources: fact.resources.clone(),
+        events: fact.events.clone(),
+        rules: Vec::new(),
+        policies: fact.policies.clone(),
+        errors: fact.errors.clone(),
+        commands: fact.commands.clone(),
+        apis: fact.apis.clone(),
+        records: fact.records.clone(),
+        queries: fact.queries.clone(),
+        resume_routers: Vec::new(),
+        workflows: Vec::new(),
+        jobs: fact.jobs.clone(),
+        webhooks: fact.webhooks.clone(),
+        notifications: fact.notifications.clone(),
+        event_groups: fact.event_groups.clone(),
+        tenant_migrations: fact.tenant_migrations.clone(),
+        translation: fact.translation.clone(),
+        auth: None,
+        surfaces: Vec::new(),
+        extensions: fact.extensions.clone(),
+        escape_routes: Vec::new(),
+        agents: fact.agents.clone(),
+        reports: fact.reports.clone(),
+        pollers: Vec::new(),
+        channels: fact.channels.clone(),
+        caches: fact.caches.clone(),
+        aggregates: fact.aggregates.clone(),
+        mcp_servers: Vec::new(),
+        previous_names: Vec::new(),
+        synth_origins: std::collections::BTreeMap::new(),
+        span_ref: None,
+    }
+}
+
+/// Dispatch the `correctness/*` rule modules that consume a `&Feature`
+/// view. Cycle-2 cell DC1: every `pub mod` in
+/// `crates/lazuli_doctor/src/correctness/mod.rs` is wired here so
+/// `lazuli doctor` reaches every diagnostic the crate carries.
+///
+/// Per-rule severity mirrors the module-level `Severity:` docstring on
+/// each correctness file. The `record_column_storage` info diagnostic
+/// is gated behind the security profile (strict-only) so noisy info
+/// lines do not flood the production profile.
+fn correctness_diagnostics(
+    facts: &[Tier3FeatureFacts],
+    registry: Option<&lazuli_ir::AppRegistry>,
+    project_root: &Path,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // Webhook envelope catalog (registry side) — `WEBHOOK-EMIT-PREDICATE-FIELD-001`
+    // resolves predicate paths against the webhook's typed payload contract.
+    let webhook_events: Vec<lazuli_ir::WebhookEvent> = registry
+        .map(|r| r.webhook_events.clone())
+        .unwrap_or_default();
+
+    for fact in facts {
+        let feature = make_synthetic_feature_for_correctness(fact);
+
+        // CHANNEL-PAYLOAD-001 — error.
+        for finding in correctness::channel_payload_unresolved_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::channel_payload_unresolved_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // COMMAND-INPUT-SHADOWS-FIELD-001 — error.
+        for finding in correctness::command_input_shadows_field_001::check(&feature, &fact.path) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::command_input_shadows_field_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // COMPOSITE-KEY-CONTRACT-001 — error.
+        for finding in correctness::composite_key_contract_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::composite_key_contract_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // EVENT-GROUP-VARIANT-TYPE-001 — error.
+        for finding in correctness::event_group_variant_type_001::check(&feature, &fact.path) {
+            let line = fact
+                .event_group_lines
+                .get(&finding.group_pattern)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::event_group_variant_type_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // EVENT-OUTBOX-001 — error (payments-class only; the rule
+        // self-gates on feature name).
+        for finding in correctness::event_outbox_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::event_outbox_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // FULL-TEXT-TYPE-001 — error.
+        for finding in correctness::full_text_type_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::full_text_type_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // HOOK-TARGET-001 — error.
+        for finding in correctness::hook_target_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::hook_target_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // RESOURCE-LOCK-CONTRACT-001 — error.
+        for finding in correctness::resource_lock_contract_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::resource_lock_contract_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // WEBHOOK-EMIT-PREDICATE-FIELD-001 — error. Needs the
+        // registry-side `webhook_events` catalog to resolve typed
+        // payload paths.
+        for finding in correctness::webhook_emit_predicate_field_001::check(
+            &feature,
+            &webhook_events,
+            &fact.path,
+        ) {
+            let line = fact
+                .webhook_lines
+                .get(&finding.webhook)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::webhook_emit_predicate_field_001::Finding::CODE.to_owned(),
+            });
+        }
+
+        // @info.record_column_jsonb — informational; only surfaced
+        // under the strict profile so production profile output stays
+        // signal-dense.
+        if matches!(security_profile, SecurityProfile::Strict) {
+            for finding in correctness::record_column_storage::check(&feature, &fact.path) {
+                diagnostics.push(DoctorDiagnostic {
+                    message: finding.message(),
+                    path: finding.path,
+                    line: fact.feature_line,
+                    column: 1,
+                    severity: DoctorSeverity::Info,
+                    code: correctness::record_column_storage::Finding::CODE.to_owned(),
+                });
+            }
+        }
+
+        // @correctness.migration_out_of_sync — warning. Needs the
+        // project root to locate `dist/go/migrations/`.
+        for finding in
+            correctness::schema_migration_present::check(&feature, &fact.path, project_root)
+        {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: correctness::schema_migration_present::Finding::CODE.to_owned(),
             });
         }
     }
@@ -14470,6 +14728,7 @@ mod tests {
                                     aggregate_lines: BTreeMap::new(),
                                     errors: feature.errors.clone(),
                                     uses: feature.uses.clone(),
+                                    channels: feature.channels.clone(),
                                 });
                             }
                             // Phase L Tier 4 follow-up — mirror the IR-driven
@@ -14629,6 +14888,7 @@ mod tests {
                                     aggregate_lines: BTreeMap::new(),
                                     errors: feature.errors.clone(),
                                     uses: feature.uses.clone(),
+                                    channels: feature.channels.clone(),
                                 });
                             }
                         }
@@ -19525,6 +19785,7 @@ feature customer
             aggregate_lines: BTreeMap::new(),
             errors: None,
             uses: Vec::new(),
+            channels: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
@@ -19629,6 +19890,7 @@ feature customer
             aggregate_lines: BTreeMap::new(),
             errors: None,
             uses: Vec::new(),
+            channels: Vec::new(),
         });
         let diagnostics = package.diagnostics();
         assert!(
