@@ -2387,7 +2387,7 @@ pub enum ConventionSynthDiagnostic {
     /// Tenant or Auto group, so `create_<resource>.input` would be
     /// empty. Likely an authoring mistake. Crud-only.
     NoRequiredFields { resource: String },
-    /// `crud_synth_signature_mismatch` — author wrote a same-named
+    /// `@correctness.crud_synth_author_signature_mismatch` — author wrote a same-named
     /// command/query but its input field list or return type diverges
     /// from the canonical convention shape. Carries the resource +
     /// synth name + a short reason for Cell C4 to format. Crud-only.
@@ -2451,6 +2451,36 @@ pub enum ConventionSynthDiagnostic {
 /// migrate to `ConventionSynthDiagnostic` over time; M3 carries the
 /// final downstream migration into doctor / inspect.
 pub type CrudSynthDiagnostic = ConventionSynthDiagnostic;
+
+impl ConventionSynthDiagnostic {
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            ConventionSynthDiagnostic::SignatureMismatch { .. } => {
+                "@correctness.crud_synth_author_signature_mismatch"
+            }
+            ConventionSynthDiagnostic::PolicyNotFound { .. } => "crud_synth_policy_not_found",
+            ConventionSynthDiagnostic::NoRequiredFields { .. } => "crud_synth_no_required_fields",
+            ConventionSynthDiagnostic::MeNoActorResolution { .. } => "me_synth_no_actor_resolution",
+            ConventionSynthDiagnostic::MeSignatureMismatch { .. } => "me_synth_signature_mismatch",
+            ConventionSynthDiagnostic::OwnerAxisUnknownThrough { .. } => {
+                "owner_axis_unknown_through"
+            }
+            ConventionSynthDiagnostic::OwnerAxisThroughNotUserKeyed { .. } => {
+                "owner_axis_through_not_user_keyed"
+            }
+            ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser { .. } => {
+                "owner_axis_collides_with_unique_user"
+            }
+        }
+    }
+
+    pub fn severity(&self) -> &'static str {
+        match self {
+            ConventionSynthDiagnostic::SignatureMismatch { .. } => "warning",
+            _ => "error",
+        }
+    }
+}
 
 /// Run the `conventions [...]` auto-synthesis pass on a feature.
 /// Today covers two bundles in catalog order: `crud` (5 entries) and
@@ -2552,7 +2582,7 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         // §6 — per-name override. If the author wrote the same name we
         // skip *just that name* with no warning, unless the author's
         // signature diverges from the canonical shape — that lands the
-        // `crud_synth_signature_mismatch` diagnostic (§11 / §9).
+        // `crud_synth_author_signature_mismatch` diagnostic (§11 / §9).
         //
         // The `if existing_*.contains(...)` checks below are
         // authoring-time controls (which synth to add), NOT lowering
@@ -2679,11 +2709,23 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         }
 
         // 4) lookup_<resource>
+        let mut canonical_lookup = build_lookup_query(&lookup_name, &resource.name);
+        // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
+        // canonical keys (id = $1) get extended with the chain
+        // predicate emitted by codegen via `owner_scope_sql`.
+        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+            if let ir::Query::Lookup(lq) = &mut canonical_lookup {
+                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                    cte_owner_check: None,
+                    ..scope.clone()
+                });
+            }
+        }
         if existing_query_names.contains(&lookup_name) {
             if let Some(reason) = check_query_signature_mismatch(
                 feature,
                 &lookup_name,
-                CanonicalReturn::ReturnsResource(&resource.name),
+                &canonical_lookup,
             ) {
                 diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
                     resource: resource.name.clone(),
@@ -2696,19 +2738,7 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            let mut q = build_lookup_query(&lookup_name, &resource.name);
-            // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
-            // canonical keys (id = $1) get extended with the chain
-            // predicate emitted by codegen via `owner_scope_sql`.
-            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                if let ir::Query::Lookup(lq) = &mut q {
-                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                        cte_owner_check: None,
-                        ..scope.clone()
-                    });
-                }
-            }
-            to_add_queries.push(q);
+            to_add_queries.push(canonical_lookup);
             synth_origins_inserts.push((
                 lookup_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -2716,11 +2746,22 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         }
 
         // 5) list_<resource>s
+        let mut canonical_list = build_list_query(&list_name, &resource.name);
+        // §8.4 — owner-scope WHERE on LIST. Same predicate; the
+        // synth's pagination shape is unaffected.
+        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+            if let ir::Query::List(lq) = &mut canonical_list {
+                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                    cte_owner_check: None,
+                    ..scope.clone()
+                });
+            }
+        }
         if existing_query_names.contains(&list_name) {
             if let Some(reason) = check_query_signature_mismatch(
                 feature,
                 &list_name,
-                CanonicalReturn::ReturnsResourceMany(&resource.name),
+                &canonical_list,
             ) {
                 diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
                     resource: resource.name.clone(),
@@ -2733,18 +2774,7 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            let mut q = build_list_query(&list_name, &resource.name);
-            // §8.4 — owner-scope WHERE on LIST. Same predicate; the
-            // synth's pagination shape is unaffected.
-            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                if let ir::Query::List(lq) = &mut q {
-                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                        cte_owner_check: None,
-                        ..scope.clone()
-                    });
-                }
-            }
-            to_add_queries.push(q);
+            to_add_queries.push(canonical_list);
             synth_origins_inserts.push((
                 list_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -3476,7 +3506,7 @@ enum CanonicalReturn<'a> {
     ReturnsResourceMany(&'a str),
 }
 
-/// §11 `crud_synth_signature_mismatch` trigger — compare an authored
+/// §11 `crud_synth_author_signature_mismatch` trigger — compare an authored
 /// command to its canonical convention shape and return a reason string
 /// when the input field list OR the effect/return type diverges.
 /// Returns `None` when the signatures match (no diagnostic). Cell C4
@@ -3530,27 +3560,93 @@ fn check_command_signature_mismatch(
     None
 }
 
-/// §11 `crud_synth_signature_mismatch` trigger for queries. Returns a
-/// reason string when the query's return type diverges from canonical.
+/// §11 `crud_synth_author_signature_mismatch` trigger for queries. Returns a
+/// reason string when the author-written query diverges from the exact
+/// canonical query shape the `crud` bundle would have emitted.
 fn check_query_signature_mismatch(
     feature: &ir::Feature,
     name: &str,
-    canonical_return: CanonicalReturn<'_>,
+    canonical_query: &ir::Query,
 ) -> Option<String> {
     let query = feature.queries.iter().find(|q| q.name() == name)?;
 
-    let ok = match (query, &canonical_return) {
-        (ir::Query::Lookup(_), CanonicalReturn::ReturnsResource(_)) => true,
-        (ir::Query::List(_), CanonicalReturn::ReturnsResourceMany(_)) => true,
-        _ => false,
-    };
-    if ok {
-        None
-    } else {
-        Some(format!(
+    match (query, canonical_query) {
+        (ir::Query::Lookup(author), ir::Query::Lookup(canonical)) => {
+            if author.params != canonical.params {
+                return Some(format!(
+                    "query params diverge from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.keys != canonical.keys {
+                return Some(format!(
+                    "lookup keys diverge from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.filters != canonical.filters {
+                return Some(format!(
+                    "query filters diverge from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.policy != canonical.policy || author.policy_expr != canonical.policy_expr {
+                return Some(format!(
+                    "query policy diverges from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.owner_scope_sql != canonical.owner_scope_sql {
+                return Some(format!(
+                    "owner-scope query shape diverges from canonical shape for `{}`",
+                    name
+                ));
+            }
+            None
+        }
+        (ir::Query::List(author), ir::Query::List(canonical)) => {
+            if author.params != canonical.params {
+                return Some(format!(
+                    "query params diverge from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.filters != canonical.filters {
+                return Some(format!(
+                    "query filters diverge from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.order != canonical.order {
+                return Some(format!(
+                    "query order diverges from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.paginate != canonical.paginate {
+                return Some(format!(
+                    "pagination diverges from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.policy != canonical.policy || author.policy_expr != canonical.policy_expr {
+                return Some(format!(
+                    "query policy diverges from canonical shape for `{}`",
+                    name
+                ));
+            }
+            if author.owner_scope_sql != canonical.owner_scope_sql {
+                return Some(format!(
+                    "owner-scope query shape diverges from canonical shape for `{}`",
+                    name
+                ));
+            }
+            None
+        }
+        _ => Some(format!(
             "query kind / return shape diverges from canonical for `{}`",
             name
-        ))
+        )),
     }
 }
 
@@ -11346,6 +11442,17 @@ mod conventions_crud_synth_tests {
         })
     }
 
+    fn author_list_customers_query(policy: ir::PolicyRef) -> ir::Query {
+        let mut query = super::build_list_query("list_customers", "Customer");
+        match &mut query {
+            ir::Query::List(lq) => {
+                lq.policy = policy;
+            }
+            other => panic!("expected list query helper to build List, got {other:?}"),
+        }
+        query
+    }
+
     fn customer_resource() -> ir::Resource {
         // §8 worked example: feature customer, resource Customer.
         ir::Resource {
@@ -11607,6 +11714,95 @@ mod conventions_crud_synth_tests {
         let q_names: Vec<&str> = feature.queries.iter().map(|q| q.name()).collect();
         assert!(q_names.contains(&"lookup_customer"));
         assert!(q_names.contains(&"list_customers"));
+    }
+
+    #[test]
+    fn fx1_crud_without_author_query_emits_catalog_queries() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+
+        let q_names: Vec<&str> = feature.queries.iter().map(|q| q.name()).collect();
+        assert_eq!(q_names, vec!["lookup_customer", "list_customers"]);
+    }
+
+    #[test]
+    fn fx1_crud_author_list_query_silences_synth() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
+            "authenticated".to_owned(),
+        )));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+
+        let list_count = feature
+            .queries
+            .iter()
+            .filter(|q| q.name() == "list_customers")
+            .count();
+        assert_eq!(list_count, 1, "author list_customers must not be duplicated");
+        assert_eq!(
+            feature.synth_origins.get("list_customers"),
+            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud))
+        );
+    }
+
+    #[test]
+    fn fx1_crud_author_list_query_policy_mismatch_warns_and_silences() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
+            "customer_admin".to_owned(),
+        )));
+
+        let diags = synthesize_conventions(&mut feature);
+        let mismatch = diags
+            .iter()
+            .find(|d| matches!(
+                d,
+                CrudSynthDiagnostic::SignatureMismatch { resource, synth_name, .. }
+                    if resource == "Customer" && synth_name == "list_customers"
+            ))
+            .expect("expected SignatureMismatch for list_customers policy divergence");
+        assert_eq!(
+            mismatch.diagnostic_code(),
+            "@correctness.crud_synth_author_signature_mismatch"
+        );
+        assert_eq!(mismatch.severity(), "warning");
+
+        let lists: Vec<&ir::Query> = feature
+            .queries
+            .iter()
+            .filter(|q| q.name() == "list_customers")
+            .collect();
+        assert_eq!(lists.len(), 1, "author list_customers must not be duplicated");
+        match lists[0] {
+            ir::Query::List(lq) => {
+                assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "customer_admin"));
+            }
+            other => panic!("expected List query, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fx1_without_crud_author_list_query_has_no_synth_collision() {
+        let mut feature = empty_feature("customer", true);
+        let mut resource = customer_resource();
+        resource.conventions = Vec::new();
+        feature.resources.push(resource);
+        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
+            "authenticated".to_owned(),
+        )));
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(feature.commands.is_empty());
+        assert_eq!(feature.queries.len(), 1);
+        assert_eq!(feature.queries[0].name(), "list_customers");
     }
 
     /// §5.7 edge — resource with `user: User required unique` places
