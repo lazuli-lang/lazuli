@@ -1,17 +1,55 @@
 //! COMPOSITE-KEY-CONTRACT-001 — `composite_key` references undefined field.
 //!
-//! Doctor correctness rule. Fires when a `composite_key { fields ... }`
-//! block lists a name that does not match any declared field on the
-//! resource. Also fires when the field list is empty (the parser
-//! already rejects this, but the doctor check guards against future
-//! IR construction sites that bypass the parser).
+//! ## Rule statement
 //!
-//! Severity: `error` — the SQL emitter would otherwise produce
-//! `PRIMARY KEY (<missing>)` / `UNIQUE (<missing>)` clauses that fail
-//! to apply at migration time with `relation "X" does not have column
-//! "Y"`.
+//! Fires when a resource-level `composite_key` block lists a field name that
+//! does not match any declared field on that resource. It also defensively
+//! fires when the field list is empty, even though the parser already rejects
+//! that surface form, so future IR construction sites cannot bypass the
+//! contract.
 //!
-//! Reference: docs/roadmap.md §1.5.
+//! ## Severity profile
+//!
+//! Severity: `error` in both strict and production profiles. This is a
+//! correctness rule, not a vocabulary preference: the SQL emitter would
+//! otherwise generate `PRIMARY KEY (<missing>)` or `UNIQUE (<missing>)`
+//! clauses that fail at migration time because the referenced column does not
+//! exist.
+//!
+//! ## Fixture example
+//!
+//! ```lzi
+//! feature orders
+//!   resource OrderLine
+//!     order: Order required
+//!     line_number: Integer required
+//!     composite_key
+//!       fields order, missing
+//!       primary true
+//! ```
+//!
+//! Canonical fix:
+//!
+//! ```lzi
+//! feature orders
+//!   resource OrderLine
+//!     order: Order required
+//!     line_number: Integer required
+//!     composite_key
+//!       fields order, line_number
+//!       primary true
+//! ```
+//!
+//! ## Proposal anchor
+//!
+//! No dedicated per-rule proposal was found in historical `docs/proposals/`.
+//! The driving design is historical `docs/wave-c-deferred-integration.md`
+//! §CL.C.2 plus `docs/roadmap.md` §1.5; the implementation landed in commit
+//! `604637a` (`DB resource decorators — lock + composite_key + @full_text`).
+//!
+//! Diagnostic ID / code constant: `COMPOSITE-KEY-CONTRACT-001`;
+//! `Finding::CODE` is `pub const CODE: &'static str =
+//! "COMPOSITE-KEY-CONTRACT-001";`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

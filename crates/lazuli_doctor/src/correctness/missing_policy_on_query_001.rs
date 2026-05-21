@@ -1,8 +1,54 @@
-//! MISSING-POLICY-ON-QUERY-001 - query relies on implicit public policy.
+//! MISSING-POLICY-ON-QUERY-001 — query relies on implicit public policy.
 //!
-//! Query policies can be explicit per query or inherited from
-//! `Feature.defaults.policy`. When neither is authored, the runtime default
-//! is public. That can be legitimate, but it should be visible in source.
+//! ## Rule statement
+//!
+//! Fires when a `query.list`, `query.lookup`, or `query.sql` has no authored
+//! `policy` / structured policy expression and the containing feature has no
+//! `Feature.defaults.policy` to inherit. The runtime fallback is public access;
+//! that can be legitimate for marketing or catalog reads, but the source should
+//! say so with `policy @policy.public` instead of relying on an invisible
+//! default.
+//!
+//! ## Severity profile
+//!
+//! Severity: `warning` in both strict and production profiles. The rule does
+//! not escalate in production because public queries are valid, but implicit
+//! public exposure is risky enough to stay visible in all profiles.
+//!
+//! ## Fixture example
+//!
+//! ```lzi
+//! feature catalog
+//!   query.list list
+//! ```
+//!
+//! Canonical fix when public access is intended:
+//!
+//! ```lzi
+//! feature catalog
+//!   query.list list
+//!     policy @policy.public
+//! ```
+//!
+//! Canonical fix when the feature should default to authenticated reads:
+//!
+//! ```lzi
+//! feature catalog
+//!   defaults
+//!     policy_for queries: @policy.authenticated
+//!   query.list list
+//! ```
+//!
+//! ## Proposal anchor
+//!
+//! No standalone matching file was found in historical `docs/proposals/`.
+//! The rule landed in commit `4dbe32d` (`LAZ-62`) after `QUERY-POLICY-001`
+//! added per-query policy lowering, and anchors to query policy semantics in
+//! `docs/canonical-semantics.md`.
+//!
+//! Diagnostic ID / code constant: `MISSING-POLICY-ON-QUERY-001`;
+//! `Finding::CODE` is `pub const CODE: &'static str =
+//! "MISSING-POLICY-ON-QUERY-001";`.
 
 use std::path::{Path, PathBuf};
 
