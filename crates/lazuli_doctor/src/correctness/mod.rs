@@ -20,4 +20,5 @@ pub mod mutation_without_readback;
 pub mod record_column_storage;
 pub mod resource_lock_contract_001;
 pub mod route_id_effect_consistency;
+pub mod schema_migration_present;
 pub mod webhook_emit_predicate_field_001;
