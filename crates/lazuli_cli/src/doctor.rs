@@ -1047,6 +1047,7 @@ impl DoctorPackage {
             &self.commands,
         ));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
+        diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
             self.registry.as_ref(),
@@ -3721,6 +3722,48 @@ fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Docto
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::missing_policy_on_query_001::Finding::CODE.to_owned(),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+/// ROUTE-ID-UNUSED-IN-EFFECT-001 — pair to the LAZ-route-id-codegen-go
+/// guard. Walks each feature's lifted commands and fires when a
+/// `route <name>: <Type>` slot on an `updates` / `deletes` effect has
+/// no matching input slot to back the codegen's `FromInput(...)`
+/// binding. Anchored at the command header via `command_lines`.
+fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for fact in facts {
+        for finding in correctness::route_id_effect_consistency::check_commands(
+            &fact.feature,
+            &fact.commands,
+            &fact.path,
+        ) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            if !seen.insert((
+                finding.path.clone(),
+                finding.feature.clone(),
+                finding.command.clone(),
+                finding.param_name.clone(),
+            )) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::route_id_effect_consistency::Finding::CODE.to_owned(),
             });
         }
     }
