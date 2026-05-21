@@ -25,6 +25,7 @@ mod examples_bundle;
 mod inspect {
     pub mod expand_auth;
     pub mod expand_http;
+    pub mod features_summary;
 }
 mod lazurite_manifest;
 mod migrate;
@@ -4248,12 +4249,49 @@ fn inspect_command(
             if expansions.any() {
                 print!("{}", expand_canonical_source_with(&source, expansions));
             } else {
-                print!("{source}");
+                // Default human projection: the C4 / M3 features-summary
+                // renderer, which annotates each opted-in resource with
+                // `(conventions: <bundle>)` and tags synth-derived
+                // commands/queries per `ir-resource-conventions-crud.md`
+                // §11 + `ir-resource-conventions-me.md` §8. Falls back to
+                // the verbatim source echo when the canonical-indent
+                // slice can't be parsed/lowered — `inspect` is a
+                // read-only projection, not a check, so a parse failure
+                // here must not flip the command into an error path.
+                print!("{}", render_lazuli_features_summary(&source));
             }
         }
     }
 
     Ok(())
+}
+
+/// Default `--format=lazuli` human projection: parse the canonical-indent
+/// slice, lower each `FeatureSkeleton` into IR (which runs the convention
+/// synth pass), and render the §11 / §8 features-summary digest with
+/// `(conventions: <bundle>)` resource annotations and `[conv:<bundle>]`
+/// synth-origin tags.
+///
+/// Falls back to the verbatim source on any parse/lower failure — inspect
+/// is a read-only projection per `docs/canonical-semantics.md`, so a
+/// downstream parser bug must not block the human view. The fallback
+/// preserves pre-features-summary behavior for any document the
+/// canonical-indent slice doesn't yet understand.
+fn render_lazuli_features_summary(source: &str) -> String {
+    let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(source) else {
+        return source.to_owned();
+    };
+    if skeletons.is_empty() {
+        return source.to_owned();
+    }
+    let mut features = Vec::with_capacity(skeletons.len());
+    for skeleton in &skeletons {
+        match lazuli_analyzer::lower_feature_skeleton(skeleton) {
+            Ok(feature) => features.push(feature),
+            Err(_) => return source.to_owned(),
+        }
+    }
+    inspect::features_summary::render_features_summary(&features)
 }
 
 /// Detect symbol-mode arguments per `docs/proposals/lsp-symbol-origin.md` §5.3.
