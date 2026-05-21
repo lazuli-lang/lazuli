@@ -14031,12 +14031,13 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "foreign_key_violation" => error_vocab_code_detail("foreign_key_violation"),
         "not_null_violation" => error_vocab_code_detail("not_null_violation"),
         "check_violation" => error_vocab_code_detail("check_violation"),
-        // `docs/proposals/ir-resource-conventions-crud.md` §4.4 — the
+        // `docs/proposals/ir-resource-conventions-crud.md` §4.4 + the
+        // `docs/proposals/ir-resource-conventions-me.md` §4.4 — the
         // resource-level `conventions [<name>, ...]` opt-in for closed-
         // catalog convention bundles. One-liner fallback; rich hover
         // lives in `rich_keyword_hover`.
         "conventions" => Some(
-            "Resource-level conventions opt-in: `conventions [<name1>, <name2>, ...]`. Each entry references a closed-catalog convention bundle that auto-synthesizes commands/queries during lowering. Today's catalog: `crud`. See `docs/proposals/ir-resource-conventions-crud.md`.",
+            "Resource-level conventions opt-in: `conventions [<name1>, <name2>, ...]`. Each entry references a closed-catalog convention bundle that auto-synthesizes commands/queries during lowering. Today's catalog: `crud`, `me`. See `docs/proposals/ir-resource-conventions-crud.md` and `docs/proposals/ir-resource-conventions-me.md`.",
         ),
         _ => None,
     }
@@ -14460,24 +14461,26 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
             ]
             .join("\n"),
         ),
-        // `docs/proposals/ir-resource-conventions-crud.md` §4.4 — rich
+        // `docs/proposals/ir-resource-conventions-crud.md` §4.4 + the
+        // `docs/proposals/ir-resource-conventions-me.md` §4.4 — rich
         // hover for the resource-level `conventions [..]` opt-in. Body
         // begins with the verbatim one-liner from the proposal so the
         // hover surface, the docstring on `Resource.conventions`, and
-        // the doctor diagnostic share phrasing. Cell C4.
+        // the doctor diagnostic share phrasing. Cells C4 + M3.
         "conventions" => Some(
             [
-                "**`conventions`** — Resource-level conventions opt-in: `conventions [<name1>, <name2>, ...]`. Each entry references a closed-catalog convention bundle that auto-synthesizes commands/queries during lowering. Today's catalog: `crud`. See `docs/proposals/ir-resource-conventions-crud.md`.",
+                "**`conventions`** — Resource-level conventions opt-in: `conventions [<name1>, <name2>, ...]`. Each entry references a closed-catalog convention bundle that auto-synthesizes commands/queries during lowering. Today's catalog: `crud`, `me`. See `docs/proposals/ir-resource-conventions-crud.md` and `docs/proposals/ir-resource-conventions-me.md`.",
                 "",
                 "**Closed catalog**",
                 "- `crud` — auto-synthesizes the 5 canonical CRUD shapes (`create_<r>`, `update_<r>`, `delete_<r>`, `lookup_<r>`, `list_<r>s`).",
+                "- `me` — auto-synthesizes one `lookup_my_<r>` query keyed by the active actor (`ctx.User.ID` / `ctx.User.OrgID`), per `ir-resource-conventions-me.md` §5.",
                 "",
                 "**Example**",
                 "```lazuli",
                 "resource Customer",
                 "  email: @semantic.Email required unique",
                 "  name: Text required",
-                "  conventions [crud]",
+                "  conventions [crud, me]",
                 "```",
                 "",
                 "**Authoring rules**",
@@ -14801,11 +14804,12 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
 
 /// Closed-catalog completion inside `conventions [..]`. Fires when the
 /// line prefix matches `<indent>conventions [<partial-or-empty>` with
-/// no closing `]` before the cursor. Returns the single-member catalog
-/// (`crud`) plus future entries as they land. Returns `None` outside
-/// the bracket-list so falls through to the generic dispatcher.
+/// no closing `]` before the cursor. Returns the closed catalog
+/// (`crud`, `me`) plus future entries as they land. Returns `None`
+/// outside the bracket-list so falls through to the generic dispatcher.
 ///
-/// `docs/proposals/ir-resource-conventions-crud.md` §4.4 + §12 row C4.
+/// `docs/proposals/ir-resource-conventions-crud.md` §4.4 + §12 row C4
+/// and `docs/proposals/ir-resource-conventions-me.md` §4.4 + §12 row M3.
 pub fn conventions_list_completions(before: &str) -> Option<Vec<CompletionItem>> {
     // Locate the most recent unclosed `[` after a `conventions` keyword
     // on the same line. The slot is single-line per the parser spec
@@ -14821,10 +14825,16 @@ pub fn conventions_list_completions(before: &str) -> Option<Vec<CompletionItem>>
         return None;
     }
 
-    let catalog: &[(&str, &str)] = &[(
-        "crud",
-        "Auto-synthesizes 5 CRUD entries (`create_<r>`, `update_<r>`, `delete_<r>`, `lookup_<r>`, `list_<r>s`). See `docs/proposals/ir-resource-conventions-crud.md` §5.",
-    )];
+    let catalog: &[(&str, &str)] = &[
+        (
+            "crud",
+            "Auto-synthesizes 5 CRUD entries (`create_<r>`, `update_<r>`, `delete_<r>`, `lookup_<r>`, `list_<r>s`). See `docs/proposals/ir-resource-conventions-crud.md` §5.",
+        ),
+        (
+            "me",
+            "Auto-synthesizes one `lookup_my_<r>` query keyed by the active actor (`ctx.User.ID` / `ctx.User.OrgID`). See `docs/proposals/ir-resource-conventions-me.md` §5.",
+        ),
+    ];
 
     Some(
         catalog
@@ -24581,12 +24591,16 @@ feature customer
             "conventions one-liner should show the slot syntax verbatim; got: {one_liner}"
         );
         assert!(
-            one_liner.contains("Today's catalog: `crud`"),
-            "conventions one-liner should pin the single-member catalog; got: {one_liner}"
+            one_liner.contains("Today's catalog: `crud`, `me`"),
+            "conventions one-liner should pin the two-member catalog; got: {one_liner}"
         );
         assert!(
             one_liner.contains("ir-resource-conventions-crud"),
-            "conventions one-liner should anchor the proposal path; got: {one_liner}"
+            "conventions one-liner should anchor the crud proposal path; got: {one_liner}"
+        );
+        assert!(
+            one_liner.contains("ir-resource-conventions-me"),
+            "conventions one-liner should anchor the me proposal path; got: {one_liner}"
         );
     }
 
@@ -24608,6 +24622,32 @@ feature customer
         );
     }
 
+    /// M3 — the rich hover must list both bundles in its closed-catalog
+    /// section, anchor both proposal paths, and use a composition
+    /// example (`conventions [crud, me]`) so the surface communicates
+    /// inter-bundle composition (§6.1) at the editor surface.
+    #[test]
+    fn rich_keyword_hover_mentions_both_bundles() {
+        let rich = super::rich_keyword_hover("conventions")
+            .expect("conventions rich_keyword_hover present");
+        assert!(
+            rich.contains("`crud`"),
+            "rich hover should mention the `crud` bundle; got:\n{rich}"
+        );
+        assert!(
+            rich.contains("`me`"),
+            "rich hover should mention the `me` bundle; got:\n{rich}"
+        );
+        assert!(
+            rich.contains("ir-resource-conventions-crud"),
+            "rich hover should anchor the crud proposal path; got:\n{rich}"
+        );
+        assert!(
+            rich.contains("ir-resource-conventions-me"),
+            "rich hover should anchor the me proposal path; got:\n{rich}"
+        );
+    }
+
     #[test]
     fn keywords_list_contains_conventions() {
         assert!(
@@ -24617,17 +24657,18 @@ feature customer
     }
 
     #[test]
-    fn conventions_list_completion_inside_brackets_offers_crud() {
+    fn conventions_list_completion_inside_brackets_offers_crud_and_me() {
         // Cursor sits inside an open `conventions [` bracket list with
-        // no closing `]` on the line.
+        // no closing `]` on the line. M3 extends the catalog to two
+        // bundles; the completer surfaces both.
         let items =
             super::conventions_list_completions("    conventions [")
                 .expect("completion should fire inside `conventions [` bracket list");
         let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["crud"],
-            "closed catalog should be exactly `crud` until a second bundle lands"
+            vec!["crud", "me"],
+            "closed catalog should be `crud, me` (in declaration order)"
         );
     }
 
