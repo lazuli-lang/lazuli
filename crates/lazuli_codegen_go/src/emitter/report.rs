@@ -256,9 +256,13 @@ fn emit_column(p: &mut GoPrinter, col: &lazuli_ir::ReportColumn) {
 
 fn source_string(source: &ReportSource) -> String {
     let ReportSource::Query(qn) = source;
+    // Wire registry key: `<feature>.<query_name>` (cell B1 dropped `.query.` infix).
+    // The `None` branch (same-feature shorthand) is currently unreachable at
+    // emit time because report sources are required to carry a feature, but
+    // we keep a stable bare-name fallback for forward-compat.
     match &qn.feature {
-        Some(feature) => format!("{}.query.{}", feature, qn.name),
-        None => format!("query.{}", qn.name),
+        Some(feature) => format!("{}.{}", feature, qn.name),
+        None => qn.name.clone(),
     }
 }
 

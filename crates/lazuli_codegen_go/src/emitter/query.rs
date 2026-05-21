@@ -121,7 +121,10 @@ fn emit_list_query(
     let resource_name_axis = resource
         .map(|r| pascal_case(&r.name))
         .unwrap_or_else(|| "Result".to_owned());
-    let qualified_name = format!("{}.query.{}", feature.name, query.name);
+    // Wire registry key: `<feature>.<query_name>`. The `/q/` HTTP prefix
+    // already disambiguates kind, so the historical `.query.` infix was
+    // dropped (cell B1, codegen-correctness-cycle-2026-05-21).
+    let qualified_name = format!("{}.{}", feature.name, query.name);
     let args_struct = list_args_struct_name(&query.name, &resource_name_axis);
     let var_name = list_var_name(&query.name, &resource_name_axis);
     let error_keys_var = query_error_keys_var(&var_name);
@@ -201,7 +204,8 @@ fn emit_lookup_query(
     let resource_name_axis = resource
         .map(|r| pascal_case(&r.name))
         .unwrap_or_else(|| "Result".to_owned());
-    let qualified_name = format!("{}.query.{}", feature.name, query.name);
+    // Wire registry key: `<feature>.<query_name>`. See list_query for rationale.
+    let qualified_name = format!("{}.{}", feature.name, query.name);
     let args_struct = lookup_args_struct_name(&query.name, &resource_name_axis);
     let var_name = lookup_var_name(&query.name, &resource_name_axis);
     let error_keys_var = query_error_keys_var(&var_name);
@@ -401,7 +405,8 @@ fn emit_sql_query(
     ctx: &TypeCtx<'_>,
     emit_ctx: &EmitContext<'_>,
 ) {
-    let qualified_name = format!("{}.query.{}", feature.name, query.name);
+    // Wire registry key: `<feature>.<query_name>`. See list_query for rationale.
+    let qualified_name = format!("{}.{}", feature.name, query.name);
     let args_struct = format!("{}Args", pascal_case(&query.name));
     let var_name = lower_camel(&query.name);
     let error_keys_var = query_error_keys_var(&var_name);
@@ -2288,8 +2293,8 @@ mod tests {
         let a = emit(&feature).expect("must emit");
         let b = emit(&feature).expect("must emit");
         assert_eq!(a, b);
-        let alpha_pos = a.find("Query: customer.query.alpha").expect("alpha banner");
-        let zebra_pos = a.find("Query: customer.query.zebra").expect("zebra banner");
+        let alpha_pos = a.find("Query: customer.alpha").expect("alpha banner");
+        let zebra_pos = a.find("Query: customer.zebra").expect("zebra banner");
         assert!(alpha_pos < zebra_pos);
     }
 

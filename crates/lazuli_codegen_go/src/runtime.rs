@@ -377,7 +377,8 @@ fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
         .expect("runtime spec needs at least one resource");
     let resource_pascal = pascal_case(&resource.name);
     let resource_var = format!("{}Resource", lower_camel(&resource.name));
-    let qualified_name = format!("{}.query.{}", feature.name, query.short_name);
+    // Wire registry key: `<feature>.<query_name>` (cell B1 dropped `.query.` infix).
+    let qualified_name = format!("{}.{}", feature.name, query.short_name);
 
     let (args_struct, var_name, return_type) = match query.kind {
         QueryKind::List => (

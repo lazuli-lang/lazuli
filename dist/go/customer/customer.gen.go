@@ -64,7 +64,7 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 	Emits: []lazuli.EventEmit{
 		{Name: "customer_created", From: lazuli.FromCreates},
 	},
-	Invalidates: []string{"customer.query.list", "customer.query.global_search"},
+	Invalidates: []string{"customer.list", "customer.global_search"},
 }
 
 // ----------------------------------------------------------------------------
@@ -88,7 +88,7 @@ var updateCustomerEmail = lazuli.Command[UpdateCustomerEmailInput, Customer]{
 		lazuli.Bindings{"id": lazuli.FromInput("ID")},
 		lazuli.Bindings{"email": lazuli.FromInput("Email")},
 	),
-	Invalidates: []string{"customer.query.list", "customer.query.by_id"},
+	Invalidates: []string{"customer.list", "customer.by_id"},
 }
 
 // ----------------------------------------------------------------------------
@@ -118,11 +118,11 @@ var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
 			},
 		},
 	},
-	Invalidates: []string{"customer.query.list", "customer.query.by_id"},
+	Invalidates: []string{"customer.list", "customer.by_id"},
 }
 
 // ----------------------------------------------------------------------------
-// Query: customer.query.list
+// Query: customer.list
 //   query.list list
 // ----------------------------------------------------------------------------
 
@@ -132,7 +132,7 @@ type ListCustomersArgs struct {
 }
 
 var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
-	Name:     "customer.query.list",
+	Name:     "customer.list",
 	Resource: &customerResource,
 	Kind:     lazuli.QueryList,
 	Policy:    lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},
@@ -152,7 +152,7 @@ var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
 }
 
 // ----------------------------------------------------------------------------
-// Query: customer.query.by_id
+// Query: customer.by_id
 //   query.lookup by_id
 // ----------------------------------------------------------------------------
 
@@ -161,7 +161,7 @@ type CustomerByIDArgs struct {
 }
 
 var customerByID = lazuli.Query[CustomerByIDArgs, Customer]{
-	Name:     "customer.query.by_id",
+	Name:     "customer.by_id",
 	Resource: &customerResource,
 	Kind:     lazuli.QueryLookup,
 	Policy:    lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "scope", Name: "same_org"}}},

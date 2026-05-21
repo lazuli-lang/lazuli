@@ -1813,8 +1813,15 @@ fn write_command_sdk(
         .invalidates
         .iter()
         .map(|i| {
-            let feature_name = i.query.feature.as_deref().unwrap_or(&feature.name);
-            format!("{}.query.{}", feature_name, i.query.name)
+            // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
+            // `.query.` infix). The pseudo-feature `query` (legacy parser
+            // output for `query.<name>` same-feature shorthand) and the
+            // None fallback both resolve to the host feature.
+            let feature_name = match i.query.feature.as_deref() {
+                Some("query") | None => feature.name.as_str(),
+                Some(feat) => feat,
+            };
+            format!("{}.{}", feature_name, i.query.name)
         })
         .collect();
     writeln!(
@@ -1913,7 +1920,9 @@ fn write_query_sdk(
     // a runtime contract change.
     writeln!(
         s,
-        "export const {} = defineQuery<{}, {}>(\"{}.query.{}\");",
+        // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
+        // `.query.` infix — the `/q/` HTTP prefix already disambiguates kind).
+        "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
         query_ident(&feature.name, query_ref_kind, query.name()),
         args_ty,
         returns,

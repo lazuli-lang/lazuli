@@ -8,7 +8,9 @@
 //! (`CreatesFromInput` / `UpdatesByID` / `DeletesByID`), the affected
 //! resource is the feature's single resource — so the invalidation
 //! target set is every query declared on the same feature, qualified
-//! as `<feature>.query.<short_name>`.
+//! as `<feature>.<short_name>`. Cell B1 (codegen-correctness-cycle-
+//! 2026-05-21) dropped the historical `.query.` infix because the
+//! `/q/` HTTP prefix already disambiguates kind.
 //!
 //! Coverage matrix:
 //!  * 0 matching queries → empty array (no spurious entries).
@@ -129,7 +131,7 @@ fn derives_single_query_target() {
 
     let out = emit_feature_ts(&feature);
     assert!(
-        out.contains("invalidates: [\"host.query.lookup_my_host\"],"),
+        out.contains("invalidates: [\"host.lookup_my_host\"],"),
         "expected single-element invalidates array; got:\n{out}"
     );
 }
@@ -152,7 +154,7 @@ fn derives_all_queries_for_mutating_command() {
 
     let out = emit_feature_ts(&feature);
     // Each mutating command picks up both queries, in declared order.
-    let expected = "invalidates: [\"host.query.lookup_my_host\", \"host.query.list_hosts\"],";
+    let expected = "invalidates: [\"host.lookup_my_host\", \"host.list_hosts\"],";
     let occurrences = out.matches(expected).count();
     assert_eq!(
         occurrences, 3,
@@ -167,7 +169,7 @@ fn derives_all_queries_for_mutating_command() {
 #[test]
 fn explicit_invalidates_wins_over_derivation() {
     let mut command = mutating_command("save_host", RuntimeEffect::UpdatesByID);
-    command.invalidates = vec!["other_feature.query.list_things".to_owned()];
+    command.invalidates = vec!["other_feature.list_things".to_owned()];
 
     let feature = RuntimeFeature {
         name: "host".to_owned(),
@@ -179,13 +181,13 @@ fn explicit_invalidates_wins_over_derivation() {
 
     let out = emit_feature_ts(&feature);
     assert!(
-        out.contains("invalidates: [\"other_feature.query.list_things\"],"),
+        out.contains("invalidates: [\"other_feature.list_things\"],"),
         "explicit invalidates should win; got:\n{out}"
     );
-    // The derived target would have produced `invalidates: ["host.query.lookup_my_host"]`.
+    // The derived target would have produced `invalidates: ["host.lookup_my_host"]`.
     // That literal must NOT appear; the explicit list above replaces it.
     assert!(
-        !out.contains("invalidates: [\"host.query.lookup_my_host\"]"),
+        !out.contains("invalidates: [\"host.lookup_my_host\"]"),
         "derived set should not leak when explicit list is present; got:\n{out}"
     );
 }

@@ -19,8 +19,9 @@ import (
 type QuerySpec struct {
 	// Key is the authored `cache key <expr>` template. Stored verbatim;
 	// the runtime always derives the effective cache key by prepending
-	// `<feature>.query.<name>|<tenant>|<args hash>` and (when present)
-	// the Namespace.
+	// `<feature>.<name>|<tenant>|<args hash>` and (when present)
+	// the Namespace. (Lazuli cell B1 dropped the historical `.query.`
+	// infix because `/q/` already disambiguates kind.)
 	Key string
 
 	// TTL bounds how long a cached entry is served. Zero falls back to

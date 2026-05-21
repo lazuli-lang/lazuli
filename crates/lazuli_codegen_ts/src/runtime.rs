@@ -233,7 +233,8 @@ fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
         .first()
         .expect("runtime spec needs at least one resource");
     let resource_pascal = pascal_case(&resource.name);
-    let qualified_name = format!("{}.query.{}", feature.name, query.short_name);
+    // Wire registry key: `<feature>.<query_name>` (cell B1 dropped `.query.` infix).
+    let qualified_name = format!("{}.{}", feature.name, query.short_name);
 
     // Verb-prefix dedup: when the query short_name already starts with
     // `lookup_` / `list_` (e.g. `lookup_my_host`, `list_travelers` from
@@ -456,8 +457,9 @@ fn format_string_array(items: &[String]) -> String {
 /// invalidation target.
 ///
 /// The qualified-name format mirrors `write_query`'s registry key
-/// (`<feature>.query.<short_name>`) so when Wave B drops the `.query.`
-/// infix from query names, both call sites flip in lockstep.
+/// (`<feature>.<short_name>`). Cell B1 (codegen-correctness-cycle-
+/// 2026-05-21) dropped the historical `.query.` infix in lockstep
+/// because the `/q/` HTTP prefix already disambiguates kind.
 ///
 /// Future cells that introduce `RuntimeEffect::Returns` or other
 /// non-mutating shapes will need to early-return `Vec::new()` for
@@ -469,7 +471,7 @@ fn derive_invalidates(feature: &RuntimeFeature, command: &RuntimeCommand) -> Vec
         | RuntimeEffect::DeletesByID => feature
             .queries
             .iter()
-            .map(|q| format!("{}.query.{}", feature.name, q.short_name))
+            .map(|q| format!("{}.{}", feature.name, q.short_name))
             .collect(),
     }
 }
@@ -780,7 +782,7 @@ mod tests {
                     kind: FieldKind::Text,
                 }],
                 emits: Vec::new(),
-                invalidates: vec!["customer.query.list".to_owned()],
+                invalidates: vec!["customer.list".to_owned()],
                 deprecated: Some(RuntimeDeprecation {
                     since: Some("2026-03-01".to_owned()),
                     replacement: Some("customer.command.update_v2".to_owned()),
@@ -885,8 +887,8 @@ mod tests {
 
     #[test]
     fn write_query_dedups_lookup_prefix_in_var_name() {
-        // me-synth: `host.query.lookup_my_host` → `lookupMyHost` (not
-        // `hostLookupMyHost` or `lookupHostByLookupMyHost`).
+        // me-synth: query `lookup_my_host` in feature `host` →
+        // `lookupMyHost` (not `hostLookupMyHost` or `lookupHostByLookupMyHost`).
         let out = emit_feature_ts(&feature_with_query(
             "host",
             lookup_query("lookup_my_host"),
@@ -900,7 +902,7 @@ mod tests {
             "legacy doubled-prefix shape leaked:\n{out}"
         );
 
-        // crud-synth: `traveler.query.lookup_traveler` → `lookupTraveler`.
+        // crud-synth: query `lookup_traveler` in feature `traveler` → `lookupTraveler`.
         let out = emit_feature_ts(&feature_with_query(
             "traveler",
             lookup_query("lookup_traveler"),
@@ -913,7 +915,7 @@ mod tests {
 
     #[test]
     fn write_query_dedups_list_prefix_in_var_name() {
-        // crud-synth: `traveler.query.list_travelers` → `listTravelers`
+        // crud-synth: query `list_travelers` in feature `traveler` → `listTravelers`
         // (not `listTravelers` from `list<R>s` collision with `list_<r>s`).
         let out = emit_feature_ts(&feature_with_query(
             "traveler",
@@ -928,7 +930,7 @@ mod tests {
     #[test]
     fn write_query_preserves_legacy_shape_when_no_verb_prefix() {
         // Lookup without `lookup_` prefix keeps the legacy
-        // `<resource_lc><PascalShort>` shape: `host.query.my_host` →
+        // `<resource_lc><PascalShort>` shape: query `my_host` in feature `host` →
         // `hostMyHost`. This is the hand-crafted query name the
         // lifecycle-gate golden fixture relies on (it has no synth).
         let out = emit_feature_ts(&feature_with_query("host", lookup_query("my_host")));

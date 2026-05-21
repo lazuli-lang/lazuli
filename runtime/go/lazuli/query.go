@@ -18,8 +18,11 @@ const (
 //
 // Generated code populates this once per query at package init.
 type Query[A, R any] struct {
-	// Name is the canonical name as written in the DSL (qualified with the
-	// owning feature). Examples: "customer.query.list", "customer.query.by_id".
+	// Name is the wire registry key, qualified with the owning feature.
+	// Examples: "customer.list", "customer.by_id". (Lazuli cell B1 dropped
+	// the historical `.query.` infix because the `/q/` HTTP prefix already
+	// disambiguates kind. Same-feature shorthand in DSL source is expanded
+	// by codegen before reaching this field.)
 	Name string
 
 	// WithSource stamps the originating .lzi query onto a request context.

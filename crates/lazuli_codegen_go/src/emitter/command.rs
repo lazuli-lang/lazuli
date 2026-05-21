@@ -400,7 +400,7 @@ fn emit_command(
 
     // Invalidates block.
     if !command.invalidates.is_empty() {
-        emit_invalidates(p, &command.invalidates);
+        emit_invalidates(p, &command.invalidates, &feature.name);
     }
 
     // Tier 4 operational/lifecycle fields. Approval is emitted in the
@@ -1633,27 +1633,33 @@ fn build_outbox_index(
 
 /// Emit `Invalidates: []string{...}` block. Source is the IR
 /// `Vec<InvalidatesSpec>`; we render each as the fully-qualified
-/// `<feature>.query.<name>` form Lazuli Go lib expects.
+/// `<feature>.<name>` wire-registry key Lazuli Go lib expects.
 ///
-/// `lower_qualified_name` in the analyzer splits the authored
-/// `query.list` form into `feature=Some("query"), name="list"` because
-/// the parser doesn't yet differentiate the `query.` keyword prefix
-/// from a real feature name. We coalesce the two shapes here so the
-/// rendered Go literal carries the canonical
-/// `<feature>.query.<name>` short form Lazuli Go lib's
-/// `Invalidates []string` slot accepts.
-fn emit_invalidates(p: &mut GoPrinter, specs: &[InvalidatesSpec]) {
+/// Cell B1 (codegen-correctness-cycle-2026-05-21) dropped the historical
+/// `.query.` infix because the `/q/` HTTP prefix already disambiguates
+/// query vs command at the route layer. The registry key the runtime
+/// cache matches against is now `<feature>.<query_name>` (see
+/// `query.rs` and `runtime.rs` emitters), so invalidates entries must
+/// agree byte-for-byte.
+///
+/// Same-feature shorthand handling: `lower_qualified_name` in the
+/// analyzer splits the authored `query.list` form into
+/// `feature=Some("query"), name="list"` (legacy pseudo-feature) — and
+/// in newer paths the `feature` slot may be `None`. Both cases are
+/// resolved here by substituting the host feature name, so the rendered
+/// wire key is always `<host_feature>.<name>`.
+fn emit_invalidates(p: &mut GoPrinter, specs: &[InvalidatesSpec], host_feature: &str) {
     let mut entries: Vec<String> = Vec::with_capacity(specs.len());
     for spec in specs {
         let qname = &spec.query;
-        let qualified = match qname.feature.as_deref() {
+        let feature = match qname.feature.as_deref() {
             // Pseudo-feature `query.<name>` — same-feature short form
             // surfaced by `lower_qualified_name` (analyzer doesn't
             // peel off the `query.` keyword prefix today).
-            Some("query") => format!("query.{}", qname.name),
-            Some(feat) => format!("{}.query.{}", feat, qname.name),
-            None => format!("query.{}", qname.name),
+            Some("query") | None => host_feature,
+            Some(feat) => feat,
         };
+        let qualified = format!("{}.{}", feature, qname.name);
         entries.push(format!("\"{}\"", qualified));
     }
     p.line(&format!("Invalidates: []string{{{}}},", entries.join(", ")));
@@ -3264,7 +3270,9 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(out.contains("Invalidates: []string{\"query.list\", \"billing.query.ledger\"},"));
+        // Cell B1: `.query.` infix dropped. Same-feature `query.list`
+        // shorthand resolves to host feature `customer`.
+        assert!(out.contains("Invalidates: []string{\"customer.list\", \"billing.ledger\"},"));
     }
 
     #[test]
