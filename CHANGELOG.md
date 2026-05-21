@@ -21,6 +21,61 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Added
 
+- **Codegen-correctness cycle (5 LAZ gaps closed, 20 cells, 3 waves).**
+  Closed the codegen gaps surfaced by the hostpoint playwright sweep
+  (`docs/proposals/codegen-correctness-cycle-2026-05-21.md` —
+  proposal lives in the `lazuli-ops` companion repo). Pilot evidence:
+  hostpoint 94/95 pre-cycle → 95/95 post-cycle once C1 unskips the
+  traveler happy path. Five closures:
+  - **LAZ-route-id-codegen** (A1/A2/A3/A4): `command save_X route id: ID`
+    now lowers to an emitted Go input-struct field (`Id ID
+    \`json:"id" validate:"required"\``) ahead of the typed inputs.
+    Codegen-ts contract locked by fixture. Doctor diagnostic
+    `@correctness.route_id_unused_in_effect` catches shadow bugs (route
+    slot redeclared in input with a divergent type). LSP completion for
+    `input.<>` inside `effect.bindings` now suggests route params.
+    Deletes the `bumpLifecycle` SQL-bump workaround in
+    `hostpoint-app/e2e/helpers/onboarding-progress.ts`. (`bd33755`
+    + `a69d9c9` + `cf9db79` + `7d7789d` + `0718de0`)
+  - **LAZ-invalidates-codegen** (A5/A6/A7): codegen-ts now derives
+    `invalidates` from feature queries for any `Creates` / `Updates` /
+    `Deletes` `Effect` (walks the IR's resource→queries index; explicit
+    `command.invalidates` still wins for back-compat). Doctor warning
+    `@correctness.mutation_without_readback` fires when a mutation
+    targets a resource that has zero `lookup_*` / `list_*` queries.
+    Runtime test locks `useLazuliCommand` consuming
+    `spec.invalidates` and calling
+    `queryClient.invalidateQueries({ queryKey: ["lazuli", name] })`.
+    Unblocks reverting the `staleTime: 0` workaround in
+    `hostpoint-app/src/shell/App.tsx`. (`a69d9c9` + `e69c2a1`)
+  - **LAZ-record-column-jsonb** (A8/A9): record-typed resource columns
+    now lower to `JSONB` (and `Many<UserDefined<Record>>` to a single
+    `JSONB`, not `JSONB[]`, avoiding the pgx scan trap). Doctor
+    info-level `@info.record_column_jsonb` surfaces the storage kind
+    for every record column so authors don't have to grep migrations.
+    (`a69d9c9` + `137cb87`)
+  - **LAZ-create-table-alter** (A10/A11/A12): new `schema_diff` module
+    (`crates/lazuli_codegen_go/src/emitter/schema_diff.rs`) compares
+    the current IR's resource columns against the latest emitted
+    migration on disk and surfaces a `SchemaDiff` with adds / drops /
+    type-changes. Migration emitter turns the diff into an
+    `NNN+1_<feature>_<resource>_alter.sql` (paired `.down.sql`); drops
+    gate behind a new `lazuli generate go . --allow-drops` flag (opt-in,
+    irreversible, doctor warns when triggered). NOT-NULL adds without a
+    default degrade to nullable + `-- TODO` comment for safety. Doctor
+    warning `@correctness.migration_out_of_sync` catches authors who
+    added a column to the IR and forgot to regen. (`8f88659` + `a69d9c9`
+    + `3824eba`)
+  - **LAZ-query-wire-name** (B1/B2/B3): query `Name` drops the redundant
+    `.query.` infix — wire shape becomes `<feature>.<query>` (matches
+    the command pattern; the `/c/` vs `/q/` HTTP prefix already
+    disambiguates kind). Touches codegen-go (5 sites) + codegen-ts +
+    runtime registry + cache contract literals. Runtime integration
+    test (`runtime/go/lazuli/http_query_mount_test.go`) locks the new
+    mount path `/api/v1/q/<feature>.<query>` and asserts 404 on the
+    legacy `.query.` form. Hostpoint URL probe sweep done in B3 (see
+    hostpoint commit `9530fe2`). (`38c7683` + `9222283`)
+
 - **Roadmap §1 vertical audit (Wave 5) — 38 `[x]` flips + 11 partial
   clarifications.** Evolve manager-probe cycle
   `roadmap-§1-vertical-audit-2026-05-17` confirmed the predecessor
@@ -143,6 +198,15 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Changed
 
+- **BREAKING — query wire `Name` shape.** The redundant `.query.` infix
+  on emitted query `Name`s is gone. Every pilot's `dist/go/<feature>/
+  query.gen.go` and `dist/web/<feature>/<feature>.gen.ts` regenerates
+  with the shorter form. Pilot consumers must regen + sweep any
+  hardcoded URL probes (`/api/v1/q/<feature>.query.<name>` →
+  `/api/v1/q/<feature>.<name>`); see the cycle's B3 cell. Verified
+  by `runtime/go/lazuli/http_query_mount_test.go` which 404s on the
+  legacy form. (`38c7683`)
+
 - **`LZIR_SCHEMA` bumped from `0.14.0` to `0.15.0`** (additive,
   serde-default-skipped). New fields/types:
   - `Command.rate_limit`, `Command.audit`, `Command.approval`,
@@ -242,6 +306,23 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Known gaps
 
+- **Codegen-correctness cycle Wave C (pilot regens) not yet closed at
+  cycle-close time.** C1 (hostpoint regen + unskip
+  `onboarding-traveler-flow.spec.ts:19` + revert `staleTime: 0` +
+  drop `bumpLifecycle` SQL workaround → 95/95 playwright pass), C2
+  (pleiades regen verify), C3 (atelier regen verify), and C4
+  (erudito + hostpoint-OS regen verify) remain in flight. Pilot pass
+  count stays at hostpoint 94/95 with one skip until C1 lands. See
+  `docs/proposals/codegen-correctness-cycle-2026-05-21-close.md`
+  (lazuli-ops repo) for the per-cell status table and any deferred
+  items surfaced by the cycle.
+- **`RateLimitByEnv.unknown_envs` doctor lint missing.** Cell A6
+  (mutation-without-readback) noted in passing that the env-qualified
+  `rate_limit` IR shipped earlier this week has no diagnostic that
+  fires when an author names an `EnvName` outside the closed catalog
+  (`dev`/`staging`/`prod`/`test`). The parser already rejects unknown
+  envs at lex time, so this is defense-in-depth — not blocking. Filed
+  for a follow-up cycle.
 - The 6 doctor diagnostics named in
   `phase-l-tier-4-spine-scope.md` acceptance lists
   (`resource_unique_qualifier_unknown`,
