@@ -125,3 +125,61 @@ func TestValidateApiHandlers_skips_handlerless_legacy_registration(t *testing.T)
 		t.Fatalf("legacy registrations must be opaque; got: %v", err)
 	}
 }
+
+func TestRegisterApiAllowsSameShortNameWhenFeatureQualified(t *testing.T) {
+	r := freshRegistry()
+	r.RegisterApi(apiRegistration{
+		Name:    "feat_a.list",
+		Feature: "feat_a",
+		Method:  MethodGet,
+		Path:    "/a/list",
+	})
+	r.RegisterApi(apiRegistration{
+		Name:    "feat_b.list",
+		Feature: "feat_b",
+		Method:  MethodGet,
+		Path:    "/b/list",
+	})
+
+	apis := r.Apis()
+	if len(apis) != 2 {
+		t.Fatalf("expected two registered APIs, got %d: %#v", len(apis), apis)
+	}
+	if apis["feat_a.list"].Path != "/a/list" {
+		t.Fatalf("feat_a path changed during registration: %#v", apis["feat_a.list"])
+	}
+	if apis["feat_b.list"].Path != "/b/list" {
+		t.Fatalf("feat_b path changed during registration: %#v", apis["feat_b.list"])
+	}
+}
+
+func TestRegisterApiPanicsOnDuplicateName(t *testing.T) {
+	r := freshRegistry()
+	r.RegisterApi(apiRegistration{
+		Name:    "feat_a.list",
+		Feature: "feat_a",
+		Method:  MethodGet,
+		Path:    "/a/list",
+	})
+
+	defer func() {
+		rec := recover()
+		if rec == nil {
+			t.Fatal("expected panic on duplicate API registration, got nil")
+		}
+		msg, ok := rec.(string)
+		if !ok {
+			t.Fatalf("expected string panic value, got %T: %v", rec, rec)
+		}
+		if !strings.Contains(msg, "lazuli: api feat_a.list registered twice") {
+			t.Fatalf("panic message does not name the duplicate API: %q", msg)
+		}
+	}()
+
+	r.RegisterApi(apiRegistration{
+		Name:    "feat_a.list",
+		Feature: "feat_a",
+		Method:  MethodPost,
+		Path:    "/a/list-again",
+	})
+}

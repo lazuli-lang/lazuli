@@ -118,7 +118,7 @@ fn emit_api(
     let mut kv_rows: Vec<(String, String)> = vec![
         (
             "Name:".to_owned(),
-            format!("\"{}\",", escape_string(&api.name)),
+            format!("\"{}\",", escape_string(&qualified_name)),
         ),
         (
             "Feature:".to_owned(),
@@ -724,7 +724,7 @@ mod tests {
         assert!(out.contains("// TODO(ir): Api path parameters have no typed IR slots"));
         assert!(out.contains(
             r#"var customerSummaryApi = lazuli.Api[CustomerSummaryApiArgs, CustomerSummary]{
-	Name:      "customer_summary",
+	Name:      "customer.customer_summary",
 	Feature:   "customer",
 	Method:    lazuli.MethodGet,
 	Path:      "/api/customer/{id}/summary",
